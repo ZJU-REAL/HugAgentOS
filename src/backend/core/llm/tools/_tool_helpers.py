@@ -239,7 +239,7 @@ def _resp_json(payload: dict[str, Any]) -> ToolResponse:
     )
 
 
-def _validate_workspace_path(path: str) -> str | None:
+def _validate_workspace_path(path: str, *, additional_roots: tuple[str, ...] = ()) -> str | None:
     """Reject paths outside the workspace root or with traversal segments.
     Returns an error string on rejection, None on success."""
     from core.sandbox._common import WORKSPACE as _WS
@@ -248,9 +248,21 @@ def _validate_workspace_path(path: str) -> str | None:
 
     if not path or not isinstance(path, str):
         return "path 必须为非空字符串"
+    import ntpath
+    import posixpath
+
     path = canonicalize_ws_path(path)
-    if not path.startswith(_WS + "/"):
-        return f"path 必须在 {_WS}/ 下: {path}"
-    if "/../" in path or path.endswith("/..") or "//" in path:
-        return f"path 不允许包含 .. 或 //: {path}"
-    return None
+    windows = bool(ntpath.splitdrive(_WS)[0])
+    pathmod = ntpath if windows else posixpath
+    parts = path.replace(chr(92), "/").split("/")
+    if ".." in parts:
+        return f"path 不允许包含 ..: {path}"
+    target = pathmod.normcase(pathmod.normpath(path))
+    for allowed in (_WS, *additional_roots):
+        root = pathmod.normcase(pathmod.normpath(allowed))
+        try:
+            if pathmod.commonpath([root, target]) == root:
+                return None
+        except ValueError:
+            continue
+    return f"path 必须在 {_WS}/ 下: {path}"

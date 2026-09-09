@@ -157,12 +157,13 @@ def sync_blocking(state: Dict[str, Any]) -> None:
             logger.warning("[cloud-skills] sync failed: %s", exc)
             return
         prepared = prepare(state, pending) if pending else []
-    if changed or prepared:
+    if changed and not any(row.get("ok") for row in prepared):
         skills.bump_view_generation()
         skills.rebuild_views(None)
         from core.agent_skills.cache_refresh import refresh_skill_caches
 
         refresh_skill_caches()
+    if changed or prepared:
         logger.info(
             "[cloud-skills] synced revision=%s skills=%d prepared=%d",
             manifest["revision"][:12],
@@ -205,14 +206,30 @@ def prepare_one(state: Dict[str, Any], install_id: str) -> Dict[str, Any]:
 
 def prepare(state: Dict[str, Any], install_ids: List[str]) -> List[Dict[str, Any]]:
     """Prepare several installations; one failure never blocks the others."""
-    results: List[Dict[str, Any]] = []
-    for iid in install_ids:
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+    import time
+
+    started = time.perf_counter_ns()
+
+    def prepare_item(iid):
         try:
-            results.append({"install_id": iid, "ok": True, "installation": prepare_one(state, iid)})
+            return {"install_id": iid, "ok": True, "installation": prepare_one(state, iid)}
         except Exception as exc:  # noqa: BLE001
             error = exc.to_dict() if hasattr(exc, "to_dict") else {"code": "prepare_failed", "message": str(exc)}
-            results.append({"install_id": iid, "ok": False, "error": error})
             logger.warning("[cloud-skills] prepare '%s' failed: %s", iid, exc)
+            return {"install_id": iid, "ok": False, "error": error}
+
+    # Publication retains its account/hash gate; independent HTTP waits overlap.
+    # Preserve input order so error reporting and source precedence are stable.
+    if len(install_ids) > 1:
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud-skills") as pool:
+            pending = [pool.submit(copy_context().run, prepare_item, iid) for iid in install_ids]
+            results = [future.result() for future in pending]
+    else:
+        results = [prepare_item(iid) for iid in install_ids]
+    logger.info("[cloud-skills] packages prepared count=%d elapsed_ms=%.3f", len(results),
+                (time.perf_counter_ns() - started) / 1_000_000)
     if any(r["ok"] for r in results):
         skills.bump_view_generation()
         skills.rebuild_views(None)

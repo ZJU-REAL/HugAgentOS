@@ -25,8 +25,8 @@ class UploadChannel:
     content_type: str
     # (arguments, headers) -> (body bytes, options JSON string)
     package: Callable[[Dict[str, Any], Dict[str, str]], Awaitable[Tuple[bytes, str]]]
-    # (result data, cloud base url) -> None; rewrites cloud-relative fields in place
-    localize: Optional[Callable[[Dict[str, Any], str], None]] = None
+    # (result data, cloud base url, arguments, headers) -> None; local receipt and URLs
+    localize: Optional[Callable[[Dict[str, Any], str, Dict[str, Any], Dict[str, str]], None]] = None
 
 
 def _site_publish_channel() -> UploadChannel:
@@ -40,23 +40,26 @@ def _site_publish_channel() -> UploadChannel:
     )
 
 
-# Component base name → its uploading tools. Values are factories so a channel's
-# module is imported only when that component is actually invoked.
+# Providing plugin slug → its uploading tools. The slug is the fact the platform
+# registered for the server (``AdminMcpServer.source_plugin``); keying on it means
+# a shared and a per-user install of the same plugin resolve identically, and no
+# id string ever has to be taken apart. Values are factories so a channel's module
+# is imported only when that plugin's tool is actually invoked.
 _CHANNELS: Dict[str, Dict[str, Callable[[], UploadChannel]]] = {
-    "site_publish": {"publish_site": _site_publish_channel},
+    "sites": {"publish_site": _site_publish_channel},
 }
 
 
-def upload_channel(component: str, tool_name: str) -> Optional[UploadChannel]:
-    """The declared upload channel for this component's tool, if it has one."""
-    factory = _CHANNELS.get(component, {}).get(tool_name)
+def upload_channel(source_plugin: str, tool_name: str) -> Optional[UploadChannel]:
+    """The declared upload channel for this plugin's tool, if it has one."""
+    factory = _CHANNELS.get(str(source_plugin or ""), {}).get(tool_name)
     return factory() if factory is not None else None
 
 
-def endpoint_component(endpoint: str) -> Optional[str]:
-    """Which component base name a gateway upload endpoint belongs to."""
-    for component, tools in _CHANNELS.items():
+def endpoint_plugin(endpoint: str) -> Optional[str]:
+    """Which providing plugin a gateway upload endpoint belongs to."""
+    for slug, tools in _CHANNELS.items():
         for factory in tools.values():
             if factory().endpoint == endpoint:
-                return component
+                return slug
     return None

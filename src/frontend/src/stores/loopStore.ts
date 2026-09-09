@@ -81,7 +81,9 @@ export const useLoopStore = create<LoopState>((set, get) => ({
   },
   refreshOne: async (loopId) => {
     try {
-      const loop = await getLoop(loopId);
+      const live = get().livePlan;
+      const chatId = live?.loopId === loopId ? live.chatId : get().loops.find((loop) => loop.loop_id === loopId)?.chat_id;
+      const loop = await getLoop(loopId, chatId || undefined);
       get().upsert(loop);
     } catch {
       /* ignore */

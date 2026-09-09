@@ -13,9 +13,14 @@ Two views are maintained, both link-only:
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+import hashlib
+from collections import OrderedDict
 import threading
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from . import registry, store
 from . import view as view_mod
@@ -44,10 +49,14 @@ _SKIP_PARTS = {"__pycache__", ".git", ".svn", ".hg", "__MACOSX"}
 _INVENTORY_NAME = ".inventory.json"
 
 _hash_lock = threading.Lock()
-_hash_cache: Dict[str, Tuple[Tuple[int, int], str]] = {}
+_hash_cache: Dict[str, Tuple[Tuple, str]] = {}
+# Fresh reads still hash every byte. Reuse only the protocol JSON/base64 work
+# when the complete sequence of file names and byte digests is identical.
+_content_hash_cache: OrderedDict[tuple, str] = OrderedDict()
 
 _resolution_lock = threading.Lock()
 _last_resolution: Dict[str, Resolution] = {}
+_resolution_cache: Dict[str, Tuple[Tuple, Resolution]] = {}
 _view_generation = 0
 
 
@@ -90,46 +99,99 @@ def user_view_dir(user_id: Optional[str]) -> Optional[Path]:
 # ── content hashing (same scheme the cloud uses for its manifest) ───────
 
 
-def _dir_signature(path: Path) -> Tuple[int, int]:
-    from .archive import iter_files
+def _dir_signature(path: Path) -> Tuple:
+    from .archive import iter_file_stats
 
-    entries = [p.stat() for rel, p in iter_files(path) if rel != _INVENTORY_NAME]
-    return len(entries), max((s.st_mtime_ns for s in entries), default=0)
+    # A maximum mtime misses edits to any file older than the newest file.
+    return tuple(
+        (rel, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_ino)
+        for rel, _, metadata in iter_file_stats(path)
+        if rel != _INVENTORY_NAME
+    )
 
 
-def skill_dir_hash(path: Path, *, fresh: bool = False) -> str:
-    """Hash every package file; reject links and excess sizes rather than omit bytes."""
-    from core.agent_skills.binary_files import encode_upload
-    from core.services.desktop_capability_protocol import skill_content_hash
-    from . import archive
-    from .errors import IntegrityFailed
+def dir_digest(path: Path, compute: Callable[[], str], *, fresh: bool = False) -> str:
+    """A package directory's content digest, cached on its file signature.
 
+    Identity is *established* with ``fresh=True``: every byte is read, so the
+    digest a binding freezes is always a true content hash. Later passes only
+    *verify* that digest, and a run re-verifies its whole closure on every
+    message — re-reading a hundred unchanged packages each time is pure cost.
+    So verification recomputes exactly when the signature moved (a file was
+    added, removed, or written), and reuses the frozen digest otherwise.
+    """
     key = str(path.resolve())
     sig = _dir_signature(path)
     with _hash_lock:
         hit = _hash_cache.get(key)
         if not fresh and hit and hit[0] == sig:
             return hit[1]
-    files = {}
+    digest = compute()
+    with _hash_lock:
+        _hash_cache[key] = (sig, digest)
+    return digest
+
+
+def skill_dir_hash(path: Path, *, fresh: bool = False) -> str:
+    """Hash every package file; reject links and excess sizes rather than omit bytes."""
+    from .archive import iter_file_stats
+
+    key = str(path.resolve())
+    entries = [item for item in iter_file_stats(path) if item[0] != _INVENTORY_NAME]
+    sig = tuple(
+        (rel, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_ino)
+        for rel, _, metadata in entries
+    )
+    with _hash_lock:
+        hit = _hash_cache.get(key)
+        if not fresh and hit and hit[0] == sig:
+            return hit[1]
+    # Reuse this traversal's metadata; fresh verification still reads every byte.
+    digest = _hash_skill_package(path, entries=entries)
+    with _hash_lock:
+        _hash_cache[key] = (sig, digest)
+    return digest
+
+
+def _hash_skill_package(path: Path, *, entries=None) -> str:
+    from core.agent_skills.binary_files import encode_upload
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    from . import archive
+    from .errors import IntegrityFailed
+    from .junction import _native
+
+    raw_files = {}
     total = 0
-    for rel, file in archive.iter_files(path):
+    for rel, file, metadata in archive.iter_file_stats(path) if entries is None else entries:
         if rel == _INVENTORY_NAME:
             continue
-        size = file.stat().st_size
+        size = metadata.st_size
         total += size
         if (
             size > archive.MAX_MEMBER_BYTES
             or total > archive.MAX_TOTAL_BYTES
-            or len(files) >= archive.MAX_MEMBERS
+            or len(raw_files) >= archive.MAX_MEMBERS
         ):
             raise IntegrityFailed("skill package exceeds content verification limits")
-        raw = file.read_bytes()
+        # Scanning already supports extended Windows paths; byte reads must too.
+        raw = _native(file).read_bytes()
         if len(raw) != size:
             raise IntegrityFailed("skill package changed during verification")
-        files[rel] = encode_upload(rel, raw)
+        raw_files[rel] = raw
+    content_key = tuple((rel, hashlib.sha256(raw).digest()) for rel, raw in raw_files.items())
+    with _hash_lock:
+        cached = _content_hash_cache.get(content_key)
+        if cached is not None:
+            _content_hash_cache.move_to_end(content_key)
+            return cached
+    files = {rel: encode_upload(rel, raw) for rel, raw in raw_files.items()}
     digest = skill_content_hash(files.pop("SKILL.md", ""), files)
     with _hash_lock:
-        _hash_cache[key] = (sig, digest)
+        _content_hash_cache[content_key] = digest
+        _content_hash_cache.move_to_end(content_key)
+        while len(_content_hash_cache) > 256:
+            _content_hash_cache.popitem(last=False)
     return digest
 
 
@@ -150,6 +212,9 @@ def current_account_profile() -> Optional[str]:
     return profile_id(str(st["cloud_base"]), subject)
 
 
+_shadow_user_ids: Dict[str, str] = {}
+
+
 def current_local_user_id() -> Optional[str]:
     """Map the signed stable cloud subject to this device's shadow-user ID."""
     from core.services.desktop_cloud_bridge import get_identity_state
@@ -160,11 +225,19 @@ def current_local_user_id() -> Optional[str]:
     center = str((identity or {}).get("shell_user_center_id") or "")
     if not center:
         return None
+    # user_center_id → user_id is a primary-key mapping fixed at creation; only
+    # hits are remembered so a shadow created later is still found.
+    hit = _shadow_user_ids.get(center)
+    if hit is not None:
+        return hit
     from core.db.models import UserShadow
 
     with registry._session() as db:
         row = db.query(UserShadow).filter(UserShadow.user_center_id == center).first()
-        return str(row.user_id) if row else None
+        if row is None:
+            return None
+        _shadow_user_ids[center] = str(row.user_id)
+        return _shadow_user_ids[center]
 
 
 def account_authorized_for(user_id: Optional[str]) -> bool:
@@ -231,24 +304,35 @@ def _installation_candidate(inst: registry.Installation, *, account_level: bool)
     )
 
 
+def _installation_candidates(rows):
+    rows = list(rows)
+    if os.name == "nt" and len(rows) >= 8:
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cap-candidates") as pool:
+            futures = [
+                pool.submit(copy_context().run, _installation_candidate, row, account_level=True)
+                for row in rows
+            ]
+            return [future.result() for future in futures]
+    return [_installation_candidate(row, account_level=True) for row in rows]
+
+
 def local_candidates(user_id: Optional[str], *, shared_only: bool = False) -> List[Candidate]:
-    out: List[Candidate] = []
+    rows = []
     for inst in registry.list_installations(kind=KIND_SKILL, profile_id=LOCAL_PROFILE):
         owner = inst.payload.get("owner_user_id")
         if owner and (shared_only or owner != user_id):
             continue
-        out.append(_installation_candidate(inst, account_level=True))
-    return out
+        rows.append(inst)
+    return _installation_candidates(rows)
 
 
 def account_candidates(profile: Optional[str] = None) -> List[Candidate]:
     profile = profile or current_account_profile()
     if not profile:
         return []
-    return [
-        _installation_candidate(inst, account_level=True)
-        for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile)
-    ]
+    return _installation_candidates(
+        registry.list_installations(kind=KIND_SKILL, profile_id=profile)
+    )
 
 
 def candidates(user_id: Optional[str]) -> List[Candidate]:
@@ -276,8 +360,40 @@ def _fill_hashes(cands: List[Candidate]) -> List[Candidate]:
     return out
 
 
+def _builtin_signature() -> Tuple:
+    """Shipped built-ins live on disk, outside every write signal — list them."""
+    root = builtin_dir()
+    try:
+        return (str(root), tuple(sorted(p.name for p in root.iterdir() if p.is_dir())))
+    except OSError:
+        return (str(root), ())
+
+
 def resolve_for_user(user_id: Optional[str], *, requested: Optional[Set[str]] = None) -> Resolution:
+    """Which candidate wins each runtime name, recomputed only when it can differ.
+
+    The answer is a pure function of the installations, the store contents, the
+    user's name preferences and the bound cloud account — every one of which
+    moves ``registry.generation()``, ``view_generation()`` or the account
+    profile. Agent assembly asks for this several times per message and the
+    eligibility fixpoint walks every candidate's package each time, so without
+    this the same answer was recomputed from disk two or three times a turn.
+    """
     from .readiness import eligible_skill_candidates
+
+    key = user_id or ""
+    signal = (
+        registry.generation(),
+        view_generation(),
+        current_account_profile(),
+        _builtin_signature(),
+        frozenset(requested) if requested is not None else None,
+    )
+    with _resolution_lock:
+        hit = _resolution_cache.get(key)
+        if hit is not None and hit[0] == signal:
+            _last_resolution[key] = hit[1]
+            return hit[1]
 
     preferences = registry.preferences(KIND_SKILL, user_id=user_id)
     eligible = eligible_skill_candidates(
@@ -285,9 +401,13 @@ def resolve_for_user(user_id: Optional[str], *, requested: Optional[Set[str]] = 
     )
     res = resolve(KIND_SKILL, eligible, preferences=preferences, requested=requested)
     with _resolution_lock:
-        _last_resolution[user_id or ""] = res
+        _last_resolution[key] = res
+        # A cloud deployment shares this process across users; keep the memo
+        # bounded rather than letting it grow with the user table.
+        if len(_resolution_cache) >= 64 and key not in _resolution_cache:
+            _resolution_cache.pop(next(iter(_resolution_cache)), None)
+        _resolution_cache[key] = (signal, res)
     return res
-
 
 
 def filter_available_names(names, *, user_id=None):
@@ -372,6 +492,8 @@ def publish_local_skill(
 ) -> store.StoredComponent:
     """Write one revision of a device-local skill and make it the ready revision."""
     revision = revision_for_hash(content_hash)
+    before_generation = registry.generation()
+    published = False
     ref = local_ref(KIND_SKILL, skill_id)
     inst = registry.upsert(
         profile_id=LOCAL_PROFILE,
@@ -390,6 +512,7 @@ def publish_local_skill(
         tx = registry.begin_transaction(inst.install_id, inst.generation + 1)
         try:
             comp = store.write_from_files(KIND_SKILL, LOCAL_PROFILE, ref.key, revision, files)
+            published = True
             registry.advance_transaction(tx, "published", inventory=store.inventory(comp))
         except Exception as exc:
             registry.advance_transaction(tx, "failed", error=str(exc))
@@ -399,8 +522,10 @@ def publish_local_skill(
         registry.advance_transaction(tx, "committed")
     elif inst.resolved_revision != revision or inst.state != "ready":
         registry.set_state(inst.install_id, "ready", resolved_revision=revision)
-    # Revisions are retained for durable run snapshots; collection needs reference checks.
-    bump_view_generation()
+    # A DB-backed skill is materialized again after restart/cache refresh. An
+    # identical publication must not invalidate every user's resolved closure.
+    if published or registry.generation() != before_generation:
+        bump_view_generation()
     return comp
 
 

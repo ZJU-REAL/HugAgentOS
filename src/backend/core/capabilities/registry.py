@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 import hashlib
+import itertools
+import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
@@ -15,9 +17,61 @@ from core.db.models import (
     DeviceCapabilityNamePreference,
     DeviceCapabilityTransaction,
 )
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from .ref import ResourceRef
+
+
+_generation_lock = threading.Lock()
+_generation = 0
+_WRITE_FLAG = "capability_registry_write"
+_REGISTRY_MODELS = (
+    DeviceCapabilityInstallation,
+    DeviceCapabilityComponent,
+    # A name preference decides which candidate wins a runtime name, so it
+    # changes resolution exactly like an installation does.
+    DeviceCapabilityNamePreference,
+)
+
+
+def generation() -> int:
+    """Monotonic count of committed installation/component writes in this process.
+
+    Bumped by session events after the commit lands, so a snapshot taken under
+    the new value never observes pre-write rows.
+    """
+    return _generation
+
+
+def _bump() -> None:
+    global _generation
+    with _generation_lock:
+        _generation += 1
+
+
+def _flag_registry_write(session, _flush_context) -> None:
+    if any(
+        isinstance(obj, _REGISTRY_MODELS) for obj in itertools.chain(session.new, session.deleted)
+    ) or any(
+        isinstance(obj, _REGISTRY_MODELS) and session.is_modified(obj, include_collections=True)
+        for obj in session.dirty
+    ):
+        session.info[_WRITE_FLAG] = True
+
+
+def _bump_after_commit(session) -> None:
+    if session.info.pop(_WRITE_FLAG, False):
+        _bump()
+
+
+def _forget_after_rollback(session) -> None:
+    session.info.pop(_WRITE_FLAG, None)
+
+
+event.listen(Session, "after_flush", _flag_registry_write)
+event.listen(Session, "after_commit", _bump_after_commit)
+event.listen(Session, "after_rollback", _forget_after_rollback)
 
 
 def install_id(kind: str, profile: str, key: str) -> str:
@@ -79,6 +133,8 @@ class Installation:
 
 
 def _to_installation(row: DeviceCapabilityInstallation) -> Installation:
+    from .session_availability import permits
+
     return Installation(
         install_id=row.install_id,
         profile_id=row.profile_id,
@@ -91,7 +147,7 @@ def _to_installation(row: DeviceCapabilityInstallation) -> Installation:
         content_hash=row.content_hash,
         resolved_revision=row.resolved_revision,
         state=row.state,
-        enabled=bool(row.enabled),
+        enabled=bool(row.enabled) and permits(row.profile_id, row.install_id, row.resolved_revision),
         source=row.source,
         source_plugin=row.source_plugin,
         generation=int(row.generation or 0),
@@ -180,6 +236,28 @@ def get(install_id_: str, db: Optional[Session] = None) -> Optional[Installation
     with _session(db) as s:
         row = s.get(DeviceCapabilityInstallation, install_id_)
         return _to_installation(row) if row else None
+
+
+def get_many(install_ids, db: Optional[Session] = None) -> Dict[str, Installation]:
+    """Whole-closure lookup in one query.
+
+    ``validate`` re-checks every frozen node and binding on every message —
+    200+ rows on a full device. Asking for them one at a time opened a session
+    per row and was half a second of pure round trips per pass.
+    """
+    ids = [str(i) for i in dict.fromkeys(install_ids)]
+    if not ids:
+        return {}
+    found: Dict[str, Installation] = {}
+    with _session(db) as s:
+        for start in range(0, len(ids), 400):
+            rows = (
+                s.query(DeviceCapabilityInstallation)
+                .filter(DeviceCapabilityInstallation.install_id.in_(ids[start : start + 400]))
+                .all()
+            )
+            found.update({row.install_id: _to_installation(row) for row in rows})
+    return found
 
 
 def list_installations(
@@ -344,6 +422,7 @@ def set_components(
 ) -> None:
     """Replace the ownership edges of a plugin: {component_install_id: required}."""
     with _session(db) as s:
+        s.info[_WRITE_FLAG] = True
         s.query(DeviceCapabilityComponent).filter(
             DeviceCapabilityComponent.owner_install_id == owner_install_id
         ).delete(synchronize_session=False)
@@ -365,6 +444,18 @@ def components_of(owner_install_id: str, db: Optional[Session] = None) -> Dict[s
             DeviceCapabilityComponent.owner_install_id == owner_install_id
         )
         return {r.component_install_id: bool(r.required) for r in rows}
+
+
+def component_edges(db: Optional[Session] = None) -> Dict[str, List[str]]:
+    """Every ownership edge: {owner_install_id: [component_install_id, ...]}."""
+    with _session(db) as s:
+        out: Dict[str, List[str]] = {}
+        for owner, cid in s.query(
+            DeviceCapabilityComponent.owner_install_id,
+            DeviceCapabilityComponent.component_install_id,
+        ):
+            out.setdefault(owner, []).append(cid)
+        return out
 
 
 def owners_of(component_install_id: str, db: Optional[Session] = None) -> List[str]:

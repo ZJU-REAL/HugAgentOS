@@ -25,12 +25,26 @@ const SEEN_CAP: usize = 400;
 
 /// 启动后台通知轮询。`http` 复用壳内已配置好的 client（no_proxy + 接受自签证书），
 /// 走本地反代 `127.0.0.1:<port>`，反代会自动注入 session cookie。
-pub fn start(app: AppHandle, port: u16, token: Arc<RwLock<Option<String>>>, http: reqwest::Client) {
+pub fn start(
+    app: AppHandle,
+    port: u16,
+    token: Arc<RwLock<Option<String>>>,
+    http: reqwest::Client,
+    hybrid_local: bool,
+) {
     tauri::async_runtime::spawn(async move {
         let url = format!(
             "http://127.0.0.1:{}/api/v1/automations/notifications/list",
             port
         );
+        let sources = if hybrid_local {
+            vec![
+                ("cloud", url.clone()),
+                ("local", format!("{}?hg_target=local", url)),
+            ]
+        } else {
+            vec![("default", url)]
+        };
         let start_ms = now_ms();
         let mut seen: HashSet<String> = HashSet::new();
 
@@ -38,60 +52,68 @@ pub fn start(app: AppHandle, port: u16, token: Arc<RwLock<Option<String>>>, http
             tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
 
             // 未登录时反代不注入 cookie、接口必失败——直接跳过省一次请求。
-            if token.read().await.is_none() {
+            let poll_token = token.read().await.clone();
+            if poll_token.is_none() {
                 continue;
             }
 
-            let resp = match http.get(&url).send().await {
-                Ok(r) if r.status().is_success() => r,
-                _ => continue,
-            };
-            let body: serde_json::Value = match resp.json().await {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let items = match body.get("data").and_then(|d| d.as_array()) {
-                Some(a) => a,
-                None => continue,
-            };
-
-            for it in items {
-                let id = it.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                if id.is_empty() || seen.contains(id) {
-                    continue;
-                }
-                seen.insert(id.to_string());
-
-                // 只提醒启动后新增的通知。
-                let ts = it.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-                if ts <= start_ms {
-                    continue;
-                }
-
-                let status = it.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                let name = it
-                    .get("task_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("任务");
-                let summary = it.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-
-                let title = if status == "failed" {
-                    format!("{} · 任务失败", brand::NAME)
-                } else {
-                    format!("{} · 任务完成", brand::NAME)
+            for (source, url) in &sources {
+                let resp = match http.get(url).timeout(Duration::from_secs(10)).send().await {
+                    Ok(r) if r.status().is_success() => r,
+                    _ => continue,
                 };
-                let body_text = if summary.is_empty() {
-                    name.to_string()
-                } else {
-                    format!("{}：{}", name, summary)
+                let body: serde_json::Value = match resp.json().await {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if *token.read().await != poll_token {
+                    seen.clear();
+                    break;
+                }
+                let items = match body.get("data").and_then(|d| d.as_array()) {
+                    Some(a) => a,
+                    None => continue,
                 };
 
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title(title)
-                    .body(body_text)
-                    .show();
+                for it in items {
+                    let id = it.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let key = format!("{}:{}", source, id);
+                    if id.is_empty() || seen.contains(&key) {
+                        continue;
+                    }
+                    seen.insert(key);
+
+                    // 只提醒启动后新增的通知。
+                    let ts = it.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                    if ts <= start_ms {
+                        continue;
+                    }
+
+                    let status = it.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                    let name = it
+                        .get("task_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("任务");
+                    let summary = it.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+
+                    let title = if status == "failed" {
+                        format!("{} · 任务失败", brand::NAME)
+                    } else {
+                        format!("{} · 任务完成", brand::NAME)
+                    };
+                    let body_text = if summary.is_empty() {
+                        name.to_string()
+                    } else {
+                        format!("{}：{}", name, summary)
+                    };
+
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(title)
+                        .body(body_text)
+                        .show();
+                }
             }
 
             if seen.len() > SEEN_CAP {

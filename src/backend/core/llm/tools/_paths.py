@@ -134,7 +134,7 @@ def validate_project_scope_path(path: str, project_folder_name: Optional[str]) -
     )
 
 
-def to_physical_path(path: str, user_id: Optional[str]) -> str:
+def to_physical_path(path: str, user_id: Optional[str], *, session_id: Optional[str] = None) -> str:
     """Translate a logical ``/myspace/...`` path to its physical sandbox path.
 
     - ``/myspace`` → ``/workspace/myspace/{user_id}``
@@ -144,30 +144,21 @@ def to_physical_path(path: str, user_id: Optional[str]) -> str:
     If ``user_id`` is missing for a logical path, returns the input unchanged
     (caller should validate user_id presence before calling).
     """
-    path = canonicalize_ws_path(path)
-    physical = path
-    if path == MYSPACE_LOGICAL:
-        if not user_id:
-            physical = path
-        else:
-            physical = f"{WORKSPACE_ROOT}/myspace/{user_id}"
-    elif path.startswith(MYSPACE_LOGICAL + "/"):
-        if not user_id:
-            physical = path
-        else:
-            rest = path[len(MYSPACE_LOGICAL) + 1:]
-            physical = f"{WORKSPACE_ROOT}/myspace/{user_id}/{rest}"
+    from core.config.local_mode import local_mode_enabled
+    from services.script_runner_service.workspace_paths import resolve_path
 
-    # In local mode, the canonical identity checked by the Grant gate must be
-    # the exact identity later opened/written.  Returning the resolved path
-    # narrows the symlink-swap window and avoids check-one/write-another drift.
-    try:
-        from core.config.local_mode import local_mode_enabled
-
-        if local_mode_enabled():
-            return os.path.realpath(os.path.abspath(os.path.expanduser(physical)))
-    except Exception:
-        pass
+    local = local_mode_enabled()
+    if local and session_id:
+        physical = resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
+    elif path == MYSPACE_LOGICAL or path.startswith(MYSPACE_LOGICAL + "/"):
+        physical = (
+            f"{WORKSPACE_ROOT}/myspace/{user_id}" + path[len(MYSPACE_LOGICAL):]
+            if user_id else path
+        )
+    else:
+        physical = canonicalize_ws_path(path)
+    if local:
+        return os.path.realpath(os.path.abspath(os.path.expanduser(physical)))
     return physical
 
 

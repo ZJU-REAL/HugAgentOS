@@ -771,10 +771,13 @@ def _resolve_explicit_capability_invocation(
             try:
                 cloud_plugin = (
                     cloud_plugin_selection(request.plugin_id, user_id=user_id)
-                    if capabilities_enabled() else None
+                    if capabilities_enabled()
+                    else None
                 )
             except CapabilityError as exc:
-                raise HTTPException(status_code=409, detail="所选插件尚不可用，请检查能力中心状态") from exc
+                raise HTTPException(
+                    status_code=409, detail="所选插件尚不可用，请检查能力中心状态"
+                ) from exc
             if cloud_plugin is None:
                 raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
             request = request.model_copy(update={"plugin_id": cloud_plugin["install_id"]})
@@ -785,6 +788,7 @@ def _resolve_explicit_capability_invocation(
             if installed.owner_user_id is not None and installed.owner_user_id != user_id:
                 raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
             from core.services.plugin_service import _component_keys
+
             component_ids = installed.component_ids or {}
             plugin_skill_ids = _component_keys(component_ids, "skills")
             plugin_mcp_ids = _component_keys(component_ids, "mcp")
@@ -874,6 +878,16 @@ def _resolve_chat_agent_targets(
     initialized = resolve_project_init(db, request, user_id)
     if initialized is not None:
         return request, None, initialized, None
+
+    from core.services.subagent_routing_service import may_be_explicit_subagent_command
+
+    if not (
+        request.agent_id
+        or request.mention_agent_id
+        or request.mention_name
+        or may_be_explicit_subagent_command(request.message)
+    ):
+        return request, None, request.message, None
 
     service = UserAgentService(db)
     disabled_ids = UserService(db).get_disabled_builtin_subagent_ids(user_id)
@@ -2224,7 +2238,11 @@ async def regenerate_message(
         **_restore_invocation(user_extra),
     )
     regen_request, _, execution_message, explicit_subagent_command = _resolve_rerun_agent_targets(
-        db, regen_request, db_user_id, _sess, user_msg,
+        db,
+        regen_request,
+        db_user_id,
+        _sess,
+        user_msg,
         assistant_message_id=target_msg.message_id,
     )
     regen_request = _resolve_explicit_capability_invocation(db, regen_request, db_user_id)
@@ -2349,7 +2367,11 @@ async def edit_and_resend(
         **saved_invocation,
     )
     edit_request, _, execution_message, explicit_subagent_command = _resolve_rerun_agent_targets(
-        db, edit_request, db_user_id, _sess, target_msg,
+        db,
+        edit_request,
+        db_user_id,
+        _sess,
+        target_msg,
     )
     from core.services.project_init import resolve_project_init
 

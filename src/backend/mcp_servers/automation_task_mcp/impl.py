@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 def _effect_receipt(db, *, effect_id: str, user_id: str, tool_name: str):  # noqa: ANN001
     if not effect_id:
         return None
-    from core.db.models import ChatRun, ToolEffectLedger, ToolEffectReceipt
+    from core.db.models import ChatRun, ToolEffectLedger, ToolEffectReceipt, RemoteToolEffect
 
     valid = (
         db.query(ToolEffectLedger.event_id)
@@ -26,7 +26,9 @@ def _effect_receipt(db, *, effect_id: str, user_id: str, tool_name: str):  # noq
         .first()
     )
     if valid is None:
-        raise ValueError("invalid tool effect receipt token")
+        remote = db.get(RemoteToolEffect, effect_id)
+        if remote is None or remote.gateway_url or remote.user_id != user_id or remote.tool_name != tool_name:
+            raise ValueError("invalid tool effect receipt token")
     receipt = db.get(ToolEffectReceipt, effect_id)
     if receipt is None:
         return None
@@ -117,6 +119,8 @@ def _task_brief(task) -> Dict[str, Any]:
     d = AutomationService.task_to_dict(task)
     targets = resolve_delivery_targets(task.extra_data)
     return {
+        **{key: d.get(key) for key in ("execution_location", "device_id", "device_name",
+                                      "project_id", "project_name", "project_local_path", "timezone")},
         "task_id": d.get("task_id"),
         "name": d.get("name"),
         "cron_expression": d.get("cron_expression"),
@@ -215,6 +219,9 @@ def create_task(
     deliver_to: Optional[str] = None,
     channel_origin: Optional[Dict[str, Any]] = None,
     tool_effect_id: str = "",
+    execution_location: Optional[str] = None,
+    project_id: Optional[str] = None,
+    timezone: str = "Asia/Shanghai",
 ) -> Dict[str, Any]:
     if not user_id:
         return {"ok": False, "message": "❌ 无法确定用户身份。"}
@@ -243,6 +250,14 @@ def create_task(
         targets, err = _resolve_create_targets(user_id, deliver_to, channel_origin, db)
         if err:
             return {"ok": False, "message": err}
+        from core.services.automation_execution import execution_metadata
+        import pytz
+        try:
+            pytz.timezone(timezone)
+            execution_metadata(db, user_id, location=execution_location,
+                               project_id=project_id, prompt=prompt)
+        except (ValueError, pytz.UnknownTimeZoneError) as exc:
+            return {"ok": False, "message": str(exc)}
         task = _svc(db).create_task(
             user_id=user_id,
             task_type="prompt",
@@ -251,6 +266,9 @@ def create_task(
             schedule_type="recurring",
             name=(name or "定时任务")[:200],
             metadata={"delivery_targets": targets},
+            execution_location=execution_location,
+            project_id=project_id,
+            timezone=timezone,
             commit=not bool(tool_effect_id),
         )
         brief = _task_brief(task)
@@ -346,12 +364,15 @@ def update_task(
             return _candidates_payload(cands)
         if not task:
             return {"ok": False, "message": f"❌ 没找到任务：{task_ref}"}
-        updated = _svc(db).update_task(
-            task.task_id,
-            user_id,
-            commit=not bool(tool_effect_id),
-            **patch,
-        )
+        try:
+            updated = _svc(db).update_task(
+                task.task_id,
+                user_id,
+                commit=not bool(tool_effect_id),
+                **patch,
+            )
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
         brief = _task_brief(updated)
         result = {"ok": True, "message": f"✅ 已更新「{brief['name']}」。", "task": brief}
         if tool_effect_id:

@@ -1,0 +1,101 @@
+/* Keep a gutter for the navigation even when another pane narrows the chat. */
+.jx-content .jx-panel:has(.jx-chatWrap) {
+  padding-inline: calc(var(--space-xl) + var(--space-xs));
+}
+
+.jx-conversationNav {
+  position: fixed;
+  z-index: 20;
+  transform: translateY(-50%);
+  width: 32px;
+  padding-block: var(--space-xs);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.jx-conversationNav::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-conversationNav-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 32px;
+  min-height: 24px;
+  padding: calc(var(--space-xs) * 1.5) var(--space-xs);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  cursor: pointer;
+}
+
+.jx-conversationNav-mark {
+  width: 16px;
+  height: 3px;
+  border-radius: var(--radius-xs);
+  background: var(--color-border);
+  transition: width var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-conversationNav-button:hover .jx-conversationNav-mark,
+.jx-conversationNav-button:focus-visible .jx-conversationNav-mark {
+  width: 22px;
+  background: var(--color-text-secondary);
+}
+
+.jx-conversationNav-button[aria-current="location"] .jx-conversationNav-mark {
+  width: 24px;
+  background: var(--color-text);
+}
+
+.jx-conversationNav-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.jx-conversationNav-popover .ant-popover-container {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.jx-conversationNav-preview {
+  width: min(360px, calc(100vw - 96px));
+  padding: var(--space-xs);
+  line-height: 1.6;
+}
+
+.jx-conversationNav-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-conversationNav-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-top: var(--space-xs);
+  color: var(--color-text-tertiary);
+}
+
+@media (pointer: coarse) {
+  .jx-conversationNav-button {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jx-conversationNav-mark {
+    transition: none;
+  }
+}

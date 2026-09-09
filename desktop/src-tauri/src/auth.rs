@@ -165,6 +165,9 @@ pub async fn validate(
             reqwest::header::COOKIE,
             format!("{}={}", cookie_name, token),
         )
+        // 共享 client 没有全局超时（要给 SSE 长连用），这里必须自带一个：
+        // 校验结果决定启动路由，云端接了连接却不应答不能拖住整个启动。
+        .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
     {

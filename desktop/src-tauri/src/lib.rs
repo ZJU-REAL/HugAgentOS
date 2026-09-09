@@ -348,9 +348,12 @@ pub fn run() {
                 config::apply_fixed_dual_mode(&mut cfg);
             }
 
+            // 没有全局 `.timeout()`：这个 client 同时给反代转发 SSE 长连用。
+            // 但连接建立必须有上限，否则一个半死的上游能把调用方永久挂住。
             let http = reqwest::Client::builder()
                 .danger_accept_invalid_certs(cfg.insecure_tls)
                 .no_proxy()
+                .connect_timeout(std::time::Duration::from_secs(3))
                 .build()
                 .expect("构建 http client 失败");
 
@@ -387,50 +390,21 @@ pub fn run() {
             }
 
             // 本机模式下，安装包版本变化会自动升级服务资源；已安装且同版本则直接
-            // 拉起服务。安装/启动任务在后台跑，但主窗口与本机模式一致地停在可观察、
-            // 可重试的进度页（Dual 也一样：本机执行面装好才进云端，见下方 start 路由）。
-            // 还没初始化完（首启停在初始化页）时不预装：装机要等用户按下「开始初始化」。
-            if !needs_initialization && (cfg.uses_local_server() || hybrid_local) {
+            // 拉起服务。安装/启动都在后台跑；启动例程自己负责回收上次遗留的进程，
+            // 这里不再探测端口。还没初始化完（首启停在初始化页）时不预装：装机要等
+            // 用户按下「开始初始化」。
+            let local_needed = cfg.uses_local_server() || hybrid_local;
+            if !needs_initialization && local_needed {
                 if local_server.needs_install() {
                     local_server.install_in_background();
-                } else if !tauri::async_runtime::block_on(local_server.is_ready()) {
+                } else {
                     local_server.start_in_background();
                 }
             }
 
-            // Dual 的本机就绪状态单独留一份：主后端（云端）可达性与本机执行面
-            // 就绪与否是两件事，start 路由两个都要看。
-            let local_ready_now = if cfg.uses_local_server() || hybrid_local {
-                tauri::async_runtime::block_on(local_server.is_ready())
-            } else {
-                true
-            };
-            let backend_ready = if cfg.uses_local_server() {
-                local_ready_now
-            } else {
-                tauri::async_runtime::block_on(local_server::LocalServerManager::probe_base(
-                    &http,
-                    cfg.server_base_trimmed(),
-                ))
-            };
-
-            // 后端可达时校验已存 token：已吊销/过期就清盘。后端暂时不可达时保留
-            // token，避免一次断网把有效桌面会话永久注销。
-            let mut token0 = auth::load_token(&config_dir, cfg.server_base_trimmed());
-            if backend_ready {
-                if let Some(t) = token0.clone() {
-                    let valid = tauri::async_runtime::block_on(auth::validate(
-                        &http,
-                        cfg.server_base_trimmed(),
-                        &cfg.cookie_name,
-                        &t,
-                    ));
-                    if !valid {
-                        token0 = None;
-                        auth::save_token(&config_dir, cfg.server_base_trimmed(), None);
-                    }
-                }
-            }
+            // 已存 token 只从磁盘读；它是否仍有效在窗口出现之后核实（见
+            // spawn_startup_probe），不让一次慢网络把建窗拖住。
+            let token0 = auth::load_token(&config_dir, cfg.server_base_trimmed());
             let token = Arc::new(RwLock::new(token0.clone()));
             let bridge_user: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
             let session_epoch = Arc::new(auth::SessionEpoch::default());
@@ -524,16 +498,16 @@ pub fn run() {
                 let _ = app.deep_link().register("hugagent");
             }
 
-            // 初始窗口：有 token 进首页，没有则进登录卡片「初始态」（不自动开浏览器，
-            // 等用户点「开始使用」再拉起）。退出登录同样回到这张卡片，避免白屏。
+            // 初始窗口按本地事实立刻决定落点：有 token 进首页，没有则进登录卡片「初始态」
+            // （不自动开浏览器，等用户点「开始使用」再拉起）。云端可达性与会话有效性在
+            // 窗口出现之后核实，结论到了再修正导航。仅本机形态的后端就是本机服务，进程
+            // 启动时它一定还没起来，所以直接进进度页，就绪后自动前进；双模式云端为主，
+            // 本机执行面已安装时不再让用户等它启动，只有还要安装时才停在进度页。
             let start = if needs_initialization {
                 // 首启：默认包让用户选运行模式（本机 / 云端 / 双模式），云端形态在此填地址；
                 // 仅交付混合模式的包只展示一个确认动作（见 proxy.rs 的 init_page）。
                 format!("http://127.0.0.1:{}/__desktop/init", port)
-            } else if !backend_ready {
-                format!("http://127.0.0.1:{}/__desktop/setup", port)
-            } else if hybrid_local && !local_ready_now {
-                // Dual：本机执行面和本机模式一样在前台装完（进度页），就绪后自动回云端。
+            } else if cfg.uses_local_server() || (local_needed && local_server.needs_install()) {
                 format!("http://127.0.0.1:{}/__desktop/setup", port)
             } else if token0.is_some() {
                 format!("http://127.0.0.1:{}/", port)
@@ -541,12 +515,19 @@ pub fn run() {
                 format!("http://127.0.0.1:{}/__desktop/login", port)
             };
             build_window(&handle, &start)?;
+            if !needs_initialization && !cfg.uses_local_server() {
+                spawn_startup_probe(
+                    handle.clone(),
+                    cfg.server_base_trimmed().to_string(),
+                    cfg.cookie_name.clone(),
+                );
+            }
 
             // 系统托盘：关闭窗口时「最小化到托盘」后，从这里恢复主窗口。
             build_tray(app)?;
 
             // A1：后台通知轮询——自动化/后台任务跑完发原生系统通知。
-            notify::start(handle.clone(), port, token.clone(), http.clone());
+            notify::start(handle.clone(), port, token.clone(), http.clone(), hybrid_local);
 
             // A2：注册全局快捷键 Ctrl/Cmd+Shift+Space（唤起悬浮快速问答窗）。
             let qa = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
@@ -584,6 +565,41 @@ pub fn run() {
             if !has_visible_windows {
                 show_main_window(_app_handle);
             }
+        }
+    });
+}
+
+/// 窗口出现之后再核实云端：不可达 → 进服务页说明原因；已存会话失效 → 清盘回登录
+/// 卡片。后端暂时不可达时保留 token，避免一次断网把有效桌面会话永久注销。
+fn spawn_startup_probe(app: tauri::AppHandle, server_base: String, cookie_name: String) {
+    tauri::async_runtime::spawn(async move {
+        let shared = app.state::<Shared>();
+        let reachable =
+            local_server::LocalServerManager::probe_base(&shared.http, &server_base).await;
+        if !reachable {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.eval(format!(
+                    "window.location.replace('http://127.0.0.1:{}/__desktop/setup')",
+                    shared.port
+                ));
+            }
+            return;
+        }
+        let Some(token) = shared.token.read().await.clone() else {
+            return;
+        };
+        if auth::validate(&shared.http, &server_base, &cookie_name, &token).await {
+            return;
+        }
+        let expected = clear_desktop_session(&shared).await;
+        if !shared.session_epoch.matches(expected) {
+            return;
+        }
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.eval(format!(
+                "window.location.replace('{}')",
+                shared.login_idle_url()
+            ));
         }
     });
 }

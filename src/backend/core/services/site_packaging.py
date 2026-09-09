@@ -8,6 +8,7 @@ error string or the raised ``ValueError`` into their own transport.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import tarfile
 import uuid
@@ -22,46 +23,52 @@ UNPACK_MAX_FILES = 400  # unpack fuse (service layer caps at 300; slightly loose
 
 
 def resolve_project_context(chat_id: str, user_id: str):
-    """Conversation → the bound personal-project context.
-
-    Returns ``(project_id, project_folder_sandbox_dir)``; returns ``(None, None)`` when the
-    conversation has no bound project, the bound project is a team project, or the project does
-    not belong to this user (the caller falls back to the legacy body.src_dir path).
-    """
+    """Resolve the current source project, including transferred team projects."""
     if not chat_id:
         return None, None
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import ChatSession, Project, UserFolder
+    from fastapi import HTTPException
+    from core.db.engine import SessionLocal
+    from core.db.models import ChatSession, Project
+    from core.auth.permissions_iface import resolve_project_permission
+    from core.services.project_scope import build_project_ctx
+    from core.llm.tools._paths import to_physical_path
 
-        with SessionLocal() as db:
-            sess = db.query(ChatSession.project_id).filter(ChatSession.chat_id == chat_id).first()
-            project_id = sess[0] if sess else None
-            if not project_id:
-                return None, None
-            proj = (
-                db.query(Project)
-                .filter(Project.project_id == project_id, Project.deleted_at.is_(None))
-                .first()
-            )
-            if proj is None or proj.kind != "personal" or not proj.linked_folder_id:
-                return None, None
-            if proj.owner_user_id and proj.owner_user_id != user_id:
-                return None, None
-            row = (
-                db.query(UserFolder.name)
-                .filter(UserFolder.folder_id == proj.linked_folder_id)
-                .first()
-            )
-            folder_name = row[0] if row else None
-            if not folder_name:
-                return None, None
-            return project_id, f"/workspace/myspace/{user_id}/{folder_name}"
-    except (
-        Exception
-    ):  # noqa: BLE001 — on resolve failure, treat as no bound project and take the legacy path
-        logger.warning("[site-packaging] project context resolve failed", exc_info=True)
-        return None, None
+    with SessionLocal() as db:
+        chat = db.get(ChatSession, chat_id)
+        if chat is None or not chat.project_id:
+            return None, None
+        if chat.user_id != user_id:
+            raise HTTPException(403, "发布站点需要使用自己的项目会话")
+        project = db.get(Project, chat.project_id)
+        if project is None or project.deleted_at is not None:
+            raise HTTPException(409, "站点源码项目不存在")
+        if resolve_project_permission(db, user_id, project) not in ("edit", "admin"):
+            raise HTTPException(403, "当前项目不允许编辑或发布站点")
+        if project.kind == "local":
+            # Local projects bind a host directory, never a My Space folder.
+            # Resolve this before cloud project context (which also reads files).
+            from pathlib import Path
+            import os
+            from core.config.local_mode import local_mode_enabled
+
+            if not local_mode_enabled():
+                raise HTTPException(403, "本地项目站点仅在本机模式下可发布")
+            raw = ((project.extra_data or {}).get("local") or {}).get("path")
+            if not isinstance(raw, str) or not raw or not os.path.isabs(raw):
+                raise HTTPException(409, "本地项目文件夹不存在或不可访问")
+            root = Path(raw).resolve()
+            if not root.is_dir():
+                raise HTTPException(409, "本地项目文件夹不存在或不可访问")
+            return project.project_id, str(root)
+
+        ctx = build_project_ctx(db, project.project_id)
+        folder = (ctx or {}).get("project_folder_name")
+        if not folder:
+            raise HTTPException(409, "源码项目未绑定有效空间文件夹")
+        if project.kind == "team":
+            from core.llm.tools.project_working_copy import directory
+            return project.project_id, directory(project.project_id)
+        return project.project_id, to_physical_path(f"/myspace/{folder}", user_id)
 
 
 async def pack_and_fetch_dir(
@@ -72,53 +79,67 @@ async def pack_and_fetch_dir(
     extra_excludes: Tuple[str, ...] = (),
 ) -> Tuple[Optional[List[Tuple[str, bytes]]], Optional[str]]:
     """tar the directory inside the sandbox → fetch it back → safely unpack. Returns exactly one of (files, error)."""
-    from core.llm.tools._common import sandbox_exec_bash, shell_quote
-    from core.sandbox import SandboxConnectError as _SandboxConnectError
-    from core.sandbox import SandboxError as _SandboxError
-    from core.sandbox import get_sandbox_provider as _get_provider
+    from pathlib import Path
+    from core.sandbox import ExecuteRequest, get_sandbox_provider
+    from core.sandbox import SandboxError, SandboxConnectError
+    from core.sandbox import directory_archive
+    from core.services.site_service import MAX_SITE_FILE_BYTES, MAX_SITE_TOTAL_BYTES
 
-    excludes = (".git", "node_modules", "__pycache__") + tuple(extra_excludes)
-    exclude_args = " ".join(f"--exclude={shell_quote(e)}" for e in excludes)
-    pack = f"/workspace/.__site_pack_{uuid.uuid4().hex[:8]}.tgz"
-    tar_cmd = (
-        f"cd {shell_quote(src)} && "
-        f"tar {exclude_args} -czf {shell_quote(pack)} . && "
-        # ``du -b`` is a GNU extension and is unavailable on macOS/BSD.  The
-        # local desktop profile runs this command on the host, so use POSIX
-        # ``wc -c`` and strip its padding when parsing below.
-        f"wc -c < {shell_quote(pack)}"
+    provider = get_sandbox_provider()
+    archive_name = f".__site_pack_{uuid.uuid4().hex}.tgz"
+    archive_path = "/workspace/" + archive_name
+    script_name = archive_name + ".py"
+    cleanup_name = archive_name + ".cleanup.py"
+    options = {
+        "source": src,
+        "archive_name": archive_name,
+        "excludes": [".git", "node_modules", "__pycache__", ".hugagent-source-manifest.json", *extra_excludes],
+        "max_files": UNPACK_MAX_FILES,
+        "max_file_bytes": MAX_SITE_FILE_BYTES,
+        "max_total_bytes": MAX_SITE_TOTAL_BYTES,
+        "max_archive_bytes": MAX_PACK_BYTES,
+    }
+    # Persistent OpenSandbox commands do not forward ExecuteRequest.params to
+    # stdin. Embed the JSON as a Python string literal so every provider runs
+    # the same portable archive program with the same inputs.
+    program = (
+        "import io, sys\n"
+        f"sys.stdin = io.StringIO({json.dumps(options, ensure_ascii=False)!r})\n"
+        + Path(directory_archive.__file__).read_text(encoding="utf-8")
     )
-    exit_code, stdout, stderr = await sandbox_exec_bash(tar_cmd, chat_id=_sess, timeout=60)
-    if exit_code != 0:
-        return None, f"打包目录失败（{src}）: {stderr or stdout}"
+    request = ExecuteRequest(
+        script_content=program,
+        script_name=script_name,
+        language="python",
+        session_id=_sess,
+        user_id=user_id,
+        timeout=60,
+    )
     try:
-        pack_size = int((stdout or "0").strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        pack_size = 0
-    if pack_size > MAX_PACK_BYTES:
-        await sandbox_exec_bash(f"rm -f {shell_quote(pack)}", chat_id=_sess)
-        return None, (
-            f"目录打包后 {pack_size} bytes，超过 {MAX_PACK_BYTES} 上限，"
-            "请压缩图片/清理无关文件后重试"
-        )
-
-    provider = _get_provider()
-    try:
-        data = await provider.get_file(_sess, pack, user_id=user_id)
-    except (_SandboxError, _SandboxConnectError) as exc:
-        return None, f"取回打包文件失败: {exc}"
+        result = await provider.execute(request)
+        if result.exit_code:
+            return None, f"打包目录失败（{src}）: {result.stderr or result.stdout}"
+        data = await provider.get_file(_sess, archive_path, user_id=user_id)
+        if not data:
+            return None, "站点发布包为空"
+        return safe_extract_tar(data), None
+    except (SandboxError, SandboxConnectError, tarfile.TarError, ValueError) as exc:
+        return None, f"站点打包失败: {exc}"
     finally:
         try:
-            await sandbox_exec_bash(f"rm -f {shell_quote(pack)}", chat_id=_sess)
-        except Exception:  # noqa: BLE001 — cleanup failure does not affect the publish
-            pass
-    if not data:
-        return None, f"打包内容为空（{src} 目录里没有文件？）"
-
-    try:
-        return safe_extract_tar(data), None
-    except (tarfile.TarError, ValueError) as exc:
-        return None, f"解包失败: {exc}"
+            cleanup = await provider.execute(ExecuteRequest(
+                script_content=(
+                    "from pathlib import Path\n"
+                    f"for path in {(archive_path, '/workspace/' + script_name, '/workspace/' + cleanup_name)!r}:\n"
+                    "    Path(path).unlink(missing_ok=True)\n"
+                ),
+                script_name=cleanup_name,
+                language="python", session_id=_sess, user_id=user_id, timeout=15,
+            ))
+            if cleanup.exit_code:
+                logger.error("site archive cleanup failed: %s", cleanup.stderr)
+        except (SandboxError, SandboxConnectError):
+            logger.exception("site archive cleanup transport failed")
 
 
 def safe_extract_tar(data: bytes) -> List[Tuple[str, bytes]]:

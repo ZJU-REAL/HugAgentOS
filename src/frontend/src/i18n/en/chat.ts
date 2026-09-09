@@ -1,5 +1,9 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '当前会话导航': 'Current conversation navigation',
+  '第 {n} 轮对话': 'Conversation turn {n}',
+  '跳转到：{title}': 'Jump to: {title}',
+  '暂无回复': 'No reply yet',
   '请在有编辑权限的具体项目中使用普通对话，并移除已选择的能力后初始化指令': 'Initialize instructions in a specific project you can edit, using a standard conversation with no selected capabilities.',
   '项目命令': 'Project commands',
   '初始化指令：检查项目并创建或完善 AGENTS.md': 'Initialize instructions: inspect the project and create or improve AGENTS.md',
@@ -178,6 +182,16 @@ export const CHAT_DICT: Record<string, string> = {
   '立即发送': 'Send now',
   '保存修改': 'Save changes',
   '删除待发送消息': 'Delete queued message',
+  '操作确认': 'Operation confirmation',
+  '需要你确认一项操作': 'An operation needs your approval',
+  '助手即将执行以下操作。请查看操作内容，允许后将继续当前任务。': 'The assistant is ready to perform the operation below. Review the details and allow it to continue the current task.',
+  '本会话内同类操作均允许': 'Allow similar operations in this session',
+  '已允许本会话内的同类操作，后续不再逐项确认。': 'Similar operations are now allowed for this session without further confirmation.',
+  '已拒绝本次操作。': 'This operation was denied.',
+  '权限设置未完成同步，请重新选择后重试：{msg}': 'Permission settings could not be fully synced. Select a mode to retry: {msg}',
+  '正在保存权限…': 'Saving permissions…',
+  '权限未同步': 'Permissions not synced',
+  '正在读取权限…': 'Loading permissions…',
   '写入文件': 'Write file',
   '修改文件': 'Edit file',
   '读取本机文件': 'Read local file',
@@ -389,4 +403,5 @@ export const CHAT_DICT: Record<string, string> = {
   '已完成 {n}/{m}': '{n}/{m} done',
   '作业进行中 {n}/{m}': 'Job running {n}/{m}',
   '（失败 {n}）': ' ({n} failed)',
+  '本地项目': 'Local project',
 };

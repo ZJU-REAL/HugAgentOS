@@ -109,7 +109,22 @@ def register_edit(
                 }
             )
 
-        physical = to_physical_path(file_path, user_id)
+        from .project_source_access import current_scope_error, write_team_text, is_team_source_path
+        scope_error = current_scope_error(scope, user_id, write=True)
+        if scope_error:
+            return resp_json(scope_error)
+        physical = to_physical_path(file_path, user_id, session_id=_sess)
+
+        if is_team_source_path(scope, user_id, file_path):
+            from fastapi import HTTPException
+            import asyncio
+            try:
+                return resp_json(await asyncio.to_thread(
+                    write_team_text, scope, user_id or "", file_path, physical, state,
+                    old_string=old_string, new_string=new_string, replace_all=replace_all,
+                ))
+            except HTTPException as exc:
+                return resp_json({"error": exc.detail, "status": exc.status_code})
 
         # 与 Write 同理：只读作用域下改动要在落盘前拒绝，不能等到同步那一步才被拦。
         if is_myspace_physical(physical, user_id):

@@ -1,3 +1,5 @@
+import { DesktopAvailableCapabilities } from '../desktop/DesktopAvailableCapabilities';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import type { ReactNode } from 'react';
 import { useCatalogStore } from '../../stores';
 import type { AbilityTabKey } from '../../types';
@@ -29,6 +31,8 @@ const PANES: Record<AbilityTabKey, () => ReactNode> = {
 export function AbilityCenterPage() {
   const abilityTab = useCatalogStore((s) => s.abilityTab);
   const visited = useCatalogStore((s) => s.visitedAbilityTabs);
+  const partial = useDeploymentModeStore((s) => s.partialCapabilities);
+  if (partial) return <DesktopAvailableCapabilities />;
 
   return (
     <div className="jx-abilityCenter">

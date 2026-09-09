@@ -76,7 +76,7 @@
 /* dark-ok: 事件流是刻意的暗色终端台，两档主题下都保持深底浅字 */
 .loop-stream {
   background: #0d1117; color: #c9d1d9; border-radius: 8px; padding: 12px;
-  font-family: ui-monospace, monospace; font-size: 12.5px; max-height: 300px; overflow-y: auto;
+  font-family:var(--font-family-mono); font-size: 12.5px; max-height: 300px; overflow-y: auto;
 }
 .loop-ev { padding: 2px 0; }
 /* 下面四条是 .loop-stream 暗色终端台内的语法色，跟随终端底色而非主题 */

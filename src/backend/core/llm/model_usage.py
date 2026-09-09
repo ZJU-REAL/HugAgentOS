@@ -167,6 +167,11 @@ def _usage_from_response(response: Any) -> AttemptUsage:
 
 
 async def _record_safely(recorder: UsageRecorder, attempt: UsageAttempt) -> UsageAttempt | None:
+    from dataclasses import replace
+    from core.services.desktop_observation_context import model_call_id
+    call_id = model_call_id.get()
+    if call_id:
+        attempt = replace(attempt, metadata={**attempt.metadata, "gateway_call_id": call_id})
     return await record_usage_safely(recorder, attempt)
 
 
@@ -277,6 +282,8 @@ def instrument_model_usage(
         if context is None:
             return await original(model_name, *args, **kwargs)
 
+        from core.services.desktop_observation_context import model_call_id
+        model_call_id.set("")
         started = time.monotonic()
         operation = str(model_name or getattr(model, "model", "") or "unknown")
         key = _attempt_key(model, operation)

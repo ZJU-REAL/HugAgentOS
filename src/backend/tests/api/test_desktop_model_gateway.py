@@ -13,7 +13,7 @@ from core.services import desktop_capability as service
 
 @pytest.fixture(autouse=True)
 def _fake_connection_secrets(monkeypatch):
-    monkeypatch.setattr(service, "_known_cloud_secrets", lambda uid: set())
+    monkeypatch.setattr(service, "_known_cloud_secrets", lambda uid, **_: set())
 
 
 def test_model_gateway_replaces_model_and_credentials(monkeypatch):

@@ -36,6 +36,11 @@ SCHEMA_VERSION = 2
 LOCAL_TRANSPORTS = ("stdio", "streamable_http", "sse")
 
 _write_lock = threading.Lock()
+# Parsed documents keyed by path, tagged with the file's stat identity. Every
+# assembly pass reads this file several times; the disk is only touched when
+# the identity changed.
+_load_lock = threading.Lock()
+_load_cache: Dict[Path, tuple] = {}
 logger = logging.getLogger(__name__)
 
 
@@ -141,10 +146,26 @@ def _parse(doc: Any, path: Path) -> McpJson:
     )
 
 
+def _stat_identity(path: Path) -> Optional[tuple]:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
 def load(path: Optional[Path] = None) -> McpJson:
+    """Return a private, mutable copy of the current document."""
     path = path or mcp_json_path()
-    if not path.exists():
+    identity = _stat_identity(path)
+    if identity is None:
+        with _load_lock:
+            _load_cache.pop(path, None)
         return McpJson()
+    with _load_lock:
+        hit = _load_cache.get(path)
+        if hit is not None and hit[0] == identity:
+            return copy.deepcopy(hit[1])
     try:
         raw = path.read_bytes()
         doc = json.loads(raw.decode("utf-8"))
@@ -152,7 +173,14 @@ def load(path: Optional[Path] = None) -> McpJson:
         raise McpJsonCorrupt(path, exc) from exc
     parsed = _parse(doc, path)
     parsed.digest = hashlib.sha256(raw).hexdigest()
+    with _load_lock:
+        _load_cache[path] = (identity, copy.deepcopy(parsed))
     return parsed
+
+
+def invalidate(path: Optional[Path] = None) -> None:
+    with _load_lock:
+        _load_cache.pop(path or mcp_json_path(), None)
 
 
 def _lock_path(path: Path) -> Path:
@@ -217,6 +245,7 @@ def write(
             raise
         doc.generation = expected_generation + 1
         doc.digest = hashlib.sha256(payload).hexdigest()
+        invalidate(path)
     return doc
 
 

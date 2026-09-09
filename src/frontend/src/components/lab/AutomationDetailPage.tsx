@@ -206,7 +206,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
     if (!task) return;
     try {
       const values = await form.validateFields();
-      if (isOnceScheduleExpired(editSchedule)) {
+      if (isOnceScheduleExpired(editSchedule, task?.timezone)) {
         message.error(t('执行时间已过，请重新选择一个未来的时间'));
         return;
       }
@@ -471,10 +471,19 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                 {isEditing ? (
                   <div className="jx-automation-detail-field is-multiline">
                     <div className="jx-automation-detail-fieldLabel">{t('调度方式')}</div>
-                    <ScheduleSelector value={editSchedule} onChange={setEditSchedule} />
+                    <ScheduleSelector value={editSchedule} onChange={setEditSchedule} timezone={task.timezone} />
                   </div>
                 ) : (
                   <div className="jx-automation-detail-grid">
+                    <div className="jx-automation-detail-field">
+                      <div className="jx-automation-detail-fieldLabel">{t('执行位置')}</div>
+                      <div className="jx-automation-detail-fieldValue">
+                        {task.execution_location === 'local' ? t('本机') : t('云端')}
+                        {task.device_name ? ' · ' + task.device_name : ''}
+                        {task.project_name ? ' · ' + task.project_name : ''}
+                      </div>
+                      {task.project_local_path && <div>{task.project_local_path}</div>}
+                    </div>
                     <div className="jx-automation-detail-field">
                       <div className="jx-automation-detail-fieldLabel">{t('调度方式')}</div>
                       <div className="jx-automation-detail-fieldValue">

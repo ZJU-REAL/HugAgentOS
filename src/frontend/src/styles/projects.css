@@ -7,11 +7,12 @@
    * margin:auto 居中的 shell 不再左右平移（列表↔详情切换时的水平抖动） */
   scrollbar-gutter: stable both-edges;
   background: var(--color-bg-container);
-  padding: 32px 40px 80px;
+  padding: 28px 24px 80px;
 }
 
 .jx-projects-shell {
-  max-width: 1080px;
+  /* 792 = .jx-agentPage 的 840 减去两侧 24px 内边距，两类页面左缘对齐 */
+  max-width: 792px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

@@ -17,6 +17,7 @@ Migration notes (1.x → 2.0)
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List
@@ -150,9 +151,9 @@ class GatewayMCPTool(ToolBase):
         headers: Dict[str, str],
         timeout: float,
         transport: Any = None,
-        component: str = "",
+        source_plugin: str = "",
     ) -> None:
-        self._component = component
+        self._source_plugin = source_plugin
         self.mcp_name = mcp_name
         self.name = tool.name
         self.description = tool.description or ""
@@ -193,6 +194,8 @@ class GatewayMCPTool(ToolBase):
 
     async def __call__(self, **kwargs: Any) -> ToolChunk:
         headers = dict(self._headers)
+        from core.services.desktop_observation_context import context_headers
+        headers.update(context_headers())
         from core.capabilities.paths import capabilities_enabled
         captured = None
         if capabilities_enabled() and "/api/v1/desktop/capability/gateway/" in self._invoke_url:
@@ -201,6 +204,36 @@ class GatewayMCPTool(ToolBase):
                         "token": str(headers.get("Authorization") or "").removeprefix("Bearer ")}
             bridge.require_current_account(captured)
             headers.update(bridge.cloud_headers(bridge.get_state()))
+        local_result = None
+        if captured is not None:
+            from core.services.automation_tool_routing import local_automation_result
+            async def authorize_local():
+                options = {"timeout": 15.0}
+                if self._transport is not None:
+                    options["transport"] = self._transport
+                async with httpx.AsyncClient(**options) as client:
+                    reply = await client.post(
+                        self._invoke_url.rsplit("/", 1)[0] + "/authorize",
+                        headers=headers,
+                        json={"tool_name": self.name, "schema_hash": self._schema_hash,
+                              "operation_id": kwargs.get("tool_effect_id") or "authorization"},
+                    )
+                bridge.require_current_account(captured)
+                if reply.status_code in (401, 403):
+                    with bridge.account_scope(captured):
+                        bridge.clear_state()
+                if not reply.is_success:
+                    raise ValueError("本机任务工具授权已变更或不可用，请同步云端能力后重试")
+            try:
+                local_result = await local_automation_result(
+                    self._source_plugin, self.name, kwargs, headers, authorize=authorize_local,
+                )
+            except ValueError as exc:
+                from agentscope.message import TextBlock, ToolResultState
+                return ToolChunk(content=[TextBlock(text=str(exc))], state=ToolResultState.ERROR)
+            bridge.require_current_account(captured)
+            if local_result is not None and not local_result.metadata.get("merge_cloud"):
+                return local_result
         headers["accept-encoding"] = "identity"
         client_kwargs: Dict[str, Any] = {
             "timeout": httpx.Timeout(
@@ -220,10 +253,16 @@ class GatewayMCPTool(ToolBase):
                 upload_channel,
             )
 
-            channel = upload_channel(self._component, self.name)
+            channel = upload_channel(self._source_plugin, self.name)
         if channel is not None:
             body, options = await channel.package(kwargs, headers)
             bridge.require_current_account(captured)
+        from core.services.automation_remote_effect import RECEIPT_TOOLS, remember_remote_call
+        from core.services.tool_effect_ledger import CURRENT_TOOL_EFFECT
+        effect = CURRENT_TOOL_EFFECT.get()
+        if self.name in RECEIPT_TOOLS and effect is not None:
+            await asyncio.to_thread(remember_remote_call, effect, self.mcp_name,
+                                    self._invoke_url, self._schema_hash)
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
                 if channel is not None:
@@ -257,10 +296,16 @@ class GatewayMCPTool(ToolBase):
             if not isinstance(data, dict):
                 raise ValueError("cloud gateway returned no tool result")
             if channel is not None and channel.localize is not None:
-                channel.localize(data, captured["cloud_base"])
+                with bridge.account_scope(captured):
+                    channel.localize(data, captured["cloud_base"], kwargs, headers)
             chunk = ToolChunk.model_validate(data)
             chunk.metadata.setdefault("origin", "cloud")
             chunk.metadata.setdefault("mcp_server_id", self.mcp_name)
+            if local_result is not None and local_result.metadata.get("merge_cloud"):
+                from agentscope.message import TextBlock
+                chunk.content = [TextBlock(text="云端任务："), *chunk.content,
+                                 TextBlock(text="本机任务："), *local_result.content]
+                chunk.metadata["origin"] = "mixed"
             return chunk
         except httpx.TimeoutException as exc:
             if not self.is_read_only:
@@ -296,7 +341,7 @@ class ManifestMCPClient(BareNameMCPClient):
     gateway_invoke_url: str = Field(exclude=True)
     schema_hash: str = Field(exclude=True)
     gateway_transport: Any = Field(default=None, exclude=True)
-    gateway_component: str = Field(default="", exclude=True)
+    gateway_plugin: str = Field(default="", exclude=True)
 
     def _raw_manifest_tools(self) -> List[mcp.types.Tool]:
         tools: List[mcp.types.Tool] = []
@@ -327,7 +372,7 @@ class ManifestMCPClient(BareNameMCPClient):
                     headers=dict(self.mcp_config.headers or {}),
                     timeout=float(self.execution_timeout or 120.0),
                     transport=self.gateway_transport,
-                    component=self.gateway_component,
+                    source_plugin=self.gateway_plugin,
                 )
         raise ValueError(f"Tool '{name}' not found in cloud manifest MCP '{self.name}'")
 

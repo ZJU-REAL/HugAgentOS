@@ -204,8 +204,13 @@ def register_read(
         if scope_err:
             return resp_json({"error": scope_err})
 
+        from .project_source_access import current_scope_error, read_team_bytes, is_team_source_path
+        scope_error = current_scope_error(scope, user_id)
+        if scope_error:
+            return resp_json(scope_error)
+
         # Logical path /myspace/... → physical path /workspace/myspace/<uid>/...
-        physical = to_physical_path(file_path, user_id)
+        physical = to_physical_path(file_path, user_id, session_id=_sess)
 
         provider = _get_provider()
         recovered_from_artifact = False
@@ -214,6 +219,12 @@ def register_read(
         from core.config.local_mode import local_mode_enabled as _local_on
 
         _local_read: Optional[bytes] = None
+        if is_team_source_path(scope, user_id, file_path):
+            from fastapi import HTTPException
+            try:
+                _local_read = await asyncio.to_thread(read_team_bytes, scope, user_id or "", file_path)
+            except HTTPException as exc:
+                return resp_json({"error": exc.detail, "status": exc.status_code})
         if _local_on():
             try:
                 from core.llm.tool_permissions import (
@@ -232,7 +243,7 @@ def register_read(
         # snapshot. Resolve it by the authorized project ID, even when an old
         # copy already exists in this conversation's sandbox.
         if (
-            not _local_on() and scope and not scope.is_local and scope.folder_name
+            not _local_on() and scope and scope.kind != "team" and not scope.is_local and scope.folder_name
             and _ms.myspace_rel(physical, user_id, scope) == f"{scope.folder_name}/AGENTS.md"
         ):
             from fastapi import HTTPException

@@ -184,3 +184,19 @@ In a specific project with edit access, type `/` in a standard project conversat
 The prompt lives in `src/backend/prompts/project_init.md`. The model inspects existing rules and representative project material, creates or incrementally improves applicable instructions, preserves human-authored constraints, then persists and verifies through project-bound `read_project_instructions` / `save_project_instructions` tools. Runtime file permissions and approval modes still apply; conflicts or denied approvals are not reported as successful saves.
 
 Initialization does not automatically execute installation, deployment, or publishing commands discovered in project material. No database migration is required. CE and EE share synchronization and initialization logic with edition-specific folder scope providers.
+
+## Transfer a personal project to a team (EE)
+
+The personal project owner can choose **Transfer to team** in the project detail menu and select a team they own or administer. The entire visible folder subtree moves into team space. The old personal folder disappears; project IDs, file IDs, file contents and linked sites are preserved. Conflicting project/folder names, overlapping project trees and active tasks prevent the transfer. Retrying the same target does not duplicate the project. Direct transfer back to personal space is not supported.
+
+The folder ownership change is one database transaction; object storage keys remain stable. Use `POST /v1/projects/{project_id}/transfer-to-team` with `{"team_id":"..."}`. Stale project scopes must reload before further tool operations. Private conversations are not automatically shared and personal memories are not copied; team projects use team memory scope.
+
+Config **Team management** offers Owner, Administrator, Editor and Read-only. Regular members retain the internal `member` role with `file_permission=editor/viewer`; user-facing labels show Editor or Read-only.
+
+| Permission | Read project/source | Edit source/goals and publish sites | Rename/delete project, manage members/sites |
+|---|---|---|---|
+| Read-only | Yes | No | No |
+| Editor | Yes | Yes | No |
+| Owner / Administrator | Yes | Yes | Yes |
+
+`GET/PUT /v1/projects/{id}/source` uses project-relative paths. Saving requires the revision returned by the previous read, preventing lost updates. Agent Read/Edit/Write and bash recheck current permissions on every call, including already registered tools. Team bash operates in the conversation work copy at `/workspace/projects/{id}` and saves changes with revision checks. Delete shared source through project file management; shell deletion does not automatically remove shared files.

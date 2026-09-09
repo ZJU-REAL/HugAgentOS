@@ -11,6 +11,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { isLocalDraftChat, LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
+import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import type { Catalog, ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
@@ -87,6 +88,57 @@ export async function loadOlderMessages(chatId: string): Promise<number> {
     if (latest) useChatStore.getState().setMessagePaging(chatId, { ...latest, loading: false });
     return 0;
   }
+}
+
+/** 服务端会话行 → 侧边栏条目。`prior` 是刷新前本地已有的同一会话（保留手动改名、模式开关等本地态）。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
+  const id: string = s.chat_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const meta = (s.metadata || {}) as any;
+  // 手动重命名保护：后端已带 title_manually_set 直接用；本地改过名但还没
+  // 同步到后端（流式期间改名后刷新）→ 保留本地标题，后续流结束时自动补同步
+  const localManual = prior?.titleManuallySet === true;
+  const backendManual = meta.title_manually_set === true;
+  const preservedTitle = !backendManual && localManual && prior?.title
+    ? prior.title
+    : (s.title || '新对话');
+  return {
+    id,
+    title: preservedTitle,
+    ...(backendManual || localManual ? { titleManuallySet: true } : {}),
+    createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
+    updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : Date.now(),
+    messages: [],
+    favorite: !!s.favorite,
+    pinned: !!s.pinned,
+    businessTopic: meta.businessTopic || '综合咨询',
+    agentId: meta.agent_id || undefined,
+    agentName: meta.agent_name || undefined,
+    planChat: meta.plan_chat === true ? true : undefined,
+    ...(typeof prior?.planModeActive === 'boolean'
+      ? { planModeActive: prior.planModeActive }
+      : {}),
+    batchChat: meta.batch_chat === true ? true : undefined,
+    ...(typeof prior?.batchModeActive === 'boolean'
+      ? { batchModeActive: prior.batchModeActive }
+      : {}),
+    workflowChat: meta.workflow_chat === true ? true : undefined,
+    ...(typeof prior?.workflowModeActive === 'boolean'
+      ? { workflowModeActive: prior.workflowModeActive }
+      : {}),
+    automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
+    automationRun: meta.automation_run === true ? true : undefined,
+    planProgress: toPlanProgress(meta.plan_progress),
+    // When the backend session hasn't bound project_id (e.g. bound locally via the input-box dropdown, not yet persisted with a message),
+    // keep the locally bound projectId/projectName — otherwise the session would fall back to the default project after refresh. The next send
+    // carries project_id and self-heals into the DB.
+    projectId: (typeof s.project_id === 'string' && s.project_id)
+      ? s.project_id
+      : (prior?.projectId || undefined),
+    projectName: prior?.projectName || undefined,
+    ...(prior?.runTarget === 'local' ? { runTarget: 'local' as const } : {}),
+  };
 }
 
 const pendingReloads = new Map<string, Promise<boolean>>();
@@ -519,6 +571,7 @@ export function useChatInit() {
   // Use authUser?.user_id (not the full authUser object) so that updating only
   // the avatar URL does not trigger a re-fetch and panel navigation.
   const authUserId = authUser?.user_id ?? null;
+  const localReady = useDeploymentModeStore((s) => s.localReady);
   useEffect(() => {
     if (authChecking || !authUserId) return;
     if (!effectiveApiUrl) return;
@@ -543,69 +596,13 @@ export function useChatInit() {
         if (!r.ok || cancelled) return;
         const payload = await r.json();
         const items: any[] = payload?.data?.items || [];
-        // 双模式：并入本机执行面上「本地项目」的会话（本机未就绪时静默跳过），
-        // 并登记 chat→local，后续消息/操作请求自动路由到本机。
-        if (isHybridDual()) {
-          try {
-            const lr = await authFetch(`${effectiveApiUrl}/v1/chats?page_size=100&exclude_automation=true`, {
-              headers: { [LOCAL_TARGET_HEADER]: 'local' },
-            });
-            if (lr.ok && !cancelled) {
-              const lp = await lr.json();
-              const localItems: any[] = lp?.data?.items || [];
-              localItems.forEach((it) => registerLocalChat(it.chat_id));
-              items.push(...localItems);
-            }
-          } catch { /* 本机执行面未就绪：仅展示云端会话 */ }
-        }
+        // 云端会话先上屏；双模式下本机会话由下面的就绪效应并入，不让侧边栏等本机启动。
         const chats: Record<string, ChatItem> = {};
         const order: string[] = [];
 
         for (const s of items) {
           const id: string = s.chat_id;
-          const meta = (s.metadata || {}) as any;
-          // 手动重命名保护：后端已带 title_manually_set 直接用；本地改过名但还没
-          // 同步到后端（流式期间改名后刷新）→ 保留本地标题，后续流结束时自动补同步
-          const localManual = localSnapshot.chats[id]?.titleManuallySet === true;
-          const backendManual = meta.title_manually_set === true;
-          const preservedTitle = !backendManual && localManual && localSnapshot.chats[id]?.title
-            ? localSnapshot.chats[id].title
-            : (s.title || '新对话');
-          chats[id] = {
-            id,
-            title: preservedTitle,
-            ...(backendManual || localManual ? { titleManuallySet: true } : {}),
-            createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
-            updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : Date.now(),
-            messages: [],
-            favorite: !!s.favorite,
-            pinned: !!s.pinned,
-            businessTopic: meta.businessTopic || '综合咨询',
-            agentId: meta.agent_id || undefined,
-            agentName: meta.agent_name || undefined,
-            planChat: meta.plan_chat === true ? true : undefined,
-            ...(typeof localSnapshot.chats[id]?.planModeActive === 'boolean'
-              ? { planModeActive: localSnapshot.chats[id].planModeActive }
-              : {}),
-            batchChat: meta.batch_chat === true ? true : undefined,
-            ...(typeof localSnapshot.chats[id]?.batchModeActive === 'boolean'
-              ? { batchModeActive: localSnapshot.chats[id].batchModeActive }
-              : {}),
-            workflowChat: meta.workflow_chat === true ? true : undefined,
-            ...(typeof localSnapshot.chats[id]?.workflowModeActive === 'boolean'
-              ? { workflowModeActive: localSnapshot.chats[id].workflowModeActive }
-              : {}),
-            automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
-            automationRun: meta.automation_run === true ? true : undefined,
-            planProgress: toPlanProgress(meta.plan_progress),
-            // When the backend session hasn't bound project_id (e.g. bound locally via the input-box dropdown, not yet persisted with a message),
-            // keep the locally bound projectId/projectName — otherwise the session would fall back to the default project after refresh. The next send
-            // carries project_id and self-heals into the DB.
-            projectId: (typeof s.project_id === 'string' && s.project_id)
-              ? s.project_id
-              : (localSnapshot.chats[id]?.projectId || undefined),
-            projectName: localSnapshot.chats[id]?.projectName || undefined,
-          };
+          chats[id] = sessionToChatItem(s, localSnapshot.chats[id]);
           order.push(id);
           addBackendSessionId(id);
         }
@@ -637,6 +634,13 @@ export function useChatInit() {
                 preserved[id] = localChat;
                 preservedOrder.push(id);
               }
+            }
+            // A pending server list must not erase a newly selected execution target.
+            const currentId = useChatStore.getState().currentChatId;
+            const draft = prev.chats[currentId];
+            if (draft && !mergedServerChats[currentId] && !preserved[currentId]) {
+              preserved[currentId] = draft;
+              if (draft.messages.length > 0) preservedOrder.unshift(currentId);
             }
             return {
               chats: { ...mergedServerChats, ...preserved },
@@ -706,10 +710,9 @@ export function useChatInit() {
     // Load sidebar-activated automation tasks (non-blocking)
     const fetchSidebarAutomations = async () => {
       try {
-        const r = await authFetch(`${effectiveApiUrl}/v1/automations?sidebar_activated=true`);
-        if (!r.ok || cancelled) return;
-        const payload = await r.json();
-        const tasks = payload?.data || [];
+        const { listSidebarAutomations } = await import('../api');
+        const tasks = await listSidebarAutomations();
+        if (cancelled) return;
         useAutomationChatStore.getState().setSidebarTasks(tasks);
       } catch { /* ignore — sidebar automation entries are optional */ }
     };
@@ -718,6 +721,53 @@ export function useChatInit() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveApiUrl, authUserId, authChecking]);
+
+  // 双模式：本机执行面就绪（可能晚于首屏）后把本机会话并进侧边栏，并登记 chat→本机
+  // 路由。不动当前会话指针；当前会话正是本机的时候，重新触发它的历史加载。
+  useEffect(() => {
+    if (authChecking || !authUserId || !isHybridDual() || !localReady) return;
+    let cancelled = false;
+    import('../api').then(({ listSidebarAutomations }) => listSidebarAutomations())
+      .then(tasks => { if (!cancelled) useAutomationChatStore.getState().setSidebarTasks(tasks); })
+      .catch(() => { /* Next sidebar refresh retries both execution planes. */ });
+    (async () => {
+      try {
+        const r = await authFetch(
+          `${effectiveApiUrl}/v1/chats?page_size=100&exclude_automation=true`,
+          { headers: { [LOCAL_TARGET_HEADER]: 'local' } },
+        );
+        if (!r.ok || cancelled) return;
+        const payload = await r.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const items: any[] = payload?.data?.items || [];
+        if (!items.length) return;
+        const snapshot = useChatStore.getState().store;
+        const currentChat = useChatStore.getState().currentChatId;
+        let currentIsLocal = false;
+        updateStore((prev) => {
+          const chats = { ...prev.chats };
+          const order = [...prev.order];
+          for (const s of items) {
+            const id: string = s.chat_id;
+            registerLocalChat(id);
+            addBackendSessionId(id);
+            if (!chats[id]) {
+              chats[id] = sessionToChatItem(s, snapshot.chats[id]);
+              order.push(id);
+            }
+            chats[id] = { ...chats[id], runTarget: 'local' };
+            if (id === currentChat) currentIsLocal = true;
+          }
+          return { ...prev, chats, order };
+        });
+        if (currentIsLocal) bumpSessionLoadEpoch();
+      } catch {
+        /* 本机执行面这一刻不可达：下一次就绪事件会再来一遍 */
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveApiUrl, authUserId, authChecking, localReady]);
 
   // 计划栏还原 —— 计划清单的真源在服务端（会话 metadata.plan_progress）。
   //

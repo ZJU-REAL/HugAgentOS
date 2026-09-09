@@ -105,7 +105,9 @@
   --space-xl:40px;
 
   /* ── 字体 ── */
-  --font-family:"PingFang SC",-apple-system,sans-serif;
+  --font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  /* 等宽栈里放一个中文字体：Consolas / SF Mono 没有汉字，不写的话 Windows 会按字回落到宋体 */
+  --font-family-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Mono","Liberation Mono","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",monospace;
   --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
   --font-family-homepage:"Alibaba PuHuiTi 3.0","MiSans","HarmonyOS Sans SC","PingFang SC","Microsoft YaHei UI",sans-serif;
 
@@ -278,6 +280,10 @@ body{
   background:var(--color-bg-base);
   color:var(--color-text);
   font-family:var(--font-family);
+}
+/* antd 的全局重置给 code/pre 写了一套没有中文的等宽栈，统一收回到令牌 */
+code,kbd,samp,pre{
+  font-family:var(--font-family-mono);
 }
 
 /* ── 全局滚动条基础样式（深色由上方令牌翻转，不加选择器） ── */

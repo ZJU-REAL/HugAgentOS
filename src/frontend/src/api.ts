@@ -149,6 +149,13 @@ export function isHybridDual(): boolean {
 
 const _localProjects = new Set<string>();
 const _localChats = new Set<string>();
+const _localLoops = new Set<string>();
+let _chatContext: (id: string) => { runTarget?: string; projectId?: string } | undefined = () => undefined;
+
+/** Read the current user's persisted chat choice without importing stores into the API layer. */
+export function setChatRoutingContext(reader: typeof _chatContext) {
+  _chatContext = reader;
+}
 
 export function registerLocalProject(projectId: string) {
   if (projectId) _localProjects.add(projectId);
@@ -159,8 +166,14 @@ export function registerLocalChat(chatId: string) {
 export function isLocalProject(projectId?: string | null): boolean {
   return !!projectId && _localProjects.has(projectId);
 }
+/** Unlike a draft choice, this means the session has been observed on the local backend. */
+export function isRegisteredLocalChat(chatId: string): boolean {
+  return _localChats.has(chatId);
+}
 export function isLocalChat(chatId?: string | null): boolean {
-  return !!chatId && _localChats.has(chatId);
+  if (!chatId) return false;
+  const chat = _chatContext(chatId);
+  return _localChats.has(chatId) || chat?.runTarget === 'local' || isLocalProject(chat?.projectId);
 }
 
 function localHeader(): Record<string, string> {
@@ -180,6 +193,8 @@ function inferTargetHeadersFromUrl(url: string): Record<string, string> {
   if (!_hybridDual) return {};
   const pm = url.match(/\/v1\/projects\/([^/?#]+)/);
   if (pm && isLocalProject(decodeURIComponent(pm[1]))) return localHeader();
+  const lm = url.match(/\/v1\/loops\/([^/?#]+)/);
+  if (lm && _localLoops.has(decodeURIComponent(lm[1]))) return localHeader();
   const cm = url.match(/\/v1\/chats\/([^/?#]+)/);
   if (cm && isLocalChat(decodeURIComponent(cm[1]))) return localHeader();
   return {};
@@ -558,7 +573,7 @@ export async function listLocalSessions(page: number = 1, pageSize: number = 50)
     );
     const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
     const items = Array.isArray(data.items) ? data.items.map((item) => toChatItem(item)) : [];
-    items.forEach((it) => registerLocalChat(it.id));
+    items.forEach((it) => { it.runTarget = 'local'; registerLocalChat(it.id); });
     return items;
   } catch {
     return []; // 本机服务未就绪：不阻塞云端会话列表
@@ -2738,7 +2753,7 @@ export async function generatePlanStream(
   const url = `${getApiUrl()}/v1/plans/generate`;
   return authFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...projectTargetHeaders(projectId), ...chatTargetHeaders(chatId) },
     body: JSON.stringify({
       task_description: taskDescription,
       model_name: modelName,
@@ -2779,22 +2794,24 @@ export async function cancelJobApi(jobId: string): Promise<void> {
   await apiRequest<unknown>(`/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
 }
 
-export async function listPlans(): Promise<Plan[]> {
-  const res = await apiRequest<unknown>('/v1/plans');
+export async function listPlans(target?: 'local'): Promise<Plan[]> {
+  const res = await apiRequest<unknown>('/v1/plans', undefined, target);
   return unwrapData<Plan[]>(res);
 }
 
-export async function getPlanApi(planId: string): Promise<Plan> {
-  const res = await apiRequest<unknown>(`/v1/plans/${planId}`);
+export async function getPlanApi(planId: string, chatId?: string, target?: 'local'): Promise<Plan> {
+  const res = await apiRequest<unknown>(`/v1/plans/${planId}`, { headers: chatTargetHeaders(chatId) }, target);
   return unwrapData<Plan>(res);
 }
 
 export async function updatePlanApi(
   planId: string,
   updates: { status?: string; title?: string; steps?: Record<string, unknown>[] },
+  chatId?: string,
 ): Promise<Plan> {
   const res = await apiRequest<unknown>(`/v1/plans/${planId}`, {
     method: 'PATCH',
+    headers: chatTargetHeaders(chatId),
     body: JSON.stringify(updates),
   });
   return unwrapData<Plan>(res);
@@ -2818,7 +2835,7 @@ export async function executePlanStream(
   const url = `${getApiUrl()}/v1/plans/${planId}/execute`;
   return authFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...projectTargetHeaders(projectId), ...chatTargetHeaders(chatId) },
     body: JSON.stringify({
       ...(enabledMcpIds ? { enabled_mcp_ids: enabledMcpIds } : {}),
       ...(enabledSkillIds ? { enabled_skill_ids: enabledSkillIds } : {}),
@@ -2832,8 +2849,8 @@ export async function executePlanStream(
   });
 }
 
-export async function cancelPlanApi(planId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/plans/${planId}/cancel`, { method: 'POST' });
+export async function cancelPlanApi(planId: string, chatId?: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/plans/${planId}/cancel`, { method: 'POST', headers: chatTargetHeaders(chatId) });
 }
 
 export const api = {
@@ -2906,6 +2923,8 @@ export default api;
 // ── Automation API ──────────────────────────────────────────────
 
 export interface CreateAutomationRequest {
+  execution_location?: 'local' | 'cloud';
+  project_id?: string;
   task_type: 'prompt' | 'plan';
   prompt?: string;
   plan_id?: string;
@@ -2936,8 +2955,8 @@ export interface ChannelConversation {
   last_message_at: string | null;
 }
 
-export async function listChannelConversations(): Promise<ChannelConversation[]> {
-  const wrapped = await apiRequest<unknown>('/v1/channels/conversations');
+export async function listChannelConversations(target?: 'local'): Promise<ChannelConversation[]> {
+  const wrapped = await apiRequest<unknown>('/v1/channels/conversations', undefined, target);
   const data = unwrapData<{ conversations?: ChannelConversation[] }>(wrapped);
   return data?.conversations ?? [];
 }
@@ -2957,81 +2976,121 @@ export interface UpdateAutomationRequest {
   conversation_id?: string | null;
 }
 
+// Prefixes are frontend-only identities; they survive navigation/reload and
+// prevent equal IDs from two independent databases from sharing UI state.
+function automationTarget(id: string): 'local' | undefined {
+  if (!id.startsWith('local:')) return undefined;
+  if (_hybridDual) return 'local';
+  const boot = typeof window === 'undefined' ? undefined : window.__HG_DESKTOP__;
+  if (boot?.provision_mode === 'local_only') return undefined;
+  throw new Error('此任务属于本机，请在提供本机服务的桌面模式中打开');
+}
+function automationPath(id: string, suffix = ''): string {
+  const raw = id.startsWith('local:') ? id.slice(6) : id;
+  return `/v1/automations/${encodeURIComponent(raw)}${suffix}`;
+}
+function locatedTask(task: AutomationTask, local: boolean): AutomationTask {
+  return { ...task, task_id: local && _hybridDual ? `local:${task.task_id}` : task.task_id,
+    execution_location: local ? 'local' : task.execution_location || 'cloud' };
+}
+let automationUnavailable: string[] = [];
+export function automationAvailabilityWarning(): string {
+  return automationUnavailable.join('；');
+}
+async function availableAutomationSides<T>(fetchSide: (local: boolean) => Promise<T[]>): Promise<T[]> {
+  const results = await Promise.allSettled([fetchSide(false), fetchSide(true)]);
+  automationUnavailable = results.flatMap((result, index) => result.status === 'rejected'
+    ? [index === 0 ? '云端暂不可用，当前仅显示本机结果' : '本机服务暂不可用，当前仅显示云端结果'] : []);
+  if (results.every(result => result.status === 'rejected')) throw new Error('本机和云端服务均暂不可用');
+  return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+}
+async function automationList(query = ''): Promise<AutomationTask[]> {
+  const fetchSide = async (local: boolean) => {
+    const res = await apiRequest<unknown>(`/v1/automations${query}`, undefined, local ? 'local' : undefined);
+    return unwrapData<AutomationTask[]>(res).map(task => locatedTask(task, local));
+  };
+  if (!_hybridDual) { automationUnavailable = []; return fetchSide(false); }
+  const items = await availableAutomationSides(fetchSide);
+  return items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+}
+
 export async function createAutomation(data: CreateAutomationRequest): Promise<AutomationTask> {
+  const local = data.execution_location === 'local';
   const res = await apiRequest<unknown>('/v1/automations', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return unwrapData<AutomationTask>(res);
+    method: 'POST', body: JSON.stringify(data),
+  }, _hybridDual && local ? 'local' : undefined);
+  return locatedTask(unwrapData<AutomationTask>(res), local);
 }
-
 export async function listAutomations(status?: string): Promise<AutomationTask[]> {
-  const qs = status ? `?status=${status}` : '';
-  const res = await apiRequest<unknown>(`/v1/automations${qs}`);
-  return unwrapData<AutomationTask[]>(res);
+  return automationList(status ? `?status=${encodeURIComponent(status)}` : '');
 }
-
 export async function getAutomation(taskId: string): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}`);
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId), undefined, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function updateAutomation(taskId: string, data: UpdateAutomationRequest): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  });
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId), {
+    method: 'PATCH', body: JSON.stringify(data),
+  }, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function deleteAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}`, { method: 'DELETE' });
+  await apiRequest(automationPath(taskId), { method: 'DELETE' }, automationTarget(taskId));
 }
-
 export async function pauseAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/pause`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/pause'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function resumeAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/resume`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/resume'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function triggerAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/trigger`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/trigger'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function getAutomationRuns(taskId: string, limit?: number): Promise<AutomationRun[]> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}/runs?limit=${limit || 10}`);
-  return unwrapData<AutomationRun[]>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId, `/runs?limit=${limit || 10}`), undefined, target);
+  return unwrapData<AutomationRun[]>(res).map(run => {
+    if (target === 'local' && run.chat_id) registerLocalChat(run.chat_id);
+    return { ...run, task_id: taskId };
+  });
 }
-
 export async function activateAutomationSidebar(taskId: string): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}/activate-sidebar`, { method: 'POST' });
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId, '/activate-sidebar'), { method: 'POST' }, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function listSidebarAutomations(): Promise<AutomationTask[]> {
-  const res = await apiRequest<unknown>('/v1/automations?sidebar_activated=true');
-  return unwrapData<AutomationTask[]>(res);
+  return automationList('?sidebar_activated=true');
 }
-
 export async function getAutomationNotifications(): Promise<AutomationNotification[]> {
-  const res = await apiRequest<unknown>('/v1/automations/notifications/list');
-  return unwrapData<AutomationNotification[]>(res);
+  const fetchSide = async (local: boolean) => {
+    const res = await apiRequest<unknown>('/v1/automations/notifications/list', undefined, local ? 'local' : undefined);
+    return unwrapData<AutomationNotification[]>(res).map(item => {
+      if (local && item.chat_id) registerLocalChat(item.chat_id);
+      return local ? { ...item, id: `local:${item.id}`, task_id: `local:${item.task_id}` } : item;
+    });
+  };
+  if (!_hybridDual) { automationUnavailable = []; return fetchSide(false); }
+  return availableAutomationSides(fetchSide);
 }
-
+async function changeNotifications(ids: string[], action: 'read' | 'delete'): Promise<void> {
+  const groups = _hybridDual ? [false, true] : [false];
+  await Promise.all(groups.map(async local => {
+    const selected = ids.filter(id => (automationTarget(id) === 'local') === local);
+    if (!selected.length) return;
+    await apiRequest(`/v1/automations/notifications/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ ids: selected.map(id => local ? id.slice(6) : id) }),
+    }, local ? 'local' : undefined);
+  }));
+}
 export async function markNotificationsRead(ids: string[]): Promise<void> {
-  await apiRequest<unknown>('/v1/automations/notifications/read', {
-    method: 'POST',
-    body: JSON.stringify({ ids }),
-  });
+  return changeNotifications(ids, 'read');
 }
-
 export async function deleteNotifications(ids: string[]): Promise<void> {
-  await apiRequest<unknown>('/v1/automations/notifications/delete', {
-    method: 'POST',
-    body: JSON.stringify({ ids }),
-  });
+  return changeNotifications(ids, 'delete');
 }
 
 // ── Skill Distillation (Lab personal skill distillation) ────────────────
@@ -3189,25 +3248,25 @@ export async function listProjects(opts: { q?: string; sort?: string; page?: num
   if (opts.pageSize) params.set('page_size', String(opts.pageSize));
   const qs = params.toString();
   const path = `/v1/projects${qs ? `?${qs}` : ''}`;
-  const wrapped = await apiRequest<unknown>(path);
-  const cloud = unwrapData<ProjectListResponse>(wrapped);
-  if (!isHybridDual()) return cloud;
+  if (!isHybridDual()) return unwrapData<ProjectListResponse>(await apiRequest<unknown>(path));
   // 双模式：云端项目 + 本机的本地文件夹项目合并为一张列表（本地项目登记路由表）。
-  // 本机服务未就绪/无本地项目时静默退回云端列表。
-  try {
-    const localWrapped = await apiRequest<unknown>(path, undefined, 'local');
-    const local = unwrapData<ProjectListResponse>(localWrapped);
-    const localItems = (local?.items || []).filter((p) => (p.kind as string) === 'local');
-    localItems.forEach((p) => registerLocalProject(p.project_id));
-    if (!localItems.length) return cloud;
-    const seen = new Set((cloud.items || []).map((p) => p.project_id));
-    return {
-      ...cloud,
-      items: [...(cloud.items || []), ...localItems.filter((p) => !seen.has(p.project_id))],
-    };
-  } catch {
-    return cloud;
-  }
+  // 两端并行请求；本机执行面尚未就绪时只列云端项目。
+  const [cloudResult, localResult] = await Promise.allSettled([
+    apiRequest<unknown>(path),
+    apiRequest<unknown>(path, undefined, 'local'),
+  ]);
+  if (cloudResult.status === 'rejected') throw cloudResult.reason;
+  const cloud = unwrapData<ProjectListResponse>(cloudResult.value);
+  if (localResult.status === 'rejected') return cloud;
+  const local = unwrapData<ProjectListResponse>(localResult.value);
+  const localItems = (local?.items || []).filter((p) => (p.kind as string) === 'local');
+  localItems.forEach((p) => registerLocalProject(p.project_id));
+  if (!localItems.length) return cloud;
+  const seen = new Set((cloud.items || []).map((p) => p.project_id));
+  return {
+    ...cloud,
+    items: [...(cloud.items || []), ...localItems.filter((p) => !seen.has(p.project_id))],
+  };
 }
 
 export async function createProject(body: {
@@ -3285,12 +3344,42 @@ export interface LocalSnapshotFile {
 // 而来，不再另存一份「本机操作权限档」。上面的授权目录管的是"本机哪些目录能动"，
 // 与档位是两件事，只在桌面端有。
 export type ToolApprovalMode = 'ask' | 'auto' | 'full';
-export async function getToolApprovalMode(): Promise<ToolApprovalMode> {
-  const wrapped = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval');
-  return unwrapData<{ mode: ToolApprovalMode }>(wrapped).mode || 'ask';
+async function writeToolApprovalMode(mode: ToolApprovalMode, target?: 'local'): Promise<void> {
+  await apiRequest('/v1/tool-approval', { method: 'PUT', body: JSON.stringify({ mode }) }, target);
 }
-export async function setToolApprovalMode(mode: ToolApprovalMode): Promise<void> {
-  await apiRequest('/v1/tool-approval', { method: 'PUT', body: JSON.stringify({ mode }) });
+
+async function readAndSyncToolApprovalMode(): Promise<ToolApprovalMode> {
+  const wrapped = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval');
+  const mode = unwrapData<{ mode: ToolApprovalMode }>(wrapped).mode || 'ask';
+  if (isHybridDual()) {
+    // Cloud owns the account preference; repair older desktops that only saved it there.
+    // Do not report a preset until the executor has accepted the same value.
+    const local = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval', undefined, 'local');
+    if (unwrapData<{ mode: ToolApprovalMode }>(local).mode !== mode) {
+      await writeToolApprovalMode(mode, 'local');
+    }
+  }
+  return mode;
+}
+
+// Serialize startup repair and user changes so a delayed read cannot overwrite
+// a newer choice. Failed attempts release the queue so the next retry can repair it.
+let approvalSync: Promise<unknown> = Promise.resolve();
+function queueApprovalSync<T>(operation: () => Promise<T>): Promise<T> {
+  const result = approvalSync.then(operation);
+  approvalSync = result.catch(() => undefined);
+  return result;
+}
+
+export function getToolApprovalMode(): Promise<ToolApprovalMode> {
+  return queueApprovalSync(readAndSyncToolApprovalMode);
+}
+
+export function setToolApprovalMode(mode: ToolApprovalMode): Promise<void> {
+  return queueApprovalSync(async () => {
+    await writeToolApprovalMode(mode);
+    if (isHybridDual()) await writeToolApprovalMode(mode, 'local');
+  });
 }
 
 export async function listLocalSnapshots(): Promise<LocalSnapshotFile[]> {
@@ -3308,6 +3397,13 @@ export async function getProject(projectId: string): Promise<ProjectDetail> {
     isLocalProject(projectId) ? 'local' : undefined,
   );
   return unwrapData<ProjectDetail>(wrapped);
+}
+
+export async function transferProjectToTeam(projectId: string, teamId: string): Promise<ProjectDetail> {
+  return unwrapData<ProjectDetail>(await apiRequest(
+    `/v1/projects/${encodeURIComponent(projectId)}/transfer-to-team`,
+    { method: 'POST', body: JSON.stringify({ team_id: teamId }) },
+  ));
 }
 
 export async function updateProject(
@@ -3788,18 +3884,35 @@ export async function createLoop(data: {
 }): Promise<LoopItem> {
   const wrapped = await apiRequest<unknown>('/v1/loops', {
     method: 'POST',
+    headers: { ...projectTargetHeaders(data.project_id), ...chatTargetHeaders(data.chat_id) },
     body: JSON.stringify(data),
   });
-  return unwrapData<LoopItem>(wrapped);
+  const loop = unwrapData<LoopItem>(wrapped);
+  if (isHybridDual() && (isLocalChat(data.chat_id) || isLocalProject(data.project_id))) {
+    _localLoops.add(loop.loop_id);
+  }
+  return loop;
 }
 
 export async function listLoops(): Promise<LoopItem[]> {
   const wrapped = await apiRequest<unknown>('/v1/loops');
-  return unwrapData<LoopItem[]>(wrapped) || [];
+  const cloud = unwrapData<LoopItem[]>(wrapped) || [];
+  if (!isHybridDual()) return cloud;
+  try {
+    const localWrapped = await apiRequest<unknown>('/v1/loops', undefined, 'local');
+    const local = unwrapData<LoopItem[]>(localWrapped) || [];
+    for (const loop of local) {
+      _localLoops.add(loop.loop_id);
+      if (loop.chat_id) registerLocalChat(loop.chat_id);
+    }
+    return [...cloud, ...local];
+  } catch {
+    return cloud; // Local service readiness must not hide available cloud tasks.
+  }
 }
 
-export async function getLoop(loopId: string): Promise<LoopItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}`);
+export async function getLoop(loopId: string, chatId?: string): Promise<LoopItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}`, { headers: chatTargetHeaders(chatId) });
   return unwrapData<LoopItem>(wrapped);
 }
 
@@ -3816,10 +3929,11 @@ export async function startLoop(
   loopId: string,
   body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
+  chatId?: string,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/start`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify(body),
     signal,
   });
@@ -3829,34 +3943,88 @@ export async function resumeLoop(
   loopId: string,
   body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
+  chatId?: string,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/resume`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify(body),
     signal,
   });
 }
 
 /** 运行中追加一条用户指令：driver 下一轮 worker 开工前取走并以最高优先级注入 prompt。 */
-export async function steerLoop(loopId: string, message: string): Promise<boolean> {
+export async function steerLoop(loopId: string, message: string, chatId?: string): Promise<boolean> {
   const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}/steer`, {
     method: 'POST',
+    headers: chatTargetHeaders(chatId),
     body: JSON.stringify({ message }),
   });
   return (unwrapData<{ queued: boolean }>(wrapped) || { queued: false }).queued;
 }
 
-export async function cancelLoop(loopId: string): Promise<boolean> {
+export async function cancelLoop(loopId: string, chatId?: string): Promise<boolean> {
   const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}/cancel`, {
     method: 'POST',
+    headers: chatTargetHeaders(chatId),
   });
   return (unwrapData<{ cancelled: boolean }>(wrapped) || { cancelled: false }).cancelled;
 }
 
 // ── Sites (site hosting) ────────────────────────────────────────────────
 
+
+export interface LocalSiteSource {
+  site_id: string;
+  project_id: string;
+  project_name: string;
+  chat_id: string;
+  source_dir: string;
+  publish_dir: string;
+}
+
+export async function prepareLocalSiteProject(projectId?: string): Promise<{
+  project_id: string; project_name: string; source_dir: string;
+}> {
+  const wrapped = await apiRequest<unknown>('/v1/local/site-sources/prepare', {
+    method: 'POST', body: JSON.stringify({ project_id: projectId || '' }),
+  }, 'local');
+  const data = unwrapData<{ project_id: string; project_name: string; source_dir: string }>(wrapped);
+  registerLocalProject(data.project_id);
+  return data;
+}
+
+export async function openLocalSiteEditor(siteId: string): Promise<LocalSiteSource> {
+  const wrapped = await apiRequest<unknown>(`/v1/local/site-sources/${encodeURIComponent(siteId)}/edit`, {
+    method: 'POST',
+  }, 'local');
+  const data = unwrapData<LocalSiteSource>(wrapped);
+  registerLocalProject(data.project_id);
+  registerLocalChat(data.chat_id);
+  return data;
+}
+
+
+async function withLocalSiteSources(items: SiteItem[]): Promise<SiteItem[]> {
+  if (!isHybridDual() || !items.length) return items;
+  try {
+    const wrapped = await apiRequest<unknown>('/v1/local/site-sources', undefined, 'local');
+    const data = unwrapData<{items: LocalSiteSource[]}>(wrapped);
+    const sources = new Map((data.items || []).map((entry) => [entry.site_id, entry]));
+    return items.map((site) => {
+      const source = sources.get(site.site_id);
+      if (!source || !['admin', 'edit'].includes(site.permission || '')) return site;
+      registerLocalProject(source.project_id);
+      return { ...site, editable: true, local_source: source };
+    });
+  } catch {
+    // Cloud sites stay available while the local execution plane starts or is offline.
+    return items;
+  }
+}
+
 export interface SiteItem extends SiteEditionFields {
+  local_source?: LocalSiteSource;
   /** 混合模式的正式站点统一托管在云端。 */
   origin?: 'cloud' | 'local';
   site_id: string;
@@ -3872,10 +4040,12 @@ export interface SiteItem extends SiteEditionFields {
   total_size_bytes: number;
   view_count: number;
   chat_id: string | null;
-  /** Site source project (personal project) id; when set → the "Edit" action on the card can continue editing; null for legacy sites */
+  /** Site source project id; when set → the "Edit" action on the card can continue editing; null for legacy sites */
   project_id: string | null;
-  /** Editable whenever project_id is set */
+  /** Current actor can edit this source project. */
   editable: boolean;
+  permission?: 'none' | 'view' | 'edit' | 'admin';
+  can_manage?: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -3897,6 +4067,8 @@ function toSiteItem(raw: JsonObject): SiteItem {
     chat_id: typeof raw.chat_id === 'string' ? raw.chat_id : null,
     project_id: typeof raw.project_id === 'string' ? raw.project_id : null,
     editable: Boolean(raw.editable),
+    permission: raw.permission as SiteItem['permission'],
+    can_manage: raw.can_manage === true,
     created_at: typeof raw.created_at === 'string' ? raw.created_at : null,
     updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : null,
   };
@@ -3915,7 +4087,7 @@ export async function listSites(page = 1, pageSize = 50): Promise<{ items: SiteI
     : [];
   const pagination = (data.pagination ?? {}) as JsonObject;
   const total = Number(pagination.total_items ?? items.length);
-  return { items, total };
+  return { items: await withLocalSiteSources(items), total };
 }
 
 export async function updateSite(

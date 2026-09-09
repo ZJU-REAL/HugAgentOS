@@ -165,6 +165,20 @@ class ToolEffectReceipt(Base):
     __table_args__ = (Index("idx_tool_effect_receipts_user_created", "user_id", "created_at"),)
 
 
+class RemoteToolEffect(Base):
+    """Authenticated cloud binding for an operation originating on a device."""
+
+    __tablename__ = "remote_tool_effects"
+    effect_id = Column(String(64), primary_key=True)
+    user_id = Column(String(64), nullable=False)
+    server_id = Column(String(255), nullable=False)
+    tool_name = Column(String(128), nullable=False)
+    args_hash = Column(String(64), nullable=False)
+    gateway_url = Column(Text)
+    schema_hash = Column(String(64))
+    created_at = Column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class HarnessUsageCursor(Base):
     """Mutable allocator only; usage attempt facts remain append-only."""
 

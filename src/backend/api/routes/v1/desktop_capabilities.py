@@ -83,12 +83,9 @@ def _readiness_context(user_id: str):
 def _connectors_view(user_id: str) -> Dict[str, Any]:
     """Connector bindings as the resolver last decided them for this device."""
     from core.capabilities import connectors, skills, mcp_json
-    from core.services.desktop_cloud_bridge import keep_local_bases
     from core.services.mcp_service import McpServerConfigService
 
     svc = McpServerConfigService.get_instance()
-    from core.services.desktop_capability import component_base_name
-
     all_cfgs = {
         sid: cfg
         for sid, cfg in svc.get_all_servers(enabled_only=False).items()
@@ -96,13 +93,9 @@ def _connectors_view(user_id: str) -> Dict[str, Any]:
     }
     all_cfgs.update(svc.get_owned_servers(user_id, enabled_only=False))
     enabled_ids = set(svc.get_all_servers(enabled_only=True)) | set(svc.get_owned_servers(user_id))
-    base_map = {
-        sid: component_base_name(sid, cfg.get("source_plugin"), cfg.get("owner_user_id"))
-        for sid, cfg in all_cfgs.items()
-    }
     from core.services.desktop_cloud_bridge import _mcp_json_local_declarations
 
-    candidates = connectors.db_candidates(base_map, enabled_ids) + connectors.json_candidates(
+    candidates = connectors.db_candidates(all_cfgs, enabled_ids) + connectors.json_candidates(
         _mcp_json_local_declarations()
     )
     # The runtime context excludes disabled bindings; the management view must
@@ -115,7 +108,9 @@ def _connectors_view(user_id: str) -> Dict[str, Any]:
         candidates += connectors.cloud_candidates(
             profile, manifest.get("servers") or [], mcp_json.managed_enabled(profile)
         )
-    res = connectors.resolve_bindings(candidates, keep_local=keep_local_bases(), user_id=user_id)
+    res = connectors.resolve_bindings(
+        candidates, user_id=user_id
+    )
     chosen = {c.install_id for c in res.chosen.values()}
     shadowed = {c.install_id for cs in res.shadowed.values() for c in cs}
     conflicted = {c.install_id for cs in res.conflicts.values() for c in cs}
@@ -380,3 +375,55 @@ def _mcp_json_doc(user_id: str) -> Dict[str, Any]:
 async def get_mcp_json(_user: UserContext = Depends(get_current_user)):
     _require_desktop_store()
     return success_response(data=await asyncio.to_thread(_mcp_json_doc, str(_user.user_id)))
+
+
+@router.get("/sync-status", summary="首次能力同步进度")
+async def initial_sync_status_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    _bridge_state(str(user.user_id))
+    from core.services.desktop_cloud_bridge import initial_sync_status
+    return success_response(data=await asyncio.to_thread(initial_sync_status))
+
+
+@router.post("/sync/retry", summary="重试首次能力同步")
+async def retry_initial_sync_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    from core.services.desktop_cloud_bridge import retry_initial_sync
+    await asyncio.to_thread(retry_initial_sync, st)
+    return success_response(data={"ok": True})
+
+
+def _accept_synced_capabilities(st, user_id):
+    from core.services.desktop_cloud_bridge import account_scope, initial_sync_status
+    from core.capabilities import registry, session_availability, skills
+    from core.capabilities.readiness import file_readiness
+    from core.capabilities.paths import revision_for_hash
+
+    with account_scope(st):
+        status = initial_sync_status()
+        if not status["can_continue"]:
+            raise HTTPException(status_code=409, detail="只能在同步失败后选择使用已同步能力")
+        profile = _authorized_profile(user_id)
+        context = _readiness_context(user_id)
+        revisions = {}
+        for row in registry.list_installations(profile_id=profile):
+            if (row.kind not in ("skill", "agent", "plugin") or not row.enabled
+                    or not row.ready or not row.content_hash
+                    or row.resolved_revision != revision_for_hash(row.content_hash)):
+                continue
+            if file_readiness(row, context)["ready"]:
+                revisions[row.install_id] = row.resolved_revision
+        session_availability.activate(profile, revisions)
+        registry._bump()
+        skills.bump_view_generation()
+        from core.config.catalog_resolver import invalidate_capability_cache
+        invalidate_capability_cache(user_id)
+        return {"ok": True, "partial": True, "available_count": len(revisions)}
+
+
+@router.post("/sync/continue", summary="使用已同步并验证可用的能力继续")
+async def accept_synced_capabilities_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    return success_response(data=await asyncio.to_thread(_accept_synced_capabilities, st, str(user.user_id)))

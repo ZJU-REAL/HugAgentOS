@@ -329,7 +329,20 @@ def _without_public_identifiers(secrets: set[str], public_identifiers: set[str])
     return {value for value in secrets if value.strip() not in public_identifiers}
 
 
-def _model_credentials_and_public_identifiers() -> Tuple[set[str], set[str]]:
+# Keyed on ModelConfigService.version: every model-row write path bumps it.
+_model_secret_cache: Optional[Tuple[int, set[str], set[str]]] = None
+
+
+def _model_credentials_and_public_identifiers(*, fresh: bool = True) -> Tuple[set[str], set[str]]:
+    global _model_secret_cache
+    from core.services.model_config import ModelConfigService
+
+    version = ModelConfigService.get_instance().version
+    if not fresh:
+        with _effective_lock:
+            hit = _model_secret_cache
+        if hit is not None and hit[0] == version:
+            return hit[1], hit[2]
     found: set[str] = set()
     public_identifiers: set[str] = set()
     with SessionLocal() as db:
@@ -339,17 +352,24 @@ def _model_credentials_and_public_identifiers() -> Tuple[set[str], set[str]]:
         ).all():
             public_identifiers.update(str(v).strip() for v in (provider_id, display_name, model_name) if v)
             found.update(_secrets_from_config({"api_key": api_key, "base_url": base_url, "extra_config": extra_config}))
+    with _effective_lock:
+        _model_secret_cache = (version, found, public_identifiers)
     return found, public_identifiers
 
 
-def _known_cloud_secrets(user_id: str) -> set[str]:
-    """Read actual authorized connection credentials into this request only."""
+def _known_cloud_secrets(user_id: str, *, fresh: bool = True) -> set[str]:
+    """Read actual authorized connection credentials into this request only.
+
+    Published content (manifests, bundles) is checked against a fresh read.
+    Gateway streams reuse the same 30s authorization snapshot the gateway itself
+    resolved the target from.
+    """
     try:
-        keys, configs = _user_effective_configs(user_id, use_cache=False)
+        keys, configs = _user_effective_configs(user_id, use_cache=not fresh)
         found: set[str] = set()
         for key in keys:
             found.update(_secrets_from_config(configs.get(key) or {}))
-        model_secrets, public_identifiers = _model_credentials_and_public_identifiers()
+        model_secrets, public_identifiers = _model_credentials_and_public_identifiers(fresh=fresh)
         return _without_public_identifiers(found | model_secrets, public_identifiers)
     except Exception:
         raise CapabilityContentRejected() from None
@@ -359,9 +379,10 @@ def gateway_stream_secrets(user_id: str, target: Dict[str, Any]) -> set[str]:
     """网关转发上游模型/MCP 输出时要屏蔽的凭据：已授权连接的凭据 + 本次目标自身的凭据，
     同样排除与模型公开标识相同的值（否则每个流式分片里的 model 字段都会命中）。"""
     try:
-        _, public_identifiers = _model_credentials_and_public_identifiers()
+        _, public_identifiers = _model_credentials_and_public_identifiers(fresh=False)
         return _without_public_identifiers(
-            _known_cloud_secrets(user_id) | _secrets_from_config(target), public_identifiers,
+            _known_cloud_secrets(user_id, fresh=False) | _secrets_from_config(target),
+            public_identifiers,
         )
     except CapabilityContentRejected:
         raise
@@ -424,50 +445,33 @@ def guard_capability_bundle(user_id: str, resolved):
 
 
 async def guard_capability_stream(chunks, secrets: set[str]):
-    """Keep enough bytes to detect a credential split at any transport boundary."""
+    """Keep enough bytes to detect a credential split at any transport boundary.
+
+    A needle never contains a newline, so nothing can straddle one: every
+    complete line is released the moment it was checked. SSE frames end in a
+    newline, which keeps token streaming at zero added delay.
+    """
     needles = _secret_bytes(secrets)
     keep = max((len(value) for value in needles), default=1) - 1
+    line_safe = all(b"\n" not in value for value in needles)
     tail = b""
     async for chunk in chunks:
         combined = tail + chunk
         if any(value in combined for value in needles):
             raise CapabilityContentRejected()
-        count = max(0, len(combined) - keep)
-        if count:
-            yield combined[:count]
-        tail = combined[count:]
+        cut = len(combined) - keep
+        if line_safe:
+            cut = max(cut, combined.rfind(b"\n") + 1)
+        if cut > 0:
+            yield combined[:cut]
+            tail = combined[cut:]
+        else:
+            tail = combined
     if tail:
         yield tail
 
 
 # ── 用户有效能力解析（manifest 与网关共用，30s per-user 缓存） ──────────
-
-
-def component_base_name(
-    server_id: str,
-    source_plugin: Optional[str],
-    owner_user_id: Optional[str] = None,
-) -> str:
-    """server_id → 组件基名（logical 去重键）。
-
-    两层规范化，与仓库既有 id 机制对齐：
-    1. 私有安装的 6 位用户指纹后缀由 ``marketplace_service.base_entry_name``
-       剥掉（它就是 catalog 去重用的那套逆函数）；
-    2. 插件安装的 ``{slug}-`` 前缀剥掉，得到组件名。
-    两端按同一规则计算，云端提供某基名能力时本机抑制同基名旧实现。
-    """
-    sid = str(server_id or "")
-    if owner_user_id:
-        try:
-            from core.services.marketplace_service import base_entry_name
-
-            sid = base_entry_name(sid, str(owner_user_id))
-        except Exception:  # noqa: BLE001 - 指纹剥离失败时退回原 id（仅影响去重精度）
-            pass
-    slug = str(source_plugin or "").strip()
-    if slug and sid.startswith(slug + "-"):
-        return sid[len(slug) + 1 :] or sid
-    return sid
 
 
 # 网关每次工具调用都要做归属校验；底层 get_owned_servers 不带缓存（防跨用户
@@ -540,9 +544,6 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
         servers.append(
             {
                 "server_id": sid,
-                "component": component_base_name(
-                    sid, source_plugin, row.owner_user_id if row else None
-                ),
                 "display_name": (row.display_name if row else None) or sid,
                 "description": (row.description if row else None) or "",
                 "source_plugin": source_plugin,
@@ -628,6 +629,16 @@ async def invoke_gateway_tool(
     import mcp.types
 
     from core.llm.mcp_pool import make_client
+
+    arguments = dict(arguments or {})
+    from core.services.automation_remote_effect import RECEIPT_TOOLS, bind_remote_effect
+    tool_name = str(resolved["tool"]["name"])
+    if tool_name in RECEIPT_TOOLS and arguments.get("tool_effect_id"):
+        operation_id = arguments.pop("tool_effect_id")
+        arguments["tool_effect_id"] = await asyncio.to_thread(
+            bind_remote_effect, str(resolved["user_id"]), str(resolved["server_id"]),
+            tool_name, operation_id, arguments,
+        )
 
     target = dict(resolved["target"])
     upstream_headers = {
@@ -1101,6 +1112,7 @@ def build_user_model_manifest(user_id: str) -> Dict[str, Any]:
     manifest = {"version": 1, "providers": rows, "role_assignments": role_rows}
     if withheld:
         manifest["withheld"] = withheld
+    manifest["revision"] = canonical_hash(manifest)
     return manifest
 
 
@@ -1129,8 +1141,19 @@ def _model_provider_allowed(db, user_id: str, provider: ModelProvider) -> bool: 
     return user_can_switch_model(db, str(user_id))
 
 
+def invalidate_model_gateway_cache() -> None:
+    """Forget the process-level credential snapshot (a different database was bound)."""
+    global _model_secret_cache
+    with _effective_lock:
+        _model_secret_cache = None
+
+
 def resolve_model_gateway_target(user_id: str, provider_id: str) -> Optional[dict]:
-    """解析并授权一个模型上游目标；未授权/不兼容统一返回 None。"""
+    """解析并授权一个模型上游目标；未授权/不兼容统一返回 None。
+
+    每次现查：用户的模型切换权限没有变更信号，缓存会让撤权延迟生效。
+    调用方必须在线程池里执行，不得占住事件循环。
+    """
     pid = str(provider_id or "").strip()
     if not pid:
         return None

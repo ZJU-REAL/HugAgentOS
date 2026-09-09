@@ -26,6 +26,11 @@ import {
   listSiteSubmissions,
   listSites,
   getProject,
+  getSession,
+  isHybridDual,
+  isLocalProject,
+  prepareLocalSiteProject,
+  openLocalSiteEditor,
   rollbackSite,
   updateSite,
   type SiteItem,
@@ -49,6 +54,7 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { copyToClipboard } from '../../utils/clipboard';
 import { pickSiteEditChat } from '../../utils/history';
 import { t } from '../../i18n';
+import { formatDate, formatDateTime } from '../../utils/date';
 import '../../styles/sites.css';
 
 /** Enter a "site" building session in the main chat: reuse the main chat input (with attachments/projects/+ menu),
@@ -74,20 +80,51 @@ async function ensureSitesPluginInstalled(): Promise<boolean> {
 
 async function startSiteCreation() {
   if (!(await ensureSitesPluginInstalled())) return;
-  // Don't pre-create the project: on publish the backend automatically creates a source project named after the site
-  // title and drops the files into it (see internal_sites), avoiding placeholder directory names like "Site · Building"
-  // and not depending on frontend/agent project binding.
-  useChatStore.getState().enterSiteMode();
+  if (isHybridDual()) {
+    try {
+      const state = useChatStore.getState();
+      const projectId = state.store.chats[state.currentChatId]?.projectId;
+      const project = await prepareLocalSiteProject(isLocalProject(projectId) ? projectId : undefined);
+      state.enterSiteMode({projectId: project.project_id, projectName: project.project_name});
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('操作失败'));
+      return;
+    }
+  } else {
+    useChatStore.getState().enterSiteMode();
+  }
   useCatalogStore.getState().setPanel('chat');
 }
 
 /** Open an "edit" session for a published site: bind its source project, and the agent edits inside the project folder and republishes. */
 async function startSiteEdit(site: SiteItem) {
+  if (!(await ensureSitesPluginInstalled())) return;
+
+  if (site.local_source) {
+    try {
+      const source = await openLocalSiteEditor(site.site_id);
+      const original = await getSession(source.chat_id);
+      const state = useChatStore.getState();
+      state.updateStore((store) => ({
+        ...store,
+        chats: { ...store.chats, [original.id]: {
+          ...original, ...store.chats[original.id], siteChat: true,
+          projectId: source.project_id, projectName: source.project_name, runTarget: 'local',
+        } },
+        order: store.order.includes(original.id) ? store.order : [original.id, ...store.order],
+      }));
+      state.setCurrentChatId(original.id);
+      useCatalogStore.getState().setPanel('chat');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('操作失败'));
+    }
+    return;
+  }
+
   if (!site.project_id) {
     message.info(t('该站点是旧版本、没有源码工程，无法在线编辑（可新建一个站点替代）'));
     return;
   }
-  if (!(await ensureSitesPluginInstalled())) return;
 
   // 源码工程可能已经被用户删掉了，而站点表里的 project_id 还留着。照旧绑上去，
   // 侧边栏会拿 chat.projectName 兜底造出一个「已删除项目」的分组，新对话就挂在
@@ -120,14 +157,6 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} B`;
-}
-
-function formatTime(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function VisibilityTag({ site }: { site: SiteItem }) {
@@ -254,7 +283,7 @@ function SiteManageModal({
   };
 
   const submissionColumns = [
-    { title: t('时间'), dataIndex: 'created_at', width: 160, render: (v: string | null) => formatTime(v) },
+    { title: t('时间'), dataIndex: 'created_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
     { title: t('表单'), dataIndex: 'form_key', width: 110 },
     {
       title: t('内容'), dataIndex: 'payload',
@@ -270,7 +299,7 @@ function SiteManageModal({
       title: 'Value', dataIndex: 'value',
       render: (v: string) => <span className="jx-sites-payload">{v}</span>,
     },
-    { title: t('更新于'), dataIndex: 'updated_at', width: 160, render: (v: string | null) => formatTime(v) },
+    { title: t('更新于'), dataIndex: 'updated_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
     {
       title: '', key: 'op', width: 60,
       render: (_: unknown, row: SiteKvItem) => (
@@ -350,7 +379,7 @@ function SiteManageModal({
                       </span>
                     ),
                   },
-                  { title: t('发布时间'), dataIndex: 'created_at', render: (v: string) => formatTime(v) },
+                  { title: t('发布时间'), dataIndex: 'created_at', render: (v: string) => formatDateTime(v, '') },
                   { title: t('文件数'), dataIndex: 'file_count', width: 90 },
                   { title: t('大小'), dataIndex: 'total_size_bytes', width: 100, render: (v: number) => formatSize(v) },
                   {
@@ -575,7 +604,7 @@ export function SitesPanel() {
                   <div className="jx-sites-cardMeta">
                     {t('版本')} v{site.current_version} · {site.file_count} {t('个文件')} ·{' '}
                     {formatSize(site.total_size_bytes)} · <EyeOutlined /> {site.view_count} {t('次访问')}
-                    {site.updated_at ? ` · ${t('更新于')} ${formatTime(site.updated_at)}` : ''}
+                    {site.updated_at ? ` · ${t('更新于')} ${formatDate(site.updated_at, '')}` : ''}
                   </div>
                 </div>
                 <div className="jx-sites-cardActions">
@@ -599,11 +628,12 @@ export function SitesPanel() {
                       size="small"
                       icon={<EditOutlined />}
                       disabled
-                      title={t('该站点没有源码工程，无法在线编辑')}
+                      title={site.project_id ? t('当前项目只读') : t('该站点没有源码工程，无法在线编辑')}
                     >
                       {t('编辑')}
                     </Button>
                   )}
+                  {site.can_manage && <>
                   <Button size="small" icon={<SettingOutlined />} onClick={() => setManaging(site)}>
                     {t('管理')}
                   </Button>
@@ -617,6 +647,7 @@ export function SitesPanel() {
                   >
                     <Button size="small" danger icon={<DeleteOutlined />}>{t('删除')}</Button>
                   </Popconfirm>
+                  </>}
                 </div>
               </div>
             ))}

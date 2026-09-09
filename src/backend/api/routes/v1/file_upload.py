@@ -68,7 +68,7 @@ async def upload_user_file(
             UserFolder.folder_id == folder_id,
             UserFolder.user_id == user_id,
             UserFolder.deleted_at.is_(None),
-        ).first()
+        ).populate_existing().with_for_update().first()
         if not folder:
             raise HTTPException(status_code=400, detail="目标文件夹不存在")
         db_folder_id = folder_id
@@ -103,33 +103,35 @@ async def overwrite_file(
     """
     用新内容覆盖已有文件，保持 file_id 和 download_url 不变。
     """
-    artifact = db.query(Artifact).filter(
-        Artifact.artifact_id == file_id,
-        Artifact.user_id == str(user.user_id),
-        Artifact.deleted_at.is_(None),
-    ).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="文件不存在")
-
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
     if len(file_bytes) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="文件过大，最大支持 50 MB")
 
+    from core.auth.permissions_iface import resolve_artifact_access
+    artifact = db.query(Artifact).filter(
+        Artifact.artifact_id == file_id, Artifact.deleted_at.is_(None),
+    ).populate_existing().with_for_update().first()
+    from core.services.artifact_edition import artifact_access_metadata
+    metadata = artifact_access_metadata(artifact) if artifact else {}
+    level = resolve_artifact_access(db, str(user.user_id), metadata.get("owner_id"), metadata.get("scope_id")) if artifact else "none"
+    if level == "none":
+        raise HTTPException(404, "文件不存在")
+    if level not in ("edit", "admin"):
+        raise HTTPException(403, "当前文件只读")
     storage = get_storage()
 
-    # Delete old content, upload new content to same key
-    old_key = artifact.storage_key
+    # Preserve last-good bytes until the replacement transaction is committed.
+    import uuid
+    replacement_key = f"file_versions/{file_id}/{uuid.uuid4().hex}"
     try:
-        storage.delete(old_key)
-    except Exception:
-        pass  # old file may already be gone
-
-    try:
-        storage_url = storage.upload_bytes(file_bytes, old_key)
+        storage_url = storage.upload_bytes(file_bytes, replacement_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
+    artifact.storage_key = replacement_key
+    artifact.parsed_text = None
+    artifact.summary = None
 
     artifact.size_bytes = len(file_bytes)
     artifact.storage_url = storage_url

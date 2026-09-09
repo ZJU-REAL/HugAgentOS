@@ -21,6 +21,8 @@ function syncAttributes(oldEl: Element, newEl: Element): void {
   const prev = oldEl.attributes;
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const { name } = prev[i];
+    // Copy feedback belongs to the button, not the next streaming HTML frame.
+    if (name === 'data-copy-state' && oldEl.matches('button.jx-mdCode-copy')) continue;
     if (!newEl.hasAttribute(name)) oldEl.removeAttribute(name);
   }
 }

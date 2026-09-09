@@ -6,6 +6,7 @@ import {
   AppstoreAddOutlined, EditOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { stripMarkdown } from '../../utils/markdown';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore, usePluginUiStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
@@ -268,7 +269,7 @@ export function PluginsPage() {
         <div className="jx-mcp-stickyBody">
           <div className="jx-sk-metaCard">
             <p className="jx-sk-metaDesc" style={{ whiteSpace: 'pre-wrap' }}>
-              {toolDetail.description || t('暂无描述')}
+              {stripMarkdown(toolDetail.description) || t('暂无描述')}
             </p>
           </div>
         </div>
@@ -301,7 +302,7 @@ export function PluginsPage() {
 
         <div className="jx-mcp-stickyBody">
           <div className="jx-sk-metaCard">
-            <p className="jx-sk-metaDesc">{component.data.description || t('暂无描述')}</p>
+            <p className="jx-sk-metaDesc">{stripMarkdown(component.data.description) || t('暂无描述')}</p>
           </div>
 
           {component.kind === 'skill' ? (
@@ -346,7 +347,7 @@ export function PluginsPage() {
                             <ApiOutlined style={{ color: '#22c55e' }} />
                             <span className="jx-mcp-cardName" style={{ marginLeft: 8 }}>{tool.name}</span>
                           </div>
-                          <div className="jx-mcp-cardDesc">{tool.description || t('暂无描述')}</div>
+                          <div className="jx-mcp-cardDesc">{stripMarkdown(tool.description) || t('暂无描述')}</div>
                         </div>
                       ))}
                     </div>
@@ -399,7 +400,7 @@ export function PluginsPage() {
         <div className="jx-mcp-stickyBody">
           <div className="jx-sk-metaCard">
             <h4 className="jx-sk-metaName">{d.name}</h4>
-            <p className="jx-sk-metaDesc">{d.description || t('暂无描述')}</p>
+            <p className="jx-sk-metaDesc">{stripMarkdown(d.description) || t('暂无描述')}</p>
             {d.category && <Tag>{d.category}</Tag>}
           </div>
 
@@ -447,7 +448,7 @@ export function PluginsPage() {
                     idx={idx}
                     icon={<BulbOutlined style={{ color: '#f59e0b' }} />}
                     name={s.name}
-                    desc={s.description || t('点击查看详情')}
+                    desc={stripMarkdown(s.description) || t('点击查看详情')}
                     onClick={() => openComponent({ kind: 'skill', data: s })}
                     tags={isInstalled && (
                       <Tag style={{ marginLeft: 8, ...(s.enabled
@@ -582,7 +583,7 @@ export function PluginsPage() {
                     )}
                   />
                 </div>
-                <div className="jx-mcp-cardDesc">{p.description}</div>
+                <div className="jx-mcp-cardDesc">{stripMarkdown(p.description)}</div>
               </div>
             ))}
           </div>
@@ -624,7 +625,7 @@ export function PluginsPage() {
                   <Button type="primary" size="small" loading={busySlug === p.slug}
                     style={{ marginLeft: 'auto' }} onClick={() => void handleInstall(p)}>{t('安装')}</Button>
                 </div>
-                <div className="jx-mcp-cardDesc">{p.description}</div>
+                <div className="jx-mcp-cardDesc">{stripMarkdown(p.description)}</div>
                 <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
                   <Tag color="blue">{t('技能')} {p.skills_count}</Tag>
                   {(p.required_secrets || []).length > 0 && <Tag color="orange">{t('需凭据')}</Tag>}

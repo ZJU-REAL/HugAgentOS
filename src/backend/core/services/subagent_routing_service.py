@@ -90,6 +90,11 @@ def _extract_task_after_name(body: str, name: str) -> Optional[str]:
     return task
 
 
+def may_be_explicit_subagent_command(message: str) -> bool:
+    """Cheap grammar gate before loading the user's callable agent catalog."""
+    return (message or "").strip().startswith(_COMMAND_PREFIXES)
+
+
 def parse_explicit_subagent_command(
     message: str,
     available_agents: Iterable[Mapping[str, Any]],

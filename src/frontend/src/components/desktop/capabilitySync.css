@@ -1,0 +1,27 @@
+.jx-capSyncScreen { min-height: 100%; height: 100vh; display: grid; place-items: center; padding: 32px; box-sizing: border-box; background: var(--color-bg-layout); color: var(--color-text); }
+.jx-capSyncCard { position: relative; overflow: hidden; width: min(440px, 100%); box-sizing: border-box; padding: 36px 36px 32px; border: 1px solid var(--color-border); border-radius: 24px; background: var(--color-bg-container); }
+.jx-capSyncIcon { width: 40px; height: 40px; margin-bottom: 24px; color: var(--color-text); }
+.jx-capSyncIcon svg { width: 32px; height: 32px; }
+.jx-capSyncCard h1 { margin: 0 0 12px; font-size: 25px; line-height: 1.3; font-weight: 600; letter-spacing: -.5px; }
+.jx-capSyncIntro { margin: 0 0 28px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.75; }
+.jx-capSyncRows { display: grid; gap: 15px; padding: 4px 0 22px; }
+.jx-capSyncRows > div { display: flex; justify-content: space-between; gap: 20px; font-size: 13px; }
+.jx-capSyncRows > div > span:last-child { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.jx-capSyncFootnote { padding-top: 18px; border-top: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
+.jx-capSyncError { color: var(--color-error); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.jx-capSyncActions { display: grid; gap: 10px; margin-top: 22px; }
+.jx-capSyncActions button { min-height: 42px; border-radius: 11px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-bg-container); font: inherit; font-size: 13px; cursor: pointer; }
+.jx-capSyncActions button:disabled { opacity: .45; cursor: default; }
+.jx-capSyncActions .jx-capSyncPrimary { color: var(--color-bg-container); background: var(--color-text); border-color: var(--color-text); }
+.jx-capSyncProgress { position: absolute; overflow: hidden; left: 0; bottom: 0; width: 100%; height: 5px; background: var(--color-border); }
+.jx-capSyncFill { height: 100%; background: var(--color-primary); transition: width .3s ease; }
+/* motion-keep: Indicates active capability synchronization while the total is unknown. */
+.jx-capSyncIndeterminate { width: 35%; animation: capabilitySyncTravel 1.4s ease-in-out infinite; }
+@keyframes capabilitySyncTravel { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
+.jx-capAvailable { padding: 28px; overflow: auto; height: 100%; }
+.jx-capAvailableHeader { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
+.jx-capAvailableHeader p { color: var(--color-text-secondary); margin: 8px 0; }
+.jx-capAvailableGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.jx-capAvailableGrid article { padding: 20px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-bg-container); }
+.jx-capAvailableGrid h3 { font-size: 15px; margin: 0 0 10px; }
+.jx-capAvailableGrid p { font-size: 13px; line-height: 1.7; color: var(--color-text-secondary); margin: 0; }

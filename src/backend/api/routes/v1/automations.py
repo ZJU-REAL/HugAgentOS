@@ -31,6 +31,8 @@ class CreateAutomationRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
     description: Optional[str] = None
     timezone: str = "Asia/Shanghai"
+    execution_location: Optional[str] = Field(None, pattern=r"^(local|cloud)$")
+    project_id: Optional[str] = Field(None, max_length=64)
     enabled_mcp_ids: Optional[List[str]] = None
     enabled_skill_ids: Optional[List[str]] = None
     enabled_kb_ids: Optional[List[str]] = None
@@ -108,6 +110,14 @@ async def create_automation(
         task_metadata = {**(task_metadata or {}),
                          "channel_id": req.channel_id, "conversation_id": req.conversation_id}
 
+    from core.services.automation_execution import execution_metadata
+    import pytz
+    try:
+        pytz.timezone(req.timezone)
+        execution_metadata(db, user.user_id, location=req.execution_location,
+                           project_id=req.project_id, prompt=req.prompt)
+    except (ValueError, pytz.UnknownTimeZoneError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     svc = AutomationService(db)
     task = svc.create_task(
         user_id=user.user_id,
@@ -119,6 +129,8 @@ async def create_automation(
         name=req.name,
         description=req.description or "",
         timezone=req.timezone,
+        execution_location=req.execution_location,
+        project_id=req.project_id,
         enabled_mcp_ids=req.enabled_mcp_ids,
         enabled_skill_ids=req.enabled_skill_ids,
         enabled_kb_ids=req.enabled_kb_ids,
@@ -209,7 +221,10 @@ async def update_automation(
             new_ed["conversation_id"] = req.conversation_id
         updates["extra_data"] = new_ed
 
-    task = svc.update_task(task_id, user.user_id, **updates)
+    try:
+        task = svc.update_task(task_id, user.user_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     return success_response(data=AutomationService.task_to_dict(task))
@@ -273,6 +288,8 @@ async def trigger_automation(
 
     from orchestration.schedulers.automation_scheduler import get_scheduler
     scheduler = get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="任务调度服务尚未就绪")
     if scheduler:
         import asyncio
         # 手动触发不经过调度器的 advance_next_run，累计执行次数得在这里补一次，

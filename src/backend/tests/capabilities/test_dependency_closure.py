@@ -237,3 +237,116 @@ def test_legacy_plugin_catalog_projects_declarative_component_ids_without_mutati
     assert _component_keys(declaration, "skills") == ["plain", "required", "optional"]
     assert _component_keys(declaration, "mcp") == ["search"]
     assert declaration["skills"][1]["version_constraint"] == ">=2"
+
+
+def test_catalog_skill_with_missing_connector_is_dropped_not_fatal(
+    durable_index, caps_root, monkeypatch
+):
+    """One unusable menu item must not make the whole assistant unusable.
+
+    Regression: a synced cloud skill declared six connectors that do not exist
+    on the device, and because the whole enabled catalog was gated as if the
+    turn had committed to it, *every* local conversation stopped — including
+    plain messages that selected nothing.
+    """
+    from core.capabilities import runtime
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    plain = "---\nname: plain\ndescription: Plain\n---\nbody"
+    needy = "---\nname: needy\ndescription: Needy\nmcp_servers: absent_server\n---\nbody"
+    for name, body in (("plain", plain), ("needy", needy)):
+        skills.publish_local_skill(
+            name, files={"SKILL.md": body}, content_hash=skill_content_hash(body, {})
+        )
+    run = runtime.prepare("catalog-run", "u", skill_ids=["plain", "needy"])
+
+    offered = runtime.preflight(run, catalog_skill_ids=["plain", "needy"], available_mcp=[])
+    report = offered.dependency_report
+    assert report["ready"]
+    assert [row["skill_id"] for row in report["unavailable_skills"]] == ["needy"]
+    assert {node["install_id"] for node in report["nodes"]} == {"skill:local:plain"}
+
+    # Committing to the same skill still stops the turn: an explicit selection
+    # is a promise the run cannot keep.
+    chosen = runtime.prepare("chosen-run", "u", skill_ids=["plain", "needy"])
+    with pytest.raises(dependency.DependencyMissing):
+        runtime.preflight(
+            chosen, skill_ids=["needy"], catalog_skill_ids=["plain", "needy"], available_mcp=[]
+        )
+
+
+def test_snapshot_missing_or_removed_skill_is_rejected(index_db, caps_root):
+    component = skills.publish_local_skill(
+        "gone", files={"SKILL.md": "dep"}, content_hash=skill_content_hash("dep", {})
+    )
+    binding = {"gone": {"install_id": "skill:local:gone", "revision": component.revision}}
+    registry.mark_removed("skill:local:gone")
+    for snapshot in [
+        {},
+        {r.install_id: r for r in registry.list_installations(include_removed=True)},
+    ]:
+        inspector = dependency.Inspector(
+            dependency.Context(bindings=binding, installations=snapshot)
+        )
+        inspector.visit({"kind": "skill", "id": "gone"}, "local")
+        assert not inspector.report()["ready"]
+
+
+def test_parallel_root_checks_retain_all_path_constraints(index_db, caps_root, monkeypatch):
+    from types import SimpleNamespace
+
+    first = plugin("cycle-a", {"plugins": ["cycle-b"]})
+    plugin("cycle-b", {"plugins": ["cycle-a"]})
+    roots = [
+        ({"kind": "plugin", "id": first.key, "required": i % 2 == 0}, "local") for i in range(8)
+    ]
+    context = dependency.Context(
+        installations={r.install_id: r for r in registry.list_installations(include_removed=True)}
+    )
+    serial = dependency.Inspector(context)
+    for entry, profile in roots:
+        serial.visit(entry, profile)
+    monkeypatch.setattr(dependency, "os", SimpleNamespace(name="nt"))
+    parallel = dependency.Inspector(context)
+    parallel.visit_roots(roots)
+    assert parallel.report() == serial.report()
+
+
+def test_cached_definition_is_detached_and_observes_edits(tmp_path):
+    entry = tmp_path / "SKILL.md"
+    entry.write_text("---\nname: first\ndependencies: []\n---\nbody")
+    first = dependency.skill_definition(tmp_path)
+    first["dependencies"].append({"id": "injected"})
+    assert dependency.skill_definition(tmp_path)["dependencies"] == []
+    entry.write_text("---\nname: second\n---\nbody")
+    assert dependency.skill_definition(tmp_path)["name"] == "second"
+
+
+def test_parallel_eligibility_and_catalog_match_serial(durable_index, caps_root, monkeypatch):
+    from types import SimpleNamespace
+    from core.capabilities import readiness, runtime
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    for i in range(8):
+        body = "---\nname: item-%s\n" % i
+        if i == 7:
+            body += "mcp_servers: absent-server\n"
+        body += "---\nbody"
+        skills.publish_local_skill(
+            "item-%s" % i, files={"SKILL.md": body}, content_hash=skill_content_hash(body, {})
+        )
+    candidates = skills.candidates("u")
+    serial = readiness.eligible_skill_candidates(candidates, "u")
+    monkeypatch.setattr(readiness, "os", SimpleNamespace(name="nt"))
+    assert readiness.eligible_skill_candidates(candidates, "u") == serial
+    names = ["item-%s" % i for i in range(8)]
+    run = runtime.prepare("serial-catalog", "u", skill_ids=names)
+    first = runtime.preflight(run, catalog_skill_ids=names, available_models=set())
+    runtime._catalog_probes.clear()
+    monkeypatch.setattr(runtime, "os", SimpleNamespace(name="nt"))
+    run = runtime.prepare("parallel-catalog", "u", skill_ids=names)
+    second = runtime.preflight(run, catalog_skill_ids=names, available_models=set())
+    assert first.dependency_report == second.dependency_report
+    assert second.dependency_report["unavailable_skills"][0]["skill_id"] == "item-7"

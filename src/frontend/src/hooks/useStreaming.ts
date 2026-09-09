@@ -122,6 +122,8 @@ export function useStreaming(
           // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
           if (!res.file_id) {
             message.error(t('「{name}」上传失败，请重试', { name: file.name }));
+          } else {
+            useFileStore.getState().setUploadedArtifact(file, res);
           }
           return res;
         })
@@ -657,7 +659,7 @@ export function useStreaming(
       const runTargetLocal =
         (useChatStore.getState().store.chats[currentChatId] as { runTarget?: string } | undefined)
           ?.runTarget === 'local';
-      if (isLocalProject(effectiveProjectId) || runTargetLocal) registerLocalChat(currentChatId);
+      if (isLocalProject(effectiveProjectId) || (!effectiveProjectId && runTargetLocal)) registerLocalChat(currentChatId);
 
       // 锁死强度的模式按模式默认档上行：切回历史对话恢复模式时，chatMode 可能
       // 还停在别的对话选的档位，不能把它带进锁档模式（显式选模式时 ChatModeSwitch
@@ -1175,7 +1177,7 @@ export function useStreaming(
         .filter((id): id is string => !!id)
         .pop();
       if (execPlanId) {
-        cancelPlanApi(execPlanId).catch(() => { /* noop —— 本地已经断流，后端有孤儿回收兜底 */ });
+        cancelPlanApi(execPlanId, targetId).catch(() => { /* noop —— 本地已经断流，后端有孤儿回收兜底 */ });
       }
     }
 
@@ -1231,7 +1233,7 @@ export function useStreaming(
     let finalStatus = 'cancelled';
     if (lp.loopId) {
       try {
-        const loop = await getLoop(lp.loopId);
+        const loop = await getLoop(lp.loopId, chatId);
         if (loop?.status && TERMINAL.includes(loop.status)) finalStatus = loop.status;
       } catch { /* if unfindable, wind down as cancelled */ }
     }

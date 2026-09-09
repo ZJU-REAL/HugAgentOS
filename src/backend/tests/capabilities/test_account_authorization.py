@@ -40,12 +40,12 @@ def test_connector_explicit_request_user_controls_only_that_users_preference(ind
     registry.set_preference("mcp", "same", "mcp:local:a", chosen_by="a")
     registry.set_preference("mcp", "same", "mcp:local:b", chosen_by="b")
     assert (
-        connectors.resolve_bindings(candidates, keep_local=set(), user_id="a")
+        connectors.resolve_bindings(candidates, user_id="a")
         .chosen["same"]
         .install_id
         == "mcp:local:a"
     )
     assert (
-        connectors.resolve_bindings(candidates, keep_local=set()).chosen["same"].install_id
+        connectors.resolve_bindings(candidates).chosen["same"].install_id
         == "mcp:local:b"
     )

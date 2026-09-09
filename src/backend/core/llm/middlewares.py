@@ -243,6 +243,10 @@ class ToolEffectMiddleware(MiddlewareBase):
             )
 
         args = self._args(tool_call)
+        if tool_name == "create_scheduled_task":
+            from core.services.automation_tool_routing import creation_arguments
+            args = creation_arguments(args, str(getattr(agent.state, "user_id", "") or ""),
+                                      str(getattr(agent.state, "chat_id", "") or ""))
         live_chunks: asyncio.Queue = asyncio.Queue()
 
         async def _invoke():

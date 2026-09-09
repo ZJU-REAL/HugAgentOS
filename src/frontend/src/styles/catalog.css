@@ -522,7 +522,7 @@
   font-size:14px;
   font-weight:600;
   color:color-mix(in srgb, var(--color-text) 88%, transparent);
-  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family:var(--font-family-mono);
   background:rgba(18,109,255,.10);
   padding:5px 10px;
   border-radius:6px;
@@ -591,7 +591,7 @@
   font-size:13px;
   font-weight:700;
   color:var(--color-primary);
-  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family:var(--font-family-mono);
   box-shadow:0 2px 4px rgba(18,109,255,.06);
   transition:all 0.2s ease;
 }
@@ -1782,8 +1782,8 @@
   transition: var(--motion-transition-hover);
 }
 .jx-agentCard-badge--builtin {
-  color: var(--color-tint-amber);
-  background: var(--color-tint-amber-bg);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
 /* 编辑/删除按钮的皮肤（显形时机由共用的 .jx-cardTailActions 统一管，见文件末尾）。
@@ -4444,7 +4444,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family:var(--font-family-mono);
 }
 .jx-mk-fileSize { color: #A6A6A6; flex: 0 0 auto; }
 .jx-mk-grid {

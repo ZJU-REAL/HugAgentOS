@@ -41,7 +41,7 @@ def test_explicit_local_binding_does_not_get_cloud_config(index_db, monkeypatch)
         ],
     }
     monkeypatch.setattr(bridge, "_bridge_context", lambda: ctx)
-    monkeypatch.setattr(bridge, "_local_server_base_map", lambda: {"search": "search"})
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: {"search"})
     monkeypatch.setattr(bridge, "_mcp_json_local_declarations", lambda: {})
     monkeypatch.setattr(bridge, "_mcp_json_local_configs", lambda: {})
     registry.set_preference("mcp", "search", "mcp:local:search")
@@ -86,7 +86,7 @@ def test_stale_agent_response_cannot_repopulate_switched_account(index_db, caps_
 
 def test_json_local_connector_is_enabled_without_cloud(index_db, monkeypatch):
     monkeypatch.setattr(bridge, "_bridge_context", lambda: None)
-    monkeypatch.setattr(bridge, "_local_server_base_map", lambda: {})
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: set())
     monkeypatch.setattr(
         bridge, "_mcp_json_local_declarations", lambda: {"my-files": {"enabled": True}}
     )
@@ -534,7 +534,9 @@ def test_switch_rebuild_never_puts_new_account_in_old_users_view(
     assert (skills.user_view_dir("local-b") / "private" / "SKILL.md").read_text() == "private-b"
 
 
-def test_ensure_cloud_ready_downloads_only_unready_cloud_components(durable_index, caps_root, monkeypatch):
+def test_ensure_cloud_ready_downloads_only_unready_cloud_components(
+    durable_index, caps_root, monkeypatch
+):
     """对话里选中尚未下载的云端技能 / 插件时按需准备：只对当前账号未就绪的记录调下载，
     插件定义就绪后再准备它的组件；已就绪的与别的账号的记录不碰。"""
     from core.capabilities.preparation import ensure_cloud_ready
@@ -546,24 +548,29 @@ def test_ensure_cloud_ready_downloads_only_unready_cloud_components(durable_inde
     profile = profile_id("https://cloud.example", "cloud-a")
     other = profile_id("https://cloud.example", "cloud-b")
     pending_skill = registry.upsert(
-        profile_id=profile, ref=cloud_ref("https://cloud.example", "skill", "pdf-editing", scope="shared"),
+        profile_id=profile,
+        ref=cloud_ref("https://cloud.example", "skill", "pdf-editing", scope="shared"),
         content_hash="a" * 64,
     )
     ready_skill = registry.upsert(
-        profile_id=profile, ref=cloud_ref("https://cloud.example", "skill", "ready", scope="shared"),
+        profile_id=profile,
+        ref=cloud_ref("https://cloud.example", "skill", "ready", scope="shared"),
         content_hash="b" * 64,
     )
     registry.set_state(ready_skill.install_id, "ready", resolved_revision="rev-b")
     foreign = registry.upsert(
-        profile_id=other, ref=cloud_ref("https://cloud.example", "skill", "pdf-editing", scope="shared"),
+        profile_id=other,
+        ref=cloud_ref("https://cloud.example", "skill", "pdf-editing", scope="shared"),
         content_hash="c" * 64,
     )
     plugin = registry.upsert(
-        profile_id=profile, ref=cloud_ref("https://cloud.example", "plugin", "knowledge", scope="shared"),
+        profile_id=profile,
+        ref=cloud_ref("https://cloud.example", "plugin", "knowledge", scope="shared"),
         content_hash="d" * 64,
     )
     component = registry.upsert(
-        profile_id=profile, ref=cloud_ref("https://cloud.example", "skill", "knowledge-daily", scope="shared"),
+        profile_id=profile,
+        ref=cloud_ref("https://cloud.example", "skill", "knowledge-daily", scope="shared"),
         content_hash="e" * 64,
     )
     prepared = {"skills": [], "definitions": []}
@@ -587,7 +594,12 @@ def test_ensure_cloud_ready_downloads_only_unready_cloud_components(durable_inde
     assert ensure_cloud_ready("local-b", skill_keys=["pdf-editing"]) == []
     assert prepared == {"skills": [], "definitions": []}
 
-    assert ensure_cloud_ready("local-a", skill_keys=["pdf-editing", "ready"], plugin_keys=["knowledge"]) == []
+    assert (
+        ensure_cloud_ready(
+            "local-a", skill_keys=["pdf-editing", "ready"], plugin_keys=["knowledge"]
+        )
+        == []
+    )
     assert prepared["definitions"] == [[plugin.install_id]]
     assert sorted(prepared["skills"][0]) == sorted([pending_skill.install_id, component.install_id])
     assert registry.get(foreign.install_id).state != "ready"
@@ -943,6 +955,7 @@ def test_name_preferences_are_isolated_between_accounts(index_db, monkeypatch, t
             source="local",
             path=path,
         )
+
     a, b = candidate("skill:local:a"), candidate("skill:local:b")
     monkeypatch.setattr(skills, "candidates", lambda uid: [a] if uid == "a" else [b])
     registry.set_preference("skill", "same", a.install_id, chosen_by="a")
@@ -956,7 +969,7 @@ def test_name_preferences_are_isolated_between_accounts(index_db, monkeypatch, t
     monkeypatch.setattr(skills, "current_local_user_id", lambda: "b")
     cands = connectors.json_candidates({"search": {"enabled": True}})
     assert (
-        connectors.resolve_bindings(cands, keep_local=set()).chosen["search"].install_id
+        connectors.resolve_bindings(cands).chosen["search"].install_id
         == "mcp:local-json:search"
     )
 
@@ -1001,7 +1014,7 @@ def test_enabled_cloud_connector_without_schema_is_unusable(index_db, monkeypatc
     disabled = connectors.cloud_candidates(ctx["profile"], ctx["servers"], {"empty": False})[0]
     assert not disabled.usable and disabled.state == "disabled"
     monkeypatch.setattr(bridge, "_bridge_context", lambda: ctx)
-    monkeypatch.setattr(bridge, "_local_server_base_map", lambda: {})
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: set())
     monkeypatch.setattr(bridge, "_mcp_json_local_declarations", lambda: {})
     monkeypatch.setattr(bridge, "_mcp_json_local_configs", lambda: {})
     with pytest.raises(PackageMissing):
@@ -1113,3 +1126,138 @@ def test_local_agent_replay_does_not_depend_on_cloud_session(durable_index, caps
     assert runtime.pin_agent_definition("local-agent", "owner", updated).system_prompt == "offline"
 
 
+def test_prepared_run_is_materialized_once_before_loading(durable_index, caps_root, monkeypatch):
+    from core.capabilities import runtime
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    body = "---\nname: example\ndescription: sample\n---\nv1"
+    skills.publish_local_skill(
+        "example", files={"SKILL.md": body}, content_hash=skill_content_hash(body, {})
+    )
+    builds = []
+    build = runtime.view.build_view
+
+    def counted_build(*args, **kwargs):
+        builds.append(args[0])
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.view, "build_view", counted_build)
+    run = runtime.prepare("single-materialization", "u", skill_ids=["example"])
+    loader = runtime.frozen_loader(run)
+    assert loader.get_skill_dir("example") is not None
+    assert len(builds) == 1
+    skills.bump_view_generation()
+    assert runtime.frozen_loader(run).get_skill_dir("example") is not None
+    assert len(builds) == 2
+
+
+def test_parallel_validation_propagates_failure_and_context(monkeypatch):
+    from contextvars import ContextVar
+    from types import SimpleNamespace
+    from core.capabilities import runtime
+    from core.capabilities.errors import IntegrityFailed
+
+    marker = ContextVar("validation_test")
+    marker.set("request-user")
+    seen = []
+    monkeypatch.setattr(runtime, "os", SimpleNamespace(name="nt"))
+
+    def check(name, binding, run, *, fresh, installed):
+        assert marker.get() == "request-user"
+        assert fresh is True
+        seen.append(name)
+        if name == "bad":
+            raise IntegrityFailed("modified content")
+
+    monkeypatch.setattr(runtime, "_validate_skill_binding", check)
+    run = SimpleNamespace(bindings={str(i): {} for i in range(8)} | {"bad": {}})
+    with pytest.raises(IntegrityFailed, match="modified content"):
+        runtime._check_skill_bindings(run, fresh=True, installed={})
+    assert set(seen) == set(run.bindings)
+
+
+@pytest.mark.parametrize("change", ["none", "bytes", "disabled", "removed"])
+def test_executor_assembly_final_gate(durable_index, caps_root, monkeypatch, change):
+    from core.capabilities import runtime
+    from core.capabilities.errors import CapabilityError, ViewUnavailable
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    comp = skills.publish_local_skill(
+        "assembly-test",
+        files={"SKILL.md": "initial"},
+        content_hash=skill_content_hash("initial", {}),
+        owner_user_id="owner",
+    )
+    run = None
+    try:
+        with runtime.executor_assembly("assembly-" + change, "owner"):
+            run = runtime.prepare("assembly-" + change, "owner", skill_ids=["assembly-test"])
+            assert (run.run_id, run.scope_id) not in runtime._view_built
+            with pytest.raises(ViewUnavailable):
+                runtime.frozen_loader(run)
+            runtime.bind_mcp(run, {}, None)
+            if change == "bytes":
+                (comp.path / "SKILL.md").write_text("changed")
+            elif change == "disabled":
+                registry.set_enabled("skill:local:assembly-test", False)
+            elif change == "removed":
+                registry.mark_removed("skill:local:assembly-test")
+            finished = runtime.preflight(
+                run, catalog_skill_ids=["assembly-test"], available_models=set()
+            )
+            assert change == "none", "a changed grant or package must fail the final gate"
+            assert (run.run_id, run.scope_id) in runtime._view_built
+            assert runtime.frozen_loader(finished).get_skill_dir("assembly-test")
+    except CapabilityError:
+        assert change != "none"
+        assert (run.run_id, run.scope_id) not in runtime._view_built
+        with pytest.raises(CapabilityError):
+            runtime.frozen_loader(run)
+
+
+def test_executor_assembly_cannot_prepare_another_run(durable_index, caps_root, monkeypatch):
+    from core.capabilities import runtime
+    from core.capabilities.errors import IntegrityFailed
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    with runtime.executor_assembly("expected", "owner"):
+        with pytest.raises(IntegrityFailed):
+            runtime.prepare("different", "owner", skill_ids=[])
+
+
+def test_identical_local_publication_does_not_invalidate_resolution(index_db, caps_root):
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    kwargs = dict(
+        files={"SKILL.md": "same"},
+        content_hash=skill_content_hash("same", {}),
+        owner_user_id="owner",
+    )
+    first = skills.publish_local_skill("stable", **kwargs)
+    before = registry.generation(), skills.view_generation()
+    second = skills.publish_local_skill("stable", **kwargs)
+    assert first == second
+    assert (registry.generation(), skills.view_generation()) == before
+    skills.publish_local_skill("stable", **{**kwargs, "owner_user_id": "changed"})
+    assert registry.generation() > before[0]
+    assert skills.view_generation() > before[1]
+
+
+def test_assembly_missing_view_target_is_integrity_error(durable_index, caps_root, monkeypatch):
+    from core.capabilities import runtime
+    from core.capabilities.errors import IntegrityFailed
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    skills.publish_local_skill(
+        "example", files={"SKILL.md": "v1"}, content_hash=skill_content_hash("v1", {})
+    )
+    with runtime.executor_assembly("missing-view-target", "u", ""):
+        run = runtime.prepare("missing-view-target", "u", skill_ids=["example"])
+        monkeypatch.setattr(runtime, "_component", lambda binding: None)
+        with pytest.raises(IntegrityFailed):
+            runtime.rebuild(run)

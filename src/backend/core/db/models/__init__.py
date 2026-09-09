@@ -74,6 +74,7 @@ from core.db.models.logs import (
     ToolEffectLease,
     ToolEffectLedger,
     ToolEffectReceipt,
+    RemoteToolEffect,
 )
 from core.db.models.memory import (
     MemoryOutbox,
@@ -105,3 +106,5 @@ from core.db.models.capability import (
 )
 
 __all__ = [name for name in globals() if not name.startswith("_")]
+
+from core.db.models.observability import DesktopOutbox, DesktopRecord, DesktopSyncDevice

@@ -24,12 +24,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import replace
+from functools import lru_cache
+from pathlib import Path
+
+import frontmatter
 from typing import Any, Callable, List
 
 from agentscope.permission import PermissionBehavior, PermissionDecision
 from agentscope.tool import FunctionTool
-from agentscope.skill import LocalSkillLoader, SkillLoaderBase
+from agentscope.skill import LocalSkillLoader, SkillLoaderBase, Skill
 from core.llm.tool_permissions import (
     ToolPermissionSpec,
     builtin_tool_permission,
@@ -48,6 +53,17 @@ class AllowedFunctionTool(FunctionTool):
         )
 
 
+def _parse_runtime_skill(text):
+    content = frontmatter.loads(text)
+    name, description = content.get("name"), content.get("description")
+    if not name or not description:
+        return None
+    return str(name), str(description), content.content
+
+
+_cached_runtime_skill = lru_cache(maxsize=256)(_parse_runtime_skill)
+
+
 class RuntimeNamedSkillLoader(SkillLoaderBase):
     """Read frozen physical files while exposing their authorized sandbox alias."""
 
@@ -57,19 +73,78 @@ class RuntimeNamedSkillLoader(SkillLoaderBase):
         self.capability_run = capability_run
         self._physical_loader = LocalSkillLoader(directory)
 
+    def _list_desktop_skill(self):
+        from core.capabilities.runtime import validate
+
+        # Keep authorization outside the parse-error handling: it must fail the
+        # whole enumeration, never quietly omit a revoked or modified skill.
+        validate(self.capability_run, only_skill=self.runtime_name)
+        try:
+            entry = Path(self.directory) / "SKILL.md"
+            updated_at = entry.stat().st_mtime
+            text = entry.read_text(encoding="utf-8")
+            parsed = (
+                _cached_runtime_skill(text) if len(text) <= 262144 else _parse_runtime_skill(text)
+            )
+            if parsed is None:
+                return []
+            _, description, markdown = parsed
+            return [
+                Skill(
+                    name=self.runtime_name,
+                    description=description,
+                    dir=f"/workspace/skills/{self.runtime_name}",
+                    markdown=markdown,
+                    updated_at=updated_at,
+                )
+            ]
+        except Exception as exc:
+            logger.warning("Failed to load skill metadata: %s", type(exc).__name__)
+            return []
+
     async def list_skills(self):
+        # AgentScope's general filesystem scanner crosses the executor boundary
+        # eight times for one known file. Batch that I/O in one worker while
+        # preserving its parser, fields and sandbox alias.
+        if os.name == "nt" and self.capability_run is not None:
+            return await asyncio.to_thread(self._list_desktop_skill)
         from core.capabilities.runtime import validate
 
         if self.capability_run is not None:
-            await asyncio.to_thread(validate, self.capability_run)
+            # Re-check only this loader's own skill (authorization + fresh hash),
+            # not the whole run. N loaders each re-hashing all N skills — twice
+            # per assembly — was O(N²) filesystem work and the dominant cost of
+            # desktop agent setup; scoping to one skill makes it O(N).
+            await asyncio.to_thread(validate, self.capability_run, only_skill=self.runtime_name)
         physical = await self._physical_loader.list_skills()
-        if self.capability_run is not None:
-            # A session or file change during the read cannot publish stale metadata.
-            await asyncio.to_thread(validate, self.capability_run)
         return [
             replace(skill, name=self.runtime_name, dir=f"/workspace/skills/{self.runtime_name}")
             for skill in physical
         ]
+
+
+class _ParallelRuntimeSkillLoader(SkillLoaderBase):
+    """Enumerate independent desktop loaders with bounded I/O concurrency."""
+
+    def __init__(self, loaders):
+        self._loaders = tuple(loaders)
+
+    async def list_skills(self):
+        limit = asyncio.Semaphore(4)
+
+        async def load(loader):
+            async with limit:
+                return await loader.list_skills()
+
+        results = await asyncio.gather(
+            *(load(loader) for loader in self._loaders), return_exceptions=True
+        )
+        skills = []
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+            skills.extend(result)
+        return skills
 
 
 class ToolCollector:
@@ -163,7 +238,14 @@ class ToolCollector:
 
     @property
     def skill_loaders(self) -> List[Any]:
-        return list(self._skill_loaders)
+        loaders = list(self._skill_loaders)
+        if (
+            os.name == "nt"
+            and len(loaders) >= 8
+            and all(isinstance(loader, RuntimeNamedSkillLoader) for loader in loaders)
+        ):
+            return [_ParallelRuntimeSkillLoader(loaders)]
+        return loaders
 
 
 __all__ = ["AllowedFunctionTool", "ToolCollector"]

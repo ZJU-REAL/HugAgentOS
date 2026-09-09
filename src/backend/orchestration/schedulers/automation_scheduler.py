@@ -174,7 +174,7 @@ class AutomationScheduler:
         with SessionLocal() as db:
             svc = AutomationService(db)
             task = svc.get_task_by_id(task_id)
-            if not task or task.status not in ("active", "paused"):
+            if not task or task.user_id != user_id or task.status not in ("active", "paused"):
                 await self._release_lock(task_id)
                 return
 
@@ -198,6 +198,12 @@ class AutomationScheduler:
             )  # includes optional channel delivery destinations
 
         try:
+            from core.services.automation_execution import task_execution_context
+            with SessionLocal() as db:
+                current_task = AutomationService(db).get_task(task_id, user_id)
+                if current_task is None:
+                    raise ValueError("任务已删除")
+                task_execution_context(db, current_task)
             if task_type == "prompt":
                 chat_id, result_text, usage = await asyncio.wait_for(
                     self._execute_prompt_task(
@@ -407,11 +413,18 @@ class AutomationScheduler:
         actual_model_name = resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
 
         with SessionLocal() as db:
+            from core.services.automation_service import AutomationService
+            from core.services.automation_execution import task_execution_context
+            task = AutomationService(db).get_task(task_id, user_id)
+            if task is None:
+                raise ValueError("任务不存在或无权访问")
+            project_context = task_execution_context(db, task)
             chat_svc = ChatService(db)
             chat_svc.ensure_session(
                 chat_id=chat_id,
                 user_id=user_id,
                 title=f"[自动化] {task_name}",
+                project_id=project_context.get("project_id"),
                 extra_data={"automation_task_id": task_id, "automation_run": True},
             )
             chat_svc.add_message(
@@ -439,6 +452,7 @@ class AutomationScheduler:
             enabled_agent_ids = u_agents
 
         context = {
+            **project_context,
             "user_id": user_id,
             "chat_id": chat_id,
             "model_name": actual_model_name,
@@ -617,6 +631,12 @@ class AutomationScheduler:
         actual_model_name = resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
 
         with SessionLocal() as db:
+            from core.services.automation_execution import task_execution_context
+            from core.services.automation_service import AutomationService
+            task = AutomationService(db).get_task(task_id, user_id)
+            if task is None:
+                raise ValueError("任务不存在或无权访问")
+            project_context = task_execution_context(db, task)
             plan_svc = PlanService(db)
             plan = plan_svc.get_plan(plan_id, user_id)
             if not plan:
@@ -642,6 +662,7 @@ class AutomationScheduler:
                 chat_id=chat_id,
                 user_id=user_id,
                 title=f"[自动化] {task_name}",
+                project_id=project_context.get("project_id"),
                 extra_data={
                     "automation_task_id": task_id,
                     "automation_run": True,

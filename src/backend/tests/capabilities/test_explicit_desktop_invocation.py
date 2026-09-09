@@ -31,9 +31,8 @@ def explicit_cloud(index_db, caps_root, monkeypatch):
     monkeypatch.setattr(
         catalog_resolver, "get_runtime_catalog", lambda *a, **k: {"skills": [], "mcp": []}
     )
-    monkeypatch.setattr(bridge, "_local_server_base_map", lambda: {})
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: set())
     monkeypatch.setattr(bridge, "_mcp_json_local_declarations", lambda: {})
-    monkeypatch.setattr(bridge, "keep_local_bases", lambda: set())
     context = {
         "profile": skill.profile_id,
         "servers": [{"server_id": "pack-search", "tools": [{"name": "search"}]}],

@@ -1,3 +1,4 @@
+import { CapabilitySyncGate } from './components/desktop/CapabilitySyncGate';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -110,11 +111,9 @@ export default function App() {
   const setMySpaceTab = useMySpaceStore((s) => s.setTab);
   const isDesktopShell = useDeploymentModeStore((s) => s.isDesktop);
   const desktopProvisionMode = useDeploymentModeStore((s) => s.provisionMode);
+  const capabilityGateOpen = useDeploymentModeStore((s) => s.capabilityGateOpen);
+  const capabilitiesReady = useDeploymentModeStore((s) => s.capabilitiesReady);
   const deploymentModeLoaded = useDeploymentModeStore((s) => s.loaded);
-  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
-  useEffect(() => {
-    refreshDeploymentMode();
-  }, [refreshDeploymentMode]);
   const canvasOpen = useCanvasStore((s) => s.isOpen);
   const canvasFullscreen = useCanvasStore((s) => s.isFullscreen);
   const rightSidebarView = useCanvasStore((s) => s.activeView);
@@ -630,7 +629,7 @@ export default function App() {
       if (!target) return;
       // .jx-msgActionBtn / .jx-editMessage：点「编辑消息」展开编辑框、点「取消」收起
       // 都会播放高度动画，ResizeObserver 会误判为流式增高而滚到底部 —— 预置脱离跟随。
-      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head, .jx-msgActionBtn, .jx-editMessage')) {
+      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head, .jx-msgActionBtn, .jx-editMessage, .jx-conversationNav-button')) {
         userScrolledUpRef.current = true;
       }
     };
@@ -784,6 +783,10 @@ export default function App() {
         />
       );
     }
+  }
+
+  if (desktopProvisionMode === 'dual' && (capabilityGateOpen || !capabilitiesReady)) {
+    return <CapabilitySyncGate />;
   }
 
   return (

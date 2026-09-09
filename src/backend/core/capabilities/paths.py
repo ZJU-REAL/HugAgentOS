@@ -62,16 +62,21 @@ def require_root() -> Path:
         raise CapabilityStoreDisabled(
             f"{CAPS_ROOT_ENV} is not set; the capability file store is disabled"
         )
-    root.mkdir(parents=True, exist_ok=True)
+    if not root.is_dir():
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def assert_managed_path(path: Path) -> Path:
     """Store/index paths are real directories; links belong only in runtime views."""
+    return _assert_managed_path(path, require_root())
+
+
+def _assert_managed_path(path: Path, root: Path) -> Path:
     from .errors import IntegrityFailed
     from .junction import is_directory_link
 
-    root = require_root().absolute()
+    root = root.absolute()
     path = path.absolute()
     try:
         parts = path.relative_to(root).parts
@@ -97,22 +102,30 @@ def safe_segment(value: str) -> str:
     return seg
 
 
-def kind_root(kind: str) -> Path:
+def _kind_path(kind: str, *segments: str) -> Path:
     if kind not in _KIND_DIRS:
         raise ValueError(f"kind {kind!r} has no directory")
-    path = assert_managed_path(require_root() / _KIND_DIRS[kind])
-    path.mkdir(parents=True, exist_ok=True)
+    parts = [safe_segment(segment) for segment in segments]
+    root = require_root()
+    # Validate the whole chain once, including every intermediate directory.
+    # Nested public helpers used to revalidate the same parents three times.
+    path = _assert_managed_path(root / _KIND_DIRS[kind] / Path(*parts), root)
+    directory = root / _KIND_DIRS[kind]
+    if not directory.is_dir():
+        directory.mkdir(parents=True, exist_ok=True)
     return path
 
 
+def kind_root(kind: str) -> Path:
+    return _kind_path(kind)
+
+
 def profile_dir(kind: str, profile: str) -> Path:
-    return assert_managed_path(kind_root(kind) / safe_segment(profile))
+    return _kind_path(kind, profile)
 
 
 def component_dir(kind: str, profile: str, key: str, revision: str) -> Path:
-    return assert_managed_path(
-        profile_dir(kind, profile) / safe_segment(key) / safe_segment(revision)
-    )
+    return _kind_path(kind, profile, key, revision)
 
 
 def mcp_json_path() -> Path:

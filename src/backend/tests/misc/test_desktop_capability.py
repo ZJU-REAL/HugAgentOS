@@ -2,9 +2,9 @@
 
 覆盖三层：
 1. token 签发/校验（篡改、过期、畸形输入都拒绝）；
-2. component_base_name 的 logical 去重键规则；
+2. 连接器绑定以平台登记的 server_id 为唯一身份；
 3. desktop_cloud_bridge 的 enabled_mcp_ids 合并——云端接管的本机同名实现被抑制、
-   KEEP 基名保留本机、桥未激活零行为变化。
+   无工具名称保留名单、桥未激活零行为变化。
 """
 
 from __future__ import annotations
@@ -87,6 +87,10 @@ def test_token_expiry(monkeypatch):
 
 def _use_test_database(monkeypatch, db_session):
     monkeypatch.setattr(cap, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    # A different database: drop the process-level authorization snapshots.
+    cap.invalidate_model_gateway_cache()
+    with cap._effective_lock:
+        cap._effective_cache.clear()
 
 
 def test_model_manifest_contains_no_upstream_credentials(monkeypatch, db_session):
@@ -302,28 +306,11 @@ def test_model_gateway_target_is_role_or_user_switch_allowlisted(monkeypatch, db
     )
 
 
-# ── 组件基名（logical 去重键） ──────────────────────────────────────────
-
-
-def test_component_base_name():
-    assert cap.component_base_name("internet_search", None) == "internet_search"
-    assert cap.component_base_name("sites-site_publish", "sites") == "site_publish"
-    assert (
-        cap.component_base_name(
-            "industry-knowledge-center-ai_chain_information_mcp", "industry-knowledge-center"
-        )
-        == "ai_chain_information_mcp"
-    )
-    # slug 不匹配前缀时保底返回原 id
-    assert cap.component_base_name("sites-site_publish", "other") == "sites-site_publish"
-
-
 # ── 混合能力解析 ────────────────────────────────────────────────────────
 
 
 def _activate_bridge(monkeypatch, servers):
     """把桥置为激活态并注入假 manifest（绕开网络与 DB）。"""
-    monkeypatch.delenv("DESKTOP_CLOUD_MCP_BRIDGE_ENABLED", raising=False)
     monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
     manifest = build_manifest(servers)
     monkeypatch.setattr(bridge, "get_cached_manifest", lambda: manifest)
@@ -338,18 +325,18 @@ def _activate_bridge(monkeypatch, servers):
     )
     monkeypatch.setattr(
         bridge,
-        "_local_server_base_map",
+        "_local_server_ids",
         lambda: {
-            "internet_search": "internet_search",
-            "retrieve_dataset_content": "retrieve_dataset_content",
-            "batch_runner": "batch_runner",
-            "sites-site_publish": "site_publish",
-            "skill-manager-skill_manager": "skill_manager",
+            "internet_search",
+            "retrieve_dataset_content",
+            "batch_runner",
+            "sites-site_publish",
+            "skill-manager-skill_manager",
         },
     )
 
 
-def _cloud_server(server_id, component, tool_name):
+def _cloud_server(server_id, source_plugin, tool_name):
     tools = [
         {
             "name": tool_name,
@@ -359,17 +346,17 @@ def _cloud_server(server_id, component, tool_name):
     ]
     return {
         "server_id": server_id,
-        "component": component,
+        "source_plugin": source_plugin,
         "tools": tools,
         "schema_hash": canonical_hash(tools),
     }
 
 
 _CLOUD_SERVERS = [
-    _cloud_server("internet_search", "internet_search", "internet_search"),
+    _cloud_server("internet_search", None, "internet_search"),
     {
         "server_id": "industry-knowledge-center-ai_chain_information_mcp",
-        "component": "ai_chain_information_mcp",
+        "source_plugin": "industry-knowledge-center",
         "tools": [
             {
                 "name": "ai_chain_information",
@@ -387,10 +374,10 @@ _CLOUD_SERVERS = [
             ]
         ),
     },
-    _cloud_server("skill-manager-skill_manager", "skill_manager", "skill_manager"),
-    # KEEP 基名：云端也有 site_publish / batch_runner，但本机保留，不得合并
-    _cloud_server("sites-site_publish", "site_publish", "site_publish"),
-    _cloud_server("batch_runner", "batch_runner", "run_batch"),
+    _cloud_server("skill-manager-skill_manager", "skill-manager", "skill_manager"),
+    # 云端站点和批量工具与其它连接器使用相同的来源解析规则
+    _cloud_server("sites-site_publish", "sites", "site_publish"),
+    _cloud_server("batch_runner", None, "run_batch"),
 ]
 
 
@@ -399,14 +386,14 @@ def test_apply_merges_cloud_and_suppresses_local(monkeypatch):
     out = bridge.apply_to_enabled_mcp_ids(
         ["internet_search", "batch_runner", "sites-site_publish", "skill-manager-skill_manager"]
     )
-    # 本机 internet_search / skill_manager 被云端接管；KEEP 项保留本机
+    # 同名连接器默认选中当前账号的云端绑定
     assert "batch_runner" in out
     assert "sites-site_publish" in out
     # 云端 id 注入
     assert "industry-knowledge-center-ai_chain_information_mcp" in out
-    assert out.count("internet_search") == 1  # 云端裸 id 顶替本机裸 id，不重复
+    # 同一 server_id 的云端与本机候选只留一条绑定，不重复
+    assert out.count("internet_search") == 1
     assert out.count("skill-manager-skill_manager") == 1
-    # KEEP 的云端副本没有被合并进来（site_publish 只有本机一份）
     assert out.count("sites-site_publish") == 1
 
 
@@ -444,23 +431,10 @@ def test_cloud_gateway_configs_shape(monkeypatch):
     assert cfg["manifest_revision"]
     assert cfg["manifest_tools"][0]["name"] == "ai_chain_information"
     assert cfg["schema_hash"]
-    # KEEP 基名不生成云端配置
-    assert "batch_runner" not in cfgs
-    # 正式站点只能云端托管，因此必须生成网关配置并标出组件基名。
-    assert cfgs["sites-site_publish"]["gateway_component"] == "site_publish"
-
-
-def test_keep_local_bases_env_override(monkeypatch):
-    monkeypatch.setenv("DESKTOP_LOCAL_MCP_KEEP", "batch_runner, foo_bar")
-    assert bridge.keep_local_bases() == {"batch_runner", "foo_bar"}
-    monkeypatch.delenv("DESKTOP_LOCAL_MCP_KEEP")
-    assert "site_publish" not in bridge.keep_local_bases()
-
-
-def test_site_publish_cannot_be_kept_local_by_config(monkeypatch):
-    """正式站点只能云端托管，显式配置也不放开，但要留下告警而不是静默忽略。"""
-    monkeypatch.setenv("DESKTOP_LOCAL_MCP_KEEP", "site_publish, batch_runner")
-    assert bridge.keep_local_bases() == {"batch_runner"}
+    # 同名本机候选不再阻止已选中的云端配置
+    assert cfgs["batch_runner"]["schema_source"] == "cloud_manifest"
+    # 正式站点只能云端托管，因此必须生成网关配置并标出提供它的插件。
+    assert cfgs["sites-site_publish"]["gateway_plugin"] == "sites"
 
 
 def test_bridge_account_switch_clears_previous_manifest(monkeypatch):
@@ -606,3 +580,43 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
             "allowed_tool",
             schema_hash="0" * 64,
         )
+
+
+@pytest.mark.parametrize(
+    "server_id", ["automation-automation_task", "batch_runner", "generate_chart_tool"]
+)
+def test_cloud_tool_remains_available_without_local_launcher(monkeypatch, server_id):
+    _activate_bridge(monkeypatch, [_cloud_server(server_id, None, "test_tool")])
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: set())
+    enabled = bridge.apply_to_enabled_mcp_ids([])
+    assert server_id in enabled
+    configs = bridge.cloud_gateway_mcp_configs(enabled)
+    assert server_id in configs
+    assert configs[server_id]["schema_source"] == "cloud_manifest"
+
+
+@pytest.mark.parametrize("legacy_setting", ["keep", "switch", "both"])
+def test_legacy_environment_cannot_hide_authorized_cloud_tools(monkeypatch, legacy_setting):
+    servers = [
+        _cloud_server(sid, None, "tool_" + str(i))
+        for i, sid in enumerate(
+            [
+                "batch_runner",
+                "generate_chart_tool",
+                "automation-automation_task",
+                "sites-site_publish",
+                "custom_connector",
+            ]
+        )
+    ]
+    _activate_bridge(monkeypatch, servers)
+    if legacy_setting in ("keep", "both"):
+        monkeypatch.setenv("DESKTOP_LOCAL_MCP_KEEP", ",".join(s["server_id"] for s in servers))
+    if legacy_setting in ("switch", "both"):
+        monkeypatch.setenv("DESKTOP_CLOUD_MCP_BRIDGE_ENABLED", "0")
+    monkeypatch.setattr(bridge, "_local_server_ids", lambda: {s["server_id"] for s in servers})
+    enabled = bridge.apply_to_enabled_mcp_ids([s["server_id"] for s in servers])
+    configs = bridge.cloud_gateway_mcp_configs(enabled)
+    assert set(configs) == {s["server_id"] for s in servers}
+    assert all(c["schema_source"] == "cloud_manifest" for c in configs.values())
+    assert bridge.bridge_active()

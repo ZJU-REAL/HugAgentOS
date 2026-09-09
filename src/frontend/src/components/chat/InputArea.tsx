@@ -31,6 +31,7 @@ import {
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
+import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { DropOverlay } from '../common/DropOverlay';
 import { ContentErrorBoundary } from '../common';
@@ -333,7 +334,7 @@ export function InputArea({
     void usePluginUiStore.getState().fetchContributions();
   }, []);
   const sending = forceSendMode ? false : storeSending;
-  const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
+  const { uploadedFiles, uploadedArtifacts, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
@@ -367,11 +368,6 @@ export function InputArea({
   } = projectCreationTargets(isDesktopShell, provisionMode);
   // 混合架构：双模式=云端身份 + 本机执行面，本地项目能力在 dual 下同样可用。
   const localCapable = canCreateLocalProject;
-  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
-  useEffect(() => {
-    refreshDeploymentMode();
-  }, [refreshDeploymentMode]);
-
   // 项目下拉里的「新建本地项目」：跳壳的文件夹选择器（/__desktop/pick-local-folder），
   // 壳选完把路径以 hugagent:local-folder 事件回抛到页面；这里建项目、刷新列表并
   // 把当前对话直接绑定到新项目上（项目页 composer 不注册，避免双实例重复建）。
@@ -480,6 +476,7 @@ export function InputArea({
   }, [uploadedImageUrls]);
 
   const editorRef = useRef<HTMLDivElement>(null);
+  useComposerCaretScroll(editorRef);
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
   const prevTextRef = useRef('');
@@ -1021,6 +1018,14 @@ export function InputArea({
                   loading={uploadingFiles.has(file)}
                   onClose={() => removeFile(idx)}
                   previewUrl={uploadedImageUrls[idx]}
+                  artifact={uploadedArtifacts.get(file) ? {
+                    file_id: uploadedArtifacts.get(file)!.file_id,
+                    url: uploadedArtifacts.get(file)!.download_url || `/files/${uploadedArtifacts.get(file)!.file_id}`,
+                    name: file.name,
+                    mime_type: file.type,
+                    size: file.size,
+                    chat_id: currentChatId,
+                  } : undefined}
                 />
               </motion.div>
             ))}
@@ -1041,6 +1046,13 @@ export function InputArea({
                       name={file.name}
                       onClose={() => removeImportedSpaceFile(idx)}
                       previewUrl={previewUrl}
+                      artifact={{
+                        file_id: file.file_id,
+                        url: file.download_url || `/files/${file.file_id}`,
+                        name: file.name,
+                        mime_type: file.mime_type,
+                        chat_id: currentChatId,
+                      }}
                     />
                   </motion.div>
                 );

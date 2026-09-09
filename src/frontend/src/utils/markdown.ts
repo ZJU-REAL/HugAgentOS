@@ -1,6 +1,12 @@
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import { wrapTablesWithCopy } from './tableCopy';
+import { wrapCodeWithCopy } from './codeCopy';
+
+function escapeCodeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 // Configure marked
 marked.setOptions({
@@ -37,7 +43,7 @@ marked.use({
         return `<div class="jx-mermaid" data-chart="${encoded}"></div>`;
       }
       // Default code block with highlight.js
-      let highlighted = text;
+      let highlighted = escapeCodeHtml(text);
       if (lang && hljs.getLanguage(lang)) {
         try {
           highlighted = hljs.highlight(text, { language: lang }).value;
@@ -45,7 +51,9 @@ marked.use({
           // fallback to raw text
         }
       }
-      return `<pre><code class="hljs${lang ? ` language-${lang}` : ''}">${highlighted}</code></pre>`;
+      return wrapCodeWithCopy(
+        `<pre><code class="hljs${lang ? ` language-${escapeCodeHtml(lang)}` : ''}">${highlighted}</code></pre>`,
+      );
     },
   },
 });
@@ -142,6 +150,24 @@ marked.use({
   },
   async: false,
 } as any);
+
+/** 把简介里的 Markdown 标记剥成纯文本：卡片一行只放得下一句话，不该把 ** 和反引号原样露出来。 */
+export function stripMarkdown(md: string | null | undefined): string {
+  if (!md) return '';
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function mdToHtml(md: string): string {
   return marked.parse(md) as string;

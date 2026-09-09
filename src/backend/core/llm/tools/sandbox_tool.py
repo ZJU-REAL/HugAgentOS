@@ -347,6 +347,7 @@ def register_bash(
     sandbox_session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     interactive: bool = True,
+    scope: Any = None,
 ) -> None:
     """Register the generic ``bash`` tool.
 
@@ -376,6 +377,11 @@ def register_bash(
         from core.sandbox import SandboxTimeoutError as _SandboxTimeoutError
         from core.sandbox import get_sandbox_provider as _get_provider
 
+        from .project_source_access import current_scope_error
+        scope_error = current_scope_error(scope, user_id, write=True)
+        if scope_error:
+            return _resp_json(scope_error)
+        team_project = scope is not None and scope.kind == "team"
         cmd = (command or "").strip()
         if not cmd:
             return _resp_json({"error": "command 不能为空"})
@@ -422,6 +428,18 @@ def register_bash(
 
         provider = _get_provider()
 
+        team_before = []
+        if team_project:
+            from .project_working_copy import prepare, directory
+            from fastapi import HTTPException
+            import shlex
+            try:
+                team_before = await prepare(provider, _sess, scope, user_id or "")
+            except HTTPException as exc:
+                return _resp_json({"error": exc.detail, "status": exc.status_code})
+            root = directory(scope.project_id)
+            cmd = f"mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && " + cmd
+
         effective_timeout = max(1, min(int(timeout or 60), 120))
         req = _ExecuteRequest(
             script_content=cmd,
@@ -436,7 +454,7 @@ def register_bash(
         # 先把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件；随后记下镜像
         # 里现有哪些文件，命令跑完做差集才认得出沙箱里删掉了什么（rm 不经过任何工具）。
         mirror_before: dict = {}
-        if user_id:
+        if user_id and not team_project:
             await _pull_myspace_updates(user_id)
             mirror_before = await _snapshot_myspace(user_id)
 
@@ -454,6 +472,16 @@ def register_bash(
             "exit_code": result.exit_code,
             "execution_time_ms": result.execution_time_ms,
         }
+        if team_project:
+            from .project_working_copy import persist, directory
+            try:
+                payload["project_synced_count"] = await persist(_sess, scope, user_id or "", team_before)
+                payload["project_directory"] = directory(scope.project_id)
+                payload["note"] = "修改已同步到团队项目；删除文件请使用项目文件管理。"
+            except Exception as exc:
+                payload["error"] = getattr(exc, "detail", str(exc))
+                payload["source_saved"] = False
+
         if _confinement_warning:
             # Degraded isolation is reported, never silent: the command policy
             # gate still ran, but the OS write jail did not.
@@ -463,7 +491,7 @@ def register_bash(
         # 相对路径，靠命令里有没有 "myspace" 字样判断必然漏；命令失败前写出的文件同样已经
         # 落盘，一样要登记。真正的差异判定在 _sync_myspace_changes 里，没有变化时只有一次
         # 目录遍历。
-        if user_id:
+        if user_id and not team_project:
             try:
                 synced, blocked, deleted = await _sync_myspace_changes(
                     sess=_sess,
@@ -537,6 +565,14 @@ def register_bash(
         "    或失败时 {error, exit_code: -1}。\n"
     )
 
+    if scope and scope.kind == "team":
+        from .project_working_copy import directory
+        bash.__doc__ += (
+            "\n当前为团队项目。bash 自动在 " + directory(scope.project_id)
+            + " 中执行并同步源码；使用相对路径或该项目目录，"
+            "不要使用 /myspace 个人镜像路径。构建产物应写入 /workspace/.site-dist/。"
+        )
+
     toolkit.register_tool_function(bash, namesake_strategy="override")
 
     # Lab-mode tool family is Title-cased (``Read`` / ``Edit`` / ``Write`` /
@@ -591,9 +627,9 @@ def register_sandbox_put_artifact(
             return _resp_json({"error": path_err})
         # Alias the canonical /workspace → real root before handing to the provider
         # (no-op in Docker); the model writes /workspace paths from the prompt/skills.
-        from ._paths import canonicalize_ws_path
+        from ._paths import to_physical_path
 
-        dest_path = canonicalize_ws_path(dest_path)
+        dest_path = to_physical_path(dest_path, user_id, session_id=_sess)
 
         # _resolve_artifact_files accepts the {filename: artifact_id} shape;
         # using dest_path as the key is fine — it is only the key of the returned dict.
@@ -666,9 +702,9 @@ def register_sandbox_get_artifact(
         path_err = _validate_workspace_path(src_path)
         if path_err:
             return _resp_json({"error": path_err})
-        from ._paths import canonicalize_ws_path
+        from ._paths import to_physical_path
 
-        src_path = canonicalize_ws_path(src_path)
+        src_path = to_physical_path(src_path, user_id, session_id=_sess)
 
         provider = _get_provider()
         from core.sandbox import SandboxFileTooLargeError as _SandboxFileTooLargeError

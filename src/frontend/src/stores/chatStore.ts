@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { isLocalProject, setChatRoutingContext } from '../api';
 import type {
   ChatItem,
   ChatMessage,
@@ -821,6 +822,9 @@ export const useChatStore = create<ChatState>((set, get) => {
           projectId,
           projectName,
         };
+    // An explicit project choice also determines the draft's execution target.
+    if (isLocalProject(projectId)) nextChat.runTarget = 'local';
+    else delete nextChat.runTarget;
     const next: ChatStoreData = {
       chats: { ...store.chats, [chatId]: nextChat },
       // Don't add to order proactively: a newly created empty chat doesn't enter the sidebar
@@ -1237,3 +1241,5 @@ if (typeof window !== 'undefined') {
     useChatStore.setState({ store: merged, storeRef: merged });
   });
 }
+
+setChatRoutingContext((chatId) => useChatStore.getState().store.chats[chatId]);

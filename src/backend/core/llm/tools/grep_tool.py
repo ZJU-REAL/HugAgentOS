@@ -58,6 +58,10 @@ def register_grep(
         if not pattern or not isinstance(pattern, str):
             return resp_json({"error": "pattern 必须为非空字符串"})
 
+        from .project_source_access import current_scope_error
+        scope_error = current_scope_error(scope, user_id)
+        if scope_error:
+            return resp_json(scope_error)
         path_err = validate_workspace_path(path)
         if path_err:
             return resp_json({"error": path_err})
@@ -68,7 +72,20 @@ def register_grep(
         # Grep needs to search content → first materialize that subtree of "My Space" into the sandbox in bulk on demand
         # (the batch version of lazy loading; already-in-sandbox files are not re-fetched), ensuring the search covers the real My Space.
         materialized = 0
-        if user_id and _ms.myspace_rel(path, user_id, scope) is not None:
+        if scope and scope.kind == "team":
+            from .project_working_copy import directory, prepare
+            from core.sandbox import get_sandbox_provider
+            from fastapi import HTTPException
+            try:
+                materialized = len(await prepare(get_sandbox_provider(), _sess, scope, user_id or ""))
+            except HTTPException as exc:
+                return resp_json({"error": exc.detail, "status": exc.status_code})
+            prefix = "/myspace/" + scope.folder_name
+            if path == "/workspace" or path == prefix:
+                path = directory(scope.project_id)
+            elif path.startswith(prefix + "/"):
+                path = directory(scope.project_id) + path[len(prefix):]
+        elif user_id and _ms.myspace_rel(path, user_id, scope) is not None:
             try:
                 from core.sandbox import get_sandbox_provider as _gsp
                 materialized = await _ms.materialize_tree(
@@ -78,7 +95,7 @@ def register_grep(
                 logger.warning("[grep] materialize_tree 失败 %s: %s", path, exc)
 
         # /myspace → /workspace/myspace/<uid>
-        path = to_physical_path(path, user_id)
+        path = to_physical_path(path, user_id, session_id=_sess)
 
         if output_mode not in _OUTPUT_MODES:
             return resp_json({

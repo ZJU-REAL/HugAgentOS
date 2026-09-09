@@ -28,7 +28,7 @@ def test_site_upload_requires_current_tool_grant(monkeypatch):
 
     monkeypatch.setattr(desktop_capability, "resolve_gateway_tool", lambda *a, **k: None)
     response = TestClient(app).post(
-        "/v1/desktop/capability/gateway/site_publish/site-publish",
+        "/v1/desktop/capability/gateway/sites-site_publish/site-publish",
         content=bundle(),
         headers={
             UPLOAD_OPTIONS_HEADER: json.dumps({"title": "A site"}),
@@ -64,7 +64,11 @@ def test_uploaded_bytes_are_hosted_and_versioned_for_cloud_user(tmp_path, monkey
     monkeypatch.setattr(
         desktop_capability,
         "resolve_gateway_tool",
-        lambda *a, **k: {"target": {}, "user_id": "cloud-user", "server_id": "site_publish"},
+        lambda *a, **k: {
+            "target": {"source_plugin": "sites"},
+            "user_id": "cloud-user",
+            "server_id": "sites-site_publish",
+        },
     )
     client = TestClient(app)
     options = {
@@ -76,7 +80,7 @@ def test_uploaded_bytes_are_hosted_and_versioned_for_cloud_user(tmp_path, monkey
     }
     headers = {UPLOAD_OPTIONS_HEADER: json.dumps(options), UPLOAD_SCHEMA_HEADER: "a" * 64}
     response = client.post(
-        "/v1/desktop/capability/gateway/site_publish/site-publish",
+        "/v1/desktop/capability/gateway/sites-site_publish/site-publish",
         content=bundle(),
         headers=headers,
     )
@@ -93,7 +97,7 @@ def test_uploaded_bytes_are_hosted_and_versioned_for_cloud_user(tmp_path, monkey
     options["site_id"] = published["site_id"]
     headers[UPLOAD_OPTIONS_HEADER] = json.dumps(options)
     again = client.post(
-        "/v1/desktop/capability/gateway/site_publish/site-publish",
+        "/v1/desktop/capability/gateway/sites-site_publish/site-publish",
         content=bundle(),
         headers=headers,
     )
@@ -134,14 +138,15 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     monkeypatch.setattr(bridge, "get_state", lambda: st)
     archive = bundle()
 
-    async def shell(*args, **kwargs):
-        return 0, str(len(archive)), ""
-
     class Sandbox:
+        async def execute(self, request):
+            from core.sandbox import ExecuteResult
+            assert request.language == "python"
+            return ExecuteResult(stdout="", stderr="", exit_code=0, execution_time_ms=1)
+
         async def get_file(self, *args, **kwargs):
             return archive
 
-    monkeypatch.setattr("core.llm.tools._common.sandbox_exec_bash", shell)
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Sandbox())
     received = []
 
@@ -167,10 +172,10 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
         )
 
     tool = GatewayMCPTool(
-        mcp_name="site_publish",
-        component="site_publish",
+        mcp_name="sites-site_publish",
+        source_plugin="sites",
         tool=mcp.types.Tool(name="publish_site", inputSchema={"type": "object"}),
-        invoke_url=st["cloud_base"] + "/api/v1/desktop/capability/gateway/site_publish/call",
+        invoke_url=st["cloud_base"] + "/api/v1/desktop/capability/gateway/sites-site_publish/call",
         schema_hash="a" * 64,
         timeout=120,
         headers={"Authorization": "Bearer " + st["token"], "X-Current-User-Id": "local-user"},

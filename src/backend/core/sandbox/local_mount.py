@@ -16,6 +16,7 @@ the desktop local backend, so it is inert on the cloud/web deployment.
 from __future__ import annotations
 
 import os
+import stat
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,6 +30,16 @@ def local_link_path(slug: str, *, workspace_root: Optional[str] = None) -> str:
     """The in-sandbox path a local project is mounted at: ``<root>/local/<slug>``."""
     root = workspace_root or _workspace_root()
     return os.path.join(root, "local", slug)
+
+
+def _is_junction(path: str) -> bool:
+    """Recognize Windows directory junctions, including Python 3.11 runtimes."""
+    if os.name != "nt":
+        return False
+    try:
+        return getattr(os.lstat(path), "st_reparse_tag", None) == stat.IO_REPARSE_TAG_MOUNT_POINT
+    except OSError:
+        return False
 
 
 def ensure_local_project_link(
@@ -50,10 +61,14 @@ def ensure_local_project_link(
     link = local_link_path(slug, workspace_root=workspace_root)
     os.makedirs(os.path.dirname(link), exist_ok=True)
 
-    if os.path.islink(link):
-        if os.path.realpath(link) == os.path.realpath(real):
+    junction = _is_junction(link)
+    if os.path.islink(link) or junction:
+        if os.path.normcase(os.path.realpath(link)) == os.path.normcase(os.path.realpath(real)):
             return link
-        os.unlink(link)
+        if junction:
+            os.rmdir(link)
+        else:
+            os.unlink(link)
     elif os.path.exists(link):
         # A real dir/file squatting the slug name — refuse rather than clobber.
         raise ValueError(f"工作区中 {link} 已被占用，无法挂载本地项目")
@@ -77,7 +92,7 @@ def remove_local_project_link(slug: str, *, workspace_root: Optional[str] = None
     try:
         if os.path.islink(link):
             os.unlink(link)
-        elif os.name == "nt" and os.path.isdir(link):
+        elif _is_junction(link):
             # A junction reports as a dir; rmdir removes the junction, not contents.
             os.rmdir(link)
     except OSError:

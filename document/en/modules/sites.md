@@ -63,3 +63,11 @@ The platform counts HTML page views per site (asset files excluded), shown on th
 | nginx forwarding | `location /site/` in `src/frontend/default.conf.template` |
 
 Environment switch: `SITES_ENABLED=false` disables the publish tool entirely (enabled by default).
+
+## Site collaboration after project transfer (EE)
+
+After a personal project moves to a team, its sites remain linked to the same project. Site IDs, URLs, historical versions, KV data and form submissions are preserved. No manual source-address update is needed.
+
+Read-only members can inspect project sources and site cards. Editors can change source code and publish new versions of the existing site. Owners and administrators can also change site settings, roll back versions and delete sites. Management permissions are separate from visitor visibility: transfer and republication do not automatically make a private site public or team-visible.
+
+Static team sites publish from saved project sources. For build-based sites, run bash in the team project conversation first; the tool returns the current project working directory. Set `source_dir` to that directory and `src_dir` to a separate build output directory, such as `/workspace/.site-dist`. Publication is rejected when the work copy differs from saved sources or another member changes source during publication; rebuild and retry. Build output does not replace project source code. Explicit team site IDs also require a conversation bound to the corresponding project.

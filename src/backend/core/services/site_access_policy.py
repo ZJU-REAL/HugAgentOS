@@ -50,3 +50,12 @@ def can_view_site(_db: Session, site, viewer_user_id: Optional[str]) -> bool:
     if site.visibility == "public":
         return True
     return bool(viewer_user_id and viewer_user_id == site.user_id)
+
+
+def site_management_permission(_db, site, user_id: str) -> str:
+    return "admin" if site.user_id == user_id else "none"
+
+
+def site_listing_predicate(user_id: str):
+    from core.db.models import Site
+    return Site.user_id == user_id

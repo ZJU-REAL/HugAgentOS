@@ -13,3 +13,4 @@ export { JobProgressStrip } from './JobProgressStrip';
 export { OntologyRevisionPanel } from './OntologyRevisionPanel';
 export { OntologyReviewTrigger } from './OntologyReviewTrigger';
 export { EvolutionCard } from './EvolutionCard';
+export { ConversationNavigation } from './ConversationNavigation';

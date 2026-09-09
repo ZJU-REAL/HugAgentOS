@@ -80,96 +80,31 @@ def _resolve_target_site_id(project_id: str, user_id: str) -> str:
     """In project mode, resolve the live site_id already associated with the project (for publishing a new version while editing); empty string if none (create new)."""
     if not project_id:
         return ""
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import Site
-
-        with SessionLocal() as db:
-            row = (
-                db.query(Site.site_id)
-                .filter(
-                    Site.project_id == project_id,
-                    Site.user_id == user_id,
-                    Site.deleted_at.is_(None),
-                )
-                .order_by(Site.created_at.asc())
-                .first()
-            )
-            return row[0] if row else ""
-    except Exception:  # noqa: BLE001
-        logger.warning("[internal-sites] target site resolve failed", exc_info=True)
+    from core.db.engine import SessionLocal
+    from core.db.models import Site
+    from core.services.site_service import SiteService
+    with SessionLocal() as db:
+        rows = db.query(Site.site_id).filter(
+            Site.project_id == project_id, Site.deleted_at.is_(None),
+        ).limit(2).all()
+        if len(rows) > 1:
+            raise HTTPException(409, "项目关联多个站点，请明确指定 site_id")
+        if rows:
+            SiteService(db).get_owned(rows[0][0], user_id, required="edit")
+            return rows[0][0]
         return ""
 
 
 def _mirror_files_to_project_folder(
     project_id: str, user_id: str, files: List[Tuple[str, bytes]]
 ) -> None:
-    """Best-effort "mirror" of the just-published site files into the project folder (replace semantics).
-
-    This way, whether the agent built the site in the project folder or in the /workspace/
-    scratch area, after publishing the project folder always equals the live site content — the
-    user can see all source files in the project, and an editing session can materialize these
-    files back into the sandbox to keep working. Failures are only logged and never affect an
-    already-successful publish.
-    """
+    """Persist source into the current project scope without replacing file identities."""
     if not project_id or not files:
         return
-    import mimetypes
-
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import Artifact, Project, UserFolder
-        from core.services.project_file_service import ProjectFileService
-
-        with SessionLocal() as db:
-            proj = (
-                db.query(Project)
-                .filter(Project.project_id == project_id, Project.deleted_at.is_(None))
-                .first()
-            )
-            if (
-                proj is None
-                or proj.kind != "personal"
-                or not proj.linked_folder_id
-                or proj.owner_user_id != user_id
-            ):
-                return
-
-            pfs = ProjectFileService(db)
-            # 1) Clear the linked folder subtree's existing live artifacts + subfolders (keep the root folder itself)
-            subtree_ids = pfs._user_subtree_ids(user_id, proj.linked_folder_id)
-            if subtree_ids:
-                from datetime import datetime as _dt
-
-                now = _dt.utcnow()
-                db.query(Artifact).filter(
-                    Artifact.user_id == user_id,
-                    *personal_artifact_predicates(Artifact),
-                    Artifact.user_folder_id.in_(subtree_ids),
-                    Artifact.deleted_at.is_(None),
-                ).update({Artifact.deleted_at: now}, synchronize_session=False)
-                child_ids = [fid for fid in subtree_ids if fid != proj.linked_folder_id]
-                if child_ids:
-                    db.query(UserFolder).filter(
-                        UserFolder.user_id == user_id,
-                        UserFolder.folder_id.in_(child_ids),
-                        UserFolder.deleted_at.is_(None),
-                    ).update({UserFolder.deleted_at: now}, synchronize_session=False)
-                db.commit()
-
-            # 2) Write each file back into the project folder (preserving subpaths)
-            for rel_path, content in files:
-                mime, _ = mimetypes.guess_type(rel_path)
-                try:
-                    pfs.upload(proj, user_id, content, rel_path, mime or "text/plain")
-                except Exception:  # noqa: BLE001 — one file failing does not affect the rest
-                    logger.warning(
-                        "[internal-sites] mirror file to project failed: %s",
-                        rel_path,
-                        exc_info=True,
-                    )
-    except Exception:  # noqa: BLE001
-        logger.warning("[internal-sites] mirror files to project folder failed", exc_info=True)
+    from core.db.engine import SessionLocal
+    from core.services.project_source import ProjectSourceService
+    with SessionLocal() as db:
+        ProjectSourceService(db).write_files(project_id, user_id, files)
 
 
 def _ensure_project_for_site(site_id: str, user_id: str, title: str) -> Optional[str]:
@@ -191,7 +126,8 @@ def _ensure_project_for_site(site_id: str, user_id: str, title: str) -> Optional
 
         with SessionLocal() as db:
             site = db.query(Site).filter(Site.site_id == site_id).first()
-            if site is None or site.user_id != user_id:
+            from core.services.site_access_policy import site_management_permission
+            if site is None or site_management_permission(db, site, user_id) not in ("edit", "admin"):
                 return None
             # Already linked and the project still exists → use it directly
             if site.project_id:
@@ -250,36 +186,17 @@ def _bind_chat_to_project(chat_id: str, project_id: str, user_id: str) -> None:
 
 
 def _project_root_has_package_json(project_id: str, user_id: str) -> bool:
-    """Whether the project's linked folder root contains a live package.json (the marker of a build-style workspace)."""
     if not project_id:
         return False
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import Artifact, Project
-
-        with SessionLocal() as db:
-            proj = (
-                db.query(Project)
-                .filter(Project.project_id == project_id, Project.deleted_at.is_(None))
-                .first()
-            )
-            if proj is None or not proj.linked_folder_id:
-                return False
-            row = (
-                db.query(Artifact.artifact_id)
-                .filter(
-                    Artifact.user_id == user_id,
-                    *personal_artifact_predicates(Artifact),
-                    Artifact.user_folder_id == proj.linked_folder_id,
-                    Artifact.filename == "package.json",
-                    Artifact.deleted_at.is_(None),
-                )
-                .first()
-            )
-            return row is not None
-    except Exception:  # noqa: BLE001
-        logger.warning("[internal-sites] package.json probe failed", exc_info=True)
-        return False
+    from core.db.engine import SessionLocal
+    from core.db.models import Artifact, Project
+    from core.services.project_file_service import ProjectFileService
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        if project is None:
+            return False
+        filters, _ = ProjectFileService(db).source_file_scope(project, user_id, "package.json")
+        return db.query(Artifact.artifact_id).filter_by(**filters, deleted_at=None).first() is not None
 
 
 @router.post("/publish", summary="发布沙箱站点目录为托管站点（内部接口）")
@@ -354,6 +271,25 @@ async def publish(
     from core.infra.exceptions import AppException
     from core.services.site_service import SiteService
 
+    # Resolve authorization before touching a sandbox or storing any new bytes.
+    from core.db.models import Project
+    from core.services.project_source import ProjectSourceService
+    team_source = None
+    with SessionLocal() as access_db:
+        if target_site_id:
+            target = SiteService(access_db).get_owned(target_site_id, user_id, required="edit")
+            target_project = access_db.get(Project, target.project_id) if target.project_id else None
+            if ((project_id and target.project_id != project_id)
+                    or (target_project and target_project.kind == "team" and target.project_id != project_id)):
+                raise HTTPException(409, "目标站点与当前源码项目不一致，请使用该项目的会话发布")
+        project = access_db.get(Project, project_id) if project_id else None
+        if project and project.kind == "team":
+            team_source = ProjectSourceService(access_db).snapshot(project_id, user_id)
+            if source_dir and source_dir != project_dir:
+                raise HTTPException(409, "团队站点的 source_dir 必须指向当前项目工作目录")
+            if not source_dir and src != project_dir:
+                raise HTTPException(409, "团队站点请从项目源码发布；构建产物需同时指定项目 source_dir")
+
     # 1) Pack inside the sandbox + fetch + safe unpack. A build-style publish (source_dir
     #    non-empty) must pack two mutually independent read-only directories (dist output +
     #    source workspace); doing them concurrently saves a full serial round of tar/download
@@ -361,7 +297,10 @@ async def publish(
     #    dist/.vite should not exist in the source directory anyway (outDir is in the /workspace
     #    scratch area); the exclusion is just a safety net. Build traces like lockfiles are kept
     #    (editing sessions need them to reproduce dependencies).
-    if source_dir:
+    if team_source is not None and not source_dir:
+        files, err = team_source, None
+        src_files, src_err = None, None
+    elif source_dir:
         (files, err), (src_files, src_err) = await asyncio.gather(
             pack_and_fetch_dir(src, _sess, user_id),
             pack_and_fetch_dir(
@@ -374,6 +313,10 @@ async def publish(
     else:
         files, err = await pack_and_fetch_dir(src, _sess, user_id)
         src_files, src_err = None, None
+    if source_dir and (src_err or not src_files):
+        return success_response(data={"error": f"源码打包失败，站点未发布：{src_err or '空目录'}"})
+    if team_source is not None and source_dir and dict(src_files) != dict(team_source):
+        raise HTTPException(409, "工作副本与团队源码不一致，请先通过 bash 保存修改后重新构建")
     if err:
         return success_response(data={"error": f"站点{err}"})
     assert files is not None
@@ -393,13 +336,24 @@ async def publish(
         )
 
     db = SessionLocal()
+    mirrored_before = False
     try:
+        if project_id and team_source is None:
+            if source_dir or not _project_root_has_package_json(project_id, user_id):
+                _mirror_files_to_project_folder(project_id, user_id, src_files if source_dir else files)
+                mirrored_before = True
+        if team_source is not None:
+            source_service = ProjectSourceService(db)
+            source_service.authorized_project(project_id, user_id, write=True)
+            if dict(source_service.snapshot(project_id, user_id, lock=True)) != dict(team_source):
+                raise HTTPException(409, "发布期间团队源码已更新，请重新构建并发布")
         site = SiteService(db).publish(
             user_id=user_id,
             files=files,
             title=body.title,
             slug=body.slug,
             site_id=target_site_id,
+            project_id=project_id,
             chat_id=body.chat_id or None,
             visibility=body.visibility,
             description=body.description,
@@ -429,7 +383,11 @@ async def publish(
         mirrored_from = ""
         mirror_note = ""
         if effective_project_id:
-            if source_dir:
+            if team_source is not None:
+                mirrored_from = project_dir
+            elif mirrored_before:
+                mirrored_from = source_dir or src
+            elif source_dir:
                 if src_files:
                     _mirror_files_to_project_folder(effective_project_id, user_id, src_files)
                     mirrored_from = source_dir
@@ -470,6 +428,8 @@ async def publish(
             ),
         }
         return success_response(data=payload)
+    except HTTPException:
+        raise
     except AppException as exc:
         return success_response(data={"error": exc.message})
     except Exception as exc:  # noqa: BLE001 — model-facing, errors must be readable

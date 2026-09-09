@@ -99,3 +99,53 @@ def test_duplicate_zip_member_is_rejected(tmp_path):
         z.writestr("SKILL.md", "two")
     with pytest.raises(IntegrityFailed):
         archive.extract_zip(buf.getvalue(), tmp_path / "files")
+
+
+def test_hash_detects_change_to_file_older_than_newest(tmp_path):
+    import os
+    from core.capabilities.skills import skill_dir_hash
+
+    root = tmp_path / "package"
+    archive.write_files(root, {"SKILL.md": "old", "newer.txt": "unchanged"})
+    os.utime(root / "SKILL.md", ns=(1_000_000_000, 1_000_000_000))
+    os.utime(root / "newer.txt", ns=(9_000_000_000, 9_000_000_000))
+    before = skill_dir_hash(root)
+    (root / "SKILL.md").write_text("new")
+    os.utime(root / "SKILL.md", ns=(2_000_000_000, 2_000_000_000))
+    assert skill_dir_hash(root) != before
+
+
+def test_iter_files_retains_path_component_order(tmp_path):
+    root = tmp_path / "package"
+    archive.write_files(root, {"a/x.txt": "nested", "a.txt": "top", "SKILL.md": "skill"})
+    result = list(archive.iter_files(root))
+    assert [path for _, path in result] == sorted(
+        [root / "a/x.txt", root / "a.txt", root / "SKILL.md"]
+    )
+
+
+def test_fresh_hash_reads_bytes_even_with_unchanged_signature(tmp_path, monkeypatch):
+    from core.capabilities import skills
+
+    root = tmp_path / "package"
+    archive.write_files(root, {"SKILL.md": "old"})
+    entries = list(archive.iter_file_stats(root))
+    monkeypatch.setattr(archive, "iter_file_stats", lambda _path: entries)
+    before = skills.skill_dir_hash(root, fresh=True)
+    (root / "SKILL.md").write_text("new")
+    assert skills.skill_dir_hash(root, fresh=True) != before
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows extended path regression")
+def test_skill_hash_reads_long_windows_paths(tmp_path):
+    from core.capabilities.skills import skill_dir_hash
+
+    root = tmp_path / "long-package"
+    while len(str(root)) < 275:
+        root /= "nested-package-directory"
+    native_root = junction._native(root)
+    native_root.mkdir(parents=True)
+    (native_root / "SKILL.md").write_text("old")
+    before = skill_dir_hash(root, fresh=True)
+    (native_root / "SKILL.md").write_text("new")
+    assert skill_dir_hash(root, fresh=True) != before

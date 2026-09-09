@@ -140,3 +140,62 @@ def test_explicit_skill_hint_uses_authorized_alias_instead_of_store_revision(fro
     hint = _build_skill_injection({"skill_id": "chosen-local-alias", "skill_name": "Chosen"})
     assert "/workspace/skills/chosen-local-alias/SKILL.md" in hint["content"]
     assert prepared.bindings["chosen-local-alias"]["revision"] not in hint["content"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_runtime_loader_order_bounds_and_failure():
+    import asyncio
+    from core.llm.tool_collector import _ParallelRuntimeSkillLoader
+
+    active = 0
+    peak = 0
+    seen = []
+
+    class Loader:
+        def __init__(self, value, fail=False):
+            self.value, self.fail = value, fail
+
+        async def list_skills(self):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep((8 - self.value) / 1000)
+                seen.append(self.value)
+                if self.fail:
+                    raise RuntimeError("validation rejected")
+                return [self.value]
+            finally:
+                active -= 1
+
+    assert await _ParallelRuntimeSkillLoader([Loader(i) for i in range(8)]).list_skills() == list(
+        range(8)
+    )
+    assert peak <= 4
+    seen.clear()
+    with pytest.raises(RuntimeError, match="validation rejected"):
+        await _ParallelRuntimeSkillLoader([Loader(i, i == 2) for i in range(8)]).list_skills()
+    assert sorted(seen) == list(range(8))
+    assert active == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["revoke", "corrupt"])
+async def test_desktop_batched_loader_matches_native_and_rechecks(frozen, monkeypatch, mutation):
+    from dataclasses import replace
+    from core.llm import tool_collector
+
+    prepared, loader, collector = frozen({"alias": "BODY"})
+    instance = collector.skill_loaders[0]
+    expected = await instance.list_skills()
+    monkeypatch.setattr(tool_collector, "os", SimpleNamespace(name="nt"))
+    actual = await instance.list_skills()
+    assert actual == expected
+    actual[0].markdown = "poison"
+    assert (await instance.list_skills())[0].markdown == "BODY"
+    if mutation == "revoke":
+        registry.set_enabled("skill:local:alias", False)
+    else:
+        (prepared.view_dir / "alias" / "SKILL.md").write_text("changed")
+    with pytest.raises((IntegrityFailed, PermissionDenied)):
+        await instance.list_skills()

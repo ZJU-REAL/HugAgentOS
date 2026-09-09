@@ -597,7 +597,7 @@ def test_workspace_path_alias_in_local_mode(monkeypatch):
 
 
 def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
-    """The runner maps canonical and expanded paths into the chat workspace."""
+    """Logical aliases are mapped once; physical paths retain their identity."""
     import services.script_runner_service.server as srv
 
     local_root = str(tmp_path / "Application Support" / "HugAgentOS" / "workspace")
@@ -605,7 +605,7 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
     session_root = str(srv._session_workspace("chat-1", create=True))
     assert srv._canon_ws("/workspace", "chat-1") == session_root
     assert srv._canon_ws("/workspace/a.txt", "chat-1") == f"{session_root}/a.txt"
-    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{session_root}/a.txt"
+    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{local_root}/a.txt"
     assert srv._canon_ws("/workspaces/x", "chat-1") == "/workspaces/x"
 
     # Existing quotes remain intact, while an unquoted canonical path gains a
@@ -635,3 +635,23 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
         )
         == f"ls '{local_root}/site'"
     )
+
+
+@pytest.mark.parametrize("explicit", [None, "", "http://configured:8080"])
+def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit):
+    import os
+    import cli
+    from urllib import request
+
+    for name in list(os.environ):
+        if name.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(request, "getproxies_registry", lambda: {"http": "http://system:7897", "https": "http://system:7897"}, raising=False)
+    if explicit is not None:
+        monkeypatch.setenv("HTTPS_PROXY", explicit)
+    cli.ensure_loopback_proxy_bypass()
+    assert os.environ["HTTPS_PROXY"] == (explicit if explicit is not None else "http://system:7897")
+    assert "127.0.0.1" in os.environ["NO_PROXY"]
+    if explicit is not None:
+        assert "HTTP_PROXY" not in os.environ

@@ -1,7 +1,7 @@
 import { Button, Tag, Popconfirm, message } from 'antd';
 import { PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { AutomationTask } from '../../types';
-import { useAutomationStore } from '../../stores';
+import { useAutomationStore } from '../../stores/automationStore';
 import { cronToHumanReadable, formatRelativeTime } from './automationUtils';
 import { t } from '../../i18n';
 
@@ -58,9 +58,12 @@ export function AutomationCard({ task, onClick }: Props) {
       <div className="jx-automation-card-main">
         <div className="jx-automation-card-header">
           <span className="jx-automation-card-name">{displayName}</span>
+          <Tag>{task.execution_location === 'local' ? t('本机') : t('云端')}{task.device_name ? ` · ${task.device_name}` : ''}</Tag>
           <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
         </div>
         <div className="jx-automation-card-meta">
+          {task.project_name && <span>{task.project_name}</span>}
+          <span>{task.timezone}</span>
           <span className="jx-automation-card-type">
             {task.task_type === 'prompt' ? t('提示词') : t('计划')}
           </span>

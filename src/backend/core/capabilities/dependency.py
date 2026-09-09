@@ -9,7 +9,13 @@ reported as unverified rather than installed or assumed available.
 from __future__ import annotations
 
 import importlib.metadata
+import copy
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from functools import lru_cache
 import json
+import logging
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +28,8 @@ from packaging.version import Version
 from . import registry, skills, store
 from .errors import CapabilityError
 from .paths import BUILTIN_PROFILE, LOCAL_PROFILE
+
+logger = logging.getLogger(__name__)
 
 
 class DependencyMissing(CapabilityError):
@@ -127,10 +135,9 @@ def _identifier(entry):
     )
 
 
-def skill_definition(path: Path):
+def _parse_skill_definition(text):
     import yaml
 
-    text = (path / "SKILL.md").read_text(encoding="utf-8")
     if not text.startswith("---"):
         return {}
     pieces = text.split("---", 2)
@@ -142,20 +149,35 @@ def skill_definition(path: Path):
     return metadata
 
 
-def component_hash(comp):
+_cached_skill_definition = lru_cache(maxsize=256)(_parse_skill_definition)
+
+
+def skill_definition(path: Path):
+    # Read on every inspection so out-of-band edits are observed. Only parsing
+    # identical text is cached, never its authorization or dependency verdict.
+    text = (path / "SKILL.md").read_text(encoding="utf-8")
+    parse = _cached_skill_definition if len(text) <= 262144 else _parse_skill_definition
+    return copy.deepcopy(parse(text))
+
+
+def component_hash(comp, *, fresh: bool = False):
+    """A component's content digest. ``fresh`` reads every byte; see ``dir_digest``."""
     if comp.kind == "skill":
-        return skills.skill_dir_hash(comp.path, fresh=True)
+        return skills.skill_dir_hash(comp.path, fresh=fresh)
     from core.services.desktop_capability_protocol import entity_content_hash
 
     from .archive import iter_files
 
-    return entity_content_hash(
-        {
-            rel: path.read_text(encoding="utf-8")
-            for rel, path in iter_files(comp.path)
-            if rel != ".inventory.json"
-        }
-    )
+    def read_all():
+        return entity_content_hash(
+            {
+                rel: path.read_text(encoding="utf-8")
+                for rel, path in iter_files(comp.path)
+                if rel != ".inventory.json"
+            }
+        )
+
+    return skills.dir_digest(comp.path, read_all, fresh=fresh)
 
 
 @dataclass
@@ -168,6 +190,10 @@ class Context:
     platform_name: str = field(default_factory=lambda: platform.system().lower())
     runtime_versions: Optional[dict] = None
     frozen_nodes: dict = field(default_factory=dict)
+    # Detached rows, scoped to one inspection stage, never a cross-request grant cache.
+    installations: Optional[dict] = None
+    collect_hashes: bool = True
+    pinned_hashes: Optional[dict] = None
 
 
 class Inspector:
@@ -284,6 +310,10 @@ class Inspector:
             return
         self.issue("dependency_kind_unsupported", chain, required)
 
+    def installation(self, iid):
+        snapshot = self.context.installations
+        return registry.get(iid) if snapshot is None else snapshot.get(iid)
+
     def resolve(self, kind, profile, key):
         if ":" in key:
             parts = key.split(":", 2)
@@ -306,20 +336,28 @@ class Inspector:
             if bound_kind != kind:
                 return None, None, None
             comp = store.get(kind, profile, stored_key, binding["revision"])
-            return iid, registry.get(iid), comp
+            return iid, self.installation(iid), comp
         iid = registry.install_id(kind, profile, key)
-        inst = registry.get(iid)
+        inst = self.installation(iid)
         if inst is None and kind == "plugin":
+            matches = [
+                row
+                for row in (
+                    registry.list_installations(kind="plugin", profiles=[LOCAL_PROFILE, profile])
+                    if self.context.installations is None
+                    else self.context.installations.values()
+                )
+                if row.kind == "plugin"
+                and row.state != "removed"
+                and row.profile_id in (LOCAL_PROFILE, profile)
+                and key in (row.payload.get("db_install_id"), row.payload.get("cloud_install_id"))
+            ]
+            # 同一插件本机与账号各装一份时，绑定解析器采纳的是账号级那份，本机
+            # 那份是被遮蔽的副本。这里必须看同一份，否则会去检查一个根本不会被
+            # 使用的副本的依赖，把整轮对话拦下。
             inst = next(
-                (
-                    row
-                    for row in registry.list_installations(
-                        kind="plugin", profiles=[LOCAL_PROFILE, profile]
-                    )
-                    if key
-                    in (row.payload.get("db_install_id"), row.payload.get("cloud_install_id"))
-                ),
-                None,
+                (row for row in matches if row.profile_id == profile),
+                next(iter(matches), None),
             )
             if inst:
                 iid, profile, key = inst.install_id, inst.profile_id, inst.key
@@ -361,7 +399,15 @@ class Inspector:
         if label in chain or len(chain) >= 64:
             self.issue("dependency_cycle", path, required)
             return
-        if comp is None or (inst is not None and not (inst.ready and inst.enabled)):
+        if (
+            comp is None
+            or (
+                self.context.installations is not None
+                and inst is None
+                and comp.profile != BUILTIN_PROFILE
+            )
+            or (inst is not None and not (inst.ready and inst.enabled))
+        ):
             self.issue("component_not_ready", path, required)
             return
         if comp.profile not in (LOCAL_PROFILE, BUILTIN_PROFILE, skills.current_account_profile()):
@@ -390,11 +436,19 @@ class Inspector:
         except (OSError, ValueError):
             self.issue("definition_invalid", path, required)
             return
+        pinned_hash = (self.context.pinned_hashes or {}).get(label)
+        digest = ""
+        if self.context.collect_hashes:
+            digest = (
+                pinned_hash[1]
+                if pinned_hash and pinned_hash[0] == comp.revision
+                else component_hash(comp)
+            )
         self.nodes[label] = {
             "install_id": label,
             "kind": kind,
             "revision": comp.revision,
-            "content_hash": component_hash(comp),
+            "content_hash": digest,
             "version": (
                 str(version or "")
                 if kind == "skill"
@@ -417,6 +471,31 @@ class Inspector:
             )
         for child in children:
             self.visit(child, comp.profile, path, required)
+
+    def visit_roots(self, roots):
+        """Independent root paths, with deterministic merging of all constraints.
+
+        Only use with read-only callbacks and a detached installation snapshot.
+        Do not skip shared nodes: two paths may impose different requirements.
+        """
+        roots = list(roots)
+        if os.name != "nt" or len(roots) < 8 or self.context.installations is None:
+            for entry, profile in roots:
+                self.visit(entry, profile)
+            return
+
+        def inspect_root(root):
+            probe = Inspector(self.context, on_visit=self._on_visit)
+            probe.visit(*root)
+            return probe
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cap-deps") as pool:
+            pending = [pool.submit(copy_context().run, inspect_root, root) for root in roots]
+            for future in pending:
+                probe = future.result()
+                self.errors.extend(probe.errors)
+                self.warnings.extend(probe.warnings)
+                self.nodes.update(probe.nodes)
 
     def definition(self, definition, *, kind, profile, label):
         self.platform_ok(definition, [label], True)
@@ -461,6 +540,18 @@ def check_installation(
 
 def require_report(report):
     if not report["ready"]:
+        # The user-facing text is fixed because dependency metadata can carry
+        # private paths; the unsatisfied chains belong in the service log.
+        logger.warning(
+            "capability dependency gate blocked the run: %s",
+            "; ".join(
+                "{}: {}".format(
+                    error.get("reason") or error.get("code"),
+                    " > ".join(error.get("dependency_chain") or []),
+                )
+                for error in report["errors"]
+            ),
+        )
         raise DependencyMissing(
             "required capability dependencies are unavailable",
             details={

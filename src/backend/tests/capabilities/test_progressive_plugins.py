@@ -301,3 +301,175 @@ def test_preflight_checks_requirement_against_frozen_skill_version(
         runtime.preflight(
             run, skill_ids=["report"], plugin_nodes=plan.directory[0].capability_nodes
         )
+
+
+@pytest.mark.parametrize("scope", [None, ["sites"]])
+def test_incomplete_plugin_never_advertises_skill_only_success(
+    index_db, caps_root, monkeypatch, scope
+):
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    for sid in ("site-builder", "cloud-site-builder"):
+        body = f"---\nname: {sid}\ndescription: Build and publish a site\n---\nCall publish_site."
+        skills.publish_local_skill(
+            sid,
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            owner_user_id="owner",
+        )
+    plugins.publish_local_plugin(
+        {"slug": "sites", "components": {"skills": ["site-builder"], "mcp": ["site-publish"]}},
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {
+            "slug": "cloud-sites",
+            "components": {"skills": ["cloud-site-builder"], "mcp": ["site-publish-private"]},
+        },
+        owner_user_id="owner",
+    )
+    plan = plugin_loader.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["site-builder", "cloud-site-builder"],
+        enabled_mcp_ids=["site-publish-private"],
+        plugin_ids=scope,
+        activated_ids=[None],
+    )
+    assert "sites" not in [p.slug for p in plan.directory]
+    assert plan.unavailable_skill_ids == {"site-builder"}
+    if scope is None:
+        assert [p.slug for p in plan.directory] == ["cloud-sites"]
+        assert plan.directory[0].mcp_ids == ["site-publish-private"]
+
+
+@pytest.mark.parametrize("selection", ["plugin", "skill"])
+def test_explicit_incomplete_plugin_reports_missing_binding(
+    index_db, caps_root, monkeypatch, selection
+):
+    from core.capabilities.errors import PackageMissing
+
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    body = "---\nname: site-builder\ndescription: Build a site\n---\nCall publish_site."
+    skills.publish_local_skill(
+        "site-builder",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {"slug": "sites", "components": {"skills": ["site-builder"], "mcp": ["site-publish"]}},
+        owner_user_id="owner",
+    )
+    with pytest.raises(PackageMissing, match="unavailable MCP servers"):
+        plugin_loader.resolve_desktop_progressive_plugins(
+            user_id="owner",
+            enabled_skill_ids=["site-builder"],
+            enabled_mcp_ids=[],
+            activated_ids=["plugin:local:sites"] if selection == "plugin" else [],
+            invoked_skill_ids=["site-builder"] if selection == "skill" else [],
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["", "scheduled-task", "child-agent"])
+async def test_available_namespaced_plugin_publishes_tools_after_activation(
+    index_db, caps_root, monkeypatch, scope
+):
+    from agentscope.tool import Toolkit
+
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    for key, mcp in (("sites", "site-publish"), ("sites-private", "site-publish-private")):
+        body = f"---\nname: {key}\ndescription: Build a site\n---\nCall publish_site."
+        skills.publish_local_skill(
+            key,
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            owner_user_id="owner",
+        )
+        plugins.publish_local_plugin(
+            {"slug": key, "components": {"skills": [key], "mcp": [mcp]}},
+            owner_user_id="owner",
+        )
+    plan = plugin_loader.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["sites", "sites-private"],
+        enabled_mcp_ids=["site-publish-private"],
+    )
+    assert [p.slug for p in plan.directory] == ["sites-private"]
+    selected = [sid for sid in ["sites", "sites-private"] if sid not in plan.unavailable_skill_ids]
+    run = runtime.prepare("site-run", "owner", skill_ids=selected, scope_id=scope)
+    configs = {
+        "site-publish-private": {
+            "transport": "streamable_http",
+            "url": "https://cloud.example/call",
+            "schema_source": "cloud_manifest",
+            "gateway_invoke_url": "https://cloud.example/call",
+            "schema_hash": "a" * 64,
+            "manifest_tools": [{"name": "publish_site", "inputSchema": {"type": "object"}}],
+        }
+    }
+    runtime.bind_mcp(run, configs, None)
+    run = runtime.preflight(
+        run, available_mcp=set(configs), plugin_nodes=plan.directory[0].capability_nodes
+    )
+    collector = ToolCollector()
+    context = {
+        "prepared_run": run,
+        "prepared_servers": configs,
+        "persist": False,
+        "loader": runtime.frozen_loader(run),
+        "close_list": [],
+    }
+    plugin_loader.register_load_plugin(collector, plan.deferred_by_slug(), context)
+    toolkit = Toolkit(tools=collector.function_tools)
+    context["toolkit"] = toolkit
+    assert "publish_site" not in str(await toolkit.get_tool_schemas())
+    await collector.get_tool("load_plugin")(plugin="sites-private")
+    assert "publish_site" in str(await toolkit.get_tool_schemas())
+    for client in context["close_list"]:
+        await client.close()
+
+
+def test_shared_skill_remains_callable_via_complete_plugin(index_db, caps_root, monkeypatch):
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    body = "---\nname: shared\ndescription: Shared skill\n---\nInstructions."
+    skills.publish_local_skill(
+        "shared",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    for slug, mcp in (("broken", "missing-mcp"), ("working", "available-mcp")):
+        plugins.publish_local_plugin(
+            {"slug": slug, "components": {"skills": ["shared"], "mcp": [mcp]}},
+            owner_user_id="owner",
+        )
+    plan = plugin_loader.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["shared"],
+        enabled_mcp_ids=["available-mcp"],
+        invoked_skill_ids=["shared"],
+    )
+    assert plan.unavailable_skill_ids == set()
+    assert [p.slug for p in plan.directory] == ["working"]
+    assert plan.activated_slugs == ["working"]
+
+
+def test_explicit_mcp_only_plugin_cannot_vanish(index_db, caps_root, monkeypatch):
+    from core.capabilities.errors import PackageMissing
+
+    monkeypatch.setattr(skills, "current_account_profile", lambda: None)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+    plugins.publish_local_plugin(
+        {"slug": "lookup", "components": {"mcp": ["missing"]}}, owner_user_id="owner"
+    )
+    with pytest.raises(PackageMissing, match="missing"):
+        plugin_loader.resolve_desktop_progressive_plugins(
+            user_id="owner",
+            enabled_skill_ids=[],
+            enabled_mcp_ids=[],
+            activated_ids=["plugin:local:lookup"],
+        )

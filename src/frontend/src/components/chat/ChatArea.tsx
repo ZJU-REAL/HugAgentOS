@@ -27,6 +27,7 @@ const SCROLL_BTN_EXIT = { opacity: 0, y: 6, transition: { duration: 0.12, ease: 
 const SCROLL_BTN_TRANSITION = { duration: 0.2, ease: EASE.brandOut };
 
 import { MessageBubble } from './MessageBubble';
+import { ConversationNavigation } from './ConversationNavigation';
 
 const HOME_SUGGESTION_ICONS = [SearchOutlined, FileTextOutlined, PieChartOutlined] as const;
 const HOME_SUGGESTIONS_PER_PAGE = 3;
@@ -523,6 +524,7 @@ export function ChatArea({
 
   return (
     <div className="jx-chatWrap">
+      <ConversationNavigation key={currentChatId} messages={chat.messages} chatListRef={chatListRef} />
       <Modal
         title={t('有效期设置')}
         open={shareExpiryModalOpen}

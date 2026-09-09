@@ -21,4 +21,18 @@ def local_mode_enabled() -> bool:
         return False
 
 
-__all__ = ["local_mode_enabled"]
+def install_local_network_tuning() -> bool:
+    """Local profile only: keep a slow desktop resolver off the message path.
+
+    A cloud deployment resolves through a datacenter cache and must keep seeing
+    live answers, so the DNS cache is installed here and nowhere else. Safe to
+    call repeatedly — the first call is the one that takes effect.
+    """
+    if not local_mode_enabled():
+        return False
+    from core.infra.dns_cache import install
+
+    return install()
+
+
+__all__ = ["local_mode_enabled", "install_local_network_tuning"]

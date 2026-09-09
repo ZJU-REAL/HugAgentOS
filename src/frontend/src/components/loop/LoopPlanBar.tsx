@@ -35,10 +35,10 @@ export default function LoopPlanBar({ onContinue }: LoopPlanBarProps) {
 
   const sendSteer = async (loopId: string) => {
     const msg = steerText.trim();
-    if (!msg || steerSending) return;
+    if (!msg || steerSending || !livePlan) return;
     setSteerSending(true);
     try {
-      await steerLoop(loopId, msg);
+      await steerLoop(loopId, msg, livePlan.chatId);
       setSteerText('');
       message.success(t('指令已排队，下一轮开工时生效'));
     } catch (e) {

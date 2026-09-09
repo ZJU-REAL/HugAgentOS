@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import shutil
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from . import registry, store
 from .dependency import Context, Inspector, allowed_model_ids, skill_definition
 from .errors import CapabilityError
@@ -143,8 +146,12 @@ def _choice_bindings(choices):
     }
 
 
-def _candidate_component(candidate):
-    inst = registry.get(candidate.install_id)
+def _candidate_component(candidate, installations=None):
+    inst = (
+        installations.get(candidate.install_id)
+        if installations is not None
+        else registry.get(candidate.install_id)
+    )
     component = store.StoredComponent(
         candidate.kind,
         candidate.profile,
@@ -158,11 +165,20 @@ def _candidate_component(candidate):
 class _BindingInspector(Inspector):
     """Evaluate the exact root while children use the caller's source decisions."""
 
-    def __init__(self, context, *, root_installation=None, root_candidate=None, intrinsic=False):
+    def __init__(
+        self,
+        context,
+        *,
+        root_installation=None,
+        root_candidate=None,
+        intrinsic=False,
+        installations=None,
+    ):
         super().__init__(context)
         self.root_installation = root_installation
         self.root_candidate = root_candidate
         self.intrinsic = intrinsic
+        self.installations = installations
         self._root_resolution = False
 
     def visit(self, entry, profile, chain=(), required=True):
@@ -178,7 +194,7 @@ class _BindingInspector(Inspector):
     def resolve(self, kind, profile, key):
         if self._root_resolution:
             if self.root_candidate is not None:
-                return _candidate_component(self.root_candidate)
+                return _candidate_component(self.root_candidate, self.installations)
             if self.root_installation is not None:
                 inst = self.root_installation
                 comp = (
@@ -203,7 +219,7 @@ class _BindingInspector(Inspector):
                 key = parts[2]
             binding = self.context.bindings.get(key)
             if binding is not None and binding.get("_candidate") is not None:
-                return _candidate_component(binding["_candidate"])
+                return _candidate_component(binding["_candidate"], self.installations)
         return super().resolve(kind, profile, key)
 
 
@@ -234,13 +250,16 @@ def eligible_skill_candidates(candidates, user_id, *, preferences=None, requeste
         registry.preferences("skill", user_id=user_id) if preferences is None else preferences
     )
 
+    installations = registry.get_many(candidate.install_id for candidate in candidates)
+
     def check(candidate, choices, *, intrinsic=False):
         if not candidate.usable or candidate.path is None:
             return candidate
         inspector = _SelectionInspector(
-            Context(user_id=user_id, bindings=_choice_bindings(choices)),
+            Context(user_id=user_id, bindings=_choice_bindings(choices), collect_hashes=False),
             root_candidate=candidate,
             intrinsic=intrinsic,
+            installations=installations,
         )
         try:
             inspector.visit({"kind": "skill", "id": candidate.install_id}, candidate.profile)
@@ -248,7 +267,17 @@ def eligible_skill_candidates(candidates, user_id, *, preferences=None, requeste
             inspector.issue("definition_invalid", [candidate.install_id])
         return replace(candidate, usable=not inspector.errors)
 
-    intrinsic = [check(candidate, {}, intrinsic=True) for candidate in candidates]
+    def check_all(items, choices, *, intrinsic=False):
+        if os.name == "nt" and len(items) >= 8:
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cap-eligible") as pool:
+                futures = [
+                    pool.submit(copy_context().run, check, candidate, choices, intrinsic=intrinsic)
+                    for candidate in items
+                ]
+                return [future.result() for future in futures]
+        return [check(candidate, choices, intrinsic=intrinsic) for candidate in items]
+
+    intrinsic = check_all(candidates, {}, intrinsic=True)
     current = intrinsic
     seen = []
     for _ in range(2 * len(candidates) + 2):
@@ -262,14 +291,14 @@ def eligible_skill_candidates(candidates, user_id, *, preferences=None, requeste
             break
         seen.append(state)
         choices = resolve("skill", current, preferences=preferences, requested=requested).chosen
-        following = [check(candidate, choices) for candidate in intrinsic]
+        following = check_all(intrinsic, choices)
         if tuple(candidate.usable for candidate in following) == state:
             return following
         current = following
     # Monotone final pruning after an unstable graph/bounded iteration limit.
     for _ in range(len(candidates) + 1):
         choices = resolve("skill", current, preferences=preferences, requested=requested).chosen
-        following = [check(candidate, choices) for candidate in current]
+        following = check_all(current, choices)
         if [candidate.usable for candidate in following] == [
             candidate.usable for candidate in current
         ]:
