@@ -710,10 +710,9 @@ export function useChatInit() {
     // Load sidebar-activated automation tasks (non-blocking)
     const fetchSidebarAutomations = async () => {
       try {
-        const r = await authFetch(`${effectiveApiUrl}/v1/automations?sidebar_activated=true`);
-        if (!r.ok || cancelled) return;
-        const payload = await r.json();
-        const tasks = payload?.data || [];
+        const { listSidebarAutomations } = await import('../api');
+        const tasks = await listSidebarAutomations();
+        if (cancelled) return;
         useAutomationChatStore.getState().setSidebarTasks(tasks);
       } catch { /* ignore — sidebar automation entries are optional */ }
     };
@@ -728,6 +727,9 @@ export function useChatInit() {
   useEffect(() => {
     if (authChecking || !authUserId || !isHybridDual() || !localReady) return;
     let cancelled = false;
+    import('../api').then(({ listSidebarAutomations }) => listSidebarAutomations())
+      .then(tasks => { if (!cancelled) useAutomationChatStore.getState().setSidebarTasks(tasks); })
+      .catch(() => { /* Next sidebar refresh retries both execution planes. */ });
     (async () => {
       try {
         const r = await authFetch(

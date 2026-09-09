@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AutomationTask } from '../types';
 import {
   listAutomations,
+  automationAvailabilityWarning,
   deleteAutomation as deleteAutomationApi,
   pauseAutomation as pauseApi,
   resumeAutomation as resumeApi,
@@ -13,6 +14,7 @@ import {
 interface AutomationState {
   tasks: AutomationTask[];
   loading: boolean;
+  availabilityWarning: string;
   createModalOpen: boolean;
   selectedTaskId: string | null;
 
@@ -32,6 +34,7 @@ interface AutomationState {
 export const useAutomationStore = create<AutomationState>((set, get) => ({
   tasks: [],
   loading: false,
+  availabilityWarning: '',
   createModalOpen: false,
   selectedTaskId: null,
 
@@ -44,8 +47,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     set({ loading: true });
     try {
       const tasks = await listAutomations();
-      set({ tasks });
+      set({ tasks, availabilityWarning: automationAvailabilityWarning() });
     } catch (e) {
+      set({ availabilityWarning: e instanceof Error ? e.message : '任务列表暂不可用' });
       console.error('Failed to fetch automations:', e);
     } finally {
       set({ loading: false });
@@ -91,5 +95,5 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     return updated;
   },
 
-  reset: () => set({ tasks: [], loading: false, createModalOpen: false, selectedTaskId: null }),
+  reset: () => set({ tasks: [], availabilityWarning: '', loading: false, createModalOpen: false, selectedTaskId: null }),
 }));

@@ -96,7 +96,12 @@ class AutomationService:
         max_runs: Optional[int] = None,
         metadata: Optional[dict] = None,
         commit: bool = True,
+        execution_location: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> ScheduledTask:
+        from core.services.automation_execution import execution_metadata
+        binding = execution_metadata(self.db, user_id, location=execution_location,
+                                     project_id=project_id, prompt=prompt)
         task_id = f"auto_{uuid.uuid4().hex[:16]}"
 
         # schedule_type is the sole authority; the recurring column is derived from it (only "recurring" is a periodic task).
@@ -130,7 +135,7 @@ class AutomationService:
             max_runs=max_runs,
             name=name,
             description=description,
-            extra_data=metadata or {},
+            extra_data={**(metadata or {}), **binding},
         )
         self.db.add(task)
         if commit:
@@ -188,6 +193,11 @@ class AutomationService:
         task = self.get_task(task_id, user_id)
         if not task:
             return None
+        if "prompt" in kwargs:
+            from core.services.automation_execution import execution_metadata
+            saved = task.extra_data or {}
+            execution_metadata(self.db, user_id, location=saved.get("execution_location"),
+                               project_id=saved.get("project_id"), prompt=kwargs["prompt"])
         for k, v in kwargs.items():
             if hasattr(task, k):
                 setattr(task, k, v)
@@ -397,10 +407,18 @@ class AutomationService:
 
     @staticmethod
     def task_to_dict(task: ScheduledTask) -> Dict[str, Any]:
+        from core.services.automation_execution import instance_location, device_identity
+        location = (task.extra_data or {}).get("execution_location") or instance_location()
         plan_title = None
         if task.plan_id and task.plan:
             plan_title = task.plan.title
         return {
+            **{key: (task.extra_data or {}).get(key) for key in (
+                "execution_location", "device_id", "device_name", "project_id",
+                "project_name", "project_local_path",
+            )},
+            "execution_location": location,
+            **(device_identity() if location == "local" and not (task.extra_data or {}).get("device_id") else {}),
             "task_id": task.task_id,
             "user_id": task.user_id,
             "task_type": task.task_type,

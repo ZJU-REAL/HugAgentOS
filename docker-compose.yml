@@ -14,6 +14,11 @@ services:
       POSTGRES_USER: hugagent_user
       POSTGRES_PASSWORD: ${DB_PASSWORD:-hugagent_dev_password}
       POSTGRES_INITDB_ARGS: -E UTF8 --locale=C
+    shm_size: 256m
+    command:
+    - postgres
+    - -c
+    - max_connections=${POSTGRES_MAX_CONNECTIONS:-300}
     volumes:
     - postgres_data:/var/lib/postgresql/data
     - ./src/backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
@@ -66,6 +71,9 @@ services:
       BRAND_ORG_NAME: ${BRAND_ORG_NAME:-}
       BRAND_POWERED_BY: ${BRAND_POWERED_BY:-true}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-100}
+      DB_POOL_MAX_OVERFLOW: ${DB_POOL_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       ENV: ${ENV:-dev}
       PORT: ${BACKEND_PORT:-3001}
       AUTH_MODE: ${AUTH_MODE:-session}
@@ -224,6 +232,9 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-100}
+      DB_POOL_MAX_OVERFLOW: ${DB_POOL_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
       STORAGE_PATH: /app/storage
       MODEL_URL: ${MODEL_URL:-}

@@ -63,3 +63,17 @@ description: 当用户想"按时间表反复或定点做某事并自动推送结
 1. 用户："每天早上 9 点把昨天的工单汇总发我。"
 2. 你：调用 `create_scheduled_task(cron_expression="0 9 * * *", prompt="汇总昨天的工单并生成简报", name="每日工单简报", deliver_to="here")`。
 3. 工具返回 `ok: true` 后，再用自然语言告诉用户任务名、执行时间与投递目标。
+
+
+## 执行位置与项目
+- 创建时明确展示执行位置（local 本机 / cloud 云端）、时区及关联项目。
+- 当前会话绑定本机目录项目时默认本机，并携带 project_id；普通联网任务默认云端。
+  用户已经指定位置时无需重复询问；无法判断时用提问工具确认。
+- 本机任务执行时电脑必须开机且桌面服务运行；云端不能直接读取本机路径。
+  需要本机目录但尚未绑定项目时，先让用户绑定目录项目，不得用路径文字替代项目绑定。
+- create_scheduled_task 支持 execution_location、project_id、timezone。
+  list/get/update/pause/resume/delete 工具支持 execution_location；后续操作沿用返回的任务位置，
+  名称有歧义时先列出两端任务并用 task_id 精确选择。
+- 混合模式列表会区分本机与云端；两端不可访问时如实说明，不声称已列全。
+- invalid tool effect receipt token 是操作凭证校验失败，不能通过换投递目标或重复创建绕过。
+  云端写操作结果未知时应核对回执，禁止换一个操作重复创建或声称临时故障稍后必然恢复。

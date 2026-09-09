@@ -2794,13 +2794,13 @@ export async function cancelJobApi(jobId: string): Promise<void> {
   await apiRequest<unknown>(`/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
 }
 
-export async function listPlans(): Promise<Plan[]> {
-  const res = await apiRequest<unknown>('/v1/plans');
+export async function listPlans(target?: 'local'): Promise<Plan[]> {
+  const res = await apiRequest<unknown>('/v1/plans', undefined, target);
   return unwrapData<Plan[]>(res);
 }
 
-export async function getPlanApi(planId: string, chatId?: string): Promise<Plan> {
-  const res = await apiRequest<unknown>(`/v1/plans/${planId}`, { headers: chatTargetHeaders(chatId) });
+export async function getPlanApi(planId: string, chatId?: string, target?: 'local'): Promise<Plan> {
+  const res = await apiRequest<unknown>(`/v1/plans/${planId}`, { headers: chatTargetHeaders(chatId) }, target);
   return unwrapData<Plan>(res);
 }
 
@@ -2923,6 +2923,8 @@ export default api;
 // ── Automation API ──────────────────────────────────────────────
 
 export interface CreateAutomationRequest {
+  execution_location?: 'local' | 'cloud';
+  project_id?: string;
   task_type: 'prompt' | 'plan';
   prompt?: string;
   plan_id?: string;
@@ -2953,8 +2955,8 @@ export interface ChannelConversation {
   last_message_at: string | null;
 }
 
-export async function listChannelConversations(): Promise<ChannelConversation[]> {
-  const wrapped = await apiRequest<unknown>('/v1/channels/conversations');
+export async function listChannelConversations(target?: 'local'): Promise<ChannelConversation[]> {
+  const wrapped = await apiRequest<unknown>('/v1/channels/conversations', undefined, target);
   const data = unwrapData<{ conversations?: ChannelConversation[] }>(wrapped);
   return data?.conversations ?? [];
 }
@@ -2974,81 +2976,121 @@ export interface UpdateAutomationRequest {
   conversation_id?: string | null;
 }
 
+// Prefixes are frontend-only identities; they survive navigation/reload and
+// prevent equal IDs from two independent databases from sharing UI state.
+function automationTarget(id: string): 'local' | undefined {
+  if (!id.startsWith('local:')) return undefined;
+  if (_hybridDual) return 'local';
+  const boot = typeof window === 'undefined' ? undefined : window.__HG_DESKTOP__;
+  if (boot?.provision_mode === 'local_only') return undefined;
+  throw new Error('此任务属于本机，请在提供本机服务的桌面模式中打开');
+}
+function automationPath(id: string, suffix = ''): string {
+  const raw = id.startsWith('local:') ? id.slice(6) : id;
+  return `/v1/automations/${encodeURIComponent(raw)}${suffix}`;
+}
+function locatedTask(task: AutomationTask, local: boolean): AutomationTask {
+  return { ...task, task_id: local && _hybridDual ? `local:${task.task_id}` : task.task_id,
+    execution_location: local ? 'local' : task.execution_location || 'cloud' };
+}
+let automationUnavailable: string[] = [];
+export function automationAvailabilityWarning(): string {
+  return automationUnavailable.join('；');
+}
+async function availableAutomationSides<T>(fetchSide: (local: boolean) => Promise<T[]>): Promise<T[]> {
+  const results = await Promise.allSettled([fetchSide(false), fetchSide(true)]);
+  automationUnavailable = results.flatMap((result, index) => result.status === 'rejected'
+    ? [index === 0 ? '云端暂不可用，当前仅显示本机结果' : '本机服务暂不可用，当前仅显示云端结果'] : []);
+  if (results.every(result => result.status === 'rejected')) throw new Error('本机和云端服务均暂不可用');
+  return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+}
+async function automationList(query = ''): Promise<AutomationTask[]> {
+  const fetchSide = async (local: boolean) => {
+    const res = await apiRequest<unknown>(`/v1/automations${query}`, undefined, local ? 'local' : undefined);
+    return unwrapData<AutomationTask[]>(res).map(task => locatedTask(task, local));
+  };
+  if (!_hybridDual) { automationUnavailable = []; return fetchSide(false); }
+  const items = await availableAutomationSides(fetchSide);
+  return items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+}
+
 export async function createAutomation(data: CreateAutomationRequest): Promise<AutomationTask> {
+  const local = data.execution_location === 'local';
   const res = await apiRequest<unknown>('/v1/automations', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return unwrapData<AutomationTask>(res);
+    method: 'POST', body: JSON.stringify(data),
+  }, _hybridDual && local ? 'local' : undefined);
+  return locatedTask(unwrapData<AutomationTask>(res), local);
 }
-
 export async function listAutomations(status?: string): Promise<AutomationTask[]> {
-  const qs = status ? `?status=${status}` : '';
-  const res = await apiRequest<unknown>(`/v1/automations${qs}`);
-  return unwrapData<AutomationTask[]>(res);
+  return automationList(status ? `?status=${encodeURIComponent(status)}` : '');
 }
-
 export async function getAutomation(taskId: string): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}`);
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId), undefined, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function updateAutomation(taskId: string, data: UpdateAutomationRequest): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  });
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId), {
+    method: 'PATCH', body: JSON.stringify(data),
+  }, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function deleteAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}`, { method: 'DELETE' });
+  await apiRequest(automationPath(taskId), { method: 'DELETE' }, automationTarget(taskId));
 }
-
 export async function pauseAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/pause`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/pause'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function resumeAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/resume`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/resume'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function triggerAutomation(taskId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/automations/${taskId}/trigger`, { method: 'POST' });
+  await apiRequest(automationPath(taskId, '/trigger'), { method: 'POST' }, automationTarget(taskId));
 }
-
 export async function getAutomationRuns(taskId: string, limit?: number): Promise<AutomationRun[]> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}/runs?limit=${limit || 10}`);
-  return unwrapData<AutomationRun[]>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId, `/runs?limit=${limit || 10}`), undefined, target);
+  return unwrapData<AutomationRun[]>(res).map(run => {
+    if (target === 'local' && run.chat_id) registerLocalChat(run.chat_id);
+    return { ...run, task_id: taskId };
+  });
 }
-
 export async function activateAutomationSidebar(taskId: string): Promise<AutomationTask> {
-  const res = await apiRequest<unknown>(`/v1/automations/${taskId}/activate-sidebar`, { method: 'POST' });
-  return unwrapData<AutomationTask>(res);
+  const target = automationTarget(taskId);
+  const res = await apiRequest<unknown>(automationPath(taskId, '/activate-sidebar'), { method: 'POST' }, target);
+  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
 }
-
 export async function listSidebarAutomations(): Promise<AutomationTask[]> {
-  const res = await apiRequest<unknown>('/v1/automations?sidebar_activated=true');
-  return unwrapData<AutomationTask[]>(res);
+  return automationList('?sidebar_activated=true');
 }
-
 export async function getAutomationNotifications(): Promise<AutomationNotification[]> {
-  const res = await apiRequest<unknown>('/v1/automations/notifications/list');
-  return unwrapData<AutomationNotification[]>(res);
+  const fetchSide = async (local: boolean) => {
+    const res = await apiRequest<unknown>('/v1/automations/notifications/list', undefined, local ? 'local' : undefined);
+    return unwrapData<AutomationNotification[]>(res).map(item => {
+      if (local && item.chat_id) registerLocalChat(item.chat_id);
+      return local ? { ...item, id: `local:${item.id}`, task_id: `local:${item.task_id}` } : item;
+    });
+  };
+  if (!_hybridDual) { automationUnavailable = []; return fetchSide(false); }
+  return availableAutomationSides(fetchSide);
 }
-
+async function changeNotifications(ids: string[], action: 'read' | 'delete'): Promise<void> {
+  const groups = _hybridDual ? [false, true] : [false];
+  await Promise.all(groups.map(async local => {
+    const selected = ids.filter(id => (automationTarget(id) === 'local') === local);
+    if (!selected.length) return;
+    await apiRequest(`/v1/automations/notifications/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ ids: selected.map(id => local ? id.slice(6) : id) }),
+    }, local ? 'local' : undefined);
+  }));
+}
 export async function markNotificationsRead(ids: string[]): Promise<void> {
-  await apiRequest<unknown>('/v1/automations/notifications/read', {
-    method: 'POST',
-    body: JSON.stringify({ ids }),
-  });
+  return changeNotifications(ids, 'read');
 }
-
 export async function deleteNotifications(ids: string[]): Promise<void> {
-  await apiRequest<unknown>('/v1/automations/notifications/delete', {
-    method: 'POST',
-    body: JSON.stringify({ ids }),
-  });
+  return changeNotifications(ids, 'delete');
 }
 
 // ── Skill Distillation (Lab personal skill distillation) ────────────────
@@ -3931,7 +3973,58 @@ export async function cancelLoop(loopId: string, chatId?: string): Promise<boole
 
 // ── Sites (site hosting) ────────────────────────────────────────────────
 
+
+export interface LocalSiteSource {
+  site_id: string;
+  project_id: string;
+  project_name: string;
+  chat_id: string;
+  source_dir: string;
+  publish_dir: string;
+}
+
+export async function prepareLocalSiteProject(projectId?: string): Promise<{
+  project_id: string; project_name: string; source_dir: string;
+}> {
+  const wrapped = await apiRequest<unknown>('/v1/local/site-sources/prepare', {
+    method: 'POST', body: JSON.stringify({ project_id: projectId || '' }),
+  }, 'local');
+  const data = unwrapData<{ project_id: string; project_name: string; source_dir: string }>(wrapped);
+  registerLocalProject(data.project_id);
+  return data;
+}
+
+export async function openLocalSiteEditor(siteId: string): Promise<LocalSiteSource> {
+  const wrapped = await apiRequest<unknown>(`/v1/local/site-sources/${encodeURIComponent(siteId)}/edit`, {
+    method: 'POST',
+  }, 'local');
+  const data = unwrapData<LocalSiteSource>(wrapped);
+  registerLocalProject(data.project_id);
+  registerLocalChat(data.chat_id);
+  return data;
+}
+
+
+async function withLocalSiteSources(items: SiteItem[]): Promise<SiteItem[]> {
+  if (!isHybridDual() || !items.length) return items;
+  try {
+    const wrapped = await apiRequest<unknown>('/v1/local/site-sources', undefined, 'local');
+    const data = unwrapData<{items: LocalSiteSource[]}>(wrapped);
+    const sources = new Map((data.items || []).map((entry) => [entry.site_id, entry]));
+    return items.map((site) => {
+      const source = sources.get(site.site_id);
+      if (!source || !['admin', 'edit'].includes(site.permission || '')) return site;
+      registerLocalProject(source.project_id);
+      return { ...site, editable: true, local_source: source };
+    });
+  } catch {
+    // Cloud sites stay available while the local execution plane starts or is offline.
+    return items;
+  }
+}
+
 export interface SiteItem extends SiteEditionFields {
+  local_source?: LocalSiteSource;
   /** 混合模式的正式站点统一托管在云端。 */
   origin?: 'cloud' | 'local';
   site_id: string;
@@ -3994,7 +4087,7 @@ export async function listSites(page = 1, pageSize = 50): Promise<{ items: SiteI
     : [];
   const pagination = (data.pagination ?? {}) as JsonObject;
   const total = Number(pagination.total_items ?? items.length);
-  return { items, total };
+  return { items: await withLocalSiteSources(items), total };
 }
 
 export async function updateSite(

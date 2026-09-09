@@ -45,7 +45,9 @@ from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/desktop/capability", tags=["Desktop Capability"])
+from core.services.desktop_gateway_observability import ObservedGatewayRoute
+
+router = APIRouter(prefix="/v1/desktop/capability", tags=["Desktop Capability"], route_class=ObservedGatewayRoute)
 
 # 网关上行连接：连接短超时快速失败；读不设限（SSE 长流 / 长工具调用），
 # 上游 MCP 自身带 execution_timeout 兜底。
@@ -126,6 +128,7 @@ async def _require_capability_user(
     )
     if not user_id:
         raise HTTPException(status_code=401, detail="invalid capability token")
+    request.state.desktop_observation_user = user_id
     return user_id
 
 
@@ -465,9 +468,12 @@ async def gateway_mcp_call(
     runtime_headers = {
         k: v for k, v in request.headers.items() if k.lower() in _RUNTIME_CONTEXT_HEADERS
     }
+    from core.services.automation_remote_effect import RemoteOperationConflict
     started = time.monotonic()
     try:
         result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
+    except RemoteOperationConflict:
+        raise HTTPException(status_code=400, detail="operation key already bound to different arguments") from None
     except CapabilityContentRejected:
         raise HTTPException(
             status_code=422,
@@ -501,6 +507,52 @@ async def gateway_mcp_call(
     return success_response(data=_public_content(user_id, result))
 
 
+class GatewayReceiptBody(BaseModel):
+    tool_name: str = Field(..., min_length=1, max_length=128)
+    schema_hash: str = Field(..., min_length=64, max_length=64)
+    operation_id: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/gateway/{server_id}/authorize", summary="校验本机任务工具的当前授权")
+async def gateway_authorize_local(
+    server_id: str, body: GatewayReceiptBody,
+    user_id: str = Depends(_require_capability_user),
+):
+    from core.services.desktop_capability import resolve_gateway_tool
+    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+    from core.services.automation_tool_routing import TOOLS
+    try:
+        resolved = await run_in_threadpool(resolve_gateway_tool, user_id, server_id,
+                                          body.tool_name, schema_hash=body.schema_hash)
+    except CapabilityManifestStaleError:
+        raise HTTPException(status_code=409, detail="capability manifest changed") from None
+    if (resolved is None or body.tool_name not in TOOLS
+            or resolved["target"].get("source_plugin") != "automation"):
+        raise HTTPException(status_code=403, detail="local automation is not authorized")
+    return success_response(data={"authorized": True})
+
+
+@router.post("/gateway/{server_id}/receipt", summary="查询云端操作回执")
+async def gateway_effect_receipt(
+    server_id: str, body: GatewayReceiptBody,
+    user_id: str = Depends(_require_capability_user),
+):
+    from core.services.desktop_capability import resolve_gateway_tool
+    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+    from core.services.automation_remote_effect import RECEIPT_TOOLS, lookup_remote_receipt
+
+    try:
+        resolved = await run_in_threadpool(resolve_gateway_tool, user_id, server_id,
+                                          body.tool_name, schema_hash=body.schema_hash)
+    except CapabilityManifestStaleError:
+        raise HTTPException(status_code=409, detail="capability manifest changed") from None
+    if resolved is None or body.tool_name not in RECEIPT_TOOLS:
+        raise HTTPException(status_code=404, detail="tool not available")
+    result = await run_in_threadpool(lookup_remote_receipt, user_id, server_id,
+                                    body.tool_name, body.operation_id)
+    return success_response(data=_public_content(user_id, result))
+
+
 @router.post(
     "/gateway/models/{provider_id}/{model_path:path}",
     summary="桌面模型网关（OpenAI-compatible 流式反代）",
@@ -529,6 +581,7 @@ async def gateway_model(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="model request must be a JSON object")
     payload["model"] = target["model_name"]
+    request.state.desktop_observation_model = target["model_name"]
 
     headers = {
         "authorization": f"Bearer {target['api_key']}",

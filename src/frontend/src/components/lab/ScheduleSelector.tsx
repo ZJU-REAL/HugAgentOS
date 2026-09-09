@@ -15,6 +15,16 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Radio, Select, TimePicker, DatePicker } from 'antd';
 import dayjs, { Dayjs } from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezonePlugin from 'dayjs/plugin/timezone';
+import { currentTimezone } from './automationLocation';
+dayjs.extend(utc);
+dayjs.extend(timezonePlugin);
+
+// Picker values are wall-clock fields in the task's zone, not the browser's.
+function wallNow(zone = currentTimezone()): Dayjs {
+  return dayjs(dayjs().tz(zone).format('YYYY-MM-DDTHH:mm:ss'));
+}
 import type { AutomationScheduleType } from '../../types';
 import { EASE } from '../../utils/motionTokens';
 import { t } from '../../i18n';
@@ -59,6 +69,7 @@ interface Props {
   value: ScheduleValue;
   onChange: (next: ScheduleValue) => void;
   disabled?: boolean;
+  timezone?: string;
 }
 
 // ─── Cron builders ─────────────────────────────────────────────
@@ -91,12 +102,12 @@ function buildOnceCron(dt: Dayjs): string {
  * 选到过去的时间点没有任何意义——cron 要等到明年同一天才会再匹配一次，用户以为
  * 「马上执行」，实际是一年后。所以在选择器层面就挡掉，而不是等提交后报错。
  */
-function disabledOnceDate(current: Dayjs): boolean {
-  return !!current && current.endOf('day').isBefore(dayjs());
+function disabledOnceDate(current: Dayjs, zone?: string): boolean {
+  return !!current && current.endOf('day').isBefore(wallNow(zone));
 }
 
-function disabledOnceTime(current: Dayjs | null) {
-  const now = dayjs();
+function disabledOnceTime(current: Dayjs | null, zone?: string) {
+  const now = wallNow(zone);
   if (!current || !current.isSame(now, 'day')) return {};
   return {
     disabledHours: () => range(0, now.hour()),
@@ -118,14 +129,14 @@ function range(start: number, end: number): number[] {
  * 这里要判断的恰恰是「本年度的那个时刻已经过去了」，因为此时 cron 要等一年才会再匹配，
  * 用户以为是马上执行、实际却是明年的今天。
  */
-export function isOnceScheduleExpired(value: ScheduleValue): boolean {
+export function isOnceScheduleExpired(value: ScheduleValue, zone?: string): boolean {
   if (value.schedule_type !== 'once') return false;
   const parts = value.cron_expression.trim().split(/\s+/);
   if (parts.length !== 5) return false;
   const [m, h, d, mo] = parts.map((p) => parseInt(p, 10));
   if ([m, h, d, mo].some((n) => Number.isNaN(n))) return false;
-  const thisYear = dayjs().month(mo - 1).date(d).hour(h).minute(m).second(0);
-  return thisYear.isBefore(dayjs());
+  const thisYear = wallNow(zone).month(mo - 1).date(d).hour(h).minute(m).second(0);
+  return thisYear.isBefore(wallNow(zone));
 }
 
 // ─── Parse cron back into UI state (best-effort) ─────────────
@@ -156,27 +167,27 @@ function parseRecurringCron(cron: string): {
   return { freq: 'daily', hour, minute, weekday: 1 };
 }
 
-function parseOnceCron(cron: string): Dayjs {
+function parseOnceCron(cron: string, zone?: string): Dayjs {
   const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return dayjs().add(1, 'hour').startOf('minute');
+  if (parts.length !== 5) return wallNow(zone).add(1, 'hour').startOf('minute');
   const [m, h, d, mo] = parts.map((p) => parseInt(p, 10));
-  const now = dayjs();
+  const now = wallNow(zone);
   let year = now.year();
   // If the month/day has already passed this year, assume next year.
-  const candidate = dayjs().year(year).month(mo - 1).date(d).hour(h).minute(m).second(0);
+  const candidate = wallNow(zone).year(year).month(mo - 1).date(d).hour(h).minute(m).second(0);
   if (candidate.isBefore(now)) {
     year += 1;
   }
-  return dayjs().year(year).month(mo - 1).date(d).hour(h).minute(m).second(0);
+  return wallNow(zone).year(year).month(mo - 1).date(d).hour(h).minute(m).second(0);
 }
 
 // ─── Component ─────────────────────────────────────────────
 
-export function ScheduleSelector({ value, onChange, disabled }: Props) {
+export function ScheduleSelector({ value, onChange, disabled, timezone = currentTimezone() }: Props) {
   const [freq, setFreq] = useState<FrequencyKey>('daily');
   const [weekday, setWeekday] = useState<number>(1);
   const [time, setTime] = useState<Dayjs>(dayjs('09:00', 'HH:mm'));
-  const [onceAt, setOnceAt] = useState<Dayjs>(dayjs().add(1, 'hour').startOf('minute'));
+  const [onceAt, setOnceAt] = useState<Dayjs>(wallNow(timezone).add(1, 'hour').startOf('minute'));
 
   // ── On mount (or when value changes from outside), hydrate local state from the current cron.
   useEffect(() => {
@@ -186,12 +197,12 @@ export function ScheduleSelector({ value, onChange, disabled }: Props) {
       setWeekday(parsed.weekday);
       setTime(dayjs().hour(parsed.hour).minute(parsed.minute).second(0));
     } else if (value.schedule_type === 'once') {
-      setOnceAt(parseOnceCron(value.cron_expression));
+      setOnceAt(parseOnceCron(value.cron_expression, timezone));
     }
     // manual: nothing to hydrate
     // Only re-run when the externally provided schedule_type/cron changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value.schedule_type]);
+  }, [value.schedule_type, timezone]);
 
   const emit = (next: ScheduleValue) => {
     if (disabled) return;
@@ -248,7 +259,7 @@ export function ScheduleSelector({ value, onChange, disabled }: Props) {
   const handleOnceChange = (newDt: Dayjs | null) => {
     if (!newDt) return;
     // disabledDate/disabledTime 只挡面板点选，手输仍能敲进过去的时刻——这里再兜一次。
-    if (newDt.isBefore(dayjs())) return;
+    if (newDt.isBefore(wallNow(timezone))) return;
     setOnceAt(newDt);
     emit({
       schedule_type: 'once',
@@ -372,8 +383,8 @@ export function ScheduleSelector({ value, onChange, disabled }: Props) {
               format="YYYY-MM-DD HH:mm"
               allowClear={false}
               disabled={disabled}
-              disabledDate={disabledOnceDate}
-              disabledTime={disabledOnceTime}
+              disabledDate={current => disabledOnceDate(current, timezone)}
+              disabledTime={current => disabledOnceTime(current, timezone)}
               style={{ width: 220 }}
             />
           </div>

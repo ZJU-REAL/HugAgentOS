@@ -199,11 +199,15 @@ def register_sandboxed_view_text_file(
                 try:
                     from core.services import log_service as _lw
                     spec = loader.load_skill_full(skill_id)
+                    source = loader.get_skill_source(skill_id)
+                    if prepared is not None and skill_id in prepared.bindings:
+                        from core.capabilities.ref import LOCAL_PROFILE, BUILTIN_PROFILE
+                        source = "local" if prepared.bindings[skill_id]["profile"] in (LOCAL_PROFILE, BUILTIN_PROFILE) else "cloud"
                     _lw.schedule_skill_call_write({
                         "skill_id": skill_id,
                         "skill_name": getattr(spec, "name", skill_id) if spec else skill_id,
                         "skill_version": getattr(spec, "version", None) if spec else None,
-                        "skill_source": getattr(spec, "source", None) if spec else None,
+                        "skill_source": source,
                         "invocation_type": "view",
                         "script_name": None,
                         "status": "success",

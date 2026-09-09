@@ -25,8 +25,8 @@ class UploadChannel:
     content_type: str
     # (arguments, headers) -> (body bytes, options JSON string)
     package: Callable[[Dict[str, Any], Dict[str, str]], Awaitable[Tuple[bytes, str]]]
-    # (result data, cloud base url) -> None; rewrites cloud-relative fields in place
-    localize: Optional[Callable[[Dict[str, Any], str], None]] = None
+    # (result data, cloud base url, arguments, headers) -> None; local receipt and URLs
+    localize: Optional[Callable[[Dict[str, Any], str, Dict[str, Any], Dict[str, str]], None]] = None
 
 
 def _site_publish_channel() -> UploadChannel:

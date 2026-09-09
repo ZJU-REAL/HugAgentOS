@@ -14,7 +14,7 @@ from agentscope.message import ToolCallBlock
 from agentscope.tool._response import ToolResponse
 
 from core.db.engine import SessionLocal
-from core.db.models import ChatRun, ToolEffectReceipt
+from core.db.models import ChatRun, ToolEffectReceipt, RemoteToolEffect
 from core.services.tool_effect_ledger import ReconciliationResult, ToolEffectError, ToolIntent
 
 
@@ -133,10 +133,60 @@ async def reconcile_scheduled_task_intent(intent: ToolIntent) -> ReconciliationR
             return ReconciliationResult.unknown()
         receipt = db.get(ToolEffectReceipt, intent.effect_id)
         if receipt is None:
-            return ReconciliationResult.not_applied()
-        if receipt.user_id != run.user_id or receipt.tool_name != intent.tool_name:
+            remote = db.get(RemoteToolEffect, intent.effect_id)
+            if remote is not None and remote.gateway_url:
+                remote_call = {
+                    "url": remote.gateway_url, "schema_hash": remote.schema_hash,
+                    "user_id": run.user_id,
+                }
+            else:
+                remote_call = None
+            if remote_call is None:
+                # A device operation may predate persisted cross-end bindings.
+                # Its missing local receipt says nothing about cloud state.
+                from core.auth.desktop_bridge import bridge_enabled
+                if bridge_enabled() and intent.redacted_args.get("execution_location") != "local":
+                    return ReconciliationResult.unknown()
+                return ReconciliationResult.not_applied()
+        else:
+            if receipt.user_id != run.user_id or receipt.tool_name != intent.tool_name:
+                return ReconciliationResult.unknown()
+            return ReconciliationResult.applied(dict(receipt.result_payload or {}))
+    return await _reconcile_cloud_receipt(intent, remote_call)
+
+
+async def _reconcile_cloud_receipt(intent, remote_call):
+    import httpx
+    from core.services import desktop_cloud_bridge as bridge
+    from core.services.desktop_capability_protocol import token_subject
+    from core.capabilities.errors import CapabilityError
+
+    state = bridge.get_state()
+    if not state or token_subject(state.get("token", "")) != remote_call["user_id"]:
+        return ReconciliationResult.unknown()
+    if not remote_call["url"].startswith(state.get("cloud_base", "").rstrip("/") + "/api/v1/desktop/capability/gateway/"):
+        return ReconciliationResult.unknown()
+    try:
+        bridge.ensure_current_authorization(state)
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                remote_call["url"].rsplit("/", 1)[0] + "/receipt",
+                headers=bridge.cloud_headers(state),
+                json={"tool_name": intent.tool_name, "operation_id": intent.effect_id,
+                      "schema_hash": remote_call["schema_hash"]},
+            )
+        bridge.require_current_account(state)
+        response.raise_for_status()
+        data = response.json()["data"]
+        if not isinstance(data, dict):
             return ReconciliationResult.unknown()
-        return ReconciliationResult.applied(dict(receipt.result_payload or {}))
+        if data.get("outcome") == "applied":
+            return ReconciliationResult.applied(data["result"])
+        if data.get("outcome") == "not_applied":
+            return ReconciliationResult.not_applied()
+    except (httpx.HTTPError, ValueError, KeyError, RuntimeError, CapabilityError):
+        return ReconciliationResult.unknown()
+    return ReconciliationResult.unknown()
 
 
 __all__ = ["reconcile_scheduled_task_intent", "replay_tool_intent"]

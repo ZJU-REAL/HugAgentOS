@@ -71,6 +71,7 @@ def _startup_steps():
         # (step, gate, roles)
         (_startup_ensure_tables, True, _ALL_ROLES),
         (_startup_watch_capability_changes, True, _ALL_ROLES),
+        (_startup_desktop_observability, True, _ALL_ROLES),
         (_startup_seed_ce_admin, True, _ALL_ROLES),
         (_startup_seed_page_config, True, _ALL_ROLES),
         (_startup_seed_prompt_versions, True, _ALL_ROLES),
@@ -134,6 +135,9 @@ async def lifespan(app: FastAPI):
             await deferred
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()
+    await _shutdown_desktop_observability()
+    from core.services.desktop_gateway_observability import drain
+    await drain()
     await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
     await _shutdown_kb_index_worker()
@@ -1334,6 +1338,36 @@ def main():
 
     port = settings.server.port
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+
+
+
+_desktop_sync_worker = None
+_desktop_capture_remove = None
+
+async def _startup_desktop_observability():
+    global _desktop_sync_worker, _desktop_capture_remove
+    from core.auth.desktop_bridge import bridge_enabled
+    if not bridge_enabled():
+        return
+    from core.db.engine import SessionLocal
+    from core.services.desktop_cloud_bridge import get_identity_state
+    from core.services.desktop_observability_sync import DesktopSyncWorker, install_capture
+    if _desktop_capture_remove is None:
+        _desktop_capture_remove = install_capture(SessionLocal, get_identity_state)
+    if _desktop_sync_worker is None:
+        _desktop_sync_worker = DesktopSyncWorker(SessionLocal)
+        _desktop_sync_worker.start()
+
+async def _shutdown_desktop_observability():
+    global _desktop_sync_worker, _desktop_capture_remove
+    if _desktop_sync_worker is not None:
+        await _desktop_sync_worker.stop()
+        _desktop_sync_worker = None
+    if _desktop_capture_remove is not None:
+        _desktop_capture_remove()
+        _desktop_capture_remove = None
 
 
 if __name__ == "__main__":

@@ -403,4 +403,5 @@ export const CHAT_DICT: Record<string, string> = {
   '已完成 {n}/{m}': '{n}/{m} done',
   '作业进行中 {n}/{m}': 'Job running {n}/{m}',
   '（失败 {n}）': ' ({n} failed)',
+  '本地项目': 'Local project',
 };

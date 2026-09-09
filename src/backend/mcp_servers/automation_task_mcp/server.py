@@ -51,6 +51,9 @@ async def create_scheduled_task(
     name: str = "",
     deliver_to: str = "",
     tool_effect_id: str = "",
+    execution_location: str = "",
+    project_id: str = "",
+    timezone: str = "Asia/Shanghai",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """创建定时/周期任务：到点自动执行 prompt，结果按 deliver_to 投递。
@@ -70,6 +73,11 @@ async def create_scheduled_task(
         · "inapp" → 强制只发**站内/页面端**（即便在渠道里，也不推回群/私聊）。
         · 某个 conversation_id → 投到**指定的另一个渠道会话**（如"往运营群发"）。要先调
           list_channel_conversations 拿到目标会话的 conversation_id，不要凭空臆造。
+    - execution_location：local（本机）或 cloud（云端）。本机目录项目默认 local，
+      普通联网任务默认 cloud；用户已明确位置时不要重复询问。无法确定时先询问。
+      本机执行需电脑开机且桌面服务运行；云端不能读取本机目录。
+    - project_id：任务关联项目；本机目录任务必须绑定项目，不能只在 prompt 写路径。
+    - timezone：IANA 时区，默认 Asia/Shanghai；确认时展示执行位置、项目和时区。
     - tool_effect_id：系统内部幂等回执令牌，由 ToolGateway 注入；模型不要填写。
     """
     return impl.create_task(
@@ -80,6 +88,9 @@ async def create_scheduled_task(
         deliver_to=deliver_to,
         channel_origin=_channel_origin(ctx),
         tool_effect_id=tool_effect_id,
+        execution_location=execution_location or None,
+        project_id=project_id or None,
+        timezone=timezone,
     )
 
 
@@ -96,6 +107,7 @@ async def list_channel_conversations(ctx: Context | None = None) -> Dict[str, An
 @mcp.tool()
 async def list_scheduled_tasks(
     status: str = "active",
+    execution_location: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """列出我的定时任务（任务ID/名称/cron/下次执行/状态/投递目标）。
@@ -103,18 +115,25 @@ async def list_scheduled_tasks(
     用户问"我有哪些定时任务/查看我的定时任务/有哪些计划任务"时调用。
     参数 status："active"(默认,仅生效中) / "paused" / "all"(全部)。
     """
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.list_tasks(user_id=_user(ctx), status=status)
 
 
 @mcp.tool()
 async def get_scheduled_task(
     task_ref: str,
+    execution_location: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """查看某个定时任务的详情 + 最近几次运行记录。
 
     task_ref 可传 task_id 或任务名称（名称模糊匹配；匹配到多个会返回候选让你向用户确认）。
     """
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.get_task(user_id=_user(ctx), task_ref=task_ref)
 
 
@@ -125,6 +144,7 @@ async def update_scheduled_task(
     prompt: str = "",
     name: str = "",
     tool_effect_id: str = "",
+    execution_location: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """修改定时任务：可改执行时间(cron)、执行内容(prompt)、名称（只传要改的）。
@@ -133,6 +153,9 @@ async def update_scheduled_task(
     task_ref 传 task_id 或名称（多命中会要求澄清）。
     tool_effect_id 由 ToolGateway 内部注入，模型不要填写。
     """
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.update_task(
         user_id=_user(ctx),
         task_ref=task_ref,
@@ -144,14 +167,20 @@ async def update_scheduled_task(
 
 
 @mcp.tool()
-async def pause_scheduled_task(task_ref: str, ctx: Context | None = None) -> Dict[str, Any]:
+async def pause_scheduled_task(task_ref: str, execution_location: str = "", ctx: Context | None = None) -> Dict[str, Any]:
     """暂停一个定时任务（暂停后到点不再触发，可随后恢复）。task_ref=task_id 或名称。"""
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.pause_task(user_id=_user(ctx), task_ref=task_ref)
 
 
 @mcp.tool()
-async def resume_scheduled_task(task_ref: str, ctx: Context | None = None) -> Dict[str, Any]:
+async def resume_scheduled_task(task_ref: str, execution_location: str = "", ctx: Context | None = None) -> Dict[str, Any]:
     """恢复一个被暂停的定时任务。task_ref=task_id 或名称。"""
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.resume_task(user_id=_user(ctx), task_ref=task_ref)
 
 
@@ -159,6 +188,7 @@ async def resume_scheduled_task(task_ref: str, ctx: Context | None = None) -> Di
 async def delete_scheduled_task(
     task_ref: str,
     tool_effect_id: str = "",
+    execution_location: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """删除/取消一个定时任务（不可恢复）。task_ref=task_id 或名称。
@@ -166,6 +196,9 @@ async def delete_scheduled_task(
     【铁律】未成功调用本工具拿到 ✅ 前不要声称已删除。匹配到多个任务时必须先向用户确认，禁止猜删。
     tool_effect_id 由 ToolGateway 内部注入，模型不要填写。
     """
+    from core.services.automation_execution import instance_location
+    if execution_location and execution_location != instance_location():
+        return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
     return impl.delete_task(
         user_id=_user(ctx),
         task_ref=task_ref,

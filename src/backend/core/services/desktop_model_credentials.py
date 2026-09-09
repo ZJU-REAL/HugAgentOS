@@ -86,7 +86,8 @@ def headers(reference, base_url, captured_state=None):
         device = str(state.get("device_id") or claims.get("device_id") or claims.get("d") or "")
     except (ValueError, IndexError, TypeError):
         device = ""
-    return {"Authorization": "Bearer " + token, "X-Desktop-Device-Id": device}
+    from core.services.desktop_observation_context import context_headers
+    return {"Authorization": "Bearer " + token, "X-Desktop-Device-Id": device, **context_headers(model=True)}
 
 
 def request_hook(reference, base_url):

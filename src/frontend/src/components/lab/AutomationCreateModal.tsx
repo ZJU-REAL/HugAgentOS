@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Modal, Form, Input, Radio, Select, message } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Form, Input, Radio, Select, Alert, message } from 'antd';
 import { LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { createAutomation, listPlans, getPlanApi, listChannelConversations, type ChannelConversation } from '../../api';
 import type { AutomationScheduleType, Plan } from '../../types';
@@ -7,6 +7,9 @@ import { PlanCard, type PlanStepData } from '../chat/PlanCard';
 import { ScheduleSelector, isOnceScheduleExpired, type ScheduleValue } from './ScheduleSelector';
 import { channelConversationLabel } from './automationUtils';
 import { t } from '../../i18n';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { defaultExecutionLocation, executionLocationError, currentTimezone, availableTimezones, type ExecutionLocation } from './automationLocation';
 
 interface Props {
   open: boolean;
@@ -34,6 +37,31 @@ function toPlanStepData(plan: Plan): PlanStepData[] {
 
 export function AutomationCreateModal({ open, onClose, onCreated, preset = null }: Props) {
   const [form] = Form.useForm();
+  const [defaultTimezone] = useState(currentTimezone);
+  const [timezoneOptions] = useState(() => availableTimezones().map(value => ({ value, label: value })));
+  const deployment = useDeploymentModeStore();
+  const { list: projects, currentProject, fetchProjects } = useProjectStore();
+  const canChooseLocation = deployment.isDesktop && deployment.provisionMode === 'dual';
+  const resourceGeneration = useRef(0);
+  const planRequest = useRef(0);
+  const [location, setLocation] = useState<ExecutionLocation>('cloud');
+  const [projectId, setProjectId] = useState<string | undefined>();
+  const project = projects.find(item => item.project_id === projectId) || (currentProject?.project_id === projectId ? currentProject : null);
+  const localPath = (project?.metadata?.local as { path?: string } | undefined)?.path;
+  const promptValue = Form.useWatch('prompt', form) || '';
+  const selectedTimezone = Form.useWatch('timezone', form) || defaultTimezone;
+  const locationError = executionLocationError(location, project?.kind, promptValue);
+  useEffect(() => {
+    resourceGeneration.current += 1;
+    if (!open) return;
+    setLocation(defaultExecutionLocation(deployment.provisionMode, currentProject?.kind));
+    setProjectId(currentProject?.project_id);
+    setPlans([]); setPlansLoaded(false); setPlanCache({}); setSelectedPlan(null);
+    form.setFieldValue('plan_id', undefined);
+    form.setFieldValue('timezone', defaultTimezone);
+    void fetchProjects();
+  }, [open]); // Capture the project when the form opens, not on background list refresh.
+
   const [loading, setLoading] = useState(false);
   const [taskType, setTaskType] = useState<'prompt' | 'plan'>('prompt');
   const [schedule, setSchedule] = useState<ScheduleValue>(defaultSchedule());
@@ -50,8 +78,12 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
 
   useEffect(() => {
     if (!open) return;
-    listChannelConversations().then(setConvs).catch(() => { /* Fail silently when there are no channel conversations */ });
-  }, [open]);
+    setConvs([]); setChannelTarget('inapp');
+    let active = true;
+    listChannelConversations(location === 'local' && deployment.provisionMode === 'dual' ? 'local' : undefined)
+      .then(result => { if (active) setConvs(result); }).catch(() => { /* Local CE may have no channel service. */ });
+    return () => { active = false; };
+  }, [open, location, deployment.provisionMode]);
 
   // 推荐任务预填：弹窗打开时把示例灌进表单（destroyOnClose 会重建 Form，所以要在 open 后再 set）。
   useEffect(() => {
@@ -63,8 +95,10 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
 
   const loadPlans = async () => {
     if (plansLoaded) return;
+    const generation = resourceGeneration.current;
     try {
-      const result = await listPlans();
+      const result = await listPlans(location === "local" && deployment.provisionMode === "dual" ? "local" : undefined);
+      if (generation !== resourceGeneration.current) return;
       setPlans(
         result.map((p) => ({
           plan_id: p.plan_id,
@@ -74,11 +108,14 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
       );
       setPlansLoaded(true);
     } catch {
-      message.error(t('加载计划列表失败'));
+      if (generation === resourceGeneration.current) message.error(t('加载计划列表失败'));
     }
   };
 
   const handlePlanChange = async (planId: string) => {
+    const request = ++planRequest.current;
+    const generation = resourceGeneration.current;
+    const isCurrent = () => request === planRequest.current && generation === resourceGeneration.current;
     if (!planId) {
       setSelectedPlan(null);
       return;
@@ -90,13 +127,14 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
     setPlanDetailLoading(true);
     setSelectedPlan(null);
     try {
-      const plan = await getPlanApi(planId);
+      const plan = await getPlanApi(planId, undefined, location === 'local' && deployment.provisionMode === 'dual' ? 'local' : undefined);
+      if (!isCurrent()) return;
       setPlanCache((prev) => ({ ...prev, [planId]: plan }));
       setSelectedPlan(plan);
     } catch {
-      message.error(t('加载计划详情失败'));
+      if (isCurrent()) message.error(t('加载计划详情失败'));
     } finally {
-      setPlanDetailLoading(false);
+      if (isCurrent()) setPlanDetailLoading(false);
     }
   };
 
@@ -116,8 +154,16 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      if (isOnceScheduleExpired(schedule)) {
+      if (isOnceScheduleExpired(schedule, values.timezone)) {
         message.error(t('执行时间已过，请重新选择一个未来的时间'));
+        return;
+      }
+      if (locationError) {
+        message.error(t(locationError));
+        return;
+      }
+      if (location === 'local' && deployment.provisionMode === 'dual' && !deployment.localReady) {
+        message.error(t('本机服务尚未就绪，请稍后重试'));
         return;
       }
       setLoading(true);
@@ -127,6 +173,9 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         : undefined;
       await createAutomation({
         task_type: taskType,
+        execution_location: location,
+        project_id: projectId,
+        timezone: values.timezone,
         prompt: taskType === 'prompt' ? values.prompt?.trim() : undefined,
         plan_id: taskType === 'plan' ? values.plan_id : undefined,
         cron_expression: schedule.cron_expression,
@@ -168,6 +217,33 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
       keyboard={false}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form.Item label={t('执行位置')} required={canChooseLocation}>
+          {canChooseLocation ? (
+            <Radio.Group value={location} onChange={e => {
+              resourceGeneration.current += 1;
+              setPlans([]); setPlanDetailLoading(false);
+              setLocation(e.target.value); setSelectedPlan(null); setPlansLoaded(false); setPlanCache({});
+              form.setFieldValue('plan_id', undefined);
+            }}>
+              <Radio.Button value="local">{t('本机')}</Radio.Button>
+              <Radio.Button value="cloud">{t('云端')}</Radio.Button>
+            </Radio.Group>
+          ) : (
+            <span>{location === 'local' ? t('本机') : t('云端')}</span>
+          )}
+          <div style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
+            {location === 'local'
+              ? t('在当前电脑执行；执行时电脑需开机且本机服务运行')
+              : t('电脑关闭后仍可执行；无法直接访问本机文件')}
+          </div>
+        </Form.Item>
+        <Form.Item label={t('关联项目')} help={localPath}>
+          <Select allowClear value={projectId} onChange={setProjectId}
+            placeholder={t('选择任务需要访问的项目')}
+            options={projects.map(item => ({ value: item.project_id,
+              label: item.name + ((item.kind as string) === 'local' ? ' · ' + t('本机') : ' · ' + t('云端')) }))} />
+        </Form.Item>
+        {locationError && <Alert type="error" showIcon title={t(locationError)} style={{ marginBottom: 16 }} />}
         <Form.Item label={t('任务类型')} required>
           <Radio.Group value={taskType} onChange={(e) => setTaskType(e.target.value)}>
             <Radio.Button value="prompt">{t('提示词')}</Radio.Button>
@@ -239,8 +315,12 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
           </>
         )}
 
+        <Form.Item label={t('时区')} name="timezone" initialValue={defaultTimezone}
+          rules={[{ required: true, message: t('请选择时区') }]}>
+          <Select showSearch options={timezoneOptions} />
+        </Form.Item>
         <Form.Item label={t('调度方式')} required>
-          <ScheduleSelector value={schedule} onChange={setSchedule} />
+          <ScheduleSelector value={schedule} onChange={setSchedule} timezone={selectedTimezone} />
         </Form.Item>
 
         <Form.Item label={t('描述')} name="description">

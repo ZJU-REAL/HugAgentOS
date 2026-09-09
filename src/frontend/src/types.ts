@@ -1311,6 +1311,12 @@ export type AutomationScheduleType = 'recurring' | 'once' | 'manual';
 
 export interface AutomationTask {
   task_id: string;
+  execution_location?: 'local' | 'cloud';
+  device_id?: string;
+  device_name?: string;
+  project_id?: string;
+  project_name?: string;
+  project_local_path?: string;
   task_type: AutomationTaskType;
   prompt?: string;
   plan_id?: string;

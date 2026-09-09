@@ -217,3 +217,47 @@ Deployment requires the cloud backend, bundled local backend and Windows/UOS des
 updates. Updating only the cloud backend does not replace an old client's routing or runtime.
 
 Publishing a local folder project resolves its bound host directory without requiring a cloud space folder. Build output must remain inside that project directory or the local workspace. Missing directories, projects owned by other users, and escaping links are rejected.
+
+
+### Local site sources and editing
+
+In hybrid mode, creating a site from the Sites panel prepares a local folder project before generation.
+An existing local project is reused. Write source files in the real project directory, then publish
+static page files or the build output for a React-style project. Both source and build output must
+already exist inside the bound local project. Session scratch directories are not migrated.
+
+After successful publication, the desktop persists a binding between the current cloud account, site ID,
+source directory and original conversation. Edit opens the source and conversation on this computer.
+Republishing uses the same site ID, preserving the URL and incrementing the cloud version.
+Multiple sites in one project have separate bindings, scoped by cloud address and account.
+Missing or out-of-project source directories do not enable local editing.
+
+No legacy source-link recovery or automatic source transfer to other computers is provided.
+
+Update both the desktop frontend and its bundled local backend. Updating only the cloud service cannot
+replace an already-installed desktop client.
+
+## Scheduled task execution location
+Choose Local or Cloud and verify the time zone when creating a task. Local directory projects default to
+Local; ordinary online tasks default to Cloud. Local tasks require the computer and desktop backend to be running.
+Tasks that read host directories must bind an existing local project. Cloud tasks cannot directly access host paths.
+Creation and edits validate resource compatibility; each execution rechecks project access and its directory binding.
+Lists, details and run history retain the execution backend; local tasks display their device and project.
+Existing tasks remain on their original backend and are not migrated automatically.
+Authenticated cloud operation bindings and atomic receipts prevent duplicate writes; lost responses are reconciled
+against cloud receipts. Upgrade the cloud backend/MCP, bundled local backend and desktop frontend together, and
+apply the standard database migrations.
+
+The scheduled-task creation form shows a Local/Cloud selector only in desktop hybrid mode. The cloud web app and cloud-only desktop show a fixed Cloud location; local-only desktop shows a fixed Local location.
+
+## Cloud management of hybrid desktop logs
+
+Administrators can select Local tasks in model, chat history, tool, agent and skill log pages, filter by user/device/conversation/run, and open conversations or record details. Device status shows last sync, pending records, reconciliation and capture errors. Gateway error counters are process-local and reset on restart.
+
+The desktop captures pending identifiers in the existing database transaction. A background worker uploads batches approximately every three seconds, retries offline and resumes after restart. The cloud accepts events idempotently by account, device, event and revision. Historical data is reconciled incrementally. Uploads are outside the inference wait path; local database capture still has a small cost, so absolute zero overhead is not promised.
+
+Cloud model/tool gateways also capture server execution observations and deduplicate them with desktop context. Skill load/call and agent runtime records use existing local instrumentation; internal model reasoning is not collected. Missing provider usage remains unknown. Whitelisted chat/call data is credential-redacted and oversized content is explicitly marked truncated. Project files and attachments are not replicated.
+
+Upgrade the cloud backend, management frontend and bundled desktop backend together, and apply normal migrations including deskobs01. Management queries belong to EE audit; CE retains receiver/model compatibility. The desktop must be signed into the matching cloud account with its backend running. Old clients do not emit these new records.
+
+Records are eventually visible. Gateway persistence uses a bounded asynchronous queue, so a hard process exit or queue overflow can lose server observations; error counters expose failures and durable desktop uploads can supplement captured records. Management copies do not modify the existing billing ledger.

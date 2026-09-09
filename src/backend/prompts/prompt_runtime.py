@@ -910,6 +910,8 @@ def build_system_prompt(
                 project_files=ctx.get("project_files") or [],
             )
         if proj_section:
+            if ctx.get("project_is_local") and ctx.get("local_site_edit"):
+                proj_section += "\n\n" + str(ctx["local_site_edit"])
             base = (base + "\n\n" + proj_section).strip()
             _record_section(
                 "runtime/project",

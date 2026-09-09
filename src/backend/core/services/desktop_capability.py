@@ -630,6 +630,16 @@ async def invoke_gateway_tool(
 
     from core.llm.mcp_pool import make_client
 
+    arguments = dict(arguments or {})
+    from core.services.automation_remote_effect import RECEIPT_TOOLS, bind_remote_effect
+    tool_name = str(resolved["tool"]["name"])
+    if tool_name in RECEIPT_TOOLS and arguments.get("tool_effect_id"):
+        operation_id = arguments.pop("tool_effect_id")
+        arguments["tool_effect_id"] = await asyncio.to_thread(
+            bind_remote_effect, str(resolved["user_id"]), str(resolved["server_id"]),
+            tool_name, operation_id, arguments,
+        )
+
     target = dict(resolved["target"])
     upstream_headers = {
         str(k).lower(): str(v)

@@ -26,6 +26,11 @@ import {
   listSiteSubmissions,
   listSites,
   getProject,
+  getSession,
+  isHybridDual,
+  isLocalProject,
+  prepareLocalSiteProject,
+  openLocalSiteEditor,
   rollbackSite,
   updateSite,
   type SiteItem,
@@ -75,20 +80,51 @@ async function ensureSitesPluginInstalled(): Promise<boolean> {
 
 async function startSiteCreation() {
   if (!(await ensureSitesPluginInstalled())) return;
-  // Don't pre-create the project: on publish the backend automatically creates a source project named after the site
-  // title and drops the files into it (see internal_sites), avoiding placeholder directory names like "Site · Building"
-  // and not depending on frontend/agent project binding.
-  useChatStore.getState().enterSiteMode();
+  if (isHybridDual()) {
+    try {
+      const state = useChatStore.getState();
+      const projectId = state.store.chats[state.currentChatId]?.projectId;
+      const project = await prepareLocalSiteProject(isLocalProject(projectId) ? projectId : undefined);
+      state.enterSiteMode({projectId: project.project_id, projectName: project.project_name});
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('操作失败'));
+      return;
+    }
+  } else {
+    useChatStore.getState().enterSiteMode();
+  }
   useCatalogStore.getState().setPanel('chat');
 }
 
 /** Open an "edit" session for a published site: bind its source project, and the agent edits inside the project folder and republishes. */
 async function startSiteEdit(site: SiteItem) {
+  if (!(await ensureSitesPluginInstalled())) return;
+
+  if (site.local_source) {
+    try {
+      const source = await openLocalSiteEditor(site.site_id);
+      const original = await getSession(source.chat_id);
+      const state = useChatStore.getState();
+      state.updateStore((store) => ({
+        ...store,
+        chats: { ...store.chats, [original.id]: {
+          ...original, ...store.chats[original.id], siteChat: true,
+          projectId: source.project_id, projectName: source.project_name, runTarget: 'local',
+        } },
+        order: store.order.includes(original.id) ? store.order : [original.id, ...store.order],
+      }));
+      state.setCurrentChatId(original.id);
+      useCatalogStore.getState().setPanel('chat');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('操作失败'));
+    }
+    return;
+  }
+
   if (!site.project_id) {
     message.info(t('该站点是旧版本、没有源码工程，无法在线编辑（可新建一个站点替代）'));
     return;
   }
-  if (!(await ensureSitesPluginInstalled())) return;
 
   // 源码工程可能已经被用户删掉了，而站点表里的 project_id 还留着。照旧绑上去，
   // 侧边栏会拿 chat.projectName 兜底造出一个「已删除项目」的分组，新对话就挂在

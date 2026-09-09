@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Button, Empty, Input, Select, Tooltip, message } from 'antd';
+import { Alert, Button, Empty, Input, Select, Tooltip, message } from 'antd';
 import {
   PlusOutlined, LeftOutlined, RightOutlined,
   ClockCircleOutlined, SearchOutlined, ReloadOutlined, MessageOutlined,
@@ -8,6 +8,7 @@ import {
 import { useAutomationStore } from '../../stores/automationStore';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
@@ -49,7 +50,11 @@ async function startAutomationCreationInChat() {
   }
 
   const chat = useChatStore.getState();
+  const project = useProjectStore.getState().currentProject;
   chat.newChat();
+  if (project) {
+    chat.bindChatProject(useChatStore.getState().currentChatId, project.project_id, project.name);
+  }
   chat.setInput(AUTOMATION_CHAT_TEMPLATE);
   chat.setActivePlugin(plugin);
   useCatalogStore.getState().setPanel('chat');
@@ -64,6 +69,7 @@ export function AutomationPanel() {
   const {
     tasks,
     loading,
+    availabilityWarning,
     createModalOpen,
     selectedTaskId,
     fetchTasks,
@@ -217,6 +223,7 @@ export function AutomationPanel() {
     // jx-automationPage 只是移动端样式的作用域锚点：页头两个新建按钮在窄屏要竖排，
     // 而 .jx-agentPage-header 是能力中心等页共用的通用类，不能直接改。
     <div className="jx-agentPage jx-automationPage">
+      {availabilityWarning && <Alert type="warning" showIcon title={t(availabilityWarning)} />}
       <div className="jx-agentPage-header">
         <div>
           <div className="jx-agentPage-title">{title}</div>

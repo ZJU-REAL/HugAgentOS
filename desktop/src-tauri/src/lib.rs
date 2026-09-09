@@ -527,7 +527,7 @@ pub fn run() {
             build_tray(app)?;
 
             // A1：后台通知轮询——自动化/后台任务跑完发原生系统通知。
-            notify::start(handle.clone(), port, token.clone(), http.clone());
+            notify::start(handle.clone(), port, token.clone(), http.clone(), hybrid_local);
 
             // A2：注册全局快捷键 Ctrl/Cmd+Shift+Space（唤起悬浮快速问答窗）。
             let qa = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
