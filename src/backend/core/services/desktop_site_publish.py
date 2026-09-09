@@ -35,19 +35,14 @@ async def package_local_site(arguments, headers):
     if local_mode_enabled() and not chat_id:
         raise ValueError("本机站点发布必须使用已绑定本地项目的会话")
     arguments.pop("_desktop_source", None)
-    selection = None
-    if local_mode_enabled() and chat_id:
-        from core.services.local_site_sources import select_source
-
-        selection = select_source(user_id, chat_id, arguments)
-        if selection:
-            arguments.setdefault("site_id", selection["site_id"])
-            if not arguments.get("site_id"):
-                arguments["site_id"] = selection["site_id"]
     project_id, project_dir = resolve_project_context(chat_id or "", user_id)
     src = str(arguments.get("src_dir") or "").strip().rstrip("/")
     if not src or src == ".":
-        src = (selection or {}).get("publish_dir") or project_dir or "/workspace/site"
+        if local_mode_enabled():
+            raise ValueError(
+                "本机发布必须显式传 src_dir；编辑前调用 list_project_sites 查询原 site_id 和发布目录"
+            )
+        src = project_dir or "/workspace/site"
     import os
 
     if not os.path.isabs(src):
@@ -60,11 +55,7 @@ async def package_local_site(arguments, headers):
     error = _validate_workspace_path(src + "/", additional_roots=roots)
     if error:
         raise ValueError(error)
-    source = (
-        str(arguments.get("source_dir") or (selection or {}).get("source_dir") or "")
-        .strip()
-        .rstrip("/")
-    )
+    source = str(arguments.get("source_dir") or "").strip().rstrip("/")
     if source and source == src:
         source = "" if not arguments.get("source_dir") else source
     if source and not os.path.isabs(source):

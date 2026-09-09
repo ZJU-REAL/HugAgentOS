@@ -12,7 +12,7 @@ import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { isLocalDraftChat, LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult, ReferencedChatCard } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -41,7 +41,7 @@ const MSG_LOAD_MAX_RETRIES = 3;
  * 往上滚到顶时续拉更早的一页历史，拼回消息列表的最前面。
  *
  * 返回本次真正新增了多少条：0 表示已经到最早的一条、正在拉、或者这一页全是重复。
- * 去重按 message_id（老消息回落到时间戳）——滚动触发可能与其它路径的写入并发。
+ * 去重按消息身份——滚动触发可能与其它路径的写入并发。
  */
 export async function loadOlderMessages(chatId: string): Promise<number> {
   const store = useChatStore.getState();
@@ -64,8 +64,8 @@ export async function loadOlderMessages(chatId: string): Promise<number> {
       const chat = prev.chats[chatId];
       if (!chat) return prev;
       const existing = chat.messages || [];
-      const seen = new Set(existing.map((m) => m.messageId || String(m.ts)));
-      const fresh = older.filter((m) => !seen.has(m.messageId || String(m.ts)));
+      const seen = new Set(existing.map((m) => m.uid));
+      const fresh = older.filter((m) => !seen.has(m.uid));
       added = fresh.length;
       if (fresh.length === 0) return prev;
       return {
@@ -231,7 +231,7 @@ export async function ensureFullMessages(chatId: string, maxPages = 100): Promis
 // chat). Adding new fields persisted in metadata? Add them here, both paths
 // pick it up automatically.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseHistoryMessage(m: any): ChatMessage {
+export function parseHistoryMessage(m: any): ChatMessage {
   const allToolCalls: ToolCall[] | undefined = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? m.tool_calls.map((tc: any) => ({
@@ -356,6 +356,9 @@ function parseHistoryMessage(m: any): ChatMessage {
       ts: Number((m.metadata.quoted_follow_up as Record<string, unknown>).ts ?? 0) || undefined,
     }
     : undefined;
+  const histReferencedChats = m.role === 'user' && Array.isArray(m.metadata?.referenced_chats)
+    ? (m.metadata.referenced_chats as ReferencedChatCard[])
+    : undefined;
   const histWorkspaceFiles = Array.isArray(m.metadata?.workspace_files)
     ? (m.metadata.workspace_files as unknown[])
         .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
@@ -423,6 +426,8 @@ function parseHistoryMessage(m: any): ChatMessage {
     role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
     content: cleanContent,
     isMarkdown: !!(m.metadata?.is_markdown),
+    // message_id 是 chat_messages 的主键，历史消息一定带；它就是这条消息的身份。
+    uid: String(m.message_id),
     ts: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
     toolCalls,
     segments,
@@ -430,6 +435,7 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(histFollowUps && histFollowUps.length > 0 && { followUpQuestions: histFollowUps }),
     ...(histAttachments && histAttachments.length > 0 && { attachments: histAttachments }),
     ...(histQuotedFollowUp?.text && { quotedFollowUp: histQuotedFollowUp }),
+    ...(histReferencedChats && histReferencedChats.length > 0 && { referencedChats: histReferencedChats }),
     ...(histWorkspaceFiles !== undefined && { workspaceFiles: histWorkspaceFiles }),
     ...(histEvolution && { evolution: histEvolution }),
     ...(histOntologyGovernance && { ontologyGovernance: histOntologyGovernance }),

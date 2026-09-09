@@ -78,6 +78,7 @@ def _startup_steps():
         (_startup_seed_roles, True, _ALL_ROLES),
         (_startup_seed_mcp_servers, True, _ALL_ROLES),
         (_startup_seed_default_plugins, True, _ALL_ROLES),
+        (_startup_upgrade_sites_plugin, True, _ALL_ROLES),
         (_startup_local_sidecars, True, _ALL_ROLES),
         (_startup_recover_chat_runs, True, _ALL_ROLES),
         (_startup_resume_loops, False, _ALL_ROLES),
@@ -99,6 +100,7 @@ def _startup_steps():
         (_startup_recover_persona_distill_jobs, False, _SERVICE_ONLY),
         (_startup_warmup_memory, False, _ALL_ROLES),
         (_startup_channel_manager, False, _SERVICE_ONLY),
+        (_startup_channel_desktop, False, _ALL_ROLES),
     )
 
 
@@ -141,6 +143,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
     await _shutdown_kb_index_worker()
+    await _shutdown_channel_desktop()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
@@ -822,6 +825,21 @@ async def _shutdown_mcp_market_monitor():
         logger.warning("[shutdown] MCP marketplace monitor failed: %s", exc)
 
 
+async def _startup_upgrade_sites_plugin():
+    """Refresh installed builtin site instructions in both cloud and local editions."""
+    import asyncio
+    from core.db.engine import SessionLocal
+    from core.services.site_plugin_upgrade import upgrade_builtin_sites
+
+    def upgrade():
+        with SessionLocal() as db:
+            return upgrade_builtin_sites(db)
+
+    count = await asyncio.to_thread(upgrade)
+    if count:
+        logger.info("[startup] upgraded %d builtin sites installation(s)", count)
+
+
 async def _startup_seed_default_plugins():
     """Install edition-specific default plugins once per persistent database.
 
@@ -980,26 +998,8 @@ async def _startup_preload():
                 get_user_skills_root()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[startup] pre-create user skills root failed: %s", exc)
-            # Sweep leftovers against the live skills: files of deleted skills
-            # (nothing used to remove them) and private skills still sitting in
-            # the shared dir, which every sandbox mounts. Dropped files of a live
-            # skill re-materialize on demand.
-            try:
-                from core.agent_skills.config import prune_orphan_sandbox_skill_dirs
-                from core.db.engine import SessionLocal
-                from core.db.models import AdminSkill
-
-                with SessionLocal() as _db:
-                    owners = {
-                        sid: owner
-                        for sid, owner in _db.query(
-                            AdminSkill.skill_id, AdminSkill.owner_user_id
-                        )
-                    }
-                n_pruned = prune_orphan_sandbox_skill_dirs(owners)
-                logger.info("[startup] Stale skill dirs pruned: %d", n_pruned)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[startup] prune stale skill dirs failed: %s", exc)
+            # The startup sync already reconciles from authoritative sources
+            # under the publication lock; never prune using an earlier DB snapshot.
             # Pre-create the Yida workspace for the script-runner shared sandbox
             # (0777: the runner is uid 1001 and needs write, backend is 1000).
             # If the directory doesn't exist, the compose volume mount gets
@@ -1368,6 +1368,26 @@ async def _shutdown_desktop_observability():
     if _desktop_capture_remove is not None:
         _desktop_capture_remove()
         _desktop_capture_remove = None
+
+_channel_desktop_worker = None
+
+async def _startup_channel_desktop():
+    global _channel_desktop_worker
+    from core.db.engine import SessionLocal
+    from core.auth.desktop_bridge import bridge_enabled
+    if bridge_enabled():
+        from core.services.channel_desktop_worker import ChannelDesktopWorker
+        _channel_desktop_worker = ChannelDesktopWorker(SessionLocal)
+    else:
+        from core.services.channel_relay_dispatch import ChannelRelayReaper
+        _channel_desktop_worker = ChannelRelayReaper(SessionLocal)
+    _channel_desktop_worker.start()
+
+async def _shutdown_channel_desktop():
+    global _channel_desktop_worker
+    if _channel_desktop_worker is not None:
+        await _channel_desktop_worker.stop()
+        _channel_desktop_worker = None
 
 
 if __name__ == "__main__":

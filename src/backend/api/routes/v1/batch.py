@@ -273,6 +273,7 @@ async def cancel_and_resume(
         _authenticated_user_id,
     )
     from core.services import ChatService, UserService
+    from core.services.chat_reference_service import render_reference_block
     from core.chat.context import resolve_enabled_capabilities, resolve_db_user_id
     from orchestration import chat_run_executor
 
@@ -345,7 +346,9 @@ async def cancel_and_resume(
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
-        resume_request.message, resume_request.quoted_follow_up
+        resume_request.message,
+        resume_request.quoted_follow_up,
+        render_reference_block(user_extra.get("referenced_chats")),
     )
 
     context = _build_ctx(

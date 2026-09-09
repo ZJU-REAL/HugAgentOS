@@ -7,9 +7,27 @@ Adding a channel = write an adapter + register it here. Upper layers only fetch 
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Dict, List
 
 from core.channels.protocol import ChannelAdapter
+
+_relay_adapter = ContextVar("channel_relay_adapter", default=None)
+
+
+def current_relay_adapter():
+    return _relay_adapter.get()
+
+
+@contextmanager
+def scoped_adapter(adapter):
+    token = _relay_adapter.set(adapter)
+    try:
+        yield
+    finally:
+        _relay_adapter.reset(token)
+
 
 _REGISTRY: Dict[str, ChannelAdapter] = {}
 
@@ -19,6 +37,9 @@ def register_adapter(channel_type: str, adapter: ChannelAdapter) -> None:
 
 
 def get_adapter(channel_type: str) -> ChannelAdapter:
+    scoped = _relay_adapter.get()
+    if scoped is not None and scoped.caps.channel_type == channel_type:
+        return scoped
     if channel_type not in _REGISTRY:
         _ensure_builtin_loaded()
     adapter = _REGISTRY.get(channel_type)

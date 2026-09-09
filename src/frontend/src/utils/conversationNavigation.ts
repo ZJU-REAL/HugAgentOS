@@ -2,7 +2,7 @@ import type { ChatMessage } from '../types';
 import { stripMarkdown } from './markdown';
 
 export interface ConversationTurn {
-  ts: number;
+  uid: string;
   title: string;
   preview: string;
 }
@@ -13,13 +13,13 @@ function previewText(message: ChatMessage): string {
   return stripMarkdown(text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').slice(0, 4000)).slice(0, 280);
 }
 
-/** Preserve display order and anchor to user timestamps, including after history prepends. */
+/** Preserve display order and anchor to the user message's identity, including after history prepends. */
 export function buildConversationTurns(messages: readonly ChatMessage[]): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   for (const message of messages) {
     if (message.role === 'user') {
       turns.push({
-        ts: message.ts,
+        uid: message.uid,
         title: previewText(message) || message.attachments?.map((file) => file.name).join(', ') || '',
         preview: '',
       });

@@ -1,5 +1,7 @@
 /** 英文字典（panels 域）：key 为中文原文，value 为英文译文。 */
 export const PANELS_DICT: Record<string, string> = {
+  '全部任务': 'All tasks',
+  '任务来源': 'Task origin',
   '本机记录由设备后台同步，离线期间显示最后收到的内容。': "Desktop records sync in the background. While a device is offline, the last received records remain visible.",
   '待同步': "Pending",
   '采集异常': "Capture errors",

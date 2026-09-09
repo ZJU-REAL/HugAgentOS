@@ -3471,6 +3471,17 @@ textarea.jx-composer{
   background: var(--color-tint-teal-bg);
   color: var(--color-tint-teal);
 }
+/* 会话引用 chip：蓝色底（青/紫/teal 已被技能/插件/连接器占用），前缀是气泡图标而非字符 */
+.jx-editorChip--chat {
+  background: var(--color-tint-blue-bg);
+  color: var(--color-tint-blue);
+}
+.jx-editorChip--chat .jx-editorChip-prefix,
+.jx-msgChip--chat .jx-msgChip-prefix {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 3px;
+}
 .jx-editorChip-prefix {
   font-weight: 700;
 }
@@ -3513,6 +3524,10 @@ textarea.jx-composer{
 .jx-msgChip--connector {
   background: var(--color-tint-teal-bg);
   color: var(--color-tint-teal);
+}
+.jx-msgChip--chat {
+  background: var(--color-tint-blue-bg);
+  color: var(--color-tint-blue);
 }
 .jx-msgChip-prefix {
   font-weight: 700;

@@ -35,6 +35,7 @@ from core.llm.message_compat import strip_thinking
 from core.llm.tool_permissions import normalize_approval_mode
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from core.services import ChatService, UserService
+from core.services.chat_reference_service import render_reference_block
 from core.services.compaction_service import get_compaction_context_state
 from core.services.model_config import ModelConfigService
 from core.services.project_scope import project_scope_from_context
@@ -351,6 +352,40 @@ async def search_chats(
 
     return success_response(
         data={"items": items, "total": total}, message="Search completed successfully"
+    )
+
+
+@router.get("/referencable", summary="获取可引用的历史会话")
+async def list_referencable_chats(
+    q: str = Query("", description="可选关键词，按标题和消息正文筛选"),
+    project_id: Optional[str] = Query(None, description="限定在该项目内检索"),
+    exclude_chat_id: Optional[str] = Query(None, description="排除当前正在进行的会话"),
+    limit: int = Query(20, ge=1, le=50, description="返回条数"),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """输入框里挑选要引用的历史会话（斜杠命令面板与拖拽落点共用）。
+
+    在项目里只给同项目的会话——项目是用户自己划的话题边界。只返回标题级信息，正文由
+    智能体在回答时按需调 ``read_chat`` 读取。
+    """
+    from core.services.chat_reference_service import (
+        list_referencable_sessions,
+        session_brief,
+    )
+
+    db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    sessions = list_referencable_sessions(
+        db,
+        db_user_id,
+        project_id=project_id,
+        query=q,
+        limit=limit,
+        exclude_chat_id=exclude_chat_id,
+    )
+    return success_response(
+        data={"items": [session_brief(s) for s in sessions]},
+        message="Referencable chats retrieved successfully",
     )
 
 
@@ -1013,6 +1048,22 @@ def _strip_direct_mention_prefix(message: str, mention_name: Optional[str]) -> s
     return message
 
 
+def _resolve_reference_block(db: Session, request: ChatRequest, user_id: str) -> str:
+    """解析本轮引用的历史会话，返回拼进用户消息的名片文本。
+
+    名片按当前用户的权限现查，并挂回 ``request`` 上，随后与用户消息一起落库——历史重放
+    时照这份快照渲染，模型看到的和当时看到的是同一份。
+    """
+    from core.services.chat_reference_service import (
+        render_reference_block,
+        resolve_reference_cards,
+    )
+
+    cards = resolve_reference_cards(db, user_id, getattr(request, "referenced_chats", None))
+    request._resolved_reference_cards = cards
+    return render_reference_block(cards)
+
+
 def _build_user_extra_data(
     request: ChatRequest,
     model_provider_id: Optional[str] = None,
@@ -1035,6 +1086,8 @@ def _build_user_extra_data(
             extra["attachments"] = upload_meta
     if request.quoted_follow_up:
         extra["quoted_follow_up"] = request.quoted_follow_up.model_dump()
+    if getattr(request, "_resolved_reference_cards", None):
+        extra["referenced_chats"] = list(request._resolved_reference_cards)
     if request.agent_id:
         extra["agent_id"] = request.agent_id
         if getattr(request, "_resolved_agent_profile", None):
@@ -1331,7 +1384,9 @@ async def chat_send(
     )
     request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
-        execution_message, request.quoted_follow_up
+        execution_message,
+        request.quoted_follow_up,
+        _resolve_reference_block(db, request, db_user_id),
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
@@ -1534,7 +1589,9 @@ async def chat_stream(
     )
     request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
-        execution_message, request.quoted_follow_up
+        execution_message,
+        request.quoted_follow_up,
+        _resolve_reference_block(db, request, db_user_id),
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
@@ -2257,7 +2314,9 @@ async def regenerate_message(
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
-        init_message or execution_message, regen_request.quoted_follow_up
+        init_message or execution_message,
+        regen_request.quoted_follow_up,
+        render_reference_block(user_extra.get("referenced_chats")),
     )
 
     context = _build_ctx(
@@ -2355,6 +2414,7 @@ async def edit_and_resend(
     # skill / plugin / connector / @agent this turn referenced are carried over.
     saved_invocation = _restore_invocation(target_extra)
     saved_quoted_follow_up = target_extra.get("quoted_follow_up")
+    saved_reference_cards = target_extra.get("referenced_chats")
 
     edit_request = ChatRequest(
         chat_id=chat_id,
@@ -2394,6 +2454,8 @@ async def edit_and_resend(
         _edit_extra["attachments"] = saved_attachments
     if saved_quoted_follow_up:
         _edit_extra["quoted_follow_up"] = saved_quoted_follow_up
+    if saved_reference_cards:
+        _edit_extra["referenced_chats"] = saved_reference_cards
     if selected_model_provider_id:
         _edit_extra["model_provider_id"] = selected_model_provider_id
 
@@ -2448,7 +2510,9 @@ async def edit_and_resend(
             user_id=db_user_id,
             session_messages=session_messages,
             effective_user_message=_build_effective_user_message(
-                init_message or execution_message, edit_request.quoted_follow_up
+                init_message or execution_message,
+                edit_request.quoted_follow_up,
+                render_reference_block(saved_reference_cards),
             ),
             raw_user_message=body.new_content,
             context=context,

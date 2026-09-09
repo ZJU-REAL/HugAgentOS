@@ -6,6 +6,7 @@ import { useChatStore, useCatalogStore, useFileStore, useModelCapabilitiesStore 
 import { useProjectStore } from '../stores/projectStore';
 import type { ChatItem, ChatMessage, MessageSegment, ToolCall } from '../types';
 import { ensureFullMessages } from './useChatInit';
+import { newMessageUid } from '../utils/messageIdentity';
 
 /** Mark the approval decision on the newest preview plan segment carrying planId
  *  (hides the confirm/discard buttons on the card afterwards). */
@@ -41,7 +42,7 @@ export async function processPlanExecuteStream(
   chatId: string,
   planId: string,
   options: {
-    placeholderTs?: number;
+    bubbleUid?: string;
     onSetCurrentPlanId?: (id: string | null) => void;
     onAfterComplete?: (chatId: string) => void;
   } = {},
@@ -55,8 +56,8 @@ export async function processPlanExecuteStream(
   const execReader = response.body?.getReader();
   if (!execReader) return;
 
-  const placeholderTs = options.placeholderTs ?? Date.now();
-  const appendAssistant = makePlanAppender(chatId, placeholderTs);
+  const bubbleUid = options.bubbleUid ?? newMessageUid();
+  const appendAssistant = makePlanAppender(chatId, bubbleUid);
 
   let execBuf = '';
   const stepResults: Record<string, { status: string; summary: string; text: string; title: string; order: number; step_id: string }> = {};
@@ -231,12 +232,12 @@ export async function processPlanGenerateStream(
   response: Response,
   chatId: string,
   options: {
-    placeholderTs?: number;
+    bubbleUid?: string;
     onSetCurrentPlanId?: (id: string | null) => void;
   } = {},
 ): Promise<{ planEvt: Record<string, unknown> | null; errorEvt: Record<string, unknown> | null }> {
-  const placeholderTs = options.placeholderTs ?? Date.now();
-  const appendAssistant = makePlanAppender(chatId, placeholderTs);
+  const bubbleUid = options.bubbleUid ?? newMessageUid();
+  const appendAssistant = makePlanAppender(chatId, bubbleUid);
 
   // First show a placeholder streaming message (in the initial scenario the caller appends it ahead of time; in the replay scenario we add it once here)
   appendAssistant(t('🔍 正在分析任务并生成执行计划...'), true);
@@ -309,7 +310,7 @@ export async function readPlanSse(
 }
 
 /** Helper: append/update assistant message in current chat */
-export function makePlanAppender(chatId: string, ts: number) {
+export function makePlanAppender(chatId: string, bubbleUid: string) {
   return (content: string, streaming: boolean, toolCalls?: ToolCall[], segments?: MessageSegment[]) => {
     useChatStore.getState().updateStore((prev) => {
       const c = prev.chats[chatId];
@@ -321,10 +322,10 @@ export function makePlanAppender(chatId: string, ts: number) {
         ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
         ...(segments && segments.length > 0 ? { segments } : {}),
       };
-      if (last?.role === 'assistant' && last.ts === ts) {
+      if (last?.role === 'assistant' && last.uid === bubbleUid) {
         msgs[msgs.length - 1] = { ...last, ...updated };
       } else {
-        msgs.push({ role: 'assistant', ts, ...updated });
+        msgs.push({ role: 'assistant', uid: bubbleUid, ts: Date.now(), ...updated });
       }
       // Mid-stream updates keep the existing updatedAt / order: the sendPlanMode entry
       // already pushed the chat to the front, and bumping again on every SSE chunk would
@@ -438,7 +439,7 @@ export async function sendPlanMode(
   const enabledKbIds = (catalog.kb || []).filter(x => x.enabled).map(x => String(x.id).trim()).filter(Boolean);
 
   const userMsg: ChatMessage = {
-    role: 'user', content: msg, isMarkdown: false, ts: Date.now(),
+    role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
     ...(attachments.length > 0 && {
       attachments: attachments.map(a => ({
         name: a.name, mime_type: a.mime_type, file_id: a.file_id, download_url: a.download_url,
@@ -458,8 +459,8 @@ export async function sendPlanMode(
     });
   }
 
-  const placeholderTs = Date.now();
-  const appendAssistant = makePlanAppender(currentChatId, placeholderTs);
+  const bubbleUid = newMessageUid();
+  const appendAssistant = makePlanAppender(currentChatId, bubbleUid);
   appendAssistant('', true);
 
   let chatForHistory = useChatStore.getState().store.chats[currentChatId];
@@ -478,7 +479,7 @@ export async function sendPlanMode(
   const historyMessages: Array<{ role: string; content: string }> = [];
   if (chatForHistory?.messages) {
     for (const m of chatForHistory.messages) {
-      if (m.ts === userMsg.ts) continue;
+      if (m.uid === userMsg.uid) continue;
       if (m.content && (m.role === 'user' || m.role === 'assistant')) {
         historyMessages.push({ role: m.role, content: m.content });
       }
@@ -496,7 +497,7 @@ export async function sendPlanMode(
       const execResp = await executePlanStream(effectivePlanId, abortController.signal, enabledMcpIds, enabledSkillIds, enabledKbIds, currentChatId, historyMessages, undefined, projectId);
       if (!execResp.ok) throw new Error(t('计划执行请求失败: {status}', { status: execResp.status }));
       await processPlanExecuteStream(execResp, currentChatId, effectivePlanId, {
-        placeholderTs,
+        bubbleUid,
         onSetCurrentPlanId: setCurrentPlanId,
         onAfterComplete: (cid) => { setTimeout(() => generateSummary(cid), 500); },
       });
@@ -524,7 +525,7 @@ export async function sendPlanMode(
       );
       if (!genResp.ok) throw new Error(t('计划生成请求失败: {status}', { status: genResp.status }));
       const { planEvt } = await processPlanGenerateStream(genResp, currentChatId, {
-        placeholderTs,
+        bubbleUid,
         onSetCurrentPlanId: setCurrentPlanId,
       });
       if (planEvt) {

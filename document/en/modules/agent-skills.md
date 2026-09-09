@@ -92,13 +92,33 @@ user request ──▶ system prompt (skill name+description+/workspace/skills/<
 
 ### How skill files reach the sandbox
 
-All skills — built-in and DB/admin-imported — appear inside the sandbox at the one read-only path `/workspace/skills/<id>` (details in the [sandbox module](sandbox.md)). On the host they live in two layers, **split by ownership**:
+Cloud skill directories are derived views of the current skill sources, never the authority for which
+skills still exist. Shared skills come from current bundled sources and global database rows; private
+skills come only from the current user's rows. Existing source priorities resolve matching IDs.
 
-- the **shared skill dir** (built-ins plus global skills, i.e. those with no `owner_user_id`) is resolved by `core/agent_skills/config.py::get_sandbox_skills_dir()` (default `$STORAGE_PATH/sandbox_skills`, overridable via `SANDBOX_SKILLS_DIR`); at backend startup `sync_builtin_skills_to_sandbox_dir()` copies built-ins into it (idempotent overlay, so edits propagate on restart);
-- the **per-user skill view** `<sibling of the shared dir>/sandbox_skills_u/<user_id>/` holds the skills that user created or installed from the marketplace (`loader._materialize_skill_files` picks the dir by owner), plus one relative symlink `../skills_shared/<id>` per shared skill. The view is what the sandbox mounts; the shared dir is mounted alongside at `/workspace/skills_shared` so those symlinks resolve;
-- so a user's sandbox holds the shared skills plus their own private ones and **never another user's skills or their `secrets.json`**. The view is symlinks only — nothing is copied — and refreshing it on sandbox creation costs about 1 ms;
-- deleting a skill removes its materialized files via `purge_skill_sandbox_files()`, and `prune_orphan_sandbox_skill_dirs()` sweeps older leftovers at startup;
-- the remote cube sandbox has no host mounts, so skill files matching `/workspace/skills` are pushed into the sandbox at runtime instead (`CUBE_SKILL_PREPUSH*` settings). Those ids come out of a model-written command, so an on-demand push first checks ownership (`loader.get_skill_owner()`): a private skill only ever goes to its owner, and naming someone else's id yields nothing. Pre-push only walks the global catalog, which holds no private skills.
+- OpenSandbox reconciles the view before new creation, snapshot restoration, and delivery from a warm
+  pool to a new session. Script Runner does so before execution. Preparation fails if reconciliation
+  cannot complete; it does not continue with stale directories.
+- Cloud publishers use a cross-process lock and read current database payload and ownership inside it.
+  They stage a complete file tree before replacing the old tree. Removed files and empty directories
+  are not retained. Unchanged trees are reused after checking their contents and modes. Staging and
+  retired trees stay outside the sandbox skill mounts.
+- The shared root defaults to `$STORAGE_PATH/sandbox_skills`; private files live in the sibling
+  `sandbox_skills_u/<user_id>` tree. User views reference shared skills through relative links.
+  Sandbox mounts at `/workspace/skills` and `/workspace/skills_shared` remain read-only.
+  The backend publishes and removes files through its writable source directory.
+- Web, admin, MCP and plugin deletion paths remove materialized files. New-session preparation also
+  removes historical orphans using current sources, independently of another worker's cache
+  invalidation. Startup uses the same source selection and publication flow.
+- Cube transfers content-addressed archives rather than host mounts. Archive identity includes paths,
+  bytes and file modes, not just the skill ID. Remote delivery extracts before replacing the complete
+  directory, with a lock serializing publication in the sandbox.
+- Desktop local mode continues using the capability store's revision and view mechanism.
+
+After successful deletion or replacement, newly opened sandboxes must expose only current skill files.
+Verification compares both relative paths and contents: missing files, extra files and changed bytes
+are all failures. This contract covers platform-managed skill directories, not files a user previously
+copied into other workspace directories.
 
 ### Progressive Plugin Loading
 

@@ -47,6 +47,8 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
         run = db.get(ChatRun, intent.run_id)
         if run is None:
             raise ToolEffectError(f"missing run for tool recovery: {intent.run_id}")
+        if (run.request_payload or {}).get("source") == "desktop_channel":
+            raise ToolEffectError("desktop channel tool recovery requires a new channel request")
         snapshot = dict(run.recovery_snapshot or {})
         worker_args = dict(snapshot.get("worker_args") or {})
         context = dict(worker_args.get("context") or {})

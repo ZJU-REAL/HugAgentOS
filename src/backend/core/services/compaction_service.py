@@ -14,6 +14,7 @@ import httpx
 
 from core.chat import inflight
 from core.chat.context import build_effective_user_message
+from core.services.chat_reference_service import render_reference_block
 from core.config.settings import settings
 from core.llm import compaction as C
 from core.llm.context_ir import SESSION_CONTEXT_META_KEY
@@ -75,7 +76,11 @@ def _normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> L
             quoted = extra.get("quoted_follow_up")
             row = {
                 "role": "user",
-                "content": build_effective_user_message(content, quoted),
+                "content": build_effective_user_message(
+                    content,
+                    quoted,
+                    render_reference_block(extra.get("referenced_chats")),
+                ),
             }
             if isinstance(extra.get(SESSION_CONTEXT_META_KEY), dict):
                 row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])

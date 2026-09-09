@@ -362,7 +362,7 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to the skill's working directory, or None.
         """
-        self._sync_backend_cache()
+        self._refresh_backend()
         skill_info = self._backend.get_skill_info(skill_id)
         if skill_info is None:
             return None
@@ -394,9 +394,9 @@ class MultiSourceSkillLoader:
     ) -> str:
         """Write DB extra_files to disk so scripts can be executed.
 
-        Uses an in-memory cache to avoid redundant I/O. Files are only
-        re-written when the loader is reset (i.e., after admin edits) or
-        the cache entry is older than 5 minutes.
+        Cloud publication reads a current source snapshot under the shared
+        publication lock. The complete tree replaces the previous version;
+        unchanged trees are verified and reused.
 
         Args:
             skill_id: The skill identifier.
@@ -407,57 +407,22 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to the materialized directory.
         """
-        # Check in-memory cache — skip I/O if recently materialized
-        if skill_id in self._materialized_cache:
-            cached_path, cached_time = self._materialized_cache[skill_id]
-            if time.monotonic() - cached_time < 300:  # 5 min TTL
-                return cached_path
-
-        skill_info = self._backend.get_skill_info(skill_id)
-        content = ""
-        if skill_info:
-            if skill_info.is_database:
-                content = self._backend.read_skill_file(skill_id)
-            else:
-                content = skill_info.content or ""
-        if extra_files is None:
-            extra_files = self._backend.get_extra_files(skill_id)
-        owner = self.get_skill_owner(skill_id)
-
         from core.capabilities.paths import capabilities_enabled
+        from .publication import decode_files, publication_lock, publish_tree
 
         if capabilities_enabled():
-            # Desktop store: one immutable revision per content hash under the
-            # local profile; the runtime view links the name to it afterwards.
-            result_path = self._publish_to_store(skill_id, content, extra_files, owner)
-            self._materialized_cache[skill_id] = (result_path, time.monotonic())
-            return result_path
+            # The desktop capability store already publishes immutable revisions.
+            content, current_files, owner = self._backend.read_snapshot(skill_id)
+            return self._publish_to_store(skill_id, content, current_files, owner)
 
-        # Materialize where the skill's owner can see it: a private skill lands in
-        # its owner's dir, a shared one in the common dir. Both surface at the same
-        # /workspace/skills/<id> inside the sandbox, but only the owner's sandbox
-        # mounts the private files. See config's layout note and
-        # opensandbox_provider._make_skills_volumes.
-        cache_root = skill_files_dir(skill_id, owner)
-        cache_root.mkdir(parents=True, exist_ok=True)
-        if content:
-            (cache_root / "SKILL.md").write_text(content, encoding="utf-8")
-        for filename, content in extra_files.items():
-            file_path = cache_root / filename
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            # Binary files are stored base64-encoded (see agent_skills.binary_files)
-            # — decode back to raw bytes; everything else is UTF-8 text.
-            if is_binary_value(content):
-                file_path.write_bytes(decode_binary(content))
-            else:
-                file_path.write_text(content, encoding="utf-8")
-
-        result_path = str(cache_root)
-        self._materialized_cache[skill_id] = (result_path, time.monotonic())
-        logger.info(
-            "Materialized skill '%s' to %s (%d files)", skill_id, cache_root, len(extra_files)
-        )
-        return result_path
+        # Never publish caller-prefetched extra_files or a cached owner. An old
+        # loader may outlive an update or deletion committed by another worker.
+        with publication_lock():
+            self._refresh_backend()
+            content, current_files, owner = self._backend.read_snapshot(skill_id)
+            target = skill_files_dir(skill_id, owner)
+            publish_tree(target, decode_files(content, current_files))
+            return str(target)
 
     def _publish_to_store(
         self,
@@ -502,7 +467,7 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to a directory containing SKILL.md, or None.
         """
-        self._sync_backend_cache()
+        self._refresh_backend()
         skill_info = self._backend.get_skill_info(skill_id)
         if skill_info is None:
             return None

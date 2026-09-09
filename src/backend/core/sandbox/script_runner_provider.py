@@ -335,6 +335,13 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
     an immediate refresh regardless of the TTL. Failure is never worth failing an
     execution over.
     """
+    from core.capabilities.paths import capabilities_enabled
+
+    if not capabilities_enabled():
+        from core.agent_skills.publication import prepare_skill_view
+
+        prepare_skill_view(user_id)
+        return
     uid = (user_id or "").strip()
     if not uid:
         return

@@ -23,7 +23,7 @@ export function RightSidebarPanel() {
   if (activeView === 'ontology') {
     return (
       <ContentErrorBoundary
-        resetKey={`ontology:${ontologyTarget?.chatId ?? ''}:${ontologyTarget?.messageTs ?? ''}`}
+        resetKey={`ontology:${ontologyTarget?.chatId ?? ''}:${ontologyTarget?.messageUid ?? ''}`}
         fallback={(
           <aside className="jx-rightSidebar jx-rightSidebar--ontology" role="alert">
             <CanvasTabBar />

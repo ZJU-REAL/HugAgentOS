@@ -22,14 +22,6 @@ def refresh_skill_caches() -> None:
     get_skill_loader(reset=True)
     invalidate_catalog_cache()
 
-    # Skill content changed -> invalidate the tar archive cache; the next push repacks with fresh material (cube uses packed transport)
-    try:
-        from core.agent_skills.skill_archive import clear_cache as _clear_tar_cache
-
-        _clear_tar_cache()
-    except Exception:
-        pass
-
     try:
         from core.config.catalog_resolver import invalidate_capability_cache
 
