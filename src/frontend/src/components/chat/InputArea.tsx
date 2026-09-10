@@ -20,8 +20,8 @@ import { AgentIcon } from '../agent/AgentIcon';
 import { SkillAvatar } from '../catalog/skillIcons';
 import { McpIcon } from '../catalog/McpIcon';
 import { PluginAvatar } from '../catalog/PluginIconPicker';
-import { getApiUrl, createLocalProject, getProject } from '../../api';
-import type { InstalledPluginItem, ProjectDetail } from '../../types';
+import { getApiUrl, createLocalProject, getProject, listReferencableChats } from '../../api';
+import type { InstalledPluginItem, ProjectDetail, ReferencableChat } from '../../types';
 import {
   AgentMentionPopup,
   useAgentMention,
@@ -33,6 +33,7 @@ import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
 import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
+import { CHAT_REFERENCE_MIME } from '../../utils/constants';
 import { DropOverlay } from '../common/DropOverlay';
 import { ContentErrorBoundary } from '../common';
 import { ChipChevron } from '../common/ChipChevron';
@@ -166,8 +167,22 @@ function resetQueryAtCursor(_editor: HTMLElement, trigger: string) {
   } catch { /* empty text node edge case */ }
 }
 
+/** 会话引用 chip 的前缀是个气泡图标（与 antd MessageOutlined 同一路径），
+ *  其余几类用 @ / MCP 这样的字符前缀。 */
+const CHAT_CHIP_ICON =
+  '<svg viewBox="64 64 896 896" width="1em" height="1em" fill="currentColor" aria-hidden="true">'
+  + '<path d="M464 512a48 48 0 1096 0 48 48 0 10-96 0zm200 0a48 48 0 1096 0 48 48 0 10-96 0zm-400 0a48 48 0 1096 0 48 48 0 10-96 0zm661.2-173.6c-22.6-53.7-55-101.9-96.3-143.3a444.35 444.35 0 00-143.3-96.3C630.6 75.7 572.2 64 512 64h-2c-60.6.3-119.3 12.3-174.5 35.9a445.35 445.35 0 00-142 96.5c-40.9 41.3-73 89.3-95.2 142.8-23 55.4-34.6 114.3-34.3 174.9A449.4 449.4 0 00112 714v152a46 46 0 0046 46h152.1A449.4 449.4 0 00510 960h2.1c59.9 0 118-11.6 172.7-34.3a444.48 444.48 0 00142.8-95.2c41.3-40.9 73.8-88.7 96.5-142 23.6-55.2 35.6-113.9 35.9-174.5.3-60.9-11.5-120-34.8-175.6zm-151.1 438C704 845.8 611 884 512 884h-1.7c-60.3-.3-120.2-15.3-173.1-43.5l-8.4-4.5H188V695.2l-4.5-8.4C155.3 633.9 140.3 574 140 513.7c-.4-99.7 37.7-193.3 107.6-263.8 69.8-70.5 163.1-109.5 262.8-109.9h1.7c50 0 98.5 9.7 144.2 28.9 44.6 18.7 84.6 45.6 119 80 34.3 34.3 61.3 74.4 80 119 19.4 46.2 29.1 95.2 28.9 145.8-.6 99.6-39.7 192.9-110.1 262.7z"/></svg>';
+
 /** Insert an inline chip span at the current cursor, followed by a space. */
-function insertChipAtCursor(editor: HTMLElement, prefix: string, name: string, cls: string, chipType?: string) {
+function insertChipAtCursor(
+  editor: HTMLElement,
+  prefix: string,
+  name: string,
+  cls: string,
+  chipType?: string,
+  chipId?: string,
+  prefixIcon?: string,
+) {
   clearEditorIfOnlyBrowserEmptyNodes(editor);
 
   const chip = document.createElement('span');
@@ -175,9 +190,17 @@ function insertChipAtCursor(editor: HTMLElement, prefix: string, name: string, c
   chip.className = `jx-editorChip ${cls}`;
   chip.dataset.chip = chipType || (prefix === '@' ? 'mention' : 'skill');
   chip.dataset.chipName = name;
-  chip.innerHTML =
-    `<span class="jx-editorChip-prefix">${prefix}</span>` +
-    `<span class="jx-editorChip-name">${name}</span>`;
+  if (chipId) chip.dataset.chipId = chipId;
+  const prefixEl = document.createElement('span');
+  prefixEl.className = 'jx-editorChip-prefix';
+  // 图标是本模块里的常量，名字来自用户数据——后者一律 textContent，
+  // 不能拼进 innerHTML（会话标题是用户自己写的自由文本）。
+  if (prefixIcon) prefixEl.innerHTML = prefixIcon;
+  else prefixEl.textContent = prefix;
+  const nameEl = document.createElement('span');
+  nameEl.className = 'jx-editorChip-name';
+  nameEl.textContent = name;
+  chip.append(prefixEl, nameEl);
 
   const space = document.createTextNode('\u00A0');
   const sel = window.getSelection();
@@ -302,6 +325,7 @@ export function InputArea({
     planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
+    referencedChats, addReferencedChat, removeReferencedChat, clearReferencedChats,
   } = useChatStore();
   // Autonomous-loop capability bit (enabled by default): without permission the "autonomous loop" toggle is hidden
   const loopCapEnabled = useAuthStore((s) => s.authUser?.can_run_autonomous_loop);
@@ -415,6 +439,9 @@ export function InputArea({
     specialMode: !!(projectComposer ? activeMode : planMode || batchModeOn || workflowModeOn || loopMode),
   });
 
+  // `/` 面板里的「引用会话」候选。按当前项目范围从后端取，只含标题级信息。
+  const [referencableChats, setReferencableChats] = useState<ReferencableChat[]>([]);
+
   // `/` lists every installed/access-authorized plugin and skill. A personal
   // capability switch only controls default assembly. An off skill is attached
   // to this turn; an explicitly loaded plugin stays expanded for this chat.
@@ -454,9 +481,21 @@ export function InputArea({
         ? [{ kind: 'command', id: 'project-init', name: '/init',
             description: t('初始化指令：检查项目并创建或完善 AGENTS.md') }]
         : [];
-      return [...commands, ...pluginEntries, ...skillEntries];
+      // 已经引用过的不再出现在候选里，避免选两次只生效一次看着像没反应。
+      const referenced = new Set(referencedChats.map((c) => c.chat_id));
+      const chatEntries: SlashEntry[] = referencableChats
+        .filter((chat) => !referenced.has(chat.chat_id))
+        .map((chat) => ({
+          kind: 'chat', id: chat.chat_id, name: chat.title,
+          description: t('{count} 条 · {time}', {
+            count: String(chat.message_count ?? 0),
+            time: chat.last_active_display,
+          }),
+          chat,
+        }));
+      return [...commands, ...pluginEntries, ...skillEntries, ...chatEntries];
     },
-    [input, installedPlugins, skills, canInitProject],
+    [input, installedPlugins, skills, canInitProject, referencableChats, referencedChats],
   );
 
   // Object URLs for uploaded image files — revoked when files change.
@@ -547,6 +586,23 @@ export function InputArea({
     handleSlashInputChange: slashInputChange, handleSlashKeyDown: slashKeyDown,
   } = useSkillSlash();
 
+  // 只在 `/` 面板打开时去取可引用会话，并跟着关键词走：不打开面板就一次请求都不发。
+  useEffect(() => {
+    if (!slashVisible) return;
+    const query = input.startsWith('/') ? input.slice(1).trim() : '';
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void listReferencableChats({
+        q: query,
+        projectId: _currentChat?.projectId,
+        excludeChatId: currentChatId,
+      })
+        .then((items) => { if (!cancelled) setReferencableChats(items); })
+        .catch(() => { if (!cancelled) setReferencableChats([]); });
+    }, query ? 200 : 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [slashVisible, input, _currentChat?.projectId, currentChatId]);
+
   // ── Sync editor text → store ──
   const syncTextRef = useRef<() => void>(() => {});
   syncTextRef.current = () => {
@@ -579,6 +635,7 @@ export function InputArea({
     const hadSkillChip = !!editor.querySelector('[data-chip="skill"]');
     const hadPluginChip = !!editor.querySelector('[data-chip="plugin"]');
     const hadConnectorChip = !!editor.querySelector('[data-chip="connector"]');
+    const hadChatChip = !!editor.querySelector('[data-chip="chat"]');
 
     setEditorPlainText(editor, input);
     prevTextRef.current = input;
@@ -587,6 +644,7 @@ export function InputArea({
     if (hadSkillChip && activeSkill) setActiveSkill(null);
     if (hadPluginChip && activePlugin) setActivePlugin(null);
     if (hadConnectorChip && activeConnector) setActiveConnector(null);
+    if (hadChatChip && referencedChats.length > 0) clearReferencedChats();
 
     if (document.activeElement === editor) {
       moveCaretToEnd(editor);
@@ -594,6 +652,7 @@ export function InputArea({
   }, [
     activeMention, activeSkill, activePlugin, activeConnector, input,
     setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector,
+    referencedChats, clearReferencedChats,
   ]);
 
   // Connector chips are per-turn composer state. Clear stale DOM chips after switching chats,
@@ -614,6 +673,25 @@ export function InputArea({
       syncText();
     }
   }, [activeConnector, _currentChat?.id]);
+
+  // 会话引用 chip 与 connector chip 同一条安全网：编辑器 DOM 是所有会话共用的一个元素，
+  // 切换会话时 store 里的引用已清空，DOM 里的 chip 不会自己消失，得显式扫掉。
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || referencedChats.length > 0) return;
+    const stale = editor.querySelectorAll('[data-chip="chat"]');
+    if (stale.length) {
+      stale.forEach((el) => {
+        const next = el.nextSibling;
+        if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
+          next.textContent = next.textContent.slice(1);
+          if (!next.textContent) next.remove();
+        }
+        el.remove();
+      });
+      syncText();
+    }
+  }, [referencedChats, _currentChat?.id]);
 
   // ── Plugin-first entry points: render their activated plugin as an inline reference chip ──
   // Site building and scheduled-task creation can enter chat with a plugin already active.
@@ -809,7 +887,29 @@ export function InputArea({
     send();
   }
 
+  /** 引用一段历史会话：与技能 / 插件 / 连接器 / @智能体 完全同一套内联 chip，
+   *  只是换个前缀和配色。多条引用靠 chip 上的 chatId 与 store 对齐。 */
+  function applyChatReference(chat: ReferencableChat) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    insertChipAtCursor(ed, '', chat.title, 'jx-editorChip--chat', 'chat', chat.chat_id, CHAT_CHIP_ICON);
+    addReferencedChat(chat);
+    syncText();
+  }
+
+  function onSlashSelectChat(chat: ReferencableChat) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    removeQueryAtCursor(ed, '/');
+    applyChatReference(chat);
+    setSlashVisible(false);
+  }
+
   function onSlashEntrySelect(entry: SlashEntry) {
+    if (entry.kind === 'chat') {
+      onSlashSelectChat(entry.chat);
+      return;
+    }
     if (entry.kind === 'command') {
       if (!canInitProject) return;
       setInput('/init');
@@ -929,6 +1029,7 @@ export function InputArea({
             if (type === 'skill') setActiveSkill(null);
             if (type === 'plugin') setActivePlugin(null);
             if (type === 'connector') setActiveConnector(null);
+            if (type === 'chat' && last.dataset.chipId) removeReferencedChat(last.dataset.chipId);
             e.preventDefault();
             syncText();
             return;
@@ -945,8 +1046,10 @@ export function InputArea({
     }
   }
 
+  // 引用会话同样是"框里已经有内容"的一种：chip 不产生文本，光看 input 会误判成空，
+  // 占位文字就会压在 chip 和后面输入的字上（其余四类早就在这条判断里了）。
   const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin
-    && !activeConnector && !isComposing;
+    && !activeConnector && referencedChats.length === 0 && !isComposing;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
   // A project-detail composer starts a separate chat and deliberately ignores
@@ -979,9 +1082,57 @@ export function InputArea({
     );
   });
 
+  // 从侧边栏把会话拖进输入框 = 引用它。与文件拖放共用同一个落区：按拖拽携带的类型
+  // 分流，会话走引用、文件走附件，侧边栏内部的排序拖拽两者都不认。
+  const [chatDragActive, setChatDragActive] = useState(false);
+  const chatDragDepth = useRef(0);
+  const hasChatPayload = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes(CHAT_REFERENCE_MIME);
+
+  const dropProps = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragEnter(e); return; }
+      e.preventDefault();
+      chatDragDepth.current += 1;
+      setChatDragActive(true);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragOver(e); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragLeave(e); return; }
+      chatDragDepth.current = Math.max(0, chatDragDepth.current - 1);
+      if (chatDragDepth.current === 0) setChatDragActive(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDrop(e); return; }
+      e.preventDefault();
+      chatDragDepth.current = 0;
+      setChatDragActive(false);
+      let dropped: ReferencableChat | null = null;
+      try {
+        dropped = JSON.parse(e.dataTransfer.getData(CHAT_REFERENCE_MIME)) as ReferencableChat;
+      } catch { dropped = null; }
+      if (!dropped?.chat_id) return;
+      if (dropped.chat_id === currentChatId) {
+        void message.info(t('当前会话的内容已经在上下文里，无需引用'));
+        return;
+      }
+      if (referencedChats.some((c) => c.chat_id === dropped.chat_id)) return;
+      const ed = editorRef.current;
+      if (!ed) return;
+      ed.focus();
+      moveCaretToEnd(ed);
+      applyChatReference(dropped);
+    },
+  };
+
   return (
-    <div className="jx-inputArea" {...dropZoneProps}>
+    <div className="jx-inputArea" {...dropProps}>
       <DropOverlay active={dragActive} hint={t('松开即可添加为附件')} className="jx-inputArea-dropOverlay" iconSize={20} />
+      <DropOverlay active={chatDragActive} hint={t('松开即可引用这段会话')} className="jx-inputArea-dropOverlay" iconSize={20} />
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
       {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}

@@ -566,6 +566,13 @@ async def delete_my_skill(
     from core.services.skill_icon_service import delete_skill_icon
 
     delete_skill_icon(db, skill_id)
+    from core.agent_skills.config import purge_skill_sandbox_files
+
+    from core.capabilities.paths import capabilities_enabled
+
+    # Desktop reconciliation retains immutable revisions and a removed tombstone.
+    if not capabilities_enabled():
+        purge_skill_sandbox_files(skill_id)
     refresh_skill_caches()
     return success_response(data={"skill_id": skill_id, "deleted": True})
 

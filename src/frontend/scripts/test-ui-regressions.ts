@@ -50,7 +50,7 @@ import type { ChatItem, ChatMessage } from '../src/types';
     id: 'c', title: '编辑站点：官网', createdAt: 0, updatedAt: 0, messages: [],
     favorite: false, pinned: false, businessTopic: '综合咨询', ...over,
   });
-  const msg: ChatMessage = { role: 'user', content: 'hi', ts: 1 };
+  const msg: ChatMessage = { role: 'user', uid: 'm1', content: 'hi', ts: 1 };
 
   // 聊过的那段优先
   const chats = [
@@ -75,11 +75,11 @@ import type { ChatItem, ChatMessage } from '../src/types';
 // ── 问题二：中断后回到会话，计划预览卡又长出「确认执行」按钮 ──
 {
   const preview: ChatMessage = {
-    role: 'assistant', content: '', ts: 1,
+    role: 'assistant', uid: 'm1', content: '', ts: 1,
     segments: [{ type: 'plan', planData: { mode: 'preview', planId: 'plan_1', title: 'T', steps: [] } }],
   };
   const executed: ChatMessage = {
-    role: 'assistant', content: '', ts: 2,
+    role: 'assistant', uid: 'm2', content: '', ts: 2,
     segments: [{ type: 'plan', planData: { mode: 'complete', planId: 'plan_1', title: 'T', steps: [], cancelled: true } }],
   };
   const out = markResolvedPlanPreviews([preview, executed]);

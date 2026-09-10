@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: August 26, 2026
+> Last updated: September 9, 2026
 
 Regular code blocks have an always-visible Copy button in the top right. It copies only the code text, preserving indentation and line breaks; during streaming it copies the content currently displayed. On success, the button shows a checkmark and Copied in the original button color for two seconds before resetting. Failures appear in the button as Copy failed, without a top-of-page notification.
 
@@ -217,6 +217,22 @@ Citations make every fact in the answer traceable back to a specific tool result
 
 **Tool development convention**: a tool (in-house or MCP) that wants precise citation granularity should return a `__citations__` field in its JSON — `[{"title": "...", "url": "...", "snippet": "...", "source_type": "..."}, …]`, entries ordered to match the result body; the middleware adopts it verbatim and injects `cite_id` in place. Tools without the field fall back to registry config or heuristics — at worst the whole result becomes one anchor, so **every tool is citable by default**. See the citation-declaration section in [MCP tools](mcp-tools.md).
 
+## Cross-chat References
+
+Within one conversation the model only sees the current context. Cross-chat references add the missing path back into earlier conversations: one capability plus three entry points.
+
+**Capability: two read-only tools.** `list_related_chats` lists referenceable past conversations (only same-project ones when the chat is mounted on a project, otherwise the user's most recent chats), returning title, last-active time and message count. `read_chat` reads one conversation: `mode="full"` pages through the raw messages (per-message and per-call character budgets apply — follow the returned `next_offset` to page), `mode="digest"` produces a summary of the whole conversation, `mode="card"` returns just the card. Scope is pinned by the `user_id` captured at registration and every access goes through `ChatService.get_session_with_access` — a fabricated chat_id still cannot reach another user's conversation.
+
+**Entry 1: the model looks it up.** When the user says "that thing last time" or "what we discussed before", the model calls `list_related_chats` to locate the conversation, then `read_chat` to read it.
+
+**Entry 2: the `/` panel.** Typing `/` in the composer shows a "Referenced chats" group alongside skills and plugins; typing further searches titles and message bodies (`GET /v1/chats/referencable`).
+
+**Entry 3: drag a chat from the sidebar into the composer.** Sidebar chat rows carry an extra `application/x-hugagent-chat` drag type; the composer routes by type — that type means "reference this chat", files still mean "attach", and the sidebar's own reordering drag matches neither.
+
+**How a reference reaches the model**: the request uploads only the referenced chat IDs (`referenced_chats`); title, time and overview are re-resolved by the backend under the current user's permissions, so nothing the client sends is trusted. The backend renders the cards into a block prepended to the user message (ahead of the follow-up quote) that explicitly says to call `read_chat` for detail. **Cards are injected, not transcripts** — a long conversation runs to tens of thousands of characters and would crowd out the current topic. Card overviews come from, in order: a cached model summary → the context-compaction checkpoint summary → an excerpt of the first question and last answer. None of the three calls a model, so referencing never slows down sending.
+
+Cards are persisted with the message (`metadata.referenced_chats`) and history replay renders that same snapshot, so what the model sees before and after a refresh is identical; regenerate and edit-resend reuse it too. A model-written summary is produced only when `read_chat(mode="digest")` is explicitly called, then cached on the referenced conversation until it receives new messages.
+
 ## Plan Mode
 
 Plan Mode splits complex tasks into "generate plan → user reviews/edits → execute step by step", implemented in `orchestration/subagents/plan_mode.py`:
@@ -423,6 +439,8 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Agent factory | `src/backend/core/llm/agent_factory.py` |
 | Middlewares | `src/backend/core/llm/middlewares.py` (pure-function helpers in `core/llm/hooks.py`) |
 | Citation extraction | `src/backend/orchestration/citations.py` |
+| Cross-chat references (cards / digests / paging) | `src/backend/core/services/chat_reference_service.py` |
+| Cross-chat history tools | `src/backend/core/llm/tools/chat_history_tool.py` |
 | Citation rendering | `src/frontend/src/utils/citations.ts`, `src/frontend/src/components/citation/` |
 | Plan mode | `src/backend/orchestration/subagents/plan_mode.py`, `api/routes/v1/plans.py` |
 | Sub-agent tool | `src/backend/core/llm/subagent_tool.py`, `api/routes/v1/agents.py` |
@@ -460,3 +478,22 @@ use the current account's cloud bindings under the same rules as other MCPs, wit
 tool-name exceptions. The legacy local-retention list and bridge-disable environment
 switch have been removed. Independently configured local MCPs remain available;
 same-name sources follow explicit user choices and normal resolution rules.
+
+### Execution location for hybrid desktop channel bots
+
+When adding a channel bot in the hybrid desktop client, choose Cloud or This device.
+This also applies to WeChat QR binding. Existing bots default to cloud execution.
+Local execution requires the local service to be ready. Bots use the default project
+without a directory picker or project binding, and follow existing desktop tool permissions
+when accessing local content. Remove and re-add an existing bot to change its location.
+
+Keep the computer online, the desktop account signed in and the local service running.
+Minimizing to the tray works while that service remains active. The list shows channel
+connection and device online status separately. Offline, interrupted or disabled local bots
+do not switch to cloud execution. Uncertain work is not automatically retried; check the
+desktop record before resending. Operations requiring confirmation stop with a notice;
+resolve permissions on the desktop before starting a new request.
+
+Cloud services continue to handle channel ingress, credentials and message delivery.
+Local execution is not fully offline: models and configured cloud tools still use their
+services, and replies and returned files pass through the cloud and channel platform.

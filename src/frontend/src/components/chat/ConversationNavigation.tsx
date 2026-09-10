@@ -14,9 +14,9 @@ interface ConversationNavigationProps {
 /** Mounted per chat so preview/focus state cannot leak to another conversation. */
 export function ConversationNavigation({ messages, chatListRef }: ConversationNavigationProps) {
   const turns = useMemo(() => buildConversationTurns(messages), [messages]);
-  const anchors = turns.map((turn) => turn.ts).join(',');
-  const [activeTs, setActiveTs] = useState<number | null>(null);
-  const [previewTs, setPreviewTs] = useState<number | null>(null);
+  const anchors = turns.map((turn) => turn.uid).join(',');
+  const [activeUid, setActiveUid] = useState<string | null>(null);
+  const [previewUid, setPreviewUid] = useState<string | null>(null);
   const [position, setPosition] = useState<{ top: number; right: number; height: number } | null>(null);
   const railRef = useRef<HTMLElement>(null);
 
@@ -24,7 +24,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
     const list = chatListRef.current;
     const scroller = list?.closest<HTMLElement>('.jx-content');
     if (!list || !scroller || !anchors) return;
-    const timestamps = anchors.split(',').map(Number);
+    const anchorUids = anchors.split(',');
     const footer = list.parentElement?.querySelector<HTMLElement>('.jx-chatFooter');
     let frame = 0;
     const update = () => {
@@ -43,18 +43,18 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
         ? previous : nextPosition);
       // Last question above the reading line owns the following answer, even a very long one.
       const readingLine = rect.top + Math.min(96, height * 0.25);
-      let current = timestamps[0];
-      for (const ts of timestamps) {
-        const element = list.querySelector<HTMLElement>(`[data-message-ts="${ts}"]`);
+      let current = anchorUids[0];
+      for (const uid of anchorUids) {
+        const element = list.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`);
         if (!element) continue;
         if (element.getBoundingClientRect().top > readingLine) break;
-        current = ts;
+        current = uid;
       }
       // At the bottom the last turn may be too short to reach the reading line.
       if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 8) {
-        current = timestamps[timestamps.length - 1];
+        current = anchorUids[anchorUids.length - 1];
       }
-      setActiveTs(current);
+      setActiveUid(current);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);
@@ -83,14 +83,14 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
     const railRect = rail.getBoundingClientRect();
     if (buttonRect.top < railRect.top) rail.scrollTop -= railRect.top - buttonRect.top;
     else if (buttonRect.bottom > railRect.bottom) rail.scrollTop += buttonRect.bottom - railRect.bottom;
-  }, [activeTs, anchors]);
+  }, [activeUid, anchors]);
 
-  const navigate = (ts: number) => {
+  const navigate = (uid: string) => {
     const list = chatListRef.current;
     const scroller = list?.closest<HTMLElement>('.jx-content');
-    const target = list?.querySelector<HTMLElement>(`[data-message-ts="${ts}"]`);
+    const target = list?.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`);
     if (!target || !scroller) return;
-    setPreviewTs(null);
+    setPreviewUid(null);
     const top = scroller.scrollTop + target.getBoundingClientRect().top
       - scroller.getBoundingClientRect().top - 24;
     scroller.scrollTo({
@@ -112,7 +112,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
       style={{ top: position.top, right: position.right, maxHeight: position.height }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
-          setPreviewTs(null);
+          setPreviewUid(null);
           event.stopPropagation();
           return;
         }
@@ -131,11 +131,11 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
         const title = turn.title || t('第 {n} 轮对话', { n: index + 1 });
         return (
           <Popover
-            key={turn.ts}
+            key={turn.uid}
             placement="left"
             trigger={['hover', 'focus']}
-            open={previewTs === turn.ts}
-            onOpenChange={(open) => setPreviewTs((current) => open ? turn.ts : current === turn.ts ? null : current)}
+            open={previewUid === turn.uid}
+            onOpenChange={(open) => setPreviewUid((current) => open ? turn.uid : current === turn.uid ? null : current)}
             arrow={false}
             mouseEnterDelay={0.12}
             classNames={{ root: 'jx-conversationNav-popover' }}
@@ -152,8 +152,8 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
               type="button"
               className="jx-conversationNav-button"
               aria-label={t('跳转到：{title}', { title })}
-              aria-current={activeTs === turn.ts ? 'location' : undefined}
-              onClick={() => navigate(turn.ts)}
+              aria-current={activeUid === turn.uid ? 'location' : undefined}
+              onClick={() => navigate(turn.uid)}
             >
               <span className="jx-conversationNav-mark" aria-hidden="true" />
             </button>

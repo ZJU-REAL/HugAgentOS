@@ -27,6 +27,7 @@ import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
 import { hasUnclosedThink } from '../utils/segments';
+import { newMessageUid } from '../utils/messageIdentity';
 import type { ChatItem, ChatMessage } from '../types';
 import type { QueuedChatMessage } from '../stores/chatStore';
 
@@ -201,7 +202,7 @@ export function useStreaming(
 
   function settleQueuedMessageAfterRun(
     chatId: string,
-    assistantTs?: number,
+    assistantUid?: string,
     autoSend = true,
   ) {
     const store = useChatStore.getState();
@@ -210,7 +211,7 @@ export function useStreaming(
 
     if (queued.status === 'applied') {
       if (queued.appliedMessageId) {
-        commitAppliedQueuedMessage(chatId, queued, assistantTs);
+        commitAppliedQueuedMessage(chatId, queued, assistantUid);
       } else {
         // A restored durable card has no local SSE message id. Its user turn
         // is already committed in the DB, so reload history instead of
@@ -410,7 +411,7 @@ export function useStreaming(
   function commitAppliedQueuedMessage(
     chatId: string,
     queued: QueuedChatMessage,
-    assistantTs?: number,
+    assistantUid?: string,
   ) {
     useChatStore.getState().updateStore((prev) => {
       const chat = prev.chats[chatId];
@@ -423,13 +424,14 @@ export function useStreaming(
         role: 'user',
         content: queued.content,
         isMarkdown: false,
+        uid: newMessageUid(),
         ts: Date.now(),
         messageId: queued.appliedMessageId,
         ...chatInvocationMessageProps(normalizeChatInvocation(queued.invocation)),
       };
-      let assistantIndex = assistantTs === undefined
+      let assistantIndex = assistantUid === undefined
         ? -1
-        : messages.findIndex((item) => item.role === 'assistant' && item.ts === assistantTs);
+        : messages.findIndex((item) => item.uid === assistantUid);
       if (assistantIndex < 0) {
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           if (messages[index].role === 'assistant') {
@@ -473,7 +475,7 @@ export function useStreaming(
   }
 
   async function send(directMessage?: string, invocationOverride?: ChatInvocationContext) {
-    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention } = useChatStore.getState();
+    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention, referencedChats, clearReferencedChats } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
 
@@ -558,6 +560,7 @@ export function useStreaming(
     }
     if (!directMessage) setInput('');
     if (quotedFollowUp) setQuotedFollowUp(null);
+    if (referencedChats.length > 0) clearReferencedChats();
     if (currentSkill) setActiveSkill(null);
     if (currentPlugin) setActivePlugin(null);
     if (currentConnector) setActiveConnector(null);
@@ -582,12 +585,21 @@ export function useStreaming(
       role: 'user',
       content: msg,
       isMarkdown: false,
+      uid: newMessageUid(),
       ts: Date.now(),
       ...(quotedFollowUp && {
         quotedFollowUp: {
           text: quotedFollowUp.text,
           ts: quotedFollowUp.ts,
         },
+      }),
+      ...(referencedChats.length > 0 && {
+        referencedChats: referencedChats.map((c) => ({
+          chat_id: c.chat_id,
+          title: c.title,
+          message_count: c.message_count,
+          last_active_display: c.last_active_display,
+        })),
       }),
       ...(attachments.length > 0 && {
         attachments: attachments.map(a => ({
@@ -692,6 +704,10 @@ export function useStreaming(
               ts: quotedFollowUp.ts,
             },
           } : {}),
+          // 只上行 ID：标题、概览等名片内容由后端按当前权限现查，前端传的不作数。
+          ...(referencedChats.length > 0 ? {
+            referenced_chats: referencedChats.map((c) => ({ chat_id: c.chat_id })),
+          } : {}),
           ...(agentId ? { agent_id: agentId } : {}),
           ...chatInvocationRequestFields(currentInvocation),
           ...(batchChat ? { batch_chat: true } : {}),
@@ -724,7 +740,6 @@ export function useStreaming(
       if (outcome.metaMessageId && outcome.metaFollowUps.length === 0) {
         const _pollChatId = currentChatId;
         const _pollMsgId = outcome.metaMessageId;
-        const _pollTs = outcome.placeholderTs;
 
         // Supersede any prior polling still running for this chat (rare —
         // would only happen if a previous run somehow leaked).
@@ -757,7 +772,7 @@ export function useStreaming(
                     if (!c) return { chats: prev.chats, order: prev.order };
                     const msgs = [...(c.messages || [])];
                     const idx = msgs.findIndex(
-                      (m) => m.role === 'assistant' && (m.messageId === _pollMsgId || m.ts === _pollTs),
+                      (m) => m.role === 'assistant' && m.messageId === _pollMsgId,
                     );
                     if (idx >= 0) {
                       msgs[idx] = { ...msgs[idx], followUpQuestions: questions };
@@ -825,7 +840,7 @@ export function useStreaming(
       useChatStore.getState().clearActiveRun(streamChatId);
       settleQueuedMessageAfterRun(
         streamChatId,
-        streamOutcome?.placeholderTs,
+        streamOutcome?.bubbleUid,
         streamOutcome !== undefined,
       );
       // NOTE: do NOT clear uploadedFiles / fileUploadMap here. This round's
@@ -948,6 +963,7 @@ export function useStreaming(
           role: 'user',
           content: queued.message,
           isMarkdown: false,
+          uid: newMessageUid(),
           ts: Math.max(Date.now(), lastTs + 1),
           messageId: queued.userMessageId,
         };
@@ -1028,7 +1044,7 @@ export function useStreaming(
 
   /** Edit a user message and regenerate */
   async function editAndResend(messageIndex: number, newContent: string) {
-    const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageTs } = useChatStore.getState();
+    const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageUid } = useChatStore.getState();
     if (!newContent.trim()) return;
 
     // 编辑重发是**破坏性**的：后端 delete_messages_from 会把这条之后的消息全部硬删，
@@ -1037,10 +1053,7 @@ export function useStreaming(
     {
       const chat = useChatStore.getState().store.chats[currentChatId];
       const msgs = chat?.messages || [];
-      const targetTs = msgs[messageIndex]?.ts;
-      const droppedRounds = typeof targetTs === 'number'
-        ? msgs.filter((m) => m.ts > targetTs && m.role === 'user').length
-        : 0;
+      const droppedRounds = msgs.slice(messageIndex + 1).filter((m) => m.role === 'user').length;
       if (droppedRounds > 0) {
         const confirmed = await new Promise<boolean>((resolve) => {
           Modal.confirm({
@@ -1065,7 +1078,7 @@ export function useStreaming(
     }
     const streamChatId = currentChatId;
     addSendingChatId(streamChatId);
-    setEditingMessageTs(null);
+    setEditingMessageUid(null);
 
     const abortController = new AbortController();
     abortControllersRef.current.set(streamChatId, abortController);
@@ -1081,7 +1094,7 @@ export function useStreaming(
       // the backend replays the original turn's attachments and its skill / plugin /
       // connector / @agent selection, so the local echo has to keep showing them.
       const userMsg: ChatMessage = {
-        role: 'user', content: newContent.trim(), isMarkdown: false, ts: Date.now(),
+        role: 'user', content: newContent.trim(), isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
         ...(targetMsg?.attachments?.length ? { attachments: targetMsg.attachments } : {}),
         ...(targetMsg?.quotedFollowUp ? { quotedFollowUp: targetMsg.quotedFollowUp } : {}),
         ...(targetMsg?.skillId ? { skillId: targetMsg.skillId } : {}),
@@ -1393,7 +1406,7 @@ export function useStreaming(
 
     // ── 跨标签页互斥：同一 run 只允许一个标签页跟随 SSE ──
     // 过去复制标签页/多开时两个标签页同时 follow 同一 run，各自用不同的
-    // placeholderTs 建气泡，互相覆盖 localStorage，产生重复/半截气泡与
+    // 身份建气泡，互相覆盖 localStorage，产生重复/半截气泡与
     // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
     const runLockName = `hugagent_run_follow_${active.run_id}`;
     const activeRun = active;
@@ -1430,7 +1443,6 @@ export function useStreaming(
         if (!resp.ok || !resp.body) return;
         if (active.kind === 'plan_execute' && active.plan_id) {
           await processPlanExecuteStream(resp, chatId, active.plan_id, {
-            placeholderTs: Date.now(),
             onSetCurrentPlanId: useChatStore.getState().setCurrentPlanId,
             onAfterComplete: (cid) => {
               // After replay completes, refresh the message list, replacing client-built state
@@ -1440,7 +1452,6 @@ export function useStreaming(
           });
         } else if (active.kind === 'plan_generate') {
           await processPlanGenerateStream(resp, chatId, {
-            placeholderTs: Date.now(),
             onSetCurrentPlanId: useChatStore.getState().setCurrentPlanId,
           });
           // Also refresh after generate completes: pick up the DB-persisted assistant message + plan_snapshot
@@ -1513,7 +1524,7 @@ export function useStreaming(
       useChatStore.getState().clearActiveRun(chatId);
       settleQueuedMessageAfterRun(
         chatId,
-        streamOutcome?.placeholderTs,
+        streamOutcome?.bubbleUid,
         streamOutcome !== undefined,
       );
     }

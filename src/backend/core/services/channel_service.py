@@ -81,7 +81,9 @@ def list_owner_conversations(db, owner_id: str, *, limit: int = 200) -> List[Dic
 
 def bot_to_dict(conn: ChannelConnection) -> Dict[str, Any]:
     """ORM → safe dict (never echoes encrypted credentials back)."""
+    from core.services.channel_relay import public_execution
     return {
+        **public_execution(conn),
         "channel_id": conn.channel_id,
         "channel_type": conn.channel_type,
         "display_name": conn.display_name,
@@ -151,6 +153,7 @@ class ChannelService:
         resource_scope: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
         group_listen_mode: str = "mention_only",
+        local_binding_id: Optional[str] = None,
     ) -> ChannelConnection:
         # 1. Capability bit
         caps = resolve_user_capabilities(self.db, owner_id)
@@ -189,6 +192,10 @@ class ChannelService:
             sval = (val or "").strip()
             if sval:
                 config[f"{key}_enc"] = encrypt_secret(sval)
+
+        if local_binding_id:
+            from core.services.channel_relay import ChannelRelayService
+            config["desktop_execution"] = ChannelRelayService(self.db).bind(owner_id, local_binding_id)
 
         conn = self.repo.create({
             "channel_id": channel_id,
@@ -287,7 +294,7 @@ class ChannelService:
 
     # ── WeChat QR-code binding (for qr-mode channels, no credential form) ─
     async def start_weixin_bind(
-        self, owner_id: str, *, agent_id: Optional[str] = None
+        self, owner_id: str, *, agent_id: Optional[str] = None, local_binding_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Fetch the WeChat login QR code, stash the polling context in Redis (TTL), return {bind_id, qrcode_img}.
 
@@ -308,7 +315,7 @@ class ChannelService:
 
         await get_ephemeral_state().put(
             f"{_WEIXIN_BIND_PREFIX}{bind_id}",
-            json.dumps({"owner_id": owner_id, "qrcode": qr["qrcode"], "agent_id": agent_id}),
+            json.dumps({"owner_id": owner_id, "qrcode": qr["qrcode"], "agent_id": agent_id, "local_binding_id": local_binding_id}),
             ttl=_WEIXIN_BIND_TTL,
         )
         return {"bind_id": bind_id, "qrcode_img": qr.get("qrcode_img_content", "")}
@@ -337,9 +344,19 @@ class ChannelService:
         app_id = f"wx_{hashlib.sha256(bot_token.encode()).hexdigest()[:24]}"
         existing = self.repo.get_by_app_id("weixin", app_id)
         if existing is not None:
+            if existing.owner_user_id != owner_id:
+                raise AccessDeniedError("该微信已被其他用户绑定")
+            from core.services.channel_relay import execution
+            selected_local = bool(ctx.get("local_binding_id"))
+            current_binding = execution(existing)
+            if selected_local or current_binding:
+                raise BadRequestError("该微信已添加，请先移除原机器人，再按所选执行位置重新添加")
             return {"status": "confirmed", "channel_id": existing.channel_id}
         channel_id = f"chan_{uuid.uuid4().hex[:16]}"
         config = {"bot_token_enc": encrypt_secret(bot_token)}
+        if ctx.get("local_binding_id"):
+            from core.services.channel_relay import ChannelRelayService
+            config["desktop_execution"] = ChannelRelayService(self.db).bind(owner_id, ctx["local_binding_id"])
         if status.get("baseurl"):
             config["baseurl"] = status["baseurl"]
         self.repo.create({

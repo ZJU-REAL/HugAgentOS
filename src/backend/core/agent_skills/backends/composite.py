@@ -97,6 +97,38 @@ class CompositeBackend:
         """
         return list(self._skill_map.values())
 
+    def scoped(self, user_id: str | None = None) -> "CompositeBackend":
+        """Resolve priority within visibility, before private entries can shadow shared ones."""
+        selected = {}
+        for backend in sorted(self._backends, key=lambda b: b.priority):
+            for info in backend.list_skill_files():
+                owner = (info.metadata or {}).get("owner_user_id")
+                if owner and owner != user_id:
+                    continue
+                previous = selected.get(info.skill_id)
+                if previous is None or info.priority >= previous.priority:
+                    selected[info.skill_id] = info
+        view = object.__new__(CompositeBackend)
+        view._backends = self._backends
+        view._merge = None
+        view._skill_map = selected
+        return view
+
+    def read_snapshot(self, skill_id: str) -> tuple[str, dict, str | None]:
+        """Read payload and ownership together, bypassing metadata caches for DB rows."""
+        info = self.get_skill_info(skill_id)
+        if info is None:
+            raise FileNotFoundError(skill_id)
+        backend = next(b for b in self._backends if b.source_name == info.source_name)
+        reader = getattr(backend, "read_snapshot", None)
+        if callable(reader):
+            return reader(skill_id)
+        return (
+            self.read_skill_file(skill_id),
+            self.get_extra_files(skill_id),
+            (info.metadata or {}).get("owner_user_id"),
+        )
+
     def read_skill_file(self, skill_id: str) -> str:
         """Read the raw content of a skill file.
 

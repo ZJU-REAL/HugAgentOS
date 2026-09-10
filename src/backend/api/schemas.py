@@ -30,11 +30,23 @@ class QuotedFollowUpItem(BaseModel):
         return v.strip()
 
 
+class ReferencedChatItem(BaseModel):
+    """用户为本轮显式引用的一段历史会话。
+
+    只带 ID：标题、时间、概览等名片信息一律由后端按当前权限现查（见
+    ``core.services.chat_reference_service``），前端传什么都不作数——否则任何人都能伪造
+    一段"来自另一个会话"的内容塞进模型。
+    """
+
+    chat_id: str = Field(..., description="被引用会话的 ID", max_length=100)
+
+
 class ChatRequest(BaseModel):
     """聊天请求模型"""
 
     model_config = ConfigDict(protected_namespaces=())
     _resolved_skill_ids: List[str] = PrivateAttr(default_factory=list)
+    _resolved_reference_cards: List[Any] = PrivateAttr(default_factory=list)
     _resolved_mcp_ids: List[str] = PrivateAttr(default_factory=list)
     _resolved_plugin_skill_ids: List[str] = PrivateAttr(default_factory=list)
     _resolved_plugin_mcp_ids: List[str] = PrivateAttr(default_factory=list)
@@ -70,6 +82,14 @@ class ChatRequest(BaseModel):
     attachments: List[AttachmentItem] = Field(
         default_factory=list,
         description="上传的文件附件列表",
+    )
+    referenced_chats: List[ReferencedChatItem] = Field(
+        default_factory=list,
+        description=(
+            "本轮显式引用的历史会话（斜杠命令选择或从侧边栏拖入）。后端按当前用户权限"
+            "解析成会话名片拼进用户消息，全文由智能体调用 read_chat 按需读取。"
+        ),
+        max_length=5,
     )
     enabled_kbs: Optional[List[str]] = Field(
         default=None,

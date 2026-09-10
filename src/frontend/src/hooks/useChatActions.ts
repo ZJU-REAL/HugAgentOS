@@ -190,6 +190,7 @@ export function useChatActions(effectiveApiUrl: string) {
         allMessages.push({
           role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
           content: cleanContent,
+          uid: String(m.message_id),
           ts: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
           isMarkdown: !!(m.metadata?.is_markdown),
         });
@@ -235,13 +236,13 @@ export function useChatActions(effectiveApiUrl: string) {
     message.success(t('对话已导出为 PDF'));
   }
 
-  async function createChatShare(chatId: string, selectedTs: number[], expiryOption: '3d' | '15d' | '3m' | 'permanent') {
+  async function createChatShare(chatId: string, selectedUids: string[], expiryOption: '3d' | '15d' | '3m' | 'permanent') {
     const target = storeRef.current.chats[chatId];
     if (!target) throw new Error(t('当前会话不存在'));
 
-    const selectedSet = new Set(selectedTs);
-    const items = (target.messages || [])
-      .filter((msg) => selectedSet.has(msg.ts))
+    const selectedSet = new Set(selectedUids);
+    const selected = (target.messages || []).filter((msg) => selectedSet.has(msg.uid));
+    const items = selected
       .map((msg) => {
         const planSeg = msg.segments?.find((s) => s.type === 'plan');
         return {
@@ -262,7 +263,8 @@ export function useChatActions(effectiveApiUrl: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        origin_message_ts: [...selectedTs].sort((a, b) => a - b)[0] ?? null,
+        // 回跳锚点是「时刻」而非身份：分享页只需要滚回原对话的那一段。
+        origin_message_ts: selected.length > 0 ? Math.min(...selected.map((msg) => msg.ts)) : null,
         title: target.title || '分享会话',
         items,
         expiry_option: expiryOption,

@@ -211,6 +211,7 @@ async def _ingest_attachments(
             )
             out.append({
                 "file_id": art.artifact_id,
+                "download_url": f"/files/{art.artifact_id}",
                 "name": name,
                 "mime_type": mime,
             })
@@ -232,8 +233,15 @@ async def _collect_reply(run_id: str):
 
     full = ""
     artifacts: List[Dict[str, Any]] = []
+    from core.channels.registry import current_relay_adapter
+
+    relay = current_relay_adapter()
     async for event in chat_run_executor.follow_run(run_id):
         et = event.get("type")
+        if relay and et in {"file_confirm", "batch_confirm", "ask_user_question"}:
+            relay.error = "此操作需要确认，请在桌面端处理后重试"
+            await relay.cancel()
+            raise ChannelRunError(relay.error)
         if et == "content":
             full += event.get("delta", "") or ""
         elif et == "meta":
@@ -671,7 +679,10 @@ async def handle_inbound(msg: InboundMsg) -> None:
 
     All exceptions are swallowed and logged — one message's failure must not take down the long connection / process.
     """
-    if _already_handled(msg.message_id):
+    from core.services.channel_relay_dispatch import dispatch_to_desktop
+    if await dispatch_to_desktop(msg, SessionLocal):
+        return
+    if _already_handled(f"{msg.channel_id}:{msg.message_id}" if msg.message_id else ""):
         return
     if not (msg.text or "").strip() and not msg.attachments:
         return
@@ -822,8 +833,9 @@ async def _process_inbound(msg: InboundMsg) -> None:
         # unset, run with the owner's default capabilities (main agent).
         # Note: the sub-agent carries its own capability bindings, which override the whitelist
         # narrowing from _resolve_enabled above — this is intended behavior.
-        if conn.agent_id:
-            context["agent_id"] = conn.agent_id
+        direct_agent_id = conn.agent_id or (conn.config or {}).get("desktop_relay_agent_id")
+        if direct_agent_id:
+            context["agent_id"] = direct_agent_id
         # #7 Trigger A: let the agent self-create scheduled delivery tasks within this conversation
         context["channel_origin"] = {
             "channel_id": conn.channel_id,
@@ -849,7 +861,11 @@ async def _process_inbound(msg: InboundMsg) -> None:
                     {"file_id": f.get("file_id"), "name": f.get("name")} for f in uploaded_files
                 ],
             },
-            request_payload={"channel_id": msg.channel_id, "source": "channel", "kind": "chat"},
+            request_payload={
+                "channel_id": msg.channel_id,
+                "source": "desktop_channel" if (conn.config or {}).get("desktop_relay") else "channel",
+                "kind": "chat",
+            },
         )
         accepted_run_id = accepted.run.run_id
         session_messages = _load_history(db, chat_id, owner_id)
@@ -866,6 +882,9 @@ async def _process_inbound(msg: InboundMsg) -> None:
         db.expunge(conn)  # app_id/config remain readable after leaving the session, for push
     except Exception:
         logger.exception("[channels] inbound 准备阶段失败 channel_id=%s", msg.channel_id)
+        from core.channels.registry import current_relay_adapter
+        if current_relay_adapter():
+            current_relay_adapter().error = "本机机器人准备失败"
         db.close()
         if accepted_run_id:
             with SessionLocal() as cleanup_db:
@@ -889,7 +908,8 @@ async def _process_inbound(msg: InboundMsg) -> None:
     # (Sub-agents remain non-interactive; their /myspace writes are still rejected.)
     try:
         from core.llm.tools import _myspace_confirm as _mc
-        _mc.allow_session(chat_id)
+        if not (conn.config or {}).get("desktop_relay"):
+            _mc.allow_session(chat_id)
     except Exception:  # noqa: BLE001 — a pre-authorization failure must not take down the whole run
         logger.debug("[channels] myspace 写预授权失败 chat_id=%s", chat_id, exc_info=True)
 
@@ -911,6 +931,9 @@ async def _process_inbound(msg: InboundMsg) -> None:
                 reason=str(exc),
             )
         logger.exception("[channels] inbound run 启动失败 channel_id=%s", msg.channel_id)
+        from core.channels.registry import current_relay_adapter
+        if current_relay_adapter():
+            current_relay_adapter().error = "本机机器人启动失败"
         try:
             await _replace_placeholder(
                 adapter, conn, msg, placeholder_id, "⚠️ 处理出错了，请稍后重试。"
@@ -920,9 +943,15 @@ async def _process_inbound(msg: InboundMsg) -> None:
         return
 
     try:
+        from core.channels.registry import current_relay_adapter
+        relay_adapter = current_relay_adapter()
+        if relay_adapter:
+            relay_adapter.record_run(run.run_id, owner_id)
         reply, gen_artifacts = await _collect_reply(run.run_id)
     except Exception as exc:
         logger.exception("[channels] inbound run 失败 channel_id=%s", msg.channel_id)
+        if relay_adapter:
+            relay_adapter.error = "本机机器人执行失败"
         notice = (
             str(exc).strip()
             if isinstance(exc, ChannelRunError) and str(exc).strip()
@@ -955,3 +984,5 @@ async def _process_inbound(msg: InboundMsg) -> None:
                     logger.warning("[channels] 文件回传失败 name=%s kind=%s", name, fr.error_kind)
     except Exception:
         logger.exception("[channels] inbound 回推阶段失败 channel_id=%s", msg.channel_id)
+        if relay_adapter:
+            relay_adapter.error = "本机机器人回复回传失败"

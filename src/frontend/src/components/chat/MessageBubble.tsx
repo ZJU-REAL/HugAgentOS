@@ -148,13 +148,13 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
   const setCopiedMsg = useChatStore((s) => s.setCopiedMsg);
   const feedbackMap = useChatStore((s) => s.feedbackMap);
   const setFeedbackMap = useChatStore((s) => s.setFeedbackMap);
-  const dislikingTs = useChatStore((s) => s.dislikingTs);
-  const setDislikingTs = useChatStore((s) => s.setDislikingTs);
+  const dislikingUid = useChatStore((s) => s.dislikingUid);
+  const setDislikingUid = useChatStore((s) => s.setDislikingUid);
   const dislikeComment = useChatStore((s) => s.dislikeComment);
   const setDislikeComment = useChatStore((s) => s.setDislikeComment);
   const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
-  const selectedShareMessageTs = useChatStore((s) => s.selectedShareMessageTs);
-  const toggleShareMessageTs = useChatStore((s) => s.toggleShareMessageTs);
+  const selectedShareMessageUids = useChatStore((s) => s.selectedShareMessageUids);
+  const toggleShareMessageUid = useChatStore((s) => s.toggleShareMessageUid);
   const startShareSelectionWithAll = useChatStore((s) => s.startShareSelectionWithAll);
   const setQuotedFollowUp = useChatStore((s) => s.setQuotedFollowUp);
   const setDetailModal = useUIStore((s) => s.setDetailModal);
@@ -174,11 +174,11 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         ? t('图像理解中（{n} 张）…', { n: visionReadingCount })
         : t('图像理解中…'))
     : undefined;
-  const { editingMessageTs, setEditingMessageTs } = useChatStore();
+  const { editingMessageUid, setEditingMessageUid } = useChatStore();
   const [editText, setEditText] = useState('');
-  const shareSelected = selectedShareMessageTs.has(m.ts);
-  const isEditing = editingMessageTs === m.ts;
-  const isDisliking = dislikingTs === m.ts;
+  const shareSelected = selectedShareMessageUids.has(m.uid);
+  const isEditing = editingMessageUid === m.uid;
+  const isDisliking = dislikingUid === m.uid;
 
   // ── Plan preview approval (buttons on the plan card footer) ──
   const onPlanConfirm = useCallback(() => {
@@ -571,13 +571,13 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
       const ta = document.createElement('textarea');
       ta.value = s; document.body.appendChild(ta); ta.select();
       document.execCommand('copy'); document.body.removeChild(ta);
-      setCopiedMsg(m.ts);
-      setTimeout(() => { if (useChatStore.getState().copiedMsg === m.ts) setCopiedMsg(null); }, 2000);
+      setCopiedMsg(m.uid);
+      setTimeout(() => { if (useChatStore.getState().copiedMsg === m.uid) setCopiedMsg(null); }, 2000);
     };
     if (navigator.clipboard) {
       navigator.clipboard.writeText(str).then(() => {
-        setCopiedMsg(m.ts);
-        setTimeout(() => { if (useChatStore.getState().copiedMsg === m.ts) setCopiedMsg(null); }, 2000);
+        setCopiedMsg(m.uid);
+        setTimeout(() => { if (useChatStore.getState().copiedMsg === m.uid) setCopiedMsg(null); }, 2000);
       }).catch(() => copyFallback(str));
     } else {
       copyFallback(str);
@@ -640,6 +640,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         skillName={m.skillName}
         pluginName={m.pluginName}
         connectorName={m.connectorName}
+        chatRefs={m.referencedChats}
       />
     );
   };
@@ -656,6 +657,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
     <div
       className={`jx-msg ${m.role === 'user' ? 'user' : 'assistant'}${isFresh ? ' jx-msg--fresh' : ''}`}
       data-message-ts={m.ts}
+      data-message-uid={m.uid}
     >
       <div className={`jx-msgInner${m.role === 'user' ? ' user' : ''}${shareSelectionMode && !m.isStreaming ? ' share-selectable' : ''}`}>
         {shareSelectionMode && !m.isStreaming && (
@@ -664,7 +666,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
               type="checkbox"
               className="jx-shareCheckbox"
               checked={shareSelected}
-              onChange={() => toggleShareMessageTs(m.ts)}
+              onChange={() => toggleShareMessageUid(m.uid)}
             />
           </label>
         )}
@@ -776,7 +778,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                   if (sk.type === 'tool') {
                     const t = m.toolCalls?.[sk.toolIndex!];
                     if (t) {
-                      steps.push({ kind: 'tool', tool: t, key: `${m.ts}-seg-${i}` });
+                      steps.push({ kind: 'tool', tool: t, key: `${m.uid}-seg-${i}` });
                       tools.push(t);
                     }
                     if (i !== anchor) suppressedIdx.add(i);
@@ -786,7 +788,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                     if (dispatchProcessVisible) {
                       const content = sk.content || '';
                       const active = !!(m.isStreaming && !segs.slice(i + 1).some(seg => seg.type === 'text'));
-                      steps.push({ kind: 'thinking', content, active, key: `${m.ts}-seg-${i}` });
+                      steps.push({ kind: 'thinking', content, active, key: `${m.uid}-seg-${i}` });
                       endIdx = i;
                     }
                     if (i !== anchor) suppressedIdx.add(i);
@@ -862,9 +864,9 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                   return true;
                 })();
                 if (lastRun && lastRunReachesEnd) {
-                  lastRun.steps.push({ kind: 'pending', startTs: stall.since, key: `${m.ts}-pending` });
+                  lastRun.steps.push({ kind: 'pending', startTs: stall.since, key: `${m.uid}-pending` });
                 } else {
-                  virtualPending = { startTs: stall.since, key: `${m.ts}-pending-virtual` };
+                  virtualPending = { startTs: stall.since, key: `${m.uid}-pending-virtual` };
                 }
               }
 
@@ -873,7 +875,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
 
               const rendered = segs.map((seg, segIdx) => {
                 const isLastSeg = segIdx === segs.length - 1;
-                const segKey = `${m.ts}-seg-${segIdx}`;
+                const segKey = `${m.uid}-seg-${segIdx}`;
 
                 if (runByAnchor.has(segIdx)) {
                   const run = runByAnchor.get(segIdx)!;
@@ -969,7 +971,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                 if (seg.type === 'text') {
                   const textContent = seg.content || '';
                   if (!textContent && !m.isStreaming) return null;
-                  const effectiveCitations = resolveConversationCitations(textContent, m.citations ?? [], chatMessages, m.ts);
+                  const effectiveCitations = resolveConversationCitations(textContent, m.citations ?? [], chatMessages, m.uid);
                   // OFF mode keeps the inline StreamWaitIndicator under the
                   // text bubble; ON mode handles waits inside the shell so
                   // we suppress the indicator entirely.
@@ -1025,7 +1027,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
             {m.toolCalls && m.toolCalls.length > 0 && dispatchProcessVisible && (
               <div className="jx-toolCallsList">
                 <ToolRunShell
-                  steps={m.toolCalls.map((tool, idx) => ({ kind: 'tool' as const, tool, key: `${m.ts}-legacy-${idx}` }))}
+                  steps={m.toolCalls.map((tool, idx) => ({ kind: 'tool' as const, tool, key: `${m.uid}-legacy-${idx}` }))}
                   isStreaming={m.isStreaming}
                 />
               </div>
@@ -1037,7 +1039,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                   <span className="jx-sectionTitle">{t('思考过程 ({n})', { n: m.thinking.length })}</span>
                 </div>
                 <div className="jx-thinkingList">
-                  {m.thinking.map((think, idx) => renderThinkingBlock(think.content, `${m.ts}-think-${idx}`))}
+                  {m.thinking.map((think, idx) => renderThinkingBlock(think.content, `${m.uid}-think-${idx}`))}
                 </div>
               </div>
             )}
@@ -1055,7 +1057,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                 className="jx-msgText"
                 text={m.content}
                 isMarkdown={m.isMarkdown ?? false}
-                citations={resolveConversationCitations(m.content, m.citations ?? [], chatMessages, m.ts)}
+                citations={resolveConversationCitations(m.content, m.citations ?? [], chatMessages, m.uid)}
                 messageIsStreaming={m.isStreaming}
                 onCitationAction={handleCitationAction}
               />
@@ -1111,7 +1113,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
             <OntologyReviewTrigger
               governance={m.ontologyGovernance}
               chatId={currentChatId}
-              messageTs={m.ts}
+              messageUid={m.uid}
             />
           </div>
         )}
@@ -1168,7 +1170,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                 }}
               />
               <div className="jx-editMessage-btns">
-                <Button size="small" onClick={() => setEditingMessageTs(null)}>{t('取消')}</Button>
+                <Button size="small" onClick={() => setEditingMessageUid(null)}>{t('取消')}</Button>
                 <Button size="small" type="primary" disabled={!editText.trim()}
                   onClick={() => {
                     if (editAndResend) {
@@ -1183,25 +1185,25 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         {/* Message action bar */}
         {!m.isStreaming && !isEditing && (
           <div className={`jx-msgActions ${m.role === 'user' ? 'user' : ''}`}>
-            <button className={`jx-msgActionBtn${copiedMsg === m.ts ? ' copied' : ''}`}
-              title={copiedMsg === m.ts ? t('已复制') : t('复制内容')}
+            <button className={`jx-msgActionBtn${copiedMsg === m.uid ? ' copied' : ''}`}
+              title={copiedMsg === m.uid ? t('已复制') : t('复制内容')}
               onClick={() => doCopy(messagePlainText)}>
-              {copiedMsg === m.ts ? <CheckOutlined /> : <CopyOutlined />}
+              {copiedMsg === m.uid ? <CheckOutlined /> : <CopyOutlined />}
             </button>
             {m.role === 'user' && editAndResend && (
               <button className="jx-msgActionBtn" title={t('编辑消息')}
                 onClick={() => {
                   setEditText(m.content);
-                  setEditingMessageTs(m.ts);
+                  setEditingMessageUid(m.uid);
                 }}>
                 <EditOutlined />
               </button>
             )}
             {m.role === 'assistant' && (<>
-              <button className={`jx-msgActionBtn${feedbackMap[m.ts] === 'like' ? ' active-like' : ''}`} title={t('有帮助')}
+              <button className={`jx-msgActionBtn${feedbackMap[m.uid] === 'like' ? ' active-like' : ''}`} title={t('有帮助')}
                 onClick={() => {
-                  const next = feedbackMap[m.ts] === 'like' ? undefined : 'like' as const;
-                  setFeedbackMap(next ? { ...feedbackMap, [m.ts]: next } : Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => Number(k) !== m.ts)));
+                  const next = feedbackMap[m.uid] === 'like' ? undefined : 'like' as const;
+                  setFeedbackMap(next ? { ...feedbackMap, [m.uid]: next } : Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => k !== m.uid)));
                   if (next && m.messageId) {
                     authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1209,20 +1211,20 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                     }).catch(() => {});
                   }
                 }}>
-                {feedbackMap[m.ts] === 'like' ? <LikeFilled /> : <LikeOutlined />}
+                {feedbackMap[m.uid] === 'like' ? <LikeFilled /> : <LikeOutlined />}
               </button>
-              <button className={`jx-msgActionBtn${feedbackMap[m.ts] === 'dislike' ? ' active-dislike' : ''}`} title={t('没有帮助')}
+              <button className={`jx-msgActionBtn${feedbackMap[m.uid] === 'dislike' ? ' active-dislike' : ''}`} title={t('没有帮助')}
                 onClick={() => {
-                  if (feedbackMap[m.ts] === 'dislike') {
-                    setFeedbackMap(Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => Number(k) !== m.ts)));
-                    setDislikingTs(null);
+                  if (feedbackMap[m.uid] === 'dislike') {
+                    setFeedbackMap(Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => k !== m.uid)));
+                    setDislikingUid(null);
                   } else {
-                    setFeedbackMap({ ...feedbackMap, [m.ts]: 'dislike' });
-                    setDislikingTs(m.ts);
+                    setFeedbackMap({ ...feedbackMap, [m.uid]: 'dislike' });
+                    setDislikingUid(m.uid);
                     setDislikeComment('');
                   }
                 }}>
-                {feedbackMap[m.ts] === 'dislike' ? <DislikeFilled /> : <DislikeOutlined />}
+                {feedbackMap[m.uid] === 'dislike' ? <DislikeFilled /> : <DislikeOutlined />}
               </button>
             </>)}
             {m.role === 'assistant' && (
@@ -1241,7 +1243,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                   // （那份是为了让 memo 生效而特意收窄的，拿它全选会漏掉后面的消息）。
                   const all = useChatStore.getState().store.chats[currentChatId]?.messages ?? [];
                   startShareSelectionWithAll(
-                    all.filter((msg) => !msg.isStreaming).map((msg) => msg.ts),
+                    all.filter((msg) => !msg.isStreaming).map((msg) => msg.uid),
                   );
                 }}
               >
@@ -1273,7 +1275,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
               <Input.TextArea ref={dislikeInputRef} rows={3} placeholder={t('内容不准确 / 答非所问 / 其他...')}
                 value={dislikeComment} onChange={e => setDislikeComment(e.target.value)} className="jx-dislikeFeedback-input" />
               <div className="jx-dislikeFeedback-btns">
-                <Button size="small" onClick={() => setDislikingTs(null)}>{t('跳过')}</Button>
+                <Button size="small" onClick={() => setDislikingUid(null)}>{t('跳过')}</Button>
                 <Button size="small" type="primary" onClick={() => {
                   if (m.messageId) {
                     authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
@@ -1281,7 +1283,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                       body: JSON.stringify({ rating: 'dislike', comment: dislikeComment || undefined, chat_id: currentChatId }),
                     }).catch(() => {});
                   }
-                  setDislikingTs(null);
+                  setDislikingUid(null);
                 }}>{t('提交')}</Button>
               </div>
             </div>

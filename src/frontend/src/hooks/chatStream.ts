@@ -31,6 +31,7 @@ import {
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore, useAgentStore, usePluginStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 import { writeLocal } from '../storage';
+import { newMessageUid } from '../utils/messageIdentity';
 
 /**
  * Unified chat SSE stream processor (single source of truth).
@@ -336,8 +337,8 @@ export interface ChatStreamOptions {
 export interface ChatStreamOutcome {
   /** Final body text (excluding thinking) */
   full: string;
-  /** The assistant bubble's local ts (follow-up polling etc. locate the message by it) */
-  placeholderTs: number;
+  /** The assistant bubble's identity (follow-up polling etc. locate the message by it) */
+  bubbleUid: string;
   /** Backend message_id carried back by the meta event */
   metaMessageId?: string;
   /** Follow-up questions delivered directly within the stream */
@@ -712,10 +713,14 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     return changed;
   };
 
-  let placeholderTs = Date.now();
+  /** 本轮助手气泡的身份。整轮流式都往这一条上写，认的是它、不是时间。 */
+  let bubbleUid = newMessageUid();
+  /** 本轮气泡的起始时刻，只用来算耗时和压缩基准。 */
+  let bubbleStartedAt = Date.now();
   const seed = opts.seedFrom;
   if (seed) {
-    placeholderTs = seed.ts;
+    bubbleUid = seed.uid;
+    bubbleStartedAt = seed.ts;
     metaMessageId = seed.messageId;
     full = seed.content || '';
     toolCalls = (seed.toolCalls || []).map((tool) => ({ ...tool }));
@@ -736,14 +741,35 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     if (useCatalogStore.getState().panel !== 'chat') return;
     // 移动端不自动弹（整屏覆盖），评审结论仍可从消息里的入口打开。
     if (!canAutoOpenCanvas()) return;
-    useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
+    useCanvasStore.getState().openOntology({ chatId, messageUid: bubbleUid });
   };
-  /** 本轮气泡在列表里的位置：先按服务端 message_id，还没拿到时按本地占位 ts。 */
-  const findOwnBubble = (msgs: ChatMessage[]): number => {
-    const byId = metaMessageId
-      ? msgs.findIndex((m) => m.role === 'assistant' && m.messageId === metaMessageId)
-      : -1;
-    return byId >= 0 ? byId : msgs.findIndex((m) => m.role === 'assistant' && m.ts === placeholderTs);
+  /** 本轮气泡在列表里的位置。 */
+  const findOwnBubble = (msgs: ChatMessage[]): number =>
+    msgs.findIndex((m) => m.uid === bubbleUid);
+
+  /** 后端在接纳这一轮时就建好了助手行。只要那一行以持久化身份出现在列表里
+   *  （首帧 run_started 时历史已渲染过它，或流式期间拉了一次历史把它带了回来），
+   *  就把身份改认到它上面、丢掉本地占位——否则同一轮会并排出现两个气泡。
+   *  幂等：已经认过就直接返回。 */
+  const adoptPersistedBubble = (msgs: ChatMessage[]): ChatMessage[] => {
+    if (!metaMessageId) return msgs;
+    const persisted = msgs.find((m) => m.role === 'assistant' && m.messageId === metaMessageId);
+    if (!persisted || persisted.uid === bubbleUid) return msgs;
+    const withoutPlaceholder = msgs.filter((m) => m.uid !== bubbleUid);
+    bubbleUid = persisted.uid;
+    return withoutPlaceholder;
+  };
+
+  /** 同上，但立刻落 store —— 认领是身份切换，不能排进流式合并窗口等下一帧，
+   *  否则重连时同一轮会有几十毫秒并排显示两个气泡。 */
+  const claimPersistedBubble = () => {
+    useChatStore.getState().updateStore((prev) => {
+      const c = prev.chats[chatId];
+      if (!c) return prev;
+      const msgs = adoptPersistedBubble(c.messages || []);
+      if (msgs === c.messages) return prev;
+      return { ...prev, chats: { ...prev.chats, [chatId]: { ...c, messages: msgs } } };
+    });
   };
 
   const commitUpdate = (
@@ -753,7 +779,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   ) => {
     useChatStore.getState().updateStore((prev) => {
       const c = prev.chats[chatId];
-      const msgs = [...(c?.messages || [])];
+      const msgs = adoptPersistedBubble([...(c?.messages || [])]);
       // While the model hasn't produced any real content yet (MiniMax may buffer the whole
       // turn), show the placeholder notice instead of an empty bubble. The placeholder never
       // enters full/segments, so it is never persisted.
@@ -793,18 +819,17 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       };
       if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
       if (!streaming) {
-        updatedMsg.durationMs = metaDurationMs ?? (Date.now() - placeholderTs);
+        updatedMsg.durationMs = metaDurationMs ?? (Date.now() - bubbleStartedAt);
         updatedMsg.inFlight = undefined;
       }
       if (cits !== undefined) updatedMsg.citations = cits.length > 0 ? cits : undefined;
       if (metaFollowUps.length > 0) updatedMsg.followUpQuestions = metaFollowUps;
 
-      // 身份是服务端 message_id（run_started 第一帧就有）；还没拿到时退回本地占位 ts。
       const idx = findOwnBubble(msgs);
       if (idx >= 0) {
         msgs[idx] = { ...msgs[idx], ...updatedMsg };
       } else {
-        msgs.push({ role: 'assistant', ts: placeholderTs, ...updatedMsg });
+        msgs.push({ role: 'assistant', uid: bubbleUid, ts: bubbleStartedAt, ...updatedMsg });
       }
       // Don't bump updatedAt / reorder on every SSE chunk — otherwise when two chats stream
       // simultaneously, the sidebar's updatedAt sort keeps lifting each to the top in turn and
@@ -918,9 +943,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       const chat = prev.chats[chatId];
       if (!chat) return prev;
       const messages = [...chat.messages];
-      let assistantIndex = messages.findIndex(
-        (item) => item.role === 'assistant' && item.ts === placeholderTs,
-      );
+      let assistantIndex = messages.findIndex((item) => item.uid === bubbleUid);
       if (!hasAssistantOutput && assistantIndex >= 0) {
         messages.splice(assistantIndex, 1);
         assistantIndex -= 1;
@@ -932,11 +955,12 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       if (existingUserIndex >= 0) {
         steerMessageTs = messages[existingUserIndex].ts;
       } else if (steerMessage) {
-        steerMessageTs = Math.max(Date.now(), placeholderTs + 1);
+        steerMessageTs = Math.max(Date.now(), bubbleStartedAt + 1);
         const userMessage: ChatMessage = {
           role: 'user',
           content: steerMessage,
           isMarkdown: false,
+          uid: newMessageUid(),
           ts: steerMessageTs,
           messageId: steerMessageId,
         };
@@ -972,7 +996,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     implicitThinkSegIdxs.clear();
     sawThinkCloseTag = false;
     thinkingPhaseActive = enableThinking && !structuredReasoning;
-    placeholderTs = Math.max(Date.now(), steerMessageTs + 1);
+    bubbleUid = newMessageUid();
+    bubbleStartedAt = Math.max(Date.now(), steerMessageTs + 1);
     appendOrUpdate(true);
   };
 
@@ -1020,21 +1045,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             useChatStore.getState().setActiveRun(chatId, { runId, messageId });
           }
           if (messageId) {
-            // 第一帧就认领服务端身份。后端在接纳轮次时已经建好了这一行，如果历史里
-            // 已经把它渲染出来（重载/刷新后跟随），就直接接管那个气泡，不再另起一个。
+            // 第一帧就认领服务端身份：后端在接纳轮次时已经建好了这一行，历史里
+            // 若已经把它渲染出来（重载/刷新后跟随），就直接接管那个气泡、丢掉本地
+            // 占位，不再另起一个。
             metaMessageId = messageId;
-            useChatStore.getState().updateStore((prev) => {
-              const c = prev.chats[chatId];
-              if (!c) return prev;
-              const msgs = c.messages || [];
-              const owned = msgs.find((m) => m.role === 'assistant' && m.messageId === messageId);
-              if (!owned || owned.ts === placeholderTs) return prev;
-              const withoutPlaceholder = msgs.filter(
-                (m) => !(m.role === 'assistant' && m.ts === placeholderTs && !m.messageId),
-              );
-              placeholderTs = owned.ts;
-              return { ...prev, chats: { ...prev.chats, [chatId]: { ...c, messages: withoutPlaceholder } } };
-            });
+            claimPersistedBubble();
             appendOrUpdate(true, undefined, messageId);
           }
           return;
@@ -1840,7 +1855,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];
-    const msgs = [...(c?.messages || [])];
+    const msgs = adoptPersistedBubble([...(c?.messages || [])]);
     const idx = findOwnBubble(msgs);
     if (idx >= 0) {
       msgs[idx] = {
@@ -1857,7 +1872,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         workspaceFiles: metaWorkspaceFiles,
         isStreaming: false,
         inFlight: undefined,
-        durationMs: metaDurationMs ?? (Date.now() - placeholderTs),
+        durationMs: metaDurationMs ?? (Date.now() - bubbleStartedAt),
       };
     }
     const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs, updatedAt: Date.now() };
@@ -1869,7 +1884,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     void refreshContextAfterCompaction(
       chatId,
       previousCheckpointId,
-      placeholderTs,
+      bubbleStartedAt,
       metaMessageId,
     );
   }
@@ -1908,5 +1923,5 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
   if (thrown) throw thrown;
 
-  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted, queuedRun };
+  return { full, bubbleUid, metaMessageId, metaFollowUps, aborted, queuedRun };
 }

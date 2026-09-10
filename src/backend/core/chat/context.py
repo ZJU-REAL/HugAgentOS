@@ -64,24 +64,35 @@ def generate_smart_title(message: str) -> str:
     return message if len(message) <= 20 else message[:20] + "..."
 
 
-def build_effective_user_message(message: str, quoted_follow_up: Optional[Any]) -> str:
+def build_effective_user_message(
+    message: str,
+    quoted_follow_up: Optional[Any],
+    reference_block: str = "",
+) -> str:
     """Splice the "follow-up quote" into the user message (domain-level assembly shared by send and history replay, not HTTP-layer logic).
 
     ``quoted_follow_up`` accepts any object with a ``text`` attribute (pydantic model) or
     a ``{"text": ...}`` dict; returns unchanged when there is no quote.
+
+    ``reference_block`` 是用户这一轮显式引用的历史会话名片（见
+    ``core.services.chat_reference_service.render_reference_block``），拼在最前面：它交代
+    的是"回答这条消息要参考哪些会话"，属于这一轮的背景，先于追问引用和用户原话。
     """
     if isinstance(quoted_follow_up, dict):
         quote_text = quoted_follow_up.get("text")
     else:
         quote_text = getattr(quoted_follow_up, "text", None) if quoted_follow_up is not None else None
+    prefix = (reference_block or "").strip()
+    prefix = f"{prefix}\n\n" if prefix else ""
+
     if not quote_text:
-        return message
+        return f"{prefix}{message}"
 
     quote = str(quote_text).strip()
     if not quote:
-        return message
+        return f"{prefix}{message}"
 
-    return (
+    return prefix + (
         "你正在回答同一会话中的一条追问消息。请优先结合当前会话上下文，并重点参考下面的引用原文来理解代词、省略和上下文指向。\n"
         "要求：\n"
         "1. 将【引用原文】视为这次追问直接关联的内容。\n"
