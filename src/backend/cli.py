@@ -587,12 +587,17 @@ def _probe_host_tools() -> dict:
         "npm": shutil.which("npm"),
         "pandoc": shutil.which("pandoc"),
         "libreoffice": find_libreoffice_binary(),
-        "os_sandbox": (
-            shutil.which("bwrap")
-            if sys.platform.startswith("linux")
-            else shutil.which("sandbox-exec") if sys.platform == "darwin" else None
-        ),
+        # Asked of the sandbox layer itself rather than probed here, so the
+        # doctor can never disagree with what the executor will actually do.
+        "os_sandbox": _os_sandbox_status(),
     }
+
+
+def _os_sandbox_status() -> tuple[str, str]:
+    """``(backend name, reason it is unavailable)``; the reason is empty when ready."""
+    from core.sandbox.os_sandbox import backend_name, confinement_unavailable_reason
+
+    return backend_name(), confinement_unavailable_reason()
 
 
 def _print_capability_summary() -> None:
@@ -616,18 +621,11 @@ def _print_capability_summary() -> None:
             else "（未装：PPT/Word 无法预览；重新运行一键安装器可选择补装）"
         )
     )
-    sandbox_name = (
-        "bubblewrap"
-        if sys.platform.startswith("linux")
-        else "sandbox-exec" if sys.platform == "darwin" else "Windows 强隔离后端"
-    )
+    sandbox_backend, sandbox_reason = tools["os_sandbox"]
     print(
-        f"  [{'✓' if tools['os_sandbox'] else '·'}] {sandbox_name} — 本机代码执行文件隔离"
-        + (
-            ""
-            if tools["os_sandbox"]
-            else "（未装：严格/标准权限档会拒绝 bash 裸执行）"
-        )
+        f"  [{'✓' if not sandbox_reason else '·'}] {sandbox_backend or 'OS 沙箱'}"
+        " — 本机代码执行的文件与网络隔离"
+        + ("" if not sandbox_reason else f"（{sandbox_reason}：除「完全放开」外的权限档会拒绝执行）")
     )
 
 
@@ -891,16 +889,14 @@ def cmd_doctor(args) -> int:
     check("前端已构建 (dist)", dist is not None, dist or "缺失：cd src/frontend && npm run build")
 
     _tools = _probe_host_tools()
-    _sandbox_supported = sys.platform.startswith("linux") or sys.platform == "darwin"
+    _sandbox_backend, _sandbox_reason = _tools["os_sandbox"]
     check(
-        "OS 文件沙箱（本机 bash 强隔离）",
-        _tools["os_sandbox"] is not None,
-        (
-            ""
-            if _tools["os_sandbox"]
-            else "Linux 安装 bubblewrap；Windows 当前严格/标准档会 fail-closed"
-        ),
-        required=_sandbox_supported,
+        f"OS 沙箱（本机 bash 的文件与网络隔离，后端 {_sandbox_backend or '无'}）",
+        not _sandbox_reason,
+        _sandbox_reason,
+        # Every platform has a backend now, so a missing one is a real defect on
+        # any of them rather than an accepted gap on some.
+        required=True,
     )
     check(
         "Node.js + npm（可选，React 对话建站）",

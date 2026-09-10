@@ -6,6 +6,7 @@ import { mergeHistoryPage } from '../src/utils/historyMerge';
 const msg = (id: string | undefined, ts: number, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   role: 'assistant',
   content: id || `local-${ts}`,
+  uid: id || `local-${ts}`,
   ts,
   ...(id ? { messageId: id } : {}),
   ...extra,

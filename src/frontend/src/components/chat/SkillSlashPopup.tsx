@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AppstoreOutlined, BulbOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BulbOutlined, MessageOutlined } from '@ant-design/icons';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
-import type { InstalledPluginItem } from '../../types';
+import type { InstalledPluginItem, ReferencableChat } from '../../types';
 
 type SlashEntryBase = {
   id: string;
@@ -15,7 +15,8 @@ type SlashEntryBase = {
 export type SlashEntry =
   | (SlashEntryBase & { kind: 'command' })
   | (SlashEntryBase & { kind: 'skill' })
-  | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem });
+  | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem })
+  | (SlashEntryBase & { kind: 'chat'; chat: ReferencableChat });
 
 interface SkillSlashPopupProps {
   entries: SlashEntry[];
@@ -30,7 +31,14 @@ const POPUP_MAX_HEIGHT = 320;
 function sectionLabel(kind: SlashEntry['kind']): string {
   if (kind === 'command') return t('项目命令');
   if (kind === 'plugin') return t('插件');
+  if (kind === 'chat') return t('引用会话');
   return t('技能');
+}
+
+function entryIcon(kind: SlashEntry['kind']) {
+  if (kind === 'plugin') return <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />;
+  if (kind === 'chat') return <MessageOutlined className="jx-slashPopup-icon jx-slashPopup-icon--chat" />;
+  return <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />;
 }
 
 export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onHover }: SkillSlashPopupProps) {
@@ -78,9 +86,7 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
                 onMouseEnter={() => onHover(idx)}
                 onClick={() => onSelect(entry)}
               >
-                {entry.kind === 'plugin'
-                  ? <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />
-                  : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
+                {entryIcon(entry.kind)}
                 <span className="jx-slashPopup-name" title={entry.name}>{entry.name}</span>
                 {entry.description && (
                   <span className="jx-commandPopup-description" title={entry.description}>

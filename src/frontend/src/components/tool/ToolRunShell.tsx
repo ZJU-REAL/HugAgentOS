@@ -37,9 +37,10 @@ function formatDuration(totalSec: number): string {
  *
  * While running it ticks live from the batch start alongside streamed tool
  * arguments and results when the selected model/provider exposes them.
- * Once done it shows a stable span derived from the first→last tool
- * timestamps, so a reloaded/historical message renders the same value every
- * time instead of drifting with a frozen wall clock.
+ * Once done it shows a stable span from the first call's start to the last
+ * call's finish — both persisted by the backend — so a reloaded message, or
+ * the same conversation opened on another device, renders the same value
+ * instead of timing itself from the moment it was rendered.
  */
 function ShellTimer({
   startTs,
@@ -109,11 +110,13 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   const running = anyToolRunning || anyThinkingActive || anyPending;
   const status: ShellStatus = running ? 'running' : 'success';
 
-  const tsList = tools
-    .map((t) => t.timestamp)
-    .filter((t): t is number => typeof t === 'number');
-  const startTs = tsList.length ? Math.min(...tsList) : mountTs;
-  const endTs = tsList.length ? Math.max(...tsList) : mountTs;
+  const timed = tools.filter((t): t is ToolCall & { timestamp: number } => typeof t.timestamp === 'number');
+  const startTs = timed.length ? Math.min(...timed.map((t) => t.timestamp)) : mountTs;
+  // 收尾时刻 = 最后一个跑完的调用的开始时刻 + 它的耗时。少了这个耗时，一批工具
+  // 的跨度就只数到"最后一个开始"为止，最后那次执行整段不算。
+  const endTs = timed.length
+    ? Math.max(...timed.map((t) => t.timestamp + (t.durationMs ?? 0)))
+    : mountTs;
 
   // 折叠态下这行是用户唯一看得到的信息，所以报的是实际动作而不是"执行中/已完成"：
   // 跑的时候跟着当前那个工具走，收尾后按这一批用过的工具类型给结论。

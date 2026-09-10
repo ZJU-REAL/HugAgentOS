@@ -192,6 +192,44 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _epoch_ms(value: Optional[datetime]) -> Optional[int]:
+    """Wall-clock milliseconds for a stored timestamp.
+
+    SQLite hands back naive datetimes; everything written here is UTC, so an
+    absent tzinfo is read as UTC rather than as the host's local zone.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return int(value.timestamp() * 1000)
+
+
+def _run_started_at_ms(run_id: str) -> Optional[int]:
+    """When this run actually began, in wall-clock milliseconds.
+
+    Read from ``chat_runs.started_at``, which is written once when the run is
+    claimed and is never rewritten by a recovering worker. Sending it with the
+    first frame is what lets a second device — or a reloaded tab — join a run
+    already in flight and show the true elapsed time instead of starting its
+    own stopwatch from zero.
+
+    Only a worker resuming someone else's run needs to look this up: a worker
+    that claimed the run already holds the instant it wrote. Keeping the read
+    off the normal send path matters — it sits directly in front of the first
+    frame, where every millisecond is one the user spends staring at nothing.
+    """
+    with SessionLocal() as db:
+        row = (
+            db.query(ChatRun.started_at, ChatRun.created_at)
+            .filter(ChatRun.run_id == run_id)
+            .first()
+        )
+    if row is None:
+        return None
+    return _epoch_ms(row.started_at or row.created_at)
+
+
 def _journal() -> RunJournal:
     # Resolve SessionLocal at call time so tests and alternate runtime profiles
     # can replace the factory without leaving the journal bound to another DB.
@@ -266,20 +304,26 @@ def _update_run_status(run_id: str, **fields: Any) -> None:
         db.commit()
 
 
-def _claim_run_execution(run_id: str) -> bool:
-    """Fence duplicate initial workers before acquiring the durable lease."""
+def _claim_run_execution(run_id: str) -> Optional[datetime]:
+    """Fence duplicate initial workers before acquiring the durable lease.
 
+    Returns the instant the run was marked running, or None when another worker
+    got there first. The caller needs that instant for the first frame, and
+    handing it back keeps the send path free of a second read of the same row.
+    """
+
+    started_at = _utcnow()
     with SessionLocal() as db:
         affected = (
             db.query(ChatRun)
             .filter(ChatRun.run_id == run_id, ChatRun.status == "pending")
             .update(
-                {"status": "running", "started_at": _utcnow()},
+                {"status": "running", "started_at": started_at},
                 synchronize_session=False,
             )
         )
         db.commit()
-    return bool(affected)
+    return started_at if affected else None
 
 
 def _finalize_run(
@@ -789,8 +833,17 @@ async def wait_run(run_id: str) -> ChatRun:
 
 
 async def _xadd_event(run_id: str, offset: int, event: Dict[str, Any]) -> None:
-    """Stamp an SSE event with its offset and append it to the run's log."""
-    payload = {**event, "_offset": offset}
+    """Stamp an SSE event with its offset and wall clock, append it to the run's log.
+
+    ``server_ts`` is when the server produced the event. A client that joins
+    late — after a reconnect, a session switch, or from a second device —
+    replays the log and reads these stamps, so its "waiting since" clock
+    reflects the run's real timeline instead of the moment this browser
+    happened to receive them. It deliberately has no underscore prefix: that
+    prefix marks transport-internal keys, which ``follow_run_as_sse`` strips
+    before the frame goes out, and this one is meant for the client.
+    """
+    payload = {**event, "_offset": offset, "server_ts": int(time.time() * 1000)}
     try:
         await _events().append(run_id, payload)
     except Exception as exc:
@@ -865,9 +918,13 @@ async def _run_workflow(
     from core.chat.display_bounds import bound_result_for_display, bound_result_for_history
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
 
+    # 本轮的墙钟起点。认领这一轮的 worker 手里就有它；只有接管别人未完成的
+    # 那一轮时才需要回库里取（见 _run_started_at_ms）。
+    claimed_at: Optional[datetime] = None
     initial_claimed = False
     if not recovering:
-        initial_claimed = _claim_run_execution(run_id)
+        claimed_at = _claim_run_execution(run_id)
+        initial_claimed = claimed_at is not None
         if not initial_claimed:
             _acknowledge_never_started_terminal_writer(run_id)
             return
@@ -1165,6 +1222,7 @@ async def _run_workflow(
                 "run_id": run_id,
                 "message_id": message_id,
                 "chat_id": chat_id,
+                "started_at": _epoch_ms(claimed_at) if claimed_at else _run_started_at_ms(run_id),
             }
         )
         if recovering:
@@ -2360,6 +2418,7 @@ async def _run_plan_execute_workflow(
     DB connection across the entire long-running stream.
     """
     from core.chat.tool_log import attach_tool_result as _attach_tool_result
+    from core.chat.tool_log import upsert_tool_call as _upsert_tool_call
     from core.llm import workspace as _workspace_mod
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
     from core.services.plan_service import PlanService
@@ -2422,6 +2481,9 @@ async def _run_plan_execute_workflow(
                 "run_id": run_id,
                 "message_id": message_id,
                 "chat_id": chat_id,
+                # 这几条路径不会被恢复接管，worker 起来的那一刻就是本轮起点，
+                # 不必为了拿它再读一次库——首帧前的每一次往返用户都在干等。
+                "started_at": int(time.time() * 1000),
                 "kind": "plan_execute",
                 "plan_id": plan_id,
             }
@@ -2453,13 +2515,14 @@ async def _run_plan_execute_workflow(
                         total_steps = event.get("total_steps", 0)
                         exec_usage = event.get("usage") or None
                     elif evt_type == "tool_call":
-                        tool_calls_log.append(
+                        _upsert_tool_call(
+                            tool_calls_log,
                             {
                                 "tool_name": event.get("tool_name"),
                                 "tool_id": event.get("tool_id"),
                                 "tool_args": event.get("tool_args", {}),
                                 "step_id": event.get("step_id"),
-                            }
+                            },
                         )
                     elif evt_type == "tool_result":
                         res = event.get("result")
@@ -3073,6 +3136,9 @@ async def _run_autonomous_loop_workflow(
                 "run_id": run_id,
                 "message_id": message_id,
                 "chat_id": chat_id,
+                # 这几条路径不会被恢复接管，worker 起来的那一刻就是本轮起点，
+                # 不必为了拿它再读一次库——首帧前的每一次往返用户都在干等。
+                "started_at": int(time.time() * 1000),
                 "kind": "autonomous_loop",
                 "loop_id": loop_id,
             }
@@ -3435,6 +3501,9 @@ async def _run_plan_generate_workflow(
                 "run_id": run_id,
                 "message_id": message_id,
                 "chat_id": chat_id,
+                # 这几条路径不会被恢复接管，worker 起来的那一刻就是本轮起点，
+                # 不必为了拿它再读一次库——首帧前的每一次往返用户都在干等。
+                "started_at": int(time.time() * 1000),
                 "kind": "plan_generate",
             }
         )
@@ -3701,6 +3770,19 @@ async def recover_orphan_runs() -> int:
     """Recover claimable runs from their last committed database safe point."""
     from core.services.tool_effect_ledger import ToolEffectJournal, recover_incomplete_tool_effects
 
+    # Desktop channel runs require a live device lease and a scoped I/O adapter.
+    # Neither survives process restart. Fail closed before any tool-effect recovery.
+    with SessionLocal() as db:
+        local_channel_runs = [
+            (run.run_id, run.chat_id)
+            for run in db.query(ChatRun).filter(ChatRun.status.in_(_LIVE_STATUSES)).all()
+            if (run.request_payload or {}).get("source") == "desktop_channel"
+            and run.run_id not in _active_runs
+        ]
+    for run_id, chat_id in local_channel_runs:
+        if _journal().cancel(run_id, reason="desktop channel lease cannot survive process restart"):
+            await _write_terminal_to_stream(run_id, chat_id=chat_id,
+                error_text="本机机器人执行已中断，请检查结果后从渠道重新发起", cancelled=True)
     effect_decisions = await recover_incomplete_tool_effects(
         journal=ToolEffectJournal(SessionLocal)
     )
@@ -3757,7 +3839,8 @@ async def recover_orphan_runs() -> int:
                 chat_id=decision.chat_id or "",
                 error_text="服务重启发生在任务准备完成前，请重新发起",
             )
-    recovered_count = len({item.run_id for item in decisions} | effect_attention_runs)
+    recovered_count = len({item.run_id for item in decisions} | effect_attention_runs
+        | {run_id for run_id, _ in local_channel_runs})
     if recovered_count:
         logger.info("chat_run_orphan_recovered", count=recovered_count)
     return recovered_count
@@ -3780,6 +3863,8 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
         return False
     owner = _new_worker_owner(decision.run_id)
     recovered_run = get_run(decision.run_id)
+    if recovered_run and (recovered_run.request_payload or {}).get("source") == "desktop_channel":
+        return False
     _register_run_task(
         decision.run_id,
         _run_workflow(
@@ -4265,6 +4350,25 @@ async def run_stale_reaper_loop() -> None:
             logger.warning("chat_run_stale_reaper_iteration_failed", exc_info=True)
 
 
+# Runs the chat UI never represents as "this conversation is busy": background
+# jobs that own their own surface (automation panel, batch panel, internal job
+# agents) plus the retired legacy stream.
+_BACKGROUND_RUN_KINDS = frozenset(
+    {
+        "automation_plan",
+        "automation_prompt",
+        "batch_item",
+        "internal_job_agent",
+        "legacy_chat_stream",
+    }
+)
+
+
+def _run_kind(run: ChatRun) -> Any:
+    payload = run.request_payload if isinstance(run.request_payload, dict) else {}
+    return payload.get("kind")
+
+
 def get_active_run_for_chat(chat_id: str, user_id: str) -> Optional[ChatRun]:
     """Backing query for GET /v1/chats/{chat_id}/active-run."""
     with SessionLocal() as db:
@@ -4279,16 +4383,35 @@ def get_active_run_for_chat(chat_id: str, user_id: str) -> Optional[ChatRun]:
             .all()
         )
         for row in rows:
-            payload = row.request_payload if isinstance(row.request_payload, dict) else {}
-            if payload.get("kind") not in {
-                "automation_plan",
-                "automation_prompt",
-                "batch_item",
-                "internal_job_agent",
-                "legacy_chat_stream",
-            }:
+            if _run_kind(row) not in _BACKGROUND_RUN_KINDS:
                 return row
         return None
+
+
+def list_active_runs_for_user(user_id: str) -> List[ChatRun]:
+    """Backing query for GET /v1/chats/active-runs — one live run per chat.
+
+    Only genuinely live rows (``pending`` / ``running``) qualify. The per-chat
+    probe additionally accepts a lingering ``writer_slot`` so a reconnecting
+    client can clean its own zombie UI up; this listing feeds the sidebar's
+    "still running" dot, where a terminal row must not light anything.
+    """
+    with SessionLocal() as db:
+        rows = (
+            db.query(ChatRun)
+            .filter(
+                ChatRun.user_id == user_id,
+                ChatRun.status.in_(_LIVE_STATUSES),
+            )
+            .order_by(ChatRun.created_at.desc())
+            .all()
+        )
+    latest_per_chat: Dict[str, ChatRun] = {}
+    for row in rows:
+        if _run_kind(row) in _BACKGROUND_RUN_KINDS:
+            continue
+        latest_per_chat.setdefault(row.chat_id, row)
+    return list(latest_per_chat.values())
 
 
 # ─── SSE wire wrapper (shared by the chats / plans routes) ─────────────

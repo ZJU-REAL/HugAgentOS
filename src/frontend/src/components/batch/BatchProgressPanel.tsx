@@ -158,6 +158,7 @@ function ToolGroup({ rawTools, dispatchProcessVisible }: {
     role: 'assistant',
     content: '',
     isMarkdown: false,
+    uid: `batch_tools_${tools[0]?.id ?? 'empty'}`,
     ts: Date.now(),
     toolCalls: tools,
   };

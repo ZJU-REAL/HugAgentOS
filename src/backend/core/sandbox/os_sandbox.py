@@ -1,177 +1,180 @@
-"""OS-level sandbox wrapping for desktop local execution (tickets #09 / #12).
+"""Desktop local mode → OS sandbox policy.
 
-The local host-subprocess sandbox runs bash as the user with no filesystem jail —
-the string-level policy gate (``local_policy``) is defense-in-depth, not
-isolation. This module is the real isolation layer: it wraps a shell command so
-the OS confines *writes* to an allow-list (the workspace root + user-authorized
-folders). Standard mode also gets a private/approved temp area; strict mode has
-no writable host path. Reads stay open, matching the reference sandbox modes.
+This is the one place that translates what the user chose into what the sandbox
+enforces. Everything below it (:mod:`core.sandbox.oslayer`) is platform
+mechanics; everything above it is product vocabulary — the permission preset in
+the composer, the folders authorized in 设置 → 本地权限, and the per-category
+danger dispositions.
 
-- **macOS**: Apple Seatbelt via ``sandbox-exec -p <profile>``.
-- **Linux**: ``bwrap`` (bubblewrap) with a read-only root + writable binds.
-- **Windows**: no filesystem-confining runner is currently bundled.
+The mapping, in full:
 
-The sandbox is enabled by default; ``HUGAGENT_LOCAL_OS_SANDBOX=0`` is an
-explicit administrative disable. Whether an unavailable backend is fatal is
-**not decided here** — :func:`confinement_unavailable_reason` reports the fact
-and the caller's permission preset decides (see
-``core.llm.tool_permissions.LOCAL_CONFINEMENT_BY_MODE``): ``strict`` requires
-confinement and refuses without it, ``standard`` degrades to the command-policy
-gate with a warning, ``full`` waives it. Keeping the decision in the policy
-layer is what stops "no backend on this platform" from silently meaning "no
-shell at all" on Windows.
+===========================  ==============================================
+User's choice                Resulting policy
+===========================  ==============================================
+Preset ``full``              No confinement at all. This is the preset whose
+                             entire meaning is "run it as me"; honouring it is
+                             not a fallback, it is the setting.
+Preset ``ask`` / ``auto``    Filesystem restricted: reads open, writes limited
+                             to the workspace, the folders granted read-write,
+                             and the paths this one command was approved to
+                             write. Scratch space is private.
+Grant mode ``read``          Contributes a readable root and no write.
+``workspace_write = block``  No writable roots at all — a read-only sandbox.
+``danger.network = block``   Network restricted; anything else leaves it open,
+                             because the command-level gate has already made
+                             the call about this specific command.
+``danger.system_write``      Unless set to ``allow``, protected system areas
+                             never become writable roots, no matter which grant
+                             or one-shot target asked for them.
+===========================  ==============================================
+
+There is no path through this module that produces "unconfined" without the user
+having chosen it: an unavailable backend or an unenforceable policy raises out of
+:func:`confine`, and the caller turns that into a refusal.
 """
 
 from __future__ import annotations
 
 import os
-import shlex
-import shutil
 import tempfile
-from typing import List, Optional
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
-_HEREDOC = "HG_SBX_EOF_9Z"
+from core.sandbox.oslayer import (
+    NetworkPolicy,
+    PolicyContext,
+    SandboxLaunch,
+    SandboxPolicy,
+    SandboxUnavailableError,
+    SandboxUnenforceableError,
+    build_filesystem_policy,
+    build_launch,
+    current_platform,
+    get_platform_backend,
+    unrestricted_policy,
+)
+from core.sandbox.oslayer.policy import normalize_logical
 
-# Standard mode gets the platform temp area. Linux uses a private tmpfs in the
-# mount namespace; macOS Seatbelt needs the canonical host temp paths listed.
-_MAC_EXTRA_WRITE = ["/tmp", tempfile.gettempdir()]
+# Basenames that stay read-only inside every writable root. These are the files
+# that describe a project's own authority rather than its content: rewriting the
+# version-control metadata would let a command rewrite the record of what it
+# did, and the agent's own state directory decides what the next run is allowed
+# to do. Codex protects the same class of paths for the same reason.
+VERSION_CONTROL_METADATA_NAME = ".git"
 
 
-class OsSandboxUnavailableError(RuntimeError):
-    """Raised when a restricted local command cannot be strongly confined."""
+def local_state_dir() -> str:
+    """Where the desktop install keeps its local state.
+
+    Reuses the data directory the rest of local mode already agrees on rather
+    than introducing a sandbox-specific location.
+    """
+    return str(Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser())
 
 
-def os_sandbox_enabled() -> bool:
-    raw = os.getenv("HUGAGENT_LOCAL_OS_SANDBOX", "").strip().casefold()
-    return raw not in ("0", "false", "no", "off")
+def protected_metadata_names() -> tuple[str, ...]:
+    """Protected basenames for this install.
+
+    The agent's own state directory is derived from where local mode actually
+    put it, so a rebranded build protects its own directory name without anyone
+    editing a list.
+    """
+    return (VERSION_CONTROL_METADATA_NAME, os.path.basename(local_state_dir()))
 
 
-def confinement_runner(platform: Optional[str] = None) -> str:
-    """Name of the filesystem-confinement runner for ``platform`` ("" if none)."""
-    plat = platform or _current_platform()
-    return "sandbox-exec" if plat == "macos" else "bwrap" if plat == "linux" else ""
+def build_context(*, workspace_root: str, cwd: Optional[str] = None) -> PolicyContext:
+    """Executor facts the policy is resolved against."""
+    root = normalize_logical(workspace_root)
+    return PolicyContext(
+        cwd=normalize_logical(cwd) if cwd else root,
+        workspace_roots=(root,),
+        home_dir=str(Path.home()),
+        temp_dirs=(tempfile.gettempdir(),),
+        protected_metadata_names=protected_metadata_names(),
+        state_dir=local_state_dir(),
+    )
+
+
+@dataclass(frozen=True)
+class LocalAccessDecision:
+    """What the permission layer decided this command may touch.
+
+    ``writable_roots`` are already filtered by the permission layer's own rules
+    (system areas, out-of-scope targets); this module does not second-guess
+    them, it only expresses them.
+    """
+
+    approval_mode: str
+    unconfined: bool = False
+    writable_roots: tuple[str, ...] = ()
+    readable_roots: tuple[str, ...] = ()
+    denied_paths: tuple[str, ...] = ()
+    network_allowed: bool = True
+    writable_scratch: bool = True
+
+
+def build_policy(decision: LocalAccessDecision) -> SandboxPolicy:
+    """Turn a permission decision into a sandbox policy."""
+    if decision.unconfined:
+        return unrestricted_policy()
+    return SandboxPolicy(
+        filesystem=build_filesystem_policy(
+            writable_roots=decision.writable_roots,
+            readable_roots=decision.readable_roots,
+            denied_paths=decision.denied_paths,
+            writable_temp=decision.writable_scratch,
+        ),
+        network=NetworkPolicy.ENABLED if decision.network_allowed else NetworkPolicy.RESTRICTED,
+    )
+
+
+def confine(policy: SandboxPolicy, context: PolicyContext) -> SandboxLaunch:
+    """Build the confined launch, or raise saying exactly why it cannot."""
+    return build_launch(policy, context)
+
+
+def backend_name(platform: Optional[str] = None) -> str:
+    """Human-facing name of the platform's confinement mechanism."""
+    backend = get_platform_backend(platform)
+    return backend.name if backend is not None else ""
 
 
 def confinement_unavailable_reason(platform: Optional[str] = None) -> str:
-    """Why strong write confinement cannot be applied here ("" when it can).
-
-    Callers use this to *decide* — a preset that merely prefers confinement can
-    degrade with a warning, while one that requires it must refuse. Keeping the
-    probe separate from :func:`wrap_command` is what lets that choice live in
-    the permission policy instead of at each execution site.
-    """
-    if not os_sandbox_enabled():
-        return "本机 OS 沙箱已被 HUGAGENT_LOCAL_OS_SANDBOX 显式关闭"
-    plat = platform or _current_platform()
-    runner = confinement_runner(plat)
-    if not runner:
-        return f"当前平台 {plat} 尚无可用的文件系统隔离后端"
-    if shutil.which(runner) is None:
-        return f"本机缺少 OS 沙箱运行器 {runner}"
-    return ""
+    """Why no confinement is possible on this host, or ``""`` when it is."""
+    target = platform or current_platform()
+    backend = get_platform_backend(target)
+    if backend is None:
+        return f"当前平台 {target} 没有可用的沙箱后端"
+    return backend.unavailable_reason()
 
 
 def confinement_available(platform: Optional[str] = None) -> bool:
     return not confinement_unavailable_reason(platform)
 
 
-def _current_platform() -> str:
-    if os.name == "nt":
-        return "windows"
-    import sys
-
-    return "macos" if sys.platform == "darwin" else "linux"
-
-
-def _macos_profile(write_paths: List[str]) -> str:
-    lines = [
-        "(version 1)",
-        "(allow default)",  # allow-by-default, then subtract writes outside the allow-list
-        "(deny file-write*)",
-        "(allow file-write*",
-    ]
-    for p in write_paths:
-        escaped = p.replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f'    (subpath "{escaped}")')
-    lines.append('    (literal "/dev/null")')
-    lines.append('    (literal "/dev/stdout")')
-    lines.append('    (literal "/dev/stderr")')
-    lines.append(")")
-    return "\n".join(lines)
-
-
-def _wrap_macos(cmd: str, write_paths: List[str]) -> str:
-    profile = _macos_profile(write_paths)
-    # profile uses only double quotes → safe inside a single-quoted -p arg.
-    return (
-        f"sandbox-exec -p {shlex.quote(profile)} /bin/bash <<'{_HEREDOC}'\n"
-        f"{cmd}\n"
-        f"{_HEREDOC}"
-    )
-
-
-def _wrap_linux(cmd: str, write_paths: List[str], *, allow_temp: bool) -> str:
-    args = [
-        "bwrap",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--unshare-pid",
-        "--proc",
-        "/proc",
-        "--die-with-parent",
-    ]
-    if allow_temp:
-        # Private and ephemeral: never expose the host's shared /tmp writable.
-        args += ["--tmpfs", "/tmp"]
-    for p in write_paths:
-        if p == "/tmp":
-            continue
-        args += ["--bind", p, p]
-    args += ["/bin/bash"]
-    prefix = " ".join(shlex.quote(a) for a in args)
-    return f"{prefix} <<'{_HEREDOC}'\n{cmd}\n{_HEREDOC}"
-
-
-def wrap_command(
-    cmd: str,
-    write_paths: List[str],
-    *,
-    platform: Optional[str] = None,
-    read_only: bool = False,
+def policy_unenforceable_reason(
+    policy: SandboxPolicy, context: PolicyContext, platform: Optional[str] = None
 ) -> str:
-    """Wrap ``cmd`` so the OS confines persistent writes.
-
-    ``read_only`` removes every caller-provided writable root and does not add a
-    writable temp area. Disabled, unsupported, or missing runners raise instead
-    of returning the raw command. ``platform`` overrides autodetection for tests.
-    """
-    unavailable = confinement_unavailable_reason(platform)
-    if unavailable:
-        raise OsSandboxUnavailableError(unavailable)
-    plat = platform or _current_platform()
-    # de-dup + keep only absolute paths
-    seen: List[str] = []
-    extras = _MAC_EXTRA_WRITE if plat == "macos" else []
-    requested = [] if read_only else list(write_paths) + extras
-    for p in requested:
-        ap = os.path.realpath(os.path.abspath(os.path.expanduser(p))) if p else ""
-        if ap and ap not in seen:
-            seen.append(ap)
-    if plat == "macos":
-        return _wrap_macos(cmd, seen)
-    if plat == "linux":
-        return _wrap_linux(cmd, seen, allow_temp=not read_only)
-    raise OsSandboxUnavailableError(f"当前平台 {plat} 无法执行受限命令")
+    """Why this policy cannot be fully enforced here, or ``""`` when it can."""
+    backend = get_platform_backend(platform)
+    if backend is None:
+        return confinement_unavailable_reason(platform)
+    return backend.unenforceable_reason(policy, context)
 
 
 __all__ = [
-    "OsSandboxUnavailableError",
+    "LocalAccessDecision",
+    "SandboxUnavailableError",
+    "SandboxUnenforceableError",
+    "VERSION_CONTROL_METADATA_NAME",
+    "backend_name",
+    "build_context",
+    "build_policy",
+    "confine",
     "confinement_available",
-    "confinement_runner",
     "confinement_unavailable_reason",
-    "os_sandbox_enabled",
-    "wrap_command",
+    "local_state_dir",
+    "policy_unenforceable_reason",
+    "protected_metadata_names",
 ]

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Input, Modal, Popconfirm, Select, Spin, Switch, Tag, message } from 'antd';
+import { Button, Input, Modal, Popconfirm, Radio, Select, Spin, Switch, Tag, message } from 'antd';
 import {
   CheckCircleFilled, DeleteOutlined, PlusOutlined, ReloadOutlined, RobotOutlined,
   ScanOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
   listChannelAdapters, listChannelBots, createChannelBot, updateChannelBot, deleteChannelBot,
-  testChannelBot, startWeixinBind, getWeixinBindStatus,
+  testChannelBot, startWeixinBind, getWeixinBindStatus, prepareChannelLocalBinding,
   type ChannelAdapterInfo, type ChannelBot, type CreateChannelBotPayload,
 } from '../../api';
 import { t } from '../../i18n';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 
 const STATUS_META: Record<ChannelBot['status'], { color: string; label: string }> = {
   connected: { color: 'success', label: t('已连接') },
@@ -47,6 +48,10 @@ interface ChannelBotsPanelProps {
  */
 export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps = {}) {
   const scopedToAgent = !!agentId;
+  const provisionMode = useDeploymentModeStore((state) => state.provisionMode);
+  const localReady = useDeploymentModeStore((state) => state.localReady);
+  const [executionLocation, setExecutionLocation] = useState<'cloud' | 'local'>('cloud');
+  const canChooseLocal = provisionMode === 'dual';
   const [adapters, setAdapters] = useState<ChannelAdapterInfo[]>([]);
   const [bots, setBots] = useState<ChannelBot[]>([]);
   const [loading, setLoading] = useState(false);
@@ -114,7 +119,11 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
         if (encryptKey.trim()) extra.encrypt_key = encryptKey.trim();
         if (verificationToken.trim()) extra.verification_token = verificationToken.trim();
       }
+      const localBinding = executionLocation === 'local'
+        ? await prepareChannelLocalBinding() : undefined;
       const payload: CreateChannelBotPayload = {
+        execution_location: executionLocation,
+        local_binding_id: localBinding?.binding_id,
         channel_type: channelType,
         app_id: creds.app_id.trim(),
         app_secret: creds.app_secret.trim(),
@@ -146,7 +155,9 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
   const onWeixinScan = async () => {
     setQrImg(''); setQrTip(t('正在获取二维码…')); setQrOpen(true);
     try {
-      const { bind_id, qrcode_img } = await startWeixinBind(agentId);
+      const localBinding = executionLocation === 'local'
+        ? await prepareChannelLocalBinding() : undefined;
+      const { bind_id, qrcode_img } = await startWeixinBind(agentId, localBinding?.binding_id);
       setQrImg(qrcode_img);
       setQrTip(t('请用微信扫描二维码并确认登录'));
       let elapsed = 0;
@@ -244,6 +255,12 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                     {bot.display_name} <Tag color={meta.color}>{meta.label}</Tag>
                     <Tag>{CHANNEL_LABELS[bot.channel_type] || bot.channel_type}</Tag>
                     <Tag>{bot.transport === 'long_conn' ? t('长连接') : 'Webhook'}</Tag>
+                    <Tag>{bot.execution_location === 'local' ? t('本机') : t('云端')}</Tag>
+                    {bot.execution_location === 'local' && (
+                      <Tag color={bot.device_online ? 'success' : 'default'}>
+                        {bot.device_name || t('本机')} · {bot.device_online ? t('设备在线') : t('设备离线')}
+                      </Tag>
+                    )}
                   </div>
                   <div className="jx-conn-desc" style={{ fontSize: 12 }}>
                     {bot.channel_type === 'weixin' ? t('微信号') : 'App ID'}: {bot.app_id}
@@ -289,6 +306,30 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
       {showForm ? (
         <div className="jx-settings-card" style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {canChooseLocal && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span className="jx-conn-desc">{t('执行位置')}</span>
+                  <Radio.Group
+                    value={executionLocation}
+                    disabled={creating || qrOpen}
+                    onChange={(event) => setExecutionLocation(event.target.value)}
+                    options={[
+                      { value: 'cloud', label: t('云端') },
+                      { value: 'local', label: t('本机'), disabled: !localReady },
+                    ]}
+                  />
+                </div>
+                {executionLocation === 'local' && (
+                  <div className="jx-conn-note">
+                    {t('在这台电脑的默认项目中运行，无需绑定目录。机器人沿用桌面端的本地文件权限，使用者可通过机器人访问已授权的本地内容。')}
+                    <br />
+                    {t('电脑需保持在线且桌面端已登录；最小化到托盘可继续运行，离线不会自动改用云端。')}
+                  </div>
+                )}
+                {!localReady && <div className="jx-conn-desc">{t('本机服务尚未就绪，暂不可选择本机。')}</div>}
+              </>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="jx-conn-desc">{t('渠道')}</span>
               <Select

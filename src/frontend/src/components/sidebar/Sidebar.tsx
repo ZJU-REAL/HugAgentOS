@@ -25,6 +25,7 @@ import { DEFAULT_SIDEBAR_ITEMS, DEFAULT_MENU_ITEMS } from '../../utils/pageConfi
 import { buildSidebarChatItems } from '../../utils/history';
 import { compareSidebarItems } from '../../utils/sidebarOrder';
 import { resolveAvatarUrl } from '../../utils/avatar';
+import { CHAT_REFERENCE_MIME } from '../../utils/constants';
 import { loadJsonPref, saveJsonPref } from '../../storage';
 import { getAutomationRuns } from '../../api';
 import type { ChatItem, PanelKey } from '../../types';
@@ -93,7 +94,7 @@ export function Sidebar({
     pendingDesignPick,
     pendingUserQuestions,
   } = useUIStore();
-  const { store, currentChatId, chatsLoading, sendingChatIds, updateStore, addBackendSessionId } = useChatStore();
+  const { store, currentChatId, chatsLoading, sendingChatIds, remoteRunningChatIds, updateStore, addBackendSessionId } = useChatStore();
   const { authUser, doLogout, loggingOut } = useAuthStore();
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -456,9 +457,22 @@ export function Sidebar({
 
     const handleDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
       if (isEditing) { e.preventDefault(); return; }
-      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.effectAllowed = isAutomation ? 'move' : 'copyMove';
       // Firefox 要求 dragstart 里必须写入数据，否则整个拖拽不启动
       try { e.dataTransfer.setData('text/plain', item.id); } catch { /* 某些浏览器只读 */ }
+      // 同一次拖拽再挂一份会话身份：拖到输入框上就是"引用这段会话"，拖回列表内仍是排序。
+      // 定时任务分组不是一段可引用的对话，不挂这个类型。
+      if (!isAutomation) {
+        try {
+          e.dataTransfer.setData(CHAT_REFERENCE_MIME, JSON.stringify({
+            chat_id: item.id,
+            title: item.title,
+            message_count: item.messages?.length ?? 0,
+            last_active_display: new Date(item.updatedAt || Date.now())
+              .toLocaleString('zh-CN', { hour12: false }).slice(0, 16),
+          }));
+        } catch { /* 某些浏览器只读 */ }
+      }
       dragScopeRef.current = dragScope;
       setDragging(item.id);
     };
@@ -559,7 +573,7 @@ export function Sidebar({
                 </Tooltip>
                 <span className="jx-visuallyHidden">{t('等待你的回答')}</span>
               </>
-            ) : sendingChatIds.has(item.id) ? (
+            ) : (sendingChatIds.has(item.id) || remoteRunningChatIds.has(item.id)) ? (
               <Tooltip title={t('运行中')}>
                 <span className="jx-historyRunningDot" />
               </Tooltip>

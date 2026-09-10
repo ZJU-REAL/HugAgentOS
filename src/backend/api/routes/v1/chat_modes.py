@@ -108,7 +108,7 @@ def _public_mode_to_dict(row: ChatMode) -> Dict[str, Any]:
 
 
 @router.get("", summary="当前用户可用的模式（对话框模式位数据源）")
-async def list_modes(
+def list_modes(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -120,7 +120,7 @@ async def list_modes(
 
 
 @router.get("/options/mine", summary="我建模式时可选的能力清单")
-async def my_capability_options(
+def my_capability_options(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -130,7 +130,7 @@ async def my_capability_options(
 
 
 @router.get("/options/official", summary="官方模式可选的能力清单（Config 台）")
-async def official_capability_options(
+def official_capability_options(
     _: None = Depends(require_admin_or_config),
     db: Session = Depends(get_db),
 ):
@@ -142,7 +142,7 @@ async def official_capability_options(
 
 
 @router.get("/mine", summary="我自建的私有模式")
-async def list_my_modes(
+def list_my_modes(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -152,7 +152,7 @@ async def list_my_modes(
 
 
 @router.post("/mine", status_code=status.HTTP_201_CREATED, summary="新建私有模式")
-async def create_my_mode(
+def create_my_mode(
     body: ChatModeIn,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -163,7 +163,7 @@ async def create_my_mode(
 
 
 @router.put("/mine/{mode_id}", summary="修改私有模式")
-async def update_my_mode(
+def update_my_mode(
     mode_id: str,
     body: ChatModeIn,
     user: UserContext = Depends(get_current_user),
@@ -177,7 +177,7 @@ async def update_my_mode(
 
 
 @router.delete("/mine/{mode_id}", summary="删除私有模式")
-async def delete_my_mode(
+def delete_my_mode(
     mode_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -191,7 +191,7 @@ async def delete_my_mode(
 
 
 @router.get("/official", summary="官方模式列表（Config 台）")
-async def list_official_modes(
+def list_official_modes(
     _: None = Depends(require_admin_or_config),
     db: Session = Depends(get_db),
 ):
@@ -201,7 +201,7 @@ async def list_official_modes(
 
 
 @router.post("/official", status_code=status.HTTP_201_CREATED, summary="新建官方模式")
-async def create_official_mode(
+def create_official_mode(
     body: ChatModeIn,
     _: None = Depends(require_admin_or_config),
     db: Session = Depends(get_db),
@@ -211,7 +211,7 @@ async def create_official_mode(
 
 
 @router.put("/official/{mode_id}", summary="修改官方模式")
-async def update_official_mode(
+def update_official_mode(
     mode_id: str,
     body: ChatModeIn,
     _: None = Depends(require_admin_or_config),
@@ -222,7 +222,7 @@ async def update_official_mode(
 
 
 @router.delete("/official/{mode_id}", summary="删除官方模式（内置的只能停用）")
-async def delete_official_mode(
+def delete_official_mode(
     mode_id: str,
     _: None = Depends(require_admin_or_config),
     db: Session = Depends(get_db),

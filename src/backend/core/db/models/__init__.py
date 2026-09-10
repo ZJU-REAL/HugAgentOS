@@ -108,3 +108,5 @@ from core.db.models.capability import (
 __all__ = [name for name in globals() if not name.startswith("_")]
 
 from core.db.models.observability import DesktopOutbox, DesktopRecord, DesktopSyncDevice
+
+from core.db.models.channel_relay import DesktopChannelBinding, ChannelRelayDelivery, ChannelRelayOperation

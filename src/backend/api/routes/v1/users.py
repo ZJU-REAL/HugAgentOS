@@ -74,7 +74,7 @@ class UserPreferences(BaseModel):
 
 
 @router.get("/me", summary="获取当前用户资料")
-async def get_current_user_info(
+def get_current_user_info(
     user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """获取当前登录用户的账号与个人资料。"""
@@ -129,7 +129,7 @@ class ChangeMyPasswordRequest(BaseModel):
 
 
 @router.patch("/me", summary="更新当前用户资料（本地账号可改 nickname / real_name / phone）")
-async def update_current_user_info(
+def update_current_user_info(
     payload: UpdateMyProfileRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -162,7 +162,7 @@ async def update_current_user_info(
 
 
 @router.put("/me/password", summary="修改当前本地账号密码")
-async def change_my_password(
+def change_my_password(
     payload: ChangeMyPasswordRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -187,7 +187,7 @@ async def change_my_password(
 
 
 @router.post("/me/onboarding/complete", summary="完成 CE 首次初始化")
-async def complete_my_onboarding(
+def complete_my_onboarding(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -341,7 +341,7 @@ async def upload_my_avatar(
 
 
 @router.put("/me/avatar", summary="将头像设置成已知 URL（如内置默认头像）")
-async def set_my_avatar_url(
+def set_my_avatar_url(
     payload: SetAvatarUrlRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -370,7 +370,7 @@ async def set_my_avatar_url(
 
 
 @router.delete("/me/avatar", summary="清除头像，回到默认")
-async def clear_my_avatar(
+def clear_my_avatar(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -388,7 +388,7 @@ async def clear_my_avatar(
     summary="读取用户上传头像的原始字节",
     response_class=Response,
 )
-async def get_user_avatar_raw(
+def get_user_avatar_raw(
     user_id: str = Path(..., description="目标用户 ID"),
     _user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -425,7 +425,7 @@ async def get_user_avatar_raw(
 
 
 @router.get("/users/{user_id}/preferences", summary="获取用户偏好设置")
-async def get_user_preferences(
+def get_user_preferences(
     user_id: str = Path(..., description="User ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -467,7 +467,7 @@ async def get_user_preferences(
 
 
 @router.put("/users/{user_id}/preferences", summary="更新用户偏好设置")
-async def update_user_preferences(
+def update_user_preferences(
     preferences: UserPreferences,
     user_id: str = Path(..., description="User ID"),
     user: UserContext = Depends(get_current_user),

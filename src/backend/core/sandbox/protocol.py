@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol
 
+from core.sandbox.oslayer import SandboxLaunch
+
 
 @dataclass
 class SandboxFile:
@@ -69,6 +71,12 @@ class ExecuteRequest:
     expected_output_files: Optional[list[str]] = None
     capability_run_id: Optional[str] = None
     capability_scope: str = ""
+    # OS-level confinement for this one execution, resolved by the permission
+    # layer. ``None`` means the caller is not confining this execution — either
+    # the deployment has no OS sandbox (containers do their own isolation) or
+    # the user's permission preset asked for none. Providers apply it verbatim
+    # at the point they spawn the process; they never build or interpret one.
+    sandbox_launch: Optional[SandboxLaunch] = None
 
 
 @dataclass
@@ -161,6 +169,12 @@ class SandboxProvider(Protocol):
     # 上，对账可以直接读本地目录、不必再走沙箱取文件；也意味着"沙箱副本和镜像缓存一致"
     # 不再等于"已登记进我的空间"，判定必须以 artifact 记录为准。
     myspace_mirror_live: bool = False
+
+    # 这个 provider 是不是直接在用户宿主机上起进程。True 表示除了 OS 沙箱之外
+    # 没有别的隔离边界，命令必须带着 ``ExecuteRequest.sandbox_launch`` 执行；
+    # False 表示隔离由容器提供，OS 沙箱在那里既无处施加也无意义——调用方据此
+    # 决定要不要构造 launch，避免出现"构造了但没人施加"的静默失效。
+    runs_on_host: bool = False
 
     async def execute(self, req: ExecuteRequest) -> ExecuteResult: ...
 

@@ -34,7 +34,7 @@ def provider(monkeypatch, tmp_path):
     p = CubeSandboxProvider.__new__(CubeSandboxProvider)
     p._materialized_skills = {}
     p._builtin_skill_ids = set()
-    p._push_skill_dir = AsyncMock()
+    p._push_skill_archive = AsyncMock()
 
     dirs = {}
     for sid in ("shared-skill", "alice-market-6533a8", "bob-market-991dc1"):
@@ -51,11 +51,17 @@ def provider(monkeypatch, tmp_path):
     import core.agent_skills.loader as loader_mod
 
     monkeypatch.setattr(loader_mod, "get_skill_loader", lambda *a, **k: _Loader(owners, dirs))
+    def current_archive(sid, user_id=None):
+        if owners.get(sid) and owners[sid] != user_id:
+            return None
+        return dirs.get(sid)
+
+    monkeypatch.setattr("core.agent_skills.skill_archive.build_current_skill_tar", current_archive)
     return p
 
 
 def _pushed(provider) -> set[str]:
-    return {call.args[1] for call in provider._push_skill_dir.await_args_list}
+    return {call.args[1] for call in provider._push_skill_archive.await_args_list}
 
 
 def test_pushes_shared_and_own_private_skills(provider) -> None:

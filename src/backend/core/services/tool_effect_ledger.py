@@ -234,6 +234,7 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
     for name in (
         "Read",
         "read_project_instructions",
+        "list_project_sites",
         "Glob",
         "Grep",
         "view_text_file",

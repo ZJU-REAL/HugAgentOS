@@ -14,6 +14,7 @@ import {
   const base: ChatMessage = {
     role: 'assistant',
     content: 'answer',
+    uid: 'm1',
     ts: 1,
     thinking: [{ content: 'display-only reasoning', timestamp: 1 }],
     toolCalls: [{

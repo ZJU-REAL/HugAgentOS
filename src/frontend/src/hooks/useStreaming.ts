@@ -1,4 +1,3 @@
-import { isProjectInitCommand } from '../utils/projectCommands';
 import { useEffect, useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
@@ -6,7 +5,7 @@ import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, 
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
-import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
+import { resolveBatchModeActive, resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
@@ -27,6 +26,7 @@ import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
 import { hasUnclosedThink } from '../utils/segments';
+import { newMessageUid } from '../utils/messageIdentity';
 import type { ChatItem, ChatMessage } from '../types';
 import type { QueuedChatMessage } from '../stores/chatStore';
 
@@ -201,7 +201,7 @@ export function useStreaming(
 
   function settleQueuedMessageAfterRun(
     chatId: string,
-    assistantTs?: number,
+    assistantUid?: string,
     autoSend = true,
   ) {
     const store = useChatStore.getState();
@@ -210,7 +210,7 @@ export function useStreaming(
 
     if (queued.status === 'applied') {
       if (queued.appliedMessageId) {
-        commitAppliedQueuedMessage(chatId, queued, assistantTs);
+        commitAppliedQueuedMessage(chatId, queued, assistantUid);
       } else {
         // A restored durable card has no local SSE message id. Its user turn
         // is already committed in the DB, so reload history instead of
@@ -410,7 +410,7 @@ export function useStreaming(
   function commitAppliedQueuedMessage(
     chatId: string,
     queued: QueuedChatMessage,
-    assistantTs?: number,
+    assistantUid?: string,
   ) {
     useChatStore.getState().updateStore((prev) => {
       const chat = prev.chats[chatId];
@@ -423,13 +423,14 @@ export function useStreaming(
         role: 'user',
         content: queued.content,
         isMarkdown: false,
+        uid: newMessageUid(),
         ts: Date.now(),
         messageId: queued.appliedMessageId,
         ...chatInvocationMessageProps(normalizeChatInvocation(queued.invocation)),
       };
-      let assistantIndex = assistantTs === undefined
+      let assistantIndex = assistantUid === undefined
         ? -1
-        : messages.findIndex((item) => item.role === 'assistant' && item.ts === assistantTs);
+        : messages.findIndex((item) => item.uid === assistantUid);
       if (assistantIndex < 0) {
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           if (messages[index].role === 'assistant') {
@@ -473,7 +474,7 @@ export function useStreaming(
   }
 
   async function send(directMessage?: string, invocationOverride?: ChatInvocationContext) {
-    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention } = useChatStore.getState();
+    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention, referencedChats, clearReferencedChats } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
 
@@ -496,39 +497,13 @@ export function useStreaming(
     // Keep the @name prefix for persisted history/display compatibility. The authoritative
     // routing key is mention_agent_id below, so the backend can bypass the main agent and run
     // the selected sub-agent directly without a name lookup or a second call_subagent spawn.
-    let wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
+    const wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
 
-    // "Site building" conversation: append site-building guidance to the wire message (the msg
-    // shown in the bubble stays clean; the @Sites marker is rendered separately by the input-box
-    // chip). Branch on session state:
-    //   - editing session (chat is bound to the site source workspace projectId) → guide toward
-    //     incremental edits on the project folder's original files; forbid regenerating the whole
-    //     site in /workspace/site (otherwise publish would pack the project folder and the new code would be dropped);
-    //   - site-building session → guide toward generating a complete static site in the sandbox and publishing via publish_site.
-    const siteChatItem = useChatStore.getState().store.chats[currentChatId];
-    if (siteChatItem?.siteChat && !isProjectInitCommand(msg)) {
-      if (siteChatItem.projectId) {
-        const folder = siteChatItem.projectName || '';
-        const folderHint = folder ? `/myspace/${folder}/` : '/myspace/<项目文件夹>/';
-        wireMsg =
-          `${wireMsg}\n\n` +
-          `[系统提示：这是「站点编辑」会话。该站点的全部源码已在项目文件夹 ${folderHint} 中，` +
-          `请先用 glob 查看现有文件，然后**直接在原文件上增量修改**——不要在其他目录重新生成整站。` +
-          `发布方式按工程类型分流：① 项目里**有 package.json**（React 构建型工程）→ 先跑` +
-          ` init 脚本自愈依赖，再改 src/ 源码 → npm run build → publish_site 带` +
-          ' src_dir=构建产物目录 + source_dir=项目文件夹（详见 site-builder 技能「编辑会话」一节），' +
-          '**绝不能把源码目录直接当站点发布**；② 没有 package.json（静态站）→ 改完直接调 publish_site' +
-          '（title 传站点名即可，src_dir 与 site_id 都不用传，后端按本会话绑定的项目自动定位' +
-          '同一站点）。两种方式 URL 都不变、版本 +1，发布后把访问链接以 markdown 链接形式发给用户。]';
-      } else {
-        wireMsg =
-          `${wireMsg}\n\n` +
-          '[系统提示：这是「站点建站」会话。请在沙箱工作目录里生成完整的静态网站' +
-          '（必须包含 index.html 入口，可包含多页面、CSS、JS、图片等），完成后调用 ' +
-          'publish_site 工具发布，并把访问链接以 markdown 链接形式发给用户。' +
-          '若用户要在已发布站点上继续修改，带上该站点的 site_id 重新发布（URL 不变、版本 +1）。]';
-      }
-    }
+    // "Site" conversation (Lab → Sites): the build / edit working rules live in the backend
+    // system prompt (agent_factory._site_mode_hint), keyed off this flag. They are deliberately
+    // NOT spliced into the message — the wire message is persisted verbatim and replayed into
+    // the user's bubble on reload, which would show the model-facing rules to the user.
+    const siteMode = resolveSiteModeActive(useChatStore.getState().store.chats[currentChatId], msg);
 
     // Snapshot the chat id — user may switch chats mid-stream, but this stream
     // continues writing to the chat it was started in.
@@ -558,6 +533,7 @@ export function useStreaming(
     }
     if (!directMessage) setInput('');
     if (quotedFollowUp) setQuotedFollowUp(null);
+    if (referencedChats.length > 0) clearReferencedChats();
     if (currentSkill) setActiveSkill(null);
     if (currentPlugin) setActivePlugin(null);
     if (currentConnector) setActiveConnector(null);
@@ -582,12 +558,21 @@ export function useStreaming(
       role: 'user',
       content: msg,
       isMarkdown: false,
+      uid: newMessageUid(),
       ts: Date.now(),
       ...(quotedFollowUp && {
         quotedFollowUp: {
           text: quotedFollowUp.text,
           ts: quotedFollowUp.ts,
         },
+      }),
+      ...(referencedChats.length > 0 && {
+        referencedChats: referencedChats.map((c) => ({
+          chat_id: c.chat_id,
+          title: c.title,
+          message_count: c.message_count,
+          last_active_display: c.last_active_display,
+        })),
       }),
       ...(attachments.length > 0 && {
         attachments: attachments.map(a => ({
@@ -692,10 +677,15 @@ export function useStreaming(
               ts: quotedFollowUp.ts,
             },
           } : {}),
+          // 只上行 ID：标题、概览等名片内容由后端按当前权限现查，前端传的不作数。
+          ...(referencedChats.length > 0 ? {
+            referenced_chats: referencedChats.map((c) => ({ chat_id: c.chat_id })),
+          } : {}),
           ...(agentId ? { agent_id: agentId } : {}),
           ...chatInvocationRequestFields(currentInvocation),
           ...(batchChat ? { batch_chat: true } : {}),
           ...(workflowChat ? { workflow_chat: true } : {}),
+          ...(siteMode ? { site_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when
           // creating/fetching the session). When the chat has no bound project, fall back to
           // useProjectStore.currentProjectId — this only applies to the first message sent while
@@ -724,7 +714,6 @@ export function useStreaming(
       if (outcome.metaMessageId && outcome.metaFollowUps.length === 0) {
         const _pollChatId = currentChatId;
         const _pollMsgId = outcome.metaMessageId;
-        const _pollTs = outcome.placeholderTs;
 
         // Supersede any prior polling still running for this chat (rare —
         // would only happen if a previous run somehow leaked).
@@ -757,7 +746,7 @@ export function useStreaming(
                     if (!c) return { chats: prev.chats, order: prev.order };
                     const msgs = [...(c.messages || [])];
                     const idx = msgs.findIndex(
-                      (m) => m.role === 'assistant' && (m.messageId === _pollMsgId || m.ts === _pollTs),
+                      (m) => m.role === 'assistant' && m.messageId === _pollMsgId,
                     );
                     if (idx >= 0) {
                       msgs[idx] = { ...msgs[idx], followUpQuestions: questions };
@@ -825,7 +814,7 @@ export function useStreaming(
       useChatStore.getState().clearActiveRun(streamChatId);
       settleQueuedMessageAfterRun(
         streamChatId,
-        streamOutcome?.placeholderTs,
+        streamOutcome?.bubbleUid,
         streamOutcome !== undefined,
       );
       // NOTE: do NOT clear uploadedFiles / fileUploadMap here. This round's
@@ -948,6 +937,7 @@ export function useStreaming(
           role: 'user',
           content: queued.message,
           isMarkdown: false,
+          uid: newMessageUid(),
           ts: Math.max(Date.now(), lastTs + 1),
           messageId: queued.userMessageId,
         };
@@ -1028,7 +1018,7 @@ export function useStreaming(
 
   /** Edit a user message and regenerate */
   async function editAndResend(messageIndex: number, newContent: string) {
-    const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageTs } = useChatStore.getState();
+    const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageUid } = useChatStore.getState();
     if (!newContent.trim()) return;
 
     // 编辑重发是**破坏性**的：后端 delete_messages_from 会把这条之后的消息全部硬删，
@@ -1037,10 +1027,7 @@ export function useStreaming(
     {
       const chat = useChatStore.getState().store.chats[currentChatId];
       const msgs = chat?.messages || [];
-      const targetTs = msgs[messageIndex]?.ts;
-      const droppedRounds = typeof targetTs === 'number'
-        ? msgs.filter((m) => m.ts > targetTs && m.role === 'user').length
-        : 0;
+      const droppedRounds = msgs.slice(messageIndex + 1).filter((m) => m.role === 'user').length;
       if (droppedRounds > 0) {
         const confirmed = await new Promise<boolean>((resolve) => {
           Modal.confirm({
@@ -1065,7 +1052,7 @@ export function useStreaming(
     }
     const streamChatId = currentChatId;
     addSendingChatId(streamChatId);
-    setEditingMessageTs(null);
+    setEditingMessageUid(null);
 
     const abortController = new AbortController();
     abortControllersRef.current.set(streamChatId, abortController);
@@ -1081,7 +1068,7 @@ export function useStreaming(
       // the backend replays the original turn's attachments and its skill / plugin /
       // connector / @agent selection, so the local echo has to keep showing them.
       const userMsg: ChatMessage = {
-        role: 'user', content: newContent.trim(), isMarkdown: false, ts: Date.now(),
+        role: 'user', content: newContent.trim(), isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
         ...(targetMsg?.attachments?.length ? { attachments: targetMsg.attachments } : {}),
         ...(targetMsg?.quotedFollowUp ? { quotedFollowUp: targetMsg.quotedFollowUp } : {}),
         ...(targetMsg?.skillId ? { skillId: targetMsg.skillId } : {}),
@@ -1258,8 +1245,16 @@ export function useStreaming(
      ─────────────────────────────────────────── */
   const RUN_STALL_MS = 75_000;
   const RUN_WATCH_EVERY_MS = 20_000;
+  /** 侧边栏「别处在跑」快照的刷新间隔（每 3 拍看门狗一次）。
+   *
+   *  别处（另一台设备 / 另一个标签页）跑完时本标签页收不到任何事件，没人来灭灯。
+   *  切窗口会立刻刷新（见 useChatInit），这一发管的是"人一直待在这个窗口里"的情形。
+   *  复用看门狗的定时器，不另起一个。 */
+  const REMOTE_RUNNING_REFRESH_MS = RUN_WATCH_EVERY_MS * 3;
   /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
   const reconcilingRef = useRef<Set<string>>(new Set());
+  /** 上一次刷新「别处在跑」快照的时刻。 */
+  const lastRemoteRunningRefreshRef = useRef(0);
 
   async function reconcileStalledRun(chatId: string) {
     if (reconcilingRef.current.has(chatId)) return;
@@ -1333,6 +1328,13 @@ export function useStreaming(
       if (currentChatId && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
         void attachServerStartedRun(currentChatId);
       }
+      // 同上，只在前台刷「别处在跑」的快照：人不在这个窗口前时灯亮不亮没人看。
+      if (typeof document !== 'undefined' && document.visibilityState !== 'hidden'
+          && now - lastRemoteRunningRefreshRef.current >= REMOTE_RUNNING_REFRESH_MS) {
+        lastRemoteRunningRefreshRef.current = now;
+        void useChatStore.getState().refreshRemoteRunningChats()
+          .catch(() => { /* 灯保持原样，下一拍再问 */ });
+      }
     }, RUN_WATCH_EVERY_MS);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1393,7 +1395,7 @@ export function useStreaming(
 
     // ── 跨标签页互斥：同一 run 只允许一个标签页跟随 SSE ──
     // 过去复制标签页/多开时两个标签页同时 follow 同一 run，各自用不同的
-    // placeholderTs 建气泡，互相覆盖 localStorage，产生重复/半截气泡与
+    // 身份建气泡，互相覆盖 localStorage，产生重复/半截气泡与
     // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
     const runLockName = `hugagent_run_follow_${active.run_id}`;
     const activeRun = active;
@@ -1430,7 +1432,6 @@ export function useStreaming(
         if (!resp.ok || !resp.body) return;
         if (active.kind === 'plan_execute' && active.plan_id) {
           await processPlanExecuteStream(resp, chatId, active.plan_id, {
-            placeholderTs: Date.now(),
             onSetCurrentPlanId: useChatStore.getState().setCurrentPlanId,
             onAfterComplete: (cid) => {
               // After replay completes, refresh the message list, replacing client-built state
@@ -1440,7 +1441,6 @@ export function useStreaming(
           });
         } else if (active.kind === 'plan_generate') {
           await processPlanGenerateStream(resp, chatId, {
-            placeholderTs: Date.now(),
             onSetCurrentPlanId: useChatStore.getState().setCurrentPlanId,
           });
           // Also refresh after generate completes: pick up the DB-persisted assistant message + plan_snapshot
@@ -1513,7 +1513,7 @@ export function useStreaming(
       useChatStore.getState().clearActiveRun(chatId);
       settleQueuedMessageAfterRun(
         chatId,
-        streamOutcome?.placeholderTs,
+        streamOutcome?.bubbleUid,
         streamOutcome !== undefined,
       );
     }

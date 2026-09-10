@@ -28,6 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from core.db.engine import get_db
 from core.db.repository import SiteRepository
@@ -98,14 +99,14 @@ def _common_headers(content_type: str, *, public_site: bool) -> dict:
 
 async def _load_authorized_site(slug: str, request: Request, db: Session):
     """Fetch the site by slug and authorize visibility; unauthorized always 404 (don't leak existence)."""
-    site = SiteRepository(db).get_by_slug(slug)
+    site = await run_in_threadpool(SiteRepository(db).get_by_slug, slug)
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
     if site.visibility != "public":
         from api.deps import _resolve_session_user_id
 
         user_id = await _resolve_session_user_id(request)
-        if not SiteService(db).authorize_view(site, user_id):
+        if not await run_in_threadpool(SiteService(db).authorize_view, site, user_id):
             raise HTTPException(status_code=404, detail="Site not found")
     return site
 
@@ -128,7 +129,7 @@ async def site_kv_get(
 ):
     site = await _load_authorized_site(slug, request, db)
     try:
-        value = SiteService(db).kv_get(site, key)
+        value = await run_in_threadpool(SiteService(db).kv_get, site, key)
     except AppException as exc:
         return _api_json({"error": exc.message}, 400)
     if value is None:
@@ -154,7 +155,7 @@ async def site_kv_set(
 
     raw = value if isinstance(value, str) else _json.dumps(value, ensure_ascii=False)
     try:
-        SiteService(db).kv_set(site, key, raw)
+        await run_in_threadpool(SiteService(db).kv_set, site, key, raw)
     except AppException as exc:
         return _api_json({"error": exc.message}, 400)
     return _api_json({"ok": True, "key": key})
@@ -167,7 +168,7 @@ async def site_kv_delete(
     site = await _load_authorized_site(slug, request, db)
     _rate_limit_write(_client_ip(request), slug)
     try:
-        deleted = SiteService(db).kv_delete(site, key)
+        deleted = await run_in_threadpool(SiteService(db).kv_delete, site, key)
     except AppException as exc:
         return _api_json({"error": exc.message}, 400)
     return _api_json({"ok": True, "deleted": deleted})
@@ -184,8 +185,8 @@ async def site_form_submit(
     except Exception:
         return _api_json({"error": "请求体必须是 JSON 对象"}, 400)
     try:
-        submission_id = SiteService(db).submit_form(
-            site, form_key, payload, client_ip=_client_ip(request),
+        submission_id = await run_in_threadpool(
+            SiteService(db).submit_form, site, form_key, payload, client_ip=_client_ip(request),
         )
     except AppException as exc:
         return _api_json({"error": exc.message}, 400)
@@ -208,7 +209,12 @@ async def serve_site_file(
     db: Session = Depends(get_db),
 ):
     site = await _load_authorized_site(slug, request, db)
+    return await run_in_threadpool(_site_file_response, db, site, path)
 
+
+def _site_file_response(db: Session, site, path: str) -> Response:
+    # Storage I/O, row updates and ORM refreshes all run off the event loop.
+    public_site = site.visibility == "public"
     resolved = SiteService(db).resolve_site_file(site, path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")
@@ -219,11 +225,12 @@ async def serve_site_file(
         try:
             SiteRepository(db).increment_view(site.site_id)
         except Exception:  # noqa: BLE001 — counting failure must not affect access
+            db.rollback()
             logger.debug("site view_count increment failed", exc_info=True)
     return Response(
         content=content,
         media_type=content_type,
         headers=_common_headers(
-            content_type, public_site=(site.visibility == "public")
+            content_type, public_site=public_site
         ),
     )

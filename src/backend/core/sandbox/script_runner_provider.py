@@ -52,6 +52,9 @@ def _connect_error_message() -> str:
 
 class ScriptRunnerProvider:
     name = "script_runner"
+    # The sidecar runs commands as ordinary host processes, so the OS sandbox is
+    # the only isolation boundary there is here.
+    runs_on_host = True
 
     def __init__(self) -> None:
         # Access settings.sandbox.runner_url on each call so test monkeypatching stays effective
@@ -94,6 +97,9 @@ class ScriptRunnerProvider:
             "session_id": req.session_id,
             "user_id": req.user_id,
             "capability_view_key": capability_view_key,
+            # Pass-through: the sidecar applies the prefix and env at spawn time
+            # and never decides confinement for itself.
+            "sandbox_launch": req.sandbox_launch.to_json() if req.sandbox_launch else None,
         }
 
         last_exc: Exception | None = None
@@ -335,6 +341,13 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
     an immediate refresh regardless of the TTL. Failure is never worth failing an
     execution over.
     """
+    from core.capabilities.paths import capabilities_enabled
+
+    if not capabilities_enabled():
+        from core.agent_skills.publication import prepare_skill_view
+
+        prepare_skill_view(user_id)
+        return
     uid = (user_id or "").strip()
     if not uid:
         return

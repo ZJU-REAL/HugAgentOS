@@ -128,6 +128,97 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
     assert executor.get_active_run_for_chat("chat-1", "user-1").run_id == public.run_id
 
 
+def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
+    sessions = recovery_env
+    with sessions() as db:
+        db.add(ChatSession(chat_id="chat-2", user_id="user-1", title="second"))
+        db.add(ChatSession(chat_id="chat-3", user_id="user-2", title="other user"))
+        db.commit()
+    journal = RunJournal(sessions)
+
+    live_one = journal.accept(
+        run_id="run-live-1",
+        message_id="msg-live-1",
+        chat_id="chat-1",
+        user_id="user-1",
+        request_payload={"kind": "chat"},
+        recovery_snapshot={"kind": "chat", "worker_args": {}},
+    )
+    live_two = journal.accept(
+        run_id="run-live-2",
+        message_id="msg-live-2",
+        chat_id="chat-2",
+        user_id="user-1",
+        request_payload={"kind": "chat"},
+        recovery_snapshot={"kind": "chat", "worker_args": {}},
+    )
+    journal.accept(
+        run_id="run-batch",
+        message_id="msg-batch",
+        chat_id="chat-2",
+        user_id="user-1",
+        request_payload={"kind": "batch_item"},
+        recovery_snapshot={"kind": "batch_item"},
+    )
+    journal.accept(
+        run_id="run-other-user",
+        message_id="msg-other-user",
+        chat_id="chat-3",
+        user_id="user-2",
+        request_payload={"kind": "chat"},
+        recovery_snapshot={"kind": "chat", "worker_args": {}},
+    )
+
+    listed = executor.list_active_runs_for_user("user-1")
+    assert {row.chat_id for row in listed} == {"chat-1", "chat-2"}
+    assert {row.run_id for row in listed} == {live_one.run_id, live_two.run_id}
+
+    # A finished run must stop lighting the sidebar dot, even while its writer
+    # slot lingers — the listing is "still running", not "was running".
+    with sessions() as db:
+        row = db.get(ChatRun, live_one.run_id)
+        row.status = "completed"
+        db.commit()
+    assert {row.chat_id for row in executor.list_active_runs_for_user("user-1")} == {"chat-2"}
+
+
+def test_active_runs_route_returns_chat_ids_and_outranks_the_detail_route(recovery_env):
+    sessions = recovery_env
+    journal = RunJournal(sessions)
+    live = journal.accept(
+        run_id="run-route-live",
+        message_id="msg-route-live",
+        chat_id="chat-1",
+        user_id="user-1",
+        request_payload={"kind": "chat"},
+        recovery_snapshot={"kind": "chat", "worker_args": {}},
+    )
+
+    with sessions() as db:
+        response = chat_routes.list_active_chat_runs(
+            user=UserContext(
+                user_id="user-1",
+                user_center_id="center-1",
+                username="tester",
+            ),
+            db=db,
+        )
+
+    assert response["data"]["items"] == [
+        {
+            "chat_id": "chat-1",
+            "run_id": live.run_id,
+            "status": "pending",
+            "started_at": None,
+        }
+    ]
+
+    # "/active-runs" must be declared before "/{chat_id}", otherwise the detail
+    # route swallows it and the sidebar probe 404s on a chat named active-runs.
+    paths = [route.path for route in chat_routes.router.routes]
+    assert paths.index("/v1/chats/active-runs") < paths.index("/v1/chats/{chat_id}")
+
+
 @pytest.mark.asyncio
 async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recovery_env, monkeypatch):
     sessions = recovery_env
@@ -1098,7 +1189,7 @@ async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_en
         )
 
     with sessions() as db:
-        response = await chat_routes.chat_active_run(
+        response = chat_routes.chat_active_run(
             "chat-1",
             user=UserContext(
                 user_id="user-1",

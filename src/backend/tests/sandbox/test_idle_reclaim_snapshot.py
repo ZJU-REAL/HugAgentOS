@@ -30,6 +30,7 @@ def _settings(**overrides):
 
 
 def _restore_provider(monkeypatch, *, snapshot_id, idle_hit):
+    monkeypatch.setattr("core.agent_skills.publication.prepare_skill_view", lambda uid: None)
     monkeypatch.setattr(session_mod, "settings", _settings())
     monkeypatch.setattr(session_mod, "_user_bound_sandbox_required", lambda: True)
     provider = _OpenSandboxSessionMixin()

@@ -58,6 +58,13 @@ else:
     engine_kwargs["pool_size"] = settings.db.pool_size
     engine_kwargs["max_overflow"] = settings.db.pool_max_overflow
     engine_kwargs["pool_timeout"] = settings.db.pool_timeout
+    # 等锁必须有上界：无上界的行锁等待会把持有它的工作线程（或误写成 async 的路由的
+    # 事件循环）无限期占住，另一侧又要等这条请求收尾才能释放锁，形成互相干等的死结。
+    # 等锁与等连接同属「等数据库资源」，共用 DB_POOL_TIMEOUT 一个阈值。
+    if make_url(DATABASE_URL).get_backend_name() == "postgresql":
+        engine_kwargs["connect_args"] = {
+            "options": f"-c lock_timeout={settings.db.pool_timeout * 1000}"
+        }
 
 # Create engine
 engine = create_engine(DATABASE_URL, **engine_kwargs)

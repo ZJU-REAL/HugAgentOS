@@ -183,7 +183,11 @@ export interface ToolCall {
   inputText?: string;
   output?: any;
   status?: 'pending' | 'running' | 'success' | 'error' | 'interrupted';
+  /** 调用开始的墙钟时刻（服务端下发并落库），卡上的计时以它为起点。 */
   timestamp?: number;
+  /** 这次调用实际花了多久（服务端算好并落库）。收尾后显示的就是它——历史重放
+   *  时两个端点时刻都已不在，只有存下来的耗时是可信的。 */
+  durationMs?: number;
   // call_subagent only: the sub-agent's internal streaming sub-steps + the sub-agent's name
   subSteps?: SubagentStep[];
   subagentName?: string;
@@ -431,15 +435,44 @@ export interface PlanProgressState {
   updatedAt: number;
 }
 
+/** 一段被引用的历史会话。名片内容由后端按权限现查后随消息落库，前端只负责显示。 */
+export interface ReferencedChatCard {
+  chat_id: string;
+  title: string;
+  message_count?: number;
+  last_active_display?: string;
+  overview?: string;
+}
+
+/** 可引用会话列表项（挑选阶段用，不含正文）。 */
+export interface ReferencableChat {
+  chat_id: string;
+  title: string;
+  project_id?: string | null;
+  message_count: number;
+  last_active_at?: string | null;
+  last_active_display: string;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
   isMarkdown?: boolean;
+  /** 这条消息的稳定身份：React key、以及一切"指的是哪一条"的逻辑（选中分享、
+   *  编辑、点赞、定位气泡）都用它。历史消息取后端主键 message_id，本地还没落库
+   *  的取 newMessageUid()。
+   *
+   *  绝不能拿 ts 顶替：同一轮的提问与回答由后端在同一时刻创建，ts 完全相同，
+   *  当 key 用会让 React 认错节点，切换会话时把上一个会话的气泡留在页面顶部。 */
+  uid: string;
+  /** 消息发生的时刻，只作时间用（展示、计时、滚动锚点），不承担身份。 */
   ts: number;
   quotedFollowUp?: {
     text: string;
     ts?: number;
   };
+  /** 这条消息发出时引用的历史会话。 */
+  referencedChats?: ReferencedChatCard[];
   skillId?: string;
   skillName?: string;
   pluginName?: string;

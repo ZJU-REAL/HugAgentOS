@@ -40,7 +40,7 @@ def _require_can_add_agent(user_id: str, db: Session) -> None:
 
 
 @router.get("/agents", summary="子智能体市场列表")
-async def list_agents(
+def list_agents(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -50,7 +50,7 @@ async def list_agents(
 
 
 @router.get("/categories", summary="子智能体市场分类")
-async def list_categories(
+def list_categories(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -58,7 +58,7 @@ async def list_categories(
 
 
 @router.get("/agents/{slug}", summary="子智能体市场详情")
-async def get_agent(
+def get_agent(
     slug: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -74,7 +74,7 @@ class InstallRequest(BaseModel):
 
 
 @router.post("/install", status_code=201, summary="安装市场子智能体（私有克隆）")
-async def install_agent(
+def install_agent(
     body: InstallRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -98,7 +98,7 @@ class SubmitRequest(BaseModel):
 
 
 @router.post("/submissions", status_code=201, summary="申请把子智能体上架市场")
-async def submit_agent(
+def submit_agent(
     body: SubmitRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -117,7 +117,7 @@ async def submit_agent(
 
 
 @router.get("/submissions", summary="我的上架申请列表")
-async def list_my_submissions(
+def list_my_submissions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -125,7 +125,7 @@ async def list_my_submissions(
 
 
 @router.delete("/submissions/{submission_id}", summary="撤回上架申请")
-async def withdraw_submission(
+def withdraw_submission(
     submission_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

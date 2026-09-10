@@ -30,11 +30,23 @@ class QuotedFollowUpItem(BaseModel):
         return v.strip()
 
 
+class ReferencedChatItem(BaseModel):
+    """用户为本轮显式引用的一段历史会话。
+
+    只带 ID：标题、时间、概览等名片信息一律由后端按当前权限现查（见
+    ``core.services.chat_reference_service``），前端传什么都不作数——否则任何人都能伪造
+    一段"来自另一个会话"的内容塞进模型。
+    """
+
+    chat_id: str = Field(..., description="被引用会话的 ID", max_length=100)
+
+
 class ChatRequest(BaseModel):
     """聊天请求模型"""
 
     model_config = ConfigDict(protected_namespaces=())
     _resolved_skill_ids: List[str] = PrivateAttr(default_factory=list)
+    _resolved_reference_cards: List[Any] = PrivateAttr(default_factory=list)
     _resolved_mcp_ids: List[str] = PrivateAttr(default_factory=list)
     _resolved_plugin_skill_ids: List[str] = PrivateAttr(default_factory=list)
     _resolved_plugin_mcp_ids: List[str] = PrivateAttr(default_factory=list)
@@ -70,6 +82,14 @@ class ChatRequest(BaseModel):
     attachments: List[AttachmentItem] = Field(
         default_factory=list,
         description="上传的文件附件列表",
+    )
+    referenced_chats: List[ReferencedChatItem] = Field(
+        default_factory=list,
+        description=(
+            "本轮显式引用的历史会话（斜杠命令选择或从侧边栏拖入）。后端按当前用户权限"
+            "解析成会话名片拼进用户消息，全文由智能体调用 read_chat 按需读取。"
+        ),
+        max_length=5,
     )
     enabled_kbs: Optional[List[str]] = Field(
         default=None,
@@ -118,6 +138,14 @@ class ChatRequest(BaseModel):
             "为 True 时才注册 run_job 批量作业工具，并在系统提示中给出作业脚本写法。"
             "与计划模式/批量执行同属用户触发的模式：不触发就完全不存在，"
             "避免普通问答被无关的批量规则干扰。"
+        ),
+    )
+    site_chat: bool = Field(
+        default=False,
+        description=(
+            "是否为站点会话（实验室『站点』入口创建的建站 / 站点编辑对话）。"
+            "为 True 时由后端在系统提示里注入建站或编辑的作业规则——"
+            "这段规则不进用户消息，历史里看不到它。"
         ),
     )
     disable_batch_plan: bool = Field(

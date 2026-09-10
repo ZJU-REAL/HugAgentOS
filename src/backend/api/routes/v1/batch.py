@@ -111,7 +111,7 @@ def _plan_to_dict(plan: BatchPlan, *, include_results: bool = False) -> dict:
 
 
 @router.get("/active", summary="查询会话的活跃批量计划")
-async def list_active_for_chat(
+def list_active_for_chat(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -145,7 +145,7 @@ async def list_active_for_chat(
 
 
 @router.get("/{plan_id}", summary="查询批量计划详情")
-async def get_plan(
+def get_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -166,7 +166,7 @@ async def get_plan(
 
 
 @router.post("/{plan_id}/confirm", summary="确认批量计划")
-async def confirm_plan(
+def confirm_plan(
     plan_id: str,
     body: ConfirmBody,
     user: UserContext = Depends(get_current_user),
@@ -202,7 +202,7 @@ async def confirm_plan(
 
 
 @router.post("/{plan_id}/cancel", summary="取消批量计划")
-async def cancel_plan(
+def cancel_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -273,6 +273,7 @@ async def cancel_and_resume(
         _authenticated_user_id,
     )
     from core.services import ChatService, UserService
+    from core.services.chat_reference_service import render_reference_block
     from core.chat.context import resolve_enabled_capabilities, resolve_db_user_id
     from orchestration import chat_run_executor
 
@@ -345,7 +346,9 @@ async def cancel_and_resume(
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
-        resume_request.message, resume_request.quoted_follow_up
+        resume_request.message,
+        resume_request.quoted_follow_up,
+        render_reference_block(user_extra.get("referenced_chats")),
     )
 
     context = _build_ctx(

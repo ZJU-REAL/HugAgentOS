@@ -35,19 +35,20 @@ async def package_local_site(arguments, headers):
     if local_mode_enabled() and not chat_id:
         raise ValueError("本机站点发布必须使用已绑定本地项目的会话")
     arguments.pop("_desktop_source", None)
-    selection = None
-    if local_mode_enabled() and chat_id:
-        from core.services.local_site_sources import select_source
-
-        selection = select_source(user_id, chat_id, arguments)
-        if selection:
-            arguments.setdefault("site_id", selection["site_id"])
-            if not arguments.get("site_id"):
-                arguments["site_id"] = selection["site_id"]
     project_id, project_dir = resolve_project_context(chat_id or "", user_id)
     src = str(arguments.get("src_dir") or "").strip().rstrip("/")
     if not src or src == ".":
-        src = (selection or {}).get("publish_dir") or project_dir or "/workspace/site"
+        if local_mode_enabled():
+            # Name the missing argument and how to fill it for the case at hand:
+            # a new site has nothing to look up, so pointing every failure at
+            # list_project_sites leaves that path with no way forward.
+            raise ValueError(
+                "本机发布必须显式传 src_dir（页面根目录的绝对路径，需含 index.html）。"
+                "新建站点：把刚生成页面的目录传给 src_dir，不传 site_id。"
+                "编辑已发布站点：先调 list_project_sites 取原 site_id 与 publish_dir，"
+                "再以 src_dir=publish_dir 重新发布。"
+            )
+        src = project_dir or "/workspace/site"
     import os
 
     if not os.path.isabs(src):
@@ -60,11 +61,7 @@ async def package_local_site(arguments, headers):
     error = _validate_workspace_path(src + "/", additional_roots=roots)
     if error:
         raise ValueError(error)
-    source = (
-        str(arguments.get("source_dir") or (selection or {}).get("source_dir") or "")
-        .strip()
-        .rstrip("/")
-    )
+    source = str(arguments.get("source_dir") or "").strip().rstrip("/")
     if source and source == src:
         source = "" if not arguments.get("source_dir") else source
     if source and not os.path.isabs(source):

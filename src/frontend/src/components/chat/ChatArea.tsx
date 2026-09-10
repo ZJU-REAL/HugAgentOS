@@ -72,7 +72,7 @@ interface ChatAreaProps {
   exportChatRecord: (id: string) => Promise<void>;
   createChatShare: (
     id: string,
-    selectedTs: number[],
+    selectedUids: string[],
     expiryOption: '3d' | '15d' | '3m' | 'permanent'
   ) => Promise<{ share_id: string; preview_url: string; expires_at?: string | null; expiry_option: '3d' | '15d' | '3m' | 'permanent' }>;
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>) => void;
@@ -99,7 +99,7 @@ export function ChatArea({
   ] as const;
   const {
     store, currentChatId, setInput, planMode,
-    shareSelectionMode, selectedShareMessageTs,
+    shareSelectionMode, selectedShareMessageUids,
     pendingScrollMessageTs, setPendingScrollMessageTs,
     clearShareSelection,
     chatsLoading,
@@ -491,7 +491,7 @@ export function ChatArea({
   }
 
   const handleCreateShare = async () => {
-    if (selectedShareMessageTs.size === 0) {
+    if (selectedShareMessageUids.size === 0) {
       message.warning(t('请先选择要分享的对话记录'));
       return;
     }
@@ -501,7 +501,7 @@ export function ChatArea({
   };
 
   const confirmCreateShare = async () => {
-    if (selectedShareMessageTs.size === 0) {
+    if (selectedShareMessageUids.size === 0) {
       message.warning(t('请先选择要分享的对话记录'));
       return;
     }
@@ -509,7 +509,7 @@ export function ChatArea({
     const selectedExpiryOption = pendingShareExpiryRef.current;
     setCreatingShare(true);
     try {
-      const result = await createChatShare(currentChatId, Array.from(selectedShareMessageTs), selectedExpiryOption);
+      const result = await createChatShare(currentChatId, Array.from(selectedShareMessageUids), selectedExpiryOption);
       const targetUrl = new URL(result.preview_url, window.location.origin).toString();
       window.open(targetUrl, '_blank', 'noopener');
       message.success(t('分享链接已生成'));
@@ -565,7 +565,7 @@ export function ChatArea({
           >
             <div className="jx-shareSelectionInfo">
               <span className="jx-shareSelectionTitle">{t('分享记录选择')}</span>
-              <span className="jx-shareSelectionCount">{t('已选择 {n} 条记录', { n: selectedShareMessageTs.size })}</span>
+              <span className="jx-shareSelectionCount">{t('已选择 {n} 条记录', { n: selectedShareMessageUids.size })}</span>
             </div>
             <div className="jx-shareSelectionActions">
               <button className="jx-shareSelectionSecondaryBtn" onClick={() => clearShareSelection()}>
@@ -574,7 +574,7 @@ export function ChatArea({
               <button
                 className="jx-shareSelectionPrimaryBtn"
                 onClick={() => { void handleCreateShare(); }}
-                disabled={selectedShareMessageTs.size === 0}
+                disabled={selectedShareMessageUids.size === 0}
               >
                 {t('生成分享链接')}
               </button>
@@ -609,8 +609,8 @@ export function ChatArea({
         )}
         {(chat.messages || []).map((m, idx) => (
           <ContentErrorBoundary
-            key={m.ts}
-            resetKey={`${currentChatId}:${m.ts}`}
+            key={m.uid}
+            resetKey={`${currentChatId}:${m.uid}`}
             fallback={(
               <div className="jx-messageRenderError" role="alert">
                 {t('这条消息包含无法显示的旧格式数据，已跳过异常内容。')}

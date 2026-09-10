@@ -291,14 +291,16 @@ async def test_losing_worker_cannot_release_concurrently_cancelled_winner_fence(
 
     Session = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
-    assert chat_run_executor._claim_run_execution(accepted.run.run_id) is True
+    # A successful claim hands back the instant the run was marked running; the
+    # worker sends that on the first frame instead of reading the row again.
+    assert chat_run_executor._claim_run_execution(accepted.run.run_id) is not None
 
     original_claim = chat_run_executor._claim_run_execution
 
-    def lose_claim_then_cancel(run_id: str) -> bool:
-        assert original_claim(run_id) is False
+    def lose_claim_then_cancel(run_id: str):
+        assert original_claim(run_id) is None
         assert chat_run_executor._request_run_cancel(run_id) is True
-        return False
+        return None
 
     workflow_started = False
 

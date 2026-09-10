@@ -7,6 +7,7 @@ import type {
   ContextCompactionState,
   ContextUsageSnapshot,
   PlanProgressState,
+  ReferencableChat,
 } from '../types';
 import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, newDraftChatId, isDraftChatId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY, writeLocal, removeLocal } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
@@ -221,14 +222,14 @@ interface ChatState {
     output: unknown;
     summary?: string;
   } | null;
-  /** Copied message index */
-  copiedMsg: number | null;
+  /** 已复制的那条消息（身份） */
+  copiedMsg: string | null;
   /** Whether chats are loading from backend */
   chatsLoading: boolean;
-  /** Feedback map: message timestamp → feedback type */
-  feedbackMap: Record<number, 'like' | 'dislike'>;
+  /** Feedback map: 消息身份 → feedback type */
+  feedbackMap: Record<string, 'like' | 'dislike'>;
   /** Message being disliked (for comment modal) */
-  dislikingTs: number | null;
+  dislikingUid: string | null;
   /** Dislike comment text */
   dislikeComment: string;
   /** Tool display names from backend */
@@ -257,13 +258,16 @@ interface ChatState {
   ) => void;
   /** Whether share selection mode is enabled */
   shareSelectionMode: boolean;
-  /** Selected message timestamps for share generation */
-  selectedShareMessageTs: Set<number>;
+  /** Selected message identities for share generation */
+  selectedShareMessageUids: Set<string>;
   /** Message timestamp to scroll into view after jumping from share records */
   pendingScrollMessageTs: number | null;
   /** Quoted message used for follow-up prompting */
   quotedFollowUp: { text: string; ts: number } | null;
   /** Active skill selected via / slash command */
+  /** 本轮要引用的历史会话（斜杠命令选中或从侧边栏拖入）。发送即清，切换对话也清——
+   *  引用是"这条消息要参考哪几段旧会话"，跟着对话走没有意义。 */
+  referencedChats: ReferencableChat[];
   activeSkill: { id: string; name: string } | null;
   /** Active plugin referenced via / or + menu. The request sends only its installation id;
    *  the backend resolves all component skills and MCP servers authoritatively. */
@@ -278,8 +282,8 @@ interface ChatState {
   loopMode: boolean;
   /** Current plan ID being executed in plan mode */
   currentPlanId: string | null;
-  /** Timestamp of user message being edited */
-  editingMessageTs: number | null;
+  /** 正在编辑的那条用户消息（身份） */
+  editingMessageUid: string | null;
   /** Monotonic counter incremented after each fetchSessions completes;
    *  used as an effect dependency to re-trigger the lazy message loader. */
   sessionLoadEpoch: number;
@@ -320,14 +324,23 @@ interface ChatState {
   addSendingChatId: (id: string) => void;
   /** Mark a chat id as no longer streaming. Removes from set + updates derived `sending`. */
   removeSendingChatId: (id: string) => void;
+  /** 在别处（另一台设备 / 另一个标签页）还在跑的会话。
+   *
+   *  `sendingChatIds` 只记本标签页自己挂着的流，所以换设备登录时侧边栏对没点开过的
+   *  会话一无所知。这里存服务端快照，登录、拉完会话列表、窗口切回来时刷新，让
+   *  「运行中」小圆点不必等用户点进去才亮。 */
+  remoteRunningChatIds: Set<string>;
+  /** 重新问一次服务端"我还有哪些会话在跑"。失败不改现状：宁可灯保持上一次的样子，
+   *  也不要因为一次网络抖动把正在跑的灯全灭掉。 */
+  refreshRemoteRunningChats: () => Promise<void>;
   toggleThinking: (id: string) => void;
   setChatMode: (v: ChatMode) => void;
   setModeSlug: (v: string) => void;
   setToolResultPanel: (panel: ChatState['toolResultPanel']) => void;
-  setCopiedMsg: (ts: number | null) => void;
+  setCopiedMsg: (uid: string | null) => void;
   setChatsLoading: (v: boolean) => void;
-  setFeedbackMap: (map: Record<number, 'like' | 'dislike'>) => void;
-  setDislikingTs: (ts: number | null) => void;
+  setFeedbackMap: (map: Record<string, 'like' | 'dislike'>) => void;
+  setDislikingUid: (uid: string | null) => void;
   setDislikeComment: (comment: string) => void;
   setToolDisplayNames: (names: Record<string, string>) => void;
   addBackendSessionId: (id: string) => void;
@@ -337,12 +350,15 @@ interface ChatState {
   removeLoadedMsgId: (id: string) => void;
   clearLoadedMsgIds: () => void;
   setShareSelectionMode: (v: boolean) => void;
-  toggleShareMessageTs: (ts: number) => void;
+  toggleShareMessageUid: (uid: string) => void;
   clearShareSelection: () => void;
-  /** Enter "share selection" mode with the given message ts list pre-checked */
-  startShareSelectionWithAll: (tsList: number[]) => void;
+  /** Enter "share selection" mode with the given message identities pre-checked */
+  startShareSelectionWithAll: (uidList: string[]) => void;
   setPendingScrollMessageTs: (ts: number | null) => void;
   setQuotedFollowUp: (quote: { text: string; ts: number } | null) => void;
+  addReferencedChat: (chat: ReferencableChat) => void;
+  removeReferencedChat: (chatId: string) => void;
+  clearReferencedChats: () => void;
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
   setActivePlugin: (plugin: { id: string; name: string } | null) => void;
   setActiveConnector: (connector: { id: string; name: string } | null) => void;
@@ -378,10 +394,10 @@ interface ChatState {
    *  and editing happen inside the project folder; messages are sent with project_id
    *  automatically); opts.title is used as the chat/project display name. */
   enterSiteMode: (opts?: { projectId?: string; projectName?: string; title?: string }) => boolean;
-  setEditingMessageTs: (ts: number | null) => void;
+  setEditingMessageUid: (uid: string | null) => void;
   bumpSessionLoadEpoch: () => void;
-  /** Truncate messages from the given message (inclusive): by server message_id when known, else by timestamp */
-  truncateMessagesFrom: (chatId: string, anchor: Pick<ChatMessage, 'ts' | 'messageId'>) => void;
+  /** Truncate messages from the given message (inclusive), located by its identity */
+  truncateMessagesFrom: (chatId: string, anchor: Pick<ChatMessage, 'uid'>) => void;
   setActiveRun: (chatId: string, info: { runId: string; messageId: string; lastOffset?: number }) => void;
   clearActiveRun: (chatId: string) => void;
   setQueuedMessage: (chatId: string, queued: QueuedChatMessage | null) => void;
@@ -443,6 +459,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   input: '',
   sending: false,
   sendingChatIds: new Set(),
+  remoteRunningChatIds: new Set(),
   expandedThinking: new Set(),
   chatMode: 'fast',
   lastStandardMode: 'fast',
@@ -452,24 +469,25 @@ export const useChatStore = create<ChatState>((set, get) => {
   chatsLoading: false,
   pendingFirstMessage: null,
   feedbackMap: {},
-  dislikingTs: null,
+  dislikingUid: null,
   dislikeComment: '',
   toolDisplayNames: {},
   backendSessionIds: new Set(),
   loadedMsgIds: new Set(),
   messagePaging: {},
   shareSelectionMode: false,
-  selectedShareMessageTs: new Set(),
+  selectedShareMessageUids: new Set(),
   pendingScrollMessageTs: null,
   quotedFollowUp: null,
   activeSkill: null,
+  referencedChats: [],
   activePlugin: null,
   activeConnector: null,
   activeMention: null,
   planMode: false,
   loopMode: false,
   currentPlanId: null,
-  editingMessageTs: null,
+  editingMessageUid: null,
   sessionLoadEpoch: 0,
   activeRuns: {},
   queuedMessages: {},
@@ -538,6 +556,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     next.delete(id);
     return { sendingChatIds: next, sending: next.has(s.currentChatId) };
   }),
+  refreshRemoteRunningChats: async () => {
+    const { listActiveChatRuns } = await import('../api');
+    const items = await listActiveChatRuns();
+    set({ remoteRunningChatIds: new Set(items.map((item) => item.chat_id)) });
+  },
   toggleThinking: (id) => {
     const next = new Set(get().expandedThinking);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -579,11 +602,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     saveChatStoreDebounced(currentUserId, next);
   },
   setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
-  setCopiedMsg: (ts) => set({ copiedMsg: ts }),
+  setCopiedMsg: (uid) => set({ copiedMsg: uid }),
   setChatsLoading: (v) => set({ chatsLoading: v }),
   setPendingFirstMessage: (p) => set({ pendingFirstMessage: p }),
   setFeedbackMap: (map) => set({ feedbackMap: map }),
-  setDislikingTs: (ts) => set({ dislikingTs: ts }),
+  setDislikingUid: (uid) => set({ dislikingUid: uid }),
   setDislikeComment: (comment) => set({ dislikeComment: comment }),
   setToolDisplayNames: (names) => set({ toolDisplayNames: names }),
   addBackendSessionId: (id) => set((s) => {
@@ -637,17 +660,17 @@ export const useChatStore = create<ChatState>((set, get) => {
   }),
   setShareSelectionMode: (v) => set((s) => ({
     shareSelectionMode: v,
-    selectedShareMessageTs: v ? s.selectedShareMessageTs : new Set(),
+    selectedShareMessageUids: v ? s.selectedShareMessageUids : new Set(),
   })),
-  toggleShareMessageTs: (ts) => set((s) => {
-    const next = new Set(s.selectedShareMessageTs);
-    if (next.has(ts)) next.delete(ts); else next.add(ts);
-    return { selectedShareMessageTs: next };
+  toggleShareMessageUid: (uid) => set((s) => {
+    const next = new Set(s.selectedShareMessageUids);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    return { selectedShareMessageUids: next };
   }),
-  clearShareSelection: () => set({ shareSelectionMode: false, selectedShareMessageTs: new Set() }),
-  startShareSelectionWithAll: (tsList) => set({
+  clearShareSelection: () => set({ shareSelectionMode: false, selectedShareMessageUids: new Set() }),
+  startShareSelectionWithAll: (uidList) => set({
     shareSelectionMode: true,
-    selectedShareMessageTs: new Set(tsList),
+    selectedShareMessageUids: new Set(uidList),
   }),
   setPendingScrollMessageTs: (ts) => {
     savePendingScrollMessageTs(get().currentUserId, ts);
@@ -670,6 +693,15 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({ quotedFollowUp: quote, store: next, storeRef: next });
     saveChatStoreDebounced(currentUserId, next);
   },
+  addReferencedChat: (chat) => set((state) => (
+    state.referencedChats.some((c) => c.chat_id === chat.chat_id)
+      ? state
+      : { referencedChats: [...state.referencedChats, chat] }
+  )),
+  removeReferencedChat: (chatId) => set((state) => ({
+    referencedChats: state.referencedChats.filter((c) => c.chat_id !== chatId),
+  })),
+  clearReferencedChats: () => set({ referencedChats: [] }),
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveConnector: (connector) => set({ activeConnector: connector }),
@@ -725,7 +757,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   setPlanProgress: (chatId, p) => set((s) => ({
     planProgress: { ...s.planProgress, [chatId]: p },
   })),
-  setEditingMessageTs: (ts) => set({ editingMessageTs: ts }),
+  setEditingMessageUid: (uid) => set({ editingMessageUid: uid }),
   bumpSessionLoadEpoch: () => set((s) => ({ sessionLoadEpoch: s.sessionLoadEpoch + 1 })),
   setActiveRun: (chatId, info) => set((s) => ({
     activeRuns: { ...s.activeRuns, [chatId]: info },
@@ -733,7 +765,11 @@ export const useChatStore = create<ChatState>((set, get) => {
   clearActiveRun: (chatId) => set((s) => {
     const next = { ...s.activeRuns };
     delete next[chatId];
-    return { activeRuns: next };
+    // 本标签页刚确知这一轮结束了，比服务端快照新——立刻灭灯，不等下一次刷新。
+    if (!s.remoteRunningChatIds.has(chatId)) return { activeRuns: next };
+    const remote = new Set(s.remoteRunningChatIds);
+    remote.delete(chatId);
+    return { activeRuns: next, remoteRunningChatIds: remote };
   }),
   setQueuedMessage: (chatId, queued) => {
     set((s) => {
@@ -789,11 +825,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     const { store } = get();
     const chat = store.chats[chatId];
     if (!chat) return;
-    // 身份优先用服务端 message_id：本地 ts 与历史 ts 来自两个时钟，比大小会错位。
-    const idx = chat.messages.findIndex((m) => (
-      anchor.messageId ? m.messageId === anchor.messageId : m.ts === anchor.ts
-    ));
-    const filtered = idx >= 0 ? chat.messages.slice(0, idx) : chat.messages.filter((m) => m.ts < anchor.ts);
+    const idx = chat.messages.findIndex((m) => m.uid === anchor.uid);
+    // 锚点是从渲染出来的列表里取的，找不到说明它已经不在了——什么都不该删。
+    if (idx < 0) return;
+    const filtered = chat.messages.slice(0, idx);
     const next: ChatStoreData = {
       ...store,
       chats: { ...store.chats, [chatId]: { ...chat, messages: filtered, updatedAt: Date.now() } },
@@ -1024,6 +1059,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       input: '',
       quotedFollowUp: nextChat.pendingQuote || null,
       activeSkill: null,
+      referencedChats: [],
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
       activeConnector: null,
@@ -1043,9 +1079,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       sending: false,
       expandedThinking: new Set(),
       shareSelectionMode: false,
-      selectedShareMessageTs: new Set(),
+      selectedShareMessageUids: new Set(),
       quotedFollowUp: null,
       activeSkill: null,
+      referencedChats: [],
       activePlugin: null,
       activeConnector: null,
       activeMention: null,
@@ -1096,9 +1133,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         loopMode: false,
         currentPlanId: null,
         shareSelectionMode: false,
-        selectedShareMessageTs: new Set(),
+        selectedShareMessageUids: new Set(),
         quotedFollowUp: nextChat?.pendingQuote || null,
         activeSkill: null,
+        referencedChats: [],
         activePlugin: null,
         activeConnector: null,
         activeMention: null,
@@ -1143,20 +1181,22 @@ export const useChatStore = create<ChatState>((set, get) => {
       pendingScrollMessageTs: pendingScroll,
       // Reset any in-flight UI state carried over from a previous user.
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},
       shareSelectionMode: false,
-      selectedShareMessageTs: new Set(),
+      selectedShareMessageUids: new Set(),
       quotedFollowUp: store.chats[currentChatId]?.pendingQuote || null,
       activeSkill: null,
+      referencedChats: [],
       activePlugin: null,
       activeConnector: null,
       activeMention: null,
       planMode: resolvePlanModeActive(store.chats[currentChatId]),
       loopMode: false,
       currentPlanId: null,
-      editingMessageTs: null,
+      editingMessageUid: null,
       activeRuns: {},
       // Durable cards retain targetRunId and are reconciled, never blindly replayed.
       queuedMessages: loadQueuedMessages(userId),
@@ -1195,21 +1235,23 @@ export const useChatStore = create<ChatState>((set, get) => {
       input: '',
       sending: false,
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},
       shareSelectionMode: false,
-      selectedShareMessageTs: new Set(),
+      selectedShareMessageUids: new Set(),
       pendingScrollMessageTs: null,
       quotedFollowUp: null,
       activeSkill: null,
+      referencedChats: [],
       activePlugin: null,
       activeConnector: null,
       activeMention: null,
       planMode: false,
       loopMode: false,
       currentPlanId: null,
-      editingMessageTs: null,
+      editingMessageUid: null,
       activeRuns: {},
       queuedMessages: {},
       compactionNotices: {},

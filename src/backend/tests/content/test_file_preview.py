@@ -1,4 +1,3 @@
-import asyncio
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,13 +69,13 @@ def test_preview_file_returns_inline_pdf_for_powerpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(file_routes, "_convert_office_to_pdf", lambda source_path, file_id: (str(pdf_path), str(temp_dir)))
 
     background_tasks = BackgroundTasks()
-    response = asyncio.run(file_routes.preview_file(
+    response = file_routes.preview_file(
         file_id="ppt_1",
         background_tasks=background_tasks,
         format="pdf",
         user=None,
         db=object(),
-    ))
+    )
 
     assert response.media_type == "application/pdf"
     assert response.path == str(pdf_path)
@@ -93,13 +92,13 @@ def test_preview_file_rejects_non_powerpoint(monkeypatch):
     })
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(file_routes.preview_file(
+        file_routes.preview_file(
             file_id="pdf_1",
             background_tasks=BackgroundTasks(),
             format="pdf",
             user=None,
             db=object(),
-        ))
+        )
 
     assert exc_info.value.status_code == 400
     # Production code files.py has extended the preview hint message to also support Word (feature drift, unrelated to the agentscope migration)

@@ -131,17 +131,20 @@ install_bubblewrap() {
 
 # Restricted local bash must never silently fall back to an unrestricted host
 # subprocess. Linux therefore requires bubblewrap; macOS ships sandbox-exec.
+# The macOS check names the absolute path on purpose: that is the binary the
+# sandbox invokes, so that anything planted earlier on PATH cannot become the
+# thing that "confines" the command.
 case "$(uname -s)" in
     Linux)
         if ! command -v bwrap >/dev/null 2>&1; then
-            info "Installing bubblewrap for local filesystem isolation"
+            info "Installing bubblewrap for local filesystem and network isolation"
             install_bubblewrap || die "bubblewrap is required for restricted local code execution. Install the 'bubblewrap' package and rerun this installer."
         fi
-        info "bubblewrap is ready for local filesystem isolation"
+        info "bubblewrap is ready for local filesystem and network isolation"
         ;;
     Darwin)
-        command -v sandbox-exec >/dev/null 2>&1 || die "sandbox-exec is required for restricted local code execution on macOS."
-        info "sandbox-exec is ready for local filesystem isolation"
+        [ -x /usr/bin/sandbox-exec ] || die "/usr/bin/sandbox-exec is required for restricted local code execution on macOS."
+        info "sandbox-exec is ready for local filesystem and network isolation"
         ;;
 esac
 

@@ -387,11 +387,12 @@ def register_bash(
             return _resp_json({"error": "command 不能为空"})
 
         # The generic permission middleware has already evaluated policy and
-        # confirmation. The execution boundary consumes its exact command
-        # ticket and applies the precomputed OS confinement constraints.
+        # confirmation. The execution boundary consumes its exact command ticket
+        # and asks it for the OS-level launch, which the provider applies at the
+        # point it actually spawns the process.
         from core.config.local_mode import local_mode_enabled
 
-        _confinement_warning = ""
+        authorization = None
         if local_mode_enabled():
             from core.llm.tool_permissions import current_local_command_authorization
 
@@ -405,13 +406,19 @@ def register_bash(
                     }
                 )
 
-            # The confinement contract belongs to the permission preset, not to
-            # this call site: the authorization decides whether isolation is
-            # required, preferred or waived, and this only applies the result.
+        provider = _get_provider()
+
+        sandbox_launch = None
+        # An OS sandbox is only meaningful where the command becomes a plain host
+        # process. A container provider isolates the command itself, and asking
+        # it to apply an argv prefix it does not understand would produce a
+        # confinement nobody enforces — so the question is put to the provider
+        # rather than assumed from the deployment profile.
+        if authorization is not None and provider.runs_on_host:
             from core.llm.tool_permissions import LocalConfinementUnavailableError
 
             try:
-                confined = authorization.confine(cmd)
+                sandbox_launch = authorization.confine()
             except LocalConfinementUnavailableError as exc:
                 return _resp_json(
                     {
@@ -421,12 +428,11 @@ def register_bash(
                         "sandbox_unavailable": True,
                     }
                 )
-            cmd = confined.command
-            if confined.warning:
-                logger.warning("[local-exec] %s cmd=%r", confined.warning, cmd[:200])
-                _confinement_warning = confined.warning
-
-        provider = _get_provider()
+            logger.info(
+                "[local-exec] preset=%s sandbox=%s",
+                authorization.approval_mode,
+                sandbox_launch.backend if sandbox_launch else "未启用（用户选择的权限档）",
+            )
 
         team_before = []
         if team_project:
@@ -450,6 +456,7 @@ def register_bash(
             timeout=effective_timeout,
             session_id=_sess,
             user_id=user_id,
+            sandbox_launch=sandbox_launch,
         )
         # 先把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件；随后记下镜像
         # 里现有哪些文件，命令跑完做差集才认得出沙箱里删掉了什么（rm 不经过任何工具）。
@@ -481,11 +488,6 @@ def register_bash(
             except Exception as exc:
                 payload["error"] = getattr(exc, "detail", str(exc))
                 payload["source_saved"] = False
-
-        if _confinement_warning:
-            # Degraded isolation is reported, never silent: the command policy
-            # gate still ran, but the OS write jail did not.
-            payload["confinement_warning"] = _confinement_warning
 
         # 命令跑完就对账，不看命令文本、不看退出码：路径可以由变量拼出、可以先 cd 再用
         # 相对路径，靠命令里有没有 "myspace" 字样判断必然漏；命令失败前写出的文件同样已经

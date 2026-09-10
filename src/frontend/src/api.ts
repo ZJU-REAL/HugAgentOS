@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption, ReferencableChat } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -604,6 +604,24 @@ export async function searchSessions(
   };
 }
 
+/** 可引用的历史会话（输入框 `/` 面板与拖拽落点共用）。
+ *  在项目里只返回同项目的会话；只给标题级信息，正文由智能体按需调 read_chat 读取。 */
+export async function listReferencableChats(params: {
+  q?: string;
+  projectId?: string;
+  excludeChatId?: string;
+  limit?: number;
+} = {}): Promise<ReferencableChat[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.projectId) qs.set('project_id', params.projectId);
+  if (params.excludeChatId) qs.set('exclude_chat_id', params.excludeChatId);
+  qs.set('limit', String(params.limit ?? 20));
+  const wrapped = await apiRequest<unknown>(`/v1/chats/referencable?${qs.toString()}`);
+  const data = unwrapData<{ items: ReferencableChat[] }>(wrapped);
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export async function getSession(chatId: string): Promise<ChatItem> {
   const wrapped = await apiRequest<unknown>(
     `/v1/chats/${chatId}`,
@@ -711,6 +729,7 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
     role: String(item.role) === 'assistant' ? 'assistant' : 'user',
     content: String(item.content ?? ''),
     isMarkdown: Boolean((item.metadata as JsonObject | undefined)?.is_markdown),
+    uid: String(item.message_id),
     ts: toTimestamp(item.created_at),
     messageId: typeof item.message_id === 'string' ? item.message_id : undefined,
     citations: Array.isArray((item.metadata as JsonObject | undefined)?.citations)
@@ -881,6 +900,43 @@ export async function getActiveChatRun(
   const data = unwrapData<unknown>(res);
   if (!data || typeof data !== 'object') return null;
   return data as ActiveChatRun;
+}
+
+/** 一条正在跑的会话，用于侧边栏「运行中」指示。 */
+export interface ActiveChatRunSummary {
+  chat_id: string;
+  run_id: string;
+  status: string;
+  started_at: string | null;
+}
+
+/**
+ * 当前用户所有还在跑的会话。
+ *
+ * 单会话的 ``getActiveChatRun`` 只回答"我正打开的这段在不在跑"，换设备登录时
+ * 侧边栏对没点开过的会话一无所知。这个接口一次问完，供侧边栏点亮小圆点。
+ */
+export async function listActiveChatRuns(): Promise<ActiveChatRunSummary[]> {
+  // 双模式下侧边栏同时挂着本机执行面的会话，那边跑起来的 run 云端并不知道，两边都要问。
+  const targets: Array<'local' | undefined> = isHybridDual() ? [undefined, 'local'] : [undefined];
+  const responses = await Promise.allSettled(
+    targets.map((target) =>
+      apiRequest<{ items?: ActiveChatRunSummary[] }>('/v1/chats/active-runs', undefined, target),
+    ),
+  );
+  // 调用方把返回值当成服务端权威快照，没列进来的会话会被灭灯——所以任一面查询失败就整体
+  // 抛错，让调用方保留现有状态等下一轮，绝不能把查不到的一面当成「那边没有在跑的了」。
+  const failed = responses.find((response) => response.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
+  const out: ActiveChatRunSummary[] = [];
+  for (const response of responses) {
+    if (response.status !== 'fulfilled') continue;
+    const { items } = unwrapData<{ items?: ActiveChatRunSummary[] }>(response.value);
+    for (const item of Array.isArray(items) ? items : []) {
+      if (item?.chat_id) out.push(item);
+    }
+  }
+  return out;
 }
 
 /**
@@ -3618,6 +3674,10 @@ export async function disconnectLark(): Promise<LarkStatus> {
 // ── Inbound channel bots (owner service-account model): user-created external IM bots that run under the owner's identity ──
 // Orthogonal to the "Feishu account connection" above: that is outbound (the agent operates Feishu as me), this is inbound (Feishu pushes messages to my agent).
 export interface ChannelBot {
+  execution_location?: 'local' | 'cloud';
+  device_id?: string | null;
+  device_name?: string | null;
+  device_online?: boolean | null;
   channel_id: string;
   channel_type: string;
   display_name: string;
@@ -3652,6 +3712,8 @@ export interface ChannelAdapterInfo {
 }
 
 export interface CreateChannelBotPayload {
+  execution_location?: 'local' | 'cloud';
+  local_binding_id?: string;
   channel_type: string;
   app_id: string;
   app_secret: string;
@@ -3731,8 +3793,22 @@ export interface WeixinBindStatus {
   channel_id?: string;
 }
 
-export async function startWeixinBind(agentId?: string): Promise<WeixinBindStart> {
-  const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+export async function prepareChannelLocalBinding(): Promise<{ binding_id: string; device_name: string }> {
+  if (!_hybridDual) throw new Error('本机机器人需要混合模式桌面端');
+  const result = await apiRequest<unknown>('/v1/channels/desktop/local-binding', { method: 'POST' }, 'local');
+  return unwrapData<{ binding_id: string; device_name: string }>(result);
+}
+
+export async function startWeixinBind(
+  agentId?: string, localBindingId?: string,
+): Promise<WeixinBindStart> {
+  const params = new URLSearchParams();
+  if (agentId) params.set('agent_id', agentId);
+  if (localBindingId) {
+    params.set('execution_location', 'local');
+    params.set('local_binding_id', localBindingId);
+  }
+  const suffix = params.size ? `?${params}` : '';
   const wrapped = await apiRequest<unknown>(`/v1/channels/weixin/bind/start${suffix}`, { method: 'POST' });
   return unwrapData<WeixinBindStart>(wrapped);
 }

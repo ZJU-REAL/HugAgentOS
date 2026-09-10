@@ -1,8 +1,10 @@
+import { isProjectInitCommand } from './projectCommands';
 import type { ChatItem } from '../types';
 
 type PlanModeChat = Pick<ChatItem, 'planChat' | 'planModeActive'>;
 type BatchModeChat = Pick<ChatItem, 'batchChat' | 'batchModeActive'>;
 type WorkflowModeChat = Pick<ChatItem, 'workflowChat' | 'workflowModeActive'>;
+type SiteModeChat = Pick<ChatItem, 'siteChat'>;
 
 /** Resolve the composer routing mode independently from the chat's historical plan marker. */
 export function resolvePlanModeActive(chat?: PlanModeChat): boolean {
@@ -25,6 +27,14 @@ export function resolveWorkflowModeActive(chat?: WorkflowModeChat): boolean {
   if (!chat) return false;
   if (typeof chat.workflowModeActive === 'boolean') return chat.workflowModeActive;
   return chat.workflowChat === true;
+}
+
+/** 站点模式：会话由「实验室 → 站点」入口创建即成立，/init 那一轮除外（项目初始化命令自己走）。
+ *  成立时后端在系统提示里注入建站 / 编辑规则——这段规则**不进用户消息**，所以刷新页面时
+ *  用户气泡里只有用户自己打的字。 */
+export function resolveSiteModeActive(chat: SiteModeChat | undefined, message: string): boolean {
+  if (!chat?.siteChat) return false;
+  return !isProjectInitCommand(message);
 }
 
 /** History loading may restore the legacy default, but must respect an explicit user opt-out. */

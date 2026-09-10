@@ -80,7 +80,7 @@ def _is_reranker_available() -> bool:
 
 
 @router.get("/settings", summary="获取记忆设置")
-async def get_memory_settings(
+def get_memory_settings(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -100,7 +100,7 @@ async def get_memory_settings(
 
 
 @router.patch("/settings", summary="更新记忆设置")
-async def update_memory_settings(
+def update_memory_settings(
     body: MemorySettingsRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -403,7 +403,7 @@ async def get_profile_memory(
 
 
 @router.get("/audit", summary="查询记忆审计记录")
-async def list_memory_audit(
+def list_memory_audit(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=500, description="返回行数上限"),

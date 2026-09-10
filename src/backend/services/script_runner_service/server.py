@@ -495,6 +495,25 @@ if os.getenv("DEPLOY_PROFILE") == "local":
 Path(SAFE_ENV["XDG_CACHE_HOME"], "fontconfig").mkdir(parents=True, exist_ok=True)
 
 
+class SandboxLaunch(BaseModel):
+    """Wire form of ``core.sandbox.oslayer.SandboxLaunch``.
+
+    Declared here rather than imported so the sidecar stays a standalone service
+    with no backend package on its path — the Docker image ships only this
+    directory. The two definitions are joined by the JSON on the wire, and the
+    backend's own test suite asserts they agree.
+
+    ``spawn_plan`` is the form Windows uses: its confinement lives in an access
+    token that has to be attached while the process is created, so there is no
+    command that could wrap another command into it.
+    """
+
+    backend: str = ""
+    argv_prefix: List[str] = []
+    env: Dict[str, str] = {}
+    spawn_plan: Optional[Dict[str, Any]] = None
+
+
 class ExecuteRequest(BaseModel):
     script_content: str
     script_name: str
@@ -507,6 +526,12 @@ class ExecuteRequest(BaseModel):
     session_id: str
     user_id: Optional[str] = None
     capability_view_key: Optional[str] = None
+    # OS-level confinement for this execution, decided by the backend's
+    # permission layer: an argv prefix to put in front of the interpreter and an
+    # environment overlay. The sidecar applies both verbatim and never decides
+    # whether an execution should be confined — that call belongs to whoever
+    # knows the user's permission preset.
+    sandbox_launch: Optional[SandboxLaunch] = None
 
 
 class FileOutput(BaseModel):
@@ -806,6 +831,7 @@ async def execute(req: ExecuteRequest):
             stdin_data=json.dumps(stdin_params, ensure_ascii=False),
             timeout=timeout,
             cwd=str(work_dir),
+            sandbox_launch=req.sandbox_launch,
         )
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -909,10 +935,37 @@ async def touch_session(req: SessionRequest):
     return {"touched": True}
 
 
-async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str) -> Dict[str, Any]:
-    """Execute a command in a restricted subprocess."""
+async def _execute_subprocess(
+    cmd: list,
+    stdin_data: str,
+    timeout: int,
+    cwd: str,
+    sandbox_launch: Optional[SandboxLaunch] = None,
+) -> Dict[str, Any]:
+    """Execute a command in a restricted subprocess.
+
+    ``sandbox_launch`` applies the host OS's confinement. Most platforms express
+    it as a wrapper command, so it simply goes in front of the argv; Windows
+    expresses it as an access token, which has to be attached while the process
+    is created and therefore takes the ``spawn_plan`` path below. The resource
+    limits are computed from the *original* command either way, because they
+    describe what the interpreter needs — the sandbox in front of it is not the
+    workload.
+
+    The limits and the sandbox never collide, and it is worth knowing why: a
+    launch only ever arrives under the local profile, which is exactly the
+    profile where the uid-wide ``RLIMIT_NPROC`` cap is deliberately not applied.
+    Were it applied, bubblewrap would fail to create its user namespace on any
+    machine whose login user already has more processes than the cap.
+    """
 
     nproc_limit = _subprocess_nproc_limit(cmd)
+    env = dict(SAFE_ENV)
+    spawn_plan = None
+    if sandbox_launch is not None:
+        cmd = [*sandbox_launch.argv_prefix, *cmd]
+        env.update(sandbox_launch.env)
+        spawn_plan = sandbox_launch.spawn_plan
 
     def _set_limits():
         # Keep the post-fork callback minimal: non-async-safe Python work in a
@@ -935,7 +988,9 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
             "start_new_session": True,
         }
 
-    proc: Optional[asyncio.subprocess.Process] = None
+    # Either an asyncio child or, under a Windows sandbox plan, a token-backed
+    # process exposing the same pid/returncode/kill/wait surface.
+    proc: Optional[Any] = None
     # Do not expose PIPE file descriptors to document-tool descendants.  Some
     # renderers briefly fan out or leave a helper behind; an inherited pipe then
     # keeps ``communicate()`` waiting for EOF even after the requested CLI has
@@ -949,15 +1004,20 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
         stdin_file.write(stdin_data.encode("utf-8"))
         stdin_file.seek(0)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=stdin_file,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                cwd=cwd,
-                env=SAFE_ENV,
-                **spawn_options,
-            )
+            if spawn_plan is not None:
+                proc = _spawn_with_sandbox_plan(
+                    spawn_plan, cmd, cwd=cwd, env=env, files=(stdin_file, stdout_file, stderr_file)
+                )
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=stdin_file,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    cwd=cwd,
+                    env=env,
+                    **spawn_options,
+                )
             await asyncio.wait_for(_wait_for_process_exit(proc), timeout=timeout)
             exit_code = proc.returncode or 0
             # A script can exit after starting a background helper.  Clean the
@@ -993,6 +1053,33 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
             ):
                 detail = "Windows 本机未找到 Bash；请安装 Git for Windows 后重启桌面客户端"
             return {"stdout": "", "stderr": detail, "exit_code": -1}
+        finally:
+            close = getattr(proc, "close", None)
+            if close is not None:
+                close()
+
+
+def _spawn_with_sandbox_plan(plan: Dict[str, Any], cmd: list, *, cwd, env, files):
+    """Start a command under the Windows sandbox plan the backend decided on.
+
+    A plan we cannot apply is an error, never a reason to start the command
+    anyway: the layers above have already told the user this command is
+    confined. The import is local because it is only reachable on Windows local
+    mode, where the full backend tree is on the path — the Docker image ships
+    this directory alone and never produces a plan to begin with.
+    """
+    from core.sandbox.oslayer.windows_runtime import spawn_confined
+
+    stdin_file, stdout_file, stderr_file = files
+    return spawn_confined(
+        plan,
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=stdin_file.fileno(),
+        stdout=stdout_file.fileno(),
+        stderr=stderr_file.fileno(),
+    )
 
 
 def _subprocess_nproc_limit(cmd: list) -> Optional[int]:
@@ -1021,9 +1108,14 @@ def _subprocess_nproc_limit(cmd: list) -> Optional[int]:
 
 
 async def _terminate_process_group(
-    proc: Optional[asyncio.subprocess.Process],
+    proc: Optional[Any],
 ) -> None:
-    """Kill and reap one execution process together with all descendants."""
+    """Kill and reap one execution process together with all descendants.
+
+    Works against either an asyncio child or the token-backed process a Windows
+    sandbox plan produces: both expose ``pid`` / ``returncode`` / ``kill`` /
+    ``wait``, which is the whole surface used here.
+    """
     if proc is None:
         return
     if os.name == "nt":
@@ -1072,7 +1164,7 @@ async def _terminate_process_group(
         await _wait_for_process_exit(proc)
 
 
-async def _wait_for_process_exit(proc: asyncio.subprocess.Process) -> int:
+async def _wait_for_process_exit(proc: Any) -> int:
     """Wait until asyncio's child watcher has reaped the subprocess.
 
     ``Process.wait()`` has a race on some local quick-install runtimes when a

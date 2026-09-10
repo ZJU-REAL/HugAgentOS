@@ -52,15 +52,14 @@ def test_bound_desktop_project_packages_build_without_cloud_folder(local_project
 
 
 @pytest.mark.parametrize("src_dir", ["", "."])
-def test_default_source_uses_bound_project(local_project, monkeypatch, src_dir):
+def test_local_publish_requires_explicit_directory(local_project, monkeypatch, src_dir):
     root, _ = local_project
-    async def pack(src, *args, **kwargs):
-        assert src == str(root)
-        return [("index.html", b"built")], None
+    async def pack(*args, **kwargs):
+        pytest.fail("must reject before packing")
     monkeypatch.setattr("core.services.site_packaging.pack_and_fetch_dir", pack)
-    data, _ = asyncio.run(package_local_site(
-        {"src_dir": src_dir}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
-    assert safe_extract_tar(data) == [("index.html", b"built")]
+    with pytest.raises(ValueError, match="src_dir"):
+        asyncio.run(package_local_site(
+            {"src_dir": src_dir}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
 
 
 @pytest.mark.parametrize("change,status", [("other-user", 403), ("missing-root", 409),

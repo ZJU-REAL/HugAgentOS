@@ -136,18 +136,15 @@ if (initial.provisionMode === 'dual' && typeof EventSource !== 'undefined') {
 }
 
 /**
- * 站点等对外链接的稳定源（展示 / 复制用，站内打开仍走相对路径）。
+ * 站点等对外链接的稳定源：壳当前指向的后端地址。
  *
- * 桌面窗口的 origin 是随机端口的本地反代——每次启动都变、仅本机可达，写进可
- * 分享链接必然失效。按站点归属选真实后端地址：
- *   - 本机站点 → 固定的 http://127.0.0.1:32101；
- *   - 云端站点 → 壳指向的云端地址（LocalOnly 形态下即本机地址），别的浏览器/
- *     别人打开都有效；
- *   - web 端 → 页面 origin（本来就是真实后端域名）。
+ * 桌面窗口的 origin 是随机端口的本地反代——每次启动都变、仅本机可达，任何相对
+ * 路径都会解析成它，写进链接或另开标签都只有本机打得开。所以对外链接一律用这里
+ * 的绝对地址：双模式为云端域名，LocalOnly 形态下 serverBase 本身即本机地址，
+ * web 端就是页面 origin（本来就是真实后端域名）。
  */
-export function stablePublicOrigin(siteOrigin?: 'cloud' | 'local'): string {
-  const { isDesktop, serverBase, localBase } = useDeploymentModeStore.getState();
+export function stablePublicOrigin(): string {
+  const { isDesktop, serverBase } = useDeploymentModeStore.getState();
   if (!isDesktop) return window.location.origin;
-  if (siteOrigin === 'local' && localBase) return localBase;
-  return serverBase || window.location.origin;
+  return serverBase;
 }

@@ -252,7 +252,7 @@ The scheduled-task creation form shows a Local/Cloud selector only in desktop hy
 
 ## Cloud management of hybrid desktop logs
 
-Administrators can select Local tasks in model, chat history, tool, agent and skill log pages, filter by user/device/conversation/run, and open conversations or record details. Device status shows last sync, pending records, reconciliation and capture errors. Gateway error counters are process-local and reset on restart.
+Model, chat history, tool, agent and skill log pages show both local and cloud task sections by default. The task-origin selector filters all, local or cloud tasks and persists across log menus and page reloads. Administrators can filter local records by user/device/conversation/run and open conversations or record details. Device status shows last sync, pending records, reconciliation and capture errors. Gateway error counters are process-local and reset on restart.
 
 The desktop captures pending identifiers in the existing database transaction. A background worker uploads batches approximately every three seconds, retries offline and resumes after restart. The cloud accepts events idempotently by account, device, event and revision. Historical data is reconciled incrementally. Uploads are outside the inference wait path; local database capture still has a small cost, so absolute zero overhead is not promised.
 
@@ -261,3 +261,20 @@ Cloud model/tool gateways also capture server execution observations and dedupli
 Upgrade the cloud backend, management frontend and bundled desktop backend together, and apply normal migrations including deskobs01. Management queries belong to EE audit; CE retains receiver/model compatibility. The desktop must be signed into the matching cloud account with its backend running. Old clients do not emit these new records.
 
 Records are eventually visible. Gateway persistence uses a bounded asynchronous queue, so a hard process exit or queue overflow can lose server observations; error counters expose failures and durable desktop uploads can supplement captured records. Management copies do not modify the existing billing ledger.
+
+
+### Explicit site editing targets and skill updates
+
+Editing works from project chats, new chats, existing chats, or site cards. In local projects,
+the agent calls `list_project_sites` to discover current-account site IDs and source/output directories.
+It selects according to the user's request and asks when candidates are ambiguous.
+Updates explicitly pass the original `site_id` and the actual page/build output `src_dir`.
+Local publishing no longer defaults to the project root or selects a site from chat metadata.
+Omit the ID only for an intentional new site. Verify the returned ID, URL, version and actual homepage.
+
+Builtin Sites version 1.2.0 upgrades existing older builtin instructions on service startup, including
+global and private installations. Enabled states and connection settings are preserved; uninstalled
+or user-imported plugins are untouched. Update the cloud backend and site MCP plus the local backend.
+Desktop capability synchronization then downloads the new cloud skill hash and package.
+Rebuilding the desktop alone does not replace installed skills in the cloud database.
+Verify that a real site conversation has `list_project_sites` and loads the explicit-update instructions.

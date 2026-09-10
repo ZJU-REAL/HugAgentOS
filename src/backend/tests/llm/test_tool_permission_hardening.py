@@ -181,7 +181,14 @@ async def test_trusted_unattended_run_bypasses_builtin_myspace_confirmation():
 
 
 @pytest.mark.asyncio
-async def test_trusted_unattended_run_issues_an_unconfined_builtin_bash_ticket():
+async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
+    """A trusted unattended run skips the prompt, not the sandbox.
+
+    Channel and automation entry points are trusted enough not to stop and ask,
+    but they are not a reason to hand a command more of the machine than the
+    user's own configuration allows — so the ticket carries that configuration's
+    preset and scope, exactly as an interactive run would.
+    """
     registry = ToolPermissionRegistry()
     registry.register("bash", builtin_tool_permission("bash"), source="native")
     service = ToolPermissionService(
@@ -200,7 +207,8 @@ async def test_trusted_unattended_run_issues_an_unconfined_builtin_bash_ticket()
     assert [intent.domain for intent in outcome.ticket.intents] == [DOMAIN_LOCAL_COMMAND]
     assert outcome.ticket.local_command is not None
     assert outcome.ticket.local_command.command == "touch /tmp/x"
-    assert outcome.ticket.local_command.approval_mode == "full"
+    assert outcome.ticket.local_command.approval_mode == "ask"
+    assert outcome.ticket.local_command.confined is True
     assert outcome.audit["decision"] == "allow_trusted_unattended"
 
 

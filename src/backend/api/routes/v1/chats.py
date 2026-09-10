@@ -35,6 +35,7 @@ from core.llm.message_compat import strip_thinking
 from core.llm.tool_permissions import normalize_approval_mode
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from core.services import ChatService, UserService
+from core.services.chat_reference_service import render_reference_block
 from core.services.compaction_service import get_compaction_context_state
 from core.services.model_config import ModelConfigService
 from core.services.project_scope import project_scope_from_context
@@ -241,7 +242,7 @@ def _clean_id_list(raw: Optional[list]) -> List[str]:
 
 
 @router.get("", summary="获取会话列表")
-async def list_chats(
+def list_chats(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     sort: str = Query("-updated_at", description="Sort field"),
@@ -292,7 +293,7 @@ async def list_chats(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="创建新会话")
-async def create_chat(
+def create_chat(
     request: CreateChatRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -314,7 +315,7 @@ async def create_chat(
 
 
 @router.get("/search", summary="搜索会话")
-async def search_chats(
+def search_chats(
     q: str = Query(..., description="Search keyword"),
     scope: str = Query(
         "title", description="Search scope: 'title' or 'all' (title + message content)"
@@ -354,8 +355,42 @@ async def search_chats(
     )
 
 
+@router.get("/referencable", summary="获取可引用的历史会话")
+def list_referencable_chats(
+    q: str = Query("", description="可选关键词，按标题和消息正文筛选"),
+    project_id: Optional[str] = Query(None, description="限定在该项目内检索"),
+    exclude_chat_id: Optional[str] = Query(None, description="排除当前正在进行的会话"),
+    limit: int = Query(20, ge=1, le=50, description="返回条数"),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """输入框里挑选要引用的历史会话（斜杠命令面板与拖拽落点共用）。
+
+    在项目里只给同项目的会话——项目是用户自己划的话题边界。只返回标题级信息，正文由
+    智能体在回答时按需调 ``read_chat`` 读取。
+    """
+    from core.services.chat_reference_service import (
+        list_referencable_sessions,
+        session_brief,
+    )
+
+    db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    sessions = list_referencable_sessions(
+        db,
+        db_user_id,
+        project_id=project_id,
+        query=q,
+        limit=limit,
+        exclude_chat_id=exclude_chat_id,
+    )
+    return success_response(
+        data={"items": [session_brief(s) for s in sessions]},
+        message="Referencable chats retrieved successfully",
+    )
+
+
 @router.get("/pending-confirms", summary="批量查询本人会话的待确认我的空间写操作")
-async def list_pending_confirms(
+def list_pending_confirms(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -389,7 +424,7 @@ async def list_pending_confirms(
 
 
 @router.get("/pending-user-questions", summary="批量查询本人会话的待回答问题")
-async def list_pending_user_questions(
+def list_pending_user_questions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -421,7 +456,7 @@ def _dedup_id_list(raw: Optional[list]) -> List[str]:
 
 
 @router.get("/sidebar-order", summary="获取侧边栏手动排序")
-async def get_sidebar_order(
+def get_sidebar_order(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -438,7 +473,7 @@ async def get_sidebar_order(
 
 
 @router.put("/sidebar-order", summary="保存侧边栏手动排序")
-async def update_sidebar_order(
+def update_sidebar_order(
     request: UpdateSidebarOrderRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -455,8 +490,38 @@ async def update_sidebar_order(
     return success_response(data={"order": order})
 
 
+@router.get("/active-runs", summary="列出当前用户所有进行中的会话")
+def list_active_chat_runs(
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """一次性返回当前用户还在跑的会话，供侧边栏点亮「运行中」。
+
+    ``/{chat_id}/active-run`` 只回答"我正打开的这段在不在跑"，所以换设备登录时
+    侧边栏对没点开过的会话一无所知。这里按用户一次查完：查询只命中 pending /
+    running 这一小撮行，与历史 run 的数量无关。
+    """
+    from orchestration import chat_run_executor
+
+    db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    runs = chat_run_executor.list_active_runs_for_user(db_user_id)
+    return success_response(
+        data={
+            "items": [
+                {
+                    "chat_id": run.chat_id,
+                    "run_id": run.run_id,
+                    "status": run.status,
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                }
+                for run in runs
+            ]
+        }
+    )
+
+
 @router.get("/{chat_id}", summary="获取会话详情")
-async def get_chat(
+def get_chat(
     chat_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """获取当前用户有权读取的会话详情。"""
@@ -474,7 +539,7 @@ async def get_chat(
 
 
 @router.patch("/{chat_id}", summary="更新会话")
-async def update_chat(
+def update_chat(
     chat_id: str,
     request: UpdateChatRequest,
     user: UserContext = Depends(get_current_user),
@@ -549,7 +614,7 @@ async def update_chat(
 
 
 @router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除会话")
-async def delete_chat(
+def delete_chat(
     chat_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """软删当前用户有权管理的会话。"""
@@ -570,7 +635,7 @@ async def delete_chat(
 
 
 @router.get("/{chat_id}/messages", summary="获取会话消息列表")
-async def list_messages(
+def list_messages(
     chat_id: str,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
@@ -614,7 +679,7 @@ async def list_messages(
 
 
 @router.get("/{chat_id}/context-usage", summary="获取会话上下文占用快照")
-async def get_context_usage(
+def get_context_usage(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -638,7 +703,7 @@ async def get_context_usage(
     "/{chat_id}/messages/{message_id}/tool-calls/{tool_id}",
     summary="按需获取单个工具调用的完整结果",
 )
-async def get_tool_call_result(
+def get_tool_call_result(
     chat_id: str,
     message_id: str,
     tool_id: str,
@@ -680,7 +745,7 @@ async def get_tool_call_result(
 
 
 @router.get("/{chat_id}/messages/{message_id}/followups", summary="获取追问问题")
-async def get_followups(
+def get_followups(
     chat_id: str,
     message_id: str,
     user: UserContext = Depends(get_current_user),
@@ -1013,6 +1078,22 @@ def _strip_direct_mention_prefix(message: str, mention_name: Optional[str]) -> s
     return message
 
 
+def _resolve_reference_block(db: Session, request: ChatRequest, user_id: str) -> str:
+    """解析本轮引用的历史会话，返回拼进用户消息的名片文本。
+
+    名片按当前用户的权限现查，并挂回 ``request`` 上，随后与用户消息一起落库——历史重放
+    时照这份快照渲染，模型看到的和当时看到的是同一份。
+    """
+    from core.services.chat_reference_service import (
+        render_reference_block,
+        resolve_reference_cards,
+    )
+
+    cards = resolve_reference_cards(db, user_id, getattr(request, "referenced_chats", None))
+    request._resolved_reference_cards = cards
+    return render_reference_block(cards)
+
+
 def _build_user_extra_data(
     request: ChatRequest,
     model_provider_id: Optional[str] = None,
@@ -1035,6 +1116,8 @@ def _build_user_extra_data(
             extra["attachments"] = upload_meta
     if request.quoted_follow_up:
         extra["quoted_follow_up"] = request.quoted_follow_up.model_dump()
+    if getattr(request, "_resolved_reference_cards", None):
+        extra["referenced_chats"] = list(request._resolved_reference_cards)
     if request.agent_id:
         extra["agent_id"] = request.agent_id
         if getattr(request, "_resolved_agent_profile", None):
@@ -1222,6 +1305,7 @@ def _build_ctx(
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,
         "workflow_chat": request.workflow_chat,
+        "site_chat": request.site_chat,
         "disable_batch_plan": request.disable_batch_plan,
         **project_ctx,
     }
@@ -1238,6 +1322,7 @@ def _ensure_chat_session(
     plan_chat: bool = False,
     batch_chat: bool = False,
     workflow_chat: bool = False,
+    site_chat: bool = False,
     project_id: Optional[str] = None,
 ):
     extra_data: Dict[str, Any] = {"chat_id": chat_id}
@@ -1251,6 +1336,8 @@ def _ensure_chat_session(
         extra_data["batch_chat"] = True
     if workflow_chat:
         extra_data["workflow_chat"] = True
+    if site_chat:
+        extra_data["site_chat"] = True
     # Prefer the edition-aware access resolver before creating a session.
     pair = chat_service.get_session_with_access(chat_id, user_id)
     if pair is not None:
@@ -1289,6 +1376,9 @@ def _ensure_chat_session(
         dirty = True
     if workflow_chat and not existing_meta.get("workflow_chat"):
         merged["workflow_chat"] = True
+        dirty = True
+    if site_chat and not existing_meta.get("site_chat"):
+        merged["site_chat"] = True
         dirty = True
     if dirty:
         chat_service.update_session(chat_id, user_id, {"extra_data": merged})
@@ -1331,7 +1421,9 @@ async def chat_send(
     )
     request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
-        execution_message, request.quoted_follow_up
+        execution_message,
+        request.quoted_follow_up,
+        _resolve_reference_block(db, request, db_user_id),
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
@@ -1371,6 +1463,7 @@ async def chat_send(
             plan_chat=request.plan_chat,
             batch_chat=request.batch_chat,
             workflow_chat=request.workflow_chat,
+            site_chat=request.site_chat,
             project_id=request.project_id,
         )
         # Link orphan artifacts (uploaded before session existed) to this chat
@@ -1534,7 +1627,9 @@ async def chat_stream(
     )
     request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
-        execution_message, request.quoted_follow_up
+        execution_message,
+        request.quoted_follow_up,
+        _resolve_reference_block(db, request, db_user_id),
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
@@ -1597,6 +1692,7 @@ async def chat_stream(
         plan_chat=request.plan_chat,
         batch_chat=request.batch_chat,
         workflow_chat=request.workflow_chat,
+        site_chat=request.site_chat,
         project_id=request.project_id,
     )
 
@@ -1703,7 +1799,7 @@ async def chat_stream(
 
 
 @router.get("/stream/{run_id}", summary="续播 run（用于刷新后重新订阅）")
-async def chat_stream_resume(
+def chat_stream_resume(
     run_id: str,
     from_offset: int = Query(0, alias="from", ge=0, description="从此 offset 之后继续推送"),
     user: UserContext = Depends(get_current_user),
@@ -1731,7 +1827,7 @@ async def chat_stream_resume(
 
 
 @router.get("/{chat_id}/active-run", summary="探测会话是否有进行中的 run")
-async def chat_active_run(
+def chat_active_run(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2229,6 +2325,7 @@ async def regenerate_message(
     regen_request = ChatRequest(
         chat_id=chat_id,
         project_id=_sess.project_id,
+        site_chat=bool((_sess.extra_data or {}).get("site_chat")),
         message=user_content,
         model_name="qwen",
         enable_thinking=user_extra.get("enable_thinking", False),
@@ -2257,7 +2354,9 @@ async def regenerate_message(
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
-        init_message or execution_message, regen_request.quoted_follow_up
+        init_message or execution_message,
+        regen_request.quoted_follow_up,
+        render_reference_block(user_extra.get("referenced_chats")),
     )
 
     context = _build_ctx(
@@ -2355,10 +2454,12 @@ async def edit_and_resend(
     # skill / plugin / connector / @agent this turn referenced are carried over.
     saved_invocation = _restore_invocation(target_extra)
     saved_quoted_follow_up = target_extra.get("quoted_follow_up")
+    saved_reference_cards = target_extra.get("referenced_chats")
 
     edit_request = ChatRequest(
         chat_id=chat_id,
         project_id=_sess.project_id,
+        site_chat=bool((_sess.extra_data or {}).get("site_chat")),
         message=body.new_content,
         model_name="qwen",
         attachments=attachment_items,
@@ -2394,6 +2495,8 @@ async def edit_and_resend(
         _edit_extra["attachments"] = saved_attachments
     if saved_quoted_follow_up:
         _edit_extra["quoted_follow_up"] = saved_quoted_follow_up
+    if saved_reference_cards:
+        _edit_extra["referenced_chats"] = saved_reference_cards
     if selected_model_provider_id:
         _edit_extra["model_provider_id"] = selected_model_provider_id
 
@@ -2448,7 +2551,9 @@ async def edit_and_resend(
             user_id=db_user_id,
             session_messages=session_messages,
             effective_user_message=_build_effective_user_message(
-                init_message or execution_message, edit_request.quoted_follow_up
+                init_message or execution_message,
+                edit_request.quoted_follow_up,
+                render_reference_block(saved_reference_cards),
             ),
             raw_user_message=body.new_content,
             context=context,
@@ -2472,7 +2577,7 @@ async def edit_and_resend(
     "/messages/{message_id}/ontology-revision/accept",
     summary="采用领域本体优化稿",
 )
-async def accept_ontology_revision(
+def accept_ontology_revision(
     message_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2504,7 +2609,7 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/messages/{message_id}/feedback", summary="消息反馈")
-async def submit_feedback(
+def submit_feedback(
     message_id: str,
     body: FeedbackRequest,
     user: UserContext = Depends(get_current_user),
@@ -2572,7 +2677,7 @@ async def submit_feedback(
     "/{chat_id}/pending-user-questions",
     summary="查询会话中等待用户回答的问题",
 )
-async def get_pending_user_questions(
+def get_pending_user_questions(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2593,7 +2698,7 @@ async def get_pending_user_questions(
     "/{chat_id}/user-questions/{request_id}/answer",
     summary="回答智能体主动提出的问题",
 )
-async def answer_user_question(
+def answer_user_question(
     chat_id: str,
     request_id: str,
     body: UserQuestionAnswerBody,
@@ -2635,7 +2740,7 @@ async def answer_user_question(
     "/{chat_id}/user-questions/{request_id}/cancel",
     summary="取消智能体主动提出的问题",
 )
-async def cancel_user_question(
+def cancel_user_question(
     chat_id: str,
     request_id: str,
     user: UserContext = Depends(get_current_user),
@@ -2675,7 +2780,7 @@ class FileConfirmBody(BaseModel):
 
 
 @router.get("/{chat_id}/pending-confirm", summary="查询会话是否有待确认的我的空间写操作")
-async def get_pending_confirm(
+def get_pending_confirm(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2697,7 +2802,7 @@ async def get_pending_confirm(
 
 
 @router.post("/{chat_id}/file-confirm", summary="确认/拒绝对我的空间的写操作")
-async def file_confirm(
+def file_confirm(
     chat_id: str,
     body: FileConfirmBody,
     user: UserContext = Depends(get_current_user),

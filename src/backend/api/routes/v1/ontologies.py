@@ -118,7 +118,7 @@ def _version_dict(row, *, include_content: bool = False) -> dict[str, Any]:
 
 
 @router.get("/v1/ontologies/settings", summary="获取当前用户的本体校验设置")
-async def get_ontology_settings(
+def get_ontology_settings(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -142,7 +142,7 @@ async def get_ontology_settings(
 
 
 @router.patch("/v1/ontologies/settings", summary="更新当前用户的本体校验设置")
-async def update_ontology_settings(
+def update_ontology_settings(
     body: OntologySettingsRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -170,7 +170,7 @@ async def update_ontology_settings(
 
 
 @router.get("/v1/ontologies/runtime/preview", summary="预览当前用户本轮将注入的本体策略")
-async def preview_ontology_runtime(
+def preview_ontology_runtime(
     task: str = Query(..., min_length=1, max_length=4000),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -191,7 +191,7 @@ async def preview_ontology_runtime(
 
 
 @router.get("/v1/ontologies/tags", summary="获取可选的受控本体标签")
-async def list_ontology_tag_options(
+def list_ontology_tag_options(
     asset_kind: Literal["tool", "skill", "subagent"] = Query(...),
     _: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -201,7 +201,7 @@ async def list_ontology_tag_options(
 
 
 @router.get("/v1/ontologies/governance/access", summary="CE 本体治理访问探针")
-async def ontology_governance_access(
+def ontology_governance_access(
     user: UserContext | None = Depends(require_auth(False)),
     db: Session = Depends(get_db),
 ):
@@ -220,7 +220,7 @@ async def ontology_governance_access(
     dependencies=[Depends(require_admin)],
     summary="获取本体治理策略",
 )
-async def get_ontology_governance_policy(db: Session = Depends(get_db)):
+def get_ontology_governance_policy(db: Session = Depends(get_db)):
     return success_response(
         data={"force_plugin_import_build_validation": (plugin_import_build_validation_forced(db))}
     )
@@ -236,7 +236,7 @@ async def get_ontology_governance_policy(db: Session = Depends(get_db)):
     dependencies=[Depends(require_admin)],
     summary="更新本体治理策略",
 )
-async def update_ontology_governance_policy(
+def update_ontology_governance_policy(
     body: OntologyGovernancePolicyRequest,
     db: Session = Depends(get_db),
 ):
@@ -257,7 +257,7 @@ async def update_ontology_governance_policy(
     dependencies=[Depends(require_admin)],
     summary="列出 Domain Pack 与版本",
 )
-async def list_ontology_packs(db: Session = Depends(get_db)):
+def list_ontology_packs(db: Session = Depends(get_db)):
     service = OntologyService(db)
     return success_response(
         data={
@@ -279,7 +279,7 @@ async def list_ontology_packs(db: Session = Depends(get_db)):
     dependencies=[Depends(require_admin)],
     summary="获取管理端可选的受控本体标签",
 )
-async def list_admin_ontology_tag_options(
+def list_admin_ontology_tag_options(
     asset_kind: Literal["tool", "skill", "subagent"] = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -297,7 +297,7 @@ async def list_admin_ontology_tag_options(
     dependencies=[Depends(require_admin)],
     summary="查询本体闭环治理指标",
 )
-async def get_ontology_metrics(db: Session = Depends(get_db)):
+def get_ontology_metrics(db: Session = Depends(get_db)):
     event_decisions = Counter(
         {
             decision: count
@@ -381,7 +381,7 @@ async def get_ontology_metrics(db: Session = Depends(get_db)):
     dependencies=[Depends(require_admin)],
     summary="用激活的 Domain Pack 校验技能、工具或子智能体定义",
 )
-async def validate_ontology_build_asset(
+def validate_ontology_build_asset(
     body: OntologyBuildValidationRequest,
     db: Session = Depends(get_db),
 ):
@@ -413,7 +413,7 @@ async def validate_ontology_build_asset(
     dependencies=[Depends(require_admin)],
     summary="校验 Domain Pack",
 )
-async def validate_ontology_pack(body: dict[str, Any], db: Session = Depends(get_db)):
+def validate_ontology_pack(body: dict[str, Any], db: Session = Depends(get_db)):
     _, report = OntologyService(db).validate_document(body)
     return success_response(data=report)
 
@@ -428,7 +428,7 @@ async def validate_ontology_pack(body: dict[str, Any], db: Session = Depends(get
     dependencies=[Depends(require_admin)],
     summary="导入 Domain Pack 新版本",
 )
-async def create_ontology_version(
+def create_ontology_version(
     body: OntologyVersionRequest,
     db: Session = Depends(get_db),
 ):
@@ -446,7 +446,7 @@ async def create_ontology_version(
     dependencies=[Depends(require_admin)],
     summary="创建或更新 Domain Pack 工作草稿",
 )
-async def save_ontology_working_draft(
+def save_ontology_working_draft(
     pack_id: str,
     body: OntologyWorkingDraftRequest,
     db: Session = Depends(get_db),
@@ -470,7 +470,7 @@ async def save_ontology_working_draft(
     dependencies=[Depends(require_admin)],
     summary="放弃 Domain Pack 工作草稿",
 )
-async def discard_ontology_working_draft(
+def discard_ontology_working_draft(
     pack_id: str,
     version_id: str,
     db: Session = Depends(get_db),
@@ -489,7 +489,7 @@ async def discard_ontology_working_draft(
     dependencies=[Depends(require_admin)],
     summary="激活 Domain Pack 版本",
 )
-async def activate_ontology_version(
+def activate_ontology_version(
     pack_id: str,
     version_id: str,
     db: Session = Depends(get_db),
@@ -508,7 +508,7 @@ async def activate_ontology_version(
     dependencies=[Depends(require_admin)],
     summary="更新 Domain Pack 启用/默认状态",
 )
-async def update_ontology_pack(
+def update_ontology_pack(
     pack_id: str,
     body: OntologyPackFlagsRequest,
     db: Session = Depends(get_db),
@@ -531,7 +531,7 @@ async def update_ontology_pack(
     dependencies=[Depends(require_admin)],
     summary="导出 Domain Pack 版本",
 )
-async def export_ontology_version(
+def export_ontology_version(
     pack_id: str,
     version_id: str,
     db: Session = Depends(get_db),
@@ -552,7 +552,7 @@ async def export_ontology_version(
     dependencies=[Depends(require_admin)],
     summary="查询本体门禁审计事件",
 )
-async def list_ontology_events(
+def list_ontology_events(
     limit: int = Query(100, ge=1, le=500),
     chat_id: str | None = None,
     decision: str | None = None,
@@ -594,7 +594,7 @@ async def list_ontology_events(
     dependencies=[Depends(require_admin)],
     summary="查询本体评审记录",
 )
-async def list_ontology_reviews(
+def list_ontology_reviews(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
@@ -630,7 +630,7 @@ async def list_ontology_reviews(
     dependencies=[Depends(require_admin)],
     summary="查询待人工审查的本体演进草案",
 )
-async def list_ontology_drafts(
+def list_ontology_drafts(
     status: str | None = Query(None, pattern="^(pending|approved|rejected)$"),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -667,7 +667,7 @@ async def list_ontology_drafts(
     dependencies=[Depends(require_admin)],
     summary="人工通过或驳回本体演进草案",
 )
-async def review_ontology_draft(
+def review_ontology_draft(
     draft_id: str,
     body: OntologyDraftReviewRequest,
     db: Session = Depends(get_db),
@@ -719,7 +719,7 @@ async def generate_ontology_evolution_drafts(
     dependencies=[Depends(require_admin)],
     summary="把已批准演进草案物化为未激活的新版本",
 )
-async def materialize_ontology_draft(
+def materialize_ontology_draft(
     draft_id: str,
     db: Session = Depends(get_db),
 ):
