@@ -44,7 +44,8 @@ async def local_automation_result(source_plugin, tool_name, arguments, headers, 
 
     if instance_location() != "local":
         return None
-    bridge.ensure_current_authorization()
+    identity_state = bridge.get_state()
+    bridge.ensure_current_authorization(identity_state)
     args = dict(arguments)
     # User identity belongs to the durable local run, not model arguments.
     effect = CURRENT_TOOL_EFFECT.get()
@@ -55,8 +56,10 @@ async def local_automation_result(source_plugin, tool_name, arguments, headers, 
         user_id = run.user_id if run else chat.user_id if chat else None
         if not user_id:
             raise ValueError("无法确定本机任务的当前用户")
-        from core.services.desktop_capability_protocol import token_subject
-        if token_subject((bridge.get_state() or {}).get("token", "")) != user_id:
+        from core.capabilities.skills import current_local_user_id
+        # The same cloud account has a device-local shadow ID. Resolve its
+        # cloud-address-scoped mapping before comparing local resource owners.
+        if current_local_user_id() != user_id:
             raise ValueError("本机任务所属账号与当前云端账号不匹配")
         location = args.get("execution_location") or ""
         if location not in {"", "local", "cloud"}:
@@ -86,11 +89,16 @@ async def local_automation_result(source_plugin, tool_name, arguments, headers, 
     if authorize is None:
         raise ValueError("本机工具缺少当前授权校验")
     await authorize()
-    bridge.ensure_current_authorization()
+    bridge.ensure_current_authorization(identity_state)
     if tool_name != "create_scheduled_task":
         args.pop("execution_location", None)
     from mcp_servers.automation_task_mcp import impl
-    result = await asyncio.to_thread(getattr(impl, TOOLS[tool_name]), user_id=user_id, **args)
+    def dispatch():
+        # Account changes must not race the queued local database operation.
+        with bridge.account_scope(identity_state):
+            return getattr(impl, TOOLS[tool_name])(user_id=user_id, **args)
+
+    result = await asyncio.to_thread(dispatch)
     from agentscope.message import TextBlock, ToolResultState
     from agentscope.tool._response import ToolChunk
     return ToolChunk(content=[TextBlock(text=json.dumps(result, ensure_ascii=False))],

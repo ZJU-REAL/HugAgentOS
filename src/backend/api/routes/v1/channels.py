@@ -93,7 +93,7 @@ async def list_channel_adapters():
 
 # ── My bots CRUD ─────────────────────────────────────────────────────────
 @router.get("/bots", summary="我的机器人列表")
-async def list_my_bots(
+def list_my_bots(
     agent_id: Optional[str] = None,
     main_only: bool = False,
     user: UserContext = Depends(get_current_user),
@@ -117,7 +117,7 @@ async def list_my_bots(
 
 
 @router.get("/conversations", summary="我的渠道会话（供定时投递选择目标）")
-async def list_my_conversations(
+def list_my_conversations(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -159,7 +159,7 @@ async def create_bot(
 
 
 @router.patch("/bots/{channel_id}", summary="更新机器人（启停 / 名称 / 资源白名单）")
-async def update_bot(
+def update_bot(
     channel_id: str,
     body: UpdateBotRequest,
     user: UserContext = Depends(get_current_user),
@@ -181,7 +181,7 @@ async def update_bot(
 
 
 @router.delete("/bots/{channel_id}", summary="删除机器人并清除凭据")
-async def delete_bot(
+def delete_bot(
     channel_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -232,7 +232,7 @@ async def weixin_bind_status(
 
 # ── webhook entry (public endpoint, relies on channel signature verification) ──
 @router.get("/{channel_id}/webhook", summary="渠道 webhook URL 校验（公开，企业微信用）")
-async def channel_webhook_verify(
+def channel_webhook_verify(
     channel_id: str,
     request: Request,
     db: Session = Depends(get_db),

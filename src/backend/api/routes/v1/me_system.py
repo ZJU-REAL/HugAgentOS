@@ -77,7 +77,7 @@ def _svc() -> SystemConfigService:
 
 
 @router.get("/access", summary="个人系统设置访问探针（不抛 403）")
-async def system_settings_access(
+def system_settings_access(
     user: Optional[UserContext] = Depends(require_auth(False)),
     db: Session = Depends(get_db),
 ):

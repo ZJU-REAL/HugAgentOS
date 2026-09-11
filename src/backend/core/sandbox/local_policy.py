@@ -10,9 +10,11 @@ SECURITY NOTE
 This is a *string/argument-level heuristic*. It prevents fat-finger mistakes and
 produces an audit trail, but it is **not** a strong isolation boundary — a
 crafted shell command (variable indirection, base64, sub-shells) can evade it.
-Strong write isolation is the OS-level sandbox (macOS Seatbelt / Linux
-bubblewrap) layered on top. Unsupported platforms fail closed in restricted
-modes. Keep this command classifier as defense-in-depth, never as the only line.
+The real boundary is the OS sandbox in :mod:`core.sandbox.oslayer` (macOS
+Seatbelt, Linux bubblewrap, Windows restricted token), which every preset except
+the unrestricted one runs under and which refuses the command outright when it
+cannot be applied. Keep this command classifier as defense-in-depth, never as
+the only line.
 
 EDITION / WEB-SAFETY
 --------------------

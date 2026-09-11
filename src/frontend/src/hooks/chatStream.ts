@@ -717,6 +717,13 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let bubbleUid = newMessageUid();
   /** 本轮气泡的起始时刻，只用来算耗时和压缩基准。 */
   let bubbleStartedAt = Date.now();
+  /** 最近一帧事件的服务端时刻。续播读到的是事件原本的时间戳，所以换设备接上
+   *  同一轮时，「等了多久」接着真实时间线走，而不是从这台机器连上那一刻重算。 */
+  let lastEventTs = Date.now();
+  /** 一次工具调用的开始时刻。后端把它随 tool_call 事件发下来，也一并落库，所以
+   *  刷新、切会话、换设备读到的都是同一个值，卡上的秒数不会重新起跑。 */
+  const toolStartedAt = (eventObj: Record<string, unknown>): number =>
+    typeof eventObj.started_at === 'number' ? eventObj.started_at : lastEventTs;
   const seed = opts.seedFrom;
   if (seed) {
     bubbleUid = seed.uid;
@@ -815,7 +822,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         toolPending: streaming && toolPending,
         // Persisted activity stamp — anchors the "正在准备调用工具…" timer so
         // it survives a session switch / refresh remount (see useStallDetector).
-        lastActivityTs: Date.now(),
+        // 取服务端下发的时刻而非本地钟：另一台设备接上同一轮时读到的是同一个值。
+        lastActivityTs: lastEventTs,
       };
       if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
       if (!streaming) {
@@ -1027,10 +1035,14 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       const obj = JSON.parse(trimmedPayload);
       parsed = true;
       if (typeof obj === 'string') {
+        // 裸文本帧没有服务端时刻可依，只能记本地钟——它仍要算作一次活动，
+        // 否则"静默了多久"会停在上一个结构化事件上。
+        lastEventTs = Date.now();
         textChunk = obj;
       } else if (obj && typeof obj === 'object') {
         const eventObj = obj as Record<string, unknown>;
         const eventType = typeof obj.type === 'string' ? obj.type : '';
+        if (typeof eventObj.server_ts === 'number') lastEventTs = eventObj.server_ts;
 
         // Path-specific events (autonomous loop loop_* etc.) go to the hook first
         if (onEvent && onEvent(eventObj, hookApi)) return;
@@ -1051,6 +1063,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             metaMessageId = messageId;
             claimPersistedBubble();
             appendOrUpdate(true, undefined, messageId);
+          }
+          // 服务端记的本轮真实起点（chat_runs.started_at，恢复时不重写）。接管一轮
+          // 已经在跑的对话时，用时要从它算起，而不是从本地这只气泡诞生的一刻。
+          if (typeof eventObj.started_at === 'number') {
+            bubbleStartedAt = eventObj.started_at;
           }
           return;
         }
@@ -1206,7 +1223,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               displayName,
               input: toolInput,
               status: 'running',
-              timestamp: Date.now(),
+              timestamp: toolStartedAt(eventObj),
               scope: 'ontology_revision',
             }];
           }
@@ -1228,7 +1245,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               name: getEventToolRawName(eventObj) || t('工具调用'),
               inputText: delta,
               status: 'running',
-              timestamp: Date.now(),
+              timestamp: toolStartedAt(eventObj),
               scope: 'ontology_revision',
             }];
           } else if (delta) {
@@ -1266,7 +1283,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               name: toolName || t('工具调用'),
               output,
               status: obj.error ? 'error' : 'success',
-              timestamp: Date.now(),
+              timestamp: toolStartedAt(eventObj),
               scope: 'ontology_revision',
             }];
           }
@@ -1304,7 +1321,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             activeToolName = toolCalls[existingIndex].name;
           } else {
             activeToolId = eventToolId || `tool_${Date.now()}_${toolCalls.length}`;
-            toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: Date.now() });
+            toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: toolStartedAt(eventObj) });
             deferredThinkingText = deferThinkingTextFragmentBeforeTool(
               segments,
               enableThinking,
@@ -1373,14 +1390,18 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             resultDisplayName = t('调用智能体：{name}', { name: obj.subagent_name.trim() });
           }
 
+          // 服务端算好的本次调用耗时。卡片收尾后显示的是这个定值，不再靠两次
+          // 本地取时相减——历史重放时那两个时刻早就不在了。
+          const toolDurationMs = typeof eventObj.duration_ms === 'number' ? eventObj.duration_ms : undefined;
+
           let confirmToolName = '';
           if (toolIndex >= 0) {
             const existing = toolCalls[toolIndex];
             confirmToolName = existing.name;
-            toolCalls[toolIndex] = { ...existing, output: output ?? existing.output, status, ...(resultDisplayName ? { displayName: resultDisplayName } : {}) };
+            toolCalls[toolIndex] = { ...existing, output: output ?? existing.output, status, ...(resultDisplayName ? { displayName: resultDisplayName } : {}), ...(toolDurationMs !== undefined ? { durationMs: toolDurationMs } : {}) };
           } else {
             confirmToolName = getEventToolRawName(eventObj) || t('工具调用');
-            toolCalls.push({ id: getEventToolId(eventObj) || `tool_${Date.now()}_${toolCalls.length}`, name: confirmToolName, displayName: resultDisplayName || getEventToolDisplayName(eventObj), output, status, timestamp: Date.now() });
+            toolCalls.push({ id: getEventToolId(eventObj) || `tool_${Date.now()}_${toolCalls.length}`, name: confirmToolName, displayName: resultDisplayName || getEventToolDisplayName(eventObj), output, status, timestamp: toolStartedAt(eventObj), ...(toolDurationMs !== undefined ? { durationMs: toolDurationMs } : {}) });
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
           }
           maybeRefreshCatalogAfterTool(confirmToolName, status || 'success');
@@ -1782,6 +1803,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       }
     } catch (err) {
       if (parsed) throw err;
+      lastEventTs = Date.now();
       textChunk = trimmedPayload;
     }
 

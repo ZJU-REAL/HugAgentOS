@@ -285,7 +285,7 @@ def _collect_artifact_kb_usage(
 
 
 @router.get("/favorites", summary="收藏会话列表")
-async def list_favorite_chats(
+def list_favorite_chats(
     keyword: Optional[str] = Query(None, description="搜索关键字"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -469,7 +469,7 @@ async def list_user_artifacts(
 
 
 @router.post("/{artifact_id}/knowledge-base", summary="资源加入知识库")
-async def add_artifact_to_knowledge_base(
+def add_artifact_to_knowledge_base(
     artifact_id: str,
     payload: AddArtifactToKBRequest,
     background_tasks: BackgroundTasks,
@@ -520,7 +520,7 @@ async def add_artifact_to_knowledge_base(
 
 
 @router.delete("/{artifact_id}", summary="删除资源")
-async def delete_artifact(
+def delete_artifact(
     artifact_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

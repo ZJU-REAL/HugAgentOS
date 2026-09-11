@@ -351,8 +351,11 @@ async def test_public_reply_keeps_compaction_summary_after_retained_history():
         toolkit=OntologyFilteredToolkit(),
     )
     compacted = build_compacted_history(
-        ["retained one", "retained two"],
         "handoff summary",
+        [
+            {"role": "user", "content": "retained one"},
+            {"role": "user", "content": "retained two"},
+        ],
     )
     agent.state.context.extend(session_to_msgs(compacted))
     request_seq = next_request_sequence(agent.state.context)
@@ -374,9 +377,9 @@ async def test_public_reply_keeps_compaction_summary_after_retained_history():
 
     texts = [message.get_text_content() for message in model.calls[0]["messages"]]
     assert texts[-4:] == [
+        "handoff summary",
         "retained one",
         "retained two",
-        "handoff summary",
         "current question",
     ]
 

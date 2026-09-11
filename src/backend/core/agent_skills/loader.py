@@ -157,11 +157,6 @@ class MultiSourceSkillLoader:
             return None
         return token_fn()
 
-    def _refresh_backend(self) -> None:
-        refresh_fn = getattr(self._backend, "refresh", None)
-        if callable(refresh_fn):
-            refresh_fn()
-
     def _sync_backend_cache(self, *, force: bool = False) -> None:
         """Refresh cached backend state if DB-backed skills changed externally."""
         now = time.monotonic()
@@ -174,7 +169,6 @@ class MultiSourceSkillLoader:
             return
 
         logger.info("Skill source changed; refreshing skill loader cache")
-        self._refresh_backend()
         self._metadata_cache = None
         self._materialized_cache.clear()
         self._backend_change_token = current_token
@@ -337,7 +331,9 @@ class MultiSourceSkillLoader:
 
     def clear_cache(self):
         """Clear the metadata cache (useful for testing or hot-reloading)."""
-        self._refresh_backend()
+        refresh_fn = getattr(self._backend, "refresh", None)
+        if callable(refresh_fn):
+            refresh_fn()
         self._metadata_cache = None
         self._backend_change_token = self._get_backend_change_token()
         self._last_change_check_at = time.monotonic()
@@ -362,7 +358,6 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to the skill's working directory, or None.
         """
-        self._refresh_backend()
         skill_info = self._backend.get_skill_info(skill_id)
         if skill_info is None:
             return None
@@ -418,7 +413,6 @@ class MultiSourceSkillLoader:
         # Never publish caller-prefetched extra_files or a cached owner. An old
         # loader may outlive an update or deletion committed by another worker.
         with publication_lock():
-            self._refresh_backend()
             content, current_files, owner = self._backend.read_snapshot(skill_id)
             target = skill_files_dir(skill_id, owner)
             publish_tree(target, decode_files(content, current_files))
@@ -440,6 +434,7 @@ class MultiSourceSkillLoader:
         files: Dict[str, bytes | str] = {"SKILL.md": content}
         for filename, body in extra_files.items():
             files[filename] = decode_binary(body) if is_binary_value(body) else str(body)
+        before_views = caps_skills.view_generation()
         comp = caps_skills.publish_local_skill(
             skill_id,
             files=files,
@@ -452,8 +447,13 @@ class MultiSourceSkillLoader:
             version=str(meta.get("version") or ""),
             from_db=True,
         )
-        caps_skills.rebuild_views(owner)
-        logger.info("Published skill '%s' to store revision %s", skill_id, comp.revision)
+        # A view is a function of the resolved set, and the publication bumps the
+        # view generation exactly when that set moved. Re-materializing unchanged
+        # content leaves every existing link pointing at the right revision, so
+        # relinking every name again would only re-derive the same answer.
+        if caps_skills.view_generation() != before_views:
+            caps_skills.rebuild_views(owner)
+            logger.info("Published skill '%s' to store revision %s", skill_id, comp.revision)
         return str(comp.path)
 
     def get_skill_dir(self, skill_id: str) -> Optional[str]:
@@ -467,7 +467,6 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to a directory containing SKILL.md, or None.
         """
-        self._refresh_backend()
         skill_info = self._backend.get_skill_info(skill_id)
         if skill_info is None:
             return None

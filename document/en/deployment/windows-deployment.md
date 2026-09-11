@@ -278,3 +278,6 @@ or user-imported plugins are untouched. Update the cloud backend and site MCP pl
 Desktop capability synchronization then downloads the new cloud skill hash and package.
 Rebuilding the desktop alone does not replace installed skills in the cloud database.
 Verify that a real site conversation has `list_project_sites` and loads the explicit-update instructions.
+
+
+On macOS, the main interface extends to the top of the window without a separate blank title row above the content. The sidebar background continues behind the traffic lights, while its brand and buttons retain safe spacing. The collapsed sidebar is 88px wide to keep native window controls clear of content. Drag the sidebar top or empty space in the content header to move the window; double-click to toggle maximization. Standalone setup and login pages retain a top inset.

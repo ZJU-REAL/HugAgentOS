@@ -31,7 +31,7 @@ from core.infra.exceptions import (
 )
 from core.infra.responses import created_response, paginated_response, success_response
 from core.llm.chat_models import get_summarize_model
-from core.llm.message_compat import extract_text_from_chat_response, strip_thinking
+from core.llm.message_compat import extract_text_from_chat_response
 from core.services import KBService
 from core.storage import generate_storage_key, get_storage
 from fastapi import APIRouter, Depends, File, Form, Path, Query, UploadFile, status
@@ -137,7 +137,7 @@ async def _generate_kb_description(name: str, description: str) -> str:
         result = await model(
             messages=[Msg(name="user", role="user", content=[TextBlock(type="text", text=prompt)])]
         )
-        polished = strip_thinking(extract_text_from_chat_response(result)).strip()
+        polished = extract_text_from_chat_response(result).strip()
         polished = " ".join(polished.split())
         return polished or _fallback_kb_description(name, description)
     except Exception as exc:
@@ -149,7 +149,7 @@ async def _generate_kb_description(name: str, description: str) -> str:
 
 
 @router.get("/assets/{asset_id}", summary="读取知识库媒体资产")
-async def get_kb_asset(
+def get_kb_asset(
     asset_id: str = Path(..., description="Asset ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -278,7 +278,7 @@ async def preview_chunks(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="创建知识库空间")
-async def create_kb_space(
+def create_kb_space(
     request: CreateKBSpaceRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -354,7 +354,7 @@ async def polish_kb_description(
 
 
 @router.patch("/{kb_id}", summary="更新知识库空间")
-async def update_kb_space(
+def update_kb_space(
     kb_id: str,
     request: UpdateKBSpaceRequest,
     user: UserContext = Depends(get_current_user),
@@ -487,7 +487,7 @@ async def upload_document(
 
 
 @router.get("/{kb_id}/documents", summary="获取知识库文档列表")
-async def list_documents(
+def list_documents(
     kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -558,7 +558,7 @@ async def list_documents(
 
 
 @router.get("/{kb_id}/documents/{document_id}", summary="获取知识库文档详情")
-async def get_document_detail(
+def get_document_detail(
     kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     document_id: str = Path(..., description="Document ID"),
     user: UserContext = Depends(get_current_user),
@@ -613,7 +613,7 @@ async def get_document_detail(
 
 
 @router.delete("/{kb_id}", summary="删除知识库空间")
-async def delete_kb_space(
+def delete_kb_space(
     kb_id: str = Path(..., description="KB space ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -627,7 +627,7 @@ async def delete_kb_space(
 
 
 @router.delete("/{kb_id}/documents/{document_id}", summary="删除知识库文档")
-async def delete_kb_document(
+def delete_kb_document(
     kb_id: str = Path(..., description="KB space ID"),
     document_id: str = Path(..., description="Document ID"),
     user: UserContext = Depends(get_current_user),
@@ -642,7 +642,7 @@ async def delete_kb_document(
 
 
 @router.post("/{kb_id}/documents/{document_id}/reindex", summary="重新索引文档")
-async def reindex_document(
+def reindex_document(
     kb_id: str = Path(..., description="KB space ID"),
     document_id: str = Path(..., description="Document ID"),
     request: Optional[ReindexRequest] = None,
@@ -714,7 +714,7 @@ async def reindex_document(
 
 
 @router.get("/{kb_id}/chunks", summary="获取文档分块列表（含标签和问题）")
-async def list_chunks(
+def list_chunks(
     kb_id: str = Path(..., description="KB space ID"),
     document_id: Optional[str] = Query(None, description="Filter by document ID"),
     page: int = Query(1, ge=1),
@@ -757,7 +757,7 @@ async def list_chunks(
 
 
 @router.get("/{kb_id}/chunks/{chunk_id}/children", summary="获取父块下的子块列表")
-async def list_chunk_children(
+def list_chunk_children(
     kb_id: str = Path(..., description="KB space ID"),
     chunk_id: str = Path(..., description="Parent chunk ID"),
     user: UserContext = Depends(get_current_user),
@@ -788,7 +788,7 @@ async def list_chunk_children(
 
 
 @router.patch("/{kb_id}/chunks/{chunk_id}", summary="更新分块内容/标签/问题")
-async def update_chunk(
+def update_chunk(
     kb_id: str = Path(..., description="KB space ID"),
     chunk_id: str = Path(..., description="Chunk ID"),
     request: UpdateChunkRequest = ...,

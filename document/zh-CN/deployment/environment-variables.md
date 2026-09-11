@@ -300,7 +300,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `CHAT_COMPACT_TRIGGER_RATIO` | `0.9` | 触发比例：上下文占用超过「模型窗口 × 该值」即压缩，实际生效值不超过窗口的 90%。占用只算请求本身（系统提示词 + 工具定义 + 历史），不含模型输出长度——输出余量由「窗口 95% 可用」统一预留。**运行时以配置台「系统配置 → context → 轮内压缩触发比例」为准**，本变量只是默认值 | CE |
 | `CHAT_COMPRESS_IN_TURN_RATIO` | （未设） | 已废弃的别名，仅在未设置 `CHAT_COMPACT_TRIGGER_RATIO` 时生效，保留给只调过轮内比例的存量部署 | CE |
 | `CHAT_COMPACT_TOKEN_LIMIT` | `0` | 直接指定触发阈值（真实 token 数）；`>0` 时优先于比例换算，同样不得超过窗口的 90% | CE |
-| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | 压缩后逐字保留的近期用户消息 token 预算 | CE |
+| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | 压缩后逐字保留的近期历史 token 预算：从尾部保留装得下的完整步骤区域，更早的部分进入摘要 | CE |
 | `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | 摘要 LLM 调用超时（秒） | CE |
 | `CHAT_TOOL_RESULT_LIMIT` | `20000` | 单条工具结果进上下文的字符上限（不调模型的确定性截断层）；超出部分由 offloader 落盘到沙箱 `/workspace/.offload`，模型可按需读回 | CE |
 

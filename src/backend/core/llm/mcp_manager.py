@@ -35,6 +35,25 @@ from agentscope.tool import MCPTool, ToolBase, ToolChunk
 logger = logging.getLogger(__name__)
 
 
+def has_usable_schema(tool: Any) -> bool:
+    """Whether a manifest tool entry carries the server's real ``inputSchema``.
+
+    A tool the platform only knows by name and description (a plugin manifest
+    lists its tools for display, without schemas) must not be handed to a model:
+    the parameter object would be empty, so the model has nowhere to put its
+    arguments and every call arrives blank.
+
+    The marker is whether a schema was captured at all, not whether it declares
+    parameters: a server is free to describe an argument-less tool as
+    ``{"type": "object"}``, while an entry that never reached the server carries
+    no ``inputSchema`` key, which normalizes to an empty dict.
+    """
+    if not isinstance(tool, dict):
+        return False
+    schema = tool.get("inputSchema") or tool.get("input_schema")
+    return isinstance(schema, dict) and bool(schema)
+
+
 def _cyfunc_probe() -> None:  # after Cython compilation its type is cython_function_or_method
     pass
 
@@ -354,6 +373,17 @@ class ManifestMCPClient(BareNameMCPClient):
             if self.enable_tools is not None and tool.name not in self.enable_tools:
                 continue
             if self.disable_tools is not None and tool.name in self.disable_tools:
+                continue
+            if not has_usable_schema(item):
+                # A manifest entry that never captured the server's inputSchema
+                # would become a zero-parameter tool: the model then has nowhere
+                # to put its arguments and retries the same empty call forever.
+                # Withhold it instead of offering a tool that can never succeed.
+                logger.warning(
+                    "Manifest tool '%s' in MCP '%s' has no captured inputSchema; withheld",
+                    tool.name,
+                    self.name,
+                )
                 continue
             tools.append(tool)
         return tools

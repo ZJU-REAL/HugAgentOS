@@ -52,9 +52,15 @@ def resolve_db_user_id(
 
 
 def generate_smart_title(message: str) -> str:
+    # 命令原文当标题等于没标题：历史列表里躺着一条叫「/init」的会话，看不出是哪个项目、
+    # 干了什么。命令开头的会话按命令本身命名（与前端 seedChatTitle 一致）。
+    from core.services.project_init import INIT_COMMANDS
+
     message = message.strip()
     if not message:
         return "新对话"
+    if message in INIT_COMMANDS:
+        return "初始化项目指令"
     for delimiter in ["。", "！", "？", ".", "!", "?"]:
         if delimiter in message:
             first_sentence = message.split(delimiter)[0] + delimiter

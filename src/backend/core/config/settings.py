@@ -477,8 +477,10 @@ class CompactionSettings:
             or "0.9"
         )
     )
-    # Token budget for the recent user messages kept after compaction.
-    recent_user_max_tokens: int = field(
+    # Tokens of recent history kept verbatim after compaction: the tail of
+    # complete steps that stays in front of the model while everything older
+    # goes into the summary.
+    keep_recent_tokens: int = field(
         default_factory=lambda: _int(_env("CHAT_COMPACT_RECENT_USER_MAX_TOKENS", "20000"), 20000)
     )
     # Summary LLM call timeout (seconds).

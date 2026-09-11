@@ -316,7 +316,7 @@ def get_task(*, user_id: str, task_ref: str) -> Dict[str, Any]:
         if not task:
             return {"ok": False, "message": f"❌ 没找到任务：{task_ref}"}
         brief = _task_brief(task)
-        runs = _svc(db).get_task_runs(task.task_id, limit=5)
+        runs = _svc(db).get_task_runs(task.task_id, user_id=user_id, limit=5)
         # result_summary 存全文（渠道投递用），进模型上下文只要短摘要
         brief["recent_runs"] = [
             AutomationService.run_to_dict(r, summary_limit=SUMMARY_LIMIT_BRIEF) for r in runs

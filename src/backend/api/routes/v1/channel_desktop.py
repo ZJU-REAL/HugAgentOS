@@ -36,7 +36,7 @@ def device(request):
 
 
 @router.post("/register")
-async def register(
+def register(
     body: Register,
     request: Request,
     owner: str = Depends(_require_capability_user),
@@ -48,7 +48,7 @@ async def register(
 
 
 @router.post("/claim")
-async def claim(
+def claim(
     body: Poll,
     request: Request,
     owner: str = Depends(_require_capability_user),
@@ -66,7 +66,7 @@ async def claim(
 
 
 @router.post("/{delivery_id}/renew")
-async def renew(
+def renew(
     delivery_id: str,
     body: Lease,
     request: Request,

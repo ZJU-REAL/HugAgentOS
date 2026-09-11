@@ -1,15 +1,16 @@
-"""Multi-turn tool-call e2e: verify that after the thinking-leak fix, the second turn and beyond still issue tool calls normally.
+"""Multi-turn tool-call e2e: the second turn and beyond must still issue real tool calls.
 
-Background (chat_20260713_172036 incident): the history-replay path carrying tool_calls
-bypassed strip_thinking, so the previous turn's reasoning monologue (30 </think> segments)
-leaked verbatim into the next turn's context, and the model mimicked "narrative-style work",
-hallucinating tool execution in pure text on later turns and no longer really calling tools.
+Background (chat_20260713_172036 incident): the previous turn's reasoning monologue
+(30 </think> segments) leaked into the next turn's message *body*, and the model mimicked
+"narrative-style work", hallucinating tool execution in pure text and no longer really
+calling tools. Reasoning is kept in history now, but on its own channel — the body it
+once leaked into must stay clean.
 
 This test uses the full real stack (ASGI hits app directly → workflow → agent → sandbox):
   T1  ask bash to run echo <sentinel1> → a tool_call event must appear
   T2  ask bash to run echo <sentinel2> → a tool_call event must appear again (the regression point)
   End use checkpoint-aware load_session_history to reconstruct the context the next turn will see,
-      and assert there is no </think> residue in it (if T1's stored body itself has no </think>, this item is recorded as SKIP)
+      and assert its message bodies carry no </think> residue (if T1's stored body itself has no </think>, this item is recorded as SKIP)
 
 Run inside the container: cd /app/src/backend && python tests/llm/e2e_multiturn_toolcall.py
 """
@@ -126,7 +127,7 @@ async def main() -> None:
         blob2 = json.dumps(t2_results, ensure_ascii=False) + t2_text
         ck("T2 真实执行成功（输出含 sentinel2）", S2 in blob2)
 
-        # ── Context reconstruction: the history the next turn will see must have no </think> residue ──
+        # ── Context reconstruction: message bodies the next turn sees must have no </think> residue ──
         from core.services.chat_service import ChatService
         from core.services.compaction_service import load_session_history
 
@@ -154,11 +155,11 @@ async def main() -> None:
                         if isinstance(b, dict) and "</think>" in str(b.get("text", "")):
                             leaked.append((b.get("type"), str(b.get("text"))[:80]))
             if db_has_think:
-                ck("回放历史已剥净 </think>（泄漏修复生效）",
+                ck("回放历史正文无 </think> 残留（思考走独立通道）",
                    not leaked, f"leaked={leaked[:3]}")
             else:
                 print("[SKIP] T1 落库正文无 </think>（模型本轮未发思考闭标签），"
-                      "泄漏断言不具备前置条件；strip 行为由单测钉住")
+                      "泄漏断言不具备前置条件；正文/思考分流由单测钉住")
         finally:
             db.close()
 

@@ -35,7 +35,15 @@ from typing import Any, AsyncGenerator, Optional
 import httpx
 from agentscope.credential import OpenAICredential
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.message import Msg
+from agentscope.message import (
+    DataBlock,
+    HintBlock,
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
 from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
 from agentscope.tool._types import ToolChoice
 from core.llm.context_adapter import AgentScopeContextAdapter, PROVIDER_CONTEXT_META_KEY
@@ -45,6 +53,7 @@ from core.llm.providers._fallback import (  # noqa: F401
 )
 from core.llm.providers.registry import get_spec, split_provider_extra
 from core.llm.providers.vendor_models import build_litellm_model, build_native_model
+from core.llm.reasoning_replay import ReasoningReplayMixin
 from prompts.prompt_config import ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -444,12 +453,83 @@ def _build_chat_template_kwargs(
     return {"thinking": True, "reasoning_effort": reasoning_effort}
 
 
+def _reasoning_steps(msg: Msg) -> list[list[Any]]:
+    """Split one Msg's blocks into the ReAct steps it accumulated.
+
+    A whole ReAct loop lands in a single Msg: ``AgentScope`` extends the last assistant
+    message in place on every step (``agent/_agent.py``), so one Msg can hold
+    think → call → result → think → call → result → think → answer. The parent formatter
+    already flushes a separate assistant row per step; splitting on the same boundaries is
+    what lets each row carry the reasoning that produced *it*. Attaching the Msg's whole
+    reasoning to every row instead would rewrite history — the second tool call would
+    appear to have been reasoned with conclusions drawn after it — and would resend the
+    same text once per step, diverging from what the IR budgeted for it once.
+
+    The parent flushes when a tool result or hint arrives and something is pending, so a
+    step ends exactly there. Thinking blocks never make a row pending on their own.
+    """
+
+    steps: list[list[Any]] = []
+    current: list[Any] = []
+    pending = False
+    for block in msg.get_content_blocks():
+        if isinstance(block, (ToolResultBlock, HintBlock)) and pending:
+            steps.append(current)
+            current = []
+            pending = False
+        current.append(block)
+        if isinstance(block, (TextBlock, DataBlock, ToolCallBlock)):
+            pending = True
+    if current:
+        steps.append(current)
+    return steps or [[]]
+
+
+class ReasoningEchoChatFormatter(ReasoningReplayMixin, OpenAIChatFormatter):
+    """OpenAI wire format, except the model's own reasoning is handed back to it.
+
+    ``OpenAIChatFormatter`` drops every ThinkingBlock, since the OpenAI API has no field
+    for reasoning in conversation history. Thinking-mode endpoints such as DeepSeek V4
+    invert that rule: an assistant message that arrives without the ``reasoning_content``
+    it produced is refused with a 400, which in practice kills exactly the turns that
+    called a tool — the only ones that send an assistant message back — so the symptom is
+    an answer cut off the moment the tools finish.
+
+    A step that did no thinking sends no field at all, matching deepseek-harness
+    (``reasoning.length > 0 ? { reasoning_content } : {}``). Endpoints that never emit
+    reasoning on this channel, OpenAI included, therefore see a byte-identical request.
+    """
+
+    async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
+        self.assert_list_of_msgs(msgs)
+        msgs = self.prepare_replay(msgs)
+
+        messages: list[dict[str, Any]] = []
+        for msg in msgs:
+            for step in _reasoning_steps(msg):
+                rows = await super().format([msg.model_copy(update={"content": step})])
+                reasoning = "\n".join(
+                    block.thinking
+                    for block in step
+                    if isinstance(block, ThinkingBlock) and block.thinking
+                )
+                if reasoning:
+                    for row in rows:
+                        if row.get("role") == "assistant":
+                            row["reasoning_content"] = reasoning
+                messages.extend(rows)
+        return messages
+
+
 class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
     """OpenAIChatModel subclass: injects a custom http_client + extra_body; optional Azure OpenAI client.
 
     Pinned to agentscope==2.0.0: the ``_call_api`` body is copied from the parent class (2.0.0);
     sync it when upgrading upstream. The L3 compaction fallback is provided by StructuredFallbackMixin.
     """
+
+    # Recorded on every model step so replay knows which wire format produced it.
+    wire_protocol = "openai_chat"
 
     def __init__(
         self,
@@ -479,7 +559,9 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             # exclusively, avoiding the retry multiplication of documented risk 7 (worst case 24 attempts).
             max_retries=0,
             context_size=context_size,
-            formatter=OpenAIChatFormatter(),
+            formatter=ReasoningEchoChatFormatter(
+                replay_provider=provider_id, replay_model=model, replay_protocol="openai_chat"
+            ),
         )
         self._http_client = http_client
         self.provider_id = provider_id
@@ -748,6 +830,7 @@ async def _stream_with_bounded_retry(
     run then ends with a structured error rather than a fabricated reply.
     """
     gen = model._parse_stream_response(start_datetime, response, audio_fmt)
+    _t_wait = _perf_counter()
     try:
         first = await gen.__anext__()
     except StopAsyncIteration:
@@ -775,6 +858,7 @@ async def _stream_with_bounded_retry(
         try:
             response = await client.chat.completions.create(**kwargs)
             gen = model._parse_stream_response(datetime.now(), response, audio_fmt)
+            _t_wait = _perf_counter()
             first = await gen.__anext__()
         except StopAsyncIteration:
             return
@@ -788,9 +872,31 @@ async def _stream_with_bounded_retry(
                 metadata={"fallback": "stream_start_retry_failed"},
             )
             raise
-    yield first
-    async for item in gen:
-        yield item
+    # Delivery cadence, not just the first byte. A run behind a relay can answer
+    # as fast on its first token and still read slowly, and the difference is
+    # invisible from either end alone — cloud and desktop emit the same line, so
+    # the same model over the two paths is directly comparable.
+    _t_first = _perf_counter()
+    _events, _t_prev, _max_gap = 1, _t_first, 0.0
+    try:
+        yield first
+        async for item in gen:
+            _now = _perf_counter()
+            _max_gap = max(_max_gap, _now - _t_prev)
+            _t_prev = _now
+            _events += 1
+            yield item
+    finally:
+        _span = _t_prev - _t_first
+        logger.info(
+            "[wire] stream model=%s first_event=%.0fms events=%d span=%.0fms rate=%.1f/s max_gap=%.0fms",
+            model_name,
+            (_t_first - _t_wait) * 1000,
+            _events,
+            _span * 1000,
+            (_events - 1) / _span if _span > 0 else 0.0,
+            _max_gap * 1000,
+        )
 
 
 # Shared per-event-loop, per-timeout httpx clients. A model instance is built

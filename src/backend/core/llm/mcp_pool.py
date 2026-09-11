@@ -42,7 +42,7 @@ from threading import Lock
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from agentscope.mcp import HttpMCPConfig, MCPClient, StdioMCPConfig
-from core.llm.mcp_manager import BareNameMCPClient, ManifestMCPClient
+from core.llm.mcp_manager import BareNameMCPClient, ManifestMCPClient, has_usable_schema
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +82,23 @@ def is_http_cfg(cfg: dict) -> bool:
 
 
 def uses_manifest_schema(cfg: dict) -> bool:
-    """Return whether a config contains a complete dynamic cloud manifest."""
+    """Return whether a config contains a usable dynamic cloud manifest.
+
+    At least one tool must carry the server's real ``inputSchema``; entries known
+    only by name and description are withheld when the client enumerates tools
+    (see ``has_usable_schema``), so a manifest holding nothing else describes no
+    callable tool at all.
+    """
     tools = cfg.get("manifest_tools")
     return bool(
         cfg.get("schema_source") == "cloud_manifest"
         and str(cfg.get("gateway_invoke_url") or "").strip()
         and str(cfg.get("schema_hash") or "").strip()
         and isinstance(tools, list)
-        and tools
-        and all(
+        and any(
             isinstance(tool, dict)
             and bool(str(tool.get("name") or "").strip())
-            and isinstance(tool.get("inputSchema"), dict)
+            and has_usable_schema(tool)
             for tool in tools
         )
     )

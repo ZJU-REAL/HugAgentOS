@@ -7,8 +7,15 @@ the chat route (``api/routes/v1/chats.py``) and the background run executor
 """
 
 import json
+import time
 from typing import Any, Dict, List, Optional
 from core.chat.display_bounds import bound_result_for_display
+
+
+def now_ms() -> int:
+    """墙钟毫秒。工具卡的计时基准必须是 epoch 而非单调时钟——它要发给浏览器，
+    还要落库供另一台设备读回来对齐，跨进程只有墙钟可比。"""
+    return int(time.time() * 1000)
 
 
 class SegmentRecorder:
@@ -239,12 +246,21 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
         evt["subagent_name"] = chunk["subagent_name"]
     if chunk.get("scope"):
         evt["scope"] = chunk["scope"]
-    attach_tool_result(tool_calls_log, tid, tn, res, status=status)
+    duration_ms = attach_tool_result(tool_calls_log, tid, tn, res, status=status)
+    if duration_ms is not None:
+        evt["duration_ms"] = duration_ms
     return evt
 
 
 def upsert_tool_call(tool_calls_log: list, tc: dict) -> None:
-    """Merge a tool_call into the log, updating an existing entry by tool_id."""
+    """Merge a tool_call into the log, updating an existing entry by tool_id.
+
+    A newly opened entry is stamped with its start time here — every path that
+    builds a ``tool_calls_log`` (chat, plan, automation, batch) goes through
+    this function, so the stamp is an invariant of the log rather than
+    something each caller has to remember. A repeat event for a call already
+    open backfills arguments and leaves the original stamp alone.
+    """
     tid = tc.get("tool_id")
     if tid:
         for existing in tool_calls_log:
@@ -254,7 +270,24 @@ def upsert_tool_call(tool_calls_log: list, tc: dict) -> None:
                 if tc.get("tool_display_name"):
                     existing["tool_display_name"] = tc["tool_display_name"]
                 return
+    tc.setdefault("started_at", now_ms())
     tool_calls_log.append(tc)
+
+
+def _settle_tool_call(tc: dict, res: Any, status: str) -> Optional[int]:
+    """Close one entry: attach the result and freeze how long the call took.
+
+    ``duration_ms`` is stored alongside the result because the log is what a
+    reload — or another device — reads back. Without it the card can only time
+    itself from the moment it was rendered, so a replayed run restarts every
+    clock at zero.
+    """
+    tc["result"], tc["status"] = res, status
+    started_at = tc.get("started_at")
+    if not isinstance(started_at, int):
+        return None
+    tc["duration_ms"] = max(0, now_ms() - started_at)
+    return tc["duration_ms"]
 
 
 def attach_tool_result(
@@ -264,17 +297,22 @@ def attach_tool_result(
     res: Any,
     *,
     status: str = "success",
-) -> None:
-    """Attach a tool_result to the matching tool_call entry in the log."""
+) -> Optional[int]:
+    """Attach a tool_result to the matching tool_call entry in the log.
+
+    Returns the call's duration in ms when the opening entry carried a start
+    stamp, so the caller can put the same number on the wire.
+    """
     for tc in tool_calls_log:
         if tid and tc.get("tool_id") == tid:
-            tc["result"], tc["status"] = res, status
-            return
+            return _settle_tool_call(tc, res, status)
         if tn and tc.get("tool_name") == tn and "result" not in tc:
-            tc["result"], tc["status"] = res, status
-            return
+            return _settle_tool_call(tc, res, status)
     if tid or tn:
+        # No opening entry to close (a result that arrived without its call):
+        # record it, but leave duration unknown rather than inventing one.
         tool_calls_log.append({"tool_name": tn, "tool_id": tid, "result": res, "status": status})
+    return None
 
 
 # Persistence caps for sub-agent sub-steps (prevent a single call_subagent's sub_steps from growing unbounded and bloating the message row).

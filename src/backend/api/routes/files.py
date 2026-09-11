@@ -259,7 +259,7 @@ def _build_direct_download_response(
 
 
 @router.get("/{file_id}", summary="下载生成的文件")
-async def download_file(
+def download_file(
     file_id: str,
     background_tasks: BackgroundTasks,
     mode: str = Query("direct", description="Download mode: direct or presigned"),
@@ -374,7 +374,7 @@ async def download_file(
 
 
 @router.get("/{file_id}/preview", summary="预览 Office 文件")
-async def preview_file(
+def preview_file(
     file_id: str,
     background_tasks: BackgroundTasks,
     format: str = Query("pdf", description="Preview format, currently only pdf is supported"),

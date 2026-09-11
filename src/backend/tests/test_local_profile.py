@@ -264,26 +264,20 @@ def test_ce_web_onboarding_requires_main_model_and_clears_checkpoint(db_session,
         username="admin",
     )
 
-    loop = asyncio.new_event_loop()
-    try:
-        with pytest.raises(ValidationError, match="主对话模型"):
-            loop.run_until_complete(user_routes.complete_my_onboarding(user=user, db=db_session))
+    with pytest.raises(ValidationError, match="主对话模型"):
+        user_routes.complete_my_onboarding(user=user, db=db_session)
 
-        provider = model_repository.create_provider(
-            db_session,
-            display_name="Test chat",
-            provider_type="chat",
-            base_url="http://model.test/v1",
-            api_key="test-key",
-            model_name="test-model",
-        )
-        model_repository.assign_role(db_session, "main_agent", provider.provider_id)
+    provider = model_repository.create_provider(
+        db_session,
+        display_name="Test chat",
+        provider_type="chat",
+        base_url="http://model.test/v1",
+        api_key="test-key",
+        model_name="test-model",
+    )
+    model_repository.assign_role(db_session, "main_agent", provider.provider_id)
 
-        response = loop.run_until_complete(
-            user_routes.complete_my_onboarding(user=user, db=db_session)
-        )
-    finally:
-        loop.close()
+    response = user_routes.complete_my_onboarding(user=user, db=db_session)
 
     assert response["data"]["onboarding_required"] is False
     shadow = db_session.query(UserShadow).filter_by(user_id=user_id).one()

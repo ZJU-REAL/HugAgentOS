@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .protocol import SkillBackendProtocol, SkillFileInfo
@@ -9,6 +10,11 @@ from .protocol import SkillBackendProtocol, SkillFileInfo
 MergeHook = Callable[
     [Dict[str, List[SkillFileInfo]], Callable[[SkillFileInfo], str]], Dict[str, SkillFileInfo]
 ]
+
+# ``None`` is a real scope (shared entries only), so absence needs its own value.
+_NO_SCOPE = object()
+# No token equals this, so the first read always builds the map.
+_UNBUILT = object()
 
 
 class CompositeBackend:
@@ -18,13 +24,61 @@ class CompositeBackend:
     (last one wins on equal priority). The desktop runtime installs a hook that
     hands every multi-candidate id to the capability resolver instead, so the
     decision is explicit, user-visible and never a silent override.
+
+    The map is a value derived from the sources, keyed by their change tokens:
+    it is built when a source moves and reused when none did. Readers therefore
+    never ask for a refresh, and a caller that reads skills one at a time pays
+    for one merge, not one merge per skill.
     """
 
-    def __init__(self, backends: List[SkillBackendProtocol], merge: Optional[MergeHook] = None):
+    def __init__(
+        self,
+        backends: List[SkillBackendProtocol],
+        merge: Optional[MergeHook] = None,
+        *,
+        scope_user_id: Any = _NO_SCOPE,
+    ):
         self._backends = backends
         self._merge = merge
-        # Pre-compute merged skill map for efficient lookups.
-        self._skill_map: Dict[str, SkillFileInfo] = self._merge_skill_files()
+        self._scope_user_id = scope_user_id
+        self._build_lock = threading.Lock()
+        self._skill_map: Dict[str, SkillFileInfo] = {}
+        self._map_token: Any = _UNBUILT
+
+    # ── derived map ───────────────────────────────────────────────────
+
+    def change_token(self) -> Tuple[Tuple[str, Any], ...]:
+        """Return change tokens from backends that can detect external updates."""
+        tokens = []
+        for backend in self._backends:
+            token_fn = getattr(backend, "change_token", None)
+            if callable(token_fn):
+                tokens.append((backend.source_name, token_fn()))
+        return tuple(tokens)
+
+    @property
+    def _map(self) -> Dict[str, SkillFileInfo]:
+        token = self.change_token()
+        if token == self._map_token:
+            return self._skill_map
+        with self._build_lock:
+            if token != self._map_token:
+                self._skill_map = self._build_map()
+                self._map_token = token
+            return self._skill_map
+
+    def _build_map(self) -> Dict[str, SkillFileInfo]:
+        if self._scope_user_id is not _NO_SCOPE:
+            return self._select_visible(self._scope_user_id)
+        return self._merge_skill_files()
+
+    def refresh(self) -> None:
+        """Discard the derived map so the next read rebuilds it.
+
+        A source without a change token (a plain directory) cannot announce an
+        edit, so a hot reload says so explicitly.
+        """
+        self._map_token = _UNBUILT
 
     def _merge_skill_files(self) -> Dict[str, SkillFileInfo]:
         if self._merge is not None:
@@ -33,8 +87,7 @@ class CompositeBackend:
                 for skill_info in backend.list_skill_files():
                     groups.setdefault(skill_info.skill_id, []).append(skill_info)
             # The hook hashes only colliding ids and needs this backend's readers
-            # for that; it is handed the bound method rather than the instance
-            # because the merge runs inside __init__.
+            # for that, so it is handed the bound reader rather than the instance.
             return self._merge(groups, self.content_hash)
 
         merged: Dict[str, SkillFileInfo] = {}
@@ -47,6 +100,18 @@ class CompositeBackend:
                 ):
                     merged[skill_info.skill_id] = skill_info
         return merged
+
+    def _select_visible(self, user_id: str | None) -> Dict[str, SkillFileInfo]:
+        selected: Dict[str, SkillFileInfo] = {}
+        for backend in sorted(self._backends, key=lambda b: b.priority):
+            for info in backend.list_skill_files():
+                owner = (info.metadata or {}).get("owner_user_id")
+                if owner and owner != user_id:
+                    continue
+                previous = selected.get(info.skill_id)
+                if previous is None or info.priority >= previous.priority:
+                    selected[info.skill_id] = info
+        return selected
 
     def content_hash(self, info: SkillFileInfo) -> str:
         """Content hash of one backend entry (used only for colliding ids)."""
@@ -66,19 +131,6 @@ class CompositeBackend:
             extra = owner.get_extra_files(info.skill_id)
         return skill_content_hash(content, extra)
 
-    def change_token(self) -> Tuple[Tuple[str, Any], ...]:
-        """Return change tokens from backends that can detect external updates."""
-        tokens = []
-        for backend in self._backends:
-            token_fn = getattr(backend, "change_token", None)
-            if callable(token_fn):
-                tokens.append((backend.source_name, token_fn()))
-        return tuple(tokens)
-
-    def refresh(self) -> None:
-        """Refresh the merged skill map from all backends."""
-        self._skill_map = self._merge_skill_files()
-
     @property
     def source_name(self) -> str:
         """Human-readable name for this composite backend."""
@@ -95,24 +147,11 @@ class CompositeBackend:
         Returns:
             List of SkillFileInfo (one per unique skill_id, highest priority).
         """
-        return list(self._skill_map.values())
+        return list(self._map.values())
 
     def scoped(self, user_id: str | None = None) -> "CompositeBackend":
         """Resolve priority within visibility, before private entries can shadow shared ones."""
-        selected = {}
-        for backend in sorted(self._backends, key=lambda b: b.priority):
-            for info in backend.list_skill_files():
-                owner = (info.metadata or {}).get("owner_user_id")
-                if owner and owner != user_id:
-                    continue
-                previous = selected.get(info.skill_id)
-                if previous is None or info.priority >= previous.priority:
-                    selected[info.skill_id] = info
-        view = object.__new__(CompositeBackend)
-        view._backends = self._backends
-        view._merge = None
-        view._skill_map = selected
-        return view
+        return CompositeBackend(self._backends, scope_user_id=user_id)
 
     def read_snapshot(self, skill_id: str) -> tuple[str, dict, str | None]:
         """Read payload and ownership together, bypassing metadata caches for DB rows."""
@@ -141,10 +180,11 @@ class CompositeBackend:
         Raises:
             FileNotFoundError: If skill_id does not exist in any backend.
         """
-        if skill_id not in self._skill_map:
+        skill_map = self._map
+        if skill_id not in skill_map:
             raise FileNotFoundError(f"Skill not found in any backend: {skill_id}")
 
-        skill_info = self._skill_map[skill_id]
+        skill_info = skill_map[skill_id]
         if skill_info.is_database:
             for backend in self._backends:
                 if backend.source_name == skill_info.source_name:
@@ -164,7 +204,7 @@ class CompositeBackend:
         Returns:
             True if skill exists in any backend, False otherwise.
         """
-        return skill_id in self._skill_map
+        return skill_id in self._map
 
     def get_extra_files(self, skill_id: str) -> dict:
         """Get extra files from the backend that owns this skill.
@@ -172,7 +212,7 @@ class CompositeBackend:
         Returns:
             {filename: content} dict, or empty dict.
         """
-        info = self._skill_map.get(skill_id)
+        info = self._map.get(skill_id)
         if info is None:
             return {}
         # A single store backend can contain same-named installations. Read the
@@ -197,4 +237,4 @@ class CompositeBackend:
         Returns:
             SkillFileInfo if skill exists, None otherwise.
         """
-        return self._skill_map.get(skill_id)
+        return self._map.get(skill_id)

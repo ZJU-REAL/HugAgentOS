@@ -470,7 +470,7 @@ async def _test_connection(
 
 
 @router.get("/capabilities", summary="主模型能力（公开端点，供前端开关）")
-async def get_main_capabilities(
+def get_main_capabilities(
     db: Session = Depends(get_db),
     user: Optional[UserContext] = Depends(require_auth(False)),
 ):
@@ -530,7 +530,7 @@ async def list_provider_schemas(_: None = Depends(require_system_settings)):
 
 
 @router.get("/providers", summary="列出所有模型供应商")
-async def list_providers_endpoint(
+def list_providers_endpoint(
     _: None = Depends(require_system_settings),
     db: Session = Depends(get_db),
 ):
@@ -668,7 +668,7 @@ async def update_provider_endpoint(
 
 
 @router.delete("/providers/{provider_id}", summary="删除模型供应商")
-async def delete_provider_endpoint(
+def delete_provider_endpoint(
     provider_id: str,
     _: None = Depends(require_system_settings),
     db: Session = Depends(get_db),
@@ -765,7 +765,7 @@ async def detect_context_length(
 
 
 @router.get("/roles", summary="列出所有角色及当前分配")
-async def list_roles_endpoint(
+def list_roles_endpoint(
     _: None = Depends(require_system_settings),
     db: Session = Depends(get_db),
 ):
@@ -774,7 +774,7 @@ async def list_roles_endpoint(
 
 
 @router.put("/roles/{role_key}", summary="为角色分配供应商")
-async def assign_role_endpoint(
+def assign_role_endpoint(
     role_key: str,
     body: RoleAssignRequest,
     _: None = Depends(require_system_settings),
@@ -817,7 +817,7 @@ async def assign_role_endpoint(
 
 
 @router.delete("/roles/{role_key}", summary="取消角色分配")
-async def unassign_role_endpoint(
+def unassign_role_endpoint(
     role_key: str,
     _: None = Depends(require_system_settings),
     db: Session = Depends(get_db),
@@ -854,7 +854,7 @@ async def _require_model_export_access(
 
 
 @router.get("/export", summary="导出模型配置")
-async def export_endpoint(
+def export_endpoint(
     _: None = Depends(_require_model_export_access),
     db: Session = Depends(get_db),
 ):
@@ -875,7 +875,7 @@ async def _require_import_control(request: Request, db: Session = Depends(get_db
 
 
 @router.post("/import", summary="导入模型配置")
-async def import_endpoint(
+def import_endpoint(
     body: ImportRequest,
     request: Request,
     _: None = Depends(_require_import_control),

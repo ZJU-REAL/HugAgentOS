@@ -23,12 +23,16 @@ import logging
 import os
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Sequence
 
 from agentscope.agent import Agent
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool._response import ToolResponse
+
+if TYPE_CHECKING:  # imported lazily at runtime to keep this module dependency-light
+    from core.sandbox.os_sandbox import LocalAccessDecision
+    from core.sandbox.oslayer import SandboxLaunch
 
 logger = logging.getLogger(__name__)
 
@@ -205,91 +209,64 @@ class ToolPermissionSpec:
         return replace(self, resolver=resolver)
 
 
-CONFINE_NONE = "none"
-CONFINE_PREFERRED = "preferred"
-CONFINE_REQUIRED = "required"
+# 本机命令的隔离范围完全由用户自己选的权限档决定，只有两种结果：
+#   ``full``     —— 用户明确选了「以我的身份直接跑」，本次不加任何 OS 约束；
+#   其余任何档   —— 一律进 OS 沙箱。宿主装不了后端、或这条策略在这个平台上执行不了，
+#                   就把命令拒掉并说清原因，不存在「退化成只靠命令字符串把关」这条路。
+UNCONFINED_APPROVAL_MODES = frozenset({APPROVAL_FULL})
 
-# 本机 OS 沙箱约束契约，按权限档声明。``full`` 是唯一显式放弃约束的一档；
-# ``ask`` / ``auto`` 优先约束，但在没有可用执行器的宿主上（今天的 Windows、
-# 没装 bubblewrap 的 Linux）退化为只靠命令策略闸——在那里硬拒会让桌面客户端
-# 彻底没有 shell 可用。表里没有的档位（例如配置读不出来的 fail-closed 记号）
-# 一律按最严格的契约处理。
-LOCAL_CONFINEMENT_BY_MODE: Mapping[str, str] = {
-    APPROVAL_ASK: CONFINE_PREFERRED,
-    APPROVAL_AUTO: CONFINE_PREFERRED,
-    APPROVAL_FULL: CONFINE_NONE,
-}
-
-# 本机安全配置读不出来时用的记号档：不属于任何用户可选档位，落到最严格的契约。
+# 本机安全配置读不出来时用的记号档：不属于任何用户可选档位，落到最严格的一侧。
 FAIL_CLOSED_MODE = "fail_closed"
 
 
 class LocalConfinementUnavailableError(Exception):
-    """Raised when a preset that requires OS confinement cannot get it."""
-
-
-@dataclass(frozen=True)
-class ConfinedCommand:
-    """Result of applying a preset's confinement contract to a command."""
-
-    command: str
-    confined: bool
-    warning: str = ""
+    """The chosen preset requires OS confinement that this host cannot provide."""
 
 
 @dataclass(frozen=True)
 class LocalCommandAuthorization:
+    """One command's pre-execution verdict together with its sandbox scope.
+
+    The permission layer decides *what* the command may touch; the execution
+    boundary only asks this object to turn that into a confined launch. Neither
+    side re-derives preset semantics or platform support for itself.
+    """
+
     command: str
     approval_mode: str
-    write_paths: tuple[str, ...] = ()
+    access: "LocalAccessDecision"
+    workspace_root: str
 
     @property
-    def confinement(self) -> str:
-        # Unknown presets are treated as the most restrictive contract.
-        return LOCAL_CONFINEMENT_BY_MODE.get(self.approval_mode, CONFINE_REQUIRED)
+    def confined(self) -> bool:
+        return not self.access.unconfined
 
-    def confine(self, command: str) -> ConfinedCommand:
-        """Apply this authorization's confinement contract to ``command``.
+    def confine(self) -> Optional["SandboxLaunch"]:
+        """The confined launch for this command.
 
-        The execution boundary calls exactly this; it never decides platform
-        support or preset semantics for itself.
+        Returns ``None`` only when the user's preset asked for no confinement.
+        Anything else either returns a real launch or raises
+        :class:`LocalConfinementUnavailableError` explaining which permission
+        choice would let the command run.
         """
-        from core.sandbox.os_sandbox import (
-            OsSandboxUnavailableError,
-            confinement_unavailable_reason,
-            wrap_command,
+        from core.sandbox import os_sandbox
+        from core.sandbox.oslayer import (
+            SandboxUnavailableError,
+            SandboxUnenforceableError,
         )
 
-        contract = self.confinement
-        if contract == CONFINE_NONE:
-            return ConfinedCommand(command, confined=False)
-
-        reason = confinement_unavailable_reason()
-        if not reason:
-            try:
-                return ConfinedCommand(
-                    wrap_command(command, list(self.write_paths)),
-                    confined=True,
-                )
-            except OsSandboxUnavailableError as exc:
-                # The probe and the wrap are separate calls; the runner can go
-                # away in between. Treat a late failure exactly like an
-                # up-front one instead of escaping as an unhandled error.
-                reason = str(exc)
-
-        if contract == CONFINE_REQUIRED:
+        if not self.confined:
+            return None
+        policy = os_sandbox.build_policy(self.access)
+        context = os_sandbox.build_context(workspace_root=self.workspace_root)
+        try:
+            return os_sandbox.confine(policy, context)
+        except (SandboxUnavailableError, SandboxUnenforceableError) as exc:
             raise LocalConfinementUnavailableError(
-                f"{reason}；当前「{self.approval_mode}」权限档要求强制文件系统隔离，"
-                "已拒绝执行。如确需在本机直接运行，请在输入框上方切换权限档。"
-            )
-        return ConfinedCommand(
-            command,
-            confined=False,
-            warning=(
-                f"{reason}；本次命令未受 OS 沙箱约束，仅由本地命令策略把关。"
-                "如需强隔离请安装对应运行器。"
-            ),
-        )
+                f"{exc}；当前「{self.approval_mode}」权限档要求由操作系统强制隔离，"
+                "已拒绝执行。可在输入框上方切换权限档，或在「设置 → 本地权限」"
+                "调整授权范围后重试。"
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -331,7 +308,9 @@ class PermissionTicket:
             "local_command": (
                 {
                     "approval_mode": self.local_command.approval_mode,
-                    "write_paths": list(self.local_command.write_paths),
+                    "confined": self.local_command.confined,
+                    "write_paths": list(self.local_command.access.writable_roots),
+                    "network_allowed": self.local_command.access.network_allowed,
                 }
                 if self.local_command is not None
                 else None
@@ -687,12 +666,17 @@ class ToolPermissionService:
             )
 
         if self.runtime.default_allow:
+            # Trusted unattended entry points skip the *prompts*, never the
+            # sandbox: the ticket carries the same scope the user configured, so
+            # a scheduled or channel run is confined exactly like a chat one.
+            approval_mode, grants, policy = self._safe_local_security()
             local_command = next(
                 (
-                    LocalCommandAuthorization(
+                    self._local_command_authorization(
                         command=intent.target,
-                        approval_mode=APPROVAL_FULL,
-                        write_paths=(),
+                        approval_mode=approval_mode,
+                        grants=grants,
+                        policy=policy,
                     )
                     for intent in intents
                     if intent.domain == DOMAIN_LOCAL_COMMAND
@@ -879,11 +863,9 @@ class ToolPermissionService:
             return {}
         from core.sandbox._common import WORKSPACE
         from core.sandbox.local_policy import (
-            SYSTEM_WRITE,
             Grant,
             danger_categories,
             evaluate_local_command,
-            intersects_system_write_area,
         )
 
         platform = "windows" if os.name == "nt" else "posix"
@@ -926,37 +908,89 @@ class ToolPermissionService:
             if blocked is not None:
                 return {"payload": blocked, "reasons": verdict.reasons}
 
-        write_paths: list[str] = [WORKSPACE]
+        return {
+            "reasons": verdict.reasons,
+            "local_command": self._local_command_authorization(
+                command=intent.target,
+                approval_mode=approval_mode,
+                grants=grants,
+                policy=policy,
+                one_shot_write_targets=tuple(verdict.write_paths),
+            ),
+        }
+
+    def _local_command_authorization(
+        self,
+        *,
+        command: str,
+        approval_mode: str,
+        grants: Sequence[Any],
+        policy: Any,
+        one_shot_write_targets: Sequence[str] = (),
+    ) -> LocalCommandAuthorization:
+        """Turn this run's permission configuration into a sandbox scope.
+
+        Every local command goes through here, prompted or not, so an unattended
+        entry point is confined exactly like an interactive one — it only skips
+        the asking, never the sandbox.
+        """
+        from core.sandbox._common import WORKSPACE
+        from core.sandbox.local_policy import (
+            NETWORK,
+            SYSTEM_WRITE,
+            intersects_system_write_area,
+        )
+        from core.sandbox.os_sandbox import LocalAccessDecision
+
+        platform = "windows" if os.name == "nt" else "posix"
+        may_write = policy.workspace_write != "block"
         system_write_allowed = policy.disposition_for(SYSTEM_WRITE) == "allow"
 
+        writable: list[str] = [WORKSPACE] if may_write else []
+
         def _admit(candidate: str) -> None:
-            if not candidate or candidate in write_paths:
+            if not candidate or candidate in writable:
                 return
             # A protected system area never becomes writable implicitly — not
             # via a standing grant and not via a one-shot target either. The
             # same rule has to cover both, otherwise widening a not-yet-created
-            # target to its parent directory (below) can hand out /etc.
+            # target to its parent directory can hand out /etc.
             if not system_write_allowed and intersects_system_write_area(candidate, platform):
                 logger.info("[tool-permission] refusing system-area writable root %r", candidate)
                 return
-            write_paths.append(candidate)
+            writable.append(candidate)
 
+        readable: list[str] = []
         for grant in grants:
-            if grant.mode != "readwrite":
-                continue
-            _admit(grant.path)
-        for target in verdict.write_paths:
-            root = _one_shot_write_root(target)
-            if root:
-                _admit(root)
-        return {
-            "reasons": verdict.reasons,
-            "local_command": LocalCommandAuthorization(
-                command=intent.target,
+            if grant.mode == "readwrite" and may_write:
+                _admit(grant.path)
+            else:
+                readable.append(grant.path)
+        if may_write:
+            for target in one_shot_write_targets:
+                root = _one_shot_write_root(target)
+                if root:
+                    _admit(root)
+
+        return LocalCommandAuthorization(
+            command=command,
+            approval_mode=approval_mode,
+            workspace_root=WORKSPACE,
+            access=LocalAccessDecision(
                 approval_mode=approval_mode,
-                write_paths=tuple(write_paths),
+                unconfined=approval_mode in UNCONFINED_APPROVAL_MODES,
+                writable_roots=tuple(writable),
+                readable_roots=tuple(dict.fromkeys(readable)),
+                # A read-only preset gets no scratch space either; "may not
+                # write" would be a strange thing to say while handing out a
+                # writable directory.
+                writable_scratch=may_write,
+                # The command-level gate has already ruled on this specific
+                # command's network use; only an explicit block turns the
+                # sandbox's own network dimension on.
+                network_allowed=policy.disposition_for(NETWORK) != "block",
             ),
-        }
+        )
 
     async def _authorize_approval(
         self,
@@ -1065,15 +1099,12 @@ class ToolPermissionMiddleware(MiddlewareBase):
 
 
 __all__ = [
-    "CONFINE_NONE",
-    "CONFINE_PREFERRED",
-    "CONFINE_REQUIRED",
     "CURRENT_APPROVAL_MODE",
     "CURRENT_PERMISSION_TICKET",
+    "FAIL_CLOSED_MODE",
     "FALLBACK_ALLOW",
     "FALLBACK_DENY",
-    "LOCAL_CONFINEMENT_BY_MODE",
-    "ConfinedCommand",
+    "UNCONFINED_APPROVAL_MODES",
     "LocalCommandAuthorization",
     "LocalConfinementUnavailableError",
     "McpPermissionScan",

@@ -14,7 +14,7 @@ from typing import Any, Iterable, Mapping, Optional, Protocol, Sequence
 from core.immutable import FrozenDict, freeze_json, thaw_json
 from core.llm.execution_manifest import canonical_json, stable_hash
 
-CONTEXT_SCHEMA_VERSION = "harness.context.v1"
+CONTEXT_SCHEMA_VERSION = "harness.context.v2"
 SESSION_CONTEXT_META_KEY = "_context_item"
 CONTEXT_SEQUENCE_STRIDE = 1_000
 
@@ -24,6 +24,7 @@ KIND_ASSISTANT = "assistant_history"
 KIND_MEMORY = "memory"
 KIND_IDENTITY = "identity"
 KIND_PROJECT = "project_material"
+KIND_THINKING = "thinking"
 KIND_TOOL_CALL = "tool_call"
 KIND_TOOL_RESULT = "tool_result"
 KIND_REMINDER = "reminder"
@@ -41,6 +42,16 @@ VISIBILITY_MODEL = "model"
 VISIBILITY_MANIFEST_ONLY = "manifest_only"
 
 _TOOL_KINDS = {KIND_TOOL_CALL, KIND_TOOL_RESULT}
+# One ReAct step is the atomic unit of history: what the model said (thinking,
+# text, tool calls) together with the results those calls produced. These
+# kinds are never budgeted block by block.
+STEP_KINDS = frozenset({KIND_ASSISTANT, KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT})
+# Conversation history is selected as a contiguous tail; everything else
+# (memory, project material, reminders, attachments, the compaction summary)
+# keeps priority-based selection because it is not ordered by time.
+CONVERSATION_KINDS = STEP_KINDS | {KIND_USER_INPUT}
+_TRUNCATABLE_BLOCK_TYPES = {"tool_result"}
+_PRUNED_OUTPUT_TEMPLATE = "[tool output pruned to fit the context budget: {tokens} tokens omitted]"
 
 
 class ContextAdapterProtocol(Protocol):
@@ -148,18 +159,23 @@ def _truncate_text(text: str, max_tokens: int, *, tail_only: bool = False) -> st
 
 
 def _truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
+    """Shorten prunable text only; every structured block keeps its shape.
+
+    Plain text and a tool result's output are the only things a budget may
+    shorten. Any other block — thinking, tool call, data, or a shape this
+    module does not know — is returned untouched so the caller keeps or drops
+    it whole. Rewriting such a block into a JSON string would hand the model
+    its own reasoning back as an answer.
+    """
     if max_tokens <= 0:
         return ""
     if isinstance(content, str):
         return _truncate_text(content, max_tokens, tail_only=policy == POLICY_TAIL)
     if isinstance(content, Mapping):
         mutable = thaw_json(content)
-        # Data blocks are atomic.  A truncated/base64 JSON fragment is neither
-        # a valid image nor useful text, so callers must keep or drop it whole.
-        if str(mutable.get("type") or "") == "data":
+        block_type = str(mutable.get("type") or "")
+        if block_type not in _TRUNCATABLE_BLOCK_TYPES:
             return mutable
-        # Tool-result payloads keep their structural id/name fields while only
-        # shortening the potentially huge output.
         for key in ("output", "content", "text"):
             value = mutable.get(key)
             if isinstance(value, str):
@@ -190,13 +206,21 @@ def _truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
                     tail_only=policy == POLICY_TAIL,
                 )
                 return mutable
-        return _truncate_text(canonical_json(mutable), max_tokens)
-    if isinstance(content, (list, tuple)) and any(
-        isinstance(block, Mapping) and str(block.get("type") or "") == "data"
-        for block in content
-    ):
-        return thaw_json(content)
-    return _truncate_text(canonical_json(content), max_tokens)
+        return mutable
+    return thaw_json(content)
+
+
+def _prune_tool_output(content: Any, original_tokens: int) -> Any:
+    """Replace a tool result's output with an explicit placeholder."""
+    mutable = thaw_json(content)
+    if not isinstance(mutable, dict) or str(mutable.get("type") or "") != "tool_result":
+        raise ValueError("only tool_result content can be pruned")
+    for key in ("output", "content", "text"):
+        if key in mutable:
+            mutable[key] = _PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
+            return mutable
+    mutable["output"] = _PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
+    return mutable
 
 
 @dataclass(frozen=True)
@@ -218,6 +242,7 @@ class ContextItem:
     render_name: str = ""
     pair_id: str = ""
     message_group: str = ""
+    unit_id: str = ""
     content: Any = field(default=None, repr=False, compare=False)
     metadata: Mapping[str, Any] = field(
         default_factory=FrozenDict, repr=False, compare=False
@@ -245,6 +270,7 @@ class ContextItem:
         render_role: str = "user",
         pair_id: str = "",
         message_group: str = "",
+        unit_id: str = "",
         content_ref: Optional[str] = None,
         content_hash: Optional[str] = None,
         token_estimate: Optional[int] = None,
@@ -290,6 +316,7 @@ class ContextItem:
             render_name=str(render_name or ""),
             pair_id=str(pair_id or ""),
             message_group=str(message_group or f"item:{item_id}"),
+            unit_id=str(unit_id or f"item:{item_id}"),
             content=normalized_content,
             metadata=metadata or {},
         )
@@ -324,6 +351,7 @@ class ContextItem:
             "render_name_hash": stable_hash(self.render_name),
             "pair_id": self.pair_id or None,
             "message_group": self.message_group,
+            "unit_id": self.unit_id,
         }
 
 
@@ -367,6 +395,7 @@ def session_context_metadata(item: ContextItem) -> dict[str, Any]:
         "item_id",
         "created_seq",
         "message_group",
+        "unit_id",
         "content_ref",
         "content_hash",
         "token_estimate",
@@ -385,6 +414,8 @@ class ContextAssembly:
     used_tokens: int
     total_budget: int
     over_budget: bool = False
+    cut_units: int = 0
+    pruned_items: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "included", tuple(self.included))
@@ -401,16 +432,26 @@ class ContextAssembly:
 
 
 class ContextAssembler:
-    """Explicit truncation and explainable selection, in context order.
+    """Explicit, unit-level selection in context order.
+
+    The unit of selection is a whole ReAct step — the reasoning, text and tool
+    calls the model produced together with the results those calls returned —
+    never a single block. A step is kept or dropped as one; the only thing a
+    budget may shorten inside it is a tool result's output.
 
     Ordering is **not** the assembler's job: items arrive in the order the agent
-    context already holds them, and they leave in that same order. Deciding the
-    conversation's shape here used to reorder it — the live user instruction
-    carries a sequence 64 strides above the context tail (see
-    ``next_request_sequence``), so sorting by sequence moved it behind every tool
-    call and tool result of the turn it had just started. The model then read its
-    own finished work first and the user's request last, took that for a fresh
-    ask, and ran the whole turn again.
+    context already holds them, and they leave in that same order. The live
+    user instruction carries a sequence 64 strides above the context tail (see
+    ``next_request_sequence``), so sorting by sequence would move it behind the
+    turn it had just started.
+
+    Budget pressure is resolved in a fixed order: per-item caps first, then
+    tool outputs of older steps are pruned (oldest first), and only then are
+    whole steps cut from the oldest end of the conversation. The steps of the
+    turn in progress — everything after the current user instruction — are
+    protected: they are never pruned, cut or split. When they alone exceed the
+    budget the assembly reports ``over_budget`` instead of quietly removing
+    anything; compaction owns that case.
     """
 
     def __init__(
@@ -429,7 +470,7 @@ class ContextAssembler:
     def _mandatory(item: ContextItem) -> bool:
         if item.visibility == VISIBILITY_MANIFEST_ONLY:
             return True
-        if item.kind in _TOOL_KINDS:
+        if item.kind in STEP_KINDS:
             return False
         return item.truncation_policy == POLICY_NEVER
 
@@ -451,43 +492,28 @@ class ContextAssembler:
         records: dict[str, dict[str, Any]],
     ) -> Optional[ContextItem]:
         original = item.token_estimate
-        if item.visibility == VISIBILITY_MANIFEST_ONLY or original <= item.token_budget:
-            records[item.item_id] = {
-                "action": "included",
-                "original_tokens": original,
-                "final_tokens": original,
-            }
-            return item
         if (
-            item.truncation_policy in {POLICY_HEAD_TAIL, POLICY_TAIL}
-            and item.token_budget > 0
+            item.visibility == VISIBILITY_MANIFEST_ONLY
+            or item.truncation_policy == POLICY_NEVER
+            or original <= item.token_budget
         ):
-            capped = item.with_content(
-                _truncate_content(
-                    item.content, item.token_budget, item.truncation_policy
-                )
-            )
-            if capped.token_estimate > item.token_budget:
-                records[item.item_id] = {
-                    "action": "excluded",
-                    "reason": "item_budget",
-                    "original_tokens": original,
-                    "final_tokens": 0,
-                }
-                return None
-            records[item.item_id] = {
-                "action": "truncated",
-                "original_tokens": original,
-                "final_tokens": capped.token_estimate,
-            }
-            return capped
-        if item.truncation_policy == POLICY_NEVER:
             records[item.item_id] = {
                 "action": "included",
                 "original_tokens": original,
                 "final_tokens": original,
             }
             return item
+        if item.truncation_policy in {POLICY_HEAD_TAIL, POLICY_TAIL} and item.token_budget > 0:
+            capped = item.with_content(
+                _truncate_content(item.content, item.token_budget, item.truncation_policy)
+            )
+            if capped.token_estimate <= item.token_budget:
+                records[item.item_id] = {
+                    "action": "truncated",
+                    "original_tokens": original,
+                    "final_tokens": capped.token_estimate,
+                }
+                return capped
         records[item.item_id] = {
             "action": "excluded",
             "reason": "item_budget",
@@ -495,6 +521,21 @@ class ContextAssembler:
             "final_tokens": 0,
         }
         return None
+
+    @staticmethod
+    def _tool_pairs_balanced(unit: Sequence[ContextItem]) -> bool:
+        pairs: dict[str, list[ContextItem]] = {}
+        for item in unit:
+            if item.kind in _TOOL_KINDS:
+                if not item.pair_id:
+                    return False
+                pairs.setdefault(item.pair_id, []).append(item)
+        for pair_items in pairs.values():
+            calls = [item for item in pair_items if item.kind == KIND_TOOL_CALL]
+            results = [item for item in pair_items if item.kind == KIND_TOOL_RESULT]
+            if not calls or len(calls) != len(results):
+                return False
+        return True
 
     def assemble(self, items: Iterable[ContextItem]) -> ContextAssembly:
         raw_items = tuple(items)
@@ -507,118 +548,149 @@ class ContextAssembler:
         original_items = list(raw_items)
         arrival = {item.item_id: index for index, item in enumerate(original_items)}
         records: dict[str, dict[str, Any]] = {}
-        capped: list[ContextItem] = []
         excluded: list[ContextItem] = []
+
+        capped: list[ContextItem] = []
         for item in original_items:
             candidate = self._cap_item(item, records)
             if candidate is None:
                 excluded.append(item)
-            else:
-                capped.append(candidate)
+                continue
+            capped.append(candidate)
 
-        pair_groups: dict[str, list[ContextItem]] = {}
-        singles: list[list[ContextItem]] = []
+        # A tool result belongs to the step that issued its call, whatever unit
+        # the caller stamped on it: the pair id is the structural link.
+        call_units: dict[str, str] = {}
+        ambiguous_pairs: set[str] = set()
         for item in capped:
-            if item.kind in _TOOL_KINDS:
-                pair_groups.setdefault(item.pair_id, []).append(item)
-            else:
-                singles.append([item])
+            if item.kind == KIND_TOOL_CALL and item.pair_id:
+                # One pair id may name a provider parallel batch (several calls
+                # in one unit); the same id across two units is unresolvable.
+                if call_units.get(item.pair_id, item.unit_id) != item.unit_id:
+                    ambiguous_pairs.add(item.pair_id)
+                call_units[item.pair_id] = item.unit_id
+        units: dict[str, list[ContextItem]] = {}
+        for candidate in capped:
+            if candidate.kind in _TOOL_KINDS and candidate.pair_id in ambiguous_pairs:
+                records[candidate.item_id].update(
+                    action="excluded", reason="malformed_tool_pair", final_tokens=0
+                )
+                excluded.append(candidate)
+                continue
+            if candidate.kind == KIND_TOOL_RESULT and candidate.pair_id in call_units:
+                candidate = replace(candidate, unit_id=call_units[candidate.pair_id])
+            units.setdefault(candidate.unit_id, []).append(candidate)
 
-        units = list(singles)
-        for pair_id, pair_items in sorted(pair_groups.items()):
-            calls = [item for item in pair_items if item.kind == KIND_TOOL_CALL]
-            results = [item for item in pair_items if item.kind == KIND_TOOL_RESULT]
-            # A pair id may describe either one call/result or one provider
-            # parallel-call batch.  A batch is valid only when every call has
-            # exactly one result; the whole unit is then selected atomically.
-            if not pair_id or not calls or len(calls) != len(results):
-                for item in pair_items:
+        # The request that opened the turn in progress. Everything after it is
+        # the model's own live work and is protected as a whole.
+        request_index = -1
+        for item in original_items:
+            if (
+                item.kind == KIND_USER_INPUT
+                and item.truncation_policy == POLICY_NEVER
+                and item.visibility == VISIBILITY_MODEL
+            ):
+                request_index = arrival[item.item_id]
+
+        def unit_start(unit: Sequence[ContextItem]) -> int:
+            return min(arrival[item.item_id] for item in unit)
+
+        mandatory: list[list[ContextItem]] = []
+        protected: list[list[ContextItem]] = []
+        aside: list[list[ContextItem]] = []
+        conversation: list[list[ContextItem]] = []
+        for unit in units.values():
+            is_step = any(item.kind in STEP_KINDS for item in unit)
+            if any(self._mandatory(item) for item in unit):
+                mandatory.append(unit)
+            elif is_step and request_index >= 0 and unit_start(unit) > request_index:
+                protected.append(unit)
+            elif not self._tool_pairs_balanced(unit):
+                for item in unit:
                     records[item.item_id].update(
                         action="excluded", reason="malformed_tool_pair", final_tokens=0
                     )
                     excluded.append(item)
-                continue
-            units.append(pair_items)
+            elif all(item.kind in CONVERSATION_KINDS for item in unit):
+                conversation.append(unit)
+            else:
+                aside.append(unit)
 
-        mandatory = [
-            unit for unit in units if any(self._mandatory(item) for item in unit)
-        ]
-        optional = [unit for unit in units if unit not in mandatory]
-        mandatory.sort(key=lambda unit: min(arrival[item.item_id] for item in unit))
-        # Selection order only: which optional units get the remaining budget.
-        # It never reaches the output, which is re-sorted into context order.
-        optional.sort(key=self._unit_key)
+        mandatory.sort(key=unit_start)
+        protected.sort(key=unit_start)
+        conversation.sort(key=unit_start)
+        # Selection order only for non-conversation material; it never reaches
+        # the output, which is re-sorted into context order.
+        aside.sort(key=self._unit_key)
+
+        def unit_tokens(unit: Sequence[ContextItem]) -> int:
+            return sum(self._tokens(item) for item in unit)
 
         included: list[ContextItem] = []
         used = 0
-        over_budget = False
-
-        for unit in mandatory:
+        for unit in mandatory + protected:
             included.extend(unit)
-            used += sum(self._tokens(item) for item in unit)
-            over_budget = over_budget or used > self.total_budget
+            used += unit_tokens(unit)
+        over_budget = used > self.total_budget
 
-        for unit in optional:
-            unit_tokens = sum(self._tokens(item) for item in unit)
+        for unit in aside:
+            tokens = unit_tokens(unit)
             remaining = max(0, self.total_budget - used)
-            is_pair = any(item.kind in _TOOL_KINDS for item in unit)
-            if unit_tokens <= remaining:
+            if tokens <= remaining:
                 included.extend(unit)
-                used += unit_tokens
+                used += tokens
                 continue
-
-            if is_pair:
-                calls = [item for item in unit if item.kind == KIND_TOOL_CALL]
-                results = [item for item in unit if item.kind == KIND_TOOL_RESULT]
-                call_tokens = sum(self._tokens(item) for item in calls)
-                result_budget = remaining - call_tokens
-                if result_budget > 0 and len(results) == 1 and len(calls) == 1:
-                    result = results[0]
-                    if result.truncation_policy in {POLICY_HEAD_TAIL, POLICY_TAIL}:
-                        shrunk = result.with_content(
-                            _truncate_content(
-                                result.content,
-                                result_budget,
-                                result.truncation_policy,
-                            )
-                        )
-                        if call_tokens + self._tokens(shrunk) <= remaining:
-                            records[result.item_id].update(
-                                action="truncated",
-                                final_tokens=shrunk.token_estimate,
-                            )
-                            included.extend([*calls, shrunk])
-                            used += call_tokens + self._tokens(shrunk)
-                            continue
-                for item in unit:
-                    records[item.item_id].update(
-                        action="excluded", reason="paired_budget", final_tokens=0
-                    )
-                    excluded.append(item)
-                continue
-
             item = unit[0]
-            if remaining > 0 and item.truncation_policy in {
-                POLICY_HEAD_TAIL,
-                POLICY_TAIL,
-            }:
+            if (
+                len(unit) == 1
+                and remaining > 0
+                and item.truncation_policy in {POLICY_HEAD_TAIL, POLICY_TAIL}
+            ):
                 shrunk = item.with_content(
                     _truncate_content(item.content, remaining, item.truncation_policy)
                 )
-                if (
-                    self._tokens(shrunk) < self._tokens(item)
-                    and self._tokens(shrunk) <= remaining
-                ):
+                if self._tokens(shrunk) < self._tokens(item) and self._tokens(shrunk) <= remaining:
                     records[item.item_id].update(
                         action="truncated", final_tokens=shrunk.token_estimate
                     )
                     included.append(shrunk)
                     used += self._tokens(shrunk)
                     continue
-            records[item.item_id].update(
-                action="excluded", reason="budget", final_tokens=0
-            )
-            excluded.append(item)
+            for item in unit:
+                records[item.item_id].update(action="excluded", reason="budget", final_tokens=0)
+                excluded.append(item)
+
+        # Conversation history: prune old tool outputs first, then cut whole
+        # steps from the oldest end. Never a hole in the middle.
+        pruned_items = 0
+        conversation_tokens = sum(unit_tokens(unit) for unit in conversation)
+        if used + conversation_tokens > self.total_budget:
+            for unit in conversation:
+                if used + conversation_tokens <= self.total_budget:
+                    break
+                for index, item in enumerate(unit):
+                    if used + conversation_tokens <= self.total_budget:
+                        break
+                    if item.kind != KIND_TOOL_RESULT or item.truncation_policy == POLICY_NEVER:
+                        continue
+                    pruned = item.with_content(_prune_tool_output(item.content, item.token_estimate))
+                    if self._tokens(pruned) >= self._tokens(item):
+                        continue
+                    conversation_tokens -= self._tokens(item) - self._tokens(pruned)
+                    unit[index] = pruned
+                    records[item.item_id].update(action="pruned", final_tokens=pruned.token_estimate)
+                    pruned_items += 1
+        cut_units = 0
+        while conversation and used + conversation_tokens > self.total_budget:
+            dropped = conversation.pop(0)
+            conversation_tokens -= unit_tokens(dropped)
+            cut_units += 1
+            for item in dropped:
+                records[item.item_id].update(action="excluded", reason="budget_cut", final_tokens=0)
+                excluded.append(item)
+        for unit in conversation:
+            included.extend(unit)
+            used += unit_tokens(unit)
 
         included.sort(key=lambda item: arrival[item.item_id])
         excluded_by_id = {item.item_id: item for item in excluded}
@@ -643,6 +715,9 @@ class ContextAssembler:
             "total_budget": self.total_budget,
             "used_tokens": used,
             "over_budget": over_budget,
+            "protected_units": len(protected),
+            "cut_units": cut_units,
+            "pruned_items": pruned_items,
             "included": included_manifest,
             "excluded": excluded_manifest,
         }
@@ -657,12 +732,16 @@ class ContextAssembler:
             used_tokens=used,
             total_budget=self.total_budget,
             over_budget=over_budget,
+            cut_units=cut_units,
+            pruned_items=pruned_items,
         )
 
 
 __all__ = [
     "CONTEXT_SCHEMA_VERSION",
     "CONTEXT_SEQUENCE_STRIDE",
+    "CONVERSATION_KINDS",
+    "STEP_KINDS",
     "SESSION_CONTEXT_META_KEY",
     "ContextAssembler",
     "ContextAdapterProtocol",

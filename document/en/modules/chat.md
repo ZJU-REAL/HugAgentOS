@@ -206,6 +206,26 @@ field to `<think>reasoning</think>body`. The frontend places reasoning and tool
 calls in one process area and renders all visible body text as one continuous
 Markdown block. History rendering doesn't split the body at character offsets.
 
+The model's history is stored separately from the display projection. Besides
+the `content` / `thinking` / `tool_calls` display columns, an assistant message
+carries `model_steps`: every model response (its reasoning, text and tool-call
+blocks verbatim) and every tool result as it entered the context, in the order
+they happened. The next turn rebuilds the model context from that column, so
+reasoning always stays paired with the tool call it produced; when the user
+stops a turn, calls that never returned are recorded as interrupted, and replay
+never yields half a step. Rows written before the column existed are rebuilt
+from the streamed order in `metadata.segments`; rows with neither are replayed
+as one labelled digest rather than a guessed pairing.
+
+The context budget selects whole steps — one model response plus its tool
+results. Reasoning is counted on its own but never truncated or dropped by
+itself; under pressure, tool outputs of older steps are pruned first, then
+whole steps are cut from the oldest end. The steps of the turn in progress are
+protected: if they alone do not fit, the assembly manifest reports
+`over_budget` instead of silently rewriting anything.
+
+Tool completion events carry both the display result and its canonical model-result step, which are saved in the same snapshot. Appending a model step also independently triggers persistence; failed writes remain dirty for periodic retry. On replay across providers or models, the formatter checks the reasoning origin provider, model, and protocol. Compatible reasoning retains its structure and signature; readable reasoning from incompatible or unknown origins becomes explicitly labeled historical reference text, rather than native reasoning state for the target model. Reasoning attributed to the current Anthropic model fails explicitly if its signature is missing.
+
 ## Citation system (Evidence Anchors)
 
 Citations make every fact in the answer traceable back to a specific tool result. Numbering authority belongs to a single backend source of truth — the model only **copies** ids, never computes them. The chain has four segments:
@@ -392,10 +412,21 @@ Three complementary layers:
 | Unified context checkpoint | `core/services/compaction_service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
 | Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; when unified compaction fails or persistence is disabled, the AgentScope fallback compacts the live in-memory context with the same handoff prompt | A tool result is oversized or unified compaction is temporarily unavailable |
 
-Compaction checkpoints are internal `system` messages; they do not hide or
-delete any user-visible transcript entries. A checkpoint also stores the
-backend's post-compaction estimate for the final system prompt, tool schema,
-replacement history, and provider framing. When end-of-turn background
+Compaction cuts only at legal boundaries: history is first split into steps,
+the longest recent region that fits `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` is
+kept verbatim (starting at a user message or at the start of a step, with
+every earlier tool call already answered), and everything older goes to the
+summary model. The replacement history is the summary followed by that region
+unchanged. Mid-turn compaction tracks content blocks, so tool results appended to an
+existing assistant message count as new context. The usage baseline is recorded
+only after the model response enters context, avoiding double-counting its output.
+Rewritten or replaced history is re-estimated; repeat compaction is skipped only
+when the content has not changed since the previous compaction.
+
+Compaction checkpoints are internal `system` messages; they do not
+hide or delete any user-visible transcript entries. A checkpoint also stores
+the backend's post-compaction estimate for the final system prompt, tool
+schema, replacement history, and provider framing. When end-of-turn background
 compaction starts, `meta.compaction_pending` makes the frontend poll
 `GET /v1/chats/{chat_id}/context-usage` within the bounded summarizer window.
 Once the new checkpoint commits, the gauge immediately switches to

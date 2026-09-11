@@ -11,14 +11,11 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool._response import ToolResponse
-
 from core.harness.events import Event, EventSink, thaw_value
 from core.harness.hooks import HookBus, HookStage, Invocation
-from core.harness.usage import (
-    UsageAttempt,
-    attempt_status_for_exception,
-    record_usage_safely,
-)
+from core.harness.usage import UsageAttempt, attempt_status_for_exception, record_usage_safely
+from core.llm.model_steps import record_assistant_step
+from core.llm.reasoning_replay import stamp_reasoning_origin
 from core.services.harness_ledger import DurableEventStore, HarnessUsageLedger
 
 
@@ -382,6 +379,33 @@ class AgentScopeHookAdapter(MiddlewareBase):
             ):
                 yield event
 
+    @staticmethod
+    def _record_model_step(agent: Any, current_model: Any, response: Any) -> None:
+        """Keep the completed response as one canonical assistant step.
+
+        ``_reasoning_impl`` saves ``completed_response.content`` into the
+        context right after this hook returns, so recording the same blocks
+        here is the model-facing truth of the step, tagged with the provider
+        and wire protocol that produced it.
+        """
+        content = getattr(response, "content", None)
+        if not getattr(response, "is_last", True) or content is None:
+            return
+        state = getattr(agent, "state", None)
+        ledger = getattr(state, "pending_model_steps", None)
+        if ledger is None:
+            stamp_reasoning_origin(content, current_model)
+            return
+        ledger.append(
+            record_assistant_step(
+                list(content),
+                provider=str(getattr(current_model, "provider_id", "") or ""),
+                model=str(getattr(current_model, "model", "") or ""),
+                protocol=str(getattr(current_model, "wire_protocol", "") or ""),
+            )
+        )
+        stamp_reasoning_origin(content, current_model)
+
     async def on_model_call(self, agent: Any, input_kwargs: dict, next_handler):
         current_model = input_kwargs.get("current_model")
         model_name = str(getattr(current_model, "model", "") or "")
@@ -407,6 +431,7 @@ class AgentScopeHookAdapter(MiddlewareBase):
                 operation_name=model_name or "model",
                 data={"response": _plain(response), "metadata": {}},
             )
+            self._record_model_step(agent, current_model, response)
             return response
 
         async def patched_stream():
@@ -421,6 +446,7 @@ class AgentScopeHookAdapter(MiddlewareBase):
                 operation_name=model_name or "model",
                 data={"response": _plain(pending), "metadata": {}},
             )
+            self._record_model_step(agent, current_model, pending)
             if pending is not None:
                 yield pending
 

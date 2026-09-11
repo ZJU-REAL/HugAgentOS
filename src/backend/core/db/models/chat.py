@@ -148,6 +148,10 @@ class ChatMessage(Base):
     # 展示顺序不在这里——它记在 ``metadata.segments``（见下）。
     thinking = Column(JSONType)
     tool_calls = Column(JSONType)
+    # 模型回放用的规范记录：按发生顺序的每一步（模型响应块 / 工具结果），见
+    # ``core/llm/model_steps.py``。上面三列是给界面看的投影，模型上下文从这一列恢复。
+    # NULL = 该行写入时还没有这份记录，回放退回 segments / 历史摘要。
+    model_steps = Column(JSONType)
     usage = Column(JSONType)
     error = Column(JSONType)
     # ``metadata.segments`` 记这条消息的展示顺序，形如

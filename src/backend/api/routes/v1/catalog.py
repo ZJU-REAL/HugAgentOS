@@ -630,7 +630,7 @@ async def get_catalog_items(
 
 
 @router.patch("/{kind}/{id}", summary="更新能力配置")
-async def update_catalog_item(
+def update_catalog_item(
     kind: str = Path(..., description="Item kind: skill, agent, mcp, or kb"),
     id: str = Path(..., description="Item ID"),
     request: UpdateCatalogRequest = ...,

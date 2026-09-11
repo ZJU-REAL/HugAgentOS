@@ -14,6 +14,7 @@ import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
 import { resolveModeSlug, resolvePlanModeActive } from '../utils/chatMode';
+import type { ChatCommand } from '../utils/projectCommands';
 import { normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
@@ -276,6 +277,9 @@ interface ChatState {
   activeConnector: { id: string; name: string } | null;
   /** Active @mention selected via popup; id is the authoritative per-turn direct target. */
   activeMention: { id: string; name: string } | null;
+  /** 本轮引用的斜杠命令（如 /init）。与技能 / 插件 chip 同一套：选中只是引用，回车才发送；
+   *  chip 不产生编辑器文本，发送时由 composeCommandMessage 还原成命令原文。 */
+  activeCommand: ChatCommand | null;
   /** Whether plan mode is enabled */
   planMode: boolean;
   /** Whether autonomous-loop mode is enabled */
@@ -324,6 +328,15 @@ interface ChatState {
   addSendingChatId: (id: string) => void;
   /** Mark a chat id as no longer streaming. Removes from set + updates derived `sending`. */
   removeSendingChatId: (id: string) => void;
+  /** 在别处（另一台设备 / 另一个标签页）还在跑的会话。
+   *
+   *  `sendingChatIds` 只记本标签页自己挂着的流，所以换设备登录时侧边栏对没点开过的
+   *  会话一无所知。这里存服务端快照，登录、拉完会话列表、窗口切回来时刷新，让
+   *  「运行中」小圆点不必等用户点进去才亮。 */
+  remoteRunningChatIds: Set<string>;
+  /** 重新问一次服务端"我还有哪些会话在跑"。失败不改现状：宁可灯保持上一次的样子，
+   *  也不要因为一次网络抖动把正在跑的灯全灭掉。 */
+  refreshRemoteRunningChats: () => Promise<void>;
   toggleThinking: (id: string) => void;
   setChatMode: (v: ChatMode) => void;
   setModeSlug: (v: string) => void;
@@ -353,6 +366,7 @@ interface ChatState {
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
   setActivePlugin: (plugin: { id: string; name: string } | null) => void;
   setActiveConnector: (connector: { id: string; name: string } | null) => void;
+  setActiveCommand: (command: ChatCommand | null) => void;
   setActiveMention: (mention: { id: string; name: string } | null) => void;
   setPlanMode: (v: boolean) => void;
   setLoopMode: (v: boolean) => void;
@@ -450,6 +464,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   input: '',
   sending: false,
   sendingChatIds: new Set(),
+  remoteRunningChatIds: new Set(),
   expandedThinking: new Set(),
   chatMode: 'fast',
   lastStandardMode: 'fast',
@@ -473,6 +488,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   referencedChats: [],
   activePlugin: null,
   activeConnector: null,
+  activeCommand: null,
   activeMention: null,
   planMode: false,
   loopMode: false,
@@ -531,6 +547,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       activePlugin: nextActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
     });
   },
@@ -546,6 +563,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     next.delete(id);
     return { sendingChatIds: next, sending: next.has(s.currentChatId) };
   }),
+  refreshRemoteRunningChats: async () => {
+    const { listActiveChatRuns } = await import('../api');
+    const items = await listActiveChatRuns();
+    set({ remoteRunningChatIds: new Set(items.map((item) => item.chat_id)) });
+  },
   toggleThinking: (id) => {
     const next = new Set(get().expandedThinking);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -690,6 +712,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveConnector: (connector) => set({ activeConnector: connector }),
+  setActiveCommand: (command) => set({ activeCommand: command }),
   setActiveMention: (mention) => set({ activeMention: mention }),
   setPlanMode: (v) => {
     const { currentChatId, currentUserId, store } = get();
@@ -733,6 +756,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({
       activePlugin: nextActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       // Leaving the chat panel exits autonomous-loop mode (projects/other pages shouldn't carry this intent).
       ...(panel !== 'chat' ? { loopMode: false } : {}),
@@ -750,7 +774,11 @@ export const useChatStore = create<ChatState>((set, get) => {
   clearActiveRun: (chatId) => set((s) => {
     const next = { ...s.activeRuns };
     delete next[chatId];
-    return { activeRuns: next };
+    // 本标签页刚确知这一轮结束了，比服务端快照新——立刻灭灯，不等下一次刷新。
+    if (!s.remoteRunningChatIds.has(chatId)) return { activeRuns: next };
+    const remote = new Set(s.remoteRunningChatIds);
+    remote.delete(chatId);
+    return { activeRuns: next, remoteRunningChatIds: remote };
   }),
   setQueuedMessage: (chatId, queued) => {
     set((s) => {
@@ -1044,6 +1072,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       loopMode: false,
       sending: sendingChatIds.has(targetId),
@@ -1066,6 +1095,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: false,
       currentPlanId: null,
@@ -1120,6 +1150,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         referencedChats: [],
         activePlugin: null,
         activeConnector: null,
+        activeCommand: null,
         activeMention: null,
       });
     }
@@ -1162,6 +1193,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       pendingScrollMessageTs: pendingScroll,
       // Reset any in-flight UI state carried over from a previous user.
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},
@@ -1172,6 +1204,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: resolvePlanModeActive(store.chats[currentChatId]),
       loopMode: false,
@@ -1215,6 +1248,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       input: '',
       sending: false,
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},
@@ -1226,6 +1260,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: false,
       loopMode: false,

@@ -65,7 +65,7 @@ def _require_can_import_plugin(user_id: str, db: Session) -> None:
 
 
 @router.get("", summary="内置插件包列表")
-async def list_plugins(
+def list_plugins(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -74,7 +74,7 @@ async def list_plugins(
 
 
 @router.get("/installed", summary="我已安装的插件")
-async def list_installed(
+def list_installed(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -84,7 +84,7 @@ async def list_installed(
 
 
 @router.get("/installed/{install_id}/detail", summary="已安装插件详情（含组件）")
-async def get_installed_detail(
+def get_installed_detail(
     install_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -122,7 +122,7 @@ async def reset_feishu_app(_: str = Depends(require_system_settings)):
 
 
 @router.get("/{slug}", summary="内置插件详情")
-async def get_plugin(
+def get_plugin(
     slug: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -136,7 +136,7 @@ class InstallRequest(BaseModel):
 
 
 @router.post("/{slug}/install", status_code=201, summary="从插件市场安装（私有）")
-async def install_plugin(
+def install_plugin(
     slug: str,
     body: InstallRequest = InstallRequest(),
     user: UserContext = Depends(get_current_user),
@@ -173,7 +173,7 @@ async def import_plugin(
 
 
 @router.delete("/installed/{install_id}", summary="卸载插件")
-async def uninstall_plugin(
+def uninstall_plugin(
     install_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -189,7 +189,7 @@ class InstalledMetaRequest(BaseModel):
 
 
 @router.patch("/installed/{install_id}/meta", summary="修改我导入插件的展示信息")
-async def set_installed_meta(
+def set_installed_meta(
     install_id: str,
     body: InstalledMetaRequest,
     user: UserContext = Depends(get_current_user),
@@ -214,7 +214,7 @@ class EnableRequest(BaseModel):
 
 
 @router.patch("/installed/{install_id}/enable", summary="整体开关插件")
-async def set_enabled(
+def set_enabled(
     install_id: str,
     body: EnableRequest,
     user: UserContext = Depends(get_current_user),

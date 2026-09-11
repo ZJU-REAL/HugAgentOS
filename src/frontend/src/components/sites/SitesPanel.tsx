@@ -346,7 +346,7 @@ function SiteManageModal({
                     { pattern: /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, message: t('格式不正确') },
                   ]}
                 >
-                  <Input addonBefore={`${stablePublicOrigin(site.origin)}/site/`} addonAfter="/" />
+                  <Input addonBefore={`${stablePublicOrigin()}/site/`} addonAfter="/" />
                 </Form.Item>
                 <Form.Item name="visibility" label={t('可见性')}>
                   <Select
@@ -493,12 +493,10 @@ export function SitesPanel() {
     void reload();
   }, [reload]);
 
-  // 展示/复制的完整链接按站点归属选真实后端地址（本机站点直连 32101，不经反代，
-  // 也就无需 hg_target 路由标记；站内「打开」仍走相对路径经反代）。
-  const siteFullUrl = (site: SiteItem) => `${stablePublicOrigin(site.origin)}${site.url}`;
-  // 站内打开走反代：本机站点带路由标记，入口页免掉「云端 404 → 反代兜底重试」的一跳。
-  const siteInAppUrl = (site: SiteItem) =>
-    `${site.url}${site.origin === 'local' ? '?hg_target=local' : ''}`;
+  // 站点由壳指向的后端托管，展示、复制、打开、预览用的是同一个绝对地址。相对路径
+  // 在桌面端会解析成随机端口的本地反代，用户看到和复制走的都会变成只有本机可达的
+  // 链接（站点本身在云端，公网地址是现成的）。
+  const siteUrl = (site: SiteItem) => `${stablePublicOrigin()}${site.url}`;
 
   /** 打开站点：桌面另开标签页，手机走应用内预览（见 previewSite 的说明）。 */
   const openSite = (site: SiteItem) => {
@@ -506,14 +504,14 @@ export function SitesPanel() {
       setPreviewSite(site);
       return;
     }
-    window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer');
+    window.open(siteUrl(site), '_blank', 'noopener,noreferrer');
   };
 
   const handleCopy = async (site: SiteItem) => {
     // 走统一的 copyToClipboard：测试机是 http://内网IP 访问，非安全上下文下
     // navigator.clipboard 根本不存在，直接调用必然落到「复制失败」——这正是
     // 「复制链接功能不可用」的原因。该工具在这种环境下退回 execCommand。
-    if (await copyToClipboard(siteFullUrl(site))) {
+    if (await copyToClipboard(siteUrl(site))) {
       message.success(t('链接已复制'));
     } else {
       message.error(t('复制失败，请手动复制'));
@@ -590,7 +588,7 @@ export function SitesPanel() {
                   </div>
                   <a
                     className="jx-sites-cardUrl"
-                    href={siteInAppUrl(site)}
+                    href={siteUrl(site)}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => {
@@ -599,7 +597,7 @@ export function SitesPanel() {
                       setPreviewSite(site);
                     }}
                   >
-                    {siteFullUrl(site)}
+                    {siteUrl(site)}
                   </a>
                   <div className="jx-sites-cardMeta">
                     {t('版本')} v{site.current_version} · {site.file_count} {t('个文件')} ·{' '}
@@ -682,7 +680,7 @@ export function SitesPanel() {
             <button
               type="button"
               className="jx-sitePreview-external"
-              onClick={() => window.open(siteInAppUrl(previewSite), '_blank', 'noopener,noreferrer')}
+              onClick={() => window.open(siteUrl(previewSite), '_blank', 'noopener,noreferrer')}
               aria-label={t('在新窗口打开')}
             >
               <ExportOutlined />
@@ -690,7 +688,7 @@ export function SitesPanel() {
           </div>
           <iframe
             className="jx-sitePreview-frame"
-            src={siteInAppUrl(previewSite)}
+            src={siteUrl(previewSite)}
             title={previewSite.title}
           />
         </div>

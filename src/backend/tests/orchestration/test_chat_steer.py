@@ -14,6 +14,7 @@ from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
 from core.llm.middlewares import SteerMiddleware
 from core.services import chat_steer_service
+from core.services.chat_service import ChatService
 from core.services.run_journal import RunJournal, RunLeaseLost
 from core.services.steer_queue import SteerQueue
 from orchestration import chat_run_executor as executor
@@ -259,9 +260,13 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
                 effect(FakeSession())
             return True
 
-        def allocate_event_offset(self, *_args, **_kwargs):
-            self.offset += 1
-            return self.offset
+        def allocate_event_offset(self, *_args, count=1, **_kwargs):
+            first = self.offset + 1
+            self.offset += count
+            return first
+
+        def require_lease(self, *_args, **_kwargs):
+            return None
 
     async def fake_workflow(**_kwargs):
         yield {"type": "content", "delta": "前半段"}
@@ -274,12 +279,13 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
 
     monkeypatch.setattr(executor, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(executor, "ChatService", FakeChatService)
+    monkeypatch.setattr(executor, "_persisted_history", lambda *_args: [])
     fake_journal = FakeJournal()
     monkeypatch.setattr(executor, "_journal", lambda: fake_journal)
     monkeypatch.setattr(executor, "astream_chat_workflow", fake_workflow)
     monkeypatch.setattr(executor, "_xadd_event", fake_xadd)
     monkeypatch.setattr(executor, "_update_run_status", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(executor, "_claim_run_execution", lambda _run_id: True)
+    monkeypatch.setattr(executor, "_claim_run_execution", lambda _run_id: executor._utcnow())
     monkeypatch.setattr(executor, "_acknowledge_terminal_writer", lambda _run_id: False)
     monkeypatch.setattr(executor, "_finalize_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -427,6 +433,10 @@ async def test_crash_after_steer_ack_safe_stops_with_exact_post_steer_context(
     monkeypatch.setattr(executor, "astream_chat_workflow", crashing_workflow)
     monkeypatch.setattr(executor, "_xadd_event", no_event_write)
     monkeypatch.setattr(executor, "_expire_stream", no_event_write)
+    # Admission persists the user's message before the worker starts; the
+    # post-steer context is read back from those rows.
+    with sessions() as db:
+        ChatService(db).add_message(chat_id="chat-1", role="user", content="原问题")
 
     await executor._run_workflow(
         run_id="r1",
@@ -455,9 +465,11 @@ async def test_crash_after_steer_ack_safe_stops_with_exact_post_steer_context(
     worker_args = decisions[0].snapshot["worker_args"]
     assert worker_args["effective_user_message"] == "崩溃后也要继续"
     assert worker_args["context"]["message_id"] != "m1"
+    # The exact persisted history: the pre-steer segment replays as the
+    # assistant row it was committed as, the steer as the user row after it.
     assert worker_args["session_messages"] == [
         {"role": "user", "content": "原问题"},
-        {"role": "assistant", "content": "崩溃前回答"},
+        {"role": "assistant", "content": [{"type": "text", "text": "崩溃前回答"}]},
         {"role": "user", "content": "崩溃后也要继续"},
     ]
     with sessions() as db:

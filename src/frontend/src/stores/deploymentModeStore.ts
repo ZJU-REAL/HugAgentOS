@@ -24,7 +24,16 @@ interface DesktopBoot {
 }
 
 interface DesktopEvent {
-  bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null };
+  bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null; retrying?: boolean };
+  service?: { phase?: string; message?: string; progress?: number; ready?: boolean };
+}
+
+/** 本机服务自己的安装/启动状态，能力同步等待期间用它说明「在等什么」。 */
+export interface LocalServiceState {
+  phase: string;
+  message: string;
+  progress: number;
+  ready: boolean;
 }
 
 declare global {
@@ -50,6 +59,9 @@ interface DeploymentModeState {
   capabilityGateOpen: boolean;
   partialCapabilities: boolean;
   capabilitySyncError: string | null;
+  /** 上面的错误壳还在自动重试，不需要用户处理。 */
+  capabilitySyncRetrying: boolean;
+  localService: LocalServiceState | null;
 }
 
 export interface ProjectCreationTargets {
@@ -88,6 +100,8 @@ function bootState(): DeploymentModeState {
       capabilityGateOpen: true,
       partialCapabilities: false,
       capabilitySyncError: null,
+      capabilitySyncRetrying: false,
+      localService: null,
     };
   }
   return {
@@ -103,6 +117,8 @@ function bootState(): DeploymentModeState {
     capabilityGateOpen: true,
     partialCapabilities: false,
     capabilitySyncError: null,
+    capabilitySyncRetrying: false,
+    localService: null,
   };
 }
 
@@ -122,10 +138,23 @@ if (initial.provisionMode === 'dual' && typeof EventSource !== 'undefined') {
       const capabilitiesReady = !!status.bridge?.capabilities_ready;
       const modelsReady = !!status.bridge?.models_ready;
       const capabilitySyncError = status.bridge?.error || null;
+      const capabilitySyncRetrying = !!status.bridge?.retrying;
+      const localService: LocalServiceState = {
+        phase: status.service?.phase || '',
+        message: status.service?.message || '',
+        progress: status.service?.progress ?? 0,
+        ready: !!status.service?.ready,
+      };
       const previous = useDeploymentModeStore.getState();
-      if (localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
-          || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError) {
+      const serviceChanged = localService.phase !== previous.localService?.phase
+        || localService.message !== previous.localService?.message
+        || localService.progress !== previous.localService?.progress
+        || localService.ready !== previous.localService?.ready;
+      if (serviceChanged || localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
+          || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError
+          || capabilitySyncRetrying !== previous.capabilitySyncRetrying) {
         useDeploymentModeStore.setState({ localReady, capabilitiesReady, modelsReady, capabilitySyncError,
+          capabilitySyncRetrying, localService,
           ...(!localReady ? { capabilityGateOpen: true, partialCapabilities: false } : {}),
         });
       }
@@ -136,18 +165,15 @@ if (initial.provisionMode === 'dual' && typeof EventSource !== 'undefined') {
 }
 
 /**
- * 站点等对外链接的稳定源（展示 / 复制用，站内打开仍走相对路径）。
+ * 站点等对外链接的稳定源：壳当前指向的后端地址。
  *
- * 桌面窗口的 origin 是随机端口的本地反代——每次启动都变、仅本机可达，写进可
- * 分享链接必然失效。按站点归属选真实后端地址：
- *   - 本机站点 → 固定的 http://127.0.0.1:32101；
- *   - 云端站点 → 壳指向的云端地址（LocalOnly 形态下即本机地址），别的浏览器/
- *     别人打开都有效；
- *   - web 端 → 页面 origin（本来就是真实后端域名）。
+ * 桌面窗口的 origin 是随机端口的本地反代——每次启动都变、仅本机可达，任何相对
+ * 路径都会解析成它，写进链接或另开标签都只有本机打得开。所以对外链接一律用这里
+ * 的绝对地址：双模式为云端域名，LocalOnly 形态下 serverBase 本身即本机地址，
+ * web 端就是页面 origin（本来就是真实后端域名）。
  */
-export function stablePublicOrigin(siteOrigin?: 'cloud' | 'local'): string {
-  const { isDesktop, serverBase, localBase } = useDeploymentModeStore.getState();
+export function stablePublicOrigin(): string {
+  const { isDesktop, serverBase } = useDeploymentModeStore.getState();
   if (!isDesktop) return window.location.origin;
-  if (siteOrigin === 'local' && localBase) return localBase;
-  return serverBase || window.location.origin;
+  return serverBase;
 }

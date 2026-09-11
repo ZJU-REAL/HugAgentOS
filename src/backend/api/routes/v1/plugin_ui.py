@@ -52,7 +52,7 @@ _MODULE_CSP = (
 
 
 @router.get("/ui-contributions", summary="已安装插件贡献的界面声明")
-async def list_ui_contributions(
+def list_ui_contributions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -100,7 +100,7 @@ async def call_plugin_data_source(
 
 
 @router.get("/{slug}/web/{asset_path:path}", summary="插件自带前端模块的静态资源")
-async def get_plugin_web_asset(
+def get_plugin_web_asset(
     slug: str = Path(..., min_length=1, max_length=100),
     asset_path: str = "",
     user: UserContext = Depends(get_current_user),

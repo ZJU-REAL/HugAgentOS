@@ -59,7 +59,7 @@ def _site_to_dict(site, permission: str = "admin") -> dict:
 
 
 @router.get("", summary="获取我的站点列表")
-async def list_sites(
+def list_sites(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     user: UserContext = Depends(get_current_user),
@@ -76,7 +76,7 @@ async def list_sites(
 
 
 @router.get("/{site_id}", summary="获取站点详情")
-async def get_site(
+def get_site(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -89,7 +89,7 @@ async def get_site(
 
 
 @router.patch("/{site_id}", summary="修改站点（标题/可见性/slug/描述）")
-async def update_site(
+def update_site(
     site_id: str,
     body: UpdateSiteRequest,
     user: UserContext = Depends(get_current_user),
@@ -109,7 +109,7 @@ async def update_site(
 
 
 @router.post("/{site_id}/rollback", summary="回滚到历史版本")
-async def rollback_site(
+def rollback_site(
     site_id: str,
     body: RollbackRequest,
     user: UserContext = Depends(get_current_user),
@@ -120,7 +120,7 @@ async def rollback_site(
 
 
 @router.get("/{site_id}/submissions", summary="站点表单数据列表")
-async def list_site_submissions(
+def list_site_submissions(
     site_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -147,7 +147,7 @@ async def list_site_submissions(
 
 
 @router.post("/{site_id}/submissions/export", summary="表单数据导出为 CSV artifact")
-async def export_site_submissions(
+def export_site_submissions(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -157,7 +157,7 @@ async def export_site_submissions(
 
 
 @router.delete("/{site_id}/submissions", summary="清空站点表单数据")
-async def clear_site_submissions(
+def clear_site_submissions(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -169,7 +169,7 @@ async def clear_site_submissions(
 
 
 @router.get("/{site_id}/kv", summary="站点 KV 列表")
-async def list_site_kv(
+def list_site_kv(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -193,7 +193,7 @@ async def list_site_kv(
 
 
 @router.delete("/{site_id}/kv/{key}", summary="删除站点 KV 键")
-async def delete_site_kv(
+def delete_site_kv(
     site_id: str,
     key: str,
     user: UserContext = Depends(get_current_user),
@@ -206,7 +206,7 @@ async def delete_site_kv(
 
 
 @router.delete("/{site_id}/kv", summary="清空站点 KV")
-async def clear_site_kv(
+def clear_site_kv(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -218,7 +218,7 @@ async def clear_site_kv(
 
 
 @router.delete("/{site_id}", summary="删除站点")
-async def delete_site(
+def delete_site(
     site_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

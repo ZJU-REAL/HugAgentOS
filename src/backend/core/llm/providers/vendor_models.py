@@ -42,14 +42,48 @@ from agentscope.model import (
 )
 from agentscope.tool._types import ToolChoice
 
+from core.llm.reasoning_replay import ReasoningReplayMixin
+
 from ._fallback import StructuredFallbackMixin
 from .registry import ProviderSpec
 
 logger = logging.getLogger(__name__)
 
 
+_WIRE_PROTOCOLS = {
+    "NativeAnthropicChatModel": "anthropic_messages",
+    "NativeGeminiChatModel": "gemini_generate",
+    "NativeDashScopeChatModel": "dashscope_generation",
+    "NativeOllamaChatModel": "ollama_chat",
+}
+
+
+class ReplayAnthropicFormatter(ReasoningReplayMixin, AnthropicChatFormatter):
+    pass
+
+
+class ReplayGeminiFormatter(ReasoningReplayMixin, GeminiChatFormatter):
+    pass
+
+
+class ReplayDashScopeFormatter(ReasoningReplayMixin, DashScopeChatFormatter):
+    pass
+
+
+class ReplayOllamaFormatter(ReasoningReplayMixin, OllamaChatFormatter):
+    pass
+
+
+class ReplayOpenAIFormatter(ReasoningReplayMixin, OpenAIChatFormatter):
+    pass
+
+
 def _with_provider(model_instance, provider_id: str):  # noqa: ANN001, ANN202
     model_instance.provider_id = provider_id
+    model_instance.wire_protocol = _WIRE_PROTOCOLS[type(model_instance).__name__]
+    model_instance.formatter.replay_provider = provider_id
+    model_instance.formatter.replay_model = model_instance.model
+    model_instance.formatter.replay_protocol = model_instance.wire_protocol
     return model_instance
 
 
@@ -97,7 +131,7 @@ def build_native_model(
                 model=model or "claude-3-5-sonnet-latest",
                 parameters=AnthropicChatModel.Parameters(max_tokens=max_tokens),
                 stream=stream,
-                formatter=AnthropicChatFormatter(),
+                formatter=ReplayAnthropicFormatter(),
                 **ctx,
             ),
             spec.id,
@@ -112,7 +146,7 @@ def build_native_model(
                     max_tokens=max_tokens, temperature=temperature
                 ),
                 stream=stream,
-                formatter=GeminiChatFormatter(),
+                formatter=ReplayGeminiFormatter(),
                 **ctx,
             ),
             spec.id,
@@ -130,7 +164,7 @@ def build_native_model(
                     max_tokens=max_tokens, temperature=temperature
                 ),
                 stream=stream,
-                formatter=DashScopeChatFormatter(),
+                formatter=ReplayDashScopeFormatter(),
                 **ctx,
             ),
             spec.id,
@@ -145,7 +179,7 @@ def build_native_model(
                     max_tokens=max_tokens, temperature=temperature
                 ),
                 stream=stream,
-                formatter=OllamaChatFormatter(),
+                formatter=ReplayOllamaFormatter(),
                 **ctx,
             ),
             spec.id,
@@ -186,10 +220,15 @@ class LiteLLMChatModel(StructuredFallbackMixin, OpenAIChatModel):
             stream=stream,
             max_retries=0,
             context_size=context_size,
-            formatter=OpenAIChatFormatter(),
+            formatter=ReplayOpenAIFormatter(
+                replay_provider=provider_id,
+                replay_model=model or "litellm-model",
+                replay_protocol="openai_chat",
+            ),
         )
         self._litellm_model = litellm_model
         self.provider_id = provider_id
+        self.wire_protocol = "openai_chat"
         self._litellm_kwargs = litellm_kwargs or {}
         self._timeout = timeout
 

@@ -157,16 +157,6 @@ class ChartAgent:
     # ── 文本清洗 ──────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _strip_thinking(text: str) -> str:
-        """去除思考模型输出的 <think>...</think> 块（取最后一个 </think> 之后的内容）。"""
-        # 有些模型用 <think>...</think>，有些用多个嵌套块
-        # 取最后一个 </think> 之后的内容最为保险
-        last_end = text.rfind("</think>")
-        if last_end != -1:
-            text = text[last_end + len("</think>"):]
-        return text.strip()
-
-    @staticmethod
     def _extract_code(text: str) -> str:
         """
         从 LLM 输出中提取 Python 代码。
@@ -210,9 +200,8 @@ class ChartAgent:
         return code
 
     def _sanitize_code(self, raw: str) -> str:
-        """完整清洗流程：去思考块 → 提取代码 → 删除禁止调用。"""
-        text = self._strip_thinking(raw)
-        code = self._extract_code(text)
+        """完整清洗流程：提取代码 → 删除禁止调用。"""
+        code = self._extract_code(raw)
         code = self._remove_forbidden_calls(code)
         return code.strip()
 

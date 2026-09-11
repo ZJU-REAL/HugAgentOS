@@ -264,7 +264,6 @@ def _run_subagent_in_thread(
         from core.llm.message_compat import (
             extract_messages_from_context,
             session_to_msgs,
-            strip_thinking,
         )
         from core.services.user_agent_service import UserAgentService
 
@@ -357,7 +356,7 @@ def _run_subagent_in_thread(
                 response_text = result.get_text_content() or ""
                 return (
                     True,
-                    strip_thinking(response_text),
+                    response_text,
                     _ws.get_pinned(),
                     extract_messages_from_context(agent.state.context),
                 )
@@ -393,7 +392,7 @@ def _run_subagent_in_thread(
             response_text = (final_msg.get_text_content() if final_msg else "") or ""
             return (
                 True,
-                strip_thinking(response_text),
+                response_text,
                 _ws.get_pinned(),
                 extract_messages_from_context(agent.state.context),
             )

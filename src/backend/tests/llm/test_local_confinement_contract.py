@@ -1,9 +1,9 @@
-"""The OS-confinement contract belongs to the permission preset.
+"""The confinement decision belongs to the user's permission preset.
 
-``wrap_command`` only reports whether a backend exists; what to do about a
-missing one is a policy decision. Getting this wrong in either direction is
-serious: refusing everywhere leaves the Windows desktop client with no shell,
-while degrading everywhere silently drops the write jail.
+There are exactly two outcomes and no third: the preset the user picked either
+waives confinement, or the command runs under the OS sandbox. "The host has no
+backend, so run it anyway" is not one of them — that is the failure mode this
+module exists to keep out.
 """
 
 from __future__ import annotations
@@ -15,76 +15,78 @@ from core.llm.tool_permissions import (
     APPROVAL_ASK,
     APPROVAL_AUTO,
     APPROVAL_FULL,
-    CONFINE_NONE,
-    CONFINE_PREFERRED,
-    CONFINE_REQUIRED,
     FAIL_CLOSED_MODE,
+    UNCONFINED_APPROVAL_MODES,
     LocalCommandAuthorization,
     LocalConfinementUnavailableError,
 )
+from core.sandbox.os_sandbox import LocalAccessDecision
+from core.sandbox.oslayer import SandboxUnavailableError, SandboxUnenforceableError
 
-_UNAVAILABLE = "core.sandbox.os_sandbox.confinement_unavailable_reason"
+_CONFINE = "core.sandbox.os_sandbox.confine"
 
 
-def _authorization(mode: str) -> LocalCommandAuthorization:
+def _authorization(mode: str, workspace: str) -> LocalCommandAuthorization:
     return LocalCommandAuthorization(
         command="ls -la",
         approval_mode=mode,
-        write_paths=("/workspace",),
+        workspace_root=workspace,
+        access=LocalAccessDecision(
+            approval_mode=mode,
+            unconfined=mode in UNCONFINED_APPROVAL_MODES,
+            writable_roots=(workspace,),
+        ),
     )
 
 
 @pytest.mark.parametrize(
-    "mode,expected",
+    "mode,confined",
     [
-        (APPROVAL_ASK, CONFINE_PREFERRED),
-        (APPROVAL_AUTO, CONFINE_PREFERRED),
-        (APPROVAL_FULL, CONFINE_NONE),
-        (FAIL_CLOSED_MODE, CONFINE_REQUIRED),
-        ("something-new", CONFINE_REQUIRED),
+        (APPROVAL_ASK, True),
+        (APPROVAL_AUTO, True),
+        (APPROVAL_FULL, False),
+        (FAIL_CLOSED_MODE, True),
+        ("something-new", True),
     ],
 )
-def test_each_preset_declares_its_confinement_contract(mode, expected):
-    """An unrecognised preset gets the most restrictive contract, not the loosest."""
-    assert _authorization(mode).confinement == expected
+def test_only_the_unrestricted_preset_waives_confinement(mode, confined, tmp_path):
+    """An unrecognised preset is confined, never treated as the loosest one."""
+    assert _authorization(mode, str(tmp_path)).confined is confined
 
 
-def test_fail_closed_refuses_to_run_without_a_confinement_backend():
-    """本机安全配置读不出来时的记号档，宁可没有 shell 也不裸跑。"""
-    with patch(_UNAVAILABLE, return_value="当前平台 windows 尚无可用的文件系统隔离后端"):
+def test_the_unrestricted_preset_runs_without_a_launch(tmp_path):
+    """`full` means "run it as me"; honouring that is the setting, not a fallback."""
+    with patch(_CONFINE) as confine:
+        assert _authorization(APPROVAL_FULL, str(tmp_path)).confine() is None
+    confine.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", [APPROVAL_ASK, APPROVAL_AUTO, FAIL_CLOSED_MODE])
+def test_a_missing_backend_refuses_the_command(mode, tmp_path):
+    reason = "本机缺少 Linux 沙箱运行器 bwrap（bubblewrap）"
+    with patch(_CONFINE, side_effect=SandboxUnavailableError(reason)):
         with pytest.raises(LocalConfinementUnavailableError) as excinfo:
-            _authorization(FAIL_CLOSED_MODE).confine("ls -la")
+            _authorization(mode, str(tmp_path)).confine()
 
-    assert FAIL_CLOSED_MODE in str(excinfo.value)
-
-
-@pytest.mark.parametrize("mode", [APPROVAL_ASK, APPROVAL_AUTO])
-def test_asking_presets_degrade_with_a_warning_instead_of_killing_the_shell(mode):
-    """Windows and bwrap-less Linux still get a shell, governed by the policy gate."""
-    with patch(_UNAVAILABLE, return_value="当前平台 windows 尚无可用的文件系统隔离后端"):
-        result = _authorization(mode).confine("ls -la")
-
-    assert result.command == "ls -la"
-    assert result.confined is False
-    assert result.warning
+    message = str(excinfo.value)
+    assert reason in message
+    # The refusal has to tell the user which choice would let this run.
+    assert "权限档" in message
 
 
-def test_full_is_unconfined_without_any_warning_noise():
-    with patch(_UNAVAILABLE, return_value=""):
-        result = _authorization(APPROVAL_FULL).confine("ls -la")
+def test_a_policy_the_platform_cannot_enforce_refuses_too(tmp_path):
+    reason = "Windows 受限令牌沙箱无法限制读取范围，已拒绝执行"
+    with patch(_CONFINE, side_effect=SandboxUnenforceableError(reason)):
+        with pytest.raises(LocalConfinementUnavailableError) as excinfo:
+            _authorization(APPROVAL_ASK, str(tmp_path)).confine()
+    assert reason in str(excinfo.value)
 
-    assert result.command == "ls -la"
-    assert result.confined is False
-    assert result.warning == ""
 
+def test_an_available_backend_produces_a_real_launch(tmp_path):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    launch = _authorization(APPROVAL_ASK, str(workspace)).confine()
 
-def test_an_available_backend_actually_wraps_the_command():
-    with (
-        patch(_UNAVAILABLE, return_value=""),
-        patch("core.sandbox.os_sandbox.wrap_command", return_value="bwrap ... ls -la") as wrap,
-    ):
-        result = _authorization(APPROVAL_ASK).confine("ls -la")
-
-    assert result.confined is True
-    assert result.command == "bwrap ... ls -la"
-    wrap.assert_called_once()
+    assert launch is not None
+    assert launch.backend
+    assert launch.argv_prefix

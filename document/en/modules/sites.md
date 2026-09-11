@@ -1,6 +1,6 @@
 # Sites (Build Websites in Chat, Hosted by the Platform)
 
-> Last updated: 2026-07-13
+> Last updated: 2026-09-10
 
 **Sites** lets users describe what they need in a conversation and have the agent generate a complete static website and publish it in one step — hosted directly by the platform, accessible to anyone with the link, and updatable later through further conversation. The full pipeline: multi-file site generated in the sandbox → published via the `publish_site` tool → served publicly through an nginx-proxied backend hosting route.
 
@@ -71,3 +71,27 @@ After a personal project moves to a team, its sites remain linked to the same pr
 Read-only members can inspect project sources and site cards. Editors can change source code and publish new versions of the existing site. Owners and administrators can also change site settings, roll back versions and delete sites. Management permissions are separate from visitor visibility: transfer and republication do not automatically make a private site public or team-visible.
 
 Static team sites publish from saved project sources. For build-based sites, run bash in the team project conversation first; the tool returns the current project working directory. Set `source_dir` to that directory and `src_dir` to a separate build output directory, such as `/workspace/.site-dist`. Publication is rejected when the work copy differs from saved sources or another member changes source during publication; rebuild and retry. Build output does not replace project source code. Explicit team site IDs also require a conversation bound to the corresponding project.
+
+## Concurrency and fault isolation
+
+Site detail, KV listing and submission listing check management permissions without taking
+an exclusive site-row lock. Publishing a new version, updating settings, rolling back and
+deleting retain write locking. Synchronous database and storage operations in hosting,
+KV/form handling and publishing run in worker threads, so a request waiting for a database
+lock does not block health checks. If view counting fails, its transaction is rolled back
+and the already-loaded page is still returned.
+
+PostgreSQL lock waits use `DB_POOL_TIMEOUT` (30 seconds by default). Restart the backend
+after changing it so new connections use the setting. This limit is a fallback, not a
+replacement for lock-free reads and moving blocking operations off the event loop.
+
+Maintainers can run the contention regression against a dedicated local PostgreSQL test
+database. Set `TEST_POSTGRES_URL` in the environment, then run:
+
+```bash
+PYTHONPATH=src/backend pytest src/backend/tests/api/test_site_contention_postgres.py -q
+```
+
+Tests create and clean up a separate temporary schema and storage directory. They cover
+concurrent panel reads, health responsiveness during page, KV write/delete, form and
+publish lock waits, and successful page delivery after a view-count timeout.

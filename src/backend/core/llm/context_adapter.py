@@ -24,6 +24,7 @@ from core.llm.context_ir import (
     KIND_REFERENCE,
     KIND_REMINDER,
     KIND_SYSTEM_RULE,
+    KIND_THINKING,
     KIND_TOOL_CALL,
     KIND_TOOL_RESULT,
     KIND_USER_INPUT,
@@ -31,6 +32,7 @@ from core.llm.context_ir import (
     POLICY_HEAD_TAIL,
     POLICY_NEVER,
     SESSION_CONTEXT_META_KEY,
+    STEP_KINDS,
     VISIBILITY_MANIFEST_ONLY,
     VISIBILITY_MODEL,
     estimate_context_tokens,
@@ -75,13 +77,26 @@ class AgentScopeContextAdapter:
 
     @staticmethod
     def _defaults(role: str, block_type: str) -> dict[str, Any]:
+        if block_type == "thinking":
+            # Reasoning is handed back to the model verbatim. It is counted on its
+            # own so the usage panel can show what it costs, but it is never
+            # shortened or dropped apart from the step that produced it.
+            return {
+                "kind": KIND_THINKING,
+                "origin": "assistant:reasoning",
+                "trust": "assistant",
+                "priority": 400,
+                "token_budget": 0,
+                "truncation_policy": POLICY_NEVER,
+                "render_role": "assistant",
+            }
         if block_type == "tool_call":
             return {
                 "kind": KIND_TOOL_CALL,
                 "origin": "agent:tool_call",
                 "trust": "assistant",
                 "priority": 700,
-                "token_budget": 4_000,
+                "token_budget": 0,
                 "truncation_policy": POLICY_NEVER,
                 "render_role": "assistant",
             }
@@ -121,8 +136,8 @@ class AgentScopeContextAdapter:
                 "origin": "assistant:history",
                 "trust": "assistant",
                 "priority": 400,
-                "token_budget": 20_000,
-                "truncation_policy": POLICY_HEAD_TAIL,
+                "token_budget": 0,
+                "truncation_policy": POLICY_NEVER,
                 "render_role": "assistant",
             }
         return {
@@ -155,6 +170,14 @@ class AgentScopeContextAdapter:
         tool_occurrences: dict[str, int] = {}
         pending_tool_pairs: dict[str, list[str]] = {}
         orphan_results: dict[str, int] = {}
+        # One ReAct step = what the model produced in one response plus the
+        # results of the tool calls in it. A step opens on the first thinking,
+        # text or tool_call block after a tool result (or after any other
+        # message) and its results join it through the pending call ids. This
+        # is the same boundary the reasoning-echo formatter flushes on.
+        step_unit: Optional[str] = None
+        step_closed = False
+        pair_units: dict[str, str] = {}
         for message_index, message in enumerate(messages):
             role = str(getattr(message, "role", "user") or "user")
             name = str(getattr(message, "name", role) or role)
@@ -207,6 +230,22 @@ class AgentScopeContextAdapter:
                         or f"message:{message_index}:block:{block_index}"
                     )
                 )
+                kind = str(explicit.get("kind") or defaults["kind"])
+                if kind in STEP_KINDS and block_type != "tool_result":
+                    if step_unit is None or step_closed:
+                        step_unit = f"step:{message_index}:{block_index}"
+                        step_closed = False
+                    unit_id = step_unit
+                    if block_type == "tool_call":
+                        pair_units[pair_id] = unit_id
+                elif block_type == "tool_result":
+                    unit_id = pair_units.pop(pair_id, f"orphan:{item_id}")
+                    step_closed = True
+                else:
+                    unit_id = f"item:{item_id}"
+                    step_unit = None
+                    step_closed = False
+                    pair_units.clear()
                 created_seq = int(
                     explicit.get("created_seq")
                     if explicit.get("created_seq") is not None
@@ -214,7 +253,7 @@ class AgentScopeContextAdapter:
                 )
                 item = ContextItem.create(
                     item_id=item_id,
-                    kind=str(explicit.get("kind") or defaults["kind"]),
+                    kind=kind,
                     origin=str(explicit.get("origin") or defaults["origin"]),
                     trust=str(explicit.get("trust") or defaults["trust"]),
                     visibility=str(explicit.get("visibility") or VISIBILITY_MODEL),
@@ -240,6 +279,7 @@ class AgentScopeContextAdapter:
                     render_name=name,
                     pair_id=pair_id,
                     message_group=str(explicit.get("message_group") or f"message:{message_index}"),
+                    unit_id=unit_id,
                     content_ref=(
                         str(explicit["content_ref"]) if explicit.get("content_ref") else None
                     ),
@@ -310,6 +350,7 @@ class AgentScopeContextAdapter:
                     else created_seq * CONTEXT_SEQUENCE_STRIDE + index
                 ),
                 message_group=f"session:{created_seq}",
+                unit_id=f"session:{created_seq}:{item.unit_id}",
             )
             for index, item in enumerate(items)
         ]
@@ -527,6 +568,7 @@ class AgentScopeContextAdapter:
                             render_name=name,
                             pair_id=pair_id,
                             message_group=f"provider-retry:{index}",
+                            unit_id=pair_id,
                         )
                     )
                 continue
@@ -592,6 +634,7 @@ class AgentScopeContextAdapter:
                     render_name=name,
                     pair_id=str(defaults.get("pair_id") or ""),
                     message_group=f"provider-retry:{index}",
+                    unit_id=str(defaults.get("pair_id") or f"provider-retry:{index}"),
                 )
             )
         return items

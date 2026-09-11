@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from api.schemas import ChatRequest
+from core.chat.context import generate_smart_title
 from core.db.engine import Base
 from core.db.models import Artifact, Project, UserFolder, UserShadow
 from core.services.project_file_service import ProjectFileService
@@ -184,6 +185,17 @@ def test_init_resolves_current_project_and_preserves_existing_rules(env, message
 def test_ordinary_messages_do_not_trigger_init(env, message):
     db, _ = env
     assert resolve_project_init(db, ChatRequest(chat_id="new", message=message), "alice") is None
+
+
+@pytest.mark.parametrize("message", ["/init", "/初始化指令", "  /init  "])
+def test_init_sessions_are_named_after_the_command(message):
+    # 命令原文当标题等于没标题（历史列表里躺着一条叫「/init」的会话）。
+    assert generate_smart_title(message) == "初始化项目指令"
+
+
+@pytest.mark.parametrize("message", ["/init more", "帮我查天气"])
+def test_ordinary_messages_keep_the_default_title(message):
+    assert generate_smart_title(message) == message
 
 
 def test_default_and_unauthorized_projects_reject_init(env):

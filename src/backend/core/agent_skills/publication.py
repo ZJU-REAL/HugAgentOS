@@ -7,6 +7,7 @@ and retired trees live outside every skill mount.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tempfile
@@ -15,6 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 from core.capabilities.lockfile import locked as file_lock
+
+logger = logging.getLogger(__name__)
 
 _thread_lock = threading.RLock()
 _local = threading.local()
@@ -51,6 +54,11 @@ def safe_relative(name: str) -> str:
     return path.as_posix()
 
 
+def normalize_file_path(name: str) -> str:
+    """Accept legacy Windows separators, then apply the strict relative-path policy."""
+    return safe_relative(name.replace("\\", "/"))
+
+
 def safe_skill_id(skill_id: str) -> str:
     if "/" in safe_relative(skill_id) or skill_id.startswith("."):
         raise ValueError("Invalid skill id")
@@ -62,10 +70,13 @@ def decode_files(content: str, extra: dict) -> dict[str, bytes]:
 
     files = {"SKILL.md": content.encode("utf-8")}
     for name, value in extra.items():
-        name = safe_relative(name)
-        if name == "SKILL.md":
-            raise ValueError("extra_files cannot override SKILL.md")
+        name = normalize_file_path(name)
+        if name in files:
+            raise ValueError(f"Duplicate skill file path: {name!r}")
         files[name] = decode_binary(value) if is_binary_value(value) else value.encode("utf-8")
+    for name in files:
+        if any(parent.as_posix() in files for parent in PurePosixPath(name).parents):
+            raise ValueError(f"Conflicting skill file path: {name!r}")
     return files
 
 
@@ -196,12 +207,18 @@ def _publish_selected(backend, user_id, private_only, wanted_shared, wanted_priv
             continue
         if bool(owner) != private_only or (owner and owner != user_id):
             continue
-        safe_skill_id(info.skill_id)
-        files = (
-            decode_files(content, extra)
-            if info.is_database or info.content is not None
-            else read_tree(info.file_path.parent)
-        )
+        try:
+            safe_skill_id(info.skill_id)
+            files = (
+                decode_files(content, extra)
+                if info.is_database or info.content is not None
+                else read_tree(info.file_path.parent)
+            )
+        except ValueError as exc:
+            # Exclude invalid packages from the reconciled view, including any
+            # previously published copy. One bad skill must not block login.
+            logger.warning("skill_publication_invalid skill_id=%r: %s", info.skill_id, exc)
+            continue
         target = skill_files_dir(info.skill_id, owner)
         modes = None
         if not info.is_database and info.content is None:

@@ -11,14 +11,6 @@ from core.config.settings import settings
 _LOGGER = logging.getLogger(__name__)
 
 
-def _strip_thinking(text: str) -> str:
-    for close_tag in ("</think>", "</thinking>"):
-        idx = text.rfind(close_tag)
-        if idx != -1:
-            return text[idx + len(close_tag):].strip()
-    return text.strip()
-
-
 def _resolve_summarizer_config() -> tuple[str, str, str]:
     """Resolve model_url, api_key, model_name from DB (summarizer role)."""
     try:
@@ -114,7 +106,7 @@ class ConversationSummarizer:
 
                 data = response.json()
                 raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                summary = _strip_thinking(raw)
+                summary = raw.strip()
                 summary = summary.strip('"\'。！？,.!? \n\t')
 
                 if len(summary) > 30:

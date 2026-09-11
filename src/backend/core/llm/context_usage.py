@@ -35,6 +35,14 @@ def _empty_breakdown() -> Dict[str, int]:
 
 
 def _manifest_breakdown(manifest: Mapping[str, Any]) -> Dict[str, int]:
+    """Category mix of what the assembler finally selected.
+
+    ``final_tokens`` is the estimate of each item as it left the assembler —
+    after per-item caps and tool-output pruning — so the mix describes the
+    request that was sent, not the candidates that were offered. Reasoning is
+    counted under ``thinking`` from its own items; the reasoning-echo formatter
+    sends exactly that text back, so no separate protocol accounting is needed.
+    """
     breakdown = _empty_breakdown()
     included = manifest.get("included")
     if not isinstance(included, list):
@@ -46,6 +54,8 @@ def _manifest_breakdown(manifest: Mapping[str, Any]) -> Dict[str, int]:
         kind = str(item.get("kind") or "")
         if kind in _TOOL_KINDS:
             breakdown["tools"] += tokens
+        elif kind == "thinking":
+            breakdown["thinking"] += tokens
         elif kind == "attachment":
             breakdown["files"] += tokens
         elif kind in _SYSTEM_KINDS:
@@ -131,6 +141,12 @@ def build_context_usage_snapshot(
     completion = _non_negative(completion_tokens)
     exact = prompt > 0
     breakdown = _manifest_breakdown(manifest)
+    history = {
+        "protected_units": _non_negative(manifest.get("protected_units")),
+        "cut_units": _non_negative(manifest.get("cut_units")),
+        "pruned_items": _non_negative(manifest.get("pruned_items")),
+        "over_budget": bool(manifest.get("over_budget")),
+    }
 
     if exact:
         prompt_breakdown = _reconcile_breakdown(breakdown, prompt)
@@ -151,7 +167,11 @@ def build_context_usage_snapshot(
         "model_name": model_name,
         "model_provider_id": provider_id,
         "model_call_index": max(0, int(model_call_index or 0)),
+        # Exact when the provider reported it; the breakdown is always the
+        # assembler's estimate, reconciled to that total.
+        "breakdown_source": "assembler_estimate",
         "breakdown": prompt_breakdown,
+        "history": history,
     }
 
 
@@ -188,7 +208,9 @@ def build_compaction_context_usage(
         "model_name": str(model_name or ""),
         "model_provider_id": str(model_provider_id or ""),
         "model_call_index": 0,
+        "breakdown_source": "compaction_estimate",
         "breakdown": breakdown,
+        "history": {"protected_units": 0, "cut_units": 0, "pruned_items": 0, "over_budget": False},
     }
 
 

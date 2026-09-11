@@ -24,7 +24,7 @@
 | Python | ≥ 3.11 |
 | Node.js | ≥ 20（公开安装器会在本机构建前端） |
 | Rust 与 Cargo | Linux 没有兼容 `ripgrep` 预编译 wheel 时需要，包括 x86_64 且 glibc 低于 2.39 的系统 |
-| OS 文件沙箱 | Linux 需要 `bubblewrap`（命令 `bwrap`，安装器会自动安装）；macOS 使用系统自带 `sandbox-exec` |
+| OS 沙箱 | Linux 需要 `bubblewrap`（命令 `bwrap`，安装器会自动安装）；macOS 使用系统自带 `sandbox-exec`；Windows 使用系统受限令牌，无需额外安装 |
 | 网络 | 能访问所配置的大模型 API 端点 |
 
 ## 安装
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 1. 校验 Python ≥ 3.11、Node.js ≥ 20、npm、Git，以及 Linux 需要源码构建 `ripgrep` 时所需的 Rust；
 2. 把 HugAgentOS 克隆或快进更新到 `~/.hugagent/source`；
-3. Linux 检测并安装 `bubblewrap`，macOS 检查系统 `sandbox-exec`；强隔离执行器不可用时安装失败，不会降级为裸执行；
+3. Linux 检测并安装 `bubblewrap`，macOS 检查系统 `sandbox-exec`；沙箱后端不可用时安装失败，不会降级为裸执行；
 4. 检测可选的 LibreOffice；缺失时说明不可用能力并询问是否立即安装，跳过或安装失败不会阻断其余功能；
 5. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
 6. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
@@ -140,7 +140,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 
 **开箱可用**
 - **核心对话 + ReAct 工具编排 + 计划模式 + 断线续播 + 引用标注**。
-- **代码执行（bash / Python）**：以宿主子进程执行，但「逐项确认」「替我批准」两档会优先通过 OS 文件沙箱限制写入（Linux `bubblewrap`、macOS `sandbox-exec`）；这两档在缺执行器的宿主上降级为只由本地命令策略把关并给出告警，本机安全配置读不出来时则 fail-closed、拒绝裸跑。文件工具使用同一读写权限策略，工作区位于 `~/.hugagent/workspace/`。这仍是单用户本机形态，不等同于多租户容器隔离。
+- **代码执行（bash / Python）**：以宿主子进程执行，并由操作系统自己的沙箱约束——Linux 用 `bubblewrap`、macOS 用 `sandbox-exec`、Windows 用受限令牌。除「完全放开」外的每一档权限都会进沙箱：可写范围限定在工作区与你授权的文件夹，可写目录里的 `.git` 保持只读，临时目录是命令私有的；把「网络」这一类设为「阻止」时，Linux 与 macOS 会连网络一起断开。沙箱后端不可用、或这条策略在当前系统上无法完整执行时，命令会被拒绝并说明原因，不会退化成裸执行。文件工具使用同一套读写权限策略，工作区位于 `~/.hugagent/workspace/`。这仍是单用户本机形态，不等同于多租户容器隔离。
 - **内置技能**（word / excel / ppt / pdf 编辑等 5 个）：安装时同步到工作区，沙箱可直接调用其脚本。
 - **内置工具型 MCP**：互联网搜索 / 网页抓取 / 批量执行 / 知识库检索等——服务本身正常运行（部分需配置对应外部服务或密钥才有数据，见下）。
 - **数据可视化（图表）**：安装脚本会装 matplotlib；装上即可用。
@@ -174,7 +174,8 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 启动日志反复出现 `AllocTimestamp` / `Method not implemented` | 停止当前服务并重新运行公开一键安装器。安装器会把 PyMilvus 与 Milvus Lite 校准到兼容版本，不会删除 `~/.hugagent/milvus.db`。 |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
 | PPT/Word 预览提示 LibreOffice 未安装 | 重新运行一键安装器并在提示时选择安装；Debian/Ubuntu 也可执行 `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`，然后重启 HugAgentOS |
-| bash 提示缺少 OS 沙箱运行器 | Linux 安装 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install bubblewrap`）后重启；装上后本机命令才受 OS 沙箱约束，缺执行器时只由本地命令策略把关并给出告警 |
+| bash 提示缺少 OS 沙箱运行器 | Linux 安装 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install bubblewrap`）后重启。装上之前，除「完全放开」外的权限档会直接拒绝执行本机命令——这是设计如此，不会退化成无隔离运行 |
+| bash 提示当前系统无法执行这条策略 | 说明这一档要求的隔离超出了本系统能力，例如 Windows 的受限令牌无法限制读取范围、也无法在不提权的情况下断网。按提示放宽对应设置（如把「网络」类别从「阻止」改回「确认」），或换到能提供该能力的系统 |
 | 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
 | 环境是否就绪 | `hugagent doctor` 一次性自检 |
 

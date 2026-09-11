@@ -7,6 +7,8 @@ export const CHAT_DICT: Record<string, string> = {
   '请在有编辑权限的具体项目中使用普通对话，并移除已选择的能力后初始化指令': 'Initialize instructions in a specific project you can edit, using a standard conversation with no selected capabilities.',
   '项目命令': 'Project commands',
   '初始化指令：检查项目并创建或完善 AGENTS.md': 'Initialize instructions: inspect the project and create or improve AGENTS.md',
+  '初始化指令': 'Initialize instructions',
+  '初始化项目指令': 'Initialize project instructions',
   '保存后同步到项目根目录 AGENTS.md，后续对话自动读取。': 'Save to AGENTS.md at the project root. Future messages read it automatically.',
   '与项目根目录 AGENTS.md 同步；输入 /init 可初始化指令。': 'Synced with the project root AGENTS.md. Type /init to initialize instructions.',
 

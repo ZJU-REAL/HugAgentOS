@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 from agentscope.agent import ContextConfig
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
+from agentscope.model import ChatUsage
 from core.llm import compaction as C
 from core.llm.compacting_agent import CompactingAgent, msg_to_history_dict
 from core.services import compaction_service as S
@@ -35,7 +36,7 @@ def _make_agent(context, *, window: int = 1000, chat_id: str = "chat-1", offload
     """
     agent = object.__new__(CompactingAgent)
     agent._jx_observation = None
-    agent._jx_compacted_at_len = None
+    agent._jx_compacted_cursor = None
     agent._jx_trigger_ratio = 0.8
     agent.model = SimpleNamespace(context_size=window)
     agent.offloader = offloader
@@ -104,8 +105,8 @@ async def test_below_threshold_does_not_call_engine(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_over_threshold_installs_replacement_with_summary_last(monkeypatch):
-    """The applied shape is Codex's: recent user messages, summary trailing."""
+async def test_over_threshold_installs_summary_then_recent_steps(monkeypatch):
+    """The applied shape is Pi's: the summary first, then the recent region verbatim."""
     agent = _make_agent(
         [_user("第一个问题"), _assistant("很长的回答"), _user("第二个问题")], window=1000
     )
@@ -117,7 +118,8 @@ async def test_over_threshold_installs_replacement_with_summary_last(monkeypatch
     async def _engine(chat_id, history):
         captured["chat_id"] = chat_id
         captured["history"] = history
-        return C.build_compacted_history(C.collect_user_messages(history), summary_text)
+        _older, recent = C.split_history_for_compaction(history, keep_recent_tokens=5)
+        return C.build_compacted_history(summary_text, recent)
 
     monkeypatch.setattr(S, "run_mid_turn_compaction", _engine)
     await agent.compress_context()
@@ -127,11 +129,11 @@ async def test_over_threshold_installs_replacement_with_summary_last(monkeypatch
     assert [m["role"] for m in captured["history"]] == ["user", "assistant", "user"]
 
     texts = [m.get_text_content() for m in agent.state.context]
-    assert texts[-1] == summary_text
-    assert C.is_summary_message(texts[-1])
-    assert texts[:-1] == ["第一个问题", "第二个问题"]
-    # The summary lives in the context, not state.summary: AgentScope renders
-    # state.summary right after the system prompt, Codex puts it last.
+    assert texts[0] == summary_text
+    assert C.is_summary_message(texts[0])
+    assert texts[1:] == ["第二个问题"]
+    # The summary lives in the context, not state.summary, so it sits exactly
+    # where the summarized region used to be.
     assert agent.state.summary == ""
 
 
@@ -228,22 +230,34 @@ async def test_offloaded_path_is_appended_to_the_summary(monkeypatch):
     agent.observe_context_tokens(900, 10)
 
     async def _engine(chat_id, history):
-        return [{"role": "user", "content": "q"}, {"role": "user", "content": "SUMMARY"}]
+        return [{"role": "user", "content": "SUMMARY"}, {"role": "user", "content": "q"}]
 
     monkeypatch.setattr(S, "run_mid_turn_compaction", _engine)
     await agent.compress_context()
 
     assert offloader.msgs is not None and len(offloader.msgs) == 2
-    tail = agent.state.context[-1].get_text_content()
-    assert "/workspace/.offload/ctx-1.json" in tail
-    assert tail.startswith("SUMMARY")
+    head = agent.state.context[0].get_text_content()
+    assert "/workspace/.offload/ctx-1.json" in head
+    assert head.startswith("SUMMARY")
+    # The verbatim tail is not touched by the reminder.
+    assert agent.state.context[1].get_text_content() == "q"
 
 
 @pytest.mark.asyncio
 async def test_no_chat_id_still_compacts_without_checkpoint(monkeypatch):
     """Sub-agents and plan mode have no persisted session; they still compact."""
+    import dataclasses
+
     agent = _make_agent([_user("q"), _assistant("a")], window=1000, chat_id="")
     agent.observe_context_tokens(900, 10)
+    real = S.settings
+    monkeypatch.setattr(
+        S,
+        "settings",
+        dataclasses.replace(
+            real, compaction=dataclasses.replace(real.compaction, keep_recent_tokens=0)
+        ),
+    )
 
     seen = {}
 
@@ -359,3 +373,139 @@ def test_token_limit_is_pure_and_takes_the_ratio_from_its_caller(monkeypatch):
     # No ratio passed → the env default, never a console read.
     assert S.resolve_token_limit(200_000) == 160_000
     assert S.resolve_token_limit(None) is None
+
+
+@pytest.mark.asyncio
+async def test_measure_counts_tool_results_appended_inside_existing_assistant():
+    agent = _make_agent([_user("q"), _assistant("answer")])
+    agent.observe_context_tokens(500, 20)
+    agent.state.context[-1].content.append(
+        ToolResultBlock(id="t1", name="search", output="R" * 50_000)
+    )
+
+    measured = await agent._measure_context_tokens()
+    assert measured > 12_500, "the 50k result must count even without a new message"
+    assert await agent._measure_context_tokens() == measured, "do not accumulate estimates twice"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["append_block", "edit_block", "replace_message", "summary"])
+async def test_changed_content_can_compact_again_without_more_messages(monkeypatch, change):
+    agent = _make_agent([_user("q"), _assistant("answer")])
+    calls = []
+
+    async def engine(chat_id, history):
+        calls.append(history)
+        return [
+            {"role": "user", "content": "summary"},
+            {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
+        ]
+
+    monkeypatch.setattr(S, "run_mid_turn_compaction", engine)
+    agent.observe_context_tokens(900, 10)
+    await agent.compress_context()
+    assert len(calls) == 1
+    if change == "append_block":
+        agent.state.context[-1].content.append(
+            ToolResultBlock(id="t1", name="s", output="R" * 50_000)
+        )
+    elif change == "edit_block":
+        agent.state.context[-1].content[0].text += "R" * 50_000
+    elif change == "replace_message":
+        agent.state.context[-1] = _assistant("R" * 50_000)
+    else:
+        agent.state.summary = "R" * 50_000
+    assert len(agent.state.context) == 2
+    agent.observe_context_tokens(900, 10)
+    await agent.compress_context()
+    assert len(calls) == 2, "content changed even though message count did not"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_assistant", [False, True])
+async def test_sdk_save_anchors_usage_after_response_without_counting_it_twice(existing_assistant):
+    context = [_user("q")] + ([_assistant("earlier")] if existing_assistant else [])
+    agent = _make_agent(context)
+    agent.name = "agent"
+    agent.state.reply_id = "reply-1"
+    response = [TextBlock(text="R" * 4_000), ToolCallBlock(id="t1", name="s", input="{}")]
+    agent._save_to_context(response, ChatUsage(time=0, input_tokens=500, output_tokens=1000))
+    assert await agent._measure_context_tokens() == 1500
+
+    agent._save_to_context([ToolResultBlock(id="t1", name="s", output="R" * 50_000)])
+    assert await agent._measure_context_tokens() > 14_000
+
+    agent._save_to_context(
+        [TextBlock(text="done")], ChatUsage(time=0, input_tokens=16000, output_tokens=10)
+    )
+    assert (
+        await agent._measure_context_tokens() == 16010
+    ), "latest request usage, not accumulated Msg usage"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["edit", "replace", "remove", "earlier_append", "summary"])
+async def test_rewritten_history_invalidates_the_usage_baseline(monkeypatch, change):
+    agent = _make_agent([_user("q"), _assistant("answer")])
+    agent.observe_context_tokens(500, 20)
+    if change == "edit":
+        agent.state.context[-1].content[0].text += "new text"
+    elif change == "replace":
+        agent.state.context[-1] = _assistant("replacement")
+    elif change == "remove":
+        agent.state.context.pop()
+    elif change == "earlier_append":
+        agent.state.context[0].content.append(TextBlock(text="new instruction"))
+    else:
+        agent.state.summary = "new summary"
+
+    async def prepare():
+        return {}
+
+    async def count(**kwargs):
+        return 4242
+
+    monkeypatch.setattr(agent, "_prepare_model_input", prepare)
+    agent.model.count_tokens = count
+    assert await agent._measure_context_tokens() == 4242
+    assert agent._jx_observation is None
+
+
+@pytest.mark.asyncio
+async def test_actual_sdk_event_order_does_not_double_count_response(monkeypatch):
+    from agentscope.event import ModelCallEndEvent
+    from agentscope.model import ChatResponse
+    from orchestration.streaming import StreamingAgent
+
+    agent = _make_agent([_user("q")])
+    agent.name = "agent"
+    agent.model.model = "test"
+    agent.state.reply_id = "reply-1"
+    agent.state.pending_model_steps = []
+
+    async def prepare():
+        return {}
+
+    async def call(**kwargs):
+        async def chunks():
+            yield ChatResponse(
+                content=[TextBlock(text="R" * 4000)],
+                usage=ChatUsage(time=0, input_tokens=500, output_tokens=1000),
+                is_last=True,
+            )
+
+        return chunks()
+
+    monkeypatch.setattr(agent, "_prepare_model_input", prepare)
+    monkeypatch.setattr(agent, "_call_model", call)
+    streaming = StreamingAgent(agent, mcp_clients=[])
+    seen = False
+    async for event in agent._reasoning_impl():
+        if isinstance(event, ModelCallEndEvent):
+            seen = True
+            assert len(agent.state.context) == 1
+            _ = [item async for item in streaming._map_event(event)]
+            assert agent._jx_observation is None, "response has not entered context yet"
+    assert seen
+    assert len(agent.state.context) == 2
+    assert await agent._measure_context_tokens() == 1500

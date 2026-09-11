@@ -43,7 +43,6 @@ from core.db.models import BatchPlan, ChatRun
 from core.llm.agent_factory import create_agent_executor
 from core.llm.context_adapter import append_context_text
 from core.llm.context_ir import KIND_REMINDER
-from core.llm.message_compat import strip_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -766,7 +765,7 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
                     # result persistence and terminal plan status; this runner
                     # must become a passive follower rather than overwrite it.
                     return
-                success_text = strip_thinking(accumulated_text).strip()
+                success_text = accumulated_text.strip()
                 break
             except asyncio.CancelledError:
                 # The user cancelled (/cancel) or upstream really cancelled us —

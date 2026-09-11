@@ -258,7 +258,7 @@ async def generate_plan(
 
 
 @router.get("", summary="计划列表")
-async def list_plans(
+def list_plans(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
     limit: int = 20,
@@ -271,7 +271,7 @@ async def list_plans(
 
 
 @router.get("/{plan_id}", summary="计划详情")
-async def get_plan(
+def get_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -285,7 +285,7 @@ async def get_plan(
 
 
 @router.patch("/{plan_id}", summary="更新计划")
-async def update_plan(
+def update_plan(
     plan_id: str,
     req: UpdatePlanRequest,
     user: UserContext = Depends(get_current_user),
@@ -319,7 +319,7 @@ async def update_plan(
 
 
 @router.delete("/{plan_id}", summary="删除计划")
-async def delete_plan(
+def delete_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

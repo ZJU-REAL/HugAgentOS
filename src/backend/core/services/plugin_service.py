@@ -283,6 +283,44 @@ def _make_server_id(slug: str, server_name: str, owner_user_id: Optional[str]) -
     )
 
 
+def _merge_tool_metadata(
+    stored: Any, manifest: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Keep captured tool schemas while refreshing manifest-owned display text.
+
+    ``tools_json`` is the schema of record: probing the running MCP server fills in
+    each tool's ``inputSchema``, and the desktop capability manifest ships exactly
+    these entries to the model. A plugin manifest only declares ``{name,
+    description}``, so installing or upgrading the plugin must not replace the
+    stored entries wholesale — that leaves every tool without parameters.
+    """
+    by_name: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for item in stored if isinstance(stored, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        by_name[name] = dict(item)
+        order.append(name)
+    for item in manifest:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        merged = by_name.get(name)
+        if merged is None:
+            by_name[name] = dict(item)
+            order.append(name)
+            continue
+        for key, value in item.items():
+            # Never let a manifest entry blank out a schema captured from the server.
+            if key in {"inputSchema", "input_schema"} and not (value or {}):
+                continue
+            merged[key] = value
+    return [by_name[name] for name in order]
+
+
 # ── Rewriting inter-skill relative references ────────────────────────────────
 
 
@@ -460,6 +498,12 @@ def _apply_mcp(
         # stdio working directory (Agent Plugins standard field) — kept for when the runtime lands
         fields["extra_config"] = {"cwd": mc.cwd}
     if existing is not None:
+        # A plugin manifest lists its tools for display only ({name, description});
+        # the schemas in ``tools_json`` come from probing the running server and are
+        # the desktop's only source of tool parameters. Overwriting them with the
+        # manifest list would strip every parameter, so merge by name instead:
+        # manifest text wins, captured schemas survive.
+        fields["tools_json"] = _merge_tool_metadata(existing.tools_json, tools_meta)
         for key, val in fields.items():
             setattr(existing, key, val)
         for col in ("args", "env_vars", "headers", "tools_json"):

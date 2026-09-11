@@ -306,7 +306,7 @@ estimate only when it is not.
 | `CHAT_COMPACT_TRIGGER_RATIO` | `0.9` | Trigger ratio: compact once occupancy exceeds `model window × this value`, capped at 90% of the window. Occupancy counts the request itself (system prompt + tool schemas + history) and never the model's output length — output headroom is the single 95%-usable-window allowance. **The runtime authority is the admin console's "System config → context → in-turn compaction trigger ratio"**; this variable is only the default | CE |
 | `CHAT_COMPRESS_IN_TURN_RATIO` | (unset) | Deprecated alias, honoured only when `CHAT_COMPACT_TRIGGER_RATIO` is unset, so deployments that only ever tuned the in-turn knob keep their tuning | CE |
 | `CHAT_COMPACT_TOKEN_LIMIT` | `0` | Absolute trigger threshold in real tokens; takes precedence over the ratio when `> 0`, and is likewise capped at 90% of the window | CE |
-| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | Token budget of the recent user messages kept verbatim after compaction | CE |
+| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | Token budget of recent history kept verbatim after compaction: the longest tail of complete steps that fits; everything older goes into the summary | CE |
 | `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | Summarisation LLM call timeout (seconds) | CE |
 | `CHAT_TOOL_RESULT_LIMIT` | `20000` | Per-tool-result character cap entering the context (the deterministic, model-free layer); the overflow is spilled by the offloader to `/workspace/.offload` in the sandbox, where the model can read it back on demand | CE |
 

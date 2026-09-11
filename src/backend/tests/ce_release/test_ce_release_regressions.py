@@ -191,7 +191,7 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
             description="Checks the physical edition boundary",
             instructions="Return a concise result.",
         )
-        asyncio.run(me_capabilities.create_my_skill(skill_body, user, db))
+        me_capabilities.create_my_skill(skill_body, user, db)
         skill = db.query(AdminSkill).filter_by(skill_id="ce-release-skill").one()
         assert skill.owner_user_id == initialized_ce_database
 

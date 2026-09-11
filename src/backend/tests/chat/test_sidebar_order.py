@@ -4,7 +4,6 @@
 以及写入落到 metadata 的键名不能漂——前端按这个键名读回顺序。
 """
 
-import asyncio
 
 from api.routes.v1 import chats as chats_route
 
@@ -40,7 +39,7 @@ def test_get_sidebar_order_cleans_stored_value(monkeypatch):
     _StubUserService.settings = {chats_route.SIDEBAR_ORDER_KEY: ["c1", "c1", " c2 ", ""]}
     monkeypatch.setattr(chats_route, "UserService", _StubUserService)
 
-    resp = asyncio.run(chats_route.get_sidebar_order(user=_StubUser(), db=object()))
+    resp = chats_route.get_sidebar_order(user=_StubUser(), db=object())
 
     assert resp["data"]["order"] == ["c1", "c2"]
 
@@ -50,7 +49,7 @@ def test_get_sidebar_order_defaults_to_empty(monkeypatch):
     _StubUserService.settings = {}
     monkeypatch.setattr(chats_route, "UserService", _StubUserService)
 
-    resp = asyncio.run(chats_route.get_sidebar_order(user=_StubUser(), db=object()))
+    resp = chats_route.get_sidebar_order(user=_StubUser(), db=object())
 
     assert resp["data"]["order"] == []
 
@@ -60,9 +59,7 @@ def test_update_sidebar_order_persists_cleaned_order(monkeypatch):
     monkeypatch.setattr(chats_route, "UserService", _StubUserService)
     body = chats_route.UpdateSidebarOrderRequest(order=["c2", "c1", "c2", " "])
 
-    resp = asyncio.run(
-        chats_route.update_sidebar_order(request=body, user=_StubUser(), db=object())
-    )
+    resp = chats_route.update_sidebar_order(request=body, user=_StubUser(), db=object())
 
     assert resp["data"]["order"] == ["c2", "c1"]
     assert _StubUserService.captured["user_id"] == "user_1"
@@ -74,12 +71,10 @@ def test_update_sidebar_order_truncates_to_cap(monkeypatch):
     monkeypatch.setattr(chats_route, "UserService", _StubUserService)
     ids = [f"c{i}" for i in range(chats_route.SIDEBAR_ORDER_MAX + 30)]
 
-    resp = asyncio.run(
-        chats_route.update_sidebar_order(
-            request=chats_route.UpdateSidebarOrderRequest(order=ids),
-            user=_StubUser(),
-            db=object(),
-        )
+    resp = chats_route.update_sidebar_order(
+        request=chats_route.UpdateSidebarOrderRequest(order=ids),
+        user=_StubUser(),
+        db=object(),
     )
 
     assert len(resp["data"]["order"]) == chats_route.SIDEBAR_ORDER_MAX
@@ -91,12 +86,10 @@ def test_update_sidebar_order_empty_resets(monkeypatch):
     _StubUserService.captured = {}
     monkeypatch.setattr(chats_route, "UserService", _StubUserService)
 
-    asyncio.run(
-        chats_route.update_sidebar_order(
-            request=chats_route.UpdateSidebarOrderRequest(order=[]),
-            user=_StubUser(),
-            db=object(),
-        )
+    chats_route.update_sidebar_order(
+        request=chats_route.UpdateSidebarOrderRequest(order=[]),
+        user=_StubUser(),
+        db=object(),
     )
 
     assert _StubUserService.captured["patch"] == {chats_route.SIDEBAR_ORDER_KEY: []}

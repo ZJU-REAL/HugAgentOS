@@ -13,6 +13,8 @@
 .jx-capSyncActions button { min-height: 42px; border-radius: 11px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-bg-container); font: inherit; font-size: 13px; cursor: pointer; }
 .jx-capSyncActions button:disabled { opacity: .45; cursor: default; }
 .jx-capSyncActions .jx-capSyncPrimary { color: var(--color-bg-container); background: var(--color-text); border-color: var(--color-text); }
+.jx-capSyncEscape { display: block; margin: 14px auto 0; padding: 4px 6px; border: 0; background: none; color: var(--color-text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.jx-capSyncEscape:hover { color: var(--color-text); }
 .jx-capSyncProgress { position: absolute; overflow: hidden; left: 0; bottom: 0; width: 100%; height: 5px; background: var(--color-border); }
 .jx-capSyncFill { height: 100%; background: var(--color-primary); transition: width .3s ease; }
 /* motion-keep: Indicates active capability synchronization while the total is unknown. */

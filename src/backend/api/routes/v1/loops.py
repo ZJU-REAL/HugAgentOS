@@ -260,7 +260,7 @@ class SteerLoopReq(BaseModel):
 
 
 @router.post("/{loop_id}/steer", summary="运行中追加指令（下一轮 worker 开工前生效）")
-async def steer_loop(
+def steer_loop(
     loop_id: str,
     req: SteerLoopReq,
     db: Session = Depends(get_db),

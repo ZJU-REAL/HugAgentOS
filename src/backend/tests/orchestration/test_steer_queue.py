@@ -320,8 +320,6 @@ def test_run_completion_atomically_creates_exactly_one_handoff_run(queue_env, mo
                 source_run_id="run-1",
                 chat_id="chat-1",
                 user_id="user-1",
-                session_messages=[{"role": "user", "content": "original"}],
-                assistant_content="answer",
                 context={"chat_id": "chat-1", "user_id": "user-1"},
                 model_name="test-model",
             )

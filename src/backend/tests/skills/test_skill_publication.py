@@ -568,3 +568,37 @@ async def test_cube_prepush_uses_users_private_override(cloud, monkeypatch):
         sbx, "cat /workspace/skills/sample/new.txt", "alice"
     )
     assert provider._push_skill_archive.await_count == 1
+
+def test_new_sandbox_accepts_legacy_windows_paths_and_excludes_corrupt_skill(cloud, caplog):
+    from core.db.models import AdminSkill
+    from core.agent_skills.publication import prepare_skill_view
+
+    upload(cloud.client, {"scripts/run.py": "v1"})
+    old_view = prepare_skill_view("alice")
+    assert (old_view / "sample/scripts/run.py").exists()
+    with cloud.factory() as db:
+        row = db.query(AdminSkill).filter_by(skill_id="sample").one()
+        row.extra_files = {"..\\escape": "bad"}
+        db.add(AdminSkill(
+            skill_id="legacy", display_name="Legacy", description="example",
+            skill_content="---\nname: legacy\ndescription: example\n---\nRun",
+            extra_files={"scripts\\rank_objects.py": "print(1)"},
+            owner_user_id="alice", is_enabled=True,
+        ))
+        db.commit()
+    view = prepare_skill_view("alice")
+    assert (view / "legacy/scripts/rank_objects.py").read_text() == "print(1)"
+    assert not (view / "sample").exists()
+    assert "sample" in caplog.text
+
+
+def test_windows_zip_upload_is_stored_canonically_and_ready_for_sandbox(cloud):
+    from core.db.models import AdminSkill
+    from core.agent_skills.publication import prepare_skill_view
+
+    upload(cloud.client, {"scripts\\rank_objects.py": "print(1)"})
+    with cloud.factory() as db:
+        row = db.query(AdminSkill).filter_by(skill_id="sample").one()
+        assert row.extra_files == {"scripts/rank_objects.py": "print(1)"}
+    view = prepare_skill_view("alice")
+    assert (view / "sample/scripts/rank_objects.py").read_text() == "print(1)"

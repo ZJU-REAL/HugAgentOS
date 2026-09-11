@@ -74,9 +74,9 @@ def test_checkpoint_replaces_prehistory_and_keeps_tail(db_session):
     _add_assistant(svc, "第二轮回答")
     # Simulate one compaction: collect + build + persist checkpoint (summary uses mock text)
     history_before = S._load_history(svc, CHAT_ID)
-    user_msgs = C.collect_user_messages(history_before)
+    _older, recent = C.split_history_for_compaction(history_before, keep_recent_tokens=0)
     summary_text = C.format_summary_text("【摘要】两轮已完成，待办：无")
-    replacement = C.build_compacted_history(user_msgs, summary_text)
+    replacement = C.build_compacted_history(summary_text, recent)
     svc.add_compaction_checkpoint(
         CHAT_ID,
         summary_text=summary_text,
@@ -291,7 +291,7 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
     _add_user(svc, "问题一")
 
     real = S.settings
-    tiny = dataclasses.replace(real.compaction, token_limit=10)
+    tiny = dataclasses.replace(real.compaction, token_limit=10, keep_recent_tokens=0)
     monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=tiny))
 
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
@@ -314,9 +314,11 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
         )
     )
     assert compacted is True
-    assert C.is_summary_message(out[-1]["content"]), "压缩后历史以摘要收尾"
-    assert any(m.get("content") == "问题一" for m in out[:-1]), "最近 user 消息保留"
-    assert not any(m.get("role") == "assistant" for m in out), "assistant 消息全部丢弃"
+    # Nothing is kept verbatim here (keep_recent_tokens=0): the whole region
+    # became the summary, and the turn's own input is an assistant row, so the
+    # in-turn view is the summary alone.
+    assert [C.is_summary_message(m["content"]) for m in out] == [True]
+    assert not any(m.get("role") == "assistant" for m in out), "assistant 消息全部进入摘要"
 
     ckpt = svc.get_latest_compaction_checkpoint(CHAT_ID)
     assert ckpt is not None, "PreTurn 必须落 checkpoint"
@@ -421,10 +423,12 @@ def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
 
     _mk_session(db_session)
     svc = ChatService(db_session)
+    _add_user(svc, "旧问题" * 100)
+    _add_assistant(svc, "旧回答" * 100)
     _add_user(svc, "当前问题")
 
     real = S.settings
-    tiny = dataclasses.replace(real.compaction, token_limit=10)
+    tiny = dataclasses.replace(real.compaction, token_limit=10, keep_recent_tokens=10)
     monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=tiny))
 
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
@@ -447,7 +451,8 @@ def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
     assert out[-1] == {"role": "user", "content": "当前问题"}, "本轮输入必须收尾"
     assert C.is_summary_message(out[-2]["content"]), "摘要紧邻其前"
     assert sum(1 for m in out if m.get("content") == "当前问题") == 1, "本轮消息不得重复"
-    # The checkpoint still stores the canonical shape (summary last) for replay in later turns
+    # The checkpoint stores the same shape: summary first, the kept tail after it.
     ckpt = svc.get_latest_compaction_checkpoint(CHAT_ID)
     canonical = (ckpt.extra_data or {})["replacement_history"]
-    assert C.is_summary_message(canonical[-1]["content"])
+    assert C.is_summary_message(canonical[0]["content"])
+    assert canonical[-1] == {"role": "user", "content": "当前问题"}
