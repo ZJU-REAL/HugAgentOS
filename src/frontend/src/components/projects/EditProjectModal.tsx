@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Input, Modal, Tooltip, message } from 'antd';
 import { useProjectStore } from '../../stores/projectStore';
+import { ProjectVisibilityEditor } from '../../projectEdition';
+import type { EditionProjectUpdateFields } from '../../editionModelTypes';
 import { t } from '../../i18n';
 
 interface Props {
@@ -8,10 +10,10 @@ interface Props {
   onClose: () => void;
 }
 
-/** 编辑当前项目的名称 / 项目目标。
+/** 编辑当前项目的名称 / 项目目标 / 可见范围。
  *
- *  后端 `PATCH /v1/projects/{id}` 早已支持这两个字段，但权限不同：`name` 需要 admin，
- *  `description` 只要 edit —— 所以名称输入框对非 admin 成员置灰，避免提交后吃 403。
+ *  后端 `PATCH /v1/projects/{id}` 按字段分权：`name` 需要 admin，`description` 只要 edit，
+ *  可见范围只有项目创建人或团队所有者（`is_owner`）能改 —— 界面按同样的规则置灰或隐藏。
  */
 export default function EditProjectModal({ open, onClose }: Props) {
   const project = useProjectStore((s) => s.currentProject);
@@ -20,6 +22,8 @@ export default function EditProjectModal({ open, onClose }: Props) {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  // Only read at submit time, so a ref avoids re-rendering the whole modal per change.
+  const visibilityPatch = useRef<EditionProjectUpdateFields>({});
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -35,7 +39,7 @@ export default function EditProjectModal({ open, onClose }: Props) {
       message.warning(t('请填写项目名'));
       return;
     }
-    const patch: { name?: string; description?: string } = {};
+    const patch: Parameters<typeof updateProject>[0] = { ...visibilityPatch.current };
     if (canRename && cleanName !== project.name) patch.name = cleanName;
     if (description.trim() !== (project.description || '')) patch.description = description.trim();
     if (Object.keys(patch).length === 0) {
@@ -109,6 +113,8 @@ export default function EditProjectModal({ open, onClose }: Props) {
             maxLength={2000}
           />
         </div>
+
+        <ProjectVisibilityEditor project={project} onPatchChange={(p) => { visibilityPatch.current = p; }} />
       </div>
     </Modal>
   );

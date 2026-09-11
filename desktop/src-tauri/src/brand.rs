@@ -28,6 +28,13 @@ pub const NAME: &str = match option_env!("JX_BRAND_NAME") {
     None => "HugAgentOS",
 };
 
+/// 品牌副标题：首启固定双模式初始化页大字品牌名下方那一行定位语，与前端侧栏
+/// `branding.product_subtitle` 的默认值保持一致。
+pub const TAGLINE: &str = match option_env!("JX_BRAND_TAGLINE") {
+    Some(v) => v,
+    None => "HugAgentOS AI 智能助手",
+};
+
 /// 编译期默认后端地址（运行时可被 server.json / HUGAGENT_SERVER_BASE 覆盖）。
 /// 注意：这是本地开发默认，指向本机 dev（localhost:3000）；对外分发时改回正式地址，
 /// 或改用构建时环境变量 JX_DEFAULT_SERVER_BASE / 运行时 server.json 覆盖。

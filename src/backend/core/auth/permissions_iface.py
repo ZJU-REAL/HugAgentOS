@@ -31,17 +31,33 @@ def resolve_artifact_access(db: Session, user_id: str, owner_id, scope_id) -> Pe
 ProjectPermissionLevel = Literal["none", "view", "edit", "admin"]
 
 
+@dataclass(frozen=True)
+class ProjectAccessInfo:
+    level: ProjectPermissionLevel
+    is_owner: bool
+
+
+NO_ACCESS = ProjectAccessInfo("none", False)
+
+
+def resolve_project_access(db: Session, user_id: str, project: Project) -> ProjectAccessInfo:
+    if project is None or project.deleted_at is not None:
+        return NO_ACCESS
+    # Personal (myspace-folder) and local (desktop host-folder) projects are both
+    # single-owner in CE; the owner is admin. Non-personal legacy data is never visible.
+    if project.kind in ("personal", "local") and project.owner_user_id == user_id:
+        return ProjectAccessInfo("admin", True)
+    return NO_ACCESS
+
+
 def resolve_project_permission(
     db: Session, user_id: str, project: Project
 ) -> ProjectPermissionLevel:
-    if project is None or project.deleted_at is not None:
-        return "none"
-    # Personal (myspace-folder) and local (desktop host-folder) projects are both
-    # single-owner in CE; the owner is admin.
-    if project.kind in ("personal", "local"):
-        return "admin" if project.owner_user_id == user_id else "none"
-    # Non-personal legacy data is never visible in CE.
-    return "none"
+    return resolve_project_access(db, user_id, project).level
+
+
+def is_project_owner(db: Session, user_id: str, project: Project) -> bool:
+    return resolve_project_access(db, user_id, project).is_owner
 
 
 @dataclass
@@ -51,9 +67,12 @@ class ProjectAccess:
     project: Project
     level: ProjectPermissionLevel
     user_id: str
+    is_owner: bool = False
 
 
-def require_project_access(min_level: ProjectPermissionLevel = "view"):
+def require_project_access(
+    min_level: ProjectPermissionLevel = "view", *, owner_only: bool = False
+):
     """FastAPI dependency factory（CE 单租户版，保留存在性 404）。"""
 
     from core.auth.backend import UserContext, get_current_user  # 避免循环导入
@@ -73,12 +92,14 @@ def require_project_access(min_level: ProjectPermissionLevel = "view"):
         if project is None:
             raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
 
-        level = resolve_project_permission(db, user_id, project)
-        if level == "none":
+        info = resolve_project_access(db, user_id, project)
+        if info.level == "none":
             raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
-        if not has_permission(level, min_level):
+        if not has_permission(info.level, min_level):
             raise HTTPException(status_code=403, detail="当前权限不足")
-        return ProjectAccess(project=project, level=level, user_id=user_id)
+        if owner_only and not info.is_owner:
+            raise HTTPException(status_code=403, detail="仅项目创建人可执行此操作")
+        return ProjectAccess(project=project, level=info.level, user_id=user_id, is_owner=info.is_owner)
 
     return _dep
 
@@ -105,8 +126,11 @@ __all__ = [
     "can_delete_session",
     "resolve_chat_access",
     "ProjectAccess",
+    "ProjectAccessInfo",
     "ProjectPermissionLevel",
+    "is_project_owner",
     "require_project_access",
+    "resolve_project_access",
     "resolve_project_permission",
     "PermissionLevel",
     "has_permission",

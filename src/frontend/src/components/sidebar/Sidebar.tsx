@@ -41,6 +41,8 @@ interface SidebarProjectGroup {
   name: string;
   pinned: boolean;
   canAdmin: boolean;
+  /** Project creator or team owner: the only roles allowed to remove the project. */
+  canDelete: boolean;
   /** Project is known in the project list (false = only reconstructed as a fallback from leftover chat.projectId) */
   known: boolean;
   items: ChatItem[];
@@ -341,6 +343,7 @@ export function Sidebar({
         name: p.name,
         pinned: !!p.pinned,
         canAdmin: p.permission === 'admin',
+        canDelete: !!p.is_owner,
         known: true,
         items,
         lastActivity: Math.max(
@@ -356,6 +359,7 @@ export function Sidebar({
         name: items.find((i) => i.projectName)?.projectName || t('项目'),
         pinned: false,
         canAdmin: false,
+        canDelete: false,
         known: false,
         items,
         lastActivity: Math.max(...items.map((i) => i.updatedAt || 0)),
@@ -1000,7 +1004,7 @@ export function Sidebar({
                                           label: t('移除项目'),
                                           icon: <DeleteOutlined />,
                                           danger: true,
-                                          disabled: !pg.canAdmin,
+                                          disabled: !pg.canDelete,
                                           onClick: ({ domEvent }) => {
                                             domEvent.stopPropagation();
                                             removeProject(pg);

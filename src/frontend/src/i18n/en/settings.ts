@@ -309,6 +309,10 @@ export const SETTINGS_DICT: Record<string, string> = {
   '编辑项目目标': 'Edit Project Goal',
   '仅项目管理员可修改项目名称': 'Only project admins can change the project name',
   '项目信息已更新': 'Project updated',
+  '所有团队成员可见': 'Visible to all team members',
+  '仅指定成员可见': 'Visible to selected members only',
+  '选择可见的团队成员': 'Select team members who can see this project',
+  '项目创建人与团队所有者始终可见': 'The project creator and team owner can always see it',
 
   // ── ProjectsPanel ──────────────────────────────────────────────────────────
   '把对话、文件和指令打包成专属工作空间': 'Bundle conversations, files, and instructions into a dedicated workspace.',

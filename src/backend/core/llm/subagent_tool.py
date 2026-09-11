@@ -941,13 +941,7 @@ def build_explicit_subagent_command_hint(
     visible_agents: List[Dict[str, Any]],
     agent_id: str,
 ) -> str:
-    """Constrain an explicit natural-language delegation without bypassing the LLM.
-
-    The hint lives in the current user turn so the stable system prompt remains
-    cacheable. The main model still reasons and emits the actual tool call, but
-    it cannot reinterpret an unambiguous ``调用 <name> 子智能体`` command as
-    permission to query its own tools first.
-    """
+    """Guide explicit delegation while preserving the normal model loop."""
     target = next(
         (item for item in visible_agents if str(item.get("agent_id") or "") == agent_id),
         None,
@@ -958,9 +952,9 @@ def build_explicit_subagent_command_hint(
     return (
         "<explicit_subagent_command>\n"
         f"用户已明确要求调用子智能体「{agent_name}」（agent_id={agent_id}）。\n"
-        "你必须保留正常的思考与流式输出，并将下一个工具调用设为 "
+        "请优先按任务需要使用 "
         f'call_subagent(agent_id="{agent_id}", task=<下方用户任务>)。\n'
-        "调用子智能体之前不得调用其他工具，也不得先自行查询或执行该任务。"
-        "子智能体返回后，不再调用其他数据工具，直接基于其结果整合最终回答。\n"
+        "可按任务需要使用其他工具辅助。"
+        "子智能体返回后，结合其结果继续完成用户任务。\n"
         "</explicit_subagent_command>"
     )

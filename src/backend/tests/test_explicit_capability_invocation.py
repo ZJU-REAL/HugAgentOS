@@ -1,4 +1,3 @@
-import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -11,12 +10,6 @@ from core.db.models import (
     CatalogOverride,
     InstalledPlugin,
     UserShadow,
-)
-from core.llm.middlewares import (
-    ExplicitPluginInvocationError,
-    ExplicitPluginToolChoiceMiddleware,
-    ExplicitSkillInvocationError,
-    ExplicitSkillToolChoiceMiddleware,
 )
 from core.services import plugin_service
 from fastapi import HTTPException
@@ -124,119 +117,7 @@ def test_plugin_id_is_authoritative_and_unavailable_components_are_skipped(db_se
     assert resolved._resolved_plugin_mcp_ids == ["public-mcp"]
 
 
-def test_explicit_plugin_middleware_forces_only_plugin_capabilities():
-    middleware = ExplicitPluginToolChoiceMiddleware(
-        plugin_id="security@user-a",
-        plugin_name="安全管理",
-        skill_ids=["security-overview"],
-        mcp_tool_names=["inspect_security_state"],
-    )
-    captured = {}
-
-    async def reasoning_next(**kwargs):
-        captured.update(kwargs)
-        if False:
-            yield None
-
-    async def acting_next(**kwargs):
-        yield {"tool_result": "ok"}
-
-    async def run():
-        async for _ in middleware.on_reasoning(None, {}, reasoning_next):
-            pass
-        async for _ in middleware.on_acting(
-            None,
-            {
-                "tool_call": SimpleNamespace(
-                    name="view_text_file",
-                    input=('{"file_path":"/workspace/skills/' 'security-overview/SKILL.md"}'),
-                )
-            },
-            acting_next,
-        ):
-            pass
-
-    asyncio.run(run())
-
-    choice = captured["tool_choice"]
-    assert choice.mode == "required"
-    assert choice.tools == ["inspect_security_state", "view_text_file"]
-    assert middleware._satisfied is True
-
-
-def test_explicit_plugin_middleware_rejects_unrelated_skill_read():
-    middleware = ExplicitPluginToolChoiceMiddleware(
-        plugin_id="security@user-a",
-        plugin_name="安全管理",
-        skill_ids=["security-overview"],
-        mcp_tool_names=[],
-    )
-
-    async def acting_next(**kwargs):
-        yield {"tool_result": "ok"}
-
-    async def run():
-        async for _ in middleware.on_acting(
-            None,
-            {
-                "tool_call": SimpleNamespace(
-                    name="view_text_file",
-                    input='{"file_path":"/workspace/skills/other/SKILL.md"}',
-                )
-            },
-            acting_next,
-        ):
-            pass
-
-    asyncio.run(run())
-
-    assert middleware._satisfied is False
-
-
-def test_explicit_plugin_middleware_accepts_its_mcp_tool():
-    middleware = ExplicitPluginToolChoiceMiddleware(
-        plugin_id="security@user-a",
-        plugin_name="安全管理",
-        skill_ids=[],
-        mcp_tool_names=["inspect_security_state"],
-    )
-
-    async def acting_next(**kwargs):
-        yield {"tool_result": "ok"}
-
-    async def run():
-        async for _ in middleware.on_acting(
-            None,
-            {"tool_call": SimpleNamespace(name="inspect_security_state", input="{}")},
-            acting_next,
-        ):
-            pass
-
-    asyncio.run(run())
-
-    assert middleware._satisfied is True
-
-
-def test_explicit_plugin_middleware_fails_closed_without_real_use():
-    middleware = ExplicitPluginToolChoiceMiddleware(
-        plugin_id="security@user-a",
-        plugin_name="安全管理",
-        skill_ids=["security-overview"],
-        mcp_tool_names=[],
-    )
-
-    async def reply_next(**kwargs):
-        yield "model answered without plugin usage"
-
-    async def run():
-        async for _ in middleware.on_reply(None, {}, reply_next):
-            pass
-
-    with pytest.raises(ExplicitPluginInvocationError, match="未实际读取其技能"):
-        asyncio.run(run())
-
-
-def test_explicit_plugin_injection_declares_mandatory_real_use():
+def test_explicit_plugin_injection_guides_optional_usage():
     hint = _build_skill_injection(
         {
             "mcp_ids": ["security-mcp"],
@@ -245,91 +126,12 @@ def test_explicit_plugin_injection_declares_mandatory_real_use():
     )
 
     assert hint is not None
-    assert "这不是可忽略的偏好" in hint["content"]
-    assert "不得跳过插件能力直接回答" in hint["content"]
+    assert "请优先" in hint["content"]
+    assert "这不是可忽略的偏好" not in hint["content"]
+    assert "系统会强制" not in hint["content"]
 
 
-def test_explicit_skill_middleware_requires_the_exact_skill_file():
-    middleware = ExplicitSkillToolChoiceMiddleware(
-        skill_id="security-overview",
-        skill_name="安全概览",
-    )
-    captured = {}
-
-    async def reasoning_next(**kwargs):
-        captured.update(kwargs)
-        if False:
-            yield None
-
-    async def acting_next(**kwargs):
-        yield {"tool_result": "ok"}
-
-    async def run():
-        async for _ in middleware.on_reasoning(None, {}, reasoning_next):
-            pass
-        async for _ in middleware.on_acting(
-            None,
-            {
-                "tool_call": SimpleNamespace(
-                    name="view_text_file",
-                    input=('{"file_path":"/workspace/skills/' 'security-overview/SKILL.md"}'),
-                )
-            },
-            acting_next,
-        ):
-            pass
-
-    asyncio.run(run())
-
-    assert captured["tool_choice"].tools == ["view_text_file"]
-    assert middleware._satisfied is True
-
-
-def test_explicit_skill_middleware_does_not_accept_another_skill():
-    middleware = ExplicitSkillToolChoiceMiddleware(
-        skill_id="security-overview",
-        skill_name="安全概览",
-    )
-
-    async def acting_next(**kwargs):
-        yield {"tool_result": "ok"}
-
-    async def run():
-        async for _ in middleware.on_acting(
-            None,
-            {
-                "tool_call": SimpleNamespace(
-                    name="view_text_file",
-                    input='{"file_path":"/workspace/skills/other/SKILL.md"}',
-                )
-            },
-            acting_next,
-        ):
-            pass
-
-    asyncio.run(run())
-
-    assert middleware._satisfied is False
-
-
-def test_explicit_skill_middleware_fails_closed_without_loading():
-    middleware = ExplicitSkillToolChoiceMiddleware(
-        skill_id="security-overview",
-        skill_name="安全概览",
-    )
-
-    async def reply_next(**kwargs):
-        yield "model answered without loading the skill"
-
-    async def run():
-        async for _ in middleware.on_reply(None, {}, reply_next):
-            pass
-
-    with pytest.raises(ExplicitSkillInvocationError, match="未实际读取其 SKILL.md"):
-        asyncio.run(run())
-
-
-def test_explicit_skill_injection_declares_mandatory_load(monkeypatch):
+def test_explicit_skill_injection_guides_skill_loading(monkeypatch):
     import core.agent_skills.loader as skill_loader
 
     fake_loader = SimpleNamespace(
@@ -345,8 +147,10 @@ def test_explicit_skill_injection_declares_mandatory_load(monkeypatch):
     )
 
     assert hint is not None
-    assert "这不是可忽略的偏好" in hint["content"]
-    assert "回答前必须先读取该技能的 SKILL.md" in hint["content"]
+    assert "请优先" in hint["content"]
+    assert "这不是可忽略的偏好" not in hint["content"]
+    assert "/workspace/skills/security-overview/SKILL.md" in hint["content"]
+    assert "回答前必须" not in hint["content"]
 
 
 @pytest.mark.parametrize("field_name", ["skill_ids", "mcp_ids"])

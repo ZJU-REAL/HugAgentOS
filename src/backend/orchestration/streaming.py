@@ -547,7 +547,16 @@ class StreamingAgent:
         async def _produce():
             try:
                 async for ev in agent.reply_stream(inputs=user_msg):
-                    await event_q.put(("ev", ev))
+                    result_step = None
+                    if type(ev).__name__ == "ToolResultEndEvent":
+                        tid = getattr(ev, "tool_call_id", "") or ""
+                        # Snapshot while the producer is still at the tool
+                        # boundary, before another model step/steer/compaction
+                        # can replace the live context.
+                        result_step = self._tool_result_step(tid)
+                        if result_step is None:
+                            raise RuntimeError(f"Tool result {tid} is missing from model context")
+                    await event_q.put(("ev", (ev, result_step)))
             except BaseException as e:  # noqa: BLE001
                 import traceback
 
@@ -606,6 +615,7 @@ class StreamingAgent:
                     yield ("subagent_event", payload)
                     continue
                 # kind == "ev"
+                payload, result_step = payload
                 steer_delivery = getattr(agent.state, "steer_delivery", None)
                 if isinstance(steer_delivery, dict):
                     # SteerMiddleware appends the user instruction immediately
@@ -618,7 +628,7 @@ class StreamingAgent:
                 if reasoning_protocol is not None:
                     yield ("reasoning_protocol", reasoning_protocol)
                 _mapped_any = False
-                async for out in self._map_event(payload):
+                async for out in self._map_event(payload, result_step=result_step):
                     if not _first_event_logged:
                         _ttfe = (time.monotonic() - _stream_start) * 1000
                         logger.info("[stream] TTFE: %.0fms, type=%s", _ttfe, out[0])
@@ -695,7 +705,9 @@ class StreamingAgent:
 
                 asyncio.create_task(_wait())
 
-    async def _map_event(self, ev: Any) -> AsyncIterator[Tuple[str, Any]]:
+    async def _map_event(
+        self, ev: Any, *, result_step: Optional[Dict[str, Any]] = None
+    ) -> AsyncIterator[Tuple[str, Any]]:
         """Map a single reply_stream event into 0..N SSE events."""
         nm = type(ev).__name__
 
@@ -817,7 +829,10 @@ class StreamingAgent:
         if nm == "ToolResultEndEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
             content = self._tool_result_buf.pop(tid, "")
-            result_step = self._tool_result_step(tid)
+            if result_step is None:
+                result_step = self._tool_result_step(tid)
+            if result_step is None:
+                raise RuntimeError(f"Tool result {tid} is missing from model context")
             raw_state = getattr(ev, "state", "") or ""
             state = str(getattr(raw_state, "value", raw_state) or "")
             pending = self._pending_tool_calls.pop(tid, None)
@@ -864,6 +879,10 @@ class StreamingAgent:
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("tool_call log persist failed", exc_info=True)
+            # Persist the canonical result before any UI filtering (notably
+            # update_plan). The consumer must finish this event before the
+            # display-only result can announce completion.
+            yield ("model_step", result_step)
             yield (
                 "tool_result",
                 {
@@ -871,7 +890,6 @@ class StreamingAgent:
                     "id": tid,
                     "content": content,
                     "status": state,
-                    "model_step": result_step,
                 },
             )
             return
