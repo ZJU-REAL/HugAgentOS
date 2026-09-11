@@ -362,3 +362,34 @@ def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
         "${VITE_EDITION:-ce}",
     ):
         assert expected in compose
+
+def test_ce_model_steps_migration_preserves_existing_messages(tmp_path):
+    import importlib.util
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from core.db.edition_tables import ce_create_all
+    from core.db.models import ChatMessage, ChatSession
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'ce-model-steps.db'}")
+    ce_create_all(engine)
+    with Session(engine) as session:
+        session.add(ChatSession(chat_id="old-chat", user_id="old-user", title="History"))
+        session.add(ChatMessage(message_id="old-message", chat_id="old-chat",
+                                role="assistant", content="Preserved answer"))
+        session.commit()
+    path = Path(__file__).resolve().parents[2] / "alembic/versions/ce_0012_model_steps.py"
+    spec = importlib.util.spec_from_file_location("ce_0012_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with engine.begin() as connection:
+        connection.execute(text('ALTER TABLE chat_messages DROP COLUMN model_steps'))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            migration.upgrade()
+        assert "model_steps" in {c["name"] for c in inspect_database(connection).get_columns("chat_messages")}
+        row = connection.execute(text("SELECT content, model_steps FROM chat_messages WHERE message_id='old-message'")).one()
+        assert row[0] == "Preserved answer"
+        assert row[1] is None
+    engine.dispose()
