@@ -52,6 +52,7 @@ core/db/
 |---|---|
 | `chat_sessions` | 会话主表（标题、模式标记、项目挂载、共享范围等） |
 | `chat_session_user_states` | 会话 × 用户的 per-user 状态（pin / favorite） |
+| `project_members` | 团队项目可见成员白名单（`projects.visibility = members` 时生效；项目创建人与团队所有者始终可见）（商业版 EE） |
 | `chat_messages` | 消息表：角色、内容、工具调用 JSON、附加数据 |
 | `chat_runs` | 流式 Run：把 AI 任务从 HTTP 连接解耦，支持断线续播与崩溃恢复 |
 | `message_feedback` | 消息点赞 / 点踩与评语 |

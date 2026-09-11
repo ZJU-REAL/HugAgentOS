@@ -67,6 +67,7 @@ def _summary(
         "memory_enabled": bool(extra.get("memory_enabled", True)),
         "memory_write_enabled": bool(extra.get("memory_write_enabled", True)),
         "permission": "admin",
+        "is_owner": True,
         "file_count": file_count,
         "chat_count": chat_count,
         "metadata": extra,
@@ -403,6 +404,7 @@ class ProjectService:
         patch: Dict[str, Any],
         *,
         level: ProjectPermissionLevel,
+        is_owner: bool = False,
     ) -> Optional[Dict[str, Any]]:
         patch = dict(patch)
         expected_revision = patch.pop("instructions_revision", None)

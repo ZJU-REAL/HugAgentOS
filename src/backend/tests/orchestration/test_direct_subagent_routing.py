@@ -330,7 +330,7 @@ async def test_mention_keeps_normal_main_model_stream(monkeypatch):
     assert "分析" in first["message"]
 
 
-def test_explicit_command_hint_requires_real_call_subagent_tool():
+def test_explicit_command_hint_guides_subagent_usage():
     hint = build_explicit_subagent_command_hint(
         [{"agent_id": "ua_risk", "name": "企业风险分析"}],
         "ua_risk",
@@ -338,7 +338,9 @@ def test_explicit_command_hint_requires_real_call_subagent_tool():
 
     assert "call_subagent" in hint
     assert 'agent_id="ua_risk"' in hint
-    assert "不得调用其他工具" in hint
+    assert "请优先" in hint
+    assert "不得调用其他工具" not in hint
+    assert "下一个工具调用" not in hint
 
 
 @pytest.mark.asyncio

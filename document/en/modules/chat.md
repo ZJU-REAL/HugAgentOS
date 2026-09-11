@@ -224,7 +224,7 @@ whole steps are cut from the oldest end. The steps of the turn in progress are
 protected: if they alone do not fit, the assembly manifest reports
 `over_budget` instead of silently rewriting anything.
 
-Tool completion events carry both the display result and its canonical model-result step, which are saved in the same snapshot. Appending a model step also independently triggers persistence; failed writes remain dirty for periodic retry. On replay across providers or models, the formatter checks the reasoning origin provider, model, and protocol. Compatible reasoning retains its structure and signature; readable reasoning from incompatible or unknown origins becomes explicitly labeled historical reference text, rather than native reasoning state for the target model. Reasoning attributed to the current Anthropic model fails explicitly if its signature is missing.
+Each canonical tool-result step is persisted before its display event, independently of UI filtering. Plan updates remain in the plan bar, while their real tool results are preserved for later turns. If result persistence fails after a retry, the run stops before announcing tool completion. Replay closes missing results at their original call boundary, using recorded results when available and explicit unknown-outcome placeholders otherwise; it does not rewrite stored history. On replay across providers or models, the formatter checks the reasoning origin provider, model, and protocol. Compatible reasoning retains its structure and signature; readable reasoning from incompatible or unknown origins becomes explicitly labeled historical reference text, rather than native reasoning state for the target model. Reasoning attributed to the current Anthropic model fails explicitly if its signature is missing.
 
 ## Citation system (Evidence Anchors)
 
@@ -347,21 +347,7 @@ they personally switched off. Selecting a connector adds an `MCP` chip and
 explicitly activates that connector; after sending, the conversation history
 keeps the connector as a badge. Once it is assembled successfully, the
 connector also stays expanded on later turns in the same chat.
-An explicit connector selection is a mandatory invocation: the first model
-round is restricted to tools exposed by that connector and must complete at
-least one real tool call before the answer can continue. If the connector
-cannot connect, exposes no callable tools, or the model provider ignores the
-required-call constraint, the turn fails explicitly instead of silently
-answering without the connector.
-After a skill is explicitly selected through `/`, the model must first read
-that exact skill's `SKILL.md`; reading another skill does not count, and the
-turn stops explicitly if the file cannot be loaded. Once loaded successfully,
-the skill remains in the skill list on later turns in the same chat.
-An explicit plugin selection has the same hard execution semantics: before
-completing the answer, the model must read one of that plugin's own skill files
-or make a real call to one of its MCP tools. Other skills or connectors do not
-satisfy the contract. If no plugin capability can execute, or the model
-bypasses the constraint, the turn fails explicitly. Once loading succeeds, the
+Explicit skill, connector, and plugin selections load the selected capabilities and guide the model to prefer them when relevant. They do not force tool_choice or reject replies without tool usage. Skill guidance recommends reading the selected SKILL.md before use. Ownership and availability checks still apply. Once loading succeeds, the
 backend records the exact plugin installation id in chat state. Later turns
 restore and revalidate it before default capability filtering, keeping MCP tool
 names and prefixes stable. Uninstalled, globally disabled, dependency-blocked,
@@ -369,10 +355,9 @@ or no-longer-owned components are not restored.
 
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the
-  display-only `@name` prefix and injects a strict per-turn delegation
-  constraint. The main model keeps its normal reasoning and token stream, and
-  its next genuine tool call must be `call_subagent` for the selected target;
-  it cannot query data first. The complete child execution happens inside that
+  display-only `@name` prefix and injects a per-turn delegation
+  hint. The main model keeps its normal reasoning and token stream, and
+  it is guided to prefer `call_subagent` for the selected target when relevant. The complete child execution happens inside that
   tool, with reasoning, tools, and text emitted as `subagent_event` entries
   under the real tool card. The main model then streams the integrated answer.
   The turn stays on the `main` route and does not permanently bind the regular
@@ -381,10 +366,10 @@ or no-longer-owned components are not restored.
 - **Explicit natural-language delegation**: a Chinese command that starts with
   `调用` or `请调用`, contains one unique and complete accessible sub-agent
   name, and ends with an action-oriented task resolves the target and injects a
-  constraint into the current user turn. The backend doesn't fabricate tool
+  hint into the current user turn. The backend doesn't fabricate tool
   events or bypass the main model. The main model keeps its normal reasoning
-  and streaming path, and its next real tool call must be `call_subagent` for
-  the resolved target; it can't call another tool first. For example,
+  and streaming path, and it is guided to prefer `call_subagent` for
+  the resolved target, with other tools available as needed. For example,
   `调用企业风险分析子智能体 分析杭州量知的风险` displays the `call_subagent` card when
   the model issues the real call. Child reasoning and tools arrive as
   `subagent_event` entries under that card, and the main model then streams its
@@ -392,7 +377,7 @@ or no-longer-owned components are not restored.
   `call_subagent` and child tools retain their real audit logs. A personally
   disabled target can still be invoked through this explicit path. Ambiguous
   names, administrator-disabled or unauthorized targets, empty tasks, and
-  discussion questions don't trigger forced delegation.
+  discussion questions don't trigger a delegation hint.
 - **Dedicated conversation**: a chat opened from the sub-agent detail page uses
   `agent_id`, so subsequent turns continue with that sub-agent.
 - **Autonomous main-agent dispatch**: when neither a structured `@` selection

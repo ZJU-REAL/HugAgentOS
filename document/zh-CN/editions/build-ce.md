@@ -137,7 +137,7 @@ checkout，因此该 fallback 不能把一个生成器异常缺失的任意仓�
 
 CE 不注册、也不创建 EE 专属表。商业 ORM 类集中在 `src/backend/edition_ee/db/models/`，该目录在派生树中物理不存在；CE 的模型出口只导出 CE 映射，兼容属性由 CE model extension 提供，不注册商业列或表。
 
-发布契约禁止 20 张表：`chat_session_user_states`、`teams`、`team_members`、`team_folders`、`invite_codes`、`roles`、`role_assignments`、`kb_grants`、`marketplace_visibility_grants`、`audit_logs`、`memory_audit`、`model_pricing`、`data_sources`、`ds_table_meta`、`ds_column_meta`、`ds_golden_sql`、`gateway_virtual_keys`、`sandbox_rebuilds`、`admin_skill_drafts`、`distillation_runs`。import 门禁会同时检查 CE metadata 中没有这些表、没有跨界外键；`projects`、`artifacts`、`user_agents`、`chat_sessions`、`marketplace_listing_states` 与 `sites` 也不得注册相应商业作用域列。
+发布契约禁止 21 张表：`chat_session_user_states`、`project_members`、`teams`、`team_members`、`team_folders`、`invite_codes`、`roles`、`role_assignments`、`kb_grants`、`marketplace_visibility_grants`、`audit_logs`、`memory_audit`、`model_pricing`、`data_sources`、`ds_table_meta`、`ds_column_meta`、`ds_golden_sql`、`gateway_virtual_keys`、`sandbox_rebuilds`、`admin_skill_drafts`、`distillation_runs`。import 门禁会同时检查 CE metadata 中没有这些表、没有跨界外键；`projects`、`artifacts`、`user_agents`、`chat_sessions`、`marketplace_listing_states` 与 `sites` 也不得注册相应商业作用域列。
 
 CE 的所有建表和升级入口共用 CE-only metadata：
 

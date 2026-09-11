@@ -6,7 +6,7 @@
 
 import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption, ReferencableChat } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
-import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
+import type { EditionChatDetailFields, EditionCreateProjectFields, EditionProjectUpdateFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
 import { createApiResponseError, readErrorMessage } from './utils/apiError';
 import { newOperationId } from './utils/operationId';
@@ -3464,7 +3464,7 @@ export async function transferProjectToTeam(projectId: string, teamId: string): 
 
 export async function updateProject(
   projectId: string,
-  patch: Partial<Pick<ProjectItem, 'name' | 'description' | 'instructions' | 'pinned' | 'icon_color' | 'memory_enabled' | 'memory_write_enabled'>>,
+  patch: Partial<Pick<ProjectItem, 'name' | 'description' | 'instructions' | 'pinned' | 'icon_color' | 'memory_enabled' | 'memory_write_enabled'>> & EditionProjectUpdateFields,
 ): Promise<ProjectDetail> {
   const wrapped = await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}`,

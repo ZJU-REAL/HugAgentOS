@@ -295,3 +295,64 @@ def test_explode_history_rows_splits_an_accumulated_assistant_row_per_step():
     assert [r["role"] for r in rows] == ["user", "assistant", "tool", "assistant"]
     assert [b["type"] for b in rows[1]["content"]] == ["thinking", "tool_call"]
     assert [b["type"] for b in rows[3]["content"]] == ["thinking", "text"]
+
+
+def test_missing_middle_plan_result_is_closed_before_the_next_assistant():
+    steps = [
+        _assistant(ToolCallBlock(type="tool_call", id="plan", name="update_plan", input="{}")),
+        _assistant(ToolCallBlock(type="tool_call", id="search", name="search", input="{}")),
+        _result("search", "real search result"),
+        _assistant(TextBlock(type="text", text="answer")),
+    ]
+    rows = M.replay_rows(steps)
+    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant", "tool", "assistant"]
+    assert rows[1]["content"][0]["id"] == "plan"
+    assert "not recorded" in rows[1]["content"][0]["output"]
+    assert rows[3]["content"][0]["output"] == "real search result"
+    assert len(steps) == 4  # Read-time repair must not rewrite stored history.
+
+
+def test_late_real_result_is_moved_to_its_call_without_duplication():
+    steps = [
+        _assistant(ToolCallBlock(type="tool_call", id="plan", name="update_plan", input="{}")),
+        _assistant(TextBlock(type="text", text="answer")),
+        _result("plan", "actual recorded result"),
+    ]
+    rows = M.replay_rows(steps)
+    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant"]
+    assert rows[1]["content"][0]["output"] == "actual recorded result"
+    assert len(steps) == 3
+    M.close_dangling_calls(steps)
+    assert [s["kind"] for s in steps] == ["assistant", "tool_result", "assistant"]
+    assert M.close_dangling_calls(list(steps)) == steps
+
+
+def test_parallel_group_with_one_missing_result_is_closed_before_answer():
+    steps = [
+        _assistant(
+            ToolCallBlock(type="tool_call", id="a", name="update_plan", input="{}"),
+            ToolCallBlock(type="tool_call", id="b", name="search", input="{}"),
+        ),
+        _result("b", "success"),
+        _assistant(TextBlock(type="text", text="answer")),
+    ]
+    rows = M.replay_rows(steps)
+    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant"]
+    assert [b["id"] for b in rows[1]["content"]] == ["b", "a"]
+    assert rows[1]["content"][0]["output"] == "success"
+
+
+def test_old_synthetic_interruption_is_replayed_as_unknown_not_failed_execution():
+    steps = [
+        _assistant(ToolCallBlock(type="tool_call", id="plan", name="update_plan", input="{}")),
+        _assistant(TextBlock(type="text", text="answer")),
+        _result(
+            "plan", "[tool call was interrupted before it returned a result]", state="interrupted"
+        ),
+    ]
+    rows = M.replay_rows(steps)
+    assert "execution outcome is unknown" in rows[1]["content"][0]["output"]
+    assert (
+        steps[-1]["blocks"][0]["output"]
+        == "[tool call was interrupted before it returned a result]"
+    )

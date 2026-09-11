@@ -25,6 +25,9 @@ STATE_INTERRUPTED = "interrupted"
 
 _CANCELLED_TURN_MARKER = "[本轮回答被用户中断]"
 _INTERRUPTED_RESULT = "[tool call was interrupted before it returned a result]"
+_MISSING_RESULT = (
+    "[tool result was not recorded; execution outcome is unknown (possibly interrupted)]"
+)
 _MEDIA_OMITTED = "[image omitted from replay history: {media_type}]"
 _LEGACY_TOOL_DIGEST_HEADER = "[历史工具调用摘要 — 原始步骤顺序未被记录，以下按调用列表汇总]"
 
@@ -125,18 +128,68 @@ def record_tool_result_step(block: Any) -> Dict[str, Any]:
     }
 
 
-def _pending_calls(steps: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    answered: set[str] = set()
-    calls: List[Dict[str, Any]] = []
-    for step in steps:
-        for block in step.get("blocks") or []:
-            if not isinstance(block, Mapping):
+def _ordered_result_steps(
+    steps: Sequence[Mapping[str, Any]], *, state: str, missing_output: str
+) -> List[Dict[str, Any]]:
+    """Close each tool-call group before another assistant response.
+
+    Older records may omit a result or append it at the end of the turn.
+    Prefer any recorded result to an unknown-outcome placeholder. Work on
+    copies so replay never changes database history.
+    """
+    results = {
+        str(block.get("id") or ""): dict(block)
+        for step in steps
+        for block in step.get("blocks") or []
+        if isinstance(block, Mapping) and block.get("type") == "tool_result"
+    }
+    # The old fallback asserted interruption even for successfully executed
+    # tools whose result event was filtered out. Preserve uncertainty.
+    for result in results.values():
+        if result.get("state") == STATE_INTERRUPTED and result.get("output") == _INTERRUPTED_RESULT:
+            result["output"] = _MISSING_RESULT
+    out: List[Dict[str, Any]] = []
+    pending: Dict[str, Dict[str, Any]] = {}
+    moved: set[str] = set()
+
+    def flush() -> None:
+        for call_id, call in pending.items():
+            result = results.get(call_id)
+            if result is not None:
+                moved.add(call_id)
+            else:
+                result = {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": str(call.get("name") or ""),
+                    "output": missing_output,
+                    "state": state,
+                }
+            out.append({"schema": STEP_SCHEMA, "kind": STEP_TOOL_RESULT, "blocks": [dict(result)]})
+        pending.clear()
+
+    for original in steps:
+        step = dict(original)
+        blocks = [dict(b) for b in step.get("blocks") or [] if isinstance(b, Mapping)]
+        if step.get("kind") == STEP_ASSISTANT:
+            flush()
+            pending.update(
+                (str(b.get("id") or ""), b) for b in blocks if b.get("type") == "tool_call"
+            )
+        elif step.get("kind") == STEP_TOOL_RESULT:
+            blocks = [
+                dict(results.get(str(b.get("id") or ""), b))
+                for b in blocks
+                if str(b.get("id") or "") not in moved
+            ]
+            for block in blocks:
+                pending.pop(str(block.get("id") or ""), None)
+            if not blocks:
                 continue
-            if block.get("type") == "tool_call":
-                calls.append(dict(block))
-            elif block.get("type") == "tool_result":
-                answered.add(str(block.get("id") or ""))
-    return [call for call in calls if str(call.get("id") or "") not in answered]
+        step["blocks"] = blocks
+        out.append(step)
+    flush()
+    return out
 
 
 def close_dangling_calls(
@@ -144,28 +197,13 @@ def close_dangling_calls(
     *,
     state: str = STATE_INTERRUPTED,
 ) -> List[Dict[str, Any]]:
-    """Append an explicit result for every call that never got one.
+    """Close missing results at their call boundary when a run stops.
 
-    Used when a run stops before its tools return (cancel, failure). The
-    appended result states the fact rather than inventing an outcome, so the
-    recorded sequence is balanced at rest and the next turn sees why.
+    Missing records do not prove whether the tool executed. Preserve any
+    recorded outcome and explicitly mark unknown outcomes without replaying
+    the tool or moving a placeholder past the next assistant response.
     """
-    for call in _pending_calls(steps):
-        steps.append(
-            {
-                "schema": STEP_SCHEMA,
-                "kind": STEP_TOOL_RESULT,
-                "blocks": [
-                    {
-                        "type": "tool_result",
-                        "id": str(call.get("id") or ""),
-                        "name": str(call.get("name") or ""),
-                        "output": _INTERRUPTED_RESULT,
-                        "state": state,
-                    }
-                ],
-            }
-        )
+    steps[:] = _ordered_result_steps(steps, state=state, missing_output=_MISSING_RESULT)
     return steps
 
 
@@ -229,10 +267,15 @@ def replay_rows(
     Assistant steps become assistant rows with their blocks verbatim; tool
     results become ``role="tool"`` carrier rows (``dict_to_msg`` maps that to
     the assistant role AgentScope requires). A call that never received a
-    result — a run that died between the call and its return — is closed with
-    an explicit interrupted result at replay time, because the provider will
-    not accept a dangling call and the model should know the tool never ran.
+    result is closed at its call boundary with an explicit unknown-outcome
+    result. A missing record does not prove the tool never ran; replay only
+    repairs protocol pairing and never executes a tool.
     """
+    steps = _ordered_result_steps(
+        steps,
+        state=STATE_INTERRUPTED,
+        missing_output=_MISSING_RESULT,
+    )
     rows: List[Dict[str, Any]] = []
     for step in steps:
         kind = str(step.get("kind") or "")
@@ -254,23 +297,6 @@ def replay_rows(
                 rows.append({"role": "tool", "content": blocks})
         else:
             raise ValueError(f"unknown model step kind {kind!r}")
-    pending = _pending_calls(steps)
-    if pending:
-        rows.append(
-            {
-                "role": "tool",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "id": str(call.get("id") or ""),
-                        "name": str(call.get("name") or ""),
-                        "output": _INTERRUPTED_RESULT,
-                        "state": STATE_INTERRUPTED,
-                    }
-                    for call in pending
-                ],
-            }
-        )
     if cancelled:
         if not rows or rows[-1]["role"] != "assistant":
             rows.append({"role": "assistant", "content": []})

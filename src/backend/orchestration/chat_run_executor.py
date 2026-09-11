@@ -1657,7 +1657,11 @@ async def _run_workflow(
                 step = chunk.get("step")
                 if isinstance(step, dict):
                     _model_steps.append(step)
-                    await _flush_inflight()
+                    if step.get("kind") == "tool_result":
+                        if not await _flush_inflight() and not await _flush_inflight():
+                            raise RuntimeError("Could not persist completed tool result")
+                    else:
+                        await _flush_inflight()
 
             elif chunk_type == "context_usage":
                 # Provider-reported usage is the authoritative live gauge.

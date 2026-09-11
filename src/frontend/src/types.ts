@@ -44,6 +44,8 @@ export interface ProjectItem extends EditionProjectFields {
   /** Project-level memory write switch (whether project memories are extracted and written after an in-project session ends; default ON) */
   memory_write_enabled: boolean;
   permission: ProjectPermission;
+  /** Project creator, or (team projects) the team owner: may delete and set visibility. */
+  is_owner: boolean;
   file_count: number;
   chat_count: number;
   metadata: Record<string, unknown>;

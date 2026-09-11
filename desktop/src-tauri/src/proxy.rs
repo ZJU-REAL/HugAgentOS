@@ -436,6 +436,7 @@ fn fixed_init_page() -> Html<String> {
                 "linux"
             },
         )
+        .replace("__TAGLINE__", brand::TAGLINE)
         .replace("HugAgentOS", brand::NAME);
     Html(inject_after_body(
         &with_theme_boot(&html),
@@ -1024,14 +1025,15 @@ const INIT_HTML: &str = r##"<!doctype html>
   /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
   .logo{display:block;width:64px;height:64px;margin:0 auto 16px;border-radius:16px;
     box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)} /* dark-ok: 投影两档都是黑 */
-  .product{margin:0 0 10px;color:var(--secondary);font-size:12px;font-weight:600}
-  h1{margin:0;font-size:27px;line-height:1.16;font-weight:650;letter-spacing:-.028em}
+  .brand{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    font-size:40px;line-height:1.08;font-weight:700;letter-spacing:-.03em;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .title{margin:12px 0 0;font-size:20px;line-height:1.3;font-weight:600;letter-spacing:-.01em}
   .lead{max-width:430px;margin:10px auto 0;color:var(--secondary);font-size:13.5px;line-height:1.6}
   .form{width:min(400px,100%);margin:24px auto 0;text-align:left}
   label{display:block;font-size:13px;font-weight:600;margin:0 0 7px;color:var(--text)}
@@ -1059,15 +1061,15 @@ const INIT_HTML: &str = r##"<!doctype html>
   .button:disabled{opacity:.5;cursor:default;transform:none}
   select:focus-visible,input:focus-visible,.button:focus-visible{outline:3px solid color-mix(in srgb, var(--accent) 28%, transparent);outline-offset:3px}
   body.platform-macos .setup{margin-top:-8px}
-  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:25px}}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}.brand{font-size:32px}}
   @media(prefers-reduced-motion:reduce){.button{transition:none}}
 </style>
 </head>
 <body class="platform-__PLATFORM__">
   <main class="setup">
     <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
-    <p class="product">HugAgentOS</p>
-    <h1 id="title">选择运行模式</h1>
+    <h1 class="brand">HugAgentOS</h1>
+    <h2 class="title" id="title">选择运行模式</h2>
     <div class="form">
       <label for="mode">运行模式</label>
       <div class="select-wrap">
@@ -1149,7 +1151,7 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
     --page:#0F141B;--danger:#FF6B6B;--glow:rgba(62,139,255,.24)}
   /* dark-ok-end */
   *{box-sizing:border-box}html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:hidden;-webkit-user-select:none;user-select:none}
   .setup{position:relative;width:min(600px,100%);text-align:center;padding:34px 30px 38px;z-index:1}
@@ -1165,9 +1167,10 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
     box-shadow:0 22px 60px var(--glow),0 2px 10px rgba(0,0,0,.08);backdrop-filter:blur(18px); /* dark-ok: 中性投影两档都是黑 */
     -webkit-backdrop-filter:blur(18px);animation:float 3.4s ease-in-out infinite}
   .logo{display:block;width:88px;height:88px;border-radius:24px;object-fit:cover}
-  .product{margin:0 0 10px;color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.09em}
-  h1{margin:0;font-size:34px;line-height:1.16;font-weight:700;letter-spacing:-.035em}
-  .lead{max-width:430px;margin:13px auto 0;color:var(--secondary);font-size:14px;line-height:1.7}
+  .brand{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    font-size:48px;line-height:1.08;font-weight:700;letter-spacing:-.03em;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .tagline{margin:12px 0 0;color:var(--accent);font-size:15px;font-weight:600;letter-spacing:.1em}
+  .lead{max-width:430px;margin:16px auto 0;color:var(--secondary);font-size:14.5px;line-height:1.7}
   .button{width:min(340px,100%);height:44px;margin-top:30px;border:0;border-radius:10px;padding:0 22px;
     font:600 14px/1 inherit;cursor:pointer;background:var(--accent);color:#fff; /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
     box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb,var(--accent) 16%,transparent);transition:background .12s ease,transform .1s ease,opacity .12s ease}
@@ -1179,7 +1182,7 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
   @keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.015)}}
   @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
   body.platform-macos .setup{margin-top:-8px}
-  @media(max-width:620px){body{padding:16px}.setup{padding:22px 8px}.visual{transform:scale(.9);margin-bottom:15px}h1{font-size:29px}}
+  @media(max-width:620px){body{padding:16px}.setup{padding:22px 8px}.visual{transform:scale(.9);margin-bottom:15px}.brand{font-size:38px}}
   @media(prefers-reduced-motion:reduce){.halo,.orbit,.core{animation:none}.button{transition:none}}
   @media(prefers-reduced-transparency:reduce){.core{background:var(--page);backdrop-filter:none;-webkit-backdrop-filter:none}}
 </style>
@@ -1190,9 +1193,9 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
       <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
       <div class="core"><img class="logo" src="/icon.png" alt="" onerror="this.style.visibility='hidden'" /></div>
     </div>
-    <p class="product">HugAgentOS</p>
-    <h1>初始化 HugAgentOS</h1>
-    <p class="lead">配置本机运行环境，并连接云端服务。</p>
+    <h1 class="brand">HugAgentOS</h1>
+    <p class="tagline">__TAGLINE__</p>
+    <p class="lead">首次启动需要配置本机运行环境，并连接云端服务。</p>
     <div class="err" id="err" role="alert"></div>
     <button class="button" id="go" type="button" onclick="start()">开始初始化</button>
   </main>
@@ -1239,7 +1242,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{position:relative;width:min(560px,100%);text-align:center;padding:20px 30px 30px}
@@ -1260,9 +1263,10 @@ const SETUP_HTML: &str = r##"<!doctype html>
   .visual.ready .orbit{border-color:color-mix(in srgb,var(--ok) 46%,transparent)}
   .visual.ready .orbit::before,.visual.ready .orbit::after{background:var(--ok)}
   .visual.error .orbit{animation-play-state:paused;border-color:color-mix(in srgb,var(--danger) 44%,transparent)}
-  .product{margin:0 0 11px;color:var(--secondary);font-size:12px;font-weight:600;letter-spacing:.012em}
-  h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
-  .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
+  .brand{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    font-size:42px;line-height:1.08;font-weight:700;letter-spacing:-.03em;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .title{margin:14px 0 0;font-size:20px;line-height:1.3;font-weight:600;letter-spacing:-.01em}
+  .lead{max-width:420px;margin:8px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
   .actions{width:min(350px,100%);margin:26px auto 0}
   .button{width:100%;height:44px;border:0;border-radius:10px;padding:0 18px;font:600 14px/1 inherit;
     cursor:pointer;transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
@@ -1308,7 +1312,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
   @keyframes sweep{55%,100%{transform:translateX(160%)}}
   body.platform-macos .setup{margin-top:-10px}
-  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:27px}.visual{transform:scale(.88);margin-bottom:6px}}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}.brand{font-size:34px}.visual{transform:scale(.88);margin-bottom:6px}}
   @media(max-height:700px){body{align-items:flex-start;overflow:auto}.setup{padding-top:14px}.visual{transform:scale(.82);margin-top:-12px;margin-bottom:-4px}}
   @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}
     .progress-wrap,.halo,.orbit,.core,.bar::after{animation:none}}
@@ -1323,8 +1327,8 @@ const SETUP_HTML: &str = r##"<!doctype html>
       <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
       <div class="core"><img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" /></div>
     </div>
-    <p class="product">HugAgentOS</p>
-    <h1 id="title">在这台电脑上开始使用</h1>
+    <h1 class="brand">HugAgentOS</h1>
+    <h2 class="title" id="title">在这台电脑上开始使用</h2>
     <section class="actions" aria-label="初始化操作">
       <button class="button primary" id="install" type="button" onclick="installLocal()">从零开始安装</button>
     </section>

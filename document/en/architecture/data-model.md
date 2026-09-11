@@ -52,6 +52,7 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 |---|---|
 | `chat_sessions` | Session master table (title, mode flags, project mount, share scope) |
 | `chat_session_user_states` | Per-user session state (pin / favorite) |
+| `project_members` | Visibility whitelist for team projects (applies when `projects.visibility = members`; the project creator and team owner always see the project) (EE) |
 | `chat_messages` | Messages: role, content, tool-call JSON, extra data |
 | `chat_runs` | Streaming runs: decouple AI tasks from the HTTP connection; support resume and crash recovery |
 | `message_feedback` | Likes/dislikes with optional comments |

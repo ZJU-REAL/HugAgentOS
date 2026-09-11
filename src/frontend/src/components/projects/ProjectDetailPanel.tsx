@@ -144,7 +144,7 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
                 icon={project.favorite ? <StarFilled style={{ color: 'var(--color-warning)' }} /> : <StarOutlined />}
                 onClick={() => void toggleFavorite(!project.favorite)}
               />
-              {project.permission === 'admin' && (
+              {project.is_owner && (
                 <Dropdown
                   menu={{ items: [{ key: 'delete', label: t('删除项目'), danger: true, onClick: handleDelete }] }}
                   trigger={['click']}

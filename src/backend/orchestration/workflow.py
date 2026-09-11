@@ -988,9 +988,8 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
       sentence telling the model they are ready and can be called on demand.
 
     Once enabled, ambient MCP tools stay resident and the model calls them by
-    description on its own. A plugin explicitly selected for this turn is
-    stronger: the runtime also forces and verifies at least one read of that
-    plugin's SKILL.md or one call to that plugin's MCP tools.
+    description on its own. Explicit selections guide the model toward the selected
+    capabilities without forcing tool_choice or rejecting a reply without tool usage.
 
     Returns a dict {"role": "user", "content": "..."} or None.
     """
@@ -1036,14 +1035,9 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     logger.warning("[skill_inject] skill_id=%s has no skill dir", sid)
                     continue
                 sandbox_dir = f"/workspace/skills/{sid}"
-                entries.append(
-                    f'- 「{sid}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")'
-                )
+                entries.append(f'- 「{sid}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")')
             if entries:
-                sections.append(
-                    "技能（必须先加载文件再执行，不要跳过直接调用 bash 或其它工具）：\n"
-                    + "\n".join(entries)
-                )
+                sections.append("技能（使用技能时先读取对应说明文件）：\n" + "\n".join(entries))
         except Exception as e:  # noqa: BLE001
             logger.error("[skill_inject] failed to load skills %s: %s", skill_ids, e)
 
@@ -1052,14 +1046,14 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if connector_id:
             sections.append(
                 f"MCP 工具：连接器「{connector_name or connector_id}」已被用户显式选择。"
-                "系统会强制先真实调用该连接器暴露的至少一个工具；不得跳过调用直接回答，"
+                "请优先按需使用该连接器完成相关任务，"
                 "也不得用其他工具冒充该连接器的结果。"
             )
         elif plugin_name:
             sections.append(
                 f"MCP 工具：插件「{plugin_name}」的 {len(mcp_ids)} 个 MCP 服务已就绪。"
-                "系统会强制实际调用该插件的一个 MCP 工具，或先读取该插件的一个技能文件；"
-                "不得跳过插件能力直接回答。"
+                "请优先按需使用该插件的 MCP 工具或技能，"
+                "使用技能时先读取对应说明文件。"
             )
         else:
             sections.append(
@@ -1087,16 +1081,13 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "请优先采用这些能力："
         )
     elif plugin_name:
-        header = (
-            f"用户已显式调用插件「{plugin_name}」。这不是可忽略的偏好："
-            "回答前必须真实使用该插件的至少一个能力："
-        )
+        header = f"用户已显式调用插件「{plugin_name}」，请优先按需采用以下能力："
     elif connector_name:
         header = f"用户已显式选择连接器「{connector_name}」，请优先采用其能力："
     elif skill_id:
         header = (
-            f"用户已显式调用技能「{skill_name or skill_id}」。这不是可忽略的偏好："
-            "回答前必须先读取该技能的 SKILL.md："
+            f"用户已显式调用技能「{skill_name or skill_id}」，"
+            "请优先采用该技能，使用前读取其 SKILL.md："
         )
     else:
         header = "用户已显式指定使用以下能力，请优先采用："
@@ -2622,6 +2613,7 @@ async def astream_chat_workflow(
     _ontology_event_cursor = 0
     _ontology_trace: List[Dict[str, Any]] = []
     _last_plan: Optional[Dict[str, Any]] = None
+    _pending_plan_updates: Dict[str, Dict[str, Any]] = {}
     _stream_errored = False
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
@@ -2992,21 +2984,12 @@ async def astream_chat_workflow(
                     tool_id = payload.get("id", "")
                     tool_args = payload.get("args", {})
 
-                    # update_plan: lightweight plan tracker — emit a plan_update
-                    # event (drives the plan bar above the chat input) instead
-                    # of a tool card in the message flow. Handled before the
-                    # displayed_tools dedupe so late-arriving streamed args
-                    # still produce the event; re-emissions are idempotent for
-                    # the frontend (full-state replace). The agent loop
-                    # continues normally — no redirect, no turn abort.
+                    # Stage the full plan until its real result is saved.
+                    # A tool request alone must not announce completed work.
                     if tool_name == "update_plan":
                         _pu = parse_plan_update_args(tool_args)
                         if _pu:
-                            _last_plan = _pu
-                            # 同步落库：这份清单要跨轮次活下去（后台作业跑完那轮要按它
-                            # 收尾，刷新后也要还原），只活在这条流里是不够的。
-                            _save_plan_progress(str(context.get("chat_id") or ""), _pu)
-                            yield {"type": "plan_update", **_pu}
+                            _pending_plan_updates[tool_id] = _pu
                         continue
 
                     # In streaming mode, the first chunk for a tool_call may
@@ -3088,10 +3071,15 @@ async def astream_chat_workflow(
                 elif event_type == "tool_result":
                     tool_name = payload.get("name", "unknown")
                     tool_id = payload.get("id", "")
-                    # update_plan results carry no user-facing content (the
-                    # plan_update event was already emitted at tool_call time);
-                    # skip the tool card entirely.
+                    # The canonical model_step was already forwarded and
+                    # persisted independently. Keep update_plan in the plan
+                    # bar; only its redundant display card is suppressed.
                     if tool_name == "update_plan":
+                        _pu = _pending_plan_updates.pop(tool_id, None)
+                        if _pu and payload.get("status") == "success":
+                            _last_plan = _pu
+                            _save_plan_progress(str(context.get("chat_id") or ""), _pu)
+                            yield {"type": "plan_update", **_pu}
                         continue
                     # Also override tool_name for skill load results
                     is_skill_result = (tool_id and tool_id in skill_load_ids) or (

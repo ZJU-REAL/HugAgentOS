@@ -33,9 +33,6 @@ from core.llm.middlewares import (
     AgentRuntimeState,
     CitationAnchorMiddleware,
     DynamicModelMiddleware,
-    ExplicitConnectorToolChoiceMiddleware,
-    ExplicitPluginToolChoiceMiddleware,
-    ExplicitSkillToolChoiceMiddleware,
     FileContextMiddleware,
     FinishPinGuardMiddleware,
     IterBudgetReminderMiddleware,
@@ -3375,38 +3372,6 @@ async def create_agent_executor(
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
         ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
     ]
-    if _required_connector_tool_names:
-        # Place the hard connector contract before all reasoning/acting policy
-        # middleware. Its explicit tool_choice therefore wins, including on the
-        # final iteration where IterBudget would otherwise force text.
-        _policy_middlewares.insert(
-            2,
-            ExplicitConnectorToolChoiceMiddleware(
-                connector_ids=_required_connector_ids,
-                tool_names=_required_connector_tool_names,
-            ),
-        )
-    if _required_plugin_id:
-        # A plugin chip is an execution request, not a hint. Restrict the model
-        # to this plugin's own skill loader/MCP tools until one completes, then
-        # release the normal tool surface for the rest of the answer.
-        _policy_middlewares.insert(
-            2,
-            ExplicitPluginToolChoiceMiddleware(
-                plugin_id=_required_plugin_id,
-                plugin_name=_required_plugin_name,
-                skill_ids=_required_plugin_registered_skill_ids,
-                mcp_tool_names=_required_plugin_mcp_tool_names,
-            ),
-        )
-    if _required_skill_id:
-        _policy_middlewares.insert(
-            2,
-            ExplicitSkillToolChoiceMiddleware(
-                skill_id=_required_skill_id,
-                skill_name=_required_skill_name,
-            ),
-        )
     # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
     # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
     # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。
