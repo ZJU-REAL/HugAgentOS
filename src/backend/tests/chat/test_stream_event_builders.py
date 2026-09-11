@@ -79,6 +79,11 @@ def test_tool_call_event_and_log_upsert():
         "tool_id": "t1",
     }
     evt = build_tool_call_event(chunk, "c1", log)
+    # The call's start is stamped into the log and rides along on the event, so
+    # a card rendered live and one replayed from history count from the same
+    # instant. Timing itself is covered in test_tool_call_timing_persisted.
+    started_at = evt.pop("started_at")
+    assert isinstance(started_at, int)
     assert evt == {
         "type": "tool_call",
         "tool_name": "bash",
@@ -94,6 +99,7 @@ def test_tool_call_event_and_log_upsert():
             "tool_display_name": "Bash",
             "tool_args": {"command": "ls"},
             "tool_id": "t1",
+            "started_at": started_at,
         }
     ]
 

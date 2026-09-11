@@ -183,7 +183,11 @@ export interface ToolCall {
   inputText?: string;
   output?: any;
   status?: 'pending' | 'running' | 'success' | 'error' | 'interrupted';
+  /** 调用开始的墙钟时刻（服务端下发并落库），卡上的计时以它为起点。 */
   timestamp?: number;
+  /** 这次调用实际花了多久（服务端算好并落库）。收尾后显示的就是它——历史重放
+   *  时两个端点时刻都已不在，只有存下来的耗时是可信的。 */
+  durationMs?: number;
   // call_subagent only: the sub-agent's internal streaming sub-steps + the sub-agent's name
   subSteps?: SubagentStep[];
   subagentName?: string;

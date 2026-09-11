@@ -33,7 +33,7 @@ class ApprovalModeBody(BaseModel):
 
 
 @router.get("", summary="获取当前工具执行权限档")
-async def get_tool_approval_mode(
+def get_tool_approval_mode(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,7 +42,7 @@ async def get_tool_approval_mode(
 
 
 @router.put("", summary="设置工具执行权限档")
-async def set_tool_approval_mode(
+def set_tool_approval_mode(
     body: ApprovalModeBody,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

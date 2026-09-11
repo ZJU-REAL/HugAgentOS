@@ -902,6 +902,43 @@ export async function getActiveChatRun(
   return data as ActiveChatRun;
 }
 
+/** 一条正在跑的会话，用于侧边栏「运行中」指示。 */
+export interface ActiveChatRunSummary {
+  chat_id: string;
+  run_id: string;
+  status: string;
+  started_at: string | null;
+}
+
+/**
+ * 当前用户所有还在跑的会话。
+ *
+ * 单会话的 ``getActiveChatRun`` 只回答"我正打开的这段在不在跑"，换设备登录时
+ * 侧边栏对没点开过的会话一无所知。这个接口一次问完，供侧边栏点亮小圆点。
+ */
+export async function listActiveChatRuns(): Promise<ActiveChatRunSummary[]> {
+  // 双模式下侧边栏同时挂着本机执行面的会话，那边跑起来的 run 云端并不知道，两边都要问。
+  const targets: Array<'local' | undefined> = isHybridDual() ? [undefined, 'local'] : [undefined];
+  const responses = await Promise.allSettled(
+    targets.map((target) =>
+      apiRequest<{ items?: ActiveChatRunSummary[] }>('/v1/chats/active-runs', undefined, target),
+    ),
+  );
+  // 调用方把返回值当成服务端权威快照，没列进来的会话会被灭灯——所以任一面查询失败就整体
+  // 抛错，让调用方保留现有状态等下一轮，绝不能把查不到的一面当成「那边没有在跑的了」。
+  const failed = responses.find((response) => response.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
+  const out: ActiveChatRunSummary[] = [];
+  for (const response of responses) {
+    if (response.status !== 'fulfilled') continue;
+    const { items } = unwrapData<{ items?: ActiveChatRunSummary[] }>(response.value);
+    for (const item of Array.isArray(items) ? items : []) {
+      if (item?.chat_id) out.push(item);
+    }
+  }
+  return out;
+}
+
 /**
  * Open the resume SSE stream for an existing run. Returns a fetch Response
  * whose body is an SSE stream — the caller pipes it through the same

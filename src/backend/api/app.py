@@ -79,6 +79,9 @@ def _startup_steps():
         (_startup_seed_mcp_servers, True, _ALL_ROLES),
         (_startup_seed_default_plugins, True, _ALL_ROLES),
         (_startup_upgrade_sites_plugin, True, _ALL_ROLES),
+        # Runs after the plugin seeding/upgrade steps above, which rewrite manifests
+        # and are exactly what can leave a server with display-only tool entries.
+        (_startup_backfill_tool_schemas, False, _ALL_ROLES),
         (_startup_local_sidecars, True, _ALL_ROLES),
         (_startup_recover_chat_runs, True, _ALL_ROLES),
         (_startup_resume_loops, False, _ALL_ROLES),
@@ -838,6 +841,15 @@ async def _startup_upgrade_sites_plugin():
     count = await asyncio.to_thread(upgrade)
     if count:
         logger.info("[startup] upgraded %d builtin sites installation(s)", count)
+
+
+async def _startup_backfill_tool_schemas():
+    """Capture real tool schemas for servers a plugin manifest only named."""
+    from core.services.mcp_tool_schema_backfill import backfill_missing_tool_schemas
+
+    count = await backfill_missing_tool_schemas()
+    if count:
+        logger.info("[startup] tool schemas captured for %d MCP server(s)", count)
 
 
 async def _startup_seed_default_plugins():

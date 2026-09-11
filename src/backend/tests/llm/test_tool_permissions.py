@@ -312,7 +312,8 @@ async def test_local_command_ticket_carries_os_sandbox_constraints():
     assert command is not None
     # 票据带的就是本次运行的权限档，桌面端不再另存一份
     assert command.approval_mode == "ask"
-    assert "/data/project" in command.write_paths
+    assert command.confined is True
+    assert "/data/project" in command.access.writable_roots
 
 
 @pytest.mark.asyncio

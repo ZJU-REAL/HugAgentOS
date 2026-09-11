@@ -196,6 +196,37 @@ _WORKFLOW_MODE_HINT = (
     "一旦写入，「哪些还没做」就不再可判定。\n"
 )
 
+
+# 站点模式提示段 —— 只在会话由「实验室 → 站点」入口创建时拼进系统提示（与上面两段同源做法）。
+# 这段规则以前是前端拼在用户消息尾部发过来的，会被原样落库、刷新后显示在用户气泡里；
+# 现在放回系统提示，用户消息只存用户自己打的字。
+def _site_mode_hint(project_ctx: Optional[Dict[str, Any]] = None) -> str:
+    """建站会话与站点编辑会话的作业规则（会话挂在项目上即为编辑会话）。"""
+    ctx = project_ctx or {}
+    if ctx.get("project_id"):
+        folder = str(ctx.get("project_folder_name") or "").strip() or "<项目文件夹>"
+        return (
+            "\n\n## 站点编辑模式（用户已主动进入）\n"
+            f"本会话是站点编辑会话，该站点的全部源码已在项目文件夹 /myspace/{folder}/ 中。"
+            "请先用 glob 查看现有文件，然后**直接在原文件上增量修改**——不要在其他目录重新生成整站。\n"
+            "发布方式按工程类型分流：\n"
+            "① 项目里**有 package.json**（React 构建型工程）→ 先跑 init 脚本自愈依赖，"
+            "再改 src/ 源码 → npm run build → `publish_site` 带 src_dir=构建产物目录 + "
+            "source_dir=项目文件夹（详见 site-builder 技能「编辑会话」一节），"
+            "**绝不能把源码目录直接当站点发布**；\n"
+            "② 没有 package.json（静态站）→ 改完直接调 `publish_site`"
+            "（title 传站点名即可，src_dir 与 site_id 都不用传，后端按本会话绑定的项目自动定位同一站点）。\n"
+            "两种方式 URL 都不变、版本 +1，发布后把访问链接以 markdown 链接形式发给用户。\n"
+        )
+    return (
+        "\n\n## 站点建站模式（用户已主动进入）\n"
+        "本会话是建站会话。请在沙箱工作目录里生成完整的静态网站"
+        "（必须包含 index.html 入口，可包含多页面、CSS、JS、图片等），"
+        "完成后调用 `publish_site` 工具发布，并把访问链接以 markdown 链接形式发给用户。\n"
+        "若用户要在已发布站点上继续修改，带上该站点的 site_id 重新发布（URL 不变、版本 +1）。\n"
+    )
+
+
 from orchestration.registry import AgentSpec
 
 # Repo-level env files are loaded once by core.config.settings (repo root only,
@@ -740,6 +771,9 @@ async def create_agent_executor(
     # 只有它为 True 才注册 run_job 并注入作业脚本写法——与计划模式/批量执行同属"用户触发的
     # 模式"，不触发就完全不存在，普通问答不会被无关的批量规则干扰。
     workflow_mode: bool = False,
+    # site_mode: 站点会话（实验室『站点』入口创建）。建站或编辑的作业规则由系统提示注入，
+    # 不再由前端拼进用户消息——用户消息里只有用户自己打的字。
+    site_mode: bool = False,
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
     # True explicitly after determining (has chat_id, not
@@ -2767,6 +2801,21 @@ async def create_agent_executor(
                 version="1",
             )
             _log.info("[factory] +%s workflow mode hint injected", _elapsed())
+
+        # ── Inject site-mode hint (chat created from the Lab → Sites entry) ──
+        if site_mode:
+            _site_hint = _site_mode_hint(project_ctx)
+            system_prompt += _site_hint
+            _manifest_builder.add_prompt_section(
+                "runtime/site_mode",
+                _site_hint,
+                origin="builtin:site_mode",
+                trust="platform",
+                priority=880,
+                cache_class="mode",
+                version="1",
+            )
+            _log.info("[factory] +%s site mode hint injected", _elapsed())
 
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:

@@ -144,7 +144,7 @@ async def create_my_mcp_server(
 
 
 @router.delete("/mcp-servers/{server_id}", summary="删除我的私有 MCP")
-async def delete_my_mcp_server(
+def delete_my_mcp_server(
     server_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -227,7 +227,7 @@ class CreateUserSkillRequest(BaseModel):
 
 
 @router.post("/skills", status_code=201, summary="自助手写新建技能")
-async def create_my_skill(
+def create_my_skill(
     body: CreateUserSkillRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -357,7 +357,7 @@ def _get_own_skill(db: Session, user_id: str, skill_id: str) -> AdminSkill:
 
 
 @router.get("/skills/{skill_id}", summary="获取我的私有技能（用于编辑）")
-async def get_my_skill(
+def get_my_skill(
     skill_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -407,7 +407,7 @@ class UserSkillFileUpdate(BaseModel):
 
 
 @router.get("/skills/{skill_id}/files/{filename:path}", summary="读取我的技能文件")
-async def get_my_skill_file(
+def get_my_skill_file(
     skill_id: str,
     filename: str,
     user: UserContext = Depends(get_current_user),
@@ -429,7 +429,7 @@ async def get_my_skill_file(
 
 
 @router.put("/skills/{skill_id}/files/{filename:path}", summary="保存我的技能文件")
-async def save_my_skill_file(
+def save_my_skill_file(
     skill_id: str,
     filename: str,
     body: UserSkillFileUpdate,
@@ -461,7 +461,7 @@ async def save_my_skill_file(
 
 
 @router.delete("/skills/{skill_id}/files/{filename:path}", summary="删除我的技能文件")
-async def delete_my_skill_file(
+def delete_my_skill_file(
     skill_id: str,
     filename: str,
     user: UserContext = Depends(get_current_user),
@@ -518,7 +518,7 @@ async def upload_my_skill_file(
 
 
 @router.get("/skills/{skill_id}/export", summary="导出我的技能 zip")
-async def export_my_skill(
+def export_my_skill(
     skill_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -543,7 +543,7 @@ async def export_my_skill(
 
 
 @router.delete("/skills/{skill_id}", summary="删除我的私有技能")
-async def delete_my_skill(
+def delete_my_skill(
     skill_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -582,7 +582,7 @@ class UserSkillIconRequest(BaseModel):
 
 
 @router.put("/skills/{skill_id}/icon", summary="设置我的私有技能图标")
-async def set_my_skill_icon(
+def set_my_skill_icon(
     skill_id: str,
     body: UserSkillIconRequest,
     user: UserContext = Depends(get_current_user),

@@ -111,7 +111,7 @@ def _plan_to_dict(plan: BatchPlan, *, include_results: bool = False) -> dict:
 
 
 @router.get("/active", summary="查询会话的活跃批量计划")
-async def list_active_for_chat(
+def list_active_for_chat(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -145,7 +145,7 @@ async def list_active_for_chat(
 
 
 @router.get("/{plan_id}", summary="查询批量计划详情")
-async def get_plan(
+def get_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -166,7 +166,7 @@ async def get_plan(
 
 
 @router.post("/{plan_id}/confirm", summary="确认批量计划")
-async def confirm_plan(
+def confirm_plan(
     plan_id: str,
     body: ConfirmBody,
     user: UserContext = Depends(get_current_user),
@@ -202,7 +202,7 @@ async def confirm_plan(
 
 
 @router.post("/{plan_id}/cancel", summary="取消批量计划")
-async def cancel_plan(
+def cancel_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

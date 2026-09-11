@@ -24,7 +24,7 @@ Technical shape: a single uvicorn process (serving both the frontend static asse
 | Python | ≥ 3.11 |
 | Node.js | ≥ 20 (the public installer builds the frontend locally) |
 | Rust and Cargo | Required on Linux without a compatible prebuilt `ripgrep` wheel, including x86_64 systems with glibc earlier than 2.39 |
-| OS file sandbox | Linux requires `bubblewrap` (`bwrap`; installed automatically by the installer); macOS uses the system `sandbox-exec` |
+| OS sandbox | Linux requires `bubblewrap` (`bwrap`; installed automatically by the installer); macOS uses the system `sandbox-exec`; Windows uses a system restricted token and needs no extra install |
 | Network | Access to the configured LLM API endpoint |
 
 ## Install
@@ -39,7 +39,7 @@ The installer will:
 
 1. Verify Python ≥ 3.11, Node.js ≥ 20, npm, Git, and Rust when the Linux platform must build `ripgrep` from source;
 2. Clone or fast-forward HugAgentOS at `~/.hugagent/source`;
-3. Detect and install `bubblewrap` on Linux, or verify the system `sandbox-exec` on macOS; installation fails when strong confinement is unavailable instead of falling back to raw execution;
+3. Detect and install `bubblewrap` on Linux, or verify the system `sandbox-exec` on macOS; installation fails when the sandbox backend is unavailable instead of falling back to raw execution;
 4. Detect optional LibreOffice and, when it is missing, explain the unavailable features and ask whether to install it; skipping it or a failed install doesn't block the remaining features;
 5. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
 6. Install `requirements.txt`, the `hugagent` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
@@ -136,7 +136,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 
 **Works out of the box**
 - **Core chat + ReAct tool orchestration + plan mode + reconnect replay + citations.**
-- **Code execution (bash / Python)**: runs as a host subprocess, but the *Ask for approval* and *Approve for me* presets prefer to enforce write boundaries through the OS file sandbox (Linux `bubblewrap`, macOS `sandbox-exec`). On a host without a runner those two degrade to the local command policy alone and say so; an unreadable local security configuration fails closed instead of executing raw. Native file tools use the same read/write policy, and the workspace lives at `~/.hugagent/workspace/`. This remains a single-user local profile, not multi-tenant container isolation.
+- **Code execution (bash / Python)**: runs as a host subprocess, confined by the operating system's own sandbox — `bubblewrap` on Linux, `sandbox-exec` on macOS, a restricted token on Windows. Every permission preset except *Full access* is sandboxed: writes are limited to the workspace and the folders you authorized, `.git` inside a writable root stays read-only, and scratch space is private to the command. Setting the *network* category to *block* also cuts the command off the network on Linux and macOS. When the backend is unavailable, or the platform cannot enforce the whole policy, the command is refused with the reason instead of degrading to raw execution. Native file tools use the same read/write policy, and the workspace lives at `~/.hugagent/workspace/`. This remains a single-user local profile, not multi-tenant container isolation.
 - **Built-in skills** (the 5 word / excel / ppt / pdf editing skills): synced into the workspace at install time so the sandbox can run their scripts directly.
 - **Built-in tool MCPs**: internet search / web fetch / batch execution / KB retrieval, etc. — the servers run fine (some need a configured external service or key to return data, see below).
 - **Data visualization (charts)**: the installer installs matplotlib; works once present.
@@ -172,7 +172,8 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | Startup logs repeatedly report `AllocTimestamp` / `Method not implemented` | Stop the service and rerun the public one-command installer. The installer reconciles PyMilvus and Milvus Lite to compatible versions without deleting `~/.hugagent/milvus.db`. |
 | Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
 | PPT/Word preview reports that LibreOffice isn't installed | Re-run the one-command installer and choose to install it when prompted. On Debian/Ubuntu, you can instead run `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`, then restart HugAgentOS. |
-| bash reports a missing OS sandbox runner | Install `bubblewrap` on Linux (`sudo apt-get install bubblewrap` on Debian/Ubuntu), then restart. Only with the runner installed are host commands OS-confined; without it the local command policy alone governs them and the tool result says so. |
+| bash reports a missing OS sandbox runner | Install `bubblewrap` on Linux (`sudo apt-get install bubblewrap` on Debian/Ubuntu), then restart. Until it is installed, every preset except *Full access* refuses host commands outright — by design, rather than running them unconfined. |
+| bash reports that this system cannot enforce the policy | The preset asks for isolation beyond what this platform provides — a Windows restricted token cannot narrow reads, and cannot cut the network without administrator rights. Relax the corresponding setting (for example move the *network* category from *block* back to *confirm*), or use a platform that offers the capability. |
 | Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
 | Is the environment ready | `hugagent doctor` runs a one-shot self-check |
 

@@ -91,7 +91,7 @@ async def wiki_capability(
 
 
 @router.get("/{kb_id}/wiki/capability", summary="指定知识库是否具备 Wiki 能力")
-async def wiki_capability_for_kb(
+def wiki_capability_for_kb(
     kb_id: str = Path(..., description="知识库 ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -269,7 +269,7 @@ async def wiki_source(
 
 
 @router.post("/{kb_id}/wiki/rebuild", summary="重新生成该知识库的 Wiki")
-async def wiki_rebuild(
+def wiki_rebuild(
     kb_id: str = Path(..., description="知识库 ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

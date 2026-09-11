@@ -279,7 +279,7 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
     monkeypatch.setattr(executor, "astream_chat_workflow", fake_workflow)
     monkeypatch.setattr(executor, "_xadd_event", fake_xadd)
     monkeypatch.setattr(executor, "_update_run_status", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(executor, "_claim_run_execution", lambda _run_id: True)
+    monkeypatch.setattr(executor, "_claim_run_execution", lambda _run_id: executor._utcnow())
     monkeypatch.setattr(executor, "_acknowledge_terminal_writer", lambda _run_id: False)
     monkeypatch.setattr(executor, "_finalize_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

@@ -94,7 +94,7 @@ export function Sidebar({
     pendingDesignPick,
     pendingUserQuestions,
   } = useUIStore();
-  const { store, currentChatId, chatsLoading, sendingChatIds, updateStore, addBackendSessionId } = useChatStore();
+  const { store, currentChatId, chatsLoading, sendingChatIds, remoteRunningChatIds, updateStore, addBackendSessionId } = useChatStore();
   const { authUser, doLogout, loggingOut } = useAuthStore();
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -573,7 +573,7 @@ export function Sidebar({
                 </Tooltip>
                 <span className="jx-visuallyHidden">{t('等待你的回答')}</span>
               </>
-            ) : sendingChatIds.has(item.id) ? (
+            ) : (sendingChatIds.has(item.id) || remoteRunningChatIds.has(item.id)) ? (
               <Tooltip title={t('运行中')}>
                 <span className="jx-historyRunningDot" />
               </Tooltip>

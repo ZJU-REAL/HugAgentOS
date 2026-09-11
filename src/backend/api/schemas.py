@@ -140,6 +140,14 @@ class ChatRequest(BaseModel):
             "避免普通问答被无关的批量规则干扰。"
         ),
     )
+    site_chat: bool = Field(
+        default=False,
+        description=(
+            "是否为站点会话（实验室『站点』入口创建的建站 / 站点编辑对话）。"
+            "为 True 时由后端在系统提示里注入建站或编辑的作业规则——"
+            "这段规则不进用户消息，历史里看不到它。"
+        ),
+    )
     disable_batch_plan: bool = Field(
         default=False,
         description=(

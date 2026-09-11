@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { hasActiveSelectionIn, nextFollowState, SCROLL_RESUME_THRESHOLD, type FollowScrollState } from '../src/utils/scroll';
 import { morphChildren } from '../src/utils/domPatch';
 import { pickSiteEditChat } from '../src/utils/history';
+import { resolveSiteModeActive } from '../src/utils/chatMode';
 import { markResolvedPlanPreviews } from '../src/utils/planHistory';
 import type { ChatItem, ChatMessage } from '../src/types';
 
@@ -332,6 +333,30 @@ import type { ChatItem, ChatMessage } from '../src/types';
   ]) {
     assert.match(appSource, dep, '滚动相关 effect 的依赖里必须带上 contentEl');
   }
+}
+
+{
+  // 站点会话的建站/编辑规则曾经被前端拼在用户消息尾部一起发给后端，于是原样落库 ——
+  // 刷新页面后历史回放把这段面向模型的规则显示在用户自己的气泡里（用户看到的是自己"说"了
+  // 一段没打过的系统提示）。规则已改由后端按 site_chat 标志在系统提示里注入，前端只上行标志。
+  assert.equal(resolveSiteModeActive({ siteChat: true }, '做个公司官网'), true);
+  assert.equal(resolveSiteModeActive({ siteChat: false }, '做个公司官网'), false);
+  assert.equal(resolveSiteModeActive(undefined, '做个公司官网'), false);
+  // /init 那一轮走项目初始化，不带站点规则
+  assert.equal(resolveSiteModeActive({ siteChat: true }, '/init'), false);
+  assert.equal(resolveSiteModeActive({ siteChat: true }, ' /初始化指令 '), false);
+
+  const streamingSource = readFileSync('src/hooks/useStreaming.ts', 'utf8');
+  assert.doesNotMatch(
+    streamingSource,
+    /\[系统提示/,
+    '面向模型的提示不许拼进用户消息：消息按原样落库，刷新后会显示在用户气泡里',
+  );
+  assert.match(
+    streamingSource,
+    /site_chat: true/,
+    '站点模式只能以标志上行，由后端注入系统提示',
+  );
 }
 
 console.log('ui regression checks OK');

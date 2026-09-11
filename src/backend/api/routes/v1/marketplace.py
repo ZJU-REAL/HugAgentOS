@@ -41,7 +41,7 @@ def _require_can_add_skill(user_id: str, db: Session) -> None:
 
 
 @router.get("/skills", summary="技能市场列表")
-async def list_skills(
+def list_skills(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -54,7 +54,7 @@ async def list_skills(
 
 
 @router.get("/categories", summary="技能市场分类")
-async def list_categories(
+def list_categories(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -62,7 +62,7 @@ async def list_categories(
 
 
 @router.get("/skills/{slug}", summary="技能市场详情")
-async def get_skill(
+def get_skill(
     slug: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -79,7 +79,7 @@ class InstallRequest(BaseModel):
 
 
 @router.post("/install", status_code=201, summary="安装市场技能（私有）")
-async def install_skill(
+def install_skill(
     body: InstallRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -111,7 +111,7 @@ class SubmitRequest(BaseModel):
 
 
 @router.post("/submissions", status_code=201, summary="申请把私有技能上架市场")
-async def submit_skill(
+def submit_skill(
     body: SubmitRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -131,7 +131,7 @@ async def submit_skill(
 
 
 @router.get("/submissions", summary="我的上架申请列表")
-async def list_my_submissions(
+def list_my_submissions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -139,7 +139,7 @@ async def list_my_submissions(
 
 
 @router.delete("/submissions/{submission_id}", summary="撤回上架申请")
-async def withdraw_submission(
+def withdraw_submission(
     submission_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

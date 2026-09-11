@@ -1,4 +1,10 @@
-"""Local bash permission integration: unattended asks and missing sandboxes fail closed."""
+"""Local bash permission integration.
+
+Covers the seam between the permission layer and the execution boundary: what
+scope a command is granted, that an unconfinable command is refused rather than
+run, and that the sandbox the boundary applies is the one the permission layer
+decided on.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from agentscope.message import ToolCallBlock
 from core.llm.tool_permissions import (
     APPROVAL_ASK,
@@ -20,7 +27,36 @@ from core.llm.tool_permissions import (
 )
 from core.llm.tools.sandbox_tool import register_bash
 from core.sandbox.local_policy import Grant, Policy
-from core.sandbox.os_sandbox import OsSandboxUnavailableError
+from core.sandbox.oslayer import AccessMode, NetworkPolicy, SandboxUnavailableError
+
+_CONFINE = "core.sandbox.os_sandbox.confine"
+
+
+def _host_provider(execute=None):
+    """A provider that runs commands on the host, so the OS sandbox applies."""
+
+    async def _unreachable(_req):
+        raise AssertionError("execution should not have been reached")
+
+    return SimpleNamespace(runs_on_host=True, execute=execute or _unreachable)
+
+
+def _patch_host_provider(execute=None):
+    return patch("core.sandbox.get_sandbox_provider", return_value=_host_provider(execute))
+
+
+def _capture_policy(captured: dict):
+    """Patch target that records the policy and stops before the real backend."""
+
+    def _capture(policy, context):
+        captured["policy"] = policy
+        captured["resolved"] = policy.filesystem.resolve(context)
+        captured["writable"] = [
+            root.root for root in captured["resolved"].roots_for(AccessMode.WRITE)
+        ]
+        raise SandboxUnavailableError("stop after capture")
+
+    return _capture
 
 
 class _Toolkit:
@@ -110,9 +146,9 @@ async def test_local_bash_execution_boundary_rejects_missing_ticket():
     assert "授权票据" in payload["error"]
 
 
-async def test_fail_closed_mode_rejects_missing_os_sandbox():
-    """本机安全配置读不出来时的记号档要求强隔离，拿不到就拒跑，不裸跑。"""
-    unavailable = OsSandboxUnavailableError("sandbox unavailable")
+@pytest.mark.parametrize("approval_mode", [APPROVAL_ASK, FAIL_CLOSED_MODE])
+async def test_a_command_that_cannot_be_confined_is_refused(approval_mode):
+    """没有可用后端就拒跑，绝不裸跑——这是本模块要守住的核心行为。"""
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
@@ -121,17 +157,17 @@ async def test_fail_closed_mode_rejects_missing_os_sandbox():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch("core.sandbox.os_sandbox.wrap_command", side_effect=unavailable),
+        patch(_CONFINE, side_effect=SandboxUnavailableError("sandbox unavailable")),
+        _patch_host_provider(),
     ):
-        response = await _run_authorized("ls -la", interactive=True, approval_mode=FAIL_CLOSED_MODE)
+        response = await _run_authorized("ls -la", interactive=True, approval_mode=approval_mode)
     payload = _payload(response)
     assert payload["blocked"] is True
     assert payload["sandbox_unavailable"] is True
 
 
-async def test_asking_preset_degrades_instead_of_losing_the_shell():
-    """No bundled backend (Windows, bwrap-less Linux) must not mean "no bash"."""
-    unavailable = OsSandboxUnavailableError("sandbox unavailable")
+async def test_the_execution_boundary_forwards_the_launch_and_the_command_verbatim():
+    """The command text is untouched; confinement travels beside it, not inside it."""
     executed = {}
 
     class _Result:
@@ -139,6 +175,7 @@ async def test_asking_preset_degrades_instead_of_losing_the_shell():
 
     async def _execute(req):
         executed["script"] = req.script_content
+        executed["launch"] = req.sandbox_launch
         return _Result()
 
     with (
@@ -149,28 +186,57 @@ async def test_asking_preset_degrades_instead_of_losing_the_shell():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch("core.sandbox.os_sandbox.wrap_command", side_effect=unavailable),
-        patch(
-            "core.sandbox.get_sandbox_provider",
-            return_value=SimpleNamespace(execute=_execute),
-        ),
+        _patch_host_provider(_execute),
     ):
         response = await _run_authorized("ls -la", interactive=True)
 
     payload = _payload(response)
     assert payload.get("blocked") is None
     assert payload["exit_code"] == 0
-    # The command ran verbatim, and the degraded isolation is reported, not hidden.
     assert executed["script"] == "ls -la"
-    assert "未受 OS 沙箱约束" in payload["confinement_warning"]
+    assert executed["launch"] is not None
+    assert executed["launch"].argv_prefix
+
+
+async def test_blocking_the_network_category_restricts_the_sandbox_network():
+    """用户在本地权限里把网络设成 block，沙箱这一维就真的关掉。"""
+    captured: dict = {}
+    with (
+        patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
+        patch("core.config.local_mode.local_mode_enabled", return_value=True),
+        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch(
+            "core.services.local_grant_service.policy_for_gate",
+            return_value=Policy(danger={"network": "block"}),
+        ),
+        patch(_CONFINE, new=_capture_policy(captured)),
+        _patch_host_provider(),
+    ):
+        await _run_authorized("ls -la", interactive=True)
+
+    assert captured["policy"].network is NetworkPolicy.RESTRICTED
+
+
+async def test_leaving_the_network_category_alone_keeps_the_sandbox_network_open():
+    captured: dict = {}
+    with (
+        patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
+        patch("core.config.local_mode.local_mode_enabled", return_value=True),
+        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch(
+            "core.services.local_grant_service.policy_for_gate",
+            return_value=Policy(),
+        ),
+        patch(_CONFINE, new=_capture_policy(captured)),
+        _patch_host_provider(),
+    ):
+        await _run_authorized("ls -la", interactive=True)
+
+    assert captured["policy"].network is NetworkPolicy.ENABLED
 
 
 async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
-    captured = {}
-
-    def capture_and_stop(_command, write_paths, **_kwargs):
-        captured["write_paths"] = write_paths
-        raise OsSandboxUnavailableError("stop after capture")
+    captured: dict = {}
 
     with TemporaryDirectory() as tmp:
         source_dir = Path(tmp) / "source"
@@ -196,14 +262,9 @@ async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
                 "core.llm.tools._myspace_confirm.gate",
                 new=AsyncMock(return_value=None),
             ),
-            patch(
-                "core.sandbox.os_sandbox.confinement_unavailable_reason",
-                return_value="",
-            ),
-            patch(
-                "core.sandbox.os_sandbox.wrap_command",
-                side_effect=capture_and_stop,
-            ),
+            patch(_CONFINE, new=_capture_policy(captured)),
+            _patch_host_provider(),
+            _patch_host_provider(),
         ):
             response = await _run_authorized(
                 f"cp {source} {destination}", interactive=True, approval_mode=FAIL_CLOSED_MODE
@@ -211,17 +272,13 @@ async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
 
     payload = _payload(response)
     assert payload["sandbox_unavailable"] is True
-    assert str(destination_dir) in captured["write_paths"]
-    assert str(source) not in captured["write_paths"]
-    assert str(source_dir) not in captured["write_paths"]
+    assert str(destination_dir) in captured["writable"]
+    assert str(source) not in captured["writable"]
+    assert str(source_dir) not in captured["writable"]
 
 
 async def test_system_overlapping_grant_is_not_a_standing_os_write_bind():
-    captured = {}
-
-    def capture_and_stop(_command, write_paths, **_kwargs):
-        captured["write_paths"] = write_paths
-        raise OsSandboxUnavailableError("stop after capture")
+    captured: dict = {}
 
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
@@ -234,16 +291,56 @@ async def test_system_overlapping_grant_is_not_a_standing_os_write_bind():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch(
-            "core.sandbox.os_sandbox.confinement_unavailable_reason",
-            return_value="",
-        ),
-        patch(
-            "core.sandbox.os_sandbox.wrap_command",
-            side_effect=capture_and_stop,
-        ),
+        patch(_CONFINE, new=_capture_policy(captured)),
+        _patch_host_provider(),
     ):
         response = await _run_authorized("ls", interactive=True, approval_mode=FAIL_CLOSED_MODE)
 
     assert _payload(response)["sandbox_unavailable"] is True
-    assert "/" not in captured["write_paths"]
+    assert "/" not in captured["writable"]
+
+
+async def test_an_unattended_run_is_confined_like_an_interactive_one():
+    """自动化/子智能体只是跳过「问一句」，不跳过沙箱。"""
+    captured: dict = {}
+    registry = ToolPermissionRegistry()
+    spec = builtin_tool_permission("bash")
+    assert spec is not None
+    registry.register("bash", spec, source="test")
+    service = ToolPermissionService(
+        registry,
+        PermissionRuntime(
+            chat_id="chat-1",
+            user_id="user-1",
+            interactive=False,
+            approval_available=False,
+            default_allow=True,
+            approval_mode=APPROVAL_ASK,
+        ),
+    )
+
+    with (
+        patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
+        patch("core.config.local_mode.local_mode_enabled", return_value=True),
+        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch(
+            "core.services.local_grant_service.policy_for_gate",
+            return_value=Policy(),
+        ),
+        patch(_CONFINE, new=_capture_policy(captured)),
+        _patch_host_provider(),
+    ):
+        outcome = await service.authorize(
+            ToolCallBlock(id="bash-1", name="bash", input=json.dumps({"command": "ls -la"}))
+        )
+        assert outcome.ticket is not None
+        assert outcome.ticket.local_command is not None
+        assert outcome.ticket.local_command.confined is True
+        token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
+        try:
+            response = await _bash(interactive=False)("ls -la")
+        finally:
+            CURRENT_PERMISSION_TICKET.reset(token)
+
+    assert _payload(response)["sandbox_unavailable"] is True
+    assert captured["policy"] is not None

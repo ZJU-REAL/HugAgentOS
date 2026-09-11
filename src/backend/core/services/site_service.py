@@ -205,7 +205,7 @@ class SiteService:
                 chat_id = None
 
         if site_id:
-            site = self.get_owned(site_id, user_id, required="edit")
+            site = self.get_owned(site_id, user_id, required="edit", for_update=True)
             if project_id and site.project_id != project_id:
                 raise BadRequestError("目标站点与当前源码项目不一致")
             if site_management_permission(self.db, site, user_id) != "admin":
@@ -457,12 +457,16 @@ class SiteService:
         total = query.count()
         return query.order_by(Site.updated_at.desc()).offset((page - 1) * page_size).limit(page_size).all(), total
 
-    def get_owned(self, site_id: str, user_id: str, *, required: str = "admin") -> Site:
+    def get_owned(
+        self, site_id: str, user_id: str, *, required: str = "admin", for_update: bool = False
+    ) -> Site:
+        """取站点并校验权限。`for_update` 只由改写 sites 行本身的路径开启——权限级别与行锁
+        是两件正交的事，读路径拿排他锁会让并发打开站点面板的请求互相阻塞。"""
         from fastapi import HTTPException
         site = (self.db.query(Site).filter(
             Site.site_id == site_id, Site.deleted_at.is_(None),
         ).populate_existing().with_for_update().first()
-                if required != "view" else self.repo.get_by_id(site_id))
+                if for_update else self.repo.get_by_id(site_id))
         level = site_management_permission(self.db, site, user_id) if site else "none"
         if level == "none":
             raise ResourceNotFoundError("site", site_id)
@@ -481,7 +485,7 @@ class SiteService:
         description: Optional[str] = None,
         scope_id: Optional[str] = None,
     ) -> Site:
-        site = self.get_owned(site_id, user_id)
+        site = self.get_owned(site_id, user_id, for_update=True)
         data: Dict[str, Any] = {}
         if title is not None:
             title = title.strip()
@@ -502,7 +506,7 @@ class SiteService:
 
     def rollback(self, site_id: str, user_id: str, version: int) -> Site:
         """Switch the live version in place to a historical one (version directories are immutable; flipping the pointer is the rollback)."""
-        site = self.get_owned(site_id, user_id)
+        site = self.get_owned(site_id, user_id, for_update=True)
         version = int(version)
         if version == site.current_version:
             raise BadRequestError(f"v{version} 已是当前线上版本")
@@ -658,7 +662,7 @@ class SiteService:
         }
 
     def delete_site(self, site_id: str, user_id: str) -> None:
-        site = self.get_owned(site_id, user_id)
+        site = self.get_owned(site_id, user_id, for_update=True)
         self.repo.soft_delete(site.site_id)
         # Physically delete files in local mode; keep them in oss mode (the soft delete has already freed the slug)
         import os

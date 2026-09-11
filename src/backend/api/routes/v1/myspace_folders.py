@@ -45,7 +45,7 @@ class MoveArtifactBody(BaseModel):
 
 
 @router.get("", summary="我的文件夹列表")
-async def list_folders(
+def list_folders(
     as_: Optional[str] = Query("tree", alias="as", description="tree | flat"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -73,7 +73,7 @@ async def list_folders(
 
 
 @router.get("/breadcrumb", summary="文件夹面包屑路径")
-async def get_breadcrumb(
+def get_breadcrumb(
     folder_id: str = Query(...),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -88,7 +88,7 @@ async def get_breadcrumb(
 
 
 @router.post("", summary="创建个人文件夹")
-async def create_folder(
+def create_folder(
     body: CreateFolderBody,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -107,7 +107,7 @@ async def create_folder(
 
 
 @router.patch("/{folder_id}", summary="重命名/移动个人文件夹")
-async def update_folder(
+def update_folder(
     folder_id: str,
     body: UpdateFolderBody,
     user: UserContext = Depends(get_current_user),
@@ -134,7 +134,7 @@ async def update_folder(
 
 
 @router.delete("/{folder_id}", summary="删除个人文件夹（级联）")
-async def delete_folder(
+def delete_folder(
     folder_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -155,7 +155,7 @@ async def delete_folder(
 
 
 @router.get("/{folder_id}/affected-count", summary="文件夹删除影响数预检")
-async def affected_count(
+def affected_count(
     folder_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -170,7 +170,7 @@ async def affected_count(
 
 
 @router.post("/move-artifact", summary="移动个人文件到文件夹")
-async def move_artifact_to_folder(
+def move_artifact_to_folder(
     body: MoveArtifactBody,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -188,7 +188,7 @@ async def move_artifact_to_folder(
 
 
 @router.post("/copy-artifact", summary="复制个人文件到文件夹")
-async def copy_artifact_to_folder(
+def copy_artifact_to_folder(
     body: MoveArtifactBody,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

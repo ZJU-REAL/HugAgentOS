@@ -324,6 +324,15 @@ interface ChatState {
   addSendingChatId: (id: string) => void;
   /** Mark a chat id as no longer streaming. Removes from set + updates derived `sending`. */
   removeSendingChatId: (id: string) => void;
+  /** 在别处（另一台设备 / 另一个标签页）还在跑的会话。
+   *
+   *  `sendingChatIds` 只记本标签页自己挂着的流，所以换设备登录时侧边栏对没点开过的
+   *  会话一无所知。这里存服务端快照，登录、拉完会话列表、窗口切回来时刷新，让
+   *  「运行中」小圆点不必等用户点进去才亮。 */
+  remoteRunningChatIds: Set<string>;
+  /** 重新问一次服务端"我还有哪些会话在跑"。失败不改现状：宁可灯保持上一次的样子，
+   *  也不要因为一次网络抖动把正在跑的灯全灭掉。 */
+  refreshRemoteRunningChats: () => Promise<void>;
   toggleThinking: (id: string) => void;
   setChatMode: (v: ChatMode) => void;
   setModeSlug: (v: string) => void;
@@ -450,6 +459,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   input: '',
   sending: false,
   sendingChatIds: new Set(),
+  remoteRunningChatIds: new Set(),
   expandedThinking: new Set(),
   chatMode: 'fast',
   lastStandardMode: 'fast',
@@ -546,6 +556,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     next.delete(id);
     return { sendingChatIds: next, sending: next.has(s.currentChatId) };
   }),
+  refreshRemoteRunningChats: async () => {
+    const { listActiveChatRuns } = await import('../api');
+    const items = await listActiveChatRuns();
+    set({ remoteRunningChatIds: new Set(items.map((item) => item.chat_id)) });
+  },
   toggleThinking: (id) => {
     const next = new Set(get().expandedThinking);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -750,7 +765,11 @@ export const useChatStore = create<ChatState>((set, get) => {
   clearActiveRun: (chatId) => set((s) => {
     const next = { ...s.activeRuns };
     delete next[chatId];
-    return { activeRuns: next };
+    // 本标签页刚确知这一轮结束了，比服务端快照新——立刻灭灯，不等下一次刷新。
+    if (!s.remoteRunningChatIds.has(chatId)) return { activeRuns: next };
+    const remote = new Set(s.remoteRunningChatIds);
+    remote.delete(chatId);
+    return { activeRuns: next, remoteRunningChatIds: remote };
   }),
   setQueuedMessage: (chatId, queued) => {
     set((s) => {
@@ -1162,6 +1181,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       pendingScrollMessageTs: pendingScroll,
       // Reset any in-flight UI state carried over from a previous user.
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},
@@ -1215,6 +1235,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       input: '',
       sending: false,
       sendingChatIds: new Set(),
+      remoteRunningChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
   messagePaging: {},

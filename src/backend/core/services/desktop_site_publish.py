@@ -39,8 +39,14 @@ async def package_local_site(arguments, headers):
     src = str(arguments.get("src_dir") or "").strip().rstrip("/")
     if not src or src == ".":
         if local_mode_enabled():
+            # Name the missing argument and how to fill it for the case at hand:
+            # a new site has nothing to look up, so pointing every failure at
+            # list_project_sites leaves that path with no way forward.
             raise ValueError(
-                "本机发布必须显式传 src_dir；编辑前调用 list_project_sites 查询原 site_id 和发布目录"
+                "本机发布必须显式传 src_dir（页面根目录的绝对路径，需含 index.html）。"
+                "新建站点：把刚生成页面的目录传给 src_dir，不传 site_id。"
+                "编辑已发布站点：先调 list_project_sites 取原 site_id 与 publish_dir，"
+                "再以 src_dir=publish_dir 重新发布。"
             )
         src = project_dir or "/workspace/site"
     import os

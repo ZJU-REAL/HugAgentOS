@@ -1,4 +1,3 @@
-import { isProjectInitCommand } from '../utils/projectCommands';
 import { useEffect, useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
@@ -6,7 +5,7 @@ import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, 
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
-import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
+import { resolveBatchModeActive, resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
@@ -498,39 +497,13 @@ export function useStreaming(
     // Keep the @name prefix for persisted history/display compatibility. The authoritative
     // routing key is mention_agent_id below, so the backend can bypass the main agent and run
     // the selected sub-agent directly without a name lookup or a second call_subagent spawn.
-    let wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
+    const wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
 
-    // "Site building" conversation: append site-building guidance to the wire message (the msg
-    // shown in the bubble stays clean; the @Sites marker is rendered separately by the input-box
-    // chip). Branch on session state:
-    //   - editing session (chat is bound to the site source workspace projectId) → guide toward
-    //     incremental edits on the project folder's original files; forbid regenerating the whole
-    //     site in /workspace/site (otherwise publish would pack the project folder and the new code would be dropped);
-    //   - site-building session → guide toward generating a complete static site in the sandbox and publishing via publish_site.
-    const siteChatItem = useChatStore.getState().store.chats[currentChatId];
-    if (siteChatItem?.siteChat && !isProjectInitCommand(msg)) {
-      if (siteChatItem.projectId) {
-        const folder = siteChatItem.projectName || '';
-        const folderHint = folder ? `/myspace/${folder}/` : '/myspace/<项目文件夹>/';
-        wireMsg =
-          `${wireMsg}\n\n` +
-          `[系统提示：这是「站点编辑」会话。该站点的全部源码已在项目文件夹 ${folderHint} 中，` +
-          `请先用 glob 查看现有文件，然后**直接在原文件上增量修改**——不要在其他目录重新生成整站。` +
-          `发布方式按工程类型分流：① 项目里**有 package.json**（React 构建型工程）→ 先跑` +
-          ` init 脚本自愈依赖，再改 src/ 源码 → npm run build → publish_site 带` +
-          ' src_dir=构建产物目录 + source_dir=项目文件夹（详见 site-builder 技能「编辑会话」一节），' +
-          '**绝不能把源码目录直接当站点发布**；② 没有 package.json（静态站）→ 改完直接调 publish_site' +
-          '（title 传站点名即可，src_dir 与 site_id 都不用传，后端按本会话绑定的项目自动定位' +
-          '同一站点）。两种方式 URL 都不变、版本 +1，发布后把访问链接以 markdown 链接形式发给用户。]';
-      } else {
-        wireMsg =
-          `${wireMsg}\n\n` +
-          '[系统提示：这是「站点建站」会话。请在沙箱工作目录里生成完整的静态网站' +
-          '（必须包含 index.html 入口，可包含多页面、CSS、JS、图片等），完成后调用 ' +
-          'publish_site 工具发布，并把访问链接以 markdown 链接形式发给用户。' +
-          '若用户要在已发布站点上继续修改，带上该站点的 site_id 重新发布（URL 不变、版本 +1）。]';
-      }
-    }
+    // "Site" conversation (Lab → Sites): the build / edit working rules live in the backend
+    // system prompt (agent_factory._site_mode_hint), keyed off this flag. They are deliberately
+    // NOT spliced into the message — the wire message is persisted verbatim and replayed into
+    // the user's bubble on reload, which would show the model-facing rules to the user.
+    const siteMode = resolveSiteModeActive(useChatStore.getState().store.chats[currentChatId], msg);
 
     // Snapshot the chat id — user may switch chats mid-stream, but this stream
     // continues writing to the chat it was started in.
@@ -712,6 +685,7 @@ export function useStreaming(
           ...chatInvocationRequestFields(currentInvocation),
           ...(batchChat ? { batch_chat: true } : {}),
           ...(workflowChat ? { workflow_chat: true } : {}),
+          ...(siteMode ? { site_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when
           // creating/fetching the session). When the chat has no bound project, fall back to
           // useProjectStore.currentProjectId — this only applies to the first message sent while
@@ -1271,8 +1245,16 @@ export function useStreaming(
      ─────────────────────────────────────────── */
   const RUN_STALL_MS = 75_000;
   const RUN_WATCH_EVERY_MS = 20_000;
+  /** 侧边栏「别处在跑」快照的刷新间隔（每 3 拍看门狗一次）。
+   *
+   *  别处（另一台设备 / 另一个标签页）跑完时本标签页收不到任何事件，没人来灭灯。
+   *  切窗口会立刻刷新（见 useChatInit），这一发管的是"人一直待在这个窗口里"的情形。
+   *  复用看门狗的定时器，不另起一个。 */
+  const REMOTE_RUNNING_REFRESH_MS = RUN_WATCH_EVERY_MS * 3;
   /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
   const reconcilingRef = useRef<Set<string>>(new Set());
+  /** 上一次刷新「别处在跑」快照的时刻。 */
+  const lastRemoteRunningRefreshRef = useRef(0);
 
   async function reconcileStalledRun(chatId: string) {
     if (reconcilingRef.current.has(chatId)) return;
@@ -1345,6 +1327,13 @@ export function useStreaming(
       // 后台标签页不必占着这一发：切回来时 currentChatId 的 effect 本来就会补跟随
       if (currentChatId && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
         void attachServerStartedRun(currentChatId);
+      }
+      // 同上，只在前台刷「别处在跑」的快照：人不在这个窗口前时灯亮不亮没人看。
+      if (typeof document !== 'undefined' && document.visibilityState !== 'hidden'
+          && now - lastRemoteRunningRefreshRef.current >= REMOTE_RUNNING_REFRESH_MS) {
+        lastRemoteRunningRefreshRef.current = now;
+        void useChatStore.getState().refreshRemoteRunningChats()
+          .catch(() => { /* 灯保持原样，下一拍再问 */ });
       }
     }, RUN_WATCH_EVERY_MS);
     return () => window.clearInterval(timer);

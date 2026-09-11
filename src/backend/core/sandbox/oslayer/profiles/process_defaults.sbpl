@@ -1,0 +1,8 @@
+; Scratch directories ordinary processes expect to exist. Included only for the
+; process profile, so filesystem helpers never inherit scratch access beyond the
+; paths their policy actually grants.
+(allow file-read* (subpath "/Applications"))
+(allow file-read* file-test-existence file-write* (subpath "/tmp"))
+(allow file-read* file-write* (subpath "/private/tmp"))
+(allow file-read* file-write* (subpath "/var/tmp"))
+(allow file-read* file-write* (subpath "/private/var/tmp"))

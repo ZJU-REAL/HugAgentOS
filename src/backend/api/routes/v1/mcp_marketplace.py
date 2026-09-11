@@ -28,7 +28,7 @@ def _require_can_add_mcp(user_id: str, db: Session) -> None:
 
 
 @router.get("/items", summary="MCP 市场列表")
-async def list_items(
+def list_items(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -43,7 +43,7 @@ async def list_items(
 
 
 @router.get("/items/{slug}", summary="MCP 市场详情")
-async def get_item(
+def get_item(
     slug: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -202,7 +202,7 @@ async def submit_item(
 
 
 @router.get("/submissions", summary="我的 MCP 上架申请")
-async def list_my_submissions(
+def list_my_submissions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -210,7 +210,7 @@ async def list_my_submissions(
 
 
 @router.delete("/submissions/{submission_id}", summary="撤回 MCP 上架申请")
-async def withdraw_submission(
+def withdraw_submission(
     submission_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

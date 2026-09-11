@@ -67,7 +67,7 @@ class NotificationIdsRequest(BaseModel):
 # ── Endpoints ──────────────────────────────────────────────────
 
 @router.post("", summary="创建自动化任务")
-async def create_automation(
+def create_automation(
     req: CreateAutomationRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -142,7 +142,7 @@ async def create_automation(
 
 
 @router.get("", summary="自动化任务列表")
-async def list_automations(
+def list_automations(
     status: Optional[str] = None,
     sidebar_activated: Optional[bool] = None,
     limit: int = 50,
@@ -163,7 +163,7 @@ async def list_automations(
 
 
 @router.get("/{task_id}", summary="自动化任务详情")
-async def get_automation(
+def get_automation(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -177,7 +177,7 @@ async def get_automation(
 
 
 @router.patch("/{task_id}", summary="更新自动化任务")
-async def update_automation(
+def update_automation(
     task_id: str,
     req: UpdateAutomationRequest,
     user: UserContext = Depends(get_current_user),
@@ -231,7 +231,7 @@ async def update_automation(
 
 
 @router.delete("/{task_id}", summary="删除自动化任务")
-async def delete_automation(
+def delete_automation(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -245,7 +245,7 @@ async def delete_automation(
 
 
 @router.post("/{task_id}/pause", summary="暂停自动化任务")
-async def pause_automation(
+def pause_automation(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -259,7 +259,7 @@ async def pause_automation(
 
 
 @router.post("/{task_id}/resume", summary="恢复自动化任务")
-async def resume_automation(
+def resume_automation(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -273,7 +273,7 @@ async def resume_automation(
 
 
 @router.post("/{task_id}/trigger", summary="手动触发自动化任务")
-async def trigger_automation(
+def trigger_automation(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -300,7 +300,7 @@ async def trigger_automation(
 
 
 @router.post("/{task_id}/activate-sidebar", summary="侧边栏激活任务")
-async def activate_sidebar(
+def activate_sidebar(
     task_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -314,7 +314,7 @@ async def activate_sidebar(
 
 
 @router.get("/{task_id}/runs", summary="自动化任务运行历史")
-async def get_automation_runs(
+def get_automation_runs(
     task_id: str,
     # 上界防护：result_summary 现在是全文，无上限的 limit 会把成百上千份完整报告拉进内存
     limit: int = Query(10, ge=1, le=100),
