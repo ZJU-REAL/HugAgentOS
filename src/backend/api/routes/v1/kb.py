@@ -31,7 +31,7 @@ from core.infra.exceptions import (
 )
 from core.infra.responses import created_response, paginated_response, success_response
 from core.llm.chat_models import get_summarize_model
-from core.llm.message_compat import extract_text_from_chat_response, strip_thinking
+from core.llm.message_compat import extract_text_from_chat_response
 from core.services import KBService
 from core.storage import generate_storage_key, get_storage
 from fastapi import APIRouter, Depends, File, Form, Path, Query, UploadFile, status
@@ -137,7 +137,7 @@ async def _generate_kb_description(name: str, description: str) -> str:
         result = await model(
             messages=[Msg(name="user", role="user", content=[TextBlock(type="text", text=prompt)])]
         )
-        polished = strip_thinking(extract_text_from_chat_response(result)).strip()
+        polished = extract_text_from_chat_response(result).strip()
         polished = " ".join(polished.split())
         return polished or _fallback_kb_description(name, description)
     except Exception as exc:

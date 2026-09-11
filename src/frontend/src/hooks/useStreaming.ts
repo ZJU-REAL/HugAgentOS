@@ -6,6 +6,7 @@ import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMo
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
 import { resolveBatchModeActive, resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
+import { composeCommandMessage, seedChatTitle } from '../utils/projectCommands';
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
@@ -474,11 +475,14 @@ export function useStreaming(
   }
 
   async function send(directMessage?: string, invocationOverride?: ChatInvocationContext) {
-    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention, referencedChats, clearReferencedChats } = useChatStore.getState();
+    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention, activeCommand, setActiveCommand, referencedChats, clearReferencedChats } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
 
-    const msg = directMessage?.trim() || input.trim();
+    // 命令 chip（/init）不产生编辑器文本，发送时在这里还原成命令原文；directMessage 是别处
+    // 直接指定的整条消息，不受输入框里的 chip 影响。
+    const currentCommand = directMessage ? null : activeCommand;
+    const msg = directMessage?.trim() || composeCommandMessage(input, currentCommand);
     if (!msg || sending) return;
     if (!effectiveApiUrl) {
       message.error(t('请先在设置中配置 API 地址。'));
@@ -538,6 +542,7 @@ export function useStreaming(
     if (currentPlugin) setActivePlugin(null);
     if (currentConnector) setActiveConnector(null);
     if (currentMention) setActiveMention(null);
+    if (currentCommand) setActiveCommand(null);
     // After sending a message, auto-collapse the "prompt hub" sidebar
     if (useUIStore.getState().promptHubOpen) {
       useUIStore.getState().setPromptHubOpen(false);
@@ -601,7 +606,7 @@ export function useStreaming(
         }),
         messages: [...(c?.messages || []), userMsg],
         updatedAt: Date.now(),
-        title: c?.title && c.title !== '新对话' ? c.title : msg.slice(0, 18) || '新对话',
+        title: c?.title && c.title !== '新对话' ? c.title : seedChatTitle(msg, '新对话'),
         businessTopic: inferredTopic,
         // 发送即落当前模式与思考强度：首条消息前 setModeSlug/setChatMode 没有记录
         // 可写，这里补上，刷新/切对话后模式位和强度档才恢复得回来。

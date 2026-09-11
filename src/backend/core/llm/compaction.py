@@ -7,11 +7,11 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.llm.context_ir import (
-    CONTEXT_SEQUENCE_STRIDE,
     KIND_COMPACTION,
     SESSION_CONTEXT_META_KEY,
     make_text_context_item,
 )
+from core.llm.model_steps import explode_history_rows
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -34,8 +34,9 @@ class CompactionPhase(str, Enum):
 # Token estimation: roughly 1 token per 4 utf-8 bytes
 APPROX_BYTES_PER_TOKEN = 4
 
-# Token cap for the recent user messages kept after compaction
-COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000
+# Tokens of recent history kept verbatim after compaction (the default for
+# ``CompactionSettings.keep_recent_tokens``).
+COMPACT_KEEP_RECENT_TOKENS = 20_000
 
 # Marker stored on internal checkpoint messages.
 COMPACTION_CHECKPOINT_KIND = "compaction_summary"
@@ -165,7 +166,7 @@ def truncate_text_tokens(content: str, max_tokens: int) -> str:
     return truncate_middle_with_token_budget(content, max_tokens)[0]
 
 
-# ── Message text extraction / filtering ──────────────────────────────────────
+# ── Message text extraction ──────────────────────────────────────────────────
 
 
 def _message_text(content: Any) -> str:
@@ -188,26 +189,150 @@ def _message_text(content: Any) -> str:
     return str(content)
 
 
+def _tool_output_text(output: Any) -> str:
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        parts: List[str] = []
+        for item in output:
+            if isinstance(item, dict):
+                text = item.get("text")
+                parts.append(str(text) if text is not None else str(item))
+            elif isinstance(item, str):
+                parts.append(item)
+            else:
+                text = getattr(item, "text", None)
+                parts.append(str(text) if text is not None else str(item))
+        return "\n".join(parts)
+    return str(output) if output is not None else ""
+
+
+def render_content_for_summary(content: Any) -> str:
+    """Render one message's content into the full text a summary model reads.
+
+    Tool calls and results are kept as labelled structured text — the summary
+    sees everything the turn did — and reasoning is labelled the way Pi marks
+    ``[Assistant thinking]``: explicit summary material, never replayed as an
+    answer. The same rendering drives token estimates for history.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+    pieces: List[str] = []
+    for item in content:
+        if isinstance(item, str):
+            if item:
+                pieces.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        btype = item.get("type")
+        if btype in (None, "text", "input_text", "output_text"):
+            t = item.get("text") or item.get("output") or ""
+            if t:
+                pieces.append(str(t))
+        elif btype == "thinking":
+            t = item.get("thinking") or ""
+            if t:
+                pieces.append(f"[thinking]\n{t}")
+        elif btype in ("tool_call", "tool_use"):
+            name = item.get("name") or "unknown_tool"
+            args = item.get("input") or ""
+            pieces.append(f"[tool_call {name}] arguments: {args}")
+        elif btype == "tool_result":
+            name = item.get("name") or "unknown_tool"
+            out = item.get("output")
+            if out is None:
+                out = item.get("content", "")
+            pieces.append(f"[tool_result {name}]\n{_tool_output_text(out)}")
+    return "\n".join(pieces)
+
+
 def is_summary_message(text: str) -> bool:
-    """Anything starting with ``SUMMARY_PREFIX\\n`` is a compaction summary."""
+    """Anything starting with ``SUMMARY_PREFIX\n`` is a compaction summary."""
     return text.startswith(SUMMARY_PREFIX + "\n")
 
 
-def collect_user_messages(messages: List[Dict[str, Any]]) -> List[str]:
-    """Take user text only, excluding summary messages.
+def _is_summary_row(row: Dict[str, Any]) -> bool:
+    meta = row.get(SESSION_CONTEXT_META_KEY)
+    if isinstance(meta, dict) and meta.get("kind") == KIND_COMPACTION:
+        return True
+    return row.get("role") == "user" and is_summary_message(_message_text(row.get("content")))
 
-    The system prompt is injected separately at the agent layer and is **not** in the DB
-    messages, so no filtering for it is needed here.
+
+# ── Region selection ─────────────────────────────────────────────────────────
+
+
+def _row_tokens(row: Dict[str, Any]) -> int:
+    return approx_token_count(render_content_for_summary(row.get("content")))
+
+
+def _tool_call_ids(row: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    calls: List[str] = []
+    results: List[str] = []
+    content = row.get("content")
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") in ("tool_call", "tool_use"):
+                calls.append(str(block.get("id") or ""))
+            elif block.get("type") == "tool_result":
+                results.append(str(block.get("id") or ""))
+    return calls, results
+
+
+def split_history_for_compaction(
+    history: List[Dict[str, Any]],
+    *,
+    keep_recent_tokens: int,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Return ``(older, recent)``: what gets summarized and what stays verbatim.
+
+    History is first exploded into one row per ReAct step. The recent region is
+    the longest tail that fits ``keep_recent_tokens`` and starts at a legal
+    boundary: a user message (not a previous summary) or the start of an
+    assistant step, never a tool result — and only where every tool call
+    issued before the boundary has already received its result. A step is
+    therefore either wholly summarized or wholly kept; the model never sees
+    half of one. When no tail fits, everything is summarized.
     """
-    out: List[str] = []
-    for m in messages:
-        if m.get("role") != "user":
+    rows = explode_history_rows(history)
+    if not rows:
+        return [], []
+    budget = max(0, int(keep_recent_tokens))
+
+    # balanced_before[i]: every tool call in rows[:i] is answered in rows[:i]
+    balanced_before: List[bool] = []
+    pending: set[str] = set()
+    for row in rows:
+        balanced_before.append(not pending)
+        calls, results = _tool_call_ids(row)
+        pending.update(calls)
+        pending.difference_update(results)
+    balanced_before.append(not pending)
+
+    tokens_from: List[int] = [0] * (len(rows) + 1)
+    for index in range(len(rows) - 1, -1, -1):
+        tokens_from[index] = tokens_from[index + 1] + _row_tokens(rows[index])
+
+    cut = len(rows)
+    for index in range(len(rows)):
+        row = rows[index]
+        role = str(row.get("role") or "user")
+        if role == "tool":
             continue
-        text = _message_text(m.get("content"))
-        if not text or is_summary_message(text):
+        if role in ("user", "human") and _is_summary_row(row):
             continue
-        out.append(text)
-    return out
+        if not balanced_before[index]:
+            continue
+        if tokens_from[index] <= budget:
+            cut = index
+            break
+    return rows[:cut], rows[cut:]
 
 
 # ── Building the compacted history ───────────────────────────────────────────
@@ -219,37 +344,16 @@ def format_summary_text(summary_suffix: str) -> str:
 
 
 def build_compacted_history(
-    user_messages: List[str],
     summary_text: str,
-    *,
-    max_tokens: int = COMPACT_USER_MESSAGE_MAX_TOKENS,
+    recent: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Build the compacted history.
+    """Summary first, then the recent region exactly as it happened.
 
-    Accumulate user messages from the tail up to ``max_tokens`` (the overflowing one gets
-    middle-truncated), then order chronologically, and finally append the summary
-    (encoded as a **user** message). Returns ``[{"role","content"}...]``.
+    The summary is one user-role message carrying explicit compaction
+    provenance; the rows after it are the verbatim tail chosen by
+    :func:`split_history_for_compaction`, so the model resumes from complete
+    steps rather than from a digest of everything.
     """
-    history: List[Dict[str, Any]] = []
-
-    selected: List[str] = []
-    if max_tokens > 0:
-        remaining = max_tokens
-        for msg in reversed(user_messages):
-            if remaining == 0:
-                break
-            tokens = approx_token_count(msg)
-            if tokens <= remaining:
-                selected.append(msg)
-                remaining -= tokens
-            else:
-                selected.append(truncate_text_tokens(msg, remaining))
-                break
-        selected.reverse()
-
-    for msg in selected:
-        history.append({"role": "user", "content": msg})
-
     summary = summary_text if summary_text else "(no summary available)"
     summary_item = make_text_context_item(
         summary,
@@ -257,16 +361,17 @@ def build_compacted_history(
         kind=KIND_COMPACTION,
         origin="harness:compaction",
         trust="system",
-        created_seq=len(history) * CONTEXT_SEQUENCE_STRIDE,
+        created_seq=0,
         priority=850,
         token_budget=20_000,
         cache_class="checkpoint",
     )
-    history.append(
+    history: List[Dict[str, Any]] = [
         {
             "role": "user",
             "content": summary,
             SESSION_CONTEXT_META_KEY: summary_item.to_manifest(),
         }
-    )
+    ]
+    history.extend(dict(row) for row in recent)
     return history

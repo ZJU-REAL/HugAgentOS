@@ -425,6 +425,7 @@ class ChatService:
         message_id: Optional[str] = None,
         commit: bool = True,
         chat_seq: Optional[int] = None,
+        model_steps: Optional[List[Dict[str, Any]]] = None,
     ) -> ChatMessage:
         """Add a message to a chat session."""
         extra = dict(extra_data or {})
@@ -440,6 +441,7 @@ class ChatService:
             "model": model,
             "thinking": kept_thinking,
             "tool_calls": tool_calls,
+            "model_steps": model_steps,
             "usage": usage,
             "error": error,
             "extra_data": extra,
@@ -469,6 +471,7 @@ class ChatService:
         thinking: Optional[List[Dict[str, Any]]],
         tool_calls: Optional[List[Dict]],
         extra_data: Dict[str, Any],
+        model_steps: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """Overwrite the in-flight assistant row while its run streams.
 
@@ -494,6 +497,7 @@ class ChatService:
                 content=clamp_message_content(content),
                 thinking=_strip_nul(kept_thinking),
                 tool_calls=_strip_nul(tool_calls),
+                model_steps=_strip_nul(model_steps),
                 extra_data=_strip_nul(extra),
             )
         )
@@ -514,6 +518,7 @@ class ChatService:
         extra_data: Dict = None,
         commit: bool = True,
         chat_seq: Optional[int] = None,
+        model_steps: Optional[List[Dict[str, Any]]] = None,
     ) -> ChatMessage:
         """Idempotently upsert a message by message_id: overwrite in place if it exists, otherwise create.
 
@@ -536,6 +541,8 @@ class ChatService:
                 update["thinking"] = kept_thinking
             if tool_calls is not None:
                 update["tool_calls"] = tool_calls
+            if model_steps is not None:
+                update["model_steps"] = model_steps
             if usage is not None:
                 update["usage"] = usage
             if error is not None:
@@ -566,6 +573,7 @@ class ChatService:
             message_id=message_id,
             commit=commit,
             chat_seq=chat_seq,
+            model_steps=model_steps,
         )
 
     def list_all_messages(

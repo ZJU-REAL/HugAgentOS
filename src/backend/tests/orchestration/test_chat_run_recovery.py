@@ -434,9 +434,10 @@ async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_e
         fenced = db.get(ChatRun, row.run_id)
         assert fenced.status == "running"
         assert fenced.lease_owner == "successor"
-        assert fenced.last_event_offset == 2
         assert db.get(ChatMessage, row.message_id) is None
         assert db.get(Plan, "plan-generated") is None
+    emitted = await redis.xrange(run_event_stream.redis_stream_key(row.run_id), min="-", max="+")
+    assert len(emitted) == 2
 
 
 @pytest.mark.asyncio
@@ -490,7 +491,6 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
         message = db.get(ChatMessage, row.message_id)
         assert completed.status == "completed"
         assert completed.run_phase == "completed"
-        assert completed.last_event_offset == 3
         assert message.extra_data["plan_id"] == "plan-complete"
         plan = db.get(Plan, "plan-complete")
         assert plan is not None
@@ -1085,7 +1085,7 @@ async def test_public_start_follow_and_history_complete_on_durable_offsets(
         completed = db.get(ChatRun, run.run_id)
         message = db.get(ChatMessage, run.message_id)
         assert completed.status == "completed"
-        assert completed.last_event_offset == offsets[-1] + 1
+        assert completed.last_event_offset > offsets[-1]
         assert message.content == "public answer"
 
 

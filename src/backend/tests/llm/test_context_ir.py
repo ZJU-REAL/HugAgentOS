@@ -224,13 +224,20 @@ def test_tool_call_and_result_are_kept_or_excluded_as_one_pair():
         pair_id="t1",
     )
 
+    # Over the total budget the step survives whole: only the tool output is
+    # pruned, and the pruning is explicit in both the content and the manifest.
     fits = ContextAssembler(total_budget=90).assemble([call, result])
     assert {item.kind for item in fits.included} == {"tool_call", "tool_result"}
-    assert fits.included[1].content["output"].endswith("R" * 10)
+    assert fits.included[1].content["type"] == "tool_result"
+    assert "pruned" in fits.included[1].content["output"]
+    assert fits.pruned_items == 1
+    assert fits.manifest["included"][1]["action"] == "pruned"
 
+    # When even the pruned step does not fit, call and result leave together.
     dropped = ContextAssembler(total_budget=1).assemble([call, result])
     assert dropped.included == ()
-    assert {entry["reason"] for entry in dropped.manifest["excluded"]} == {"paired_budget"}
+    assert dropped.cut_units == 1
+    assert {entry["reason"] for entry in dropped.manifest["excluded"]} == {"budget_cut"}
 
 
 def test_structured_tool_result_output_stays_a_tool_result_when_truncated():

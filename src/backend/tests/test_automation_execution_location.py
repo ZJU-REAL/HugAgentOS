@@ -25,6 +25,37 @@ def local_project(tmp_path, monkeypatch):
     engine.dispose()
 
 
+
+@pytest.fixture
+def desktop_identity(local_project, monkeypatch):
+    import base64
+    import json
+    import time
+    from core.capabilities import registry, skills
+    from core.db.models import UserShadow
+    from core.services import desktop_cloud_bridge as bridge
+
+    factory, _ = local_project
+    monkeypatch.setattr(registry, "SessionLocal", factory)
+    monkeypatch.setattr(skills, "_shadow_user_ids", {})
+    monkeypatch.setattr(bridge, "_state_loaded", True)
+    monkeypatch.setattr(bridge, "_state", None)
+    with factory() as db:
+        db.add(UserShadow(user_id="owner", username="Alice",
+                          user_center_id="cloud:example.com:443:account-a"))
+        db.add(UserShadow(user_id="other", username="Bob",
+                          user_center_id="cloud:example.com:443:account-b"))
+        db.commit()
+
+    def switch(account="account-a", subject="cloud-owner", cloud_base="https://example.com"):
+        claims = base64.urlsafe_b64encode(json.dumps(
+            {"u": subject, "c": account, "d": "test-device", "a": 1}
+        ).encode()).decode().rstrip("=")
+        bridge._state = {"cloud_base": cloud_base, "token": f"dcap2.{claims}.fixture",
+                         "expires_at": time.time() + 600}
+    switch()
+    return switch
+
 def test_local_task_captures_project_and_revalidates_binding(local_project, monkeypatch):
     from core.services.automation_execution import task_execution_context
     factory, path = local_project
@@ -86,7 +117,7 @@ async def test_scheduler_restores_project_into_real_run_context(local_project, m
 
 
 @pytest.mark.asyncio
-async def test_local_conversation_creation_uses_authorized_project(local_project, monkeypatch):
+async def test_local_conversation_creation_uses_authorized_project(local_project, desktop_identity):
     import json
     from types import SimpleNamespace
     from core.db.models import ChatSession
@@ -106,9 +137,6 @@ async def test_local_conversation_creation_uses_authorized_project(local_project
     intent = ToolEffectJournal(factory).begin_intent(run_id="bound-run", owner="worker",
         claim_owner="call", tool_call_id="call", tool_name="create_scheduled_task",
         args=args, recovery_policy="reconcile").intent
-    monkeypatch.setattr("core.services.desktop_cloud_bridge.ensure_current_authorization", lambda *a: None)
-    monkeypatch.setattr("core.services.desktop_cloud_bridge.get_state", lambda: {"token": "fixture"})
-    monkeypatch.setattr("core.services.desktop_capability_protocol.token_subject", lambda token: "owner")
     async def authorize():
         return None
     token = CURRENT_TOOL_EFFECT.set(SimpleNamespace(effect_id=intent.effect_id, run_id="bound-run"))
@@ -127,7 +155,7 @@ async def test_local_conversation_creation_uses_authorized_project(local_project
         with factory() as db:
             from core.db.models import ScheduledTask
             assert db.get(ScheduledTask, data["task"]["task_id"]) is not None
-        monkeypatch.setattr("core.services.desktop_capability_protocol.token_subject", lambda token: "other")
+        desktop_identity("account-b", "cloud-other")
         with pytest.raises(ValueError, match="账号"):
             await local_automation_result("automation", "create_scheduled_task",
                     {**args, "tool_effect_id": intent.effect_id}, {"x-chat-id": "bound-chat"}, authorize=authorize)
@@ -140,3 +168,117 @@ def test_public_urls_are_not_host_paths():
     assert not references_host_path("Summarize https://example.com/news")
     assert references_host_path(r"Read C:\Users\Aaron")
     assert references_host_path("Read /home/aaron/project")
+
+
+@pytest.fixture
+def local_chat(local_project, desktop_identity):
+    from core.db.models import ChatSession
+    factory, _ = local_project
+    with factory() as db:
+        db.add(ChatSession(chat_id="local-chat", user_id="owner",
+                           title="report", project_id="local-project"))
+        db.commit()
+    return desktop_identity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["switch", "logout", "server"])
+async def test_local_task_rejects_identity_change_during_authorization(local_chat, change):
+    from core.capabilities.errors import CloudUnavailable
+    from core.services import desktop_cloud_bridge as bridge
+    from core.services.automation_tool_routing import local_automation_result
+    from mcp_servers.automation_task_mcp import impl
+
+    async def authorize():
+        if change == "switch":
+            local_chat("account-b", "cloud-other")
+        elif change == "server":
+            local_chat(cloud_base="https://other.example.com")
+        else:
+            bridge._state = None
+
+    with pytest.raises(CloudUnavailable):
+        await local_automation_result(
+            "automation", "create_scheduled_task",
+            {"cron_expression": "0 * * * *", "prompt": "report"},
+            {"x-chat-id": "local-chat"}, authorize=authorize)
+    assert impl.list_tasks(user_id="owner")["count"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", [
+    "create_scheduled_task", "list_scheduled_tasks", "get_scheduled_task",
+    "update_scheduled_task", "pause_scheduled_task", "resume_scheduled_task",
+    "delete_scheduled_task",
+])
+@pytest.mark.parametrize("identity", ["other", "missing", "other_server"])
+async def test_local_task_tools_reject_unmapped_or_other_account(local_chat, tool, identity):
+    from core.services.automation_tool_routing import local_automation_result
+    if identity == "other":
+        local_chat("account-b", "cloud-other")
+    elif identity == "missing":
+        # Even an equal raw subject cannot substitute for an account mapping.
+        local_chat("missing-account", "owner")
+    else:
+        local_chat(cloud_base="https://other.example.com")
+
+    async def authorize():
+        pytest.fail("Unrelated account must be rejected before tool authorization")
+
+    with pytest.raises(ValueError, match="账号"):
+        await local_automation_result(
+            "automation", tool, {"execution_location": "local"},
+            {"x-chat-id": "local-chat"}, authorize=authorize)
+
+
+@pytest.mark.asyncio
+async def test_mapped_account_can_manage_local_tasks(local_chat):
+    import json
+    from core.services.automation_tool_routing import local_automation_result
+
+    async def authorize():
+        return None
+
+    async def call(tool, **arguments):
+        result = await local_automation_result(
+            "automation", tool, {"execution_location": "local", **arguments},
+            {"x-chat-id": "local-chat"}, authorize=authorize)
+        data = json.loads(result.content[0].text)
+        assert data["ok"], data
+        return data
+
+    created = await call("create_scheduled_task", cron_expression="0 * * * *", prompt="report")
+    ref = created["task"]["task_id"]
+    assert (await call("list_scheduled_tasks"))["count"] == 1
+    assert (await call("get_scheduled_task", task_ref=ref))["task"]["task_id"] == ref
+    assert (await call("update_scheduled_task", task_ref=ref, name="updated"))["task"]["name"] == "updated"
+    await call("pause_scheduled_task", task_ref=ref)
+    await call("resume_scheduled_task", task_ref=ref)
+    await call("delete_scheduled_task", task_ref=ref)
+    assert (await call("list_scheduled_tasks"))["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_local_task_rejects_account_switch_before_queued_dispatch(local_chat, monkeypatch):
+    import asyncio
+    from core.capabilities.errors import CloudUnavailable
+    from core.services.automation_tool_routing import local_automation_result
+    from mcp_servers.automation_task_mcp import impl
+
+    original = asyncio.to_thread
+
+    async def queued_dispatch(function, *args, **kwargs):
+        local_chat("account-b", "cloud-other")
+        return await original(function, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", queued_dispatch)
+
+    async def authorize():
+        return None
+
+    with pytest.raises(CloudUnavailable):
+        await local_automation_result(
+            "automation", "create_scheduled_task",
+            {"cron_expression": "0 * * * *", "prompt": "report"},
+            {"x-chat-id": "local-chat"}, authorize=authorize)
+    assert impl.list_tasks(user_id="owner")["count"] == 0

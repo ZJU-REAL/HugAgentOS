@@ -808,12 +808,29 @@ def parse_skill_zip(data: bytes) -> Dict[str, Any]:
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid zip file")
 
-    # Security: zip-slip
-    for name in zf.namelist():
-        if name.startswith("/") or ".." in name:
-            raise HTTPException(status_code=400, detail=f"Unsafe path in zip: {name}")
+    from core.agent_skills.publication import normalize_file_path, safe_skill_id
 
-    skill_md_paths = [n for n in zf.namelist() if n.endswith("SKILL.md")]
+    # Preserve ZipInfo for reads: normalized names may not exist in the archive.
+    entries = {}
+    for info in zf.infolist():
+        raw_name = info.filename.replace("\\", "/")
+        is_dir = raw_name.endswith("/")
+        try:
+            name = normalize_file_path(raw_name[:-1] if is_dir else raw_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if is_dir:
+            continue
+        if name in entries:
+            raise HTTPException(status_code=400, detail=f"Duplicate skill file path: {name}")
+        entries[name] = info
+    # A file cannot also be a parent directory of another file.
+    for name in entries:
+        parts = name.split("/")
+        if any("/".join(parts[:i]) in entries for i in range(1, len(parts))):
+            raise HTTPException(status_code=400, detail=f"Conflicting skill file path: {name}")
+
+    skill_md_paths = [n for n in entries if n.split("/")[-1] == "SKILL.md"]
     if not skill_md_paths:
         raise HTTPException(status_code=400, detail="No SKILL.md found in zip")
 
@@ -827,7 +844,7 @@ def parse_skill_zip(data: bytes) -> Dict[str, Any]:
         prefix = "/".join(parts[:-1]) + "/"
 
     try:
-        raw = zf.read(skill_md_path).decode("utf-8")
+        raw = zf.read(entries[skill_md_path]).decode("utf-8")
         fm, _ = _split_frontmatter(raw)
         skill_id = fm.get("name", "").strip()
         if not skill_id:
@@ -839,6 +856,7 @@ def parse_skill_zip(data: bytes) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Invalid SKILL.md: {e}")
 
     try:
+        safe_skill_id(skill_id)
         meta = _load_skill_metadata_from_str(raw, skill_id)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Invalid skill: {e}")
@@ -847,8 +865,8 @@ def parse_skill_zip(data: bytes) -> Dict[str, Any]:
     extra_files: Dict[str, str] = {}
     skipped: List[Dict[str, str]] = []
     total_size = 0
-    for entry in zf.namelist():
-        if entry == skill_md_path or entry.endswith("/"):
+    for entry, info in entries.items():
+        if entry == skill_md_path:
             continue
         if prefix and not entry.startswith(prefix):
             continue
@@ -858,12 +876,11 @@ def parse_skill_zip(data: bytes) -> Dict[str, Any]:
         base = rel_name.rsplit("/", 1)[-1]
         if base in JUNK_BASENAMES or any(m in f"/{entry}" for m in JUNK_PATH_MARKERS):
             continue
-        info = zf.getinfo(entry)
         if info.file_size > MAX_SINGLE_FILE:
             skipped.append({"file": rel_name, "reason": f"exceeds {MAX_SINGLE_FILE // (1024 * 1024)}MB single-file ceiling"})
             continue
         try:
-            file_bytes = zf.read(entry)
+            file_bytes = zf.read(info)
         except (KeyError, zipfile.BadZipFile):
             skipped.append({"file": rel_name, "reason": "unreadable zip entry"})
             continue

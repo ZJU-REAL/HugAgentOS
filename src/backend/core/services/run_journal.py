@@ -357,6 +357,17 @@ class RunJournal:
             db.commit()
             return bool(affected)
 
+    def _holds_lease(self, row: ChatRun, owner: str) -> bool:
+        expires = _aware(row.lease_expires_at)
+        now = _aware(self._clock())
+        return not (
+            row.status not in LIVE_STATUSES
+            or row.lease_owner != owner
+            or expires is None
+            or now is None
+            or expires <= now
+        )
+
     def _locked_owned_run(self, db: Session, run_id: str, owner: str) -> ChatRun:
         row = (
             db.query(ChatRun)
@@ -366,17 +377,24 @@ class RunJournal:
         )
         if row is None:
             raise RunNotFound(run_id)
-        expires = _aware(row.lease_expires_at)
-        now = _aware(self._clock())
-        if (
-            row.status not in LIVE_STATUSES
-            or row.lease_owner != owner
-            or expires is None
-            or now is None
-            or expires <= now
-        ):
+        if not self._holds_lease(row, owner):
             raise RunLeaseLost(run_id)
         return row
+
+    def require_lease(self, run_id: str, owner: str) -> None:
+        """Raise unless ``owner`` still holds a live lease on ``run_id``.
+
+        The same check ``_locked_owned_run`` makes, without the write it exists
+        to protect. An emitter fences every event, so this has to be a read: a
+        write transaction per event is a disk flush per token on a device whose
+        run journal is SQLite, and the person is watching the answer appear.
+        """
+        with self._sessions() as db:
+            row = db.query(ChatRun).filter(ChatRun.run_id == run_id).one_or_none()
+            if row is None:
+                raise RunNotFound(run_id)
+            if not self._holds_lease(row, owner):
+                raise RunLeaseLost(run_id)
 
     @staticmethod
     def _append_locked(
@@ -482,13 +500,22 @@ class RunJournal:
         *,
         owner: Optional[str] = None,
         terminal: bool = False,
+        count: int = 1,
     ) -> int:
-        """Reserve the next durable SSE projection offset.
+        """Reserve ``count`` consecutive durable SSE projection offsets; return the first.
 
         Live projections require the current lease owner. Terminal projections
         are allowed only after a terminal CAS has already won. Redis may lose
         an entry, but offsets never reset or get reused across recovery workers.
+
+        A reservation is one serialized write, so an emitter that knows it is
+        about to produce many events asks for a run of offsets and pays for one
+        write instead of one per event. Offsets a reservation leaves unused are
+        never emitted: readers order by offset and do not require them to be
+        dense, and the next reservation still starts above them.
         """
+        if count < 1:
+            raise ValueError("count must be positive")
         now = self._clock()
         with self._sessions() as db:
             if terminal:
@@ -507,7 +534,7 @@ class RunJournal:
                     raise ValueError("owner is required for a live projection")
                 row = self._locked_owned_run(db, run_id, owner)
             next_offset = int(row.last_event_offset or 0) + 1
-            row.last_event_offset = next_offset
+            row.last_event_offset = next_offset + count - 1
             row.updated_at = now
             db.commit()
             return next_offset

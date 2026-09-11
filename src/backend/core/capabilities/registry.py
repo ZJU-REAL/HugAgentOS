@@ -17,7 +17,7 @@ from core.db.models import (
     DeviceCapabilityNamePreference,
     DeviceCapabilityTransaction,
 )
-from sqlalchemy import event
+from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
 from .ref import ResourceRef
@@ -280,6 +280,40 @@ def list_installations(
             q = q.filter(DeviceCapabilityInstallation.state != "removed")
         rows = q.order_by(DeviceCapabilityInstallation.kind, DeviceCapabilityInstallation.key).all()
         return [_to_installation(r) for r in rows]
+
+
+def source_token(*, kind: str, profile_id: str, db: Optional[Session] = None) -> tuple:
+    """A constant-cost value that moves whenever resolution input for ``kind`` changed.
+
+    Describing the rows in order to notice a change costs the same query and the
+    same ORM materialisation as the listing a caller wanted to avoid. Row count,
+    the newest write and the summed per-row generation move on every insert,
+    delete, state transition and edit — including one another process
+    committed — and a name preference decides which same-named candidate wins,
+    so it belongs to the same value.
+    """
+    with _session(db) as s:
+        installations = (
+            s.query(
+                func.count(DeviceCapabilityInstallation.install_id),
+                func.max(DeviceCapabilityInstallation.updated_at),
+                func.sum(DeviceCapabilityInstallation.generation),
+            )
+            .filter(
+                DeviceCapabilityInstallation.kind == kind,
+                DeviceCapabilityInstallation.profile_id == profile_id,
+            )
+            .one()
+        )
+        preferences = (
+            s.query(
+                func.count(DeviceCapabilityNamePreference.preference_id),
+                func.max(DeviceCapabilityNamePreference.updated_at),
+            )
+            .filter(DeviceCapabilityNamePreference.kind == kind)
+            .one()
+        )
+    return (tuple(installations), tuple(preferences))
 
 
 def set_state(

@@ -12,6 +12,7 @@ from api.routes.v1.chat_admission import chat_busy_http_exception
 from core.auth.backend import UserContext, get_current_user
 from core.auth.permissions_iface import can_delete_session
 from core.chat import inflight
+from core.llm.model_steps import replace_final_text
 from core.chat.context import build_effective_user_message as _build_effective_user_message
 from core.chat.context import (
     build_runtime_context,
@@ -31,7 +32,6 @@ from core.infra.responses import (
     sse_response,
     success_response,
 )
-from core.llm.message_compat import strip_thinking
 from core.llm.tool_permissions import normalize_approval_mode
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from core.services import ChatService, UserService
@@ -2015,6 +2015,8 @@ async def _stream_sse_response(
         # 每块记录它出现时的正文偏移，刷新后按原位插回。
         _thinking_parts: list = []
         _thinking_log: List[Dict[str, Any]] = []
+        # 模型回放用的规范记录（core/llm/model_steps.py），与后台 run 执行器同一份。
+        _model_steps: List[Dict[str, Any]] = []
         # 本轮已开的思考块；跨轮（工具调用边界）置 None 强制另起一块。
         _round_block: Optional[Dict[str, Any]] = None
         # 正文 / 思考 / 工具卡片的先后，在它们产生的那一刻就记下来，落进
@@ -2040,6 +2042,9 @@ async def _stream_sse_response(
         def _thinking_payload() -> Optional[List[Dict[str, Any]]]:
             blocks = [b for b in _thinking_log if b.get("content")]
             return blocks or None
+
+        def _model_steps_payload() -> Optional[List[Dict[str, Any]]]:
+            return list(_model_steps) or None
 
         # Per-run workspace state — pin_to_workspace tool reads/writes this.
         _workspace_mod.init_state()
@@ -2097,6 +2102,7 @@ async def _stream_sse_response(
                 full_response = str(chunk.get("content") or "")
                 _round_block = None
                 _thinking_log.clear()
+                replace_final_text(_model_steps, full_response)
                 # 整体替换后，先前记下的段落描述的是旧草稿，已无意义——重记。
                 _segments.reset()
                 _segments.add_text(full_response)
@@ -2117,11 +2123,18 @@ async def _stream_sse_response(
                 _td_evt = build_tool_call_delta_event(chunk, chat_id)
                 yield f"data: {json.dumps(_td_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_result":
+                step = chunk.get("model_step")
+                if isinstance(step, dict):
+                    _model_steps.append(step)
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
                 # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目，
                 # 此刻就把它排进段落表，否则它会缺席整条消息的展示顺序。
                 _segments.add_tools(tool_calls_log)
                 yield f"data: {json.dumps(_tr_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type == "model_step":
+                step = chunk.get("step")
+                if isinstance(step, dict):
+                    _model_steps.append(step)
             elif chunk_type == "heartbeat":
                 yield ": heartbeat\n\n"
             elif chunk_type == "tool_pending":
@@ -2212,6 +2225,7 @@ async def _stream_sse_response(
                     model=model_name,
                     thinking=_thinking_payload(),
                     tool_calls=tool_calls_log if tool_calls_log else None,
+                    model_steps=_model_steps_payload(),
                     usage=_usage,
                     message_id=pending_message_id,
                     extra_data={
@@ -2245,9 +2259,8 @@ async def _stream_sse_response(
 
                 async def _generate_followups_bg(u: str, r: str, mid: str):
                     try:
-                        clean = strip_thinking(r)
                         questions = await asyncio.wait_for(
-                            get_followup_generator().generate(u, clean),
+                            get_followup_generator().generate(u, r),
                             timeout=10,
                         )
                         if questions:

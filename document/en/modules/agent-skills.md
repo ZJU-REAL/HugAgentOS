@@ -254,3 +254,7 @@ Private skills land in the same `AdminSkill` table (`owner_user_id` = the user);
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service skill / private MCP API |
 
 Related docs: [Sandbox execution](sandbox.md) · [MCP tool system](mcp-tools.md) · [Capability catalog](catalog.md) · [Admin console](admin-console.md) · [Editions & licensing](../editions/overview.md)
+
+### Skill attachment path compatibility
+
+Skill ZIP and individual attachment uploads normalize Windows separators to /. Archives with absolute paths, traversal, normalized name collisions, or file/directory conflicts are rejected. Existing database skills receive the same path normalization during sandbox preparation without changing stored attachment content. Packages that cannot be published safely are excluded from the sandbox view and logged as skill_publication_invalid, so other skills and integration logins can proceed. Administrators can correct and re-upload the affected package.

@@ -199,6 +199,38 @@ class StreamingAgent:
         # model — the model client's own httpx timeouts remain the backstop.
         self._model_call_inflight = False
 
+    def _drain_model_steps(self) -> List[Dict[str, Any]]:
+        state = getattr(self.agent, "state", None)
+        pending = getattr(state, "pending_model_steps", None)
+        if not pending:
+            return []
+        drained = list(pending)
+        state.pending_model_steps = []
+        return drained
+
+    def _tool_result_step(self, tool_call_id: str) -> Optional[Dict[str, Any]]:
+        """Record the tool result exactly as AgentScope saved it into context.
+
+        ``_execute_tool_call`` appends the (already bounded) ToolResultBlock to
+        the last assistant message before it yields ``ToolResultEndEvent``, so
+        by the time the event reaches this consumer the block is there.
+        """
+        from core.llm.model_steps import record_tool_result_step
+
+        context = getattr(getattr(self.agent, "state", None), "context", None) or []
+        last = context[-1] if context else None
+        if last is None or getattr(last, "role", "") != "assistant":
+            logger.error("tool result %s ended with no assistant message in context", tool_call_id)
+            return None
+        match = None
+        for block in last.get_content_blocks("tool_result"):
+            if getattr(block, "id", "") == tool_call_id:
+                match = block
+        if match is None:
+            logger.error("tool result %s ended but its block is not in context", tool_call_id)
+            return None
+        return record_tool_result_step(match)
+
     def _take_reasoning_protocol(self) -> Optional[Dict[str, bool]]:
         """Return the structured-reasoning marker once the active model is known.
 
@@ -785,6 +817,7 @@ class StreamingAgent:
         if nm == "ToolResultEndEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
             content = self._tool_result_buf.pop(tid, "")
+            result_step = self._tool_result_step(tid)
             raw_state = getattr(ev, "state", "") or ""
             state = str(getattr(raw_state, "value", raw_state) or "")
             pending = self._pending_tool_calls.pop(tid, None)
@@ -833,7 +866,13 @@ class StreamingAgent:
                 logger.debug("tool_call log persist failed", exc_info=True)
             yield (
                 "tool_result",
-                {"name": name, "id": tid, "content": content, "status": state},
+                {
+                    "name": name,
+                    "id": tid,
+                    "content": content,
+                    "status": state,
+                    "model_step": result_step,
+                },
             )
             return
 
@@ -847,6 +886,10 @@ class StreamingAgent:
 
         if nm == "ModelCallEndEvent":
             self._model_call_inflight = False
+            # The hook adapter recorded this response before the event was
+            # queued; hand the record downstream in the same order.
+            for step in self._drain_model_steps():
+                yield ("model_step", step)
             _prompt_tokens = int(getattr(ev, "input_tokens", 0) or 0)
             _completion_tokens = int(getattr(ev, "output_tokens", 0) or 0)
             self._usage_records.append(
@@ -863,16 +906,9 @@ class StreamingAgent:
                 completion_tokens=_completion_tokens,
                 model_call_index=len(self._usage_records),
             )
-            # Hand the provider's real usage to the agent so the next step
-            # boundary measures context occupancy the same way the post-turn
-            # trigger does, instead of falling back to the byte estimate that
-            # over-counts Chinese by ~1.7x (see CompactingAgent._measure_context_tokens).
-            _observe = getattr(self.agent, "observe_context_tokens", None)
-            if callable(_observe):
-                try:
-                    _observe(_prompt_tokens, _completion_tokens)
-                except Exception as _obs_exc:  # noqa: BLE001
-                    logger.debug("[compaction] usage observation skipped: %s", _obs_exc)
+            # Compaction usage is anchored by CompactingAgent._save_to_context
+            # after the response is saved. AgentScope emits this event first;
+            # observing here would count that response again as new content.
             # 首轮权威判定：思考模式下整轮正文没有出现 </think> → 该模型不内联思考
             # （结构化 reasoning 通道，或本轮确实没思考）。补发协议标记，前端据此
             # 把误当思考缓冲/展示的正文重归正文区（bug：无思考时正文进思考块）。

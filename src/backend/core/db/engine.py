@@ -5,7 +5,7 @@ import os
 from typing import Generator
 
 from core.config.settings import settings
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
@@ -66,8 +66,37 @@ else:
             "options": f"-c lock_timeout={settings.db.pool_timeout * 1000}"
         }
 
+
+def apply_sqlite_concurrency_pragmas(target, busy_timeout_seconds: int) -> None:
+    """让 SQLite 能承受多线程并发访问。
+
+    * ``journal_mode=WAL``：缺省的回滚日志模式下读写互斥——**一个还开着的读事务就
+      能把写请求逼到** ``database is locked``。本机后端里能力准备在多个线程写库，
+      同时启动 seeding、能力视图重建、记忆初始化还在读同一个文件，于是首次能力
+      同步 123 项里有 4 项直接失败。WAL 下读不再挡写，只有写与写需要排队。
+    * ``busy_timeout``：排队要等多久。pysqlite 自带 5 秒，对上面这种成批写入偏紧。
+      等锁与等连接同属「等数据库资源」，沿用 ``DB_POOL_TIMEOUT`` 这一个阈值——与
+      Postgres 分支拿它做 ``lock_timeout`` 是同一套口径，不新增开关。
+
+    内存库不落盘，``journal_mode`` 对它无意义（SQLite 保持 ``memory``），设置无害，
+    因此不为它分叉。
+    """
+
+    @event.listens_for(target, "connect")
+    def _set_pragmas(dbapi_connection, _connection_record):  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute(f"PRAGMA busy_timeout={int(busy_timeout_seconds * 1000)}")
+        finally:
+            cursor.close()
+
+
 # Create engine
 engine = create_engine(DATABASE_URL, **engine_kwargs)
+
+if DATABASE_URL.startswith("sqlite://"):
+    apply_sqlite_concurrency_pragmas(engine, settings.db.pool_timeout)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -23,18 +23,11 @@ from core.llm.context_manager import (
     resolve_model_context_window,
     usable_context_window,
 )
-from core.llm.message_compat import build_replay_dicts, flatten_tool_output
+from core.llm.model_steps import assistant_row_replay
 
 logger = logging.getLogger(__name__)
 
-# Guard only against pathological single tool results during replay.
-_CROSS_TURN_TOOL_CHARS = 1_000_000
-
-
 # ── History replay (checkpoint-aware) ────────────────────────────────────────
-
-
-_CANCELLED_TURN_MARKER = "[本轮回答被用户中断]"
 
 
 def _live_run_ids(chat_service: Any, rows: List[Any]) -> frozenset:
@@ -86,22 +79,19 @@ def _normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> L
                 row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
             out.append(row)
         elif role == "assistant":
-            assistant_text = content or ""
-            if extra.get("cancelled"):
-                # 用户中途喊停的那一轮。不标这一句，模型下一轮看到的只是一段没头
-                # 没尾断掉的话，容易当成自己已经说完，于是接着往下讲或者从头重来。
-                assistant_text = (
-                    f"{assistant_text}\n\n{_CANCELLED_TURN_MARKER}"
-                    if assistant_text
-                    else _CANCELLED_TURN_MARKER
-                )
+            # The model-facing sequence comes from the step record; rows that
+            # predate it fall back to the streamed display order, and rows
+            # older than that are replayed as an explicit digest. A cancelled
+            # turn is marked so the next turn does not mistake a cut-off answer
+            # for a finished one.
             out.extend(
-                build_replay_dicts(
-                    "assistant",
-                    assistant_text,
-                    getattr(msg, "tool_calls", None),
-                    max_args_chars=_CROSS_TURN_TOOL_CHARS,
-                    max_result_chars=_CROSS_TURN_TOOL_CHARS,
+                assistant_row_replay(
+                    content=content or "",
+                    model_steps=getattr(msg, "model_steps", None),
+                    thinking=getattr(msg, "thinking", None),
+                    tool_calls=getattr(msg, "tool_calls", None),
+                    segments=extra.get("segments"),
+                    cancelled=bool(extra.get("cancelled")),
                 )
             )
         else:
@@ -309,47 +299,9 @@ def _resolve_summarizer_model() -> tuple[str, str, str, str]:
     return "", "", "", ""
 
 
-def _render_content_for_summary(content: Any) -> str:
-    """Render one message's content (str or list of blocks) into full text readable by the summary model.
-
-    Difference from :func:`core.llm.compaction._message_text`: tool_call /
-    tool_result blocks are **not dropped** — they are rendered as structured text
-    carrying tool name + arguments / output. Aligned with Codex — the summary
-    model sees the complete history including function_call/output. We don't use
-    the native tool_calls message format because different OpenAI-compatible
-    endpoints' chat templates vary in how they accept orphan tool messages;
-    structured text is information-equivalent and maximally compatible.
-    """
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return str(content)
-    pieces: List[str] = []
-    for item in content:
-        if isinstance(item, str):
-            if item:
-                pieces.append(item)
-            continue
-        if not isinstance(item, dict):
-            continue
-        btype = item.get("type")
-        if btype in (None, "text", "input_text", "output_text"):
-            t = item.get("text") or item.get("output") or ""
-            if t:
-                pieces.append(str(t))
-        elif btype in ("tool_call", "tool_use"):
-            name = item.get("name") or "unknown_tool"
-            args = item.get("input") or ""
-            pieces.append(f"[tool_call {name}] arguments: {args}")
-        elif btype == "tool_result":
-            name = item.get("name") or "unknown_tool"
-            out = item.get("output")
-            if out is None:
-                out = item.get("content", "")
-            pieces.append(f"[tool_result {name}]\n{flatten_tool_output(out)}")
-    return "\n".join(pieces)
+# Rendering lives beside the region logic; keep the historical name here for
+# the tests and call sites that address it through this module.
+_render_content_for_summary = C.render_content_for_summary
 
 
 def _flatten_for_summary(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -546,9 +498,7 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
         if resp.status_code == 200:
             await record_attempt(resp, status="success", started=started)
             raw = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-            from core.llm.message_compat import strip_thinking
-
-            summary = strip_thinking(raw).strip()
+            summary = raw.strip()
             return summary or None
 
         body = resp.text[:500]
@@ -724,22 +674,30 @@ class CompactionCoordinator:
                 return None
 
             cfg = settings.compaction
+            older, recent = C.split_history_for_compaction(
+                history, keep_recent_tokens=cfg.keep_recent_tokens
+            )
+            if not older:
+                # Everything fits in the verbatim tail; a summary would remove
+                # nothing. The caller sees "nothing to compact", not a failure.
+                logger.info(
+                    "[compaction] nothing older than the kept tail chat=%s rows=%d",
+                    self.chat_id,
+                    len(recent),
+                )
+                return None
             from core.llm.model_usage import model_usage_scope
 
             with model_usage_scope(
                 self.run_id,
                 self.hook_bus.usage_recorder if self.hook_bus is not None else None,
             ):
-                summary = await _summarize(history, timeout=cfg.summarize_timeout_s)
+                summary = await _summarize(older, timeout=cfg.summarize_timeout_s)
             if not summary:
                 return None
 
             summary_text = C.format_summary_text(summary)
-            replacement = C.build_compacted_history(
-                C.collect_user_messages(history),
-                summary_text,
-                max_tokens=cfg.recent_user_max_tokens,
-            )
+            replacement = C.build_compacted_history(summary_text, recent)
             if self.hook_bus is not None:
                 from core.harness.events import thaw_value
                 from core.harness.hooks import HookStage, Invocation
@@ -823,14 +781,15 @@ async def _summarize_without_checkpoint(
     is not ours to do because another compactor holds the lease.
     """
     cfg = settings.compaction
-    summary = await _summarize(history, timeout=cfg.summarize_timeout_s)
+    older, recent = C.split_history_for_compaction(
+        history, keep_recent_tokens=cfg.keep_recent_tokens
+    )
+    if not older:
+        return None
+    summary = await _summarize(older, timeout=cfg.summarize_timeout_s)
     if not summary:
         return None
-    return C.build_compacted_history(
-        C.collect_user_messages(history),
-        C.format_summary_text(summary),
-        max_tokens=cfg.recent_user_max_tokens,
-    )
+    return C.build_compacted_history(C.format_summary_text(summary), recent)
 
 
 async def run_compaction(
@@ -1098,21 +1057,20 @@ async def maybe_run_pre_turn_compaction(
 
         # In-turn consumption view: both the stream and reply paths follow the
         # convention "last user message = this turn's input" (popped, then
-        # re-introduced via reply). The checkpoint's canonical form ends with the
-        # summary, so returning it directly would cause the summary to be
-        # mistakenly popped as this turn's input. Move this turn's user message
-        # to after the summary — exactly Codex's post-compaction shape of
-        # "summary at the end of history, new input following it".
+        # re-introduced via reply). The replacement keeps the recent tail
+        # verbatim, so the current instruction is already its last row unless
+        # the whole tail was summarized — then it is re-appended after the
+        # summary, and the summary itself is never mistaken for the input.
         in_turn = list(replacement)
-        if history[-1].get("role") in ("user", "human"):
-            for i in range(len(in_turn) - 1, -1, -1):
-                m = in_turn[i]
-                if m.get("role") == "user" and not C.is_summary_message(
-                    str(m.get("content") or "")
-                ):
-                    del in_turn[i]
-                    break
-            in_turn.append({"role": "user", "content": history[-1].get("content")})
+        current = history[-1]
+        if current.get("role") in ("user", "human"):
+            last = in_turn[-1] if in_turn else {}
+            if not (
+                last.get("role") in ("user", "human")
+                and last.get("content") == current.get("content")
+                and not C.is_summary_message(str(last.get("content") or ""))
+            ):
+                in_turn.append({"role": "user", "content": current.get("content")})
         return in_turn, True
     except Exception as exc:  # noqa: BLE001
         logger.warning("[compaction] pre-turn compaction failed chat=%s: %r", chat_id, exc)

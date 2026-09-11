@@ -481,6 +481,10 @@ class AgentRuntimeState(AgentState):
     # streaming adapter turns it into one ``steer_applied`` event, then clears
     # it. Keeping this on the typed runtime state avoids process-global queues.
     steer_delivery: dict | None = None
+    # Model responses recorded by the hook adapter the moment they complete,
+    # drained by the streaming adapter into ``model_step`` events. Each entry
+    # is one ``core.llm.model_steps`` assistant record.
+    pending_model_steps: List[dict] = Field(default_factory=list)
 
     def apply_request_context(self, context: dict, user_message_text: str) -> None:
         """Populate per-request runtime fields from the request ``context`` dict (replaces the 1.x agent._jx_context).

@@ -38,31 +38,6 @@ _PROMPT_TEMPLATE = """/no_think
 """
 
 
-def _strip_thinking(text: str) -> str:
-    """Strip thinking blocks from model output.
-
-    Handles both XML-style (<think>...</think>) and text-style
-    (Thinking Process:...) thinking blocks.
-    """
-    # XML-style: <think>...</think> or <thinking>...</thinking>
-    for close_tag in ("</think>", "</thinking>"):
-        idx = text.rfind(close_tag)
-        if idx != -1:
-            return text[idx + len(close_tag) :].strip()
-
-    # Text-style: find the JSON array after thinking text
-    # Look for the first '[' that starts a JSON array
-    bracket_idx = text.find("[")
-    if bracket_idx > 0:
-        # Only strip if there's substantial text before the bracket
-        # (indicating thinking output before the actual answer)
-        prefix = text[:bracket_idx].strip()
-        if len(prefix) > 20:
-            return text[bracket_idx:].strip()
-
-    return text.strip()
-
-
 def _resolve_followup_config() -> tuple[str, str, str, str]:
     """Resolve model config from DB: try 'followup' role, then 'summarizer', then 'main_agent'."""
     try:
@@ -182,7 +157,6 @@ class FollowUpGenerator:
             _LOGGER.info(
                 "[followup] raw LLM response (%d chars): %s", len(raw), raw[:200]
             )
-            raw = _strip_thinking(raw)
             questions = _parse_questions(raw)
             _LOGGER.info(
                 "[followup] parsed %d questions: %s", len(questions), questions

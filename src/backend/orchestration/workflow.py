@@ -27,7 +27,7 @@ from core.llm.context_ir import (
 )
 from core.llm.context_manager import resolve_model_context_window
 from core.llm.mcp_manager import close_clients
-from core.llm.message_compat import session_to_msgs, strip_thinking
+from core.llm.message_compat import session_to_msgs
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from core.ontology.validator import (
     activate_runtime_for_asset,
@@ -1522,7 +1522,7 @@ def run_chat_workflow(
                 )
             )
             result = await agent.reply(inputs=user_msg)
-            response = strip_thinking(result.get_text_content() or "")
+            response = result.get_text_content() or ""
             ontology_runtime = context.get("ontology_runtime")
             if not isinstance(ontology_runtime, dict):
                 ontology_runtime = {}
@@ -1550,7 +1550,7 @@ def run_chat_workflow(
                         )
                     )
                     repaired_result = await agent.reply(inputs=repair_msg)
-                    return strip_thinking(repaired_result.get_text_content() or "").strip()
+                    return (repaired_result.get_text_content() or "").strip()
 
                 try:
                     review = await review_ontology_output(
@@ -1906,6 +1906,9 @@ async def _astream_subagent_direct(
                 elif event_type == "context_usage":
                     yield {"type": "context_usage", **(payload or {})}
 
+                elif event_type == "model_step":
+                    yield {"type": "model_step", "step": payload}
+
                 elif event_type == "model_call_start":
                     yield {"type": "model_dispatch"}
 
@@ -2072,6 +2075,7 @@ async def _astream_subagent_direct(
                         "tool_id": tool_id,
                         "citations": cit_dicts,
                         "status": payload.get("status", "success"),
+                        "model_step": payload.get("model_step"),
                     }
 
                 elif event_type in ("heartbeat", "model_progress"):
@@ -2957,6 +2961,9 @@ async def astream_chat_workflow(
                 elif event_type == "context_usage":
                     yield {"type": "context_usage", **(payload or {})}
 
+                elif event_type == "model_step":
+                    yield {"type": "model_step", "step": payload}
+
                 elif event_type == "model_call_start":
                     yield {"type": "model_dispatch"}
 
@@ -3176,6 +3183,7 @@ async def astream_chat_workflow(
                         "tool_id": tool_id,
                         "citations": cit_dicts,
                         "status": payload.get("status", "success"),
+                        "model_step": payload.get("model_step"),
                         **({"subagent_name": _tr_sa_name} if _tr_sa_name else {}),
                     }
 

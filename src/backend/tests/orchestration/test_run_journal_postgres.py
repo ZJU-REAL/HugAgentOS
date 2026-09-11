@@ -170,8 +170,6 @@ def test_migrated_postgres_schema_and_atomic_claim():
                 source_run_id=race_run_id,
                 chat_id=chat_id,
                 user_id=user_id,
-                session_messages=[{"role": "user", "content": "race"}],
-                assistant_content="done",
                 context={"chat_id": chat_id, "user_id": user_id},
                 model_name="test-model",
             ),

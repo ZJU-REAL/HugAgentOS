@@ -13,14 +13,6 @@ _LOGGER = logging.getLogger(__name__)
 BUSINESS_TOPICS = ['综合咨询', '政策解读', '事项办理', '材料比对', '知识检索', '数据分析']
 
 
-def _strip_thinking(text: str) -> str:
-    for close_tag in ("</think>", "</thinking>"):
-        idx = text.rfind(close_tag)
-        if idx != -1:
-            return text[idx + len(close_tag):].strip()
-    return text.strip()
-
-
 def _resolve_classifier_config() -> tuple[str, str, str]:
     """Resolve model config from DB (summarizer role, shared with classification)."""
     try:
@@ -108,7 +100,7 @@ class ConversationClassifier:
 
                 data = response.json()
                 raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                result = _strip_thinking(raw)
+                result = raw.strip()
 
                 for topic in BUSINESS_TOPICS:
                     if topic in result:

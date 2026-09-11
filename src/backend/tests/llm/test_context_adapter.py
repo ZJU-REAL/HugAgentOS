@@ -294,7 +294,7 @@ def test_provider_parallel_tool_batch_is_budgeted_atomically_without_double_coun
     dropped = ContextAssembler(total_budget=full_cost - 1).assemble(items)
     assert dropped.included == ()
     assert len(dropped.manifest["excluded"]) == 4
-    assert {entry["reason"] for entry in dropped.manifest["excluded"]} == {"paired_budget"}
+    assert {entry["reason"] for entry in dropped.manifest["excluded"]} == {"budget_cut"}
 
 
 def test_append_context_item_is_the_single_message_creation_seam():

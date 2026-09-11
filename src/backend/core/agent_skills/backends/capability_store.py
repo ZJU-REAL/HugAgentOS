@@ -33,6 +33,14 @@ class CapabilityStoreBackend:
 
         return "local" if self._local else current_account_profile()
 
+    def _scope_user(self) -> Optional[str]:
+        """The account a private local entry must belong to (shared entries: nobody)."""
+        if not self._local:
+            return None
+        from core.capabilities.skills import current_local_user_id
+
+        return current_local_user_id()
+
     def _installations(self):
         from core.capabilities import registry
         from core.capabilities.paths import KIND_SKILL
@@ -41,8 +49,7 @@ class CapabilityStoreBackend:
         if not profile:
             return []
         if self._local:
-            from core.capabilities.skills import current_local_user_id
-            current_user = current_local_user_id()
+            current_user = self._scope_user()
             return [inst for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile)
                     if inst.ready and inst.enabled and not inst.payload.get("from_db")
                     and (not inst.payload.get("owner_user_id") or inst.payload["owner_user_id"] == current_user)]
@@ -50,11 +57,18 @@ class CapabilityStoreBackend:
                 if inst.ready and inst.enabled]
 
     def change_token(self) -> Tuple[Any, ...]:
+        """Account, viewer and registry state — the three inputs of this listing.
+
+        Read on every skill lookup, so it must not repeat the listing it guards:
+        the registry answers "did anything move" with one aggregate.
+        """
+        from core.capabilities import registry
+        from core.capabilities.paths import KIND_SKILL
+
         profile = self._profile()
-        return tuple(
-            (inst.install_id, inst.resolved_revision, inst.enabled, inst.generation)
-            for inst in self._installations()
-        ) + ((profile,),)
+        if not profile:
+            return (profile, None, ())
+        return (profile, self._scope_user(), registry.source_token(kind=KIND_SKILL, profile_id=profile))
 
     def _dir_for(self, inst) -> Optional[Path]:
         from core.capabilities import store

@@ -144,14 +144,14 @@ def build_skill_content(
 
 def validate_skill_file_path(filename: str) -> str:
     """Validate and normalize a relative skill-file path."""
+    from core.agent_skills.publication import normalize_file_path
+
+    # Keep the established leading-slash UI convention; ZIP paths are strict.
     name = (filename or "").strip().strip("/")
-    if not name:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
-    if "\\" in name or "\x00" in name:
-        raise HTTPException(status_code=400, detail=f"非法文件名: {filename}")
-    if any(part in ("", ".", "..") for part in name.split("/")):
-        raise HTTPException(status_code=400, detail=f"非法文件路径: {filename}")
-    return name
+    try:
+        return normalize_file_path(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"非法文件路径: {filename}") from exc
 
 
 def extract_instructions(skill_content: Optional[str]) -> str:

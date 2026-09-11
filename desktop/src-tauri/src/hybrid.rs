@@ -28,12 +28,16 @@ use crate::local_server::{local_server_base, LocalServerManager};
 /// 本机路由（否则本机后端只会回 401，前端会误判成云端会话过期）。
 /// `capabilities_ready`：模型拓扑和首次能力包同步均已完成。
 /// 模型与组件的实际可用性仍由本机后端在调用时校验。
+/// `retrying`：`error` 是壳自己还在自动重试的暂时性故障（云端不可达等），不需要用户
+/// 处理。界面据此区分「还在重试」与「停下来等你决定」——否则一个会自愈的网络抖动会
+/// 被画成失败卡片，而那张卡片上的按钮此时全都是灰的，看着像彻底卡死。
 #[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct BridgeSync {
     pub identity_ready: bool,
     pub capabilities_ready: bool,
     pub models_ready: bool,
     pub error: Option<String>,
+    pub retrying: bool,
 }
 
 /// 读取或生成桥接秘密（`<config_dir>/bridge.secret`，0600 语义、内容 64 hex）。
@@ -145,6 +149,7 @@ pub fn on_cloud_login(
             eprintln!("[hybrid] 获取云端用户信息失败，30 秒后重试");
             *bridge_sync.write().await = BridgeSync {
                 error: Some("获取云端用户信息失败".to_string()),
+                retrying: true,
                 ..BridgeSync::default()
             };
             local_server.notify_changed();
@@ -157,25 +162,22 @@ pub fn on_cloud_login(
             }
             *bridge_user.write().await = Some(base64_encode(user_json.as_bytes()));
         }
-        let mut ready = false;
-        for _ in 0..480 {
+        // 等待本机执行面就绪，不设截止时间。本机服务可能还没装（首启停在初始化页，
+        // 装机要等用户按下「开始初始化」）、正在解压运行环境，或刚被重启——这些等待
+        // 都可能远超任何固定预算。一旦超时就放弃，本轮登录之后再也不会同步能力：
+        // 本机服务后来起来了也没人接手，客户端只能卡在能力同步页直到重启。就绪由
+        // LocalServerManager 的状态版本推送唤醒，等待期间不轮询。
+        let mut readiness = local_server.subscribe();
+        loop {
             if !current_session(&session_epoch, expected, &session_token, &token).await {
                 return;
             }
             if local_server.is_ready().await {
-                ready = true;
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
-        if !ready {
-            eprintln!("[hybrid] 本机服务未就绪");
-            *bridge_sync.write().await = BridgeSync {
-                error: Some("本机服务未就绪".to_string()),
-                ..BridgeSync::default()
-            };
-            local_server.notify_changed();
-            return;
+            if readiness.changed().await.is_err() {
+                return;
+            }
         }
         // Renewal cadence follows the token lifetime; the model topology is only
         // re-imported when the cloud says it changed (ETag), so a renewal never
@@ -213,6 +215,7 @@ pub fn on_cloud_login(
                     sync.capabilities_ready = false;
                     sync.models_ready = false;
                     sync.error = Some(error);
+                    sync.retrying = true;
                     drop(sync);
                     local_server.notify_changed();
                     30
@@ -592,6 +595,7 @@ async fn sync_desktop_runtime_once(
         let mut sync = bridge_sync.write().await;
         sync.identity_ready = true;
         sync.error = None;
+        sync.retrying = false;
     }
     local_server.notify_changed();
     if let Some((payload, providers, revision)) = models {

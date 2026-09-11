@@ -193,6 +193,13 @@ async def test_failure_keeps_what_was_produced(env, monkeypatch):
         assert db.get(ChatRun, run.run_id).status == "failed"
 
 
+def _row_text(row) -> str:
+    content = row["content"]
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") for b in content)
+
+
 def test_inflight_rows_never_reach_model_context():
     """只有**活着的** run 正在写的行被跳过；死 run 留下的标记不再有意义，行按定稿读。"""
     rows = [
@@ -212,7 +219,8 @@ def test_inflight_rows_never_reach_model_context():
         SimpleNamespace(role="assistant", content="final", extra_data={}, tool_calls=None),
     ]
     out = _normalize_rows(rows, frozenset({"run-live"}))
-    assert [m["content"] for m in out] == ["q1", "left by a dead run", "final"]
+    # User rows stay plain strings; assistant rows are block lists.
+    assert [_row_text(m) for m in out] == ["q1", "left by a dead run", "final"]
 
 
 def test_fenced_worker_cannot_refresh_the_row(env):

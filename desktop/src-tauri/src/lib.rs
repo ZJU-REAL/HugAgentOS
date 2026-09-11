@@ -202,6 +202,9 @@ async fn clear_desktop_session(shared: &Shared) -> u64 {
         }
         old_token
     };
+    // 桥接状态被清空也是一次状态变化：推一帧给订阅者，前端不会停在退出登录前的
+    // 就绪态，上一轮登录里还在等本机服务的协程也能立刻醒来发现会话已换、退出。
+    shared.local_server.notify_changed();
     if let Some(token) = old_token {
         let response = shared
             .http
@@ -1183,6 +1186,7 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
                 }
             }
         }
+        shared.local_server.notify_changed();
         if !shared.session_epoch.matches(expected) {
             return;
         }

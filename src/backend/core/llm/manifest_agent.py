@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import Any, Callable, Optional
 
 from agentscope.agent import Agent
-
 from core.llm.context_adapter import AgentScopeContextAdapter
-from core.llm.context_ir import (
-    VISIBILITY_MANIFEST_ONLY,
-    ContextAssembler,
-    estimate_context_tokens,
-)
+from core.llm.context_ir import VISIBILITY_MANIFEST_ONLY, ContextAssembler, estimate_context_tokens
 from core.llm.context_manager import FALLBACK_CONTEXT_WINDOW, usable_context_window
+
+logger = logging.getLogger(__name__)
 
 
 class ManifestBoundAgent(Agent):
@@ -182,6 +180,31 @@ class ManifestBoundAgent(Agent):
             total_budget=request_budget,
             budget_details=budget_details,
         ).assemble(items)
+        if assembly.over_budget:
+            # The protected material alone (system prompt, current request,
+            # the turn's own steps) does not fit the estimate. Nothing inside
+            # it may be shortened; compaction already ran at the step boundary.
+            # The request goes out intact — the provider's count is the only
+            # exact one — and this line makes the overflow visible instead of
+            # a silently mutilated history.
+            logger.warning(
+                "[context] protected content exceeds the request budget: "
+                "used=%d budget=%d protected_units=%d cut_units=%d pruned_items=%d",
+                assembly.used_tokens,
+                assembly.total_budget,
+                assembly.manifest.get("protected_units", 0),
+                assembly.cut_units,
+                assembly.pruned_items,
+            )
+        elif assembly.cut_units or assembly.pruned_items:
+            logger.info(
+                "[context] history reduced to fit the request budget: "
+                "cut_units=%d pruned_items=%d used=%d budget=%d",
+                assembly.cut_units,
+                assembly.pruned_items,
+                assembly.used_tokens,
+                assembly.total_budget,
+            )
         model_input["messages"] = adapter.messages_from_items(assembly.included)
         self._jx_context_budget = request_budget
         self._jx_context_budget_details = budget_details

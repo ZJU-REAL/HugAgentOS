@@ -3396,6 +3396,7 @@ textarea.jx-composer{
   color: var(--color-text-tertiary);
   font-size: 14px;
 }
+.jx-slashPopup-icon--command { color: var(--color-tint-green); }
 .jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
 .jx-slashPopup-icon--skill { color: var(--color-warning); }
 
@@ -3466,6 +3467,11 @@ textarea.jx-composer{
 .jx-editorChip--plugin {
   background: var(--color-tint-purple-bg);
   color: var(--color-tint-purple);
+}
+/* 命令 chip（/init 这类）：绿色底（青/紫/teal/蓝已被技能/插件/连接器/会话引用占用） */
+.jx-editorChip--command {
+  background: var(--color-tint-green-bg);
+  color: var(--color-tint-green);
 }
 .jx-editorChip--connector {
   background: var(--color-tint-teal-bg);

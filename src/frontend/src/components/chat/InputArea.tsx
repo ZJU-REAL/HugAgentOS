@@ -48,7 +48,14 @@ import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { hasChatInvocation } from '../../utils/chatInvocation';
 import { exceedsPreviewLimit, getPreviewLimitBytes } from '../../utils/filePreviewSafety';
 import { t } from '../../i18n';
-import { canInitializeProject, isProjectInitCommand } from '../../utils/projectCommands';
+import {
+  canInitializeProject,
+  composeCommandMessage,
+  isProjectInitCommand,
+  PROJECT_INIT_COMMAND_ID,
+  PROJECT_INIT_COMMAND_MESSAGE,
+  type ChatCommand,
+} from '../../utils/projectCommands';
 
 interface InputAreaProps {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -230,6 +237,25 @@ function insertChipAtStart(editor: HTMLElement, prefix: string, name: string, cl
   insertChipAtCursor(editor, prefix, name, cls, chipType);
 }
 
+/** 每个 chip 后面跟着插入时补的一个不换行空格，删 chip 要把它一起带走。 */
+const CHIP_TRAILING_SPACE = String.fromCharCode(0xa0);
+
+/** Remove every chip of one type, along with the trailing space its insertion added.
+ *  Returns whether anything was removed, so callers only re-sync when the DOM changed. */
+function removeChipsOfType(editor: HTMLElement, chipType: string): boolean {
+  const stale = editor.querySelectorAll(`[data-chip="${chipType}"]`);
+  if (!stale.length) return false;
+  stale.forEach((el) => {
+    const next = el.nextSibling;
+    if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith(CHIP_TRAILING_SPACE)) {
+      next.textContent = next.textContent.slice(1);
+      if (!next.textContent) next.remove();
+    }
+    el.remove();
+  });
+  return true;
+}
+
 function setEditorPlainText(editor: HTMLElement, text: string) {
   editor.innerHTML = '';
   if (text) {
@@ -322,6 +348,7 @@ export function InputArea({
     quotedFollowUp, setQuotedFollowUp,
     activeSkill, setActiveSkill, activePlugin, setActivePlugin,
     activeConnector, setActiveConnector, activeMention, setActiveMention,
+    activeCommand, setActiveCommand,
     planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
@@ -476,10 +503,16 @@ export function InputArea({
             skill.desc.trim(),
           ].filter(Boolean).join(' · '),
         }));
+      const initCommand: ChatCommand = {
+        id: PROJECT_INIT_COMMAND_ID,
+        label: t('初始化指令'),
+        message: PROJECT_INIT_COMMAND_MESSAGE,
+      };
       const commands: SlashEntry[] = canInitProject && ['init', '初始化指令', 'agents.md']
         .some((alias) => alias.includes(query.trim()))
-        ? [{ kind: 'command', id: 'project-init', name: '/init',
-            description: t('初始化指令：检查项目并创建或完善 AGENTS.md') }]
+        ? [{ kind: 'command', id: initCommand.id, name: initCommand.message,
+            description: t('初始化指令：检查项目并创建或完善 AGENTS.md'),
+            command: initCommand }]
         : [];
       // 已经引用过的不再出现在候选里，避免选两次只生效一次看着像没反应。
       const referenced = new Set(referencedChats.map((c) => c.chat_id));
@@ -635,6 +668,7 @@ export function InputArea({
     const hadSkillChip = !!editor.querySelector('[data-chip="skill"]');
     const hadPluginChip = !!editor.querySelector('[data-chip="plugin"]');
     const hadConnectorChip = !!editor.querySelector('[data-chip="connector"]');
+    const hadCommandChip = !!editor.querySelector('[data-chip="command"]');
     const hadChatChip = !!editor.querySelector('[data-chip="chat"]');
 
     setEditorPlainText(editor, input);
@@ -644,14 +678,15 @@ export function InputArea({
     if (hadSkillChip && activeSkill) setActiveSkill(null);
     if (hadPluginChip && activePlugin) setActivePlugin(null);
     if (hadConnectorChip && activeConnector) setActiveConnector(null);
+    if (hadCommandChip && activeCommand) setActiveCommand(null);
     if (hadChatChip && referencedChats.length > 0) clearReferencedChats();
 
     if (document.activeElement === editor) {
       moveCaretToEnd(editor);
     }
   }, [
-    activeMention, activeSkill, activePlugin, activeConnector, input,
-    setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector,
+    activeMention, activeSkill, activePlugin, activeConnector, activeCommand, input,
+    setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector, setActiveCommand,
     referencedChats, clearReferencedChats,
   ]);
 
@@ -660,37 +695,23 @@ export function InputArea({
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || activeConnector) return;
-    const stale = editor.querySelectorAll('[data-chip="connector"]');
-    if (stale.length) {
-      stale.forEach((el) => {
-        const next = el.nextSibling;
-        if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
-          next.textContent = next.textContent.slice(1);
-          if (!next.textContent) next.remove();
-        }
-        el.remove();
-      });
-      syncText();
-    }
+    if (removeChipsOfType(editor, 'connector')) syncText();
   }, [activeConnector, _currentChat?.id]);
+
+  // 命令 chip 同一条安全网，而且它是唯一出口：只带一个命令 chip 发送时输入框文本前后都是空的，
+  // 上面那个「input 变了才重画编辑器」的 effect 根本不会触发，chip 会留在框里。
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || activeCommand) return;
+    if (removeChipsOfType(editor, 'command')) syncText();
+  }, [activeCommand, _currentChat?.id]);
 
   // 会话引用 chip 与 connector chip 同一条安全网：编辑器 DOM 是所有会话共用的一个元素，
   // 切换会话时 store 里的引用已清空，DOM 里的 chip 不会自己消失，得显式扫掉。
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || referencedChats.length > 0) return;
-    const stale = editor.querySelectorAll('[data-chip="chat"]');
-    if (stale.length) {
-      stale.forEach((el) => {
-        const next = el.nextSibling;
-        if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
-          next.textContent = next.textContent.slice(1);
-          if (!next.textContent) next.remove();
-        }
-        el.remove();
-      });
-      syncText();
-    }
+    if (removeChipsOfType(editor, 'chat')) syncText();
   }, [referencedChats, _currentChat?.id]);
 
   // ── Plugin-first entry points: render their activated plugin as an inline reference chip ──
@@ -856,18 +877,30 @@ export function InputArea({
     if (!ed) return;
     // One direct connector can be selected at a time. Replace an existing connector chip
     // instead of leaving the DOM with two chips backed by one store value.
-    ed.querySelectorAll('[data-chip="connector"]').forEach((el) => {
-      const next = el.nextSibling;
-      if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
-        next.textContent = next.textContent.slice(1);
-        if (!next.textContent) next.remove();
-      }
-      el.remove();
-    });
+    removeChipsOfType(ed, 'connector');
     insertChipAtCursor(ed, 'MCP', connectorName, 'jx-editorChip--connector', 'connector');
     setActiveConnector({ id: connectorId, name: connectorName });
     syncText();
     ed.focus();
+  }
+
+  /** 引用一条斜杠命令：与技能 / 插件 / 连接器完全同一套内联 chip——选中只是把命令放进输入框，
+   *  用户再按回车才发出去（原来选中即发，用户来不及看清就已经跑起来了）。 */
+  function applyCommand(command: ChatCommand) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    insertChipAtCursor(ed, '/', command.label, 'jx-editorChip--command', 'command');
+    setActiveCommand(command);
+    setSlashVisible(false);
+    syncText();
+    ed.focus();
+  }
+
+  function onSlashSelectCommand(command: ChatCommand) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    removeQueryAtCursor(ed, '/');
+    applyCommand(command);
   }
 
   function onPickConnectorFromMenu(connectorId: string, connectorName: string) {
@@ -879,7 +912,8 @@ export function InputArea({
   }
 
   function sendFromComposer() {
-    const value = useChatStore.getState().input.trim();
+    const { input: composerText, activeCommand: pendingCommand } = useChatStore.getState();
+    const value = composeCommandMessage(composerText, pendingCommand);
     if (isProjectInitCommand(value) && !canInitProject) {
       void message.warning(t('请在有编辑权限的具体项目中使用普通对话，并移除已选择的能力后初始化指令'));
       return;
@@ -912,10 +946,7 @@ export function InputArea({
     }
     if (entry.kind === 'command') {
       if (!canInitProject) return;
-      setInput('/init');
-      if (editorRef.current) editorRef.current.textContent = '/init';
-      setSlashVisible(false);
-      sendFromComposer();
+      onSlashSelectCommand(entry.command);
       return;
     }
     if (entry.kind === 'plugin') {
@@ -1029,6 +1060,7 @@ export function InputArea({
             if (type === 'skill') setActiveSkill(null);
             if (type === 'plugin') setActivePlugin(null);
             if (type === 'connector') setActiveConnector(null);
+            if (type === 'command') setActiveCommand(null);
             if (type === 'chat' && last.dataset.chipId) removeReferencedChat(last.dataset.chipId);
             e.preventDefault();
             syncText();
@@ -1049,7 +1081,11 @@ export function InputArea({
   // 引用会话同样是"框里已经有内容"的一种：chip 不产生文本，光看 input 会误判成空，
   // 占位文字就会压在 chip 和后面输入的字上（其余四类早就在这条判断里了）。
   const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin
-    && !activeConnector && referencedChats.length === 0 && !isComposing;
+    && !activeConnector && !activeCommand && referencedChats.length === 0 && !isComposing;
+
+  // 命令 chip 自己就是一条完整消息（技能 / 插件 chip 只是修饰，还得再打字），所以框里只有
+  // 一个命令 chip 时发送按钮必须是亮的，否则用户只能靠回车才发得出去。
+  const composerHasContent = !!input.trim() || !!activeCommand;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
   // A project-detail composer starts a separate chat and deliberately ignores
@@ -1071,7 +1107,7 @@ export function InputArea({
     }
   }, [currentChatId, queuedMessage?.status, queuedMessage?.targetRunId, sending, updateQueuedMessage]);
 
-  const showStopButton = sending && !input.trim();
+  const showStopButton = sending && !composerHasContent;
 
   // 拖文件到输入区直接作为附件上传，复用点击"浏览"的同一条 handleFileSelect 管线
   // （它只读 e.target.files，合成一个最小 change 事件即可）。
@@ -1662,9 +1698,10 @@ export function InputArea({
             onClick={() => { if (showStopButton) { abort?.(); } else { sendFromComposer(); } }}
             /* 空输入 / 纯空格时按钮置灰：send() 本来就会 `if (!msg) return` 静默吞掉，
                但按钮看着可点，用户以为发出去了。附件不能单独成一条消息（send 的守卫
-               同样要求正文非空），所以判据就是正文 trim 后是否为空。
+               同样要求正文非空），所以判据是正文 trim 后是否为空——命令 chip 例外，它自己
+               就是一条完整消息（composerHasContent）。
                注意别动 showStopButton 分支：流式输出中空输入时这颗按钮是「中止」。 */
-            disabled={!showStopButton && (uploadingFiles.size > 0 || !input.trim())}
+            disabled={!showStopButton && (uploadingFiles.size > 0 || !composerHasContent)}
             aria-label={showStopButton ? t('中止') : t('发送')}
           >
             <AnimatePresence mode="wait" initial={false}>

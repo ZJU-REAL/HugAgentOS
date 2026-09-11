@@ -99,6 +99,62 @@ def test_validate_skill_file_path():
 
     assert validate_skill_file_path("scripts/run.py") == "scripts/run.py"
     assert validate_skill_file_path("/config.json") == "config.json"
-    for bad in ("../evil.py", "a/../../b", "a\\b", "", "a//b", "."):
+    assert validate_skill_file_path("a\\b") == "a/b"
+    for bad in ("../evil.py", "a/../../b", "", "a//b", ".", "C:\\file"):
         with pytest.raises(HTTPException):
             validate_skill_file_path(bad)
+
+@pytest.mark.parametrize("prefix", ["", "demo/", "demo\\"])
+def test_windows_zip_paths_are_normalized(prefix):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr(prefix + "SKILL.md", SKILL_MD)
+        archive.writestr(prefix + "scripts\\rank_objects.py", "print(1)")
+    parsed = parse_skill_zip(buf.getvalue())
+    assert parsed["extra_files"] == {"scripts/rank_objects.py": "print(1)"}
+
+
+@pytest.mark.parametrize("name", ["../escape", "..\\escape", "/absolute", "\\absolute",
+                                  "C:\\file", "a//b", "a/./b", "a\\..\\b"])
+def test_zip_rejects_unsafe_paths(name):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("SKILL.md", SKILL_MD)
+        archive.writestr(name, "bad")
+    with pytest.raises(HTTPException) as exc:
+        parse_skill_zip(buf.getvalue())
+    assert exc.value.status_code == 400
+
+
+def test_zip_rejects_normalized_name_collision():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("SKILL.md", SKILL_MD)
+        archive.writestr("scripts/run.py", "first")
+        archive.writestr("scripts\\run.py", "second")
+    with pytest.raises(HTTPException):
+        parse_skill_zip(buf.getvalue())
+
+
+def test_legacy_skill_paths_normalize_without_silent_overwrite():
+    from core.agent_skills.publication import decode_files
+
+    assert decode_files("body", {"scripts\\run.py": "code"})["scripts/run.py"] == b"code"
+    with pytest.raises(ValueError):
+        decode_files("body", {"scripts/run.py": "one", "scripts\\run.py": "two"})
+    with pytest.raises(ValueError):
+        decode_files("body", {"..\\escape": "bad"})
+
+
+def test_archive_and_legacy_db_reject_file_directory_conflicts():
+    from core.agent_skills.publication import decode_files
+
+    with pytest.raises(ValueError):
+        decode_files("body", {"scripts": "file", "scripts/run.py": "code"})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("SKILL.md", SKILL_MD)
+        archive.writestr("scripts", "file")
+        archive.writestr("scripts/run.py", "code")
+    with pytest.raises(HTTPException):
+        parse_skill_zip(buf.getvalue())

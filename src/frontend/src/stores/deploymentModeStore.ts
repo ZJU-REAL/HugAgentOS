@@ -24,7 +24,16 @@ interface DesktopBoot {
 }
 
 interface DesktopEvent {
-  bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null };
+  bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null; retrying?: boolean };
+  service?: { phase?: string; message?: string; progress?: number; ready?: boolean };
+}
+
+/** 本机服务自己的安装/启动状态，能力同步等待期间用它说明「在等什么」。 */
+export interface LocalServiceState {
+  phase: string;
+  message: string;
+  progress: number;
+  ready: boolean;
 }
 
 declare global {
@@ -50,6 +59,9 @@ interface DeploymentModeState {
   capabilityGateOpen: boolean;
   partialCapabilities: boolean;
   capabilitySyncError: string | null;
+  /** 上面的错误壳还在自动重试，不需要用户处理。 */
+  capabilitySyncRetrying: boolean;
+  localService: LocalServiceState | null;
 }
 
 export interface ProjectCreationTargets {
@@ -88,6 +100,8 @@ function bootState(): DeploymentModeState {
       capabilityGateOpen: true,
       partialCapabilities: false,
       capabilitySyncError: null,
+      capabilitySyncRetrying: false,
+      localService: null,
     };
   }
   return {
@@ -103,6 +117,8 @@ function bootState(): DeploymentModeState {
     capabilityGateOpen: true,
     partialCapabilities: false,
     capabilitySyncError: null,
+    capabilitySyncRetrying: false,
+    localService: null,
   };
 }
 
@@ -122,10 +138,23 @@ if (initial.provisionMode === 'dual' && typeof EventSource !== 'undefined') {
       const capabilitiesReady = !!status.bridge?.capabilities_ready;
       const modelsReady = !!status.bridge?.models_ready;
       const capabilitySyncError = status.bridge?.error || null;
+      const capabilitySyncRetrying = !!status.bridge?.retrying;
+      const localService: LocalServiceState = {
+        phase: status.service?.phase || '',
+        message: status.service?.message || '',
+        progress: status.service?.progress ?? 0,
+        ready: !!status.service?.ready,
+      };
       const previous = useDeploymentModeStore.getState();
-      if (localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
-          || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError) {
+      const serviceChanged = localService.phase !== previous.localService?.phase
+        || localService.message !== previous.localService?.message
+        || localService.progress !== previous.localService?.progress
+        || localService.ready !== previous.localService?.ready;
+      if (serviceChanged || localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
+          || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError
+          || capabilitySyncRetrying !== previous.capabilitySyncRetrying) {
         useDeploymentModeStore.setState({ localReady, capabilitiesReady, modelsReady, capabilitySyncError,
+          capabilitySyncRetrying, localService,
           ...(!localReady ? { capabilityGateOpen: true, partialCapabilities: false } : {}),
         });
       }

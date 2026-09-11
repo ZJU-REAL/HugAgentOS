@@ -142,7 +142,9 @@ def test_cancelled_turn_is_marked_in_replayed_context():
 
     assert replayed[0] == {"role": "user", "content": "帮我查一下"}
     assert replayed[1]["role"] == "assistant"
-    assert replayed[1]["content"] == "我先看看\n\n[本轮回答被用户中断]"
+    assert replayed[1]["content"] == [
+        {"type": "text", "text": "我先看看\n\n[本轮回答被用户中断]"}
+    ]
 
 
 def test_normal_turn_carries_no_interruption_marker():
@@ -150,7 +152,9 @@ def test_normal_turn_carries_no_interruption_marker():
 
     rows = [SimpleNamespace(role="assistant", content="查完了", extra_data={}, tool_calls=None)]
 
-    assert _normalize_rows(rows) == [{"role": "assistant", "content": "查完了"}]
+    assert _normalize_rows(rows) == [
+        {"role": "assistant", "content": [{"type": "text", "text": "查完了"}]}
+    ]
 
 
 @pytest.mark.asyncio

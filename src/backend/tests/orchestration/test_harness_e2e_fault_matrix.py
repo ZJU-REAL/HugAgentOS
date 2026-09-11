@@ -79,8 +79,6 @@ def test_terminal_commit_atomically_transfers_writer_and_sequence(harness_sessio
             source_run_id=accepted.run.run_id,
             chat_id="chat-1",
             user_id="user-1",
-            session_messages=[{"role": "user", "content": "first turn"}],
-            assistant_content="first answer",
             context={"chat_id": "chat-1", "user_id": "user-1"},
             model_name="test-model",
         )
@@ -159,8 +157,6 @@ def test_terminal_commit_hands_late_steer_to_successor_run(harness_sessions, mon
             source_run_id=accepted.run.run_id,
             chat_id="chat-1",
             user_id="user-1",
-            session_messages=[{"role": "user", "content": "first turn"}],
-            assistant_content="first answer",
             context={"chat_id": "chat-1", "user_id": "user-1"},
             model_name="test-model",
         )

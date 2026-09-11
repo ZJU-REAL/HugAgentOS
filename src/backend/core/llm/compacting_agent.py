@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from agentscope.agent import Agent, ContextConfig
-
+from agentscope.model import ChatUsage
+from core.llm.execution_manifest import stable_hash
 from core.llm.manifest_agent import ManifestBoundAgent
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,40 @@ _OFFLOAD_REMINDER = (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
+class _MessageCursor:
+    role: str
+    blocks: tuple[str, ...]
+
+
+def _content_blocks(row: Dict[str, Any]) -> list[Any]:
+    content = row.get("content")
+    return content if isinstance(content, list) else [content]
+
+
+def _history_cursor(history: List[Dict[str, Any]]) -> tuple[_MessageCursor, ...]:
+    """Fingerprint content, not Msg count or mutable SDK bookkeeping.
+
+    Keep hashes rather than a second copy of potentially large tool outputs.
+    Tool permission/execution state does not change the model's call payload.
+    """
+    cursors = []
+    for row in history:
+        hashes = []
+        for block in _content_blocks(row):
+            if isinstance(block, dict) and block.get("type") == "tool_call":
+                block = {key: block.get(key) for key in ("type", "id", "name", "input")}
+            hashes.append(stable_hash(block))
+        cursors.append(_MessageCursor(role=str(row.get("role") or "user"), blocks=tuple(hashes)))
+    return tuple(cursors)
+
+
+@dataclass(frozen=True)
 class _ContextObservation:
-    """Server-reported token usage and the context length it measured."""
+    """Server usage anchored after the corresponding response entered context."""
 
     tokens: int
-    context_len: int
+    cursor: tuple[_MessageCursor, ...]
 
 
 class CompactingAgent(ManifestBoundAgent):
@@ -45,17 +74,25 @@ class CompactingAgent(ManifestBoundAgent):
         # Resolved once by agent_factory to avoid a config DB read per ReAct step.
         self._jx_trigger_ratio: Optional[float] = None
         # Prevent repeated compaction when an oversized context cannot shrink.
-        self._jx_compacted_at_len: Optional[int] = None
+        self._jx_compacted_cursor: Optional[tuple[_MessageCursor, ...]] = None
 
     # ── Token metering ───────────────────────────────────────────────────────
 
+    def _save_to_context(self, blocks: Sequence[Any], usage: ChatUsage | None = None) -> None:
+        # AgentScope emits ModelCallEndEvent *before* saving the response.
+        # Anchor here, after saving it, because completion tokens already pay
+        # for these blocks. This also covers callers that do not use streaming.
+        super()._save_to_context(blocks, usage)
+        if usage is not None:
+            self.observe_context_tokens(usage.input_tokens, usage.output_tokens)
+
     def observe_context_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
-        """Record provider-reported context occupancy for the last model call."""
+        """Record usage after its model response has been saved into context."""
         total = int(prompt_tokens or 0) + int(completion_tokens or 0)
         if total <= 0:
             return
         self._jx_observation = _ContextObservation(
-            tokens=total, context_len=len(self.state.context)
+            tokens=total, cursor=_history_cursor(self._history_for_summary())
         )
 
     async def _measure_context_tokens(self) -> int:
@@ -66,19 +103,34 @@ class CompactingAgent(ManifestBoundAgent):
         or an endpoint that omits usage).
         """
         obs = self._jx_observation
-        if obs is not None and 0 <= obs.context_len <= len(self.state.context):
-            trailing = self.state.context[obs.context_len :]
-            return obs.tokens + self._estimate_msgs_tokens(trailing)
+        if obs is not None:
+            history = self._history_for_summary()
+            cursor = _history_cursor(history)
+            count = len(obs.cursor)
+            # Only an append to the last observed message, followed by new
+            # messages, extends the measured prefix. Rewrites/removals need a
+            # fresh estimate; a stale server baseline no longer describes them.
+            if count == 0:
+                trailing = history
+            elif (
+                len(cursor) >= count
+                and cursor[: count - 1] == obs.cursor[:-1]
+                and cursor[count - 1].role == obs.cursor[-1].role
+                and cursor[count - 1].blocks[: len(obs.cursor[-1].blocks)] == obs.cursor[-1].blocks
+            ):
+                trailing = list(history[count:])
+                blocks = _content_blocks(history[count - 1])[len(obs.cursor[-1].blocks) :]
+                if blocks:
+                    trailing.insert(0, {"role": history[count - 1]["role"], "content": blocks})
+            else:
+                trailing = None
+                self._jx_observation = None
+            if trailing is not None:
+                from core.services.compaction_service import estimate_history_tokens
+
+                return obs.tokens + (estimate_history_tokens(trailing) if trailing else 0)
         kwargs = await self._prepare_model_input()
         return int(await self.model.count_tokens(**kwargs))
-
-    @staticmethod
-    def _estimate_msgs_tokens(msgs: List[Any]) -> int:
-        from core.services.compaction_service import estimate_history_tokens
-
-        if not msgs:
-            return 0
-        return estimate_history_tokens([msg_to_history_dict(m) for m in msgs])
 
     # ── MidTurn compaction ───────────────────────────────────────────────────
 
@@ -113,12 +165,9 @@ class CompactingAgent(ManifestBoundAgent):
             )
             return
 
-        if (
-            self._jx_compacted_at_len is not None
-            and len(self.state.context) <= self._jx_compacted_at_len
-        ):
+        if self._jx_compacted_cursor == _history_cursor(self._history_for_summary()):
             logger.warning(
-                "[compaction] mid-turn skipped: context did not grow since the last "
+                "[compaction] mid-turn skipped: context content is unchanged since the last "
                 "compaction (len=%d), a further summary cannot shrink it",
                 len(self.state.context),
             )
@@ -150,7 +199,7 @@ class CompactingAgent(ManifestBoundAgent):
                 logger.warning("[compaction] framework compression failed too: %r", exc)
                 return
             self._jx_observation = None
-            self._jx_compacted_at_len = len(self.state.context)
+            self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
             return
 
         await self._apply_replacement(replacement)
@@ -193,16 +242,18 @@ class CompactingAgent(ManifestBoundAgent):
                 logger.warning("[compaction] offload failed: %r", exc)
             else:
                 if path and replacement:
-                    tail = replacement[-1]
-                    tail["content"] = f"{tail.get('content') or ''}" + _OFFLOAD_REMINDER.format(
-                        path=path
+                    # The summary row opens the replacement; the rows after it
+                    # are verbatim steps and must stay untouched.
+                    summary_row = replacement[0]
+                    summary_row["content"] = f"{summary_row.get('content') or ''}" + (
+                        _OFFLOAD_REMINDER.format(path=path)
                     )
 
-        # Keep the summary trailing, matching checkpoint replay order.
+        # Summary first, recent steps after it, matching checkpoint replay order.
         self.state.summary = ""
         self.state.context = session_to_msgs(replacement)
         self._jx_observation = None
-        self._jx_compacted_at_len = len(self.state.context)
+        self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
         logger.info(
             "[compaction] mid-turn applied msgs=%d→%d", len(dropped), len(self.state.context)
         )

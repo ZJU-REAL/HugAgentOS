@@ -524,15 +524,10 @@ const TB_OFFSET_PAGE: &str =
 // their hit area clear without stacking a second, visibly empty toolbar above
 // the application's own brand row.
 const MAC_TITLEBAR_HEIGHT: u8 = 28;
-// 左半幅要在视觉上**接着侧边栏往上长**，所以这里必须逐字复刻 sidebar.css 里 `.jx-sider`
-// 的配方：`color-mix(in srgb, var(--color-bg-gray) 72%, transparent)` 压在页面底色上。
-//
-// 这段历史上写死过 `rgba(203,223,255,.38)` / `#FFFFFF` / `#F5F6F7`，是抄的侧边栏当年那版
-// 浅蓝。前端把侧边栏令牌化之后它就双重失真了：浅色下不再和侧边栏同色，深色下更是用
-// `!important` 把整个 body 底色摁回浅色 —— 深色模式在 macOS 客户端里直接不成立。
-// 改引令牌后两档自动跟随，侧边栏配方再变也只需要改 sidebar.css 一处。
+// The SPA paints its own surfaces all the way to the window edge. Reserve
+// traffic-light space only inside the sidebar; standalone pages keep an inset.
 const MAC_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:28px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:28px!important;background:linear-gradient(90deg,color-mix(in srgb, var(--color-bg-gray) 72%, transparent) 0 var(--hugagent-desktop-sidebar-width),var(--color-bg-base) var(--hugagent-desktop-sidebar-width) 100%),var(--color-bg-layout)!important}.jx-brandRow,.jx-miniRail{padding-top:0!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:28px;--hugagent-desktop-sidebar-width:100%}body{box-sizing:border-box!important;padding-top:28px!important}:root[data-mac-immersive] body{padding-top:0!important}.jx-brandRow{padding-top:38px!important}.jx-miniRail{padding-top:38px!important;width:88px}.jx-sider.ant-layout-sider-collapsed{width:88px!important;min-width:88px!important;max-width:88px!important}.jx-appLoading{height:100%!important}.jx-appLoading-sidebar{box-sizing:border-box;padding-top:38px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const MAC_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:28px}body{box-sizing:border-box!important;padding-top:28px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
@@ -763,6 +758,7 @@ bar.addEventListener('dblclick',function(event){if(isControl(event.target))retur
 const MAC_TB_CSS: &str = r##"
 #hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:28px;z-index:2147483647;background:transparent;border:0;box-shadow:none;-webkit-user-select:none;user-select:none}
 #hugagent-mac-titlebar *{box-sizing:border-box}
+:root[data-mac-immersive] #hugagent-mac-titlebar{width:var(--hugagent-desktop-sidebar-width)}
 "##;
 
 const MAC_TB_JS: &str = r##"(function(){
@@ -779,16 +775,23 @@ function syncSidebarWidth(){
     observedSidebar=sidebar;sidebarResizeObserver.observe(sidebar);
   }
   var width=sidebar?Math.max(0,Math.round(sidebar.getBoundingClientRect().width)):0;
+  document.documentElement.toggleAttribute('data-mac-immersive',width>0);
   document.documentElement.style.setProperty('--hugagent-desktop-sidebar-width',width+'px');
 }
 syncSidebarWidth();
 new MutationObserver(syncSidebarWidth).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
 window.addEventListener('resize',syncSidebarWidth);
-bar.addEventListener('mousedown',function(event){
-  if(event.button!==0)return;
+function isDragSurface(event){
+  if(bar.contains(event.target))return true;
+  if(event.target.closest('button,a,input,textarea,select,[role=button],[contenteditable],.jx-chatTopbarProject'))return false;
+  return !!event.target.closest('.jx-chatTopbar,.jx-topbar');
+}
+document.addEventListener('mousedown',function(event){
+  if(event.button!==0||!isDragSurface(event))return;
   window.location.href='/__desktop/win?action=drag';
 });
-bar.addEventListener('dblclick',function(event){
+document.addEventListener('dblclick',function(event){
+  if(event.button!==0||!isDragSurface(event))return;
   window.location.href='/__desktop/win?action=toggle-maximize';
 });
 })();"##;
@@ -1660,13 +1663,14 @@ mod tests {
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
         assert!(block.contains("--hugagent-desktop-sidebar-width"));
-        // 左半幅必须逐字复刻 sidebar.css 里 .jx-sider 的配方，否则安全区和侧边栏会脱色；
-        // 底色引令牌而不是写死，深色档才不会被 !important 摁回浅色。
-        assert!(block.contains(
-            "linear-gradient(90deg,color-mix(in srgb, var(--color-bg-gray) 72%, transparent)"
-        ));
-        assert!(block.contains("var(--color-bg-layout)!important"));
-        assert!(block.contains(".jx-brandRow,.jx-miniRail{padding-top:0!important}"));
+        // The sidebar supplies the background; only its controls need an inset.
+        assert!(!block.contains("linear-gradient(90deg"));
+        assert!(block.contains(":root[data-mac-immersive] body{padding-top:0!important}"));
+        assert!(block.contains(".jx-brandRow{padding-top:38px!important}"));
+        assert!(block
+            .contains("width:88px!important;min-width:88px!important;max-width:88px!important"));
+        assert!(block.contains("toggleAttribute('data-mac-immersive',width>0)"));
+        assert!(block.contains("if(event.button!==0||!isDragSurface(event))return"));
         assert!(block.contains("ResizeObserver"));
     }
 

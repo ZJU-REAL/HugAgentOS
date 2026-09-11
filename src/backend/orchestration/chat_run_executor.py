@@ -40,6 +40,7 @@ from typing import (
 )
 
 from core.chat import inflight
+from core.llm.model_steps import close_dangling_calls, replace_final_text
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatRun
@@ -118,6 +119,14 @@ _RUN_RECOVERY_INTERVAL_SEC = max(
     float(os.getenv("CHAT_RUN_RECOVERY_INTERVAL_SEC", "15")),
 )
 _WORKER_INSTANCE_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+# How many live SSE offsets one journal reservation covers. A reservation is a
+# serialized write; the ownership fence is a separate read taken on every event,
+# so this size only trades write volume against how many offsets a reservation
+# may leave unused. A token stream arrives in the low hundreds of events per
+# second, so one write per burst replaces one write per token — invisible
+# against a server database, decisive on the desktop, where the run journal is
+# SQLite and every commit is a disk flush on the machine the user waits at.
+_OFFSET_RESERVATION = 64
 
 
 async def _aiter_with_inactivity_timeout(
@@ -238,6 +247,55 @@ def _journal() -> RunJournal:
 
 def _new_worker_owner(run_id: str) -> str:
     return f"{_WORKER_INSTANCE_ID}:{run_id}:{uuid.uuid4().hex[:12]}"
+
+
+class _EventOffsets:
+    """Durable SSE offsets for one worker, without a database write per event.
+
+    Allocating an offset and proving the worker still owns the run used to be
+    the same write, so every token cost a serialized transaction — invisible
+    against a server database, and a disk flush per token on the desktop, where
+    the journal is SQLite and the person is watching the answer appear.
+
+    The two are separable. Offsets come from reservations the journal hands out
+    in runs, and this keeps the unused remainder. Ownership is still proven for
+    every single event, but by reading the lease rather than writing to it, so
+    an evicted worker stops exactly where it stopped before. Both calls run off
+    the event loop that is delivering the stream.
+
+    A terminal event is allocated on its own: it has to sit after every live
+    offset, including the ones a reservation left unused.
+    """
+
+    def __init__(self, journal: RunJournal, run_id: str, owner: str):
+        self._journal = journal
+        self._run_id = run_id
+        self._owner = owner
+        self._next = 0
+        self._remaining = 0
+
+    async def take(self, *, terminal: bool = False) -> int:
+        if terminal:
+            self._remaining = 0
+            return await asyncio.to_thread(
+                self._journal.allocate_event_offset, self._run_id, terminal=True
+            )
+        if self._remaining == 0:
+            self._next = await asyncio.to_thread(self._reserve)
+            self._remaining = _OFFSET_RESERVATION
+        else:
+            await asyncio.to_thread(
+                self._journal.require_lease, self._run_id, self._owner
+            )
+        offset = self._next
+        self._next += 1
+        self._remaining -= 1
+        return offset
+
+    def _reserve(self) -> int:
+        return self._journal.allocate_event_offset(
+            self._run_id, owner=self._owner, count=_OFFSET_RESERVATION
+        )
 
 
 def _json_safe(value: Any) -> Any:
@@ -584,14 +642,23 @@ async def start_run(
     return run
 
 
+def _persisted_history(chat_service: ChatService, chat_id: str) -> List[Dict[str, Any]]:
+    """The model-facing history a successor or recovery run starts from.
+
+    Read back from the rows already committed in this transaction — the step
+    record included — never rebuilt from text the source run held in memory.
+    """
+    from core.services.compaction_service import _load_history
+
+    return _json_safe(_load_history(chat_service, chat_id, repair=False))
+
+
 def _commit_queued_handoff_in_session(
     db,
     *,
     source_run_id: str,
     chat_id: str,
     user_id: str,
-    session_messages: List[Dict[str, Any]],
-    assistant_content: str,
     context: Dict[str, Any],
     model_name: Optional[str],
 ) -> Optional[Dict[str, Any]]:
@@ -600,6 +667,10 @@ def _commit_queued_handoff_in_session(
     This includes a steer accepted after the source run crossed its final safe
     model/tool boundary. Such an instruction can no longer enter the source
     ReAct loop, so completion hands it to a successor instead of stranding it.
+
+    The successor's history is read back from the rows this transaction just
+    committed — the step record included — never rebuilt from the text the
+    source run happened to hold in memory.
     """
     from core.db.models.chat import reserve_chat_sequences
     from core.services.steer_queue import SteerQueue
@@ -644,9 +715,7 @@ def _commit_queued_handoff_in_session(
             "handoff_root_run_id": root_run_id,
         }
     )
-    next_session_messages = _json_safe(list(session_messages or []))
-    if assistant_content:
-        next_session_messages.append({"role": "assistant", "content": assistant_content})
+    next_session_messages = _persisted_history(ChatService(db), chat_id)
     next_session_messages.append({"role": "user", "content": handoff.message})
     worker_args = {
         "session_messages": next_session_messages,
@@ -959,14 +1028,11 @@ async def _run_workflow(
     _run_started_monotonic = time.monotonic()
 
     offset_counter = 0
+    offsets = _EventOffsets(journal, run_id, owner)
 
     async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter = journal.allocate_event_offset(
-            run_id,
-            owner=None if terminal else owner,
-            terminal=terminal,
-        )
+        offset_counter = await offsets.take(terminal=terminal)
         await _xadd_event(run_id, offset_counter, event)
 
     async def _pause_for_tool_outcome(exc: BaseException) -> bool:
@@ -1024,9 +1090,6 @@ async def _run_workflow(
     current_message_id = message_id
     current_chat_seq = assistant_chat_seq
     latest_user_message = raw_user_message
-    # Keep an exact prompt history for a queued follow-up. Mid-run steers add
-    # their visible assistant/user segments here as they are durably committed.
-    handoff_session_messages = _json_safe(list(session_messages or []))
     metadata: Dict[str, Any] = {}
     compaction_budget_inputs: Dict[str, Any] = {}
     tool_calls_log: list = []
@@ -1037,6 +1100,10 @@ async def _run_workflow(
     # 每个思考块记录它出现时的正文偏移，历史重建按此原位还原。
     _thinking_parts: List[str] = []
     _thinking_log: List[Dict[str, Any]] = []
+    # 模型回放用的规范记录：每个模型响应、每个工具结果按发生顺序各记一条
+    # （core/llm/model_steps.py）。上面的正文 / 思考 / 工具卡是给界面看的投影，
+    # 下一轮发给模型的历史从这一份恢复。
+    _model_steps: List[Dict[str, Any]] = []
     # 正文 / 思考 / 工具卡片的先后，在它们产生的那一刻就记下来，落进
     # metadata.segments；刷新后照着渲染，不做任何反推。
     _segments = SegmentRecorder()
@@ -1066,6 +1133,9 @@ async def _run_workflow(
         blocks = [b for b in _thinking_log if b.get("content")]
         return blocks or None
 
+    def _model_steps_payload() -> Optional[List[Dict[str, Any]]]:
+        return list(_model_steps) or None
+
     def _turn_extra(**more: Any) -> Dict[str, Any]:
         return {
             "timestamp": now_iso(),
@@ -1082,7 +1152,7 @@ async def _run_workflow(
     # refresh is one lease-guarded UPDATE off the event loop; the lock keeps a
     # boundary flush from racing the periodic one with an older snapshot.
     _flush_lock = asyncio.Lock()
-    _flushed_offset = 0
+    _flushed_snapshot_key = None
     _INFLIGHT_INTERVAL_S = 2.0
     checkpoint_task: Optional[asyncio.Task] = None
 
@@ -1095,6 +1165,7 @@ async def _run_workflow(
                 content=snapshot["content"],
                 thinking=snapshot["thinking"],
                 tool_calls=snapshot["tool_calls"],
+                model_steps=snapshot["model_steps"],
                 extra_data={
                     inflight.IN_FLIGHT_KEY: inflight.mark(
                         run_id, "streaming", event_offset=snapshot["event_offset"]
@@ -1108,19 +1179,22 @@ async def _run_workflow(
             db.commit()
             return owned
 
-    async def _flush_inflight() -> None:
-        nonlocal _flushed_offset
-        if offset_counter == _flushed_offset or not (full_response or tool_calls_log):
-            return
+    async def _flush_inflight() -> bool:
+        nonlocal _flushed_snapshot_key
+        if not (full_response or tool_calls_log or _model_steps):
+            return True
         async with _flush_lock:
-            if offset_counter == _flushed_offset:
-                return
+            # Canonical steps can advance without a user-visible SSE event.
+            snapshot_key = (current_message_id, offset_counter, len(_model_steps))
+            if snapshot_key == _flushed_snapshot_key:
+                return True
             # Tool results go in at history size; the read path bounds them the
             # same way, and the final write carries the full payload.
             snapshot = _json_safe(
                 {
                     "content": full_response,
                     "thinking": _thinking_payload(),
+                    "model_steps": _model_steps_payload(),
                     "tool_calls": [
                         {**tc, "result": bound_result_for_history(tc["result"])[0]}
                         if "result" in tc
@@ -1136,9 +1210,12 @@ async def _run_workflow(
             try:
                 if not await asyncio.to_thread(_write_inflight_row, snapshot):
                     logger.warning("chat_run_inflight_fenced", run_id=run_id, owner=owner)
+                    return False
             except Exception:  # noqa: BLE001 - a missed checkpoint must not fail the run
                 logger.warning("chat_run_inflight_persist_failed", run_id=run_id, exc_info=True)
-            _flushed_offset = snapshot["event_offset"]
+                return False  # Keep dirty so the periodic checkpoint retries this snapshot.
+            _flushed_snapshot_key = snapshot_key
+            return True
 
     async def _checkpoint_loop() -> None:
         while True:
@@ -1153,13 +1230,15 @@ async def _run_workflow(
         message_id 固定，用 upsert 保证重复取消 / 恢复不会留下两条。
         """
         _flush_thinking()
-        if not (full_response or tool_calls_log):
+        if not (full_response or tool_calls_log or _model_steps):
             return
         # 停下来时还没回结果的工具：不标记的话前端按"缺 status 即成功"渲染，
-        # 刷新后一张没跑完的卡片会显示成执行成功。
+        # 刷新后一张没跑完的卡片会显示成执行成功。模型侧的记录同样要配平：
+        # 悬空的调用补一条"被中断"的结果，下一轮模型看到的是事实而不是半步。
         for _tc in tool_calls_log:
             if "result" not in _tc and not _tc.get("status"):
                 _tc["status"] = "interrupted"
+        close_dangling_calls(_model_steps)
         _ws_pinned = _workspace_mod.get_pinned()
         _extra = {
             "timestamp": now_iso(),
@@ -1187,6 +1266,7 @@ async def _run_workflow(
                 model=model_name,
                 thinking=_thinking_payload(),
                 tool_calls=tool_calls_log if tool_calls_log else None,
+                model_steps=_model_steps_payload(),
                 message_id=current_message_id,
                 chat_seq=current_chat_seq,
                 extra_data=_extra,
@@ -1347,6 +1427,7 @@ async def _run_workflow(
                 full_response = replacement
                 _round_block = None
                 _thinking_log.clear()
+                replace_final_text(_model_steps, replacement)
                 # 整体替换后，先前记下的段落描述的是旧草稿，已无意义——重记。
                 _segments.reset()
                 _segments.add_text(replacement)
@@ -1406,6 +1487,7 @@ async def _run_workflow(
                                 model=model_name,
                                 thinking=_thinking_payload(),
                                 tool_calls=tool_calls_log if tool_calls_log else None,
+                                model_steps=_model_steps_payload(),
                                 message_id=current_message_id,
                                 chat_seq=current_chat_seq,
                                 extra_data={
@@ -1459,12 +1541,7 @@ async def _run_workflow(
                         # worker disappears before the next model snapshot, a
                         # replacement worker resumes from this context instead
                         # of losing an already-applied instruction.
-                        post_steer_messages = _json_safe(list(handoff_session_messages))
-                        if had_assistant_output:
-                            post_steer_messages.append(
-                                {"role": "assistant", "content": full_response}
-                            )
-                        post_steer_messages.append({"role": "user", "content": steer_message})
+                        post_steer_messages = _persisted_history(chat_service, chat_id)
                         post_steer_context = _json_safe(dict(context or {}))
                         post_steer_context.pop("journal_owner", None)
                         post_steer_context.update(
@@ -1504,11 +1581,6 @@ async def _run_workflow(
                         },
                         commit_effect=_commit_steer,
                     )
-                    if had_assistant_output:
-                        handoff_session_messages.append(
-                            {"role": "assistant", "content": full_response}
-                        )
-                    handoff_session_messages.append({"role": "user", "content": steer_message})
                     latest_user_message = steer_message
                 await _emit(
                     {
@@ -1535,6 +1607,7 @@ async def _run_workflow(
                 context["message_id"] = current_message_id
                 full_response = ""
                 tool_calls_log = []
+                _model_steps = []
                 _thinking_parts.clear()
                 _round_block = None
                 _thinking_log.clear()
@@ -1564,12 +1637,27 @@ async def _run_workflow(
                 await _emit(build_tool_call_delta_event(chunk, chat_id))
 
             elif chunk_type == "tool_result":
+                step = chunk.get("model_step")
+                if isinstance(step, dict):
+                    _model_steps.append(step)
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
                 # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目，
                 # 此刻就把它排进段落表，否则它会缺席整条消息的展示顺序。
                 _segments.add_tools(tool_calls_log)
+                if isinstance(step, dict):
+                    # Publish completed results only after their canonical and
+                    # display snapshot is durable. Retry a transient failure
+                    # once; persistent failure must not announce success.
+                    if not await _flush_inflight() and not await _flush_inflight():
+                        raise RuntimeError("Could not persist completed tool result")
                 await _emit(_tr_evt)
                 await _flush_inflight()
+
+            elif chunk_type == "model_step":
+                step = chunk.get("step")
+                if isinstance(step, dict):
+                    _model_steps.append(step)
+                    await _flush_inflight()
 
             elif chunk_type == "context_usage":
                 # Provider-reported usage is the authoritative live gauge.
@@ -1781,6 +1869,7 @@ async def _run_workflow(
                             "model_name": model_name,
                             "thinking": _thinking_payload(),
                             "tool_calls": tool_calls_log if tool_calls_log else None,
+                            "model_steps": _model_steps_payload(),
                             "usage": usage_payload,
                             "extra_data": _persist_extra,
                             "artifacts": _ws_pinned,
@@ -1804,6 +1893,7 @@ async def _run_workflow(
                         model=model_name,
                         thinking=_thinking_payload(),
                         tool_calls=tool_calls_log if tool_calls_log else None,
+                        model_steps=_model_steps_payload(),
                         usage=usage_payload,
                         message_id=current_message_id,
                         chat_seq=current_chat_seq,
@@ -1827,8 +1917,6 @@ async def _run_workflow(
                         source_run_id=run_id,
                         chat_id=chat_id,
                         user_id=user_id,
-                        session_messages=handoff_session_messages,
-                        assistant_content=full_response,
                         context=context,
                         model_name=model_name,
                     )
@@ -2013,6 +2101,7 @@ async def _run_workflow(
             # Whatever the turn produced before failing stays in the row, with
             # the error beside it. Runs in the failed-terminal transaction so a
             # fenced worker can never leave a late message behind.
+            close_dangling_calls(_model_steps)
             ChatService(db).upsert_message(
                 chat_id=chat_id,
                 role="assistant",
@@ -2020,6 +2109,7 @@ async def _run_workflow(
                 model=model_name,
                 thinking=_thinking_payload(),
                 tool_calls=tool_calls_log if tool_calls_log else None,
+                model_steps=_model_steps_payload(),
                 message_id=current_message_id,
                 chat_seq=current_chat_seq,
                 error={"error": str(exc), "timestamp": _utcnow().isoformat()},
@@ -2173,14 +2263,12 @@ def _spawn_followup_task(
     *, run_id: str, chat_id: str, user_msg: str, response: str, msg_id: str
 ) -> None:
     """Equivalent to the existing _generate_followups_bg in chats.py."""
-    from core.llm.message_compat import strip_thinking
     from orchestration.followups import get_followup_generator
 
     async def _bg() -> None:
         try:
-            clean_resp = strip_thinking(response)
             questions = await asyncio.wait_for(
-                get_followup_generator().generate(user_msg, clean_resp, run_id=run_id),
+                get_followup_generator().generate(user_msg, response, run_id=run_id),
                 timeout=10,
             )
             if questions:
@@ -2437,14 +2525,11 @@ async def _run_plan_execute_workflow(
     )
 
     offset_counter = 0
+    offsets = _EventOffsets(journal, run_id, owner)
 
     async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter = journal.allocate_event_offset(
-            run_id,
-            owner=None if terminal else owner,
-            terminal=terminal,
-        )
+        offset_counter = await offsets.take(terminal=terminal)
         await _xadd_event(run_id, offset_counter, event)
 
     async def _pause_plan_tool_outcome(exc: BaseException) -> None:
@@ -2912,13 +2997,11 @@ async def _run_autonomous_loop_workflow(
     tool_log: List[Dict[str, Any]] = []
     tool_idx: Dict[str, int] = {}
 
+    offsets = _EventOffsets(journal, run_id, owner)
+
     async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter = journal.allocate_event_offset(
-            run_id,
-            owner=None if terminal else owner,
-            terminal=terminal,
-        )
+        offset_counter = await offsets.take(terminal=terminal)
         et = event.get("type")
         if et == "content":
             _delta = event.get("delta")
@@ -3476,14 +3559,11 @@ async def _run_plan_generate_workflow(
         name=f"plan_generate_lease:{run_id}",
     )
     offset_counter = 0
+    offsets = _EventOffsets(journal, run_id, owner)
 
     async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter = journal.allocate_event_offset(
-            run_id,
-            owner=None if terminal else owner,
-            terminal=terminal,
-        )
+        offset_counter = await offsets.take(terminal=terminal)
         await _xadd_event(run_id, offset_counter, event)
 
     plan_id_out: Optional[str] = None
@@ -3939,6 +4019,11 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                     if isinstance(snapshot.get("tool_calls"), list)
                     else None
                 ),
+                model_steps=(
+                    list(snapshot["model_steps"])
+                    if isinstance(snapshot.get("model_steps"), list)
+                    else None
+                ),
                 usage=(
                     dict(snapshot["usage"]) if isinstance(snapshot.get("usage"), dict) else None
                 ),
@@ -3970,12 +4055,6 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                 source_run_id=decision.run_id,
                 chat_id=decision.chat_id,
                 user_id=decision.user_id,
-                session_messages=(
-                    list(recovery_args["session_messages"])
-                    if isinstance(recovery_args.get("session_messages"), list)
-                    else []
-                ),
-                assistant_content=content,
                 context=(
                     dict(context_snapshot)
                     if isinstance(context_snapshot, dict)

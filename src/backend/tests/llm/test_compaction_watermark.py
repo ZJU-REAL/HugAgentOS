@@ -24,6 +24,14 @@ def _session(db) -> ChatService:
     return ChatService(db)
 
 
+def _keep_recent(monkeypatch, tokens: int, **overrides) -> None:
+    """These histories are a few words long; the production 20k verbatim tail
+    would leave nothing older to summarize, so the tail is sized per test."""
+    real = S.settings
+    compaction = dataclasses.replace(real.compaction, keep_recent_tokens=tokens, **overrides)
+    monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=compaction))
+
+
 def _message(svc: ChatService, message_id: str, role: str, content: str) -> ChatMessage:
     return svc.message_repo.create(
         {
@@ -193,6 +201,7 @@ def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
     monkeypatch.setattr(
         engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
     )
+    _keep_recent(monkeypatch, 0)
 
     async def summarize_then_insert(history, *, timeout):
         with engine_mod.SessionLocal() as other:
@@ -261,6 +270,7 @@ def test_two_compactors_overlap_but_only_lease_holder_publishes(
     monkeypatch.setattr(
         engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
     )
+    _keep_recent(monkeypatch, 0)
     summarizing = asyncio.Event()
     finish = asyncio.Event()
 
@@ -500,9 +510,7 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     monkeypatch.setattr(
         engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
     )
-    real = S.settings
-    tiny = dataclasses.replace(real.compaction, token_limit=1)
-    monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=tiny))
+    _keep_recent(monkeypatch, 0, token_limit=1)
 
     async def fake_summary(history, *, timeout):
         return "summary"
@@ -556,10 +564,13 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
 ):
     svc = _session(db_session)
     _message(svc, "m1", "user", "round-one-question")
-    _message(svc, "m2", "assistant", "round-one-answer")
+    _message(svc, "m2", "assistant", "round-one-answer-round-one-answer")
     monkeypatch.setattr(
         engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
     )
+    # Ten tokens: round one keeps only its answer verbatim, round two keeps
+    # question + answer, and the earlier summary joins the older region.
+    _keep_recent(monkeypatch, 10)
     summaries = iter(("round-one-summary", "round-two-summary"))
 
     async def fake_summary(history, *, timeout):
@@ -579,7 +590,8 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
     assert "round-two-summary" in rendered
     assert "round-one-summary" not in rendered
     assert "round-one-answer" not in rendered
-    assert "round-two-answer" not in rendered
+    # The kept tail is verbatim: the latest answer survives the second rolling summary.
+    assert rendered.count("round-two-answer") == 1
 
     checkpoints = [
         row

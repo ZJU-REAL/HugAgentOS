@@ -14,6 +14,7 @@ import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
 import { resolveModeSlug, resolvePlanModeActive } from '../utils/chatMode';
+import type { ChatCommand } from '../utils/projectCommands';
 import { normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
@@ -276,6 +277,9 @@ interface ChatState {
   activeConnector: { id: string; name: string } | null;
   /** Active @mention selected via popup; id is the authoritative per-turn direct target. */
   activeMention: { id: string; name: string } | null;
+  /** 本轮引用的斜杠命令（如 /init）。与技能 / 插件 chip 同一套：选中只是引用，回车才发送；
+   *  chip 不产生编辑器文本，发送时由 composeCommandMessage 还原成命令原文。 */
+  activeCommand: ChatCommand | null;
   /** Whether plan mode is enabled */
   planMode: boolean;
   /** Whether autonomous-loop mode is enabled */
@@ -362,6 +366,7 @@ interface ChatState {
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
   setActivePlugin: (plugin: { id: string; name: string } | null) => void;
   setActiveConnector: (connector: { id: string; name: string } | null) => void;
+  setActiveCommand: (command: ChatCommand | null) => void;
   setActiveMention: (mention: { id: string; name: string } | null) => void;
   setPlanMode: (v: boolean) => void;
   setLoopMode: (v: boolean) => void;
@@ -483,6 +488,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   referencedChats: [],
   activePlugin: null,
   activeConnector: null,
+  activeCommand: null,
   activeMention: null,
   planMode: false,
   loopMode: false,
@@ -541,6 +547,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       activePlugin: nextActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
     });
   },
@@ -705,6 +712,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveConnector: (connector) => set({ activeConnector: connector }),
+  setActiveCommand: (command) => set({ activeCommand: command }),
   setActiveMention: (mention) => set({ activeMention: mention }),
   setPlanMode: (v) => {
     const { currentChatId, currentUserId, store } = get();
@@ -748,6 +756,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({
       activePlugin: nextActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       // Leaving the chat panel exits autonomous-loop mode (projects/other pages shouldn't carry this intent).
       ...(panel !== 'chat' ? { loopMode: false } : {}),
@@ -1063,6 +1072,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       loopMode: false,
       sending: sendingChatIds.has(targetId),
@@ -1085,6 +1095,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: false,
       currentPlanId: null,
@@ -1139,6 +1150,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         referencedChats: [],
         activePlugin: null,
         activeConnector: null,
+        activeCommand: null,
         activeMention: null,
       });
     }
@@ -1192,6 +1204,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: resolvePlanModeActive(store.chats[currentChatId]),
       loopMode: false,
@@ -1247,6 +1260,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       referencedChats: [],
       activePlugin: null,
       activeConnector: null,
+      activeCommand: null,
       activeMention: null,
       planMode: false,
       loopMode: false,

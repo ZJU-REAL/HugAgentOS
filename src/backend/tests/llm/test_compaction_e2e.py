@@ -24,7 +24,13 @@ CHAT_ID = "chat_e2e"
 
 @pytest.fixture
 def patched_sessionlocal(db_session, monkeypatch):
-    """Point the SessionLocal used inside compaction_service at the test session."""
+    """Point the SessionLocal used inside compaction_service at the test session.
+
+    The histories here are tiny, so the verbatim tail is switched off: with the
+    production 20k-token tail nothing would be older than it and compaction
+    would correctly decline to run.
+    """
+    import dataclasses
 
     @contextlib.contextmanager
     def _fake_sessionlocal():
@@ -33,6 +39,12 @@ def patched_sessionlocal(db_session, monkeypatch):
     import core.db.engine as engine
 
     monkeypatch.setattr(engine, "SessionLocal", _fake_sessionlocal)
+    real = S.settings
+    monkeypatch.setattr(
+        S,
+        "settings",
+        dataclasses.replace(real, compaction=dataclasses.replace(real.compaction, keep_recent_tokens=0)),
+    )
     return db_session
 
 
@@ -132,7 +144,7 @@ async def test_full_compaction_cycle(patched_sessionlocal, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlocal, monkeypatch):
-    """Second compaction: rolls forward on the previous summary, and collect_user_messages does not treat the old summary as a user message."""
+    """Second compaction rolls forward: the previous summary is part of what gets summarized next."""
     db = patched_sessionlocal
     db.add(ChatSession(chat_id=CHAT_ID, user_id="u1", title="roll"))
     db.commit()
@@ -144,9 +156,10 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
 
     async def _fake_summarize(history, *, timeout):
         calls["n"] += 1
-        # Assert: in the history entering the summarizer, the old summary is not double-counted as a user message to be compacted
-        users = C.collect_user_messages(history)
-        assert not any(C.is_summary_message(u) for u in users)
+        texts = [C._message_text(m.get("content")) for m in history]
+        if calls["n"] == 2:
+            # The earlier summary is summarized along with the turns after it.
+            assert any(C.is_summary_message(t) for t in texts)
         return f"summary-v{calls['n']}"
 
     monkeypatch.setattr(S, "_summarize", _fake_summarize)

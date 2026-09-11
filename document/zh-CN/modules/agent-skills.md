@@ -245,3 +245,7 @@
 | `src/backend/api/routes/v1/me_capabilities.py` | 用户自助技能/私有 MCP API |
 
 相关文档：[沙箱执行系统](sandbox.md) · [MCP 工具系统](mcp-tools.md) · [能力目录](catalog.md) · [管理台](admin-console.md) · [版本与许可](../editions/overview.md)
+
+### 技能附件路径兼容
+
+上传技能 ZIP 和单个附件时，Windows 反斜杠分隔符会转换为 /。ZIP 中的绝对路径、目录穿越和转换后重名或文件与目录冲突的路径会被拒绝。历史数据库技能在准备沙箱时采用相同的路径转换，不修改存储的附件内容。无法安全发布的技能会从本次沙箱视图排除并记录 skill_publication_invalid 告警，避免阻断其他技能和集成登录；管理员可根据告警修正后重新上传。

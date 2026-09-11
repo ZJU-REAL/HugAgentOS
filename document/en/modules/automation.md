@@ -12,6 +12,10 @@ HugAgentOS ships three built-in mechanisms for turning a single instruction into
 
 ## Scheduled automation tasks
 
+### Desktop hybrid mode
+
+Local scheduled tasks belong to the signed-in cloud account. The account mapping verifies ownership of local projects and conversations; internal user IDs in the local and cloud databases do not need to match. Task creation and management check the current account and tool authorization. Requests from the previous account cannot continue operating on local tasks after logout, an account switch, or a cloud-server switch.
+
 ### Task model
 
 Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `core/db/models/automation.py`). Key fields:

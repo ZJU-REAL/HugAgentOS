@@ -20,15 +20,6 @@ def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
     AgentScope's :class:`Msg` accepts both. The "tool" role (used by the
     structured tool-call replay path to mark a tool_result carrier) maps
     to ``role="user"`` since AgentScope Msg only supports user/assistant/system.
-
-    Assistant content with raw ``<think>...</think>`` blocks (saved verbatim by
-    the streaming path so the frontend can render thinking display) is stripped
-    before feeding into agent memory: past thinking is internal reasoning, not
-    something the next-turn agent should see — keeping it would (1) bloat the
-    prompt with content that can dwarf the actual answer, (2) confuse the model
-    when raw think tags appear in a non-thinking position, and (3) potentially
-    echo back into the new response. ``run_chat_workflow`` already strips on
-    the non-streaming save path, so this load-time strip aligns both paths.
     """
     role = d.get("role", "user")
     content = d.get("content", "")
@@ -39,20 +30,14 @@ def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
     # to assistant messages (user allows only text/data, system only text). The
     # 1.x practice of putting tool_result on "tool"→"user" is rejected by Msg
     # validation in 2.0, so "tool" now maps to "assistant".
-    # (The dict layer still keeps the "tool" marker; replay uses it to
-    # skip turn boundaries — see build_replay_dicts.)
+    # (The dict layer still keeps the "tool" marker so compaction can tell a
+    # result carrier from a step boundary — see core/llm/model_steps.py.)
     role_map = {"human": "user", "ai": "assistant", "tool": "assistant"}
     role = role_map.get(role, role)
 
     # Ensure valid role
     if role not in ("user", "assistant", "system"):
         role = "user"
-
-    # Strip leftover thinking blocks from past assistant turns. Only touch
-    # string content — multimodal (list[block]) assistant messages don't go
-    # through the SSE save path that injects raw <think>.
-    if role == "assistant" and isinstance(content, str) and content:
-        content = strip_thinking(content)
 
     # AgentScope construction is centralized in AgentScopeContextAdapter so
     # provenance metadata survives history replay and final request assembly.
@@ -84,20 +69,6 @@ def session_to_msgs(session_messages: List[Dict[str, Any]]) -> List[Any]:
         for index, message in enumerate(session_messages)
         if message.get("content")
     ]
-
-
-def strip_thinking(text: str) -> str:
-    """Remove <think>...</think> blocks from model output.
-
-    Some thinking models (e.g. DeepSeek R1) emit reasoning wrapped in
-    ``<think>...</think>`` tags.  The opening ``<think>`` may be absent.
-    """
-    if not text:
-        return text
-    last_end = text.rfind("</think>")
-    if last_end != -1:
-        return text[last_end + len("</think>") :].lstrip()
-    return text
 
 
 def flatten_tool_output(output: Any) -> str:
@@ -139,164 +110,6 @@ def _format_tool_output(output: Any) -> str:
         return text[:2000] if len(text) > 2000 else text
     except (TypeError, ValueError):
         return str(output)[:2000]
-
-
-def _shrink_value(value: Any, max_text: int, max_list: int = 20) -> Any:
-    """Recursively truncate long string fields inside dict/list, preserving structure.
-
-    Keeps short scalar fields (ok/file_id/error/size/...) intact while replacing
-    long text payloads (content/diff/output) with a truncated marker. Used to
-    pack historical tool_calls back into multi-turn context without ballooning
-    the prompt.
-    """
-    if isinstance(value, str):
-        if len(value) <= max_text:
-            return value
-        return value[:max_text] + f"… <truncated, total {len(value)} chars>"
-    if isinstance(value, dict):
-        return {k: _shrink_value(v, max_text, max_list) for k, v in value.items()}
-    if isinstance(value, list):
-        head = [_shrink_value(v, max_text, max_list) for v in value[:max_list]]
-        if len(value) > max_list:
-            head.append(f"… <{len(value) - max_list} more items>")
-        return head
-    return value
-
-
-def replay_tool_calls_as_blocks(
-    tool_calls: Any,
-    *,
-    max_args_chars: int = 500,
-    max_result_chars: int = 1000,
-) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]]]:
-    """Convert a persisted ``tool_calls`` JSONB into AgentScope content blocks.
-
-    Returns ``(tool_use_blocks, tool_result_blocks)``.  ``tool_use_blocks`` go
-    on the replayed assistant message; ``tool_result_blocks`` go on a
-    follow-up ``role="tool"`` carrier message.  Both are paired by ``id``
-    so AgentScope's formatter can stitch them back into provider-specific
-    request format.
-
-    Same truncation budget as :func:`serialize_tool_calls_for_history`
-    (500 chars args / 1000 chars result by default) — the wire format
-    changes but the per-call token cost is essentially identical.
-
-    Falls back to a synthetic ``id`` (``hist_{i+1}``) when the DB row
-    lacks ``tool_id``.  Failed calls prepend a ``[status=…]`` marker so
-    the model still sees the failure signal.
-    """
-    if not tool_calls or not isinstance(tool_calls, list):
-        return [], []
-
-    use_blocks: list[Dict[str, Any]] = []
-    result_blocks: list[Dict[str, Any]] = []
-
-    for i, call in enumerate(tool_calls):
-        if not isinstance(call, dict):
-            continue
-        name = call.get("tool_name") or call.get("name") or "unknown_tool"
-        tool_id = call.get("tool_id") or call.get("id") or f"hist_{i + 1}"
-        status = call.get("status") or "unknown"
-
-        # Args: keep dict structure; shrink long strings inside.
-        raw_args = call.get("tool_args") if "tool_args" in call else call.get("input")
-        shrunk_args = _shrink_value(raw_args if raw_args is not None else {}, max_args_chars)
-        if not isinstance(shrunk_args, dict):
-            shrunk_args = {"value": shrunk_args}
-
-        # Result: shrink, then serialize to a single string for ToolResultBlock.output.
-        # (AgentScope's ToolResultBlock.output is `str | List[TextBlock|...]`;
-        # str is simpler and round-trips through every provider formatter.)
-        raw_result = call.get("result") if "result" in call else call.get("output")
-        shrunk_result = _shrink_value(
-            raw_result if raw_result is not None else {}, max_result_chars
-        )
-        if isinstance(shrunk_result, str):
-            output_text = shrunk_result
-        else:
-            try:
-                output_text = json.dumps(shrunk_result, ensure_ascii=False)
-            except (TypeError, ValueError):
-                output_text = str(shrunk_result)
-
-        # Preserve failure signal so the model knows the prior call errored.
-        if status not in ("success", "ok"):
-            output_text = f"[status={status}]\n{output_text}"
-
-        # 2.0: tool_use → tool_call; input must be a JSON string (not a dict).
-        try:
-            input_str = json.dumps(shrunk_args, ensure_ascii=False)
-        except (TypeError, ValueError):
-            input_str = json.dumps({"value": str(shrunk_args)}, ensure_ascii=False)
-        use_blocks.append(
-            {
-                "type": "tool_call",
-                "id": tool_id,
-                "name": name,
-                "input": input_str,
-            }
-        )
-        result_blocks.append(
-            {
-                "type": "tool_result",
-                "id": tool_id,
-                "name": name,
-                "output": output_text,
-            }
-        )
-
-    return use_blocks, result_blocks
-
-
-def build_replay_dicts(
-    role: str,
-    text_content: str,
-    tool_calls: Any,
-    *,
-    max_args_chars: int = 500,
-    max_result_chars: int = 1000,
-) -> list[Dict[str, Any]]:
-    """Build the dict-message sequence for one DB assistant row.
-
-    Output shape:
-
-    * No tool_calls → ``[{role: "assistant", content: text_content}]`` (single str msg)
-    * With tool_calls → two dicts:
-
-      - ``{role: "assistant", content: [TextBlock?, ToolUseBlock, ToolUseBlock, …]}``
-      - ``{role: "tool", content: [ToolResultBlock, ToolResultBlock, …]}``
-
-    The ``"tool"`` role marks the tool_result carrier so replay and compaction
-    won't treat it as a turn boundary.
-    :func:`dict_to_msg` maps ``"tool"`` to ``role="user"`` for Msg
-    construction — AgentScope only supports user/assistant/system.
-    """
-    if role != "assistant" or not tool_calls:
-        return [{"role": role, "content": text_content}]
-
-    use_blocks, result_blocks = replay_tool_calls_as_blocks(
-        tool_calls,
-        max_args_chars=max_args_chars,
-        max_result_chars=max_result_chars,
-    )
-    if not use_blocks:
-        # All entries were malformed → fall back to plain text.
-        return [{"role": role, "content": text_content}]
-
-    assistant_content: list[Dict[str, Any]] = []
-    # Replay with tool_calls goes through the block-list path, bypassing
-    # dict_to_msg's str branch — historical thinking must be stripped here,
-    # otherwise the previous turn's reasoning monologue leaks verbatim into
-    # the next turn's context.
-    text = strip_thinking(text_content or "").strip()
-    if text:
-        assistant_content.append({"type": "text", "text": text})
-    assistant_content.extend(use_blocks)
-
-    return [
-        {"role": "assistant", "content": assistant_content},
-        {"role": "tool", "content": result_blocks},
-    ]
 
 
 def extract_messages_from_context(context: List[Msg]) -> list[dict]:

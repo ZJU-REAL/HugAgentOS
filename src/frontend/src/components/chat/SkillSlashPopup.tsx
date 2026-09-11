@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AppstoreOutlined, BulbOutlined, MessageOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BulbOutlined, MessageOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
 import type { InstalledPluginItem, ReferencableChat } from '../../types';
+import type { ChatCommand } from '../../utils/projectCommands';
 
 type SlashEntryBase = {
   id: string;
@@ -13,7 +14,7 @@ type SlashEntryBase = {
 };
 
 export type SlashEntry =
-  | (SlashEntryBase & { kind: 'command' })
+  | (SlashEntryBase & { kind: 'command'; command: ChatCommand })
   | (SlashEntryBase & { kind: 'skill' })
   | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem })
   | (SlashEntryBase & { kind: 'chat'; chat: ReferencableChat });
@@ -36,6 +37,7 @@ function sectionLabel(kind: SlashEntry['kind']): string {
 }
 
 function entryIcon(kind: SlashEntry['kind']) {
+  if (kind === 'command') return <ThunderboltOutlined className="jx-slashPopup-icon jx-slashPopup-icon--command" />;
   if (kind === 'plugin') return <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />;
   if (kind === 'chat') return <MessageOutlined className="jx-slashPopup-icon jx-slashPopup-icon--chat" />;
   return <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />;

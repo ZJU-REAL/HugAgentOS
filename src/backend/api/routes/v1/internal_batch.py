@@ -32,7 +32,6 @@ from core.services.model_config import ModelConfigService
 from core.capabilities.errors import CapabilityError, CloudUnavailable
 from core.db.engine import SessionLocal
 from core.db.models import Artifact, BatchPlan
-from core.llm.message_compat import strip_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +160,7 @@ async def _call_llm(
             )
             require_owner()
             require_current_account(captured)
-            return strip_thinking(raw).strip()
+            return raw.strip()
         # Try with extra_body first (vLLM / qwen3 / DeepSeek-compatible);
         # fall back to plain payload if endpoint rejects unknown fields.
         resp = await client.post(url, json=payload_with_extra, headers=headers)
@@ -173,7 +172,7 @@ async def _call_llm(
         raw = data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"unexpected LLM response shape: {data}") from exc
-    return strip_thinking(raw).strip()
+    return raw.strip()
 
 
 def _is_security_rejection(response) -> bool:
@@ -545,11 +544,6 @@ async def _infer_template(
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned).strip()
-        # Defensive: drop any lingering <think> opening tag whose closing was
-        # cut off by max_tokens (strip_thinking only handles paired tags)
-        if "<think>" in cleaned and "</think>" not in cleaned:
-            logger.warning("[internal_batch] template had unclosed <think>; using fallback")
-            return fallback
         if not _looks_like_valid_template(cleaned, placeholder_keys):
             logger.warning(
                 "[internal_batch] inferred template invalid (len=%d, raw=%r); using fallback",
