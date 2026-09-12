@@ -6,6 +6,19 @@ A skill is HugAgentOS's standard vehicle for "teaching the model a workflow": on
 
 Division of labour with [MCP tools](mcp-tools.md): MCP servers are *programmatic atomic capabilities* (one call, one function), skills are *knowledge-encoded workflows* (teaching the model to compose bash, file tools and MCP calls into complex jobs). The office suite (Word/Excel/PPT/PDF) is the canonical example of a capability migrated from MCP form to skill form — each skill vendors its own CLI engine and runs inside the sandbox.
 
+## Desktop capability fault isolation
+
+The desktop chat factory degrades individual capabilities instead of failing the entire turn:
+
+- Local skill instructions, scripts and added files may change. New tasks read the current installation; running tasks retain a separate revision and use writable execution copies, so query outputs do not change the verified task snapshot.
+- Preparation includes skills offered in the current turn and their dependencies, not every resolved local skill. Missing files, failed preparation or unavailable dependencies remove the affected capability while other tools and conversation remain available.
+- Busy paths and link conflicts trigger view repair or a fresh isolated view. Persistent failures suspend the affected capability without deleting user files occupying the old path.
+- Failed explicitly selected connectors and plugins with no tools produce conversational status and alternatives. The agent must not fabricate successful execution or silently switch a user-specified data source.
+- Running skills retain their revision. Changed connector configurations cannot reconnect a new endpoint under the old identity. Disabling a skill, plugin or connector rejects subsequent affected calls without ending ordinary conversation.
+- Legacy task recovery retains original bytes; if that version is no longer recoverable, only the affected skill is suspended instead of replaying modified scripts.
+
+Download integrity, path containment and account ownership checks remain enforced; degradation never grants rejected permissions. Changes are confined to capability preparation/loading/call boundaries, not the harness scheduler. A desktop backend containing this change is required.
+
 ## Anatomy of a skill
 
 ```
@@ -230,6 +243,34 @@ Regular users (gated by the `can_add_skill` permission flag granted in the admin
 | `DELETE /v1/me/skills/{id}` | Delete |
 
 Private skills land in the same `AdminSkill` table (`owner_user_id` = the user); at runtime `agent_factory._filter_skill_ids_for_user` guarantees they never leak to others. Once a private skill matures, the community-publishing flow above brings it to the marketplace.
+
+## Desktop Local Files and Cloud Submission
+
+Dual-mode desktop discovers valid skills at `<HUGAGENT_CAPS_ROOT>/skills/<folder>/SKILL.md`
+and `<HUGAGENT_CAPS_ROOT>/skills/local/<folder>/SKILL.md`. They appear in the device
+listing and capability cards. The visible skills page refreshes on focus and every 10 seconds.
+Duplicate IDs never overwrite existing installations; invalid folders produce diagnostics.
+These locations are in the capability store, not the execution workspace or runtime link directory.
+
+Cards indicate unsubmitted files or local changes. Only explicit comparison contacts the cloud;
+there is no automatic upload. All ordinary package files participate, including `query.json`,
+logs and caches, without purpose-based filtering. Internal `.inventory.json` is store metadata,
+not a user package file. Links, special files, unsafe paths and oversized packages are rejected.
+Suspected sensitive content requires confirmation; existing cloud credential export protection remains.
+
+Verified downloads and successful submissions capture the common baseline. Changes to different files
+merge automatically. Same-file conflicts offer local, cloud, both with a new path, or manual text merging.
+Older installations without a baseline conservatively require a choice. Submission rechecks both
+versions and retains previous cloud versions and idempotency receipts instead of silently replacing
+edits made during confirmation. Users without edit rights may create a private copy of their local
+files; cloud self-service permissions still apply.
+
+Saving files is distinct from activating cloud execution. New plugins, execution declaration changes,
+and local stdio or credential-reference configurations are saved as inactive versions and do not bypass
+existing installation or authorization rules. Valid skills and display-only metadata of existing plugins
+can update through validation. Merged database connector configuration requires confirmation in the
+local editor; it is not automatically written to the local database. Synchronization failures affect
+only submission, never conversation or continued local editing.
 
 ## Source map
 

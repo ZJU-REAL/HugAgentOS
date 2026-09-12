@@ -1,6 +1,8 @@
 import { DesktopAvailableCapabilities } from '../desktop/DesktopAvailableCapabilities';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
+import type { DeviceCapabilityKind } from '../../api';
 import { useCatalogStore } from '../../stores';
 import type { AbilityTabKey } from '../../types';
 import { AgentPanel } from '../agent/AgentPanel';
@@ -32,6 +34,22 @@ export function AbilityCenterPage() {
   const abilityTab = useCatalogStore((s) => s.abilityTab);
   const visited = useCatalogStore((s) => s.visitedAbilityTabs);
   const partial = useDeploymentModeStore((s) => s.partialCapabilities);
+  const dual = useDeploymentModeStore((s) => s.provisionMode === 'dual');
+  const load = useDesktopCapabilityStore((s) => s.load);
+  useEffect(() => {
+    if (!dual) return;
+    const kind: DeviceCapabilityKind = abilityTab === 'skills' ? 'skill' : abilityTab === 'plugins' ? 'plugin' : abilityTab === 'mcp' ? 'mcp' : 'agent';
+    const refresh = () => { if (document.visibilityState === 'visible') void load(kind, true); };
+    refresh();
+    const timer = window.setInterval(refresh, 10000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [dual, abilityTab, load]);
   if (partial) return <DesktopAvailableCapabilities />;
 
   return (

@@ -201,10 +201,10 @@ def main() -> int:
             cfg.model_name if cfg else "None",
         )
 
-        # 6) 主模型是纯文本 → 应当挂上 view_image 工具
-        from core.llm.agent_factory import _vision_bridge_needed
+        # 6) 主模型是纯文本 → 应当挂上视觉桥版 read_image 工具
+        from core.vision import resolve_vision_mode
 
-        ok &= _check("纯文本主模型下会注册 view_image", _vision_bridge_needed())
+        ok &= _check("纯文本主模型下会注册视觉桥版 read_image", resolve_vision_mode() == "bridge")
 
         # 7) 真的经这条角色配置识一次图 —— 证明「配得上」也「调得通」
         import asyncio

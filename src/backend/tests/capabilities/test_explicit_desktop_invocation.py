@@ -99,7 +99,7 @@ def test_empty_mcp_schema_and_disabled_cloud_skill_cannot_be_revived(explicit_cl
     assert allowed == ([], [], ["pack-skill"], ["pack-search"])
 
 
-def test_cloud_skill_name_conflict_remains_blocked_for_explicit_selection(explicit_cloud):
+def test_cloud_skill_name_conflict_retains_selection_without_grant(explicit_cloud):
     factory, plugin, skill, context = explicit_cloud
     from core.services.desktop_capability_protocol import skill_content_hash
 
@@ -110,10 +110,12 @@ def test_cloud_skill_name_conflict_remains_blocked_for_explicit_selection(explic
         content_hash=skill_content_hash(body, {}),
         owner_user_id="local-owner",
     )
-    with factory() as db, pytest.raises(HTTPException) as denied:
-        _resolve_explicit_capability_invocation(
+    with factory() as db:
+        request = _resolve_explicit_capability_invocation(
             db,
             ChatRequest(chat_id="test-explicit", message="use", skill_id="pack-skill"),
             "local-owner",
         )
-    assert denied.value.status_code == 403
+    assert request.skill_id == "pack-skill"
+    assert request._resolved_skill_ids == []
+    assert request._resolved_mcp_ids == []

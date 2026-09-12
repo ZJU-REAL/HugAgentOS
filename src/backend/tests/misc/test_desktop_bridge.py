@@ -152,3 +152,51 @@ def test_bridge_user_must_match_the_namespaced_identity(db_session, monkeypatch,
     })
     assert desktop_bridge.resolve_bridge_user(raw, db_session) is None
 
+
+def test_unchanged_bridge_authentication_does_not_write(db_session, monkeypatch):
+    from sqlalchemy import event
+
+    monkeypatch.setenv(desktop_bridge.BRIDGE_SECRET_ENV, "s3cret")
+    req = _Req(
+        {
+            desktop_bridge.BRIDGE_SECRET_HEADER: "s3cret",
+            desktop_bridge.BRIDGE_USER_HEADER: _user_header(),
+        }
+    )
+    first = desktop_bridge.resolve_bridge_user(req, db_session)
+    writes = []
+
+    def record(conn, cursor, statement, params, context, many):
+        if statement.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")):
+            writes.append(statement.split()[0])
+
+    event.listen(db_session.bind, "before_cursor_execute", record)
+    try:
+        for _ in range(3):
+            assert desktop_bridge.resolve_bridge_user(req, db_session).user_id == first.user_id
+        assert writes == []
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", record)
+
+
+def test_bridge_profile_changes_still_refresh(db_session, monkeypatch):
+    monkeypatch.setenv(desktop_bridge.BRIDGE_SECRET_ENV, "s3cret")
+
+    def req(**values):
+        return _Req(
+            {
+                desktop_bridge.BRIDGE_SECRET_HEADER: "s3cret",
+                desktop_bridge.BRIDGE_USER_HEADER: _user_header(**values),
+            }
+        )
+
+    first = desktop_bridge.resolve_bridge_user(
+        req(avatar_url="https://example.com/a.png"), db_session
+    )
+    changed = desktop_bridge.resolve_bridge_user(
+        req(username="updated", email="new@example.com"), db_session
+    )
+    assert changed.user_id == first.user_id
+    assert changed.username == "updated"
+    assert changed.email == "new@example.com"
+    assert changed.avatar_url == "https://example.com/a.png"

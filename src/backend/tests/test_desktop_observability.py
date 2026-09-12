@@ -573,3 +573,61 @@ def test_blocked_upload_does_not_block_task_progress(local_store, monkeypatch):
         asyncio.run(scenario())
     finally:
         remove()
+
+
+@pytest.mark.parametrize("finish", ["commit", "rollback"])
+@pytest.mark.parametrize("operation", ["flush", "update", "delete"])
+def test_capture_identity_is_stable_within_transaction_and_refreshes_on_reuse(
+    local_store, finish, operation
+):
+    from core.db.models import ChatSession, UserShadow
+    from core.db.models.observability import DesktopOutbox
+    from core.services.desktop_observability_sync import install_capture
+    from sqlalchemy import update, delete
+
+    alice = dict(
+        cloud_base="https://cloud",
+        subject="alice",
+        device_id="d",
+        shell_user_center_id="center-alice",
+    )
+    bob = dict(
+        cloud_base="https://cloud", subject="bob", device_id="d", shell_user_center_id="center-bob"
+    )
+    with local_store() as db:
+        for name in ("alice", "bob"):
+            db.add(UserShadow(user_id=name, username=name, user_center_id="center-" + name))
+        db.add(ChatSession(chat_id="existing", user_id="alice", title="before"))
+        db.commit()
+    identity = alice
+    remove = install_capture(local_store, lambda: identity)
+    try:
+        with local_store() as db:
+            db.begin()
+            identity = bob  # Source transaction still belongs to its original account.
+            if operation == "flush":
+                db.add(ChatSession(chat_id="new-alice", user_id="alice", title="Alice"))
+                db.flush()
+            else:
+                stmt = (
+                    update(ChatSession).values(title="after")
+                    if operation == "update"
+                    else delete(ChatSession)
+                )
+                db.execute(stmt.where(ChatSession.chat_id == "existing"))
+            getattr(db, finish)()
+            # Reuse the same Session. Neither commit nor rollback may retain Alice.
+            with db.begin_nested():
+                db.add(ChatSession(chat_id="new-bob", user_id="bob", title="Bob"))
+                db.flush()
+            db.commit()
+        with local_store() as db:
+            rows = db.query(DesktopOutbox).all()
+            assert [(r.subject, r.object_id) for r in rows if r.subject == "bob"] == [
+                ("bob", "new-bob")
+            ]
+            assert len([r for r in rows if r.subject == "alice"]) == (
+                1 if finish == "commit" else 0
+            )
+    finally:
+        remove()

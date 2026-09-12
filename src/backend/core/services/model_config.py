@@ -59,6 +59,8 @@ class ModelConfigService:
         self._cache: dict[str, Optional[ResolvedModelConfig]] = {}
         self._cache_ts: float = 0.0
         self._cache_lock = threading.Lock()
+        # Per-provider lookups share the role cache's TTL and invalidation.
+        self._provider_cache: dict[str, Optional[ResolvedModelConfig]] = {}
         self._version: int = 0  # bumped on invalidate
 
     @classmethod
@@ -89,6 +91,15 @@ class ModelConfigService:
         pid = (provider_id or "").strip()
         if not pid:
             return None
+        self._maybe_refresh()
+        if pid in self._provider_cache:
+            return self._provider_cache[pid]
+        resolved = self._query_provider(pid)
+        with self._cache_lock:
+            self._provider_cache[pid] = resolved
+        return resolved
+
+    def _query_provider(self, pid: str) -> Optional[ResolvedModelConfig]:
         try:
             db = SessionLocal()
             try:
@@ -115,6 +126,7 @@ class ModelConfigService:
     def invalidate_cache(self) -> None:
         with self._cache_lock:
             self._cache.clear()
+            self._provider_cache.clear()
             self._cache_ts = 0.0
             self._version += 1
 
@@ -127,6 +139,7 @@ class ModelConfigService:
             if now - self._cache_ts < _CACHE_TTL_SECONDS and self._cache:
                 return
             self._load_from_db()
+            self._provider_cache.clear()
             self._cache_ts = time.monotonic()
 
     def _load_from_db(self) -> None:

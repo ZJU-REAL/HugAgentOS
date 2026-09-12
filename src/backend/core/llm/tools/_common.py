@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -9,7 +10,7 @@ import mimetypes
 import shlex
 from typing import Any, Optional
 
-from agentscope.message import TextBlock
+from agentscope.message import Base64Source, DataBlock, TextBlock
 
 # AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
@@ -17,6 +18,29 @@ from core.llm.tools.edition_myspace_vfs import organization_mutation_blocked
 from core.services.project_scope import ProjectScope
 
 logger = logging.getLogger(__name__)
+
+
+async def resp_image(
+    image_bytes: bytes, mime_type: str, *, name: str, meta: Optional[dict[str, Any]] = None
+) -> ToolResponse:
+    """图片原样交给多模态主模型：一段 JSON 元信息 + 一个图片数据块。
+
+    AgentScope 会把工具结果里的 DataBlock 提升成下一轮的 image 消息；端点不收图时
+    ``chat_models`` 有转写/剥离兜底。base64 编码在线程里做，和上传图片那条路一样
+    不占事件循环。
+    """
+    payload = {"type": "image", "mime_type": mime_type, "size": len(image_bytes), **(meta or {})}
+    data = await asyncio.to_thread(lambda: base64.b64encode(image_bytes).decode("ascii"))
+    return ToolResponse(
+        content=[
+            *resp_json(payload).content,
+            DataBlock(
+                type="data",
+                source=Base64Source(type="base64", media_type=mime_type, data=data),
+                name=name,
+            ),
+        ]
+    )
 
 
 def resp_json(payload: dict[str, Any]) -> ToolResponse:

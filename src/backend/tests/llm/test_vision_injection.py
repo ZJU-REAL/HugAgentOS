@@ -1,7 +1,7 @@
 """注入点测试：上传的图片如何进到主模型的上下文里。
 
 覆盖 ``FileContextMiddleware`` 的两条分支——原生多模态直通 vs 视觉桥转写——以及
-视觉桥不可用时的降级提示，还有 ``view_image`` 工具与 ``read_tool`` 的图片分支。
+视觉桥不可用时的降级提示，还有视觉桥版 ``read_image`` 工具与 ``read_tool`` 的图片分支。
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def test_uploaded_image_becomes_text_evidence(working_bridge, artifact_bytes):
     assert "INV-2026-0042" in text
     assert "<image-evidence" in text
     assert "不可信" in text
-    assert "view_image" in text
+    assert "read_image" in text
     assert "base64" not in text
 
 
@@ -215,7 +215,7 @@ def test_read_tool_returns_evidence_for_images(working_bridge):
     assert payload is not None
     assert payload["type"] == "image_evidence"
     assert "INV-2026-0042" in payload["evidence"]
-    assert "view_image" in payload["hint"]
+    assert "read_image" in payload["hint"]
 
 
 def test_read_tool_leaves_non_images_alone(working_bridge):
@@ -233,12 +233,12 @@ def test_read_tool_falls_through_when_vision_unconfigured(monkeypatch):
     assert asyncio.run(_read_image_as_evidence(PNG_1X1, "/workspace/shot.png")) is None
 
 
-# ── view_image 工具 ────────────────────────────────────────────────────────
+# ── read_image 工具（视觉桥版） ───────────────────────────────────────────
 
 
-def _register_view_image(working=True):
-    """把 view_image 注册到一个最小 toolkit 上并取回其可调用体。"""
-    from core.llm.tools.view_image_tool import register_view_image
+def _register_bridge_read_image():
+    """把视觉桥版 read_image 注册到一个最小 toolkit 上并取回其可调用体。"""
+    from core.llm.tools.read_image_tool import register_read_image
 
     captured = {}
 
@@ -247,7 +247,7 @@ def _register_view_image(working=True):
         def register_tool_function(fn, **kw):
             captured["fn"] = fn
 
-    register_view_image(_Toolkit(), chat_id="c1", user_id="u1")
+    register_read_image(_Toolkit(), chat_id="c1", user_id="u1", vision_mode="bridge")
     return captured["fn"]
 
 
@@ -255,47 +255,47 @@ def _tool_json(response):
     return json.loads(response.content[0].text)
 
 
-def test_view_image_reads_by_file_id(working_bridge, monkeypatch):
+def test_bridge_read_image_reads_by_file_id(working_bridge, monkeypatch):
     from core.llm import hooks
 
     monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
-    fn = _register_view_image()
+    fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1", focus="发票号是多少")))
     assert payload["type"] == "image_evidence"
     assert payload["focus"] == "发票号是多少"
     assert "INV-2026-0042" in payload["evidence"]
 
 
-def test_view_image_requires_a_target(working_bridge):
-    fn = _register_view_image()
+def test_bridge_read_image_requires_a_target(working_bridge):
+    fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn()))
     assert "file_path 或 file_id" in payload["error"]
 
 
-def test_view_image_rejects_non_image_bytes(working_bridge, monkeypatch):
+def test_bridge_read_image_rejects_non_image_bytes(working_bridge, monkeypatch):
     from core.llm import hooks
 
     monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: b"PK\x03\x04zip")
-    fn = _register_view_image()
+    fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1")))
     assert "不是可识别的图片格式" in payload["error"]
 
 
-def test_view_image_reports_missing_vision_config(monkeypatch):
+def test_bridge_read_image_reports_missing_vision_config(monkeypatch):
     from core.llm import hooks
     from core.vision import service as svc
 
     monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
     monkeypatch.setattr(svc, "resolve_vision_config", lambda: None)
-    fn = _register_view_image()
+    fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1")))
     assert "模型管理" in payload["error"]
 
 
-def test_view_image_not_registered_for_native_multimodal_model(monkeypatch):
-    """主模型自己能看图时不注册该工具——经二道手只会掉精度。"""
-    from core.llm import agent_factory
+def test_native_multimodal_model_gets_native_read_image(monkeypatch):
+    """主模型自己能看图时注册原生版——经二道手只会掉精度。"""
     from core.services.model_config import ModelConfigService
+    from core.vision import resolve_vision_mode
 
     class _Service:
         @staticmethod
@@ -303,7 +303,7 @@ def test_view_image_not_registered_for_native_multimodal_model(monkeypatch):
             return SimpleNamespace(extra={"supports_vision": True})
 
     monkeypatch.setattr(ModelConfigService, "get_instance", staticmethod(lambda: _Service()))
-    assert agent_factory._vision_bridge_needed() is False
+    assert resolve_vision_mode() == "native"
 
 
 if __name__ == "__main__":  # pragma: no cover

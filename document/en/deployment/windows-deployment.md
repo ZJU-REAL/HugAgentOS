@@ -281,3 +281,6 @@ Verify that a real site conversation has `list_project_sites` and loads the expl
 
 
 On macOS, the main interface extends to the top of the window without a separate blank title row above the content. The sidebar background continues behind the traffic lights, while its brand and buttons retain safe spacing. The collapsed sidebar is 88px wide to keep native window controls clear of content. Drag the sidebar top or empty space in the content header to move the window; double-click to toggle maximization. Standalone setup and login pages retain a top inset.
+
+
+During capability synchronization, local change capture snapshots account identity when a database transaction starts, before executing SQL, so it never waits for the account lock while holding a database write lock. Repeated desktop bridge authentication leaves unchanged user profiles untouched and runs in a worker thread to keep database waits off the service event loop. After upgrading, retry previously failed synchronization without deleting the local database. The macOS capability synchronization page uses the same layout background for its top inset in both light and dark themes.

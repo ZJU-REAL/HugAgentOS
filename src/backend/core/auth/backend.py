@@ -237,7 +237,9 @@ async def get_current_user(
     # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
     from core.auth.desktop_bridge import resolve_bridge_user
 
-    bridge_user = resolve_bridge_user(request, db)
+    from starlette.concurrency import run_in_threadpool
+
+    bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
     if bridge_user is not None:
         return bridge_user
 

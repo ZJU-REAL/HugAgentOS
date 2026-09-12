@@ -6,7 +6,7 @@ provider 的协议差异在 :mod:`core.vision.provider`，注入用的文本渲�
 
 三个不能省的工程点：
 
-- **缓存**。同一张图在一轮多步对话里会被反复回看（注入一次、agent 再 view_image 一次、
+- **缓存**。同一张图在一轮多步对话里会被反复回看（注入一次、agent 再 read_image 一次、
   下一轮上下文里还在）。key 取 ``sha256(bytes) + focus``，落 Redis，重复识别是纯烧钱
   加纯延迟。参考实现 modlens 是无状态 CLI，没有这一层，我们必须有。
 - **并发**。多图上传时并行识别，用信号量兜住并发上限，别把网关打爆。
@@ -23,7 +23,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Literal, Any, Optional
 
 from core.services.model_config import ModelConfigService, ResolvedModelConfig
 from core.vision.prompt import build_vision_prompt
@@ -105,6 +105,40 @@ def model_supports_vision(cfg: Optional[ResolvedModelConfig]) -> bool:
     if cfg is None:
         return False
     return bool((cfg.extra or {}).get("supports_vision"))
+
+
+def effective_model_supports_vision(provider_id: str = "") -> bool:
+    """本轮实际会跑的模型能不能原生看图。
+
+    解析顺序与 DynamicModelMiddleware 一致：用户显式选的 provider 优先，其次
+    ``main_agent`` 角色。探测出错按「看不见」处理——宁可多转写一次，不可让图静默消失。
+    """
+    try:
+        service = ModelConfigService.get_instance()
+        pid = (provider_id or "").strip()
+        cfg = service.resolve_provider(pid) if pid else None
+        return model_supports_vision(cfg or service.resolve("main_agent"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[vision] capability probe failed, assuming text-only: %s", exc)
+        return False
+
+
+VisionMode = Literal["native", "bridge", "none"]
+
+
+def resolve_vision_mode(provider_id: str = "") -> VisionMode:
+    """本轮模型怎么看图：``native`` 自己看像素，``bridge`` 由视觉模型转写，``none`` 看不了。
+
+    工厂据此决定注册哪个版本的 ``read_image`` 和 ``Read`` 的图片分支；中间件据此决定
+    上传图片直通还是转写。同一个判定只在这一处。
+    """
+    if effective_model_supports_vision(provider_id):
+        return "native"
+    try:
+        return "bridge" if is_available() else "none"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[vision] bridge availability probe failed: %s", exc)
+        return "none"
 
 
 def resolve_vision_config() -> Optional[ResolvedModelConfig]:

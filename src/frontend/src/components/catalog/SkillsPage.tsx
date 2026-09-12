@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Switch, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Modal, Form, Select, Pagination, Tooltip } from 'antd';
+import { Alert, Switch, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Modal, Form, Select, Pagination, Tooltip } from 'antd';
 import { t } from '../../i18n';
 import { stripMarkdown } from '../../utils/markdown';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
+import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { mergeDeviceSkills } from '../../utils/deviceSkillCatalog';
 import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { useAgentStore, useCatalogStore, useAuthStore } from '../../stores';
 import type { PanelKey, MarketplaceFetchers, MarketplaceSubmission, OntologyTagOption } from '../../types';
@@ -52,6 +55,9 @@ function saveSkillsDetailState(id: string | null, kind: 'skills' | 'agents') {
 }
 
 export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
+  const deviceSkills = useDesktopCapabilityStore((s) => s.kinds.skill.items);
+  const discoveryErrors = useDesktopCapabilityStore((s) => s.kinds.skill.discoveryErrors);
+  const dual = useDeploymentModeStore((s) => s.provisionMode === 'dual');
   const {
     catalog,
     panel,
@@ -405,16 +411,17 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
 
   const query = manageQuery.trim().toLowerCase();
 
+  const allSkills = useMemo(() => dual ? mergeDeviceSkills(catalog.skills, deviceSkills) : catalog.skills, [catalog.skills, deviceSkills, dual]);
   const filteredSkills = useMemo(() => {
-    const arr = catalog.skills;
+    const arr = allSkills;
     return query ? arr.filter((x) => `${x.id} ${x.name} ${x.desc} ${(x.tags || []).join(' ')}`.toLowerCase().includes(query)) : arr;
-  }, [catalog.skills, query]);
+  }, [allSkills, query]);
 
   const filteredAgents = useMemo(() => {
     const arr = catalog.agents;
     return query ? arr.filter((x) => `${x.id} ${x.name} ${x.desc} ${(x.tags || []).join(' ')}`.toLowerCase().includes(query)) : arr;
   }, [catalog.agents, query]);
-  const totalSkillsCount = catalog.skills.length;
+  const totalSkillsCount = allSkills.length;
 
   // Pagination slice (fall back to the first page when the page number is out of range)
   const pagedSkills = useMemo(
@@ -621,6 +628,9 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Section 1: Skills — card grid (the container key controls stagger replay: replay on entering the panel/paging, no replay on toggle optimistic updates) */}
+      {dual && discoveryErrors.map((error) => <Alert key={error.folder} type="warning" showIcon
+        message={error.folder} style={{ marginBottom: 12 }}
+        description={t(error.code === 'name_conflict' ? '技能标识已存在，未覆盖原技能' : '技能文件夹无效或尚未复制完成')} />)}
       <div
         className="jx-sk-grid jx-anim-stagger"
         style={{ '--stagger-step': '30ms' } as React.CSSProperties}
@@ -631,7 +641,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
             key={item.id}
             className="jx-sk-card jx-card-lift"
             style={staggerStyle(idx)}
-            onClick={() => openDetail(item.id, 'skills')}
+            onClick={() => { if (item.owner !== 'device') openDetail(item.id, 'skills'); }}
           >
             <div className="jx-sk-cardTop">
               <SkillAvatar icon={(item as any).icon} name={item.name} seed={item.id} size={28} round />
@@ -654,7 +664,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                   );
                 })()}
               </div>
-              <CardTail
+              {item.owner === 'device' ? <Tag>{t(item.enabled ? '已启用' : '已停用')}</Tag> : <CardTail
                 checked={!!item.enabled}
                 onChange={(v) => toggleEnabled('skills', item.id, v)}
                 actions={item.owner === 'self' && (
@@ -731,7 +741,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                     </Popconfirm>
                   </>
                 )}
-              />
+              />}
             </div>
             <div className="jx-sk-cardDesc">{stripMarkdown(item.desc)}</div>
           </div>

@@ -247,6 +247,11 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     "version": "1",
                     "config": {"server": row.server_id},
                     "icon": row.icon or "",
+                    "tools": [
+                        t["name"]
+                        for t in (row.tools_json or [])
+                        if isinstance(t, dict) and isinstance(t.get("name"), str)
+                    ],
                     "detail": row.user_intro or "",
                     "owner": "self",
                     "deletable": True,

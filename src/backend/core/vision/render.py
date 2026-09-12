@@ -7,7 +7,7 @@
   这里再加一层显式围栏，让主模型也知道这段文字的来路。
 - **预算**。完整证据（全文转写 + 全部版面区域）很长，无条件塞进上下文会挤掉真正的
   对话内容。默认按 :data:`DEFAULT_MAX_CHARS` 截断，超出部分明确标注被截断，agent
-  想要完整内容可以用 ``view_image`` 带着具体问题再看一次。
+  想要完整内容可以用 ``read_image`` 带着具体问题再看一次。
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ def render_many(
     ]
     intro = (
         f"用户上传了 {len(items)} 张图片。当前主模型不能直接看图，以下是由视觉模型转写出的"
-        f"结构化内容；需要针对某张图追问细节时，用 view_image 工具带上具体问题再看一次。"
+        f"结构化内容；需要针对某张图追问细节时，用 read_image 工具带上具体问题再看一次。"
     )
     return "\n\n".join([intro, *blocks])
 

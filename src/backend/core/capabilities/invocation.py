@@ -4,7 +4,7 @@ from . import connectors, plugins, registry, skills
 from .errors import NameConflict, PackageMissing
 
 
-def cloud_plugin_selection(ident, *, user_id):
+def cloud_plugin_selection(ident, *, user_id, allow_unavailable=False):
     if not skills.account_authorized_for(user_id):
         return None
     profile = skills.current_account_profile()
@@ -22,14 +22,34 @@ def cloud_plugin_selection(ident, *, user_id):
         # 用户在对话里直接选了一个尚未下载的云端插件：按需准备定义与组件。
         from .preparation import ensure_cloud_ready
 
-        ensure_cloud_ready(user_id, install_ids=[row.install_id])
+        from .errors import CapabilityError
+
+        try:
+            ensure_cloud_ready(user_id, install_ids=[row.install_id])
+        except (CapabilityError, OSError, ValueError):
+            if not allow_unavailable:
+                raise
         row = registry.get(row.install_id) or row
     if not row.enabled or not row.ready:
+        if allow_unavailable:
+            return {
+                "install_id": row.install_id,
+                "name": row.display_name or row.key,
+                "skills": [],
+                "mcp": [],
+            }
         raise PackageMissing("selected plugin is not ready", ref=row.install_id)
     from .preparation import ensure_cloud_ready as _ensure_components
 
-    _ensure_components(user_id, install_ids=[row.install_id])
-    skill_ids, mcp_ids = plugins.cloud_binding_ids([row.install_id], user_id=user_id)
+    from .errors import CapabilityError
+
+    try:
+        _ensure_components(user_id, install_ids=[row.install_id])
+        skill_ids, mcp_ids = plugins.cloud_binding_ids([row.install_id], user_id=user_id)
+    except (CapabilityError, OSError, ValueError):
+        if not allow_unavailable:
+            raise
+        skill_ids, mcp_ids = [], []
     return {
         "install_id": row.install_id,
         "name": row.display_name or row.key,

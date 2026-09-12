@@ -513,3 +513,15 @@ resolve permissions on the desktop before starting a new request.
 Cloud services continue to handle channel ingress, credentials and message delivery.
 Local execution is not fully offline: models and configured cloud tools still use their
 services, and replies and returned files pass through the cloud and channel platform.
+
+### Subagent execution details
+
+Subagent invocation rows show a status indicator, the agent avatar, its name and elapsed time. Clicking the row opens that invocation in a dedicated right-side Canvas tab instead of expanding its process beneath the message. The running animation is separate from the avatar. Ordinary tools retain their existing expand/collapse behavior.
+
+The detail view reuses the main transcript’s tool batches, thinking and answer UI, including the same process visibility setting and collapsed defaults. It adds no separate parameter or execution-process sections. Completed invocation rows have no checkmark. It follows live updates until the reader scrolls up. Repeated invocations remain separate and coexist with file, ontology and plugin tabs. History uses saved data: at most 200 sub-steps and approximately 16,000 characters per string tool output; already truncated data cannot be recovered.
+
+Skill loading, plugin loading and tools with an unambiguous connector owner display the corresponding capability-center logo. Plugin-contributed tool icons take precedence. The running indicator remains separate from the logo, with existing click and collapse behavior unchanged. Ordinary tools retain their category icons.
+
+Canvas omits the fixed “【agent name】的回复：” heading added by the tool response wrapper while preserving the agent’s answer. Tool batch headers fill the transcript width from their first render and keep the same width when individual tool details are expanded or collapsed.
+
+Tools inherit their connector logo; skills and tools belonging to a plugin inherit the plugin logo.

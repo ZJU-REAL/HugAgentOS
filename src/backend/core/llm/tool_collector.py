@@ -75,10 +75,16 @@ class RuntimeNamedSkillLoader(SkillLoaderBase):
 
     def _list_desktop_skill(self):
         from core.capabilities.runtime import validate
+        from core.capabilities.errors import CapabilityError
 
         # Keep authorization outside the parse-error handling: it must fail the
         # whole enumeration, never quietly omit a revoked or modified skill.
-        validate(self.capability_run, only_skill=self.runtime_name)
+        try:
+            validate(self.capability_run, only_skill=self.runtime_name)
+        except (OSError, CapabilityError):
+            if not self.capability_run.allow_unavailable:
+                raise
+            return []
         try:
             entry = Path(self.directory) / "SKILL.md"
             updated_at = entry.stat().st_mtime
@@ -115,7 +121,14 @@ class RuntimeNamedSkillLoader(SkillLoaderBase):
             # not the whole run. N loaders each re-hashing all N skills — twice
             # per assembly — was O(N²) filesystem work and the dominant cost of
             # desktop agent setup; scoping to one skill makes it O(N).
-            await asyncio.to_thread(validate, self.capability_run, only_skill=self.runtime_name)
+            from core.capabilities.errors import CapabilityError
+
+            try:
+                await asyncio.to_thread(validate, self.capability_run, only_skill=self.runtime_name)
+            except (CapabilityError, OSError):
+                if not self.capability_run.allow_unavailable:
+                    raise
+                return []
         physical = await self._physical_loader.list_skills()
         return [
             replace(skill, name=self.runtime_name, dir=f"/workspace/skills/{self.runtime_name}")

@@ -1037,3 +1037,31 @@
   color: var(--color-text-placeholder);
   cursor: not-allowed;
 }
+
+/* Sub-agent invocation details share the Canvas shell and theme. */
+.jx-subagentCall {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.jx-subagentCall > img, .jx-subagentCall > span { flex-shrink: 0; }
+.jx-subagentCall .jx-tcr-label { flex-shrink: 1; }
+.jx-subagentCall-arrow { margin-left: auto; color: var(--color-text-secondary); }
+.jx-subagentCall:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.jx-subagentDetail { padding: 24px; overflow-wrap: anywhere; }
+/* The message column aligns children to the start; tool batches must not
+   derive their width from whichever nested detail happens to be open. */
+.jx-subagentDetail > .jx-msg > .jx-trs {
+  align-self: stretch;
+  min-width: 0;
+  max-width: 100%;
+}
+.jx-subagentDetail-head { display: flex; align-items: center; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--color-border); }
+.jx-subagentDetail-head strong { flex: 1; min-width: 0; }
+.jx-subagentDetail-head > span { color: var(--color-text-secondary); font-size: 13px; }
+
+.jx-subagentCall:hover { background: color-mix(in srgb, var(--color-text) 3%, transparent); }

@@ -8,6 +8,7 @@
 - :func:`core.vision.service.get_vision_bridge` —— 识别单张/多张图
 - :func:`core.vision.render.render_evidence` —— 证据 → 可注入文本（带不可信输入围栏）
 - :func:`core.vision.service.model_supports_vision` —— 某个模型配置是否原生多模态
+- :func:`core.vision.service.resolve_vision_mode` —— 本轮模型看图方式：native / bridge / none
 """
 
 from core.vision.render import render_evidence, render_many, render_unavailable
@@ -15,17 +16,21 @@ from core.vision.schema import VisionEvidence, parse_evidence
 from core.vision.service import (
     VISION_ROLE_KEY,
     VisionBridge,
+    VisionMode,
     VisionResult,
     get_vision_bridge,
     is_available,
     model_supports_vision,
     resolve_vision_config,
+    resolve_vision_mode,
+    sniff_mime,
 )
 
 __all__ = [
     "VISION_ROLE_KEY",
     "VisionBridge",
     "VisionEvidence",
+    "VisionMode",
     "VisionResult",
     "get_vision_bridge",
     "is_available",
@@ -35,4 +40,6 @@ __all__ = [
     "render_many",
     "render_unavailable",
     "resolve_vision_config",
+    "resolve_vision_mode",
+    "sniff_mime",
 ]

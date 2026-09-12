@@ -132,6 +132,34 @@ async def _require_capability_user(
     return user_id
 
 
+class WorkcopyCommitBody(BaseModel):
+    files: dict[str, str]
+    expected_revision: str | None = None
+    expected_model_version: str | None = None
+    request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    acknowledge_sensitive: bool = False
+    create_only: bool = False
+
+
+@router.get("/workcopies/{kind}/{key}", summary="比较当前账号的能力文件版本")
+async def workcopy_snapshot(kind: str, key: str, response: Response,
+                            user_id: str = Depends(_require_capability_user)):
+    from core.services.capability_workcopies import snapshot
+    response.headers["Cache-Control"] = "no-store"
+    result = await run_in_threadpool(snapshot, user_id, kind, key)
+    return success_response(data=await run_in_threadpool(_public_content, user_id, result))
+
+
+@router.post("/workcopies/{kind}/{key}", summary="显式提交能力文件版本")
+async def workcopy_commit(kind: str, key: str, body: WorkcopyCommitBody, response: Response,
+                          user_id: str = Depends(_require_capability_user)):
+    from core.services.capability_workcopies import commit
+    response.headers["Cache-Control"] = "no-store"
+    await run_in_threadpool(_public_content, user_id, body.files)
+    result = await run_in_threadpool(commit, user_id, kind, key, body.model_dump())
+    return success_response(data=await run_in_threadpool(_public_content, user_id, result))
+
+
 def _public_content(user_id: str, value, *, bundle: bool = False):
     from core.services.desktop_capability import (
         CapabilityContentRejected,

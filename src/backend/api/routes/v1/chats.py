@@ -835,7 +835,9 @@ def _resolve_explicit_capability_invocation(
 
             try:
                 cloud_plugin = (
-                    cloud_plugin_selection(request.plugin_id, user_id=user_id)
+                    cloud_plugin_selection(
+                        request.plugin_id, user_id=user_id, allow_unavailable=True
+                    )
                     if capabilities_enabled()
                     else None
                 )
@@ -878,7 +880,27 @@ def _resolve_explicit_capability_invocation(
             unavailable_skills,
             unavailable_mcps,
         )
-        raise HTTPException(status_code=403, detail="显式选择的能力不可用或无权访问")
+        from core.capabilities.paths import capabilities_enabled, LOCAL_PROFILE
+        from core.capabilities import registry, skills
+
+        # An owned desktop installation may be missing files or temporarily
+        # disabled. Retain its selection for an explanatory answer, without
+        # granting anything the resolver rejected. Foreign identities still fail.
+        owned = set()
+        if capabilities_enabled():
+            profiles = [LOCAL_PROFILE]
+            if skills.account_authorized_for(user_id):
+                profiles.append(skills.current_account_profile())
+            owned = {
+                (row.kind, row.key)
+                for row in registry.list_installations(profiles=profiles)
+                if row.payload.get("owner_user_id") in (None, "", user_id)
+            }
+        rejected = [("skill", name) for name in unavailable_skills] + [
+            ("mcp", name) for name in unavailable_mcps
+        ]
+        if any(item not in owned for item in rejected):
+            raise HTTPException(status_code=403, detail="显式选择的能力不可用或无权访问")
 
     if request.plugin_id:
         (
@@ -899,8 +921,8 @@ def _resolve_explicit_capability_invocation(
                 unavailable_plugin_skills,
                 unavailable_plugin_mcps,
             )
-        if not allowed_plugin_skills and not allowed_plugin_mcps:
-            raise HTTPException(status_code=403, detail="该插件当前没有可调用的运行时能力")
+        # Keep the explicit selection so the model can explain unavailability.
+        # No component grant is added when the installation has no usable tools.
         allowed_skills = _ids([*allowed_skills, *allowed_plugin_skills])
         allowed_mcps = _ids([*allowed_mcps, *allowed_plugin_mcps])
 

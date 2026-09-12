@@ -13,6 +13,8 @@ import { createContext, useContext } from 'react';
  */
 export interface ToolMessageIdentity {
   chatId: string;
+  /** Stable local identity, including messages still streaming. */
+  messageUid?: string;
   /** 消息尚未落库（正在流式输出）时为空。 */
   messageId?: string;
 }

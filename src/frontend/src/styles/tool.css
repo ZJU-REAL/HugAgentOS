@@ -2832,3 +2832,5 @@
   font-size:12px;
   color:var(--color-text-tertiary, var(--color-text-tertiary));
 }
+
+.jx-tcr-capabilityIcon { display: inline-flex; flex: 0 0 22px; align-items: center; justify-content: center; }

@@ -3,6 +3,7 @@ import { InsertRowRightOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { useCanvasStore } from '../../stores';
 import { ContentErrorBoundary } from '../common';
+import { SubagentSidebarPanel } from './SubagentSidebarPanel';
 import { CanvasPanel } from './CanvasPanel';
 import { CanvasTabBar } from './CanvasTabBar';
 import { OntologySidebarPanel } from './OntologySidebarPanel';
@@ -17,6 +18,21 @@ export function RightSidebarPanel() {
   // key=页签 id：切换页签必须换一份面板实例，否则上一份的预览状态（xlsx 编辑缓冲、
   // 画布视口、加载中的 blob）会漏到新页签上。
   if (activeView === 'file' && artifact) return <CanvasPanel key={activeTabId} />;
+  if (activeView === 'subagent') {
+    return (
+      <ContentErrorBoundary
+        resetKey={activeTabId || ''}
+        fallback={(
+          <aside className="jx-rightSidebar">
+            <CanvasTabBar />
+            <div className="jx-rightSidebar-empty">{t('暂无智能体执行记录')}</div>
+          </aside>
+        )}
+      >
+        <SubagentSidebarPanel key={activeTabId} />
+      </ContentErrorBoundary>
+    );
+  }
   if (activeView === 'plugin') return <PluginCanvasPanel key={activeTabId} />;
   // No evolution view: what a turn learned is now shown, and edited, inline on
   // the card itself. A side panel could only restate it one click further away.

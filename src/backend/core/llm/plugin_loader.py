@@ -169,9 +169,10 @@ class StickyPluginCapabilities:
     slugs: List[str] = field(default_factory=list)
     skill_ids: List[str] = field(default_factory=list)
     mcp_ids: List[str] = field(default_factory=list)
+    unavailable_ids: List[str] = field(default_factory=list)
 
 
-def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False):
+def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False, unavailable_out=None):
     """Keep saved cloud selections tied to their exact account and installation."""
     from core.capabilities import registry, skills
     from core.capabilities.errors import NameConflict, PermissionDenied
@@ -206,6 +207,9 @@ def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False):
             raise NameConflict("choose the saved plugin source")
         if not matches:
             if scoped:
+                if unavailable_out is not None:
+                    unavailable_out.append(token)
+                    continue
                 raise PermissionDenied("saved plugin is no longer authorized")
             continue
         row = matches[0]
@@ -214,6 +218,9 @@ def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False):
             or not row.enabled
             or row.payload.get("owner_user_id") not in (None, user_id)
         ):
+            if unavailable_out is not None and row.payload.get("owner_user_id") in (None, user_id):
+                unavailable_out.append(token)
+                continue
             raise PermissionDenied("saved plugin is disabled or unavailable")
         result.append(row)
     return result
@@ -223,6 +230,7 @@ def resolve_sticky_plugin_capabilities(
     *,
     user_id: str,
     chat_id: Optional[str],
+    allow_unavailable=False,
 ) -> StickyPluginCapabilities:
     """Resolve durable plugin activations before normal capability narrowing.
 
@@ -240,13 +248,28 @@ def resolve_sticky_plugin_capabilities(
 
     # Legacy unscoped tokens remain local-only. New cloud activations are saved
     # with their canonical profile so an account switch cannot retarget a slug.
-    cloud = _cloud_sticky_selection(tokens, user_id=user_id)
+    cloud = _cloud_sticky_selection(
+        tokens,
+        user_id=user_id,
+        unavailable_out=result.unavailable_ids if allow_unavailable else None,
+    )
     if cloud:
         from core.capabilities.plugins import cloud_binding_ids
 
-        result.install_ids = [row.install_id for row in cloud]
-        result.slugs = [row.key for row in cloud]
-        result.skill_ids, result.mcp_ids = cloud_binding_ids(result.install_ids, user_id=user_id)
+        from core.capabilities.errors import CapabilityError
+
+        for row in cloud:
+            try:
+                skill_ids, mcp_ids = cloud_binding_ids([row.install_id], user_id=user_id)
+            except (CapabilityError, OSError, ValueError):
+                if not allow_unavailable:
+                    raise
+                result.unavailable_ids.append(row.install_id)
+                continue
+            result.install_ids.append(row.install_id)
+            result.slugs.append(row.key)
+            result.skill_ids.extend(skill_ids)
+            result.mcp_ids.extend(mcp_ids)
 
     try:
         from core.config.catalog_resolver import resolve_explicit_runtime_capabilities
@@ -608,6 +631,7 @@ def resolve_desktop_progressive_plugins(
     activated_ids=(),
     invoked_skill_ids=(),
     invoked_mcp_ids=(),
+    allow_unavailable=False,
 ):
     """Defer an authorized device plugin without changing the run's source selection.
 
@@ -626,7 +650,15 @@ def resolve_desktop_progressive_plugins(
     active = {item for item in (activated_ids or []) if item}
     from core.capabilities.preparation import ensure_cloud_ready
 
-    ensure_cloud_ready(user_id, skill_keys=sorted(allowed_skills))
+    from core.capabilities.errors import CapabilityError
+
+    for skill in sorted(allowed_skills):
+        try:
+            ensure_cloud_ready(user_id, skill_keys=[skill])
+        except (CapabilityError, OSError, ValueError):
+            if not allow_unavailable:
+                raise
+            result.unavailable_skill_ids.add(skill)
     choices = skills.resolve_for_user(user_id)
     bindings = {
         name: {"install_id": candidate.install_id, "revision": candidate.revision}
@@ -673,6 +705,9 @@ def resolve_desktop_progressive_plugins(
                 desktop_cloud_bridge.get_state(), [row.install_id]
             )
             if not results or not results[0]["ok"]:
+                if allow_unavailable:
+                    result.unavailable_skill_ids.update(advertised_skills & allowed_skills)
+                    continue
                 raise PackageMissing("selected plugin definition is not ready", ref=row.install_id)
             installations = {
                 item.install_id: item for item in registry.list_installations(include_removed=True)
@@ -739,6 +774,16 @@ def resolve_desktop_progressive_plugins(
         )
         return item, aliases, skill_ids, mcp_ids
 
+    strict_inspect_plugin = inspect_plugin
+
+    def inspect_plugin(prepared):
+        try:
+            return strict_inspect_plugin(prepared)
+        except (CapabilityError, OSError, ValueError):
+            if not allow_unavailable:
+                raise
+            return None
+
     # Downloads above are serial. Workers share only the completed detached
     # registry snapshot, and each owns its walker and component-name sets.
     if os.name == "nt" and len(prepared_rows) >= 8:
@@ -760,7 +805,7 @@ def resolve_desktop_progressive_plugins(
             # An installed instruction is not a working plugin. Never advertise
             # a skill-only activation when its required tool binding is absent,
             # nor substitute another account's similarly named connector.
-            if aliases.intersection(active):
+            if aliases.intersection(active) and not allow_unavailable:
                 from core.capabilities.errors import PackageMissing
 
                 raise PackageMissing(

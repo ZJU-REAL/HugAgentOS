@@ -104,6 +104,9 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
                     resolved_revision=revision,
                     payload_update={"resolved_content_hash": inst.content_hash},
                 )
+                if inst.kind in ("skill", "plugin"):
+                    from .change_sync import record_downloaded
+                    record_downloaded(done)
                 if tx:
                     registry.advance_transaction(tx, "committed")
                 # Interrupted earlier attempts for the same verified generation
@@ -192,4 +195,3 @@ def ensure_cloud_ready(user_id, *, skill_keys=(), plugin_keys=(), install_ids=()
 
         failures += [r["install_id"] for r in desktop_cloud_skills.prepare(state, skill_ids) if not r["ok"]]
     return failures
-

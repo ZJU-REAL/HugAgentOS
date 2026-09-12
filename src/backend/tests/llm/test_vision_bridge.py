@@ -114,11 +114,11 @@ def test_render_truncates_long_transcription():
     assert len(text) < 2000
 
 
-def test_render_many_mentions_view_image():
+def test_render_many_mentions_read_image():
     ev = parse_evidence(json.dumps(GOOD_PAYLOAD, ensure_ascii=False))
     text = render_many([("a.png", ev), ("b.png", ev)])
     assert "2 张图片" in text
-    assert "view_image" in text
+    assert "read_image" in text
     assert text.count("<image-evidence") == 2
 
 
