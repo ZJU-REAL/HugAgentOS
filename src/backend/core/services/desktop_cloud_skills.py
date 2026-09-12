@@ -148,8 +148,11 @@ def sync_blocking(state: Dict[str, Any]) -> None:
         except manifest_order.StaleManifest:
             return
         except Exception as exc:  # noqa: BLE001
-            from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
+            from core.services.desktop_cloud_bridge import (
+                _state_fingerprint, get_state, note_rejected_credential,
+            )
 
+            note_rejected_credential(state, exc)
             if _state_fingerprint(get_state()) != _state_fingerprint(state):
                 return
             with _lock:

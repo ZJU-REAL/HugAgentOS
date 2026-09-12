@@ -40,6 +40,7 @@ _MANIFEST_NEG_TTL_S = 30.0
 
 _state_lock = threading.RLock()
 _state: Optional[Dict[str, Any]] = None  # {"cloud_base", "token", "expires_at"}
+_credential_rejected = ""  # account fingerprint whose current token the cloud refused
 _state_loaded = False
 
 _manifest_lock = threading.Lock()
@@ -47,6 +48,7 @@ _manifest: Optional[Dict[str, Any]] = None
 _manifest_ts: float = 0.0
 _manifest_error: Optional[str] = None
 _manifest_fetching = False
+_refresh_pending = False  # a forced refresh arrived while a pass was running
 
 
 def _state_fingerprint(state: Optional[Dict[str, Any]]) -> str:
@@ -133,9 +135,34 @@ def _load_state_from_db() -> None:
     return None
 
 
+def current_credentials(state: Dict[str, Any]) -> Dict[str, Any]:
+    """The credential belongs to the account, not to the snapshot a pass started with.
+
+    A sync pass can outlive the token it started with while the shell has already
+    renewed it. Same account → newest token; another account → untouched, so the
+    surrounding identity checks reject it.
+    """
+    with _state_lock:
+        live = _state
+    if live and _state_fingerprint(live) == _state_fingerprint(state):
+        return live
+    return state
+
+
+def note_rejected_credential(state: Dict[str, Any], exc: BaseException) -> None:
+    """A 401 means this account's current token was refused; the next renewal re-syncs."""
+    global _credential_rejected
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 401:
+        with _state_lock:
+            _credential_rejected = _state_fingerprint(state)
+
+
 def cloud_headers(state: Dict[str, Any]) -> Dict[str, str]:
     from core.services.desktop_capability_protocol import token_claims
 
+    state = current_credentials(state)
     device_id = str(
         state.get("device_id") or token_claims(str(state.get("token") or "")).get("d") or ""
     )
@@ -147,9 +174,10 @@ def cloud_headers(state: Dict[str, Any]) -> Dict[str, str]:
 
 def clear_state() -> None:
     """Logout invalidates the account immediately, including in-flight responses."""
-    global _state, _state_loaded, _manifest, _manifest_error, _manifest_ts
+    global _state, _state_loaded, _manifest, _manifest_error, _manifest_ts, _credential_rejected
     with _state_lock:
         _state, _state_loaded = None, True
+        _credential_rejected = ""
         _clear_partial_selection()
         with _manifest_lock:
             _manifest, _manifest_error, _manifest_ts = None, None, 0.0
@@ -237,7 +265,7 @@ def set_state(
     authorization_epoch: Optional[int] = None,
 ) -> None:
     """壳侧推送桥配置（幂等）。立即触发一次后台 manifest 刷新。"""
-    global _manifest, _manifest_error, _manifest_ts, _state, _state_loaded
+    global _manifest, _manifest_error, _manifest_ts, _state, _state_loaded, _credential_rejected
     payload = {
         "cloud_base": cloud_base.strip().rstrip("/"),
         "token": token.strip(),
@@ -254,6 +282,8 @@ def set_state(
         payload["expires_at"] = min(payload["expires_at"], float(claims["e"]))
     with _state_lock:
         changed = _state_fingerprint(_state) != _state_fingerprint(payload)
+        renewed_after_rejection = not changed and _credential_rejected == _state_fingerprint(payload)
+        _credential_rejected = ""
         _state = payload
         _state_loaded = True
         if changed:
@@ -273,6 +303,8 @@ def set_state(
     if changed:
         _rebuild_identity_views()
         _refresh_manifest_async(force=True)
+    elif renewed_after_rejection:
+        _refresh_manifest_async(force=True)
 
 
 def bridge_active() -> bool:
@@ -284,7 +316,7 @@ def bridge_active() -> bool:
 
 
 def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
-    global _manifest, _manifest_ts, _manifest_error, _manifest_fetching
+    global _manifest, _manifest_ts, _manifest_error, _manifest_fetching, _refresh_pending
     url = f"{st['cloud_base']}/api/v1/desktop/capability/manifest"
     refresh_replacement = False
     try:
@@ -349,7 +381,9 @@ def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
     finally:
         with _manifest_lock:
             _manifest_fetching = False
-        if refresh_replacement:
+            rerun = _refresh_pending
+            _refresh_pending = False
+        if refresh_replacement or rerun:
             _refresh_manifest_async(force=True)
 
 
@@ -375,12 +409,13 @@ def _refresh_manifest_async(force: bool = False) -> None:
     """后台同步一次云端清单。没有定时器：``force`` 由登录 / 变更通知触发，非
     ``force`` 只是「还没有可用清单」时的有界重试（离线登录后的自愈），一旦拿到
     清单就不再有任何后台请求。"""
-    global _manifest_fetching
+    global _manifest_fetching, _refresh_pending
     st = get_state()
     if not st:
         return
     with _manifest_lock:
         if _manifest_fetching:
+            _refresh_pending = _refresh_pending or force
             return
         if not force:
             if _manifest is not None and not _manifest_error:
@@ -684,36 +719,37 @@ def initial_sync_status() -> Dict[str, Any]:
     if not st:
         return {"ready": False, "syncing": False, "partial": False, "groups": [],
                 "pending": 0, "error": "云端身份尚未就绪", "can_continue": False}
-    with account_scope(st):
-        with _manifest_lock:
-            manifest_ready = _manifest is not None
-            fetching = _manifest_fetching
-            error = _manifest_error
-        groups = {"skill": desktop_cloud_skills.status(), **desktop_cloud_bundles.status()}
-        pending, completed, total = 0, 0, 0
-        progress = []
-        for kind, group in groups.items():
-            error = error or group.get("last_error")
-            rows = [row for row in group.get("installations", []) if row.get("state") != "removed"]
-            done = sum(bool(row.get("content_hash")) and row.get("state") == "ready"
-                       and row.get("resolved_revision") == revision_for_hash(row["content_hash"])
-                       for row in rows)
-            failed = sum(row.get("state") == "failed" or bool(row.get("last_error")) for row in rows)
-            completed += done
-            total += len(rows)
-            pending += len(rows) - done
-            progress.append({"kind": kind, "total": len(rows), "completed": done,
-                             "failed": failed, "manifest_ready": bool(group.get("revision"))})
-        complete_manifests = all(group.get("revision") for group in groups.values())
-        partial = session_availability.active(desktop_cloud_skills._profile(st))
-        complete = (manifest_ready and not fetching and not error and pending == 0 and complete_manifests)
-        if not fetching and not complete and not partial:
-            error = error or "部分能力未能同步完成，请选择重试或使用已同步能力继续"
-        return {"ready": bool(complete or partial), "syncing": fetching, "partial": partial,
-                "groups": progress, "completed": completed, "total": total,
-                "totals_known": bool(complete_manifests), "pending": pending,
-                "error": error, "can_continue": bool(manifest_ready and not fetching and not complete)}
-
+    with _manifest_lock:
+        manifest_ready = _manifest is not None
+        fetching = _manifest_fetching
+        error = _manifest_error
+    groups = {"skill": desktop_cloud_skills.status(), **desktop_cloud_bundles.status()}
+    pending, completed, total = 0, 0, 0
+    progress = []
+    for kind, group in groups.items():
+        error = error or group.get("last_error")
+        rows = [row for row in group.get("installations", []) if row.get("state") != "removed"]
+        done = sum(bool(row.get("content_hash")) and row.get("state") == "ready"
+                   and row.get("resolved_revision") == revision_for_hash(row["content_hash"])
+                   for row in rows)
+        failed = sum(row.get("state") == "failed" or bool(row.get("last_error")) for row in rows)
+        completed += done
+        total += len(rows)
+        pending += len(rows) - done
+        progress.append({"kind": kind, "total": len(rows), "completed": done,
+                         "failed": failed, "manifest_ready": bool(group.get("revision"))})
+    complete_manifests = all(group.get("revision") for group in groups.values())
+    partial = session_availability.active(desktop_cloud_skills._profile(st))
+    # Progress is read without the identity lock: package rows may wait on the
+    # database, and the shell's token push must never queue behind that wait.
+    require_current_account(st)
+    complete = (manifest_ready and not fetching and not error and pending == 0 and complete_manifests)
+    if not fetching and not complete and not partial:
+        error = error or "部分能力未能同步完成，请选择重试或使用已同步能力继续"
+    return {"ready": bool(complete or partial), "syncing": fetching, "partial": partial,
+            "groups": progress, "completed": completed, "total": total,
+            "totals_known": bool(complete_manifests), "pending": pending,
+            "error": error, "can_continue": bool(manifest_ready and not fetching and not complete)}
 
 
 def bridge_status() -> Dict[str, Any]:
@@ -784,14 +820,17 @@ def _mcp_json_status() -> Dict[str, Any]:
 
 def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
     global _state, _state_loaded, _manifest, _manifest_ts, _manifest_error, _manifest_fetching
+    global _credential_rejected, _refresh_pending
     from core.services import desktop_cloud_skills
 
     with _state_lock:
         _state = None
         _state_loaded = False
+        _credential_rejected = ""
     with _manifest_lock:
         _manifest = None
         _manifest_ts = 0.0
         _manifest_error = None
         _manifest_fetching = False
+        _refresh_pending = False
     desktop_cloud_skills.reset_for_tests()
