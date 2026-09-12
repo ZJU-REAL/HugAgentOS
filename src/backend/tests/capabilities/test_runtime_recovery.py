@@ -1019,6 +1019,9 @@ def test_enabled_cloud_connector_without_schema_is_unusable(index_db, monkeypatc
     monkeypatch.setattr(bridge, "_mcp_json_local_configs", lambda: {})
     with pytest.raises(PackageMissing):
         bridge.cloud_gateway_mcp_configs(["empty"])
+    unavailable = {}
+    assert bridge.cloud_gateway_mcp_configs(["empty"], unavailable_out=unavailable) == {}
+    assert unavailable == {"empty": PackageMissing.code}
 
 
 @pytest.mark.parametrize("method", ["get_by_id", "get_raw_by_id"])

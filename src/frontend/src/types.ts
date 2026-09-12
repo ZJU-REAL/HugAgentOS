@@ -807,6 +807,8 @@ export interface InstalledPluginItem {
   is_global?: boolean;   // installed globally by the admin (read-only on the user side; cannot be disabled/uninstalled)
   skills: string[];
   mcp: string[];
+  /** Names of tools owned by the plugin’s connector components. */
+  tools?: string[];
   import_report: PluginImportReport;
   created_at?: string | null;
   has_admin_config?: boolean;   // declares admin-level config (provider credentials)

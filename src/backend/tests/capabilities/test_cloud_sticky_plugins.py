@@ -119,6 +119,38 @@ def test_raw_explicit_cloud_id_is_saved_with_its_account_scope(selected):
     assert plugin_loader.load_activated_plugin_slugs("sticky-cloud") == [plugin.install_id]
 
 
+def test_soft_run_connector_honors_parent_plugin_disable(selected, monkeypatch):
+    from dataclasses import replace
+    from core.capabilities.availability import save
+    from core.llm.capability_tools import connector_available
+    from core.services import desktop_cloud_bridge as bridge
+
+    _, plugin, _, skill = selected
+    run = runtime.prepare(
+        "plugin-guard",
+        "local-owner",
+        skill_ids=[skill.key],
+        plugin_ids=[plugin.install_id],
+        allow_unavailable=True,
+    )
+    run = runtime.preflight(run, plugin_ids=[plugin.install_id], available_mcp=["pack-search"])
+    assert plugin.install_id in run.dependency_report["connector_parents"]["pack-search"]
+    run = replace(
+        run,
+        mcp_bindings={
+            "pack-search": {
+                "install_id": "mcp:" + plugin.profile_id + ":pack-search",
+                "authorization_checked": True,
+            }
+        },
+    )
+    save(run)
+    monkeypatch.setattr(bridge, "cloud_gateway_mcp_configs", lambda *a, **kw: {"pack-search": {}})
+    assert connector_available(run, "pack-search")
+    registry.set_enabled(plugin.install_id, False)
+    assert not connector_available(run, "pack-search")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("selection", ["sticky", "mode", "unselected-mode"])
 async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflight(

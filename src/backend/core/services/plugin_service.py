@@ -1043,6 +1043,15 @@ def list_installed(
             else set()
         )
 
+    component_tools = {}
+    if all_mcp_ids:
+        for row in db.query(AdminMcpServer).filter(AdminMcpServer.server_id.in_(all_mcp_ids)).all():
+            component_tools[row.server_id] = [
+                t["name"]
+                for t in (row.tools_json or [])
+                if isinstance(t, dict) and isinstance(t.get("name"), str)
+            ]
+
     out: List[Dict[str, Any]] = []
     for r in rows:
         cids = r.component_ids or {}
@@ -1052,7 +1061,9 @@ def list_installed(
         callable_now = any(s in callable_skills for s in (_component_keys(cids, "skills"))) or any(
             m in callable_mcps for m in (_component_keys(cids, "mcp"))
         )
-        out.append(_installed_to_dict(r, enabled=enabled, callable_now=callable_now))
+        item = _installed_to_dict(r, enabled=enabled, callable_now=callable_now)
+        item["tools"] = sorted({name for mid in item["mcp"] for name in component_tools.get(mid, [])})
+        out.append(item)
     return out
 
 

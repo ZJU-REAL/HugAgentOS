@@ -8,6 +8,7 @@ interface KindState {
   items: DeviceCapabilityItem[];
   byName: Record<string, DeviceCapabilityItem>;
   loaded: boolean;
+  discoveryErrors: { folder: string; code: string }[];
 }
 interface DesktopCapabilityState {
   kinds: Record<DeviceCapabilityKind, KindState>;
@@ -16,12 +17,12 @@ interface DesktopCapabilityState {
   reset: () => void;
 }
 const KINDS: DeviceCapabilityKind[] = ['skill', 'mcp', 'agent', 'plugin'];
-const empty = (): KindState => ({ items: [], byName: {}, loaded: false });
+const empty = (): KindState => ({ items: [], byName: {}, loaded: false, discoveryErrors: [] });
 const emptyKinds = () => ({ skill: empty(), mcp: empty(), agent: empty(), plugin: empty() });
 function fromListing(listing: DeviceCapabilityListing): KindState {
   const byName: Record<string, DeviceCapabilityItem> = {};
   for (const item of listing.items) byName[item.runtime_name] ||= item;
-  return { items: listing.items, byName, loaded: true };
+  return { items: listing.items, byName, loaded: true, discoveryErrors: listing.discovery_errors ?? [] };
 }
 
 /** 只读来源清单：卡片上标注这条能力来自本机还是云端。每个账号单独缓存；

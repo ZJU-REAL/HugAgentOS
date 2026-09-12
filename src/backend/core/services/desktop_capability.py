@@ -896,6 +896,8 @@ def _agent_files(serialized: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
+    if installed.get("_uploaded_files") is not None:
+        return dict(installed["_uploaded_files"])
     definition = {
         "install_id": installed["install_id"],
         "slug": installed["slug"],
@@ -926,9 +928,11 @@ def _user_plugins(user_id: str) -> List[Dict[str, Any]]:
     from core.services import plugin_service
 
     with SessionLocal() as db:
+        from core.services.capability_workcopies import active_plugin_files
         rows = plugin_service.list_installed(db, user_id, include_global=True)
         metadata = {
-            r.install_id: {"ui_contributions": r.ui_contributions, "components": r.component_ids or {}}
+            r.install_id: {"ui_contributions": r.ui_contributions, "components": r.component_ids or {},
+                           "_uploaded_files": active_plugin_files(db, user_id, r)}
             for r in db.query(InstalledPlugin).filter(
                 InstalledPlugin.install_id.in_([r["install_id"] for r in rows] or [""])
             )

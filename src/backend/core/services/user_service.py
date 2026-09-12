@@ -24,6 +24,8 @@ class UserService:
         username: str,
         email: Optional[str] = None,
         avatar_url: Optional[str] = None,
+        *,
+        refresh_unchanged: bool = True,
     ) -> UserShadow:
         """
         Lazy load user shadow from user center.
@@ -38,6 +40,15 @@ class UserService:
         user = self.repo.get_by_user_center_id(user_center_id)
 
         if user:
+            if (
+                not refresh_unchanged
+                and user.username == username
+                and user.email == email
+                and (not avatar_url or user.avatar_url == avatar_url)
+            ):
+                # Desktop polling authenticates the same identity repeatedly.
+                # An unchanged profile does not need a last_sync_at write.
+                return user
             # Update existing user
             # Note: avatar_url is only updated when SSO returns a non-empty value——
             # the user may have set their own avatar in SettingsModal, and SSO returns

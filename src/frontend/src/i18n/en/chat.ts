@@ -1,5 +1,10 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '子智能体': 'Subagent',
+  '暂无智能体执行记录': 'No subagent execution record',
+  '正在执行': 'Running',
+  '查看智能体「{name}」的执行过程': 'View execution of {name}',
+
   '当前会话导航': 'Current conversation navigation',
   '第 {n} 轮对话': 'Conversation turn {n}',
   '跳转到：{title}': 'Jump to: {title}',

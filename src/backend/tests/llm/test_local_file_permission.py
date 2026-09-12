@@ -123,7 +123,7 @@ async def test_missing_chat_cannot_turn_confirm_into_an_implicit_grant():
     assert outcome.payload["status"] == "blocked_non_interactive"
 
 
-async def test_view_image_file_path_uses_the_same_local_read_gate():
+async def test_read_image_file_path_uses_the_same_local_read_gate():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
         patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
@@ -132,8 +132,8 @@ async def test_view_image_file_path_uses_the_same_local_read_gate():
             return_value=Policy(out_of_scope="confirm"),
         ),
     ):
-        outcome = await _service("view_image", interactive=False).authorize(
-            _call("view_image", {"file_path": "/outside/secret.png"})
+        outcome = await _service("read_image", interactive=False).authorize(
+            _call("read_image", {"file_path": "/outside/secret.png"})
         )
     assert outcome.proceed is False
     assert outcome.payload["status"] == "blocked_non_interactive"

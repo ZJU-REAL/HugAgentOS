@@ -558,7 +558,7 @@ def _mcp_json_local_configs() -> Dict[str, dict]:
 
 
 def cloud_gateway_mcp_configs(
-    enabled_mcp_ids: Optional[List[str]] = None, *, resolution_out=None
+    enabled_mcp_ids: Optional[List[str]] = None, *, resolution_out=None, unavailable_out=None
 ) -> Dict[str, dict]:
     """Desktop-only MCP config sources: cloud gateway bindings + mcp.json local servers.
 
@@ -578,6 +578,9 @@ def cloud_gateway_mcp_configs(
             from core.capabilities.errors import NameConflict, PackageMissing
 
             error = NameConflict if name in res.conflicts else PackageMissing
+            if unavailable_out is not None:
+                unavailable_out.update({connectors.server_id_of(c): error.code for c in group})
+                continue
             raise error(
                 "selected connector binding is unavailable; choose its source", runtime_name=name
             )

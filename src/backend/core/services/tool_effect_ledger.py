@@ -239,7 +239,7 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         "Grep",
         "view_text_file",
         "get_data_context",
-        "view_image",
+        "read_image",
         "read_artifact",
         "list_myspace_files",
         "stage_myspace_file",

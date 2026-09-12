@@ -67,10 +67,10 @@ Resolution order:
 | Situation | Behaviour |
 |---|---|
 | User uploads an image or pastes a clipboard image into the chat composer | Transcribed and injected at the start of each turn |
-| Agent reads an image in the sandbox or "My Space" | `Read` returns `type=image_evidence` instead of `type=binary` |
+| Agent reads an image in the sandbox or "My Space" | With a multimodal main model `Read` returns the image itself; otherwise `type=image_evidence` instead of `type=binary` |
 | A tool returns an image (e.g. chart rendering) | Transcribed and substituted, so the agent can check its own output |
-| A group-chat bot receives an image attachment | `channel_read_attachment` points at `view_image` |
-| The agent needs a specific detail from an image | `view_image(file_path/file_id, focus="…")` takes a second, targeted look |
+| A group-chat bot receives an image attachment | `channel_read_attachment` points at `read_image` |
+| The agent needs to look at an image itself (checking a screenshot / chart / slide it just rendered) | `read_image(file_path/file_id)`: a multimodal main model sees the pixels; in bridge mode it returns text evidence and accepts `focus="…"` for a targeted look. One tool name, the matching variant is registered by main-model capability |
 
 **Cost and limits**: every new image costs one multimodal call (a few seconds of added time-to-first-token). Evidence is cached per image + model + focus (7 days by default), so looking at the same picture again is free. Size limit, cache TTL, concurrency, and timeout are the `VISION_*` environment variables.
 

@@ -996,23 +996,10 @@ class FileContextMiddleware(MiddlewareBase):
 
 
 def _effective_model_supports_vision(st: AgentState) -> bool:
-    """Whether the model this turn will actually run on can read images natively.
+    """Whether the model this turn will actually run on can read images natively."""
+    from core.vision import resolve_vision_mode
 
-    Mirrors DynamicModelMiddleware's resolution order (per-request provider override
-    first, then the main_agent role), so the decision matches the model that ends up
-    receiving the request.
-    """
-    try:
-        from core.services.model_config import ModelConfigService
-        from core.vision import model_supports_vision
-
-        service = ModelConfigService.get_instance()
-        provider_id = (getattr(st, "model_provider_id", "") or "").strip()
-        cfg = service.resolve_provider(provider_id) if provider_id else None
-        return model_supports_vision(cfg or service.resolve("main_agent"))
-    except Exception as exc:  # noqa: BLE001 — unknown capability degrades to the bridge
-        logger.warning("[vision] capability probe failed, assuming text-only: %s", exc)
-        return False
+    return resolve_vision_mode(getattr(st, "model_provider_id", "") or "") == "native"
 
 
 # ── WorkspacePinHint ───────────────────────────────────────────────────────

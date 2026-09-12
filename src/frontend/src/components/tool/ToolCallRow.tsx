@@ -1,4 +1,7 @@
+import { useToolCapability } from '../../hooks/useToolCapability';
+import { ToolCapabilityIcon } from './ToolCapabilityIcon';
 import { useMemo, useState } from 'react';
+import { SubagentCallRow } from './SubagentCallRow';
 import type { ComponentType } from 'react';
 import {
   LoadingOutlined,
@@ -215,13 +218,22 @@ interface ToolCallRowProps {
   isStreaming?: boolean;
 }
 
-export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
+export function ToolCallRow(props: ToolCallRowProps) {
+  const identity = useToolMessageIdentity();
+  if (props.tool.name === 'call_subagent' && props.tool.id && identity?.messageUid) {
+    return <SubagentCallRow {...props} identity={{ ...identity, messageUid: identity.messageUid }} />;
+  }
+  return <StandardToolCallRow {...props} />;
+}
+
+function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   // null follows the automatic streaming default; the first user toggle turns
   // this into an explicit preference so later deltas cannot force the row open.
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null);
   // 开过一次就把内容留在 DOM 里，收起时高度才有得动——随开随卸的话折叠是瞬间的。
   const [everExpanded, setEverExpanded] = useState(false);
   const collapseRef = useCollapseHeight(expandedOverride ?? false);
+  const capability = useToolCapability(tool);
   const toolDisplayNames = useChatStore((s) => s.toolDisplayNames);
   const setDetailModal = useUIStore((s) => s.setDetailModal);
 
@@ -351,8 +363,9 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           className={`jx-tcr-status${isStreaming ? ' jx-anim-statusIn' : ''}`}
         >
           {effectiveStatus === 'running' && <LoadingOutlined spin className="jx-tcr-icon jx-tcr-icon--running" />}
-          {effectiveStatus !== 'running' && <StepIcon name={tool.name} />}
+          {effectiveStatus !== 'running' && !capability && <StepIcon name={tool.name} />}
         </span>
+        {capability && <ToolCapabilityIcon capability={capability} />}
         <span className="jx-tcr-label">
           <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{prefix}</span>
           {value && <span className="jx-tcr-value">{value}</span>}

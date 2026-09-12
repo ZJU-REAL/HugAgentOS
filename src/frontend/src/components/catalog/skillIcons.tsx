@@ -114,7 +114,7 @@ export function SkillAvatar({
     borderRadius: round ? '50%' : (radius ?? Math.round(size * 0.24)),
     display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   };
-  if (icon && (icon.startsWith('http') || icon.startsWith('data:'))) {
+  if (icon && (icon.startsWith('http') || icon.startsWith('data:') || icon.startsWith('/') || icon.startsWith('blob:'))) {
     return <img className="jx-skillAvatar" style={{ ...box, objectFit: 'cover' }} src={icon} alt="" loading="lazy" />;
   }
   const p = PRESETS[resolvePresetKey(icon, seed || name || '?')];

@@ -2073,12 +2073,18 @@ export interface DeviceCapabilityItem {
   /** 'cloud' | 'local' | 'builtin' | 'plugin' */
   source: string;
   server_id?: string;
+  display_name?: string;
+  description?: string;
+  enabled?: boolean;
+  usable?: boolean;
+  change_state?: 'new' | 'modified' | 'synced' | 'compare' | 'unavailable';
 }
 
 export interface DeviceCapabilityListing {
   kind: DeviceCapabilityKind;
   profile_id: string | null;
   items: DeviceCapabilityItem[];
+  discovery_errors?: { folder: string; code: string }[];
 }
 
 export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise<DeviceCapabilityListing> {
@@ -2089,6 +2095,36 @@ export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise
 export async function syncDeviceCapabilities(): Promise<Record<string, unknown>> {
   const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/sync', { method: 'POST' }, 'local');
   return unwrapData<Record<string, unknown>>(wrapped);
+}
+
+export interface CapabilityFileChange {
+  path: string;
+  side: string;
+  conflict: boolean;
+  binary: boolean;
+  local: string | null;
+  cloud: string | null;
+  base: string | null;
+}
+export interface CapabilityChangePreview {
+  preview_id: string;
+  changes: CapabilityFileChange[];
+  can_edit: boolean;
+  cloud_exists: boolean;
+  sensitive_paths: string[];
+}
+export type CapabilityChangeChoices = Record<string, { side: string; content?: string; alternate_path?: string }>;
+export async function previewCapabilityChanges(install_id: string): Promise<CapabilityChangePreview> {
+  return unwrapData(await apiRequest('/v1/desktop/capabilities/changes/preview', {
+    method: 'POST', body: JSON.stringify({ install_id }),
+  }, 'local'));
+}
+export async function commitCapabilityChanges(body: {
+  preview_id: string; choices: CapabilityChangeChoices; acknowledge_sensitive: boolean; fork_key?: string;
+}): Promise<{ uploaded: boolean; local_applied: boolean; applied: boolean }> {
+  return unwrapData(await apiRequest('/v1/desktop/capabilities/changes/commit', {
+    method: 'POST', body: JSON.stringify(body),
+  }, 'local'));
 }
 
 export async function installMarketplaceSkill(

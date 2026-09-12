@@ -123,6 +123,7 @@ def resolve_bridge_user(request: Request, db: Session):
         username=info["username"],
         email=info.get("email"),
         avatar_url=info.get("avatar_url"),
+        refresh_unchanged=False,
     )
     _ensure_bridge_capabilities(db, shadow)
     return UserContext(

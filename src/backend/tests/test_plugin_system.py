@@ -1022,3 +1022,35 @@ def test_market_meta_icon_validation(db_session):
     # Empty clears the override
     ps.set_market_meta(db_session, "automation", icon="")
     assert "icon" not in ps.resolve_market_meta(db_session, "automation")
+
+
+def test_capability_logo_tool_ownership(tmp_path, db_session):
+    """Public/private connectors and installed plugins expose only tool names."""
+    from core.config.catalog_runtime import _public_db_mcp_items
+    from api.routes.v1.catalog import _load_owned_capability_items
+
+    ps.import_plugin_from_zip(db_session, _zip_cc_plugin(tmp_path), owner_user_id=None, secrets={"api_token": "test"})
+    server = db_session.query(AdminMcpServer).filter(AdminMcpServer.source_plugin == "hello-toolkit").first()
+    server.tools_json = [{"name": "logo_test_tool", "inputSchema": {"secret": "do-not-expose"}}, {"description": "invalid"}]
+    db_session.flush()
+    plugin = next(p for p in ps.list_installed(db_session, owner_user_id=None) if p["slug"] == "hello-toolkit")
+    assert plugin["tools"] == ["logo_test_tool"]
+    public = next(p for p in _public_db_mcp_items(db_session, include_runtime_details=False) if p["id"] == server.server_id)
+    assert public["tools"] == ["logo_test_tool"]
+    server.owner_user_id = OWNER
+    db_session.flush()
+    _, private = _load_owned_capability_items(db_session, OWNER)
+    assert next(p for p in private if p["id"] == server.server_id)["tools"] == ["logo_test_tool"]
+    _, others = _load_owned_capability_items(db_session, "another-user")
+    assert server.server_id not in {p["id"] for p in others}
+
+
+def test_database_connector_inherits_child_tool_names(db_session, monkeypatch):
+    from core.config import catalog_runtime as runtime
+    monkeypatch.setattr(runtime, "_database_query_capability_available", lambda: True)
+    row = AdminMcpServer(server_id="query_database", display_name="Database", transport="streamable_http", tools_json=[{"name": "query_sql"}])
+    db_session.add(row)
+    db_session.flush()
+    items = runtime._public_db_mcp_items(db_session, include_runtime_details=False)
+    assert next(item for item in items if item["id"] == "database_query")["tools"] == ["query_sql"]
+    assert not any(item["id"] == "query_database" for item in items)

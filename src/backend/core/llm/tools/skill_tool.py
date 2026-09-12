@@ -140,7 +140,43 @@ def register_sandboxed_view_text_file(
         if prepared is not None:
             from core.capabilities.runtime import validate
             import asyncio
-            await asyncio.to_thread(validate, prepared)
+            from core.capabilities.errors import CapabilityError
+
+            try:
+                # Check only the file's skill. An unrelated skill cannot block this read.
+                requested_name = _extract_skill_id_from_skill_file(file_path)
+                if requested_name not in prepared.bindings:
+                    requested_name = next(
+                        (
+                            name
+                            for name in prepared.bindings
+                            if _os.path.realpath(file_path).startswith(
+                                _os.path.realpath(loader.get_skill_dir(name) or "") + _os.sep
+                            )
+                        ),
+                        None,
+                    )
+                if requested_name is None and prepared.allow_unavailable:
+                    return ToolResponse(
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text="该技能暂不可用，请继续说明情况或使用其他可用能力。",
+                            )
+                        ]
+                    )
+                await asyncio.to_thread(validate, prepared, only_skill=requested_name)
+            except (CapabilityError, OSError):
+                if not prepared.allow_unavailable:
+                    raise
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text="该技能当前不可读取或已停用；未执行该能力。请向用户说明并继续处理可完成的部分。",
+                        )
+                    ]
+                )
             mapped = _resolve_skill_path(file_path, loader)
             if mapped:
                 file_path = mapped

@@ -48,7 +48,7 @@ function isImageAvatar(src: string): boolean {
 }
 
 /** Shared agent avatar used by the ability center and invocation menus. */
-export function AgentIcon({ agent, size }: { agent: UserAgentItem; size: number; colorIndex?: number }) {
+export function AgentIcon({ agent, size }: { agent: Pick<UserAgentItem, 'agent_id' | 'name' | 'avatar'>; size: number; colorIndex?: number }) {
   const radius = size < 36 ? '50%' : 8;
   const avatar = agent.avatar?.trim();
   if (avatar) {

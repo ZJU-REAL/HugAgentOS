@@ -121,6 +121,7 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
         .all()
     )
     items: List[Dict[str, Any]] = []
+    database_tools: set[str] = set()
     for row in rows:
         if is_removed_builtin_mcp_server(
             row.server_id,
@@ -128,6 +129,10 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
         ):
             continue
         if row.server_id in DB_HIDDEN_SERVERS:
+            database_tools.update(
+                t["name"] for t in (row.tools_json or [])
+                if isinstance(t, dict) and isinstance(t.get("name"), str)
+            )
             continue
         item = _item(
             item_id=row.server_id,
@@ -139,11 +144,18 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
             config={"server": row.server_id},
             icon=row.icon or _DEFAULT_MCP_ICONS.get(row.server_id, ""),
         )
+        item["tools"] = [
+            t["name"]
+            for t in (row.tools_json or [])
+            if isinstance(t, dict) and isinstance(t.get("name"), str)
+        ]
         if include_runtime_details:
             detail = row.user_intro or MCP_SERVER_USER_INTROS.get(row.server_id, "")
             if detail:
                 item["detail"] = detail
         items.append(item)
+    if database_tools and _database_query_capability_available():
+        items.append({"id": DB_UMBRELLA_ID, "tools": sorted(database_tools)})
     return items
 
 

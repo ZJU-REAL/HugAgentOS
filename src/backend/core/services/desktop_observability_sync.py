@@ -97,11 +97,27 @@ def enqueue(db, identity, local_user_id, kind, oid, *, deleted=False, initial=Fa
 def install_capture(factory, identity_provider):
     """One short reference write in the source transaction; no payload serialization or networking."""
 
+    identity_key = "desktop_observability_identity"
+
+    def snapshot_identity(db, transaction):
+        if transaction.parent is None:
+            # Session transactions begin before connection checkout or SQL.
+            # Never acquire the account lock after a database write: capability
+            # publication deliberately holds that lock while committing its index.
+            identity = identity_provider()
+            db.info[identity_key] = dict(identity) if identity else None
+
+    def forget_identity(db, transaction):
+        if transaction.parent is None:
+            db.info.pop(identity_key, None)
+
+    def transaction_identity(db):
+        if not db.in_transaction():
+            db.begin()
+        return db.info.get(identity_key)
+
     def capture(db, _context):
         global capture_errors
-        identity = identity_provider()
-        if not identity or not identity.get("device_id") or not identity.get("subject"):
-            return
         changes = [
             (kind, row, pk)
             for row in (list(db.new) + list(db.dirty) + list(db.deleted))
@@ -109,6 +125,9 @@ def install_capture(factory, identity_provider):
             if isinstance(row, model)
         ]
         if not changes:
+            return
+        identity = db.info.get(identity_key)
+        if not identity or not identity.get("device_id") or not identity.get("subject"):
             return
         try:
             # Isolate a failed capture write so observability never aborts the source transaction.
@@ -143,7 +162,7 @@ def install_capture(factory, identity_provider):
         )
         if not selected or not (state.is_update or state.is_delete):
             return state.invoke_statement()
-        identity = identity_provider()
+        identity = transaction_identity(state.session)
         if not identity or not identity.get("device_id"):
             return state.invoke_statement()
         kind, model, pk = selected
@@ -184,10 +203,14 @@ def install_capture(factory, identity_provider):
                 logger.warning("desktop bulk observation capture failed")
         return result
 
+    event.listen(factory, "after_transaction_create", snapshot_identity)
+    event.listen(factory, "after_transaction_end", forget_identity)
     event.listen(factory, "after_flush", capture)
     event.listen(factory, "do_orm_execute", capture_statement, retval=True)
 
     def remove():
+        event.remove(factory, "after_transaction_create", snapshot_identity)
+        event.remove(factory, "after_transaction_end", forget_identity)
         event.remove(factory, "after_flush", capture)
         event.remove(factory, "do_orm_execute", capture_statement)
 

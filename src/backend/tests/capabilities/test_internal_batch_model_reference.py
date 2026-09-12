@@ -86,7 +86,7 @@ async def test_live_token_and_device_are_injected(state, monkeypatch):
         return _sse("<think>private reasoning</think> result")
 
     _transport(monkeypatch, upstream)
-    assert await batch._call_llm("test input", user_id="local-alice") == "result"
+    assert await batch._call_llm("test input", user_id="local-alice") == "<think>private reasoning</think> result"
     assert len(seen) == 1
     assert seen[0].headers["authorization"] == "Bearer " + state["token"]
     assert seen[0].headers["x-desktop-device-id"] == "device-a"

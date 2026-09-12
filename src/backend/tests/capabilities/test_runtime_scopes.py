@@ -330,6 +330,7 @@ async def test_recovery_adapter_executes_proven_root_but_never_rebuilds_child(se
         def get(self, *a):
             return SimpleNamespace(
                 recovery_snapshot={"worker_args": {"context": {}}},
+                request_payload={},
                 user_id="owner",
                 chat_id="synthetic-chat",
             )

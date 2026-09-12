@@ -5,8 +5,7 @@
   POST /v1/desktop/capabilities/views/rebuild      重建运行视图
   GET  /v1/desktop/capabilities/mcp-json           mcp.json 投影（只读诊断，不含密钥）
 
-本机能力没有任何手动管理动作：登录时同步一次就全部就绪，云端能力被改动时前端
-调一次 ``/sync``。界面上只标注能力来自本机还是云端。
+登录时准备能力；本地变更由用户在卡片上比较并显式提交，独立于对话执行。
 
 全部端点只在「桌面壳孵化、且配置了能力文件存储」的本机后端开放；云端部署恒 403。
 身份来自桥接头解析出的当前用户（与云端同一账号），视图按该用户重建。
@@ -21,10 +20,52 @@ from typing import Any, Dict, List, Optional
 from core.auth.backend import UserContext, get_current_user
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/desktop/capabilities", tags=["Desktop Capabilities"])
+
+
+class ChangePreviewBody(BaseModel):
+    install_id: str = Field(min_length=1, max_length=300)
+
+
+@router.post("/changes/preview", summary="比较本机与云端能力文件")
+async def preview_changes(body: ChangePreviewBody, user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    uid = str(user.user_id)
+    state = _bridge_state(uid)
+    from core.capabilities.change_sync import preview
+    from core.capabilities.errors import CapabilityError
+    from core.capabilities.mcp_json import McpJsonError
+    try:
+        return success_response(data=await asyncio.to_thread(preview, uid, body.install_id, state))
+    except (CapabilityError, McpJsonError, OSError, ValueError) as exc:
+        raise HTTPException(409, detail="无法比较当前本机文件，请检查文件或重新登录；对话不受影响") from exc
+
+
+class ChangeCommitBody(BaseModel):
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    choices: Dict[str, Dict[str, str]] = Field(default_factory=dict)
+    acknowledge_sensitive: bool = False
+    fork_key: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_-]{1,63}$")
+
+
+@router.post("/changes/commit", summary="确认提交能力变更")
+async def commit_changes(body: ChangeCommitBody, user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    uid = str(user.user_id)
+    state = _bridge_state(uid)
+    from core.capabilities.change_sync import commit
+    from core.capabilities.errors import CapabilityError
+    from core.capabilities.mcp_json import McpJsonError
+    try:
+        return success_response(data=await asyncio.to_thread(
+            commit, uid, body.preview_id, body.choices, state,
+            acknowledge_sensitive=body.acknowledge_sensitive, fork_key=body.fork_key))
+    except (CapabilityError, McpJsonError, OSError, ValueError) as exc:
+        raise HTTPException(409, detail="提交状态需要重新比较确认，本地文件已保留；对话不受影响") from exc
 
 
 def _require_desktop_store() -> None:
@@ -247,6 +288,8 @@ def _installations_view(user_id: str, kind: str) -> Dict[str, Any]:
         return _plugins_view(user_id)
     if kind != KIND_SKILL:
         raise HTTPException(status_code=400, detail=f"unknown kind {kind!r}")
+    from core.capabilities.discovery import scan
+    discovery_errors = scan(user_id)
     res = skills.resolve_for_user(user_id)
     chosen = {c.install_id: name for name, c in res.chosen.items()}
     shadowed = {c.install_id: name for name, cs in res.shadowed.items() for c in cs}
@@ -294,6 +337,7 @@ def _installations_view(user_id: str, kind: str) -> Dict[str, Any]:
         "items": items,
         "conflicts": {name: [c.install_id for c in cs] for name, cs in res.conflicts.items()},
         "preferences": _preferences(kind, user_id),
+        "discovery_errors": discovery_errors,
     }
 
 
@@ -306,8 +350,11 @@ def _preferences(kind: str, user_id: str) -> Dict[str, str]:
 @router.get("/installations", summary="本机能力：意图、设备状态与解析结果")
 async def list_installations(kind: str = "skill", user: UserContext = Depends(get_current_user)):
     _require_desktop_store()
+    from core.capabilities.change_sync import annotate
+    def listing():
+        return annotate(str(user.user_id), _installations_view(str(user.user_id), kind))
     return success_response(
-        data=await asyncio.to_thread(_installations_view, str(user.user_id), kind)
+        data=await asyncio.to_thread(listing)
     )
 
 

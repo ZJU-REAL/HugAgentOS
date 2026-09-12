@@ -282,7 +282,12 @@ def builtin_candidates() -> List[Candidate]:
 def _installation_candidate(inst: registry.Installation, *, account_level: bool) -> Candidate:
     path = None
     if inst.ready:
-        comp = store.get(KIND_SKILL, inst.profile_id, inst.key, inst.resolved_revision or "")
+        from .errors import CapabilityError
+
+        try:
+            comp = store.get(KIND_SKILL, inst.profile_id, inst.key, inst.resolved_revision or "")
+        except (CapabilityError, OSError):
+            comp = None
         path = comp.path if comp else None
     usable = inst.enabled and path is not None
     return Candidate(
@@ -381,6 +386,8 @@ def resolve_for_user(user_id: Optional[str], *, requested: Optional[Set[str]] = 
     """
     from .readiness import eligible_skill_candidates
 
+    from .discovery import scan
+    scan(user_id)
     key = user_id or ""
     signal = (
         registry.generation(),

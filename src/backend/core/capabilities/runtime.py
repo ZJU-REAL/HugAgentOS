@@ -106,6 +106,9 @@ class PreparedRun:
     authorization_fingerprint: Optional[str] = None
     dependency_report: dict = field(default_factory=dict)
     scope_id: str = ""
+    allow_unavailable: bool = False
+    unavailable: dict = field(default_factory=dict)
+    view_revision: str = ""
 
     @property
     def view_dir(self):
@@ -113,7 +116,11 @@ class PreparedRun:
             require_root()
             / ".capabilities"
             / "views"
-            / _snapshot_key(self.run_id, self.scope_id)
+            / (
+                _key(_snapshot_key(self.run_id, self.scope_id) + self.view_revision)
+                if self.view_revision
+                else _snapshot_key(self.run_id, self.scope_id)
+            )
             / "skills"
         )
 
@@ -121,6 +128,9 @@ class PreparedRun:
         return {
             "run_id": self.run_id,
             "scope_id": self.scope_id,
+            "allow_unavailable": self.allow_unavailable,
+            "unavailable": copy.deepcopy(self.unavailable),
+            "view_revision": self.view_revision,
             "user_id": self.user_id,
             "profile": self.profile,
             "execution_plane": self.execution_plane,
@@ -139,6 +149,15 @@ def get(run_id: str, scope_id: str = "") -> Optional[PreparedRun]:
 
 
 def _component(binding):
+    if binding.get("snapshot_path"):
+        from .paths import assert_managed_path
+
+        path = assert_managed_path(require_root() / binding["snapshot_path"])
+        if not (path / "SKILL.md").is_file():
+            return None
+        return store.StoredComponent(
+            KIND_SKILL, binding["profile"], binding["key"], binding["revision"], path
+        )
     return store.get(KIND_SKILL, binding["profile"], binding["key"], binding["revision"])
 
 
@@ -168,6 +187,15 @@ def _validate_skill_binding(
         if owner and str(owner) != run.user_id:
             raise PermissionDenied("capability belongs to another user", runtime_name=name)
     comp = _component(binding)
+    for iid in binding.get("dependency_install_ids", []):
+        if iid.split(":", 2)[1] == BUILTIN_PROFILE:
+            continue
+        dependency = registry.get(iid)
+        if dependency is None or dependency.state == "removed" or not dependency.enabled:
+            raise PermissionDenied("skill dependency is no longer authorized", runtime_name=name)
+        owner = dependency.payload.get("owner_user_id")
+        if owner and str(owner) != run.user_id:
+            raise PermissionDenied("skill dependency belongs to another user", runtime_name=name)
     if comp is None or skills.skill_dir_hash(comp.path, fresh=fresh) != binding["content_hash"]:
         raise IntegrityFailed("prepared revision is missing or changed", runtime_name=name)
 
@@ -243,10 +271,18 @@ def validate(
         ):
             ensure_current_authorization()
     if only_skill is not None:
+        if run.allow_unavailable:
+            latest = get(run.run_id, scope_id=run.scope_id) or run
+            if only_skill in latest.unavailable or latest.view_revision != run.view_revision:
+                raise PackageMissing("skill is unavailable in this view", runtime_name=only_skill)
         binding = run.bindings.get(only_skill)
         if binding is None:
             raise PermissionDenied("capability is no longer authorized", runtime_name=only_skill)
         _validate_skill_binding(only_skill, binding, run, fresh=False)
+        return
+    if run.allow_unavailable:
+        # Individual readers and execution views enforce component grants.
+        # A revoked component cannot prevent unrelated tools or plain text.
         return
     checked = {
         sid: binding["install_id"].split(":", 2)[1:]
@@ -329,6 +365,10 @@ def validate(
 
 
 def rebuild(run: PreparedRun) -> Path:
+    if run.allow_unavailable:
+        from .availability import rebuild_available_view
+
+        return rebuild_available_view(run)
     fingerprint = _view_fingerprint(run)
     assembly = _assembly_for(run)
     if assembly is None:
@@ -493,7 +533,20 @@ def prepare(
     agent_definition=None,
     plugin_ids=(),
     scope_id: str = "",
+    allow_unavailable: bool = False,
 ) -> PreparedRun:
+    if allow_unavailable:
+        from .availability import prepare_available
+
+        return prepare_available(
+            run_id,
+            user_id,
+            skill_ids=skill_ids,
+            execution_plane=execution_plane,
+            agent_definition=agent_definition,
+            plugin_ids=plugin_ids,
+            scope_id=scope_id,
+        )
     if not run_id:
         raise ValueError("a run id is required for a durable capability snapshot")
     with _lock:
@@ -612,6 +665,7 @@ _view_built: dict[tuple[str, str], tuple] = {}
 def _view_fingerprint(run: PreparedRun) -> tuple:
     return (
         skills.view_generation(),
+        run.view_revision,
         tuple(sorted((name, b.get("revision")) for name, b in run.bindings.items())),
     )
 
@@ -633,6 +687,8 @@ def frozen_loader(run: PreparedRun):
     from core.agent_skills.loader import MultiSourceSkillLoader
 
     _ensure_view(run)
+    if run.allow_unavailable:
+        run = get(run.run_id, scope_id=run.scope_id) or run
     loader = MultiSourceSkillLoader(CompositeBackend([FilesystemBackend(run.view_dir, "prepared")]))
     loader.capability_run = run
     return loader
@@ -712,16 +768,27 @@ def bind_mcp(run: PreparedRun, configs, choices):
         else:
             # A sub-agent may use a subset; expanding outside the parent's
             # frozen bindings requires a new run, not an implicit source swap.
-            for sid, entry in current.items():
+            unavailable = dict((saved or run).unavailable)
+            for sid, entry in list(current.items()):
                 old = pinned.get(sid)
                 if (
                     old is None
                     or old["install_id"] != entry["install_id"]
                     or old["config_digest"] != entry["config_digest"]
                 ):
+                    if (saved or run).allow_unavailable:
+                        # Keep the old source contract; never reconnect a changed
+                        # endpoint as though it were the original tool.
+                        unavailable["mcp:" + sid] = "connector_changed"
+                        configs = {key: value for key, value in configs.items() if key != sid}
+                        continue
                     raise IntegrityFailed(
                         "connector binding changed; prepare a new run", runtime_name=sid
                     )
+            if unavailable != (saved or run).unavailable:
+                from .availability import save
+
+                save(replace(saved or run, unavailable=unavailable))
         if assembly is not None:
             assembly.mcps = copy.deepcopy(pinned)
         # Pinned schemas are persisted and never edited afterwards; sharing them
@@ -997,6 +1064,18 @@ def preflight(
     assistant unusable.
     """
     from .dependency import Context, Inspector, allowed_model_ids, require_report
+
+    if run.allow_unavailable:
+        from .availability import preflight_available
+
+        return preflight_available(
+            run,
+            available_mcp=available_mcp,
+            available_kb=available_kb,
+            available_models=available_models,
+            plugin_ids=plugin_ids,
+            agent_definition=agent_definition,
+        )
 
     run = get(run.run_id, scope_id=run.scope_id) or run
     from .errors import CapabilityError

@@ -468,7 +468,7 @@ def _path_summary(tool: str, action: str, logical: str, args: Mapping[str, Any])
         "Read": "读取",
         "Glob": "扫描",
         "Grep": "搜索",
-        "view_image": "查看图片",
+        "read_image": "查看图片",
         "Delete": "删除",
         "CreateFolder": "创建文件夹",
         "sandbox_put_artifact": "写入沙盒文件",
@@ -586,10 +586,10 @@ def builtin_tool_permission(tool_name: str) -> Optional[ToolPermissionSpec]:
         # omitted argument is still governed rather than resolving to no intent.
         "Glob": local_path_tool("path", READ, tool_name="Glob", default_path="/workspace"),
         "Grep": local_path_tool("path", READ, tool_name="Grep", default_path="/workspace"),
-        "view_image": local_path_tool(
+        "read_image": local_path_tool(
             "file_path",
             READ,
-            tool_name="view_image",
+            tool_name="read_image",
             skip_if_arg="file_id",
         ),
         "Delete": local_path_tool("path", WRITE, tool_name="Delete", myspace_op=OP_DELETE),

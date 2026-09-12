@@ -10,12 +10,15 @@ import { Modal } from 'antd';
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 
 import { t } from '../../i18n';
+import { useAgentStore } from '../../stores/agentStore';
+import { AgentIcon } from '../agent/AgentIcon';
 import { useCanvasStore, usePluginUiStore } from '../../stores';
 import type { CanvasTab } from '../../stores/canvasStore';
 import { getFileIconSrc } from '../../utils/fileIcon';
 
 function tabTitle(tab: CanvasTab): string {
   if (tab.kind === 'file') return tab.artifact.name;
+  if (tab.kind === 'subagent') return tab.target.agent.name;
   // A plugin tab is labelled by the plugin's own declaration; the generic
   // fallback only shows if that declaration carried no title.
   if (tab.kind === 'plugin') return tab.target.title || t('插件视图');
@@ -23,6 +26,7 @@ function tabTitle(tab: CanvasTab): string {
 }
 
 function tabIcon(tab: CanvasTab): ReactNode {
+  if (tab.kind === 'subagent') return <AgentIcon agent={tab.target.agent} size={18} />;
   if (tab.kind === 'file') {
     return <img src={getFileIconSrc(tab.artifact.name)} width="17" height="17" alt="" aria-hidden="true" />;
   }
@@ -41,6 +45,7 @@ function tabIcon(tab: CanvasTab): ReactNode {
 }
 
 export function CanvasTabBar() {
+  const agents = useAgentStore((state) => state.agents);
   const tabs = useCanvasStore((state) => state.tabs);
   const activeTabId = useCanvasStore((state) => state.activeTabId);
   const activateTab = useCanvasStore((state) => state.activateTab);
@@ -106,7 +111,12 @@ export function CanvasTabBar() {
     <div className="jx-canvasTabs" role="tablist" aria-label={t('右侧面板')}>
       <div className="jx-canvasTabs-list">
         {tabs.map((tab) => {
-          const title = tabTitle(tab);
+          const agent = tab.kind === 'subagent'
+            ? agents.find((item) => tab.target.agent.agent_id
+              ? item.agent_id === tab.target.agent.agent_id
+              : item.name === tab.target.agent.name) || tab.target.agent
+            : null;
+          const title = agent?.name || tabTitle(tab);
           const isActive = tab.id === activeTabId;
           return (
             <div
@@ -129,7 +139,7 @@ export function CanvasTabBar() {
                 handleActivate(tab.id);
               }}
             >
-              <span className="jx-canvasTab-icon" aria-hidden="true">{tabIcon(tab)}</span>
+              <span className="jx-canvasTab-icon" aria-hidden="true">{agent ? <AgentIcon agent={agent} size={18} /> : tabIcon(tab)}</span>
               <span className="jx-canvasTab-title">{title}</span>
               {tab.kind === 'file' && tab.dirty && (
                 <span className="jx-canvasTab-dot" aria-label={t('有未保存的修改')} />
