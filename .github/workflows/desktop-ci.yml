@@ -111,6 +111,37 @@ jobs:
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs
 
+      # The new native updater regression links TaskDialogIndirect even when
+      # ignored. Tauri embeds Common Controls v6 in the app, but Cargo's library
+      # test executable has no application manifest and cannot start without it.
+      - name: Embed Windows test application manifest
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $messages = & cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib --no-run --message-format=json
+          if ($LASTEXITCODE -ne 0) { throw "Windows test compilation failed" }
+          $executables = @($messages | ForEach-Object {
+            try { $item = $_ | ConvertFrom-Json } catch { return }
+            if ($item.reason -eq 'compiler-artifact' -and $item.profile.test -and $item.executable) {
+              $item.executable
+            }
+          })
+          if ($executables.Count -ne 1) { throw "Expected one library test executable" }
+          $manifest = Join-Path $env:RUNNER_TEMP 'desktop-test.manifest'
+          @'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <dependency><dependentAssembly>
+              <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" />
+            </dependentAssembly></dependency>
+          </assembly>
+          '@ | Set-Content -LiteralPath $manifest -Encoding utf8
+          $mt = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\mt.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$mt) { throw "Windows SDK Manifest Tool is required" }
+          & $mt.FullName -manifest $manifest "-outputresource:$($executables[0]);#1"
+          if ($LASTEXITCODE -ne 0) { throw "Test manifest embedding failed" }
+
       - name: Run desktop Rust tests
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
 

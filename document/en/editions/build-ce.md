@@ -202,3 +202,5 @@ A qualifying release build must pass all of:
 | Router registry | `src/backend/api/routes/v1/__init__.py` |
 
 See also: [Community vs. Enterprise Edition](overview.md) · [License Mechanism](license.md)
+
+CE upgrade migration `ce_0013` adds durable tool media storage. Tool images are stored by content hash while history retains references; later turns and restarted workers restore the bytes from the database. Repeated reconciliation preserves existing media.

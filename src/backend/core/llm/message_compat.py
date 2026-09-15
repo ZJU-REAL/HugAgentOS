@@ -63,10 +63,18 @@ def session_to_msgs(session_messages: List[Dict[str, Any]]) -> List[Any]:
     AgentScope 2.0 removed the memory module; callers use
     ``agent.state.context.extend(session_to_msgs(history))`` instead of 1.x's
     ``await load_session_into_memory(history, agent.memory)``.
+
+    This is also where tool-returned media stops being a reference and becomes
+    bytes again (:func:`core.llm.tool_media_store.hydrate_rows`). Everything
+    upstream — replay, the compaction checkpoint, the run's recovery snapshot —
+    carries the sha256 only, because none of them needs the pixels and all of
+    them get JSON-serialized; this is the first point where something does.
     """
+    from core.llm.tool_media_store import hydrate_rows
+
     return [
         dict_to_msg(message, created_seq=index)
-        for index, message in enumerate(session_messages)
+        for index, message in enumerate(hydrate_rows(session_messages))
         if message.get("content")
     ]
 

@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     ForeignKey,
+    LargeBinary,
     Index,
     Integer,
     Numeric,
@@ -553,3 +554,37 @@ class ChatSandboxSnapshot(Base):
         Index("idx_chat_sandbox_snapshots_expires", "expires_at"),
         Index("idx_chat_sandbox_snapshots_created", "created_at"),
     )
+
+
+class ToolMediaBlob(Base):
+    """工具返回的媒体字节，按内容寻址，供历史回放取回原件。
+
+    ``model_steps`` 是「模型自己的历史」的唯一真源，回放它应当得到模型当时真正看过
+    的那串消息。媒体曾经是这条真源上唯一的缺口：落库时图被换成一行
+    ``[image omitted from replay history: …]``，于是图只能活一轮——下一轮重建历史时，
+    模型看到的是一句「这里原本有张图」，而它不会说自己看不见，会拿手上剩下的信息接
+    着编。
+
+    字节单独放一张表、只在 ``model_steps`` 里留 ``sha256`` 指针，是为了不把历史列
+    撑大：拼上下文要把检查点之后每一条消息的 ``model_steps`` 整列拉出来，一页 200dpi
+    的图编码后一两兆，内联进去就意味着**每一轮**都要整份读一遍，哪怕预算马上要把那
+    一步挤掉。主键用内容哈希，所以同一张图读多少次都只存一份。
+
+    与历史行同库，所以备份、迁移、恢复都把两者一起带走，不存在第二个会和它走散的
+    系统。字节先写、引用后写（引用是随那条消息落库的），所以中途崩溃最坏留下一份没人
+    引用的字节，不会出现「引用还在、字节没了」。
+    """
+
+    __tablename__ = "tool_media_blobs"
+
+    sha256 = Column(String(64), primary_key=True)
+    media_type = Column(String(128), nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    created_at = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (Index("idx_tool_media_blobs_created", "created_at"),)

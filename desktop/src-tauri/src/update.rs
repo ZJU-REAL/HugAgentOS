@@ -9,11 +9,11 @@
 //!
 //! 交互：**确认/结果**走原生对话框（`tauri-plugin-dialog`）——因为检查更新是从原生菜单/托盘
 //! （Rust 侧）触发的，不经主 WebView，天然不受「远程源下 Tauri IPC 不可靠」影响。
-//! **下载进度**走一个独立的原生进度窗（内联 HTML 的 data: URL，本地内容），进度由 Rust 侧
+//! **下载进度**走一个独立的原生进度窗（本机回环服务提供的内嵌 HTML），进度由 Rust 侧
 //! `eval` 直接推 DOM——不依赖主窗的远程 IPC，也无需给进度窗配任何 capability。
 
 use std::sync::OnceLock;
-use tauri::{AppHandle, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::watch;
@@ -94,12 +94,7 @@ pub fn version_message(current: &str, available: Option<&str>) -> String {
 const PROGRESS_HTML: &str = r#"<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
- /* dark-ok-begin: 这扇进度窗是 data:text/html 加载的，属于**不透明源**——读不到应用那份
-    localStorage 里的主题偏好，所以只能靠 prefers-color-scheme 跟系统外观。
-    这是全仓唯一允许用媒体查询判深浅的地方：其余壳页面都由本地反代同源提供，
-    走 data-theme（见 proxy.rs 的 THEME_BOOT_JS）。
-    已知取舍：用户手动选了深色而系统是浅色时，这扇窗仍是浅色。它只在下载更新的几十秒里
-    出现，为它把偏好从 webview 搬到 Rust 侧不划算。 */
+ /* dark-ok-begin: 独立更新进度页沿用系统深浅外观，无需主界面加载完成。 */
  html,body{margin:0;height:100%}
  body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:#f7f8fa;color:#1f2329;display:flex;align-items:center;justify-content:center}
  @media (prefers-color-scheme:dark){body{background:#1f2023;color:#e6e6e6}.track{background:#3a3c40 !important}}
@@ -197,8 +192,11 @@ pub fn check_and_install(app: AppHandle, update_base: String, silent: bool) {
                 }
 
                 // 确认后弹出独立进度窗（本地内容，eval 驱动，无需 capability）。
-                let Some(window) = build_progress_window(&app) else {
-                    return report_err(&app, false, "无法打开更新进度卡片，请重试。");
+                let window = match build_progress_window(&app, app.state::<crate::Shared>().port) {
+                    Ok(window) => window,
+                    Err(error) => {
+                        return report_err(&app, false, &format!("无法打开更新进度卡片：{error}"))
+                    }
                 };
                 let progress_win = Some(window);
 
@@ -272,66 +270,54 @@ pub fn check_and_install(app: AppHandle, update_base: String, silent: bool) {
     });
 }
 
-/// 在**主线程**上创建进度窗并把 handle 取回（窗口创建跨平台要求主线程）。
-/// 失败/超时返回 None，调用方停止更新并允许重试。
-fn build_progress_window(app: &AppHandle) -> Option<WebviewWindow> {
-    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+/// Served only by the desktop's loopback proxy; no Tauri IPC or remote resources required.
+pub(crate) async fn progress_page() -> axum::response::Html<&'static str> {
+    axum::response::Html(PROGRESS_HTML)
+}
 
-    let encoded = utf8_percent_encode(PROGRESS_HTML, NON_ALPHANUMERIC).to_string();
-    let data_url = format!("data:text/html;charset=utf-8,{encoded}");
-    let parsed = url::Url::parse(&data_url).ok()?;
-    let title = format!("{} 更新", brand::NAME);
-
-    let (tx, rx) = std::sync::mpsc::channel::<Option<WebviewWindow>>();
-    let app2 = app.clone();
-    let res = app.run_on_main_thread(move || {
-        let ready = tx.clone();
-        let result =
-            WebviewWindowBuilder::new(&app2, "hug_updater_progress", WebviewUrl::External(parsed))
-                .title(title)
-                .on_page_load(move |window, payload| {
-                    if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
-                        let _ = ready.send(Some(window));
-                    }
-                })
-                // WebView2 uses one browser environment per argument set. Keep this identical to the
-                // main and auxiliary windows or this progress webview can fail to load after the DPI fix.
-                .additional_browser_args(WEBVIEW_BROWSER_ARGS)
-                .inner_size(460.0, 168.0)
-                .resizable(false)
-                .minimizable(false)
-                .maximizable(false)
-                .closable(false)
-                .always_on_top(true)
-                .center()
-                .build()
-                .inspect(|window| {
-                    apply_display_zoom(window);
-                });
-        if result.is_err() {
-            let _ = tx.send(None);
-        }
-    });
-    if res.is_err() {
-        return None;
+/// Called from the updater worker, never a synchronous main-thread callback:
+/// WebView2 creation can deadlock in Windows event handlers. Tauri dispatches the native work.
+/// Use the existing loopback server: WebView2 does not reliably load data: navigations.
+fn build_progress_window(app: &AppHandle, port: u16) -> Result<WebviewWindow, String> {
+    let parsed = url::Url::parse(&format!(
+        "http://127.0.0.1:{port}/__desktop/update-progress"
+    ))
+    .map_err(|error| error.to_string())?;
+    let expected_url = parsed.clone();
+    let (ready, loaded) = std::sync::mpsc::channel();
+    let window =
+        WebviewWindowBuilder::new(app, "hug_updater_progress", WebviewUrl::External(parsed))
+            .title(format!("{} 更新", brand::NAME))
+            .on_page_load(move |_, payload| {
+                if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                    && payload.url() == &expected_url
+                {
+                    let _ = ready.send(());
+                }
+            })
+            // Every WebView2 window must use the same browser environment arguments.
+            .additional_browser_args(WEBVIEW_BROWSER_ARGS)
+            .inner_size(460.0, 168.0)
+            .resizable(false)
+            .minimizable(false)
+            .maximizable(false)
+            .closable(false)
+            .always_on_top(true)
+            .center()
+            .build()
+            .map_err(|error| format!("创建窗口失败：{error}"))?;
+    apply_display_zoom(&window);
+    if let Err(error) = loaded.recv_timeout(std::time::Duration::from_secs(15)) {
+        let _ = window.close();
+        return Err(format!("等待更新页面加载失败：{error}"));
     }
-    let window = rx
-        .recv_timeout(std::time::Duration::from_secs(15))
-        .ok()
-        .flatten();
-    if window.is_none() {
-        use tauri::Manager;
-        if let Some(window) = app.get_webview_window("hug_updater_progress") {
-            let _ = window.close();
-        }
-    }
-    window
+    Ok(window)
 }
 
 /// 弹错误框（silent 时静默）。
 fn report_err(app: &AppHandle, silent: bool, msg: &str) {
+    eprintln!("[update] {msg}");
     if silent {
-        eprintln!("[update] {msg}");
         return;
     }
     app.dialog()
@@ -381,6 +367,69 @@ mod tests {
             version_message("1.0.2", Some("2.0.0")),
             "当前版本：1.0.2\n发现新版本：2.0.0"
         );
+    }
+
+    /// Run on a Windows build host with a real WebView2 runtime. This exercises the same
+    /// window factory used after update confirmation without downloading or installing anything.
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires a native Windows WebView2 session"]
+    fn native_update_progress_window_loads_and_renders() {
+        use super::*;
+        use std::sync::{Arc, Mutex};
+        let outcome = Arc::new(Mutex::new(None));
+        let result = outcome.clone();
+        let mut context = tauri::generate_context!();
+        context.config_mut().identifier = "test.updater-progress.native".into();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .setup(move |app| {
+                let app = app.handle().clone();
+                std::thread::spawn(move || {
+                    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                    let port = listener.local_addr().unwrap().port();
+                    listener.set_nonblocking(true).unwrap();
+                    let server = tauri::async_runtime::spawn(async move {
+                        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                        let router = axum::Router::new().route(
+                            "/__desktop/update-progress",
+                            axum::routing::get(progress_page),
+                        );
+                        axum::serve(listener, router).await.unwrap();
+                    });
+                    let check = (|| -> Result<(), String> {
+                        let window = build_progress_window(&app, port)?;
+                        window.eval(
+                            "window.__set(42,4.2,10);                              if(document.getElementById('p').textContent==='42%' &&                                 typeof window.__done==='function' && typeof window.__fail==='function')                              window.location.replace('about:blank#progress-rendered');"
+                        ).map_err(|error| error.to_string())?;
+                        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                        while std::time::Instant::now() < deadline {
+                            if window.url().map_err(|error| error.to_string())?.fragment()
+                                == Some("progress-rendered") {
+                                let _ = window.close();
+                                return Ok(());
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        let _ = window.close();
+                        Err("Progress JavaScript did not render the download percentage".into())
+                    })();
+                    server.abort();
+                    let code = if check.is_ok() { 0 } else { 1 };
+                    *result.lock().unwrap() = Some(check);
+                    app.exit(code);
+                });
+                Ok(())
+            })
+            .build(context)
+            .expect("create native test app");
+        app.run_return(|_, _| {});
+        outcome
+            .lock()
+            .unwrap()
+            .take()
+            .expect("native check completed")
+            .expect("update progress window must load and render");
     }
 
     #[test]

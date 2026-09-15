@@ -208,12 +208,16 @@ class StreamingAgent:
         state.pending_model_steps = []
         return drained
 
-    def _tool_result_step(self, tool_call_id: str) -> Optional[Dict[str, Any]]:
+    async def _tool_result_step(self, tool_call_id: str) -> Optional[Dict[str, Any]]:
         """Record the tool result exactly as AgentScope saved it into context.
 
         ``_execute_tool_call`` appends the (already bounded) ToolResultBlock to
         the last assistant message before it yields ``ToolResultEndEvent``, so
         by the time the event reaches this consumer the block is there.
+
+        Recording a result that carries media writes those bytes to the blob
+        table (see :mod:`core.llm.tool_media_store`), so the work goes to a
+        thread instead of blocking the event loop.
         """
         from core.llm.model_steps import record_tool_result_step
 
@@ -229,7 +233,7 @@ class StreamingAgent:
         if match is None:
             logger.error("tool result %s ended but its block is not in context", tool_call_id)
             return None
-        return record_tool_result_step(match)
+        return await asyncio.to_thread(record_tool_result_step, match)
 
     def _take_reasoning_protocol(self) -> Optional[Dict[str, bool]]:
         """Return the structured-reasoning marker once the active model is known.
@@ -553,7 +557,7 @@ class StreamingAgent:
                         # Snapshot while the producer is still at the tool
                         # boundary, before another model step/steer/compaction
                         # can replace the live context.
-                        result_step = self._tool_result_step(tid)
+                        result_step = await self._tool_result_step(tid)
                         if result_step is None:
                             raise RuntimeError(f"Tool result {tid} is missing from model context")
                     await event_q.put(("ev", (ev, result_step)))
@@ -830,7 +834,7 @@ class StreamingAgent:
             tid = getattr(ev, "tool_call_id", "") or ""
             content = self._tool_result_buf.pop(tid, "")
             if result_step is None:
-                result_step = self._tool_result_step(tid)
+                result_step = await self._tool_result_step(tid)
             if result_step is None:
                 raise RuntimeError(f"Tool result {tid} is missing from model context")
             raw_state = getattr(ev, "state", "") or ""

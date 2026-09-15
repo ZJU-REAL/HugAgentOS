@@ -105,6 +105,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     let app = Router::new()
         .route("/__desktop/login", get(login_page))
         .route("/__desktop/close-confirm", get(close_confirm_page))
+        .route("/__desktop/update-progress", get(crate::update::progress_page))
         .route("/__desktop/server-config", get(server_config_page))
         .route("/__desktop/init", get(init_page))
         .route("/__desktop/setup", get(setup_page))

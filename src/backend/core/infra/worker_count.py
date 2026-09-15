@@ -17,6 +17,16 @@ preference, because none of them degrades gracefully:
 * ``DEPLOY_PROFILE=local`` — the no-Docker desktop profile hosts MCP and sandbox
   sidecars as child processes of the backend; N parents would start N copies.
 
+The list is the whole contract: anything the request path keeps in process has to
+appear here or be made shareable. The sandbox session table was the case that
+proved it — a container-backed provider bound a chat to a container purely in
+memory, so consecutive rounds served by different workers each built their own
+container, and each worker's idle reaper judged "nobody is using this" from its
+own half of the traffic. Neither provider is a veto here because the binding was
+moved instead, to :mod:`core.sandbox.session_registry`, which keeps it in the
+TTL keyspace of :mod:`core.infra.ephemeral` — Redis wherever there is one, which
+is anywhere this module allows more than one worker.
+
 So ``WEB_CONCURRENCY`` is a ceiling, not an instruction, and :func:`resolve` —
 not the raw variable — is what anything that cares about the process count must
 read. The entrypoint sizes ``--workers`` from it, but it is deliberately not the

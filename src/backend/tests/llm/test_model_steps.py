@@ -6,8 +6,28 @@ sequence the agent held in memory, so the next turn sends back what was
 actually said — never a reassembly guessed from separate columns.
 """
 
+import json
+
+import pytest
 from agentscope.message import TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
 from core.llm import model_steps as M
+
+
+@pytest.fixture
+def media_db(tmp_path, monkeypatch):
+    """把媒体表指向一个临时 SQLite 库，并清掉取回缓存。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from core.db.models import ToolMediaBlob
+    from core.llm import tool_media_store
+
+    engine = create_engine(f"sqlite:///{tmp_path}/media.db")
+    ToolMediaBlob.__table__.create(engine, checkfirst=True)
+    monkeypatch.setattr(tool_media_store, "SessionLocal", sessionmaker(bind=engine))
+    tool_media_store.reset_cache()
+    yield engine
+    tool_media_store.reset_cache()
 
 
 def _assistant(*blocks, provider="deepseek", model="deepseek-v4"):
@@ -58,8 +78,8 @@ def test_tool_result_step_records_the_bounded_output_and_state():
     ]
 
 
-def test_binary_media_in_a_tool_result_is_replaced_by_an_explicit_note():
-    step = M.record_tool_result_step(
+def _media_result(data_b64="iVBORw0KGgo=", media_type="image/png"):
+    return M.record_tool_result_step(
         {
             "type": "tool_result",
             "id": "c1",
@@ -68,15 +88,113 @@ def test_binary_media_in_a_tool_result_is_replaced_by_an_explicit_note():
                 {"type": "text", "text": "caption"},
                 {
                     "type": "data",
-                    "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+                    "source": {"type": "base64", "media_type": media_type, "data": data_b64},
+                    "name": "/workspace/page-3.png",
                 },
             ],
         }
     )
-    output = step["blocks"][0]["output"]
+
+
+def test_media_is_recorded_by_reference_not_inlined_and_not_dropped(media_db):
+    """媒体按引用落库：行里没有 base64，但引用能把原件取回来。"""
+    output = _media_result()["blocks"][0]["output"]
+
     assert output[0] == {"type": "text", "text": "caption"}
-    assert output[1]["type"] == "text" and "image omitted" in output[1]["text"]
-    assert "AAAA" not in str(output)
+    assert output[1]["type"] == "data"
+    assert output[1]["source"]["type"] == "stored"
+    assert output[1]["source"]["media_type"] == "image/png"
+    assert output[1]["name"] == "/workspace/page-3.png"
+    # 大块 base64 不进这一列
+    assert "iVBORw0KGgo=" not in json.dumps(output)
+
+
+def test_replay_keeps_the_reference_so_snapshots_do_not_carry_pixels(media_db):
+    """回放交出的是引用，不是像素——这段历史还要被 JSON 化写进运行快照。"""
+    rows = M.replay_rows([_media_result()])
+
+    assert rows[0]["content"][0]["output"][1]["source"]["type"] == "stored"
+    assert "iVBORw0KGgo=" not in json.dumps(rows)
+    assert "omitted" not in json.dumps(rows)
+
+
+def test_context_assembly_hands_the_model_the_same_pixels_a_later_turn(media_db):
+    """装配上下文那一步把引用换回原图，模型下一轮看到的还是当时那张。"""
+    from core.llm.tool_media_store import hydrate_rows
+
+    media = hydrate_rows(M.replay_rows([_media_result()]))[0]["content"][0]["output"][1]
+
+    assert media["source"] == {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "iVBORw0KGgo=",
+    }
+    assert media["name"] == "/workspace/page-3.png"
+
+
+def test_hydrating_many_media_refs_costs_one_query(media_db):
+    """整段历史只查一次库——每个媒体块查一次会把读历史变成 N+1。"""
+    from core.llm import tool_media_store
+
+    rows = [
+        row
+        for index in range(4)
+        for row in M.replay_rows([_media_result(data_b64=f"iVBORw0KGgo{index}=")])
+    ]
+    tool_media_store.reset_cache()
+
+    calls = []
+    original = tool_media_store._load
+    tool_media_store._load = lambda digests: (calls.append(list(digests)), original(digests))[1]
+    try:
+        hydrated = tool_media_store.hydrate_rows(rows)
+    finally:
+        tool_media_store._load = original
+
+    assert len(calls) == 1 and len(calls[0]) == 4
+    assert all(row["content"][0]["output"][1]["source"]["type"] == "base64" for row in hydrated)
+
+
+def test_history_without_media_is_returned_untouched(media_db):
+    """没有媒体的历史不查库。"""
+    from core.llm import tool_media_store
+
+    rows = M.replay_rows([_result("c1", "plain text")])
+    original = tool_media_store._load
+    tool_media_store._load = lambda digests: pytest.fail("不该为没有媒体的历史查库")
+    try:
+        assert tool_media_store.hydrate_rows(rows) == rows
+    finally:
+        tool_media_store._load = original
+
+
+def test_the_same_image_read_twice_is_stored_once(media_db):
+    """内容寻址：同一张图读几次只落一份，重复读图不会把库撑大。"""
+    from sqlalchemy import text
+
+    first = _media_result()["blocks"][0]["output"][1]["source"]["sha256"]
+    second = _media_result()["blocks"][0]["output"][1]["source"]["sha256"]
+
+    assert first == second
+    with media_db.connect() as conn:
+        assert conn.execute(text("select count(*) from tool_media_blobs")).scalar() == 1
+
+
+def test_lost_media_is_reported_as_unavailable_not_silently_described(media_db):
+    """引用还在但原件没了：明说不可用，绝不退回成一段像内容的文字。"""
+    from sqlalchemy import text
+
+    from core.llm import tool_media_store
+
+    rows = M.replay_rows([_media_result()])
+    tool_media_store.reset_cache()
+    with media_db.begin() as conn:
+        conn.execute(text("delete from tool_media_blobs"))
+
+    note = tool_media_store.hydrate_rows(rows)[0]["content"][0]["output"][1]
+    assert note["type"] == "text"
+    assert "can no longer be loaded" in note["text"]
+    assert "Do not guess" in note["text"]
 
 
 def test_replay_reproduces_three_serial_steps_in_order_without_duplication():

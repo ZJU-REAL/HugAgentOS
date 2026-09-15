@@ -17,6 +17,20 @@ InputImage``，见 ``codex-rs/core/src/tools/handlers/view_image.rs``），而�
 一条 user 消息。绑在 ``tool_call_id`` 上，多图并发时天然不会串；也因此不需要
 AgentScope 那套 ``[identifier]`` 编号文案。
 
+⚠️ **不要"按规范纠正"成另起一条 user 消息。** 规范上这一条确实站不住：codex 那个
+写法属于 Responses 协议，它的函数输出允许载图；我们走的是 Chat Completions，
+``role="tool"`` 的 ``content`` 按 OpenAI 规范只接受文本部件（SDK 的
+``ChatCompletionToolMessageParam`` 就是这么声明的）。2026-09 照规范改过一次：把图移到
+紧随工具回执之后的一条 user 消息里。**实测是倒退**——同一组请求、只有图的位置不同、
+交叉重复 6 轮：
+
+- ``DeepSeek-V4-Flash-Vision``（vLLM）：折进 tool 回执 6/6 读出图中口令；移到 user
+  消息 0/6，而且模型不报错，会编一串像模像样的假字符交差。
+- ``qwen3.6-plus``：两种位置都 6/6，无差别。
+
+也就是说，真实网关认的是"图跟着那次函数输出走"，规范上更干净的写法在其中一台上静默
+失效。位置按实测定，不按规范定；要再动这里，先把上面这组对照重跑一遍。
+
 能力判定仍然只有一处：模型能不能看图由 ``resolve_vision_mode`` 在注册工具时决定。
 真有协议压根收不下的媒体走到这里，说明上游判定和线路能力不一致——记 ``error`` 级日志，
 并把**一条明确的失败回执**交给模型，让它知道「这里本该有张图、但它没到」。不抛错、

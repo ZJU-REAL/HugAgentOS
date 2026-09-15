@@ -28,7 +28,10 @@ _INTERRUPTED_RESULT = "[tool call was interrupted before it returned a result]"
 _MISSING_RESULT = (
     "[tool result was not recorded; execution outcome is unknown (possibly interrupted)]"
 )
-_MEDIA_OMITTED = "[image omitted from replay history: {media_type}]"
+_MEDIA_NOT_PERSISTED = (
+    "[{media_type} media could not be saved into the replay record; it is not available"
+    " in this history. Do not guess what it contained.]"
+)
 _LEGACY_TOOL_DIGEST_HEADER = "[历史工具调用摘要 — 原始步骤顺序未被记录，以下按调用列表汇总]"
 
 
@@ -63,7 +66,16 @@ def _persistable_block(block: Any) -> Dict[str, Any]:
 
 
 def _persistable_output(output: Any) -> Any:
-    """Tool output as the model saw it; binary media is replaced by an explicit note."""
+    """Tool output as the model saw it, media included.
+
+    Media is the one part too big to inline: the bytes go to the blob table
+    keyed by their own sha256 (:mod:`core.llm.tool_media_store`) and the record
+    keeps a reference, so a later turn replays the same pixels the model was
+    shown rather than a note saying a picture used to be here. The reference
+    travels all the way to context assembly, which resolves it; replay itself
+    stays free of I/O. A write that fails says so in the record — the turn keeps
+    running, but the history never pretends the media survived.
+    """
     if isinstance(output, str) or output is None:
         return output
     if not isinstance(output, (list, tuple)):
@@ -82,9 +94,19 @@ def _persistable_output(output: Any) -> Any:
         if block_type == "text":
             blocks.append({"type": "text", "text": str(data.get("text") or "")})
         elif block_type == "data":
-            source = data.get("source") if isinstance(data.get("source"), dict) else {}
-            media_type = str(source.get("media_type") or "unknown")
-            blocks.append({"type": "text", "text": _MEDIA_OMITTED.format(media_type=media_type)})
+            from core.llm import tool_media_store
+
+            stored = tool_media_store.store(data)
+            if stored is not None:
+                blocks.append(stored)
+            else:
+                media_type = tool_media_store.media_type_of(data)
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": _MEDIA_NOT_PERSISTED.format(media_type=media_type),
+                    }
+                )
         else:
             raise ValueError(f"tool result output block type {block_type!r} is not recordable")
     return blocks

@@ -170,3 +170,4 @@ docker/site-template/react-vite/node_modules/
 
 # Local scratch scripts and verification artifacts
 /.scratch/
+.ageval

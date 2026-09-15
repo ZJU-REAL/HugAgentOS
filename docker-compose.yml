@@ -301,6 +301,8 @@ services:
     - '8080'
     - --host
     - 0.0.0.0
+    - --allowed-hosts
+    - dbhub
     - --config
     - /config/dbhub.toml
     environment:
