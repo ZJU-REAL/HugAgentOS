@@ -337,3 +337,71 @@ def test_chain_breaks_weight_ties_on_context_window(monkeypatch):
     """没人调过权重时（全是默认 1），大窗口优先——切过去才接得住长对话。"""
     rows = [_Row("small", 1, 32000), _Row("big", 1, 1000000), _Row("mid", 1, 128000)]
     assert _chain_from(rows, monkeypatch) == ["big", "mid", "small"]
+
+
+# ── 带媒体的请求：只能交给认得出图的候选 ────────────────────────────
+
+
+def _msg(*blocks):
+    return SimpleNamespace(content=list(blocks))
+
+
+def _build_seeing(primary: _Candidate, *pairs):
+    """像 ``_build``，但备选带上 ``extra``——媒体能力就写在这里。"""
+    specs = [
+        SimpleNamespace(provider_id=c.provider_id, extra={"supports_vision": sees})
+        for c, sees in pairs
+    ]
+    by_pid = {c.provider_id: c for c, _ in pairs}
+    return FailoverChatModel(primary, specs, lambda spec: by_pid[spec.provider_id])
+
+
+_IMAGE = {"type": "data", "source": {"media_type": "image/png"}}
+
+
+def test_carries_media_sees_uploads_and_tool_results():
+    """图可能直接挂在消息上，也可能折在工具回执里——两处都得认出来。"""
+    from core.llm.failover import carries_media
+
+    assert carries_media([_msg({"type": "text", "text": "hi"})]) is False
+    assert carries_media([_msg(_IMAGE)]) is True
+    assert carries_media([_msg({"type": "tool_result", "output": [{"type": "data"}]})]) is True
+    assert carries_media([_msg({"type": "tool_result", "output": "done"})]) is False
+
+
+@pytest.mark.asyncio
+async def test_media_request_skips_text_only_fallback():
+    """主模型挂了、图还在：只认文字的那家会 400 掀桌，必须跳过它。"""
+    primary = _Candidate("primary", ("raise", _status(402)))
+    blind = _Candidate("blind", ("value", "should not be called"))
+    seeing = _Candidate("seeing", ("value", "described the picture"))
+    model = _build_seeing(primary, (blind, False), (seeing, True))
+
+    assert await model._call_api("m", [_msg(_IMAGE)]) == "described the picture"
+    assert blind.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_text_request_still_uses_text_only_fallback():
+    """没有图的请求不受影响——纯文字的候选照旧顶得上。"""
+    primary = _Candidate("primary", ("raise", _status(402)))
+    blind = _Candidate("blind", ("value", "answered"))
+    model = _build_seeing(primary, (blind, False))
+
+    assert await model._call_api("m", [_msg({"type": "text", "text": "hi"})]) == "answered"
+
+
+@pytest.mark.asyncio
+async def test_media_request_fails_on_the_primary_not_on_a_blind_stand_in():
+    """没有别家认图时，报出来的要是主模型的真错，而不是替补对图片的抱怨。
+
+    把图硬塞给只认文字的候选，换来的是一句「参数非法」——它掩盖了真正的原因
+    （这里是主模型 402 余额不足），排障的人会往完全错误的方向找。
+    """
+    primary = _Candidate("primary", ("raise", _status(402)))
+    blind = _Candidate("blind", ("value", "answered"))
+    model = _build_seeing(primary, (blind, False))
+
+    with pytest.raises(openai.APIStatusError):
+        await model._call_api("m", [_msg(_IMAGE)])
+    assert blind.calls == 0

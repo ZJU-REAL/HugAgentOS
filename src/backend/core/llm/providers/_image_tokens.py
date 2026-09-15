@@ -24,11 +24,16 @@ class ImageTokenCountingMixin:
             return kept
 
         # These copies are only for estimation; the provider receives the
-        # original structured messages with every image byte intact.
-        text_messages = [
-            message.model_copy(update={"content": without_images(message.get_content_blocks())})
-            for message in messages
-        ]
+        # original structured messages with every image byte intact. Messages
+        # that hold no media are passed through rather than copied — that is
+        # every message on the text-only paths the SDK calls this from.
+        text_messages = []
+        for message in messages:
+            blocks = message.get_content_blocks()
+            kept = without_images(blocks)
+            text_messages.append(
+                message if kept == blocks else message.model_copy(update={"content": kept})
+            )
         return (
             await super().count_tokens(messages=text_messages, tools=tools)
             + images * IMAGE_TOKEN_RESERVE

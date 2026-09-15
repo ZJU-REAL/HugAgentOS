@@ -1207,6 +1207,7 @@ export function InputArea({
                   previewUrl={uploadedImageUrls[idx]}
                   artifact={uploadedArtifacts.get(file) ? {
                     file_id: uploadedArtifacts.get(file)!.file_id,
+                    origin: uploadedArtifacts.get(file)!.origin,
                     url: uploadedArtifacts.get(file)!.download_url || `/files/${uploadedArtifacts.get(file)!.file_id}`,
                     name: file.name,
                     mime_type: file.type,
@@ -1235,6 +1236,7 @@ export function InputArea({
                       previewUrl={previewUrl}
                       artifact={{
                         file_id: file.file_id,
+                        origin: file.origin,
                         url: file.download_url || `/files/${file.file_id}`,
                         name: file.name,
                         mime_type: file.mime_type,

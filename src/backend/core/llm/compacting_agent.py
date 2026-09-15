@@ -37,11 +37,48 @@ def _content_blocks(row: Dict[str, Any]) -> list[Any]:
     return content if isinstance(content, list) else [content]
 
 
+def _fingerprint_media(block: Any) -> Any:
+    """Swap a media payload for its identity so the digest never walks base64.
+
+    Length plus media type distinguishes every replacement this history can
+    produce: blocks are appended or swapped whole, never edited byte-wise.
+    """
+    if not isinstance(block, dict):
+        return block
+    if block.get("type") == "data":
+        source = block.get("source")
+        data = source.get("data") if isinstance(source, dict) else None
+        if isinstance(data, str):
+            return {**block, "source": {**source, "data": len(data)}}
+        return block
+    output = block.get("output")
+    if block.get("type") == "tool_result" and isinstance(output, list):
+        return {**block, "output": [_fingerprint_media(item) for item in output]}
+    return block
+
+
+def frozen_prompt_surface(agent: Any) -> tuple[str, Any]:
+    """The system prompt and tool schemas of the agent's latest model request.
+
+    ``agent_factory.cache_compaction_execution_surface`` is the only writer; every
+    consumer reads through here so the pre-turn budget and the mid-turn trigger
+    cannot drift onto different surfaces.
+    """
+    return (
+        str(getattr(agent, "_jx_compaction_system_prompt", "") or ""),
+        getattr(agent, "_jx_compaction_tool_schemas", None),
+    )
+
+
 def _history_cursor(history: List[Dict[str, Any]]) -> tuple[_MessageCursor, ...]:
     """Fingerprint content, not Msg count or mutable SDK bookkeeping.
 
     Keep hashes rather than a second copy of potentially large tool outputs.
     Tool permission/execution state does not change the model's call payload.
+    Media is fingerprinted by identity rather than payload for the same reason
+    its tokens are reserved rather than counted: re-serializing and digesting a
+    7 MB attachment cost 17 ms every time this ran, twice per reasoning step,
+    for bytes that never change once a block is in context.
     """
     cursors = []
     for row in history:
@@ -49,6 +86,8 @@ def _history_cursor(history: List[Dict[str, Any]]) -> tuple[_MessageCursor, ...]
         for block in _content_blocks(row):
             if isinstance(block, dict) and block.get("type") == "tool_call":
                 block = {key: block.get(key) for key in ("type", "id", "name", "input")}
+            else:
+                block = _fingerprint_media(block)
             hashes.append(stable_hash(block))
         cursors.append(_MessageCursor(role=str(row.get("role") or "user"), blocks=tuple(hashes)))
     return tuple(cursors)
@@ -131,9 +170,9 @@ class CompactingAgent(ManifestBoundAgent):
     async def _measure_context_tokens(self) -> int:
         """Current context occupancy: real usage + estimate of what came after it.
 
-        Falls back to AgentScope's byte estimate over the whole prompt when the
-        provider has not reported usage yet (the first reasoning step of a turn,
-        or an endpoint that omits usage).
+        Falls back to the shared estimate over the whole prompt when the provider
+        has not reported usage yet (the first reasoning step of a turn, or an
+        endpoint that omits usage).
         """
         obs = self._jx_observation
         if obs is not None:
@@ -162,8 +201,24 @@ class CompactingAgent(ManifestBoundAgent):
                 from core.services.compaction_service import estimate_history_tokens
 
                 return obs.tokens + (estimate_history_tokens(trailing) if trailing else 0)
-        kwargs = await self._prepare_model_input()
-        return int(await self.model.count_tokens(**kwargs))
+        return self._estimate_prompt_tokens()
+
+    def _estimate_prompt_tokens(self) -> int:
+        """Estimate the frozen prompt surface plus live context in one pass.
+
+        Measuring here rather than through the model costs a fraction of
+        materializing the provider payload, and keeps this branch in the same
+        units as the observed one above — both reserve media instead of billing
+        its transport bytes.
+        """
+        from core.services.compaction_service import estimate_context_budget
+
+        system_prompt, tool_schema = frozen_prompt_surface(self)
+        return estimate_context_budget(
+            system_prompt=system_prompt,
+            tool_schema=tool_schema,
+            messages=self._history_for_summary(),
+        )["total_estimated_tokens"]
 
     # ── MidTurn compaction ───────────────────────────────────────────────────
 

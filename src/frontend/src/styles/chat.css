@@ -4463,8 +4463,9 @@ textarea.jx-composer{
   user-select:none;
 }
 
+/* Keep the centered 760px chat column while allowing it to shrink in split view. */
+.jx-chatWrap { min-width:0; }
 /* Keep document text readable when the preview takes part of the window. */
-.jx-chatWrap,
 .jx-msg,
 .jx-msgText,
 .jx-chatFooter,

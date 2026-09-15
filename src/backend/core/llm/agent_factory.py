@@ -3024,6 +3024,7 @@ async def create_agent_executor(
                         api_key=_mode_cfg.api_key,
                         provider=_mode_cfg.provider,
                         provider_extra=_mode_cfg.provider_extra,
+                        api_protocol=(_mode_cfg.extra or {}).get("api_protocol"),
                         stream=True,
                     ),
                     _mode_cfg,
@@ -3091,11 +3092,15 @@ async def create_agent_executor(
                     _final_provider_extra = split_provider_extra(
                         get_spec(_final_provider), provider.extra_config or {}
                     )
+                    _final_api_protocol = (provider.extra_config or {}).get("api_protocol")
                 else:
                     _final_provider = (
                         _fallback_cfg.provider if _fallback_cfg else "openai_compatible"
                     )
                     _final_provider_extra = _fallback_cfg.provider_extra if _fallback_cfg else {}
+                    _final_api_protocol = (
+                        (_fallback_cfg.extra or {}).get("api_protocol") if _fallback_cfg else None
+                    )
                 _final_temp = (
                     _user_temp
                     if _user_temp is not None
@@ -3116,6 +3121,7 @@ async def create_agent_executor(
                         api_key=_final_api_key,
                         provider=_final_provider,
                         provider_extra=_final_provider_extra,
+                        api_protocol=_final_api_protocol,
                         stream=True,
                     )
                     # Only an explicitly selected model provider pins; changing

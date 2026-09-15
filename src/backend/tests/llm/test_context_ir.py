@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from core.llm.context_ir import ContextAssembler, ContextItem
+from core.llm.context_ir import IMAGE_TOKEN_RESERVE, ContextAssembler, ContextItem
 
 
 def _item(
@@ -401,7 +401,8 @@ def test_manifest_is_sanitized_and_content_hash_sensitive():
     "total_budget,text_budget,action",
     [
         (5_000, 200, "truncated"),
-        (1_200, 20_000, "pruned"),
+        # Room for the image reserve and a stub of text, nothing more.
+        (IMAGE_TOKEN_RESERVE + 176, 20_000, "pruned"),
     ],
 )
 def test_tool_text_budget_and_history_pruning_preserve_image_blocks(

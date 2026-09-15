@@ -85,7 +85,7 @@ async def ticket_exchange(
     db: Session = Depends(get_db),
 ):
     credential = (body.code or "").strip()
-    user_info = consume_ticket(credential) if credential else None
+    user_info = await consume_ticket(credential) if credential else None
     if user_info is None:
         raise HTTPException(
             status_code=401,

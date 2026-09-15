@@ -23,7 +23,22 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 | `kb_wiki` | Knowledge-base Wiki entity extraction (offline batch; a cheap model is usually the right choice) | chat |
 | `vision` | Image understanding (vision bridge) — see below | chat |
 
-`extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported) / `supports_vision` (whether the model reads images natively).
+`extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported) / `supports_vision` (whether the model reads images natively) / `api_protocol` (wire protocol, see below).
+
+### Wire protocol: Responses by default, chat completions only as a fallback
+
+OpenAI-compatible endpoints come in two wire protocols: the older `POST /chat/completions` and the newer `POST /responses`. The platform **defaults to Responses**, because it carries the model's reasoning as a first-class `reasoning` item that can be handed back verbatim on the next turn; `/chat/completions` has nowhere to put reasoning, so it has to be smuggled through a `reasoning_content` field. Chat completions is used only for endpoints that genuinely do not route `/responses` — commonly thin relay gateways.
+
+The choice lives in `extra_config.api_protocol` (`responses` / `chat_completions`). It is never inferred from the vendor name: saving a provider probes the endpoint, and only an endpoint that clears both stages is recorded as Responses-capable.
+
+1. **Is the route there?** Post to `{base_url}/responses` **without an `input` field**. An endpoint that serves the path rejects the body during request validation (no inference runs, so no tokens are billed); one that does not answers 404.
+2. **Are tool results honoured?** Replay a one-call history whose tool result carries a token the model could not otherwise know, and see whether the answer repeats it or re-issues the same call. This stage does run inference — bounded to a few hundred tokens, at configuration time only, never on the request path.
+
+The second stage is not redundant: **serving the route is not the same as speaking the protocol.** A self-hosted Qwen3.6 endpoint answers `/responses` perfectly well yet ignores `function_call_output` entirely — the model never sees a tool result and calls the same tool forever, deadlocking the agent loop. That is worse than not supporting Responses at all, so such an endpoint is recorded as chat completions.
+
+A rejected credential, an unreachable endpoint, or an inconclusive second stage records nothing and is retried on the next save or restart. Providers that predate the upgrade are filled in once at backend startup; when the probe grows stricter it records a version (`api_protocol_probe_version`) so answers from the older test are re-verified on the next start, while an operator's explicit choice is never touched.
+
+An explicit choice made in the "wire protocol" field of the model form always wins and is never overwritten by probing. Azure OpenAI addresses Responses per deployment, a URL shape the shared client cannot build, so it always uses chat completions.
 
 ### Context-window auto-detection
 

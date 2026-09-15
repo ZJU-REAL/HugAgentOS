@@ -178,6 +178,15 @@ async def test_parallel_tool_calls_in_one_step_share_that_step_reasoning():
 def test_every_openai_compatible_model_echoes_its_reasoning():
     # Not a per-model option: reasoning goes back for every model, so no configuration
     # can leave a thinking model in the state that 400s on every tool-calling turn.
-    assert isinstance(_mk().formatter, ReasoningEchoChatFormatter)
-    assert isinstance(_mk(provider="deepseek").formatter, ReasoningEchoChatFormatter)
-    assert isinstance(_mk(provider="openai").formatter, ReasoningEchoChatFormatter)
+    chat = {"api_protocol": "chat_completions"}
+    assert isinstance(_mk(**chat).formatter, ReasoningEchoChatFormatter)
+    assert isinstance(_mk(provider="deepseek", **chat).formatter, ReasoningEchoChatFormatter)
+    assert isinstance(_mk(provider="openai", **chat).formatter, ReasoningEchoChatFormatter)
+
+
+def test_responses_wire_replays_reasoning_through_its_own_formatter():
+    # Same guarantee on the other wire, by a different mechanism: reasoning rides back
+    # as its own item rather than being folded into an assistant row.
+    from core.llm.responses_models import ResponsesReplayFormatter
+
+    assert isinstance(_mk(api_protocol="responses").formatter, ResponsesReplayFormatter)

@@ -715,6 +715,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                 downloadHref={(att.download_url || att.file_id) ? `${effectiveApiUrl}${att.download_url || `/files/${att.file_id}`}` : undefined}
                 artifact={att.file_id ? {
                   file_id: att.file_id,
+                  origin: att.origin,
                   name: att.name,
                   url: att.download_url || `/files/${att.file_id}`,
                   mime_type: att.mime_type,

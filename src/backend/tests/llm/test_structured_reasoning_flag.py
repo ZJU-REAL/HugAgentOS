@@ -7,6 +7,10 @@ thinking mode, buffers content as presumed reasoning until the round-end fallbac
 marker. Models served behind the generic openai_compatible provider get spec default
 False, so admins flag them per model via ``extra_config.structured_reasoning`` —
 these tests pin that override path and the DeepSeek preset default.
+
+The flag is a chat-wire concern: on the Responses wire reasoning always arrives as its
+own output item, so it is a protocol constant there rather than a per-model setting.
+These tests therefore pin the chat protocol explicitly.
 """
 
 from core.llm.chat_models import make_chat_model
@@ -14,6 +18,7 @@ from core.llm.providers.registry import get_spec
 
 
 def _mk(**kw):
+    kw.setdefault("api_protocol", "chat_completions")
     return make_chat_model(
         model="test-model",
         temperature=0.6,
@@ -37,6 +42,12 @@ def test_no_override_keeps_generic_spec_default_false():
 
 def test_explicit_false_override_stays_false():
     assert _mk(structured_reasoning=False).structured_reasoning is False
+
+
+def test_responses_wire_always_announces_structured_channel():
+    # Not a per-model flag on this wire: reasoning is a separate output item by protocol.
+    assert _mk(api_protocol="responses").structured_reasoning is True
+    assert _mk(api_protocol="responses", structured_reasoning=False).structured_reasoning is True
 
 
 def test_deepseek_preset_announces_structured_channel():

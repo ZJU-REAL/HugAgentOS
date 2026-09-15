@@ -1,4 +1,4 @@
-"""工具返回的图片原样进模型，绑在产出它的那次调用上，永不落盘、永不降级。
+"""工具返回的图片原样进模型，永不落盘、永不降级；送达形式按线路协议分两种。
 
 AgentScope 的 ``FormatterBase.convert_tool_result_to_string`` 对工具结果里的
 ``DataBlock`` 有三条出路：协议支持就提升成一条独立的 user 消息；``URLSource``
@@ -11,11 +11,25 @@ AgentScope 的 ``FormatterBase.convert_tool_result_to_string`` 对工具结果�
   （见 :func:`core.vision.resolve_vision_mode`），到这一层再悄悄抽掉像素，
   没有任何日志或报错，排障时完全看不见。
 
-这里按 codex 的 ``view_image`` 对齐：图片编码成 data URL，**直接作为那次
-function call 的输出内容**回给模型（codex 用 ``FunctionCallOutputContentItem::
-InputImage``，见 ``codex-rs/core/src/tools/handlers/view_image.rs``），而不是另起
-一条 user 消息。绑在 ``tool_call_id`` 上，多图并发时天然不会串；也因此不需要
-AgentScope 那套 ``[identifier]`` 编号文案。
+:class:`NoDiskToolMediaMixin` 堵掉落盘和静默降级，两条线都用。**图放在哪一条消息上
+则按协议走各自的原生机制**：
+
+- **Responses**：折回 ``function_call_output`` 自己的 ``output``（
+  :class:`ResponsesToolMediaMixin`）。该协议的函数输出本就能载图，codex 也是这么做的
+  （``FunctionCallOutputContentItem::InputImage``，见
+  ``codex-rs/core/src/tools/handlers/view_image.rs``），图与 ``call_id`` 直接绑定，
+  多图并发天然不串。
+- **Chat**：沿用 AgentScope 的做法——紧随 tool 回执之后另起一条 user 消息载图。
+  Chat Completions 的 ``role="tool"`` 按 OpenAI 规范只接受文本部件（SDK 的
+  ``ChatCompletionToolMessageParam`` 就是这么声明的）。这条消息只是给模型的载体，
+  由 formatter 在出线时生成，不进对话历史，界面上看不到它。
+
+⚠️ **已知风险，改这里之前先看**：2026-09 曾在 **Chat 线**上做过对照实测（同一组请求、
+只有图的位置不同、交叉重复 6 轮）：``DeepSeek-V4-Flash-Vision``（vLLM）在图折进 tool
+回执时 6/6 读出图中口令，移到 user 消息则 0/6，且模型不报错、会编造内容；
+``qwen3.6-plus`` 两种位置都 6/6。也就是说 Chat 线上有网关只认「图跟着函数输出走」。
+当前按协议原生机制划分，Chat 线因此回到 user 消息；若该网关仍在用且读图失效，
+先重跑这组对照再决定，不要凭规范推断。
 
 能力判定仍然只有一处：模型能不能看图由 ``resolve_vision_mode`` 在注册工具时决定。
 真有协议压根收不下的媒体走到这里，说明上游判定和线路能力不一致——记 ``error`` 级日志，
@@ -105,53 +119,57 @@ class NoDiskToolMediaMixin(_MixinBase):
         return False
 
 
-class InlineToolMediaMixin(NoDiskToolMediaMixin):
-    """把媒体折回它所属的那条 tool 消息里（OpenAI chat 方言）。
+class ResponsesToolMediaMixin(NoDiskToolMediaMixin):
+    """把媒体折回它所属的那条 ``function_call_output``（Responses 协议）。
 
-    父类 formatter 会把媒体提升成紧跟在 tool 消息后面的一条 user 消息。那条消息
-    与产出它的调用之间只剩位置关系，多图并发时要靠额外的编号文案才能对上号。这里
-    把它折回 tool 消息的 content，让图和 ``tool_call_id`` 直接绑定。
+    父类 formatter 会把媒体提升成紧跟其后的一条 user 消息。那条消息与产出它的调用
+    之间只剩位置关系，多图并发时要靠额外的编号文案才能对上号；Responses 的函数输出
+    本身就能载内容部件，折回去即可与 ``call_id`` 直接绑定。
     """
 
     async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
-        # 逐条消息格式化后再折叠：父类对每条消息的处理彼此独立，逐条与整批结果
-        # 一致，而逐条能保证「tool 行后面那条纯媒体 user 行」只可能是本条消息的
-        # 提升产物，不会误收下一轮真实的用户消息。
-        rows: list[dict[str, Any]] = []
+        # 逐条消息格式化后再折叠：父类对每条消息的处理彼此独立，逐条与整批结果一致，
+        # 而逐条能保证「函数输出后面那条纯媒体 user 项」只可能是本条消息的提升产物，
+        # 不会误收下一轮真实的用户消息。
+        items: list[dict[str, Any]] = []
         for msg in msgs:
             # Concrete SDK formatter follows this mixin in each bound class MRO.
             formatted = await super().format([msg])  # type: ignore[safe-super]
-            rows.extend(_fold_media_into_tool_row(formatted))
-        return rows
+            items.extend(_fold_media_into_function_output(formatted))
+        return items
 
 
-def _fold_media_into_tool_row(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _fold_media_into_function_output(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     folded: list[dict[str, Any]] = []
-    for row in rows:
+    for item in items:
         target = folded[-1] if folded else None
-        if target is not None and target.get("role") == "tool" and _is_media_only(row):
-            target["content"] = _as_parts(target.get("content")) + list(row["content"])
+        if (
+            target is not None
+            and target.get("type") == "function_call_output"
+            and _is_media_only(item)
+        ):
+            target["output"] = _as_output_parts(target.get("output")) + list(item["content"])
             continue
-        folded.append(row)
+        folded.append(item)
     return folded
 
 
-def _is_media_only(row: dict[str, Any]) -> bool:
-    """这条 user 行是不是上一条 tool 结果提升出来的纯媒体行。
+def _is_media_only(item: dict[str, Any]) -> bool:
+    """这条 user 项是不是上一条函数输出提升出来的纯媒体项。
 
     ``convert_tool_result_to_string`` 只交出 ``DataBlock``，不再带任何说明文案，
-    所以提升出来的行必然是「清一色非 text 的内容块」——据此判定，不去认父类内部
+    所以提升出来的项必然是「清一色非文本的内容部件」——据此判定，不去认父类内部
     给这条消息起的名字。
     """
-    content = row.get("content")
-    if row.get("role") != "user" or not isinstance(content, list) or not content:
+    content = item.get("content")
+    if item.get("role") != "user" or not isinstance(content, list) or not content:
         return False
-    return all(isinstance(part, dict) and part.get("type") != "text" for part in content)
+    return all(isinstance(part, dict) and part.get("type") != "input_text" for part in content)
 
 
-def _as_parts(content: Any) -> list[dict[str, Any]]:
-    if isinstance(content, list):
-        return list(content)
-    if content:
-        return [{"type": "text", "text": content}]
+def _as_output_parts(output: Any) -> list[dict[str, Any]]:
+    if isinstance(output, list):
+        return list(output)
+    if output:
+        return [{"type": "input_text", "text": output}]
     return []

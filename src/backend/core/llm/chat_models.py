@@ -44,7 +44,12 @@ from agentscope.message import (
     ToolCallBlock,
     ToolResultBlock,
 )
-from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
+from agentscope.model import (
+    ChatModelBase,
+    ChatResponse,
+    OpenAIChatModel,
+    OpenAIResponseModel,
+)
 from agentscope.tool._types import ToolChoice
 from core.llm.context_adapter import PROVIDER_CONTEXT_META_KEY
 from core.llm.providers._fallback import (  # noqa: F401
@@ -56,7 +61,7 @@ from core.llm.providers.registry import get_spec, split_provider_extra
 from core.llm.providers.vendor_models import build_litellm_model, build_native_model
 from core.llm.reasoning_replay import ReasoningReplayMixin
 from core.llm.tool_call_identity import ToolCallIdentityMixin
-from core.llm.tool_result_media import InlineToolMediaMixin
+from core.llm.tool_result_media import NoDiskToolMediaMixin
 from prompts.prompt_config import ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -169,6 +174,9 @@ def _slim_tool_schemas(tools: list[dict]) -> list[dict]:
     Measured on this deployment's 64-tool surface: 28,049 → 26,888 prompt
     tokens (-4.1%), paid back on every round of every run. The model sees the
     same names, types, constraints and prose.
+
+    Both OpenAI tool shapes are accepted: chat completions nests the schema under
+    ``function``, Responses puts the same keys on the tool itself.
     """
     import copy
     import inspect
@@ -177,7 +185,7 @@ def _slim_tool_schemas(tools: list[dict]) -> list[dict]:
     for tool in slimmed:
         fn = tool.get("function")
         if not isinstance(fn, dict):
-            continue
+            fn = tool
         if isinstance(fn.get("description"), str):
             fn["description"] = inspect.cleandoc(fn["description"])
         props = (fn.get("parameters") or {}).get("properties")
@@ -236,7 +244,7 @@ def _reasoning_steps(msg: Msg) -> list[list[Any]]:
 
 
 class ReasoningEchoChatFormatter(
-    ReasoningReplayMixin, InlineToolMediaMixin, OpenAIChatFormatter
+    ReasoningReplayMixin, NoDiskToolMediaMixin, OpenAIChatFormatter
 ):
     """OpenAI wire format, except the model's own reasoning is handed back to it.
 
@@ -468,12 +476,13 @@ class OpenAICompatChatModel(
         if self.stream:
             return _stream_with_bounded_retry(
                 self,
-                client=client,
-                kwargs=kwargs,
+                reissue=lambda: client.chat.completions.create(**kwargs),
+                parse=lambda started, raw: self._parse_stream_response(
+                    started, raw, audio_fmt
+                ),
                 model_name=model_name,
                 start_datetime=start_datetime,
                 response=response,
-                audio_fmt=audio_fmt,
                 request_started=_usage_started,
             )
         return self._parse_completion_response(start_datetime, response, audio_fmt)
@@ -500,15 +509,19 @@ def _is_retryable_stream_start_error(exc: BaseException) -> bool:
 async def _stream_with_bounded_retry(
     model,
     *,
-    client,
-    kwargs: dict,
+    reissue,
+    parse,
     model_name: str,
     start_datetime: datetime,
     response,
-    audio_fmt: str,
     request_started: float,
 ):
     """Yield the parsed stream; re-issue the request once if it fails before its first event.
+
+    ``reissue`` re-sends the identical request and ``parse`` turns a raw stream into
+    ``ChatResponse`` objects; both are supplied by the caller so the two wire protocols
+    (``/chat/completions`` and ``/responses``) share one retry/telemetry path instead of
+    keeping two copies of it.
 
     A streaming completion is a read-only call and stays idempotent until the
     first chunk has been consumed, so exactly one more attempt is made at that
@@ -516,7 +529,7 @@ async def _stream_with_bounded_retry(
     the first chunk, or one that is not transient, propagates unchanged — the
     run then ends with a structured error rather than a fabricated reply.
     """
-    gen = model._parse_stream_response(start_datetime, response, audio_fmt)
+    gen = parse(start_datetime, response)
     _t_wait = _perf_counter()
     try:
         first = await gen.__anext__()
@@ -543,8 +556,8 @@ async def _stream_with_bounded_retry(
         retry_started = _monotonic()
         note_provider_retry_started(model, model_name, retry_started)
         try:
-            response = await client.chat.completions.create(**kwargs)
-            gen = model._parse_stream_response(datetime.now(), response, audio_fmt)
+            response = await reissue()
+            gen = parse(datetime.now(), response)
             _t_wait = _perf_counter()
             first = await gen.__anext__()
         except StopAsyncIteration:
@@ -713,6 +726,85 @@ def _make_openai_compatible(
     )
 
 
+def _wants_responses(spec, api_protocol: Optional[str]) -> bool:
+    """Whether this endpoint should be driven over ``/responses``.
+
+    Responses is the default: it carries reasoning as a first-class item instead of
+    forcing it through ``reasoning_content``, so a thinking model's own reasoning can be
+    handed back verbatim. Chat Completions is used only where the endpoint was found not
+    to route ``/responses`` — a fact discovered at configuration time by
+    ``protocol_probe`` and stored in ``extra_config.api_protocol``, never guessed here
+    from the vendor name.
+    """
+    from core.llm.providers.protocol_probe import PROTOCOL_CHAT, PROTOCOL_RESPONSES
+
+    if not spec.speaks_responses:
+        return False
+    value = (api_protocol or "").strip().lower()
+    if value == PROTOCOL_CHAT:
+        return False
+    if value == PROTOCOL_RESPONSES:
+        return True
+    # Unset: an endpoint nobody has probed yet. Default to Responses, which is what the
+    # save-time probe and the startup backfill write for everything that supports it;
+    # only endpoints positively found to lack the route are pinned to chat completions.
+    return True
+
+
+def _make_openai_responses(
+    spec,
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: Optional[int],
+    timeout: int,
+    base_url: str,
+    api_key: str,
+    disable_thinking: bool,
+    reasoning_effort: Optional[str],
+    stream: bool,
+    context_size: int,
+):
+    """Build the Responses-protocol twin of ``_make_openai_compatible``."""
+    from core.llm.responses_models import OpenAICompatResponsesModel
+
+    # The thinking switch keeps the same mechanism as the chat line: vLLM-style servers
+    # read chat_template_kwargs on both protocols, so a model behaves identically no
+    # matter which wire it is reached over.
+    extra_body: dict[str, Any] = {
+        "chat_template_kwargs": _build_chat_template_kwargs(
+            disable_thinking=disable_thinking,
+            reasoning_effort=reasoning_effort,
+        )
+    }
+    # The effort deliberately does not go into Parameters: that field is a strict enum
+    # of the API's own vocabulary, and the product's thinking levels are UI concepts
+    # that do not all map onto it ("max" raises a validation error and the model cannot
+    # be built at all). The model decides for itself which values the wire accepts.
+    parameters = OpenAIResponseModel.Parameters(
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return OpenAICompatResponsesModel(
+        credential=OpenAICredential(
+            api_key=api_key or "DUMMY",
+            base_url=base_url or "https://api.openai.com/v1",
+        ),
+        model=model or "dummy-model",
+        parameters=parameters,
+        stream=stream,
+        http_client=_make_http_client(
+            timeout,
+            desktop_reference=api_key if api_key.startswith("desktop-capability:") else "",
+            base_url=base_url,
+        ),
+        context_size=context_size,
+        provider_id=spec.id,
+        extra_body=extra_body,
+        reasoning_effort=reasoning_effort,
+    )
+
+
 def make_chat_model(
     *,
     model: str,
@@ -728,6 +820,7 @@ def make_chat_model(
     stream: bool = False,
     context_size: Optional[int] = None,
     structured_reasoning: Optional[bool] = None,
+    api_protocol: Optional[str] = None,
 ) -> ChatModelBase:
     """Construct a ChatModel dispatched by provider (AgentScope 2.0).
 
@@ -774,6 +867,20 @@ def make_chat_model(
             stream=stream,
         )
     # engine == "openai" (incl. azure_openai and all OpenAI-compatible vendor presets)
+    if _wants_responses(spec, api_protocol):
+        return _make_openai_responses(
+            spec,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            base_url=base_url,
+            api_key=api_key,
+            disable_thinking=disable_thinking,
+            reasoning_effort=reasoning_effort,
+            stream=stream,
+            context_size=context_size,
+        )
     return _make_openai_compatible(
         spec,
         model=model,
@@ -833,6 +940,7 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
         structured_reasoning=(
             True if (resolved.extra or {}).get("structured_reasoning") else None
         ),
+        api_protocol=(resolved.extra or {}).get("api_protocol"),
     )
 
 
@@ -871,6 +979,7 @@ def get_default_model(
             structured_reasoning=(
                 True if (resolved.extra or {}).get("structured_reasoning") else None
             ),
+            api_protocol=(resolved.extra or {}).get("api_protocol"),
         )
     return make_chat_model(
         model="dummy-model",
@@ -905,6 +1014,7 @@ def get_summarize_model(cfg: ModelConfig | None = None) -> ChatModelBase:
             api_key=resolved.api_key,
             provider=resolved.provider,
             provider_extra=resolved.provider_extra,
+            api_protocol=(resolved.extra or {}).get("api_protocol"),
         )
     return make_chat_model(
         model="dummy-model",

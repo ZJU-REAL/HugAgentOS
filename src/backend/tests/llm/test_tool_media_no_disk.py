@@ -1,4 +1,7 @@
-"""工具返回的媒体：原样内联进 tool 消息，不落盘；送不出时如实回执，不中断这一轮。
+"""工具返回的媒体：原样送达模型，不落盘；送不出时如实回执，不中断这一轮。
+
+送达形式按协议分两种——Responses 折回 ``function_call_output``，Chat 另起一条 user
+消息承载（AgentScope 原生做法）。两条线都不得把图换成文件路径或文案。
 
 回归的是这条线上事故：``ReasoningReplayMixin`` 继承 ``FormatterBase`` 后，在各绑定类
 的 MRO 里排在厂商 formatter 前面，把 ``input_types`` 盖成基类的 ``["text/plain"]``，
@@ -29,6 +32,8 @@ from agentscope.message import (
 )
 from core.chat.tool_log import attach_tool_result, upsert_tool_call
 from core.llm.chat_models import ReasoningEchoChatFormatter
+from core.llm.compacting_agent import msg_to_history_dict
+from core.llm.responses_models import ResponsesReplayFormatter
 from core.llm.providers import vendor_models as vm
 from PIL import Image
 
@@ -88,40 +93,100 @@ def test_replay_mixin_does_not_shadow_vendor_media_capability(ours, upstream):
 
 
 @pytest.mark.asyncio
-async def test_tool_image_rides_inside_its_own_tool_message():
-    """图片内联在 tool 消息里，绑定 tool_call_id，不另起一条 user 消息。"""
+async def test_chat_tool_image_rides_in_a_user_message_after_its_tool_row():
+    """Chat 线：图走 AgentScope 的原生做法——紧随 tool 回执的一条 user 消息。"""
     raw = png_bytes()
-    rows = await ReasoningEchoChatFormatter().format(
+    convo = [
+        Msg(name="user", role="user", content=[TextBlock(type="text", text="看图")]),
+        image_result("call-1", raw),
+    ]
+    before = [msg_to_history_dict(m) for m in convo]
+    rows = await ReasoningEchoChatFormatter().format(convo)
+
+    tool_index = next(i for i, r in enumerate(rows) if r.get("role") == "tool")
+    assert rows[tool_index]["tool_call_id"] == "call-1"
+    carrier = rows[tool_index + 1]
+    assert carrier["role"] == "user"
+    parts = carrier["content"]
+    assert [p["type"] for p in parts] == ["image_url"]
+    assert base64.b64decode(parts[0]["image_url"]["url"].split(",", 1)[1]) == raw
+    assert "saved locally" not in json.dumps(rows)
+    # 载体只活在请求载荷里：对话历史不变，所以界面上看不到这条消息
+    assert [msg_to_history_dict(m) for m in convo] == before
+
+
+@pytest.mark.asyncio
+async def test_responses_tool_image_rides_inside_its_own_function_output():
+    """Responses 线：图折回 ``function_call_output``，与 call_id 直接绑定。"""
+    raw = png_bytes()
+    items = await ResponsesReplayFormatter().format(
         [
             Msg(name="user", role="user", content=[TextBlock(type="text", text="看图")]),
             image_result("call-1", raw),
         ]
     )
 
-    tool_rows = [r for r in rows if r.get("role") == "tool"]
-    assert len(tool_rows) == 1
-    parts = tool_rows[0]["content"]
-    assert tool_rows[0]["tool_call_id"] == "call-1"
-    assert [p["type"] for p in parts] == ["text", "image_url"]
-    assert base64.b64decode(parts[1]["image_url"]["url"].split(",", 1)[1]) == raw
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert len(outputs) == 1
+    assert outputs[0]["call_id"] == "call-1"
+    parts = outputs[0]["output"]
+    assert [p["type"] for p in parts] == ["input_text", "input_image"]
+    assert base64.b64decode(parts[1]["image_url"].split(",", 1)[1]) == raw
 
     # 没有为了带图而凭空插入的用户回合
-    assert [r["role"] for r in rows] == ["user", "assistant", "tool"]
-    assert "saved locally" not in json.dumps(rows)
+    assert not [i for i in items if i.get("role") == "user" and i is not items[0]]
+    assert "saved locally" not in json.dumps(items)
+
+
+@pytest.mark.asyncio
+async def test_responses_images_always_carry_detail():
+    """``input_image`` 必须带 ``detail``，工具返回的和用户上传的都要。
+
+    回归：AgentScope 只产出 type + image_url，而 OpenAI 的 ResponseInputImageParam
+    把 detail 列为必填。官方端点与 DeepSeek 官方都不校验，缺字段在那两家看着正常；
+    生产在用的 vLLM 严格校验，整轮请求直接 400（detail Field required）。
+    """
+    raw = png_bytes()
+    upload = Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(type="text", text="看这张"),
+            DataBlock(
+                type="data",
+                source=Base64Source(
+                    type="base64",
+                    media_type="image/png",
+                    data=base64.b64encode(raw).decode("ascii"),
+                ),
+            ),
+        ],
+    )
+    items = await ResponsesReplayFormatter().format([upload, image_result("call-1", raw)])
+
+    images = [
+        part
+        for item in items
+        for part in (item.get("output") if isinstance(item.get("output"), list) else [])
+        + (item.get("content") if isinstance(item.get("content"), list) else [])
+        if isinstance(part, dict) and part.get("type") == "input_image"
+    ]
+    assert len(images) == 2, json.dumps(items)[:800]
+    assert all(part.get("detail") for part in images), images
 
 
 @pytest.mark.asyncio
 async def test_parallel_tool_images_each_keep_their_own_call_id():
     """并发读图时每张图绑在自己那次调用上，不会串到别的调用。"""
     reds, blues = png_bytes((255, 0, 0)), png_bytes((0, 0, 255))
-    rows = await ReasoningEchoChatFormatter().format(
+    items = await ResponsesReplayFormatter().format(
         [image_result("call-a", reds), image_result("call-b", blues)]
     )
 
     by_call = {
-        r["tool_call_id"]: r["content"][1]["image_url"]["url"]
-        for r in rows
-        if r.get("role") == "tool"
+        i["call_id"]: i["output"][1]["image_url"]
+        for i in items
+        if i.get("type") == "function_call_output"
     }
     assert base64.b64decode(by_call["call-a"].split(",", 1)[1]) == reds
     assert base64.b64decode(by_call["call-b"].split(",", 1)[1]) == blues
@@ -179,8 +244,16 @@ async def test_undeliverable_media_does_not_abort_the_rest_of_the_turn():
     by_call = {r["tool_call_id"]: r["content"] for r in rows if r.get("role") == "tool"}
     assert len(by_call) == 2
     assert "media-undeliverable" in by_call["call-bad"]
-    good = [p for p in by_call["call-ok"] if p["type"] == "image_url"]
-    assert base64.b64decode(good[0]["image_url"]["url"].split(",", 1)[1]) == raw
+    # 能送的那张照常抵达，载在它自己那条 user 消息上
+    carried = [
+        part
+        for row in rows
+        if row.get("role") == "user" and isinstance(row.get("content"), list)
+        for part in row["content"]
+        if part.get("type") == "image_url"
+    ]
+    assert len(carried) == 1
+    assert base64.b64decode(carried[0]["image_url"]["url"].split(",", 1)[1]) == raw
 
 
 def test_parallel_tool_results_attach_to_their_own_call():

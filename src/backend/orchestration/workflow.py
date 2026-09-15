@@ -15,6 +15,7 @@ from core.config.catalog_resolver import (
 )
 from core.config.display_names import TOOL_DISPLAY_NAMES
 from core.llm.agent_factory import create_agent_executor
+from core.llm.compacting_agent import frozen_prompt_surface
 from core.llm.context_adapter import append_context_text, next_request_sequence, render_context_item
 from core.llm.context_ir import (
     KIND_REMINDER,
@@ -180,9 +181,10 @@ def _resolve_agent_model_runtime(agent: Any, fallback_model_name: Any = "") -> T
 
 def _compaction_budget_inputs(agent: Any, context_window: int) -> Dict[str, Any]:
     """Read the exact frozen prompt/tool surface cached by agent_factory."""
+    system_prompt, tool_schema = frozen_prompt_surface(agent)
     return {
-        "system_prompt": str(getattr(agent, "_jx_compaction_system_prompt", "") or ""),
-        "tool_schema": getattr(agent, "_jx_compaction_tool_schemas", None),
+        "system_prompt": system_prompt,
+        "tool_schema": tool_schema,
         "context_window": int(context_window or 0),
         "model_name": str(
             getattr(getattr(agent, "model", None), "model", None)

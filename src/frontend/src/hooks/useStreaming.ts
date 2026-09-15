@@ -1,3 +1,5 @@
+import { prepareChatAttachments, type ChatAttachment } from '../utils/chatAttachments';
+import type { UploadedAttachment } from '../utils/fileParser';
 import { useEffect, useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
@@ -36,7 +38,7 @@ export function useStreaming(
   generateSummary: (chatId: string) => Promise<void>,
   generateClassification: (chatId: string) => Promise<void>,
 ) {
-  const fileUploadMap = useRef<Map<File, Promise<{ file_id: string; download_url: string }>>>(new Map());
+  const fileUploadMap = useRef<Map<File, Promise<UploadedAttachment>>>(new Map());
   /** AbortControllers keyed by chat id — allows multiple chats to stream in parallel
    *  (e.g. user starts chat A, switches to new chat B, sends while A is still running). */
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -113,11 +115,13 @@ export function useStreaming(
 
     const curApiUrl = effectiveApiUrl ?? '';
     const curChatId = useChatStore.getState().currentChatId;
+    const curProjectId = useChatStore.getState().store.chats[curChatId]?.projectId
+      || useProjectStore.getState().currentProjectId || undefined;
 
     for (const file of newFiles) {
       const { addUploadingFile, removeUploadingFile } = useFileStore.getState();
       addUploadingFile(file);
-      const promise = uploadFileToOSS(file, curApiUrl, curChatId)
+      const promise = uploadFileToOSS(file, curApiUrl, curChatId, curProjectId)
         .then((res) => {
           // uploadFileToOSS 失败时返回空 file_id 而不是抛错。以前这里不看返回值，
           // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
@@ -518,20 +522,15 @@ export function useStreaming(
     // …and the previous round's settled plan bar (a new turn starts a fresh plan, if any)
     useChatStore.getState().setPlanProgress(streamChatId, null);
 
-    type Attachment = { name: string; mime_type: string; file_id: string; download_url: string };
-    const attachments: Attachment[] = [];
-    const failedUploads: string[] = [];
-    for (const file of uploadedFiles) {
-      const promise = fileUploadMap.current.get(file);
-      const result = promise ? await promise : { file_id: '', download_url: '' };
-      if (!result.file_id) {
-        failedUploads.push(file.name);
-        continue;
-      }
-      attachments.push({ name: file.name, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
-    }
-    if (failedUploads.length > 0) {
-      message.error(t('文件上传失败，请移除后重试：{names}', { names: failedUploads.join('、') }));
+    const effectiveProjectId = useChatStore.getState().store.chats[currentChatId]?.projectId
+      || useProjectStore.getState().currentProjectId || undefined;
+    let attachments: ChatAttachment[];
+    try {
+      attachments = await prepareChatAttachments(
+        uploadedFiles, fileUploadMap.current, importedSpaceFiles, effectiveApiUrl, currentChatId, effectiveProjectId,
+      );
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('文件上传失败，请重试'));
       removeSendingChatId(streamChatId);
       return;
     }
@@ -547,13 +546,6 @@ export function useStreaming(
     if (useUIStore.getState().promptHubOpen) {
       useUIStore.getState().setPromptHubOpen(false);
     }
-    const spaceResults = importedSpaceFiles.map((f) => ({
-      name: f.name,
-      mime_type: f.mime_type,
-      file_id: f.file_id,
-      download_url: f.download_url,
-    }));
-    attachments.push(...spaceResults);
     setUploadedFiles([]);
     setUploadingFiles(new Set());
     clearImportedSpaceFiles();
@@ -585,6 +577,7 @@ export function useStreaming(
           mime_type: a.mime_type,
           file_id: a.file_id,
           download_url: a.download_url,
+          origin: a.origin,
         })),
       }),
       ...chatInvocationMessageProps(currentInvocation),
@@ -638,13 +631,6 @@ export function useStreaming(
         ? modelCaps.selectedModelProviderId
         : null;
 
-      // 混合路由：项目挂载 ID 提前算好——既进请求体，也决定该对话走云端还是本机执行面。
-      const effectiveProjectId = (() => {
-        const chat = useChatStore.getState().store.chats[currentChatId];
-        const fromChat = (chat as { projectId?: string } | undefined)?.projectId;
-        if (fromChat) return fromChat;
-        return useProjectStore.getState().currentProjectId || undefined;
-      })();
       // 本地项目对话，或用户在运行位置选择器选了「本机」的普通对话 → 本机执行面。
       const runTargetLocal =
         (useChatStore.getState().store.chats[currentChatId] as { runTarget?: string } | undefined)

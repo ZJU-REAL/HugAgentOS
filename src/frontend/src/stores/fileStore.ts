@@ -1,6 +1,8 @@
+import type { UploadedAttachment } from '../utils/fileParser';
 import { create } from 'zustand';
 
 export interface ImportedSpaceFile {
+  origin?: 'local' | 'cloud';
   name: string;
   file_id: string;
   download_url: string;
@@ -10,8 +12,8 @@ export interface ImportedSpaceFile {
 
 interface FileState {
   uploadedFiles: File[];
-  uploadedArtifacts: Map<File, { file_id: string; download_url: string }>;
-  setUploadedArtifact: (file: File, artifact: { file_id: string; download_url: string }) => void;
+  uploadedArtifacts: Map<File, UploadedAttachment>;
+  setUploadedArtifact: (file: File, artifact: UploadedAttachment) => void;
   uploadingFiles: Set<File>;
   importedSpaceFiles: ImportedSpaceFile[];
 

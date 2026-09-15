@@ -24,6 +24,7 @@ from agentscope.tool import Toolkit
 from agentscope.tool._response import ToolChunk
 from core.llm.chat_models import OpenAICompatChatModel, ReasoningEchoChatFormatter
 from core.llm.compacting_agent import CompactingAgent
+from core.llm.context_ir import IMAGE_TOKEN_RESERVE
 from core.llm.offloader import SandboxOffloader
 from core.llm.tool_collector import ToolCollector
 from core.llm.tools.read_image_tool import register_read_image
@@ -257,7 +258,8 @@ def test_history_estimate_and_summary_do_not_treat_image_as_text():
         },
     ]
 
-    assert 1_024 <= estimate_history_tokens(history) < 2_000
+    measured = estimate_history_tokens(history)
+    assert IMAGE_TOKEN_RESERVE <= measured < IMAGE_TOKEN_RESERVE + 1_000
     older, recent = C.split_history_for_compaction(history, keep_recent_tokens=20_000)
     assert older == []
     assert encoded in json.dumps(recent)
@@ -267,16 +269,40 @@ def test_history_estimate_and_summary_do_not_treat_image_as_text():
     assert encoded not in rendered
 
 
+def jx_chat_model_classes() -> list[type]:
+    """Every chat model this repo defines, discovered rather than listed.
+
+    A hand-maintained tuple is how the gap this test guards got in: the failover
+    facade was written without the image reserve and no list mentioned it. Import
+    the model modules, then walk the SDK base's subclasses so a new model class
+    is covered the day it is written.
+    """
+    import importlib
+
+    from agentscope.model import ChatModelBase
+
+    for module in (
+        "core.llm.chat_models",
+        "core.llm.failover",
+        "core.llm.providers.vendor_models",
+        "core.llm.responses_models",
+    ):
+        importlib.import_module(module)
+
+    seen: list[type] = []
+
+    def walk(cls: type) -> None:
+        for sub in cls.__subclasses__():
+            if sub.__module__.startswith("core.llm") and sub not in seen:
+                seen.append(sub)
+            walk(sub)
+
+    walk(ChatModelBase)
+    return seen
+
+
 @pytest.mark.asyncio
 async def test_all_provider_estimators_reserve_images_without_mutating_messages():
-    from core.llm.providers.vendor_models import (
-        LiteLLMChatModel,
-        NativeAnthropicChatModel,
-        NativeDashScopeChatModel,
-        NativeGeminiChatModel,
-        NativeOllamaChatModel,
-    )
-
     image = DataBlock(source=Base64Source(media_type="image/png", data="A" * 800_000))
     messages = [
         Msg(
@@ -296,15 +322,11 @@ async def test_all_provider_estimators_reserve_images_without_mutating_messages(
         ),
     ]
     before = [message.model_dump() for message in messages]
-    for model_type in (
-        OpenAICompatChatModel,
-        LiteLLMChatModel,
-        NativeAnthropicChatModel,
-        NativeDashScopeChatModel,
-        NativeGeminiChatModel,
-        NativeOllamaChatModel,
-    ):
+    model_types = jx_chat_model_classes()
+    assert model_types, "no repo model classes discovered"
+    for model_type in model_types:
         model = object.__new__(model_type)
         estimate = await model.count_tokens(messages=messages, tools=[])
-        assert 2_048 <= estimate < 2_100, model_type.__name__
+        floor = 2 * IMAGE_TOKEN_RESERVE
+        assert floor <= estimate < floor + 52, model_type.__name__
     assert [message.model_dump() for message in messages] == before

@@ -13,6 +13,7 @@ from core.llm.context_adapter import (
 from core.llm.context_ir import (
     ContextAssembler,
     ContextItem,
+    IMAGE_TOKEN_RESERVE,
     KIND_COMPACTION,
     KIND_MEMORY,
     KIND_REMINDER,
@@ -373,7 +374,7 @@ def test_multiblock_attachment_roundtrip_preserves_one_message_and_per_block_evi
     assert len(message.metadata["harness_context_items"]) == 2
     assert len({item.item_id for item in restored}) == 2
     assert {item.kind for item in restored} == {"attachment"}
-    assert restored[1].token_estimate == 1_024
+    assert restored[1].token_estimate == IMAGE_TOKEN_RESERVE
     assert len(rendered) == 1
     assert len(rendered[0].content) == 2
 

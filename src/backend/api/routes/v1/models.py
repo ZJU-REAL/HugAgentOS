@@ -351,6 +351,61 @@ async def _autofill_context_length(
     )
 
 
+async def _autofill_api_protocol(
+    provider: str,
+    provider_type: str,
+    base_url: str,
+    api_key: str,
+    model_name: str,
+    extra_config: Optional[dict],
+) -> None:
+    """Record which OpenAI wire protocol this endpoint speaks, on save.
+
+    The platform drives OpenAI-compatible endpoints over ``/responses`` by default and
+    only drops to ``/chat/completions`` for endpoints that do not route it (see
+    ``core/llm/providers/protocol_probe``). Determining that at save time — the same
+    moment ``context_length`` is discovered — keeps the decision a recorded fact rather
+    than something re-derived, or worse re-probed, on the request path.
+
+    Two rules mirror the context-length autofill: an operator's explicit choice always
+    wins and is never overwritten, and an inconclusive probe writes nothing at all
+    (recording a guess would silently pin a capable model to the older protocol).
+    """
+    if not isinstance(extra_config, dict) or provider_type != "chat":
+        return
+
+    from core.llm.providers.registry import get_spec
+
+    if not get_spec(provider).speaks_responses:
+        return
+    if extra_config.get("api_protocol"):
+        extra_config.pop("api_protocol_source", None)
+        return
+    extra_config.pop("api_protocol_source", None)
+
+    from core.llm.providers.protocol_probe import PROBE_VERSION, detect_api_protocol
+
+    result = await detect_api_protocol(
+        base_url=base_url, api_key=api_key, model_name=model_name
+    )
+    if not result.found:
+        logger.info(
+            "[models] api_protocol probe inconclusive for %s: %s",
+            model_name,
+            "; ".join(result.notes),
+        )
+        return
+    extra_config["api_protocol"] = result.protocol
+    extra_config["api_protocol_source"] = "probe"
+    extra_config["api_protocol_probe_version"] = PROBE_VERSION
+    logger.info(
+        "[models] api_protocol auto-detected for %s: %s (HTTP %s)",
+        model_name,
+        result.protocol,
+        result.status_code,
+    )
+
+
 async def _http_ping(url: str, headers: dict, payload: dict, timeout: int = 15) -> dict:
     """Timed POST + status judgment; returns {success, latency_ms, error}."""
     start = time.monotonic()
@@ -435,6 +490,8 @@ async def _ping_via_model(
             # context_size takes part in no computation. Prefer the context_length entered in the
             # form, otherwise use a nominal value.
             context_size=int((extra or {}).get("context_length") or 0) or 4096,
+            # Ping the wire the config will actually be driven over.
+            api_protocol=(extra or {}).get("api_protocol"),
         )
         ping_msg = Msg(name="user", content=[TextBlock(type="text", text="hi")], role="user")
         await asyncio.wait_for(model([ping_msg]), timeout=30)
@@ -570,6 +627,14 @@ async def create_provider_endpoint(
         body.model_name,
         body.extra_config,
     )
+    await _autofill_api_protocol(
+        body.provider,
+        body.provider_type,
+        normalized_url,
+        body.api_key,
+        body.model_name,
+        body.extra_config,
+    )
 
     provider = create_provider(
         db,
@@ -645,6 +710,14 @@ async def update_provider_endpoint(
 
     if "extra_config" in fields:
         await _autofill_context_length(
+            new_provider,
+            new_type,
+            _normalize_base_url(new_url),
+            new_key,
+            new_model,
+            fields["extra_config"],
+        )
+        await _autofill_api_protocol(
             new_provider,
             new_type,
             _normalize_base_url(new_url),

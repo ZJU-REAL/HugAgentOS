@@ -16,6 +16,11 @@ Switching is only legal before the first stream event — the boundary
 ``_stream_with_bounded_retry`` establishes, since a completion stays idempotent
 until a chunk has been consumed and swapping models mid-answer would
 contradict what the reader already has on screen.
+
+A request carrying media narrows the chain further: a text-only endpoint
+answers it with a 400 that ``provider_is_unusable`` reads — correctly — as
+"the request is wrong", ending the run instead of walking on. So candidates
+that cannot read media are dropped before they are tried rather than after.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from typing import Any, AsyncGenerator, Callable, Optional
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.tool._types import ToolChoice
-
+from core.llm.providers._image_tokens import ImageTokenCountingMixin
 from core.llm.tool_call_identity import ToolCallIdentityMixin
 
 logger = logging.getLogger(__name__)
@@ -85,7 +90,46 @@ def provider_is_unusable(exc: BaseException) -> bool:
     return type(exc) is openai.APIError
 
 
-class FailoverChatModel(ToolCallIdentityMixin, ChatModelBase):
+def _block_type(block: Any) -> str:
+    """The ``type`` of one content block, whichever shape it arrives in.
+
+    Blocks reach this layer as pydantic models or as the plain dicts their
+    TypedDict form produces; both are read the same way.
+    """
+    if isinstance(block, dict):
+        return str(block.get("type") or "")
+    return str(getattr(block, "type", "") or "")
+
+
+def _tool_result_holds_data(block: Any) -> bool:
+    output = block.get("output") if isinstance(block, dict) else getattr(block, "output", None)
+    if not isinstance(output, list):
+        return False
+    return any(_block_type(item) == "data" for item in output)
+
+
+def carries_media(messages: list[Msg]) -> bool:
+    """Whether *messages* hold media a candidate has to be able to read.
+
+    Media rides in ``DataBlock``s — either directly on a message (an upload the
+    middleware passed through) or folded into a ``ToolResultBlock``'s output
+    (see ``core.llm.tool_result_media``). Both places are checked because both
+    reach the wire.
+    """
+    for msg in messages or []:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            kind = _block_type(block)
+            if kind == "data":
+                return True
+            if kind == "tool_result" and _tool_result_holds_data(block):
+                return True
+    return False
+
+
+class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatModelBase):
     """Presents a candidate chain as one model, switching on an unusable provider.
 
     Subclasses ``ChatModelBase`` and overrides ``_call_api`` rather than
@@ -97,6 +141,10 @@ class FailoverChatModel(ToolCallIdentityMixin, ChatModelBase):
     entered through ``candidate._call_api``, which walks past their own
     ``__call__`` and therefore past the mixin they carry. Whichever endpoint of
     the chain answers, its tool-call ids are repaired on the way out.
+
+    ``ImageTokenCountingMixin`` for the same reason, and ``__getattr__`` cannot
+    stand in for it: ``count_tokens`` resolves on ``ChatModelBase``, so without
+    the mixin the facade silently bills image payloads as text.
 
     Fallback candidates are built on first use. A healthy primary — the normal
     case — never constructs the rest of the chain.
@@ -204,6 +252,38 @@ class FailoverChatModel(ToolCallIdentityMixin, ChatModelBase):
             return str(getattr(self._primary, "provider_id", "") or "")
         return str(getattr(self._fallback_specs[index - 1], "provider_id", "") or "")
 
+    def _reads_media(self, index: int) -> bool:
+        """Whether candidate *index* may be sent a request carrying media.
+
+        The primary needs no test: the turn's vision mode is resolved against
+        it (``core.vision.resolve_vision_mode``), so a tool only ever returns
+        pixels — and an upload only ever passes through untranscribed — when
+        the primary reads them natively. Fallbacks were chosen by weight and
+        context window, neither of which says anything about media, so each is
+        asked the one question that decides it.
+        """
+        if index == 0:
+            return True
+        from core.vision import model_supports_vision
+
+        return model_supports_vision(self._fallback_specs[index - 1])
+
+    def _media_readers(self, order: list[int]) -> list[int]:
+        """*order* without the candidates that cannot read media.
+
+        Never empties the chain: the primary always reads media when media is
+        present, so it survives the filter and stays the endpoint the run fails
+        against — reporting why *it* could not answer rather than a text-only
+        stand-in's complaint about a picture it was never meant to receive.
+        """
+        readers = [index for index in order if self._reads_media(index)]
+        if len(readers) < len(order):
+            logger.info(
+                "[failover] request carries media; skipping %d text-only candidate(s)",
+                len(order) - len(readers),
+            )
+        return readers
+
     async def _call_api(
         self,
         model_name: str,
@@ -213,6 +293,8 @@ class FailoverChatModel(ToolCallIdentityMixin, ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         order = self._order()
+        if carries_media(messages):
+            order = self._media_readers(order)
         last_exc: Optional[BaseException] = None
 
         for position, index in enumerate(order):

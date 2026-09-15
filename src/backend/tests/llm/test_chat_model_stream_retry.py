@@ -36,16 +36,16 @@ def _client(second_response="resp-2"):
 
 
 async def _collect(model, client, kwargs=None):
+    payload = kwargs or {"messages": []}
     return [
         item
         async for item in chat_models._stream_with_bounded_retry(
             model,
-            client=client,
-            kwargs=kwargs or {"messages": []},
+            reissue=lambda: client.chat.completions.create(**payload),
+            parse=lambda started, raw: model._parse_stream_response(started, raw, "wav"),
             model_name="m",
             start_datetime=datetime.now(),
             response="resp-1",
-            audio_fmt="wav",
             request_started=0.0,
         )
     ]

@@ -13,10 +13,11 @@ from types import SimpleNamespace
 
 import pytest
 from agentscope.agent import ContextConfig
-from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
+from agentscope.message import DataBlock, Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.model import ChatUsage
 from core.llm import compaction as C
 from core.llm.compacting_agent import CompactingAgent, msg_to_history_dict
+from core.llm.context_ir import IMAGE_TOKEN_RESERVE
 from core.services import compaction_service as S
 
 
@@ -28,7 +29,15 @@ def _assistant(text: str) -> Msg:
     return Msg(name="agent", content=[TextBlock(type="text", text=text)], role="assistant")
 
 
-def _make_agent(context, *, window: int = 1000, chat_id: str = "chat-1", offloader=None):
+def _make_agent(
+    context,
+    *,
+    window: int = 1000,
+    chat_id: str = "chat-1",
+    offloader=None,
+    sys_prompt: str = "",
+    tool_schemas=None,
+):
     """A CompactingAgent with only the attributes compress_context touches.
 
     Built without ``__init__`` on purpose: the real constructor needs a live
@@ -44,6 +53,8 @@ def _make_agent(context, *, window: int = 1000, chat_id: str = "chat-1", offload
     agent.state = SimpleNamespace(
         context=list(context), summary="", chat_id=chat_id, session_id="sess-1"
     )
+    agent._jx_compaction_system_prompt = sys_prompt
+    agent._jx_compaction_tool_schemas = tool_schemas
     return agent
 
 
@@ -67,20 +78,57 @@ async def test_measure_prefers_real_usage_plus_trailing_estimate():
 
 
 @pytest.mark.asyncio
-async def test_measure_falls_back_to_framework_estimate_without_usage():
-    """No provider usage yet (first step of a turn) → AgentScope's count_tokens."""
-    agent = _make_agent([_user("a")])
-
-    async def _prepare():
-        return {"messages": [], "tools": []}
+async def test_measure_falls_back_to_the_shared_prompt_estimate_without_usage():
+    """No provider usage yet (first step of a turn) → system + tools + context."""
+    agent = _make_agent(
+        [_user("a")],
+        sys_prompt="S" * 4_000,
+        tool_schemas=[{"name": "t", "description": "D" * 400}],
+    )
 
     async def _count(**_kwargs):
-        return 4242
+        raise AssertionError("the provider byte count must not be consulted")
 
-    agent._prepare_model_input = _prepare
     agent.model.count_tokens = _count
 
-    assert await agent._measure_context_tokens() == 4242
+    expected = S.estimate_context_budget(
+        system_prompt="S" * 4_000,
+        tool_schema=[{"name": "t", "description": "D" * 400}],
+        messages=[msg_to_history_dict(m) for m in agent.state.context],
+    )["total_estimated_tokens"]
+    assert await agent._measure_context_tokens() == expected
+
+
+@pytest.mark.asyncio
+async def test_image_attachment_costs_a_fixed_reserve_not_its_base64_bytes():
+    """A 7 MB attachment must not measure millions of tokens and force compaction.
+
+    Regression: billing base64 transport as text measured 2.4M tokens against a
+    105k limit, so the first reasoning step compacted the image away and the
+    agent had to hunt the file down with tools it should never have needed.
+    """
+    image = Msg(
+        name="user",
+        content=[
+            TextBlock(type="text", text="这张图讲了什么内容"),
+            DataBlock(
+                type="data",
+                source={
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "A" * 9_500_000,
+                },
+            ),
+        ],
+        role="user",
+    )
+    agent = _make_agent([image], window=128_000)
+
+    measured = await agent._measure_context_tokens()
+
+    assert measured < IMAGE_TOKEN_RESERVE * 4, f"image billed as text: {measured}"
+    limit = S.resolve_token_limit(128_000, ratio=0.82)
+    assert measured < limit, "an ordinary attachment must not trip compaction on its own"
 
 
 # ── Trigger + replacement ────────────────────────────────────────────────────
@@ -445,7 +493,7 @@ async def test_sdk_save_anchors_usage_after_response_without_counting_it_twice(e
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["edit", "replace", "remove", "earlier_append", "summary"])
-async def test_rewritten_history_invalidates_the_usage_baseline(monkeypatch, change):
+async def test_rewritten_history_invalidates_the_usage_baseline(change):
     agent = _make_agent([_user("q"), _assistant("answer")])
     agent.observe_context_tokens(500, 20)
     if change == "edit":
@@ -459,15 +507,8 @@ async def test_rewritten_history_invalidates_the_usage_baseline(monkeypatch, cha
     else:
         agent.state.summary = "new summary"
 
-    async def prepare():
-        return {}
-
-    async def count(**kwargs):
-        return 4242
-
-    monkeypatch.setattr(agent, "_prepare_model_input", prepare)
-    agent.model.count_tokens = count
-    assert await agent._measure_context_tokens() == 4242
+    measured = await agent._measure_context_tokens()
+    assert measured == agent._estimate_prompt_tokens()
     assert agent._jx_observation is None
 
 

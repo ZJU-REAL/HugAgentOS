@@ -16,6 +16,7 @@ from core.llm.context_adapter import (
 )
 from core.llm.compaction import build_compacted_history
 from core.llm.context_ir import (
+    IMAGE_TOKEN_RESERVE,
     KIND_USER_INPUT,
     POLICY_NEVER,
     make_text_context_item,
@@ -473,7 +474,8 @@ async def test_public_multimodal_request_keeps_or_drops_each_image_whole(monkeyp
         lambda file, user_id=None: ("A" * 4_000, "image/png"),
     )
     model = CaptureModel()
-    model.context_size = 1_400
+    # Room for one image reserve and the surrounding text, never for two.
+    model.context_size = IMAGE_TOKEN_RESERVE + 376
     agent = ManifestBoundAgent(
         name="image-budget-test",
         system_prompt="rules",

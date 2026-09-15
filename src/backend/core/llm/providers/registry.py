@@ -52,11 +52,28 @@ class ProviderSpec:
     reasoning_effort_top_level: bool = False
     # Reasoning arrives separately as reasoning_content instead of being embedded in content.
     structured_reasoning: bool = False
+    # Whether this vendor can speak the Responses protocol at all, as opposed to whether a
+    # given endpoint happens to route it (that is per-endpoint and discovered by
+    # ``protocol_probe``, then stored in ``extra_config.api_protocol``). Only vendors whose
+    # Responses URL shape differs from ``{base_url}/responses`` set this False — Azure
+    # addresses it per deployment with an api-version query string, which the shared
+    # OpenAI-compatible client cannot build.
+    responses_capable: bool = True
     fields: tuple[ProviderField, ...] = ()  # vendor-specific extra fields (stored in extra_config)
 
     @property
     def extra_field_keys(self) -> tuple[str, ...]:
         return tuple(f.key for f in self.fields)
+
+    @property
+    def speaks_responses(self) -> bool:
+        """Whether choosing between the two OpenAI wire protocols applies at all.
+
+        Only the ``openai`` engine has two wires to choose between; native and litellm
+        vendors speak their own protocol, so probing them for ``/responses`` — or
+        recording an answer about it — would be meaningless.
+        """
+        return self.engine == "openai" and self.responses_capable
 
 
 # ── Field groups (reused) ─────────────────────────────────────────────────────
@@ -118,6 +135,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "azure_openai": ProviderSpec(
         id="azure_openai", label="Azure OpenAI", engine="openai",
         base_url_template="https://<resource>.openai.azure.com",
+        responses_capable=False,
         fields=_AZURE_FIELDS,
     ),
     # —— AgentScope native providers (non-OpenAI protocol) ——

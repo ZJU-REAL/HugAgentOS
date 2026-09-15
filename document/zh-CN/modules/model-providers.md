@@ -23,7 +23,22 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | `kb_wiki` | 知识库 Wiki 实体抽取（离线批处理，建议单配便宜模型） | chat |
 | `vision` | 图像理解（视觉桥）——见下节 | chat |
 
-`extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）/ `supports_vision`（是否原生支持读图）等键。
+`extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）/ `supports_vision`（是否原生支持读图）/ `api_protocol`（接口协议，见下节）等键。
+
+### 接口协议：默认 Responses，不支持才回退
+
+OpenAI 兼容上游有两套接口：较老的 `POST /chat/completions` 和较新的 `POST /responses`。平台**默认走 Responses**，因为它把模型的思考做成独立的 `reasoning` 条目，下一轮可原样回传；`/chat/completions` 没有放思考的位置，只能把思考夹带进 `reasoning_content` 字段。只有确实没有 `/responses` 路由的上游（常见于只做转发的中转网关）才使用 Chat Completions。
+
+走哪套由 `extra_config.api_protocol` 决定，取值 `responses` / `chat_completions`。该值不靠厂商名推断，而是保存供应商时向上游探测后写入。探测分两步，两步都过才判为 Responses 可用：
+
+1. **路由在不在**——向 `{base_url}/responses` 发一个**故意不带 `input`** 的请求。路由存在的上游会在参数校验阶段拒绝（不触发推理、不产生费用），返回 404 则说明没有该路由。
+2. **工具结果吃不吃**——回放一段「调用了一次工具、并带回结果」的历史，结果里放一个模型不可能提前知道的口令，看它是复述口令还是把同一个工具再调一遍。这一步会真跑一次推理，上限几百 token，只在配置时发生，绝不在请求路径上。
+
+第二步不是多余的：**路由存在不等于协议可用**。实测自建 Qwen3.6 的 `/responses` 能正常应答，却完全不消费 `function_call_output`——模型永远看不到工具结果，于是把同一个工具反复调用，智能体循环直接卡死。这种上游比"不支持 Responses"更糟，必须判回 Chat Completions。
+
+凭据被拒、上游不可达或第二步没有明确结论时，不写入任何结论，下次保存或重启时再试。升级前已存在的模型由后端启动时一次性补齐；判据变严时会记录版本号（`api_protocol_probe_version`），旧判据得出的结论在下次启动时自动重验，人工设定的值永远不动。
+
+人工在模型配置表单的「接口协议」里选定后，该选择永远优先，探测不再覆盖。Azure OpenAI 按部署寻址 Responses，与通用客户端的 URL 结构不同，始终使用 Chat Completions。
 
 ### 上下文窗口自动探测
 

@@ -1,3 +1,5 @@
+import { prepareChatAttachments, type ChatAttachment } from '../utils/chatAttachments';
+import type { UploadedAttachment } from '../utils/fileParser';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { generatePlanStream, updatePlanApi, executePlanStream, getPlanApi } from '../api';
@@ -359,7 +361,7 @@ export function buildPlanSegmentData(planData: Record<string, unknown>): Message
 export async function sendPlanMode(
   effectiveApiUrl: string,
   abortControllersRef: React.MutableRefObject<Map<string, AbortController>>,
-  fileUploadMap: React.MutableRefObject<Map<File, Promise<{ file_id: string; download_url: string }>>>,
+  fileUploadMap: React.MutableRefObject<Map<File, Promise<UploadedAttachment>>>,
   generateSummary: (chatId: string) => Promise<void>,
   directMessage?: string,
   // suppressUserEcho: when the main agent automatically switches into plan mode it reuses this flow,
@@ -404,31 +406,19 @@ export async function sendPlanMode(
   // New round: clear the previous round's settled plan bar
   useChatStore.getState().setPlanProgress(streamChatId, null);
 
-  type Attachment = { name: string; mime_type: string; file_id: string; download_url: string };
-  const attachments: Attachment[] = [];
-  const failedUploads: string[] = [];
-  for (const file of uploadedFiles) {
-    const promise = fileUploadMap.current.get(file);
-    const result = promise ? await promise : { file_id: '', download_url: '' };
-    if (!result.file_id) {
-      failedUploads.push(file.name);
-      continue;
-    }
-    attachments.push({ name: file.name, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
-  }
-  if (failedUploads.length > 0) {
-    message.error(t('文件上传失败，请移除后重试：{names}', { names: failedUploads.join('、') }));
+  const projectId = useChatStore.getState().store.chats[currentChatId]?.projectId
+    || useProjectStore.getState().currentProjectId || undefined;
+  let attachments: ChatAttachment[];
+  try {
+    attachments = await prepareChatAttachments(
+      uploadedFiles, fileUploadMap.current, importedSpaceFiles, effectiveApiUrl, currentChatId, projectId,
+    );
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('文件上传失败，请重试'));
     removeSendingChatId(streamChatId);
     return;
   }
   if (!directMessage) setInput('');
-  const spaceResults = importedSpaceFiles.map((f) => ({
-    name: f.name,
-    mime_type: f.mime_type,
-    file_id: f.file_id,
-    download_url: f.download_url,
-  }));
-  attachments.push(...spaceResults);
   setUploadedFiles([]);
   setUploadingFiles(new Set());
   clearImportedSpaceFiles();
@@ -442,7 +432,7 @@ export async function sendPlanMode(
     role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
     ...(attachments.length > 0 && {
       attachments: attachments.map(a => ({
-        name: a.name, mime_type: a.mime_type, file_id: a.file_id, download_url: a.download_url,
+        name: a.name, mime_type: a.mime_type, file_id: a.file_id, download_url: a.download_url, origin: a.origin,
       })),
     }),
   };
@@ -464,12 +454,6 @@ export async function sendPlanMode(
   appendAssistant('', true);
 
   let chatForHistory = useChatStore.getState().store.chats[currentChatId];
-  // Project mounting: prefer the projectId bound to the session itself; when the session was just minted and hasn't been written back yet, fall back to
-  // the currently active project (consistent with the logic in useStreaming.send).
-  const projectId =
-    (chatForHistory as { projectId?: string } | undefined)?.projectId ||
-    useProjectStore.getState().currentProjectId ||
-    undefined;
   // 计划模式要把整段历史带给后端。常规浏览只铺了最近一屏（见 useChatInit 的
   // MESSAGE_PAGE_SIZE），这里先补齐再取，别只把最近几轮当成全部上下文。
   if (useChatStore.getState().messagePaging[currentChatId]?.hasOlder) {

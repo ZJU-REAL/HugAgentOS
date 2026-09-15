@@ -17,7 +17,10 @@ from core.llm.execution_manifest import canonical_json, stable_hash
 CONTEXT_SCHEMA_VERSION = "harness.context.v2"
 SESSION_CONTEXT_META_KEY = "_context_item"
 CONTEXT_SEQUENCE_STRIDE = 1_000
-IMAGE_TOKEN_RESERVE = 1_024
+# Matches openai/codex's per-image estimate (RESIZED_IMAGE_BYTES_ESTIMATE = 7373
+# bytes over its 4-bytes/token heuristic). One price per image, never its
+# transport bytes; the provider's reported usage supersedes it once a reply lands.
+IMAGE_TOKEN_RESERVE = 1_844
 
 KIND_SYSTEM_RULE = "system_rule"
 KIND_USER_INPUT = "user_input"

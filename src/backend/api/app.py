@@ -115,6 +115,7 @@ def _startup_steps():
         # Runs after the plugin seeding/upgrade steps above, which rewrite manifests
         # and are exactly what can leave a server with display-only tool entries.
         (_startup_backfill_tool_schemas, None, False, _ALL_ROLES, _SINGLETON),
+        (_startup_backfill_api_protocol, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_local_sidecars, _shutdown_local_sidecars, True, _ALL_ROLES, _SINGLETON),
         (_startup_recover_chat_runs, None, True, _ALL_ROLES, _SINGLETON),
         (_startup_resume_loops, None, False, _ALL_ROLES, _SINGLETON),
@@ -1003,6 +1004,15 @@ async def _startup_backfill_tool_schemas():
     count = await backfill_missing_tool_schemas()
     if count:
         logger.info("[startup] tool schemas captured for %d MCP server(s)", count)
+
+
+async def _startup_backfill_api_protocol():
+    """Record which OpenAI wire protocol each pre-existing model endpoint speaks."""
+    from core.services.api_protocol_backfill import backfill_missing_api_protocol
+
+    count = await backfill_missing_api_protocol()
+    if count:
+        logger.info("[startup] api_protocol recorded for %d model provider(s)", count)
 
 
 async def _startup_seed_default_plugins():

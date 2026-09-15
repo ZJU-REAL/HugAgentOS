@@ -340,3 +340,12 @@ These interactions ship in the desktop package. Existing clients must first upgr
 Desktop update discovery uses a persistent release notification stream. Each update-server worker shares one observer that checks release-file metadata about every two seconds. A changed release notifies connected clients, which then check their platform manifest. The sidebar reuses the existing local desktop event stream: it no longer polls every two seconds and identical state does not re-render it. Idle connections use a heartbeat about every 15 seconds, with an additional manifest safety check about every 30 minutes.
 
 Disconnected streams reconnect with backoff. Servers without notification support fall back to a check about every five minutes. Manual checks remain available. Fast notifications require both the update-server backend and the desktop package to be upgraded; a new client against an old server uses the low-frequency fallback. Discovering a release never automatically downloads or installs it.
+
+If an older client reports that it cannot open the update progress card after confirmation, install the fixed full package over the existing installation once. This preserves accounts, conversations, and local files; uninstalling or deleting data is unnecessary. The built-in update flow works again after this upgrade.
+
+
+### Local and cloud ownership of chat attachments
+
+In hybrid mode, chat uploads follow the conversation's execution location; project conversations follow their project. Changing the location after selecting a file uploads the original file to the final backend before sending. Regular chat and plan mode use the same rules. Upload or referenced-file failures preserve the draft and attachments for retry.
+
+Selecting a cloud My Space file for a local task downloads it with the current account and saves a local attachment, preserving the source file. Preview, download, and native open follow the file's actual ownership. This fix requires a desktop package update. For historical attachments uploaded to the wrong backend by older clients, select and send the original files again; upgrading does not automatically migrate historical attachments.

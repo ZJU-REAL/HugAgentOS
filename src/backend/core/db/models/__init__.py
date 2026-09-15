@@ -35,6 +35,7 @@ from core.db.models.chat import (
     ChatSession,
     ChatSteerQueueItem,
     MessageFeedback,
+    ToolMediaBlob,
 )
 from core.db.models.chat_mode import ChatMode
 from core.db.models.config import ModelProvider, ModelRoleAssignment, SystemConfig

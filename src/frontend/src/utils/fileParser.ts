@@ -1,23 +1,15 @@
-import { authFetch } from '../api';
+import { uploadFile, type UploadedFile } from '../api';
 import { t } from '../i18n';
 
+export type UploadedAttachment = Pick<UploadedFile, 'file_id' | 'download_url' | 'origin'>;
+
 export async function uploadFileToOSS(
-  file: File, apiUrl: string, chatId: string
-): Promise<{ file_id: string; download_url: string }> {
+  file: File, apiUrl: string, chatId: string, projectId?: string,
+): Promise<UploadedAttachment> {
   if (!apiUrl) return { file_id: '', download_url: '' };
   try {
-    const form = new FormData();
-    form.append('file', file);
-    form.append('chat_id', chatId);
-    const resp = await authFetch(`${apiUrl}/v1/file/upload`, {
-      method: 'POST',
-      body: form,
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      return { file_id: data.file_id ?? '', download_url: data.download_url ?? '' };
-    }
-  } catch { /* 上传失败不阻断 */ }
+    return await uploadFile(file, chatId, undefined, { apiUrl, projectId });
+  } catch { /* The composer reports the failed upload and preserves the draft. */ }
   return { file_id: '', download_url: '' };
 }
 

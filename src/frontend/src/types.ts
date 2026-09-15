@@ -507,6 +507,7 @@ export interface ChatMessage {
    *  resetting to zero. */
   lastActivityTs?: number;
   attachments?: Array<{
+    origin?: 'local' | 'cloud';
     name: string;
     mime_type?: string;
     file_id?: string;       // OSS file ID; downloadable when present
