@@ -116,15 +116,29 @@ def claim_next_job(db: Session, worker_id: str) -> Optional[KBWikiJob]:
 
     认领包含两类：从未跑过的 pending，以及心跳早已停摆的僵尸 running。用
     ``UPDATE ... WHERE status 未变`` 的乐观并发收敛，多实例同时抢也只有一个能改到。
+
+    乐观并发只保证同一个**作业**不被两个 worker 同时拿走，不保证同一个**知识库**
+    只有一批在跑。而同库两批并发会丢更新：``run_ingest`` 先把相关页面读成内存快照，
+    再逐条让模型基于快照重写、最后整体 upsert 回去；不同文档抽出同名 slug 是常态
+    （同一实体被多篇提到正是 Wiki 的意义），后写的那批会把先写的覆盖掉，而读到写
+    之间隔着整个 Reduce 阶段。所以候选排除掉心跳还新鲜的 running 作业所属的库。
+
+    注意这是候选筛选，不是互斥锁：认领的 CAS 按 job_id 收敛，两个进程仍可能同时
+    判定某库空闲、再各自拿走它的不同作业。跨进程的保证来自 wiki worker 是单例
+    （见 ``api/app.py`` 的启动步骤表）；真要支持多容器并发得另加按库的租约。
     """
     stale_before = _now() - STALE_AFTER
+    busy_kbs = db.query(KBWikiJob.kb_id).filter(
+        KBWikiJob.status == "running", KBWikiJob.heartbeat_at >= stale_before
+    )
     candidate = (
         db.query(KBWikiJob)
         .filter(
             or_(
                 KBWikiJob.status == "pending",
                 (KBWikiJob.status == "running") & (KBWikiJob.heartbeat_at < stale_before),
-            )
+            ),
+            KBWikiJob.kb_id.notin_(busy_kbs),
         )
         # 收尾排在摄入之后：一批文档还没写完就收尾，索引页会立刻过期
         .order_by(KBWikiJob.job_type.desc(), KBWikiJob.created_at)

@@ -112,6 +112,7 @@ def _startup_steps():
         (_startup_seed_mcp_servers, None, True, _ALL_ROLES, _SINGLETON),
         (_startup_seed_default_plugins, None, True, _ALL_ROLES, _SINGLETON),
         (_startup_upgrade_sites_plugin, None, True, _ALL_ROLES, _SINGLETON),
+        (_startup_plugin_device_assets, None, False, _ALL_ROLES, _SINGLETON),
         # Runs after the plugin seeding/upgrade steps above, which rewrite manifests
         # and are exactly what can leave a server with display-only tool entries.
         (_startup_backfill_tool_schemas, None, False, _ALL_ROLES, _SINGLETON),
@@ -162,10 +163,16 @@ def _startup_steps():
             _ALL_ROLES,
             _SINGLETON,
         ),
-        # The next six claim each unit of work before doing it — a queued
+        # Singleton, not per-worker: one wiki ingest job may spend thousands of
+        # LLM calls behind two inner thread pools and batches five jobs at a
+        # time, so a second copy doubles both its resident set and the gateway
+        # quota it takes from live chats — and two of them on one KB lose
+        # writes (see claim_next_job). This is the only cross-process guarantee
+        # there is; claim_next_job only narrows the window.
+        (_startup_kb_wiki_worker, _shutdown_kb_wiki_worker, False, _SERVICE_ONLY, _SINGLETON),
+        # The next five claim each unit of work before doing it — a queued
         # document, an outbox row, a day — so every worker may run them and the
         # queue-shaped ones drain faster for it. See ``_PER_WORKER`` above.
-        (_startup_kb_wiki_worker, _shutdown_kb_wiki_worker, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_kb_index_worker, _shutdown_kb_index_worker, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_distillation_scheduler, None, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_evolution_scheduler, None, False, _SERVICE_ONLY, _PER_WORKER),
@@ -177,7 +184,7 @@ def _startup_steps():
             _ALL_ROLES,
             _PER_WORKER,
         ),
-        (_startup_recover_persona_distill_jobs, None, False, _SERVICE_ONLY, _SINGLETON),
+        (_startup_persona_distill_worker, _shutdown_persona_distill_worker, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_warmup_memory, None, False, _ALL_ROLES, _PER_WORKER),
         (_startup_channel_manager, _shutdown_channel_manager, False, _SERVICE_ONLY, _SINGLETON),
         (_startup_channel_desktop, _shutdown_channel_desktop, False, _ALL_ROLES, _SINGLETON),
@@ -1038,6 +1045,31 @@ async def _startup_upgrade_sites_plugin():
         logger.info("[startup] upgraded %d builtin sites installation(s)", count)
 
 
+async def _startup_plugin_device_assets():
+    """给这台机器上已有的插件补齐 / 刷新它们的本机资产。
+
+    资产随安装包发布：插件本身没变时既不会重新安装、也不会重新同步，升级带来的修复
+    就落不到位。这一步只覆盖"能力已经在这台机器上"的插件，不会凭空铺没人用的东西。
+    """
+    import asyncio
+
+    from core.config.local_mode import local_mode_enabled
+
+    if not local_mode_enabled():
+        return
+
+    from core.db.engine import SessionLocal
+    from core.services.plugin_device_assets import provision_present_plugins
+
+    def provision():
+        with SessionLocal() as db:
+            return provision_present_plugins(db)
+
+    ready = await asyncio.to_thread(provision)
+    if ready:
+        logger.info("[startup] 本机资产已就绪：%s", ", ".join(ready))
+
+
 async def _startup_backfill_tool_schemas():
     """Capture real tool schemas for servers a plugin manifest only named."""
     from core.services.mcp_tool_schema_backfill import backfill_missing_tool_schemas
@@ -1387,6 +1419,7 @@ async def _startup_channel_manager():
 
 
 _automation_scheduler = None
+_persona_distill_worker = None
 _kb_wiki_worker = None
 _kb_index_worker = None
 _distillation_scheduler = None
@@ -1464,16 +1497,28 @@ async def _startup_distillation_scheduler():
         logger.warning("[startup] Distillation cron scheduler failed to start: %s", exc)
 
 
-async def _startup_recover_persona_distill_jobs():
-    """After a process restart, set orphan persona distillation jobs (queued/running) to failed."""
-    try:
-        from core.services.edition_startup import recover_persona_distill_jobs
+async def _startup_persona_distill_worker():
+    """Start the persona distillation queue worker.
 
-        n = recover_persona_distill_jobs()
-        if n:
-            logger.info("[startup] persona distill: marked %d orphan job(s) as failed", n)
+    Per-worker, not singleton: it claims each job with FOR UPDATE SKIP LOCKED, which is
+    exactly the criterion stated at the top of this file — and a user waiting on 发起蒸馏
+    should not depend on which worker took the HTTP request.
+    """
+    try:
+        from orchestration.schedulers.persona_distill_worker import PersonaDistillWorker
+
+        global _persona_distill_worker
+        _persona_distill_worker = PersonaDistillWorker()
+        await _persona_distill_worker.start()
     except Exception as exc:
-        logger.warning("[startup] persona distill orphan recovery failed: %s", exc)
+        logger.warning("[startup] persona distill worker failed to start: %s", exc)
+
+
+async def _shutdown_persona_distill_worker():
+    global _persona_distill_worker
+    if _persona_distill_worker is not None:
+        await _persona_distill_worker.stop()
+        _persona_distill_worker = None
 
 
 async def _startup_warmup_memory():

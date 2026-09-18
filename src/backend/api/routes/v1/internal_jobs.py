@@ -432,7 +432,7 @@ async def job_agent(
 
 
 @router.post("/{job_id}/ledger")
-async def job_ledger(
+def job_ledger(
     job_id: str,
     body: LedgerBody,
     x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
@@ -484,7 +484,7 @@ async def job_ledger(
 
 
 @router.post("/{job_id}/log")
-async def job_log(
+def job_log(
     job_id: str,
     body: LogBody,
     x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),

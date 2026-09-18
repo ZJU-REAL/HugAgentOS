@@ -505,6 +505,7 @@ pub fn run() {
                 bridge_user: bridge_user.clone(),
                 bridge_sync: bridge_sync.clone(),
                 session_epoch: session_epoch.clone(),
+                bound_port: std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0)),
             };
             let port = tauri::async_runtime::block_on(proxy::serve(pstate, web_dir))
                 .expect("启动本地反代失败");

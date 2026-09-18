@@ -214,7 +214,7 @@ class _Cloud:
         if url.endswith("/skills/manifest"):
             from core.services.desktop_capability_protocol import build_skill_manifest
 
-            return _Resp(200, body={"data": build_skill_manifest([], [])})
+            return _Resp(200, body={"data": build_skill_manifest([])})
         for kind in ("agents", "plugins"):
             if url.endswith(f"/{kind}/manifest"):
                 return _Resp(200, body={"data": self.manifests[kind]})

@@ -1,11 +1,12 @@
 """Automation service — CRUD for scheduled tasks and run history."""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 import uuid
 
 from croniter import croniter
 import pytz
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from core.db.models import ScheduledTask, ScheduledTaskRun
@@ -321,6 +322,33 @@ class AutomationService:
         task.updated_at = datetime.now(timezone.utc)
         self.db.commit()
 
+    def request_manual_trigger(self, task: ScheduledTask) -> None:
+        """登记一次「立即执行」，留给调度器取走。
+
+        手动触发不能在收到请求的进程里直接跑：API 是多 worker 的，调度器只在 leader
+        那一个 worker 里；而路由是同步的，跑在线程池里，那里没有事件循环可以派协程。
+        所以请求只落库，执行由调度器接手。
+
+        重复点击幂等——时间戳被覆盖，仍然只排队一次。
+        """
+        task.manual_trigger_at = datetime.now(timezone.utc)
+        task.updated_at = task.manual_trigger_at
+        self.db.commit()
+
+    def take_manual_triggers(self) -> List[Tuple[str, str]]:
+        """取走所有待执行的手动触发，返回 (task_id, user_id)。
+
+        一条语句取走并清空，取到即归本次调用所有，不必再加行锁。
+        """
+        taken = self.db.execute(
+            update(ScheduledTask)
+            .where(ScheduledTask.manual_trigger_at.isnot(None))
+            .values(manual_trigger_at=None)
+            .returning(ScheduledTask.task_id, ScheduledTask.user_id)
+        ).all()
+        self.db.commit()
+        return [(row.task_id, row.user_id) for row in taken]
+
     def bump_run_count(self, task_id: str) -> None:
         """手动触发路径专用的计数递增。
 
@@ -332,11 +360,14 @@ class AutomationService:
         这里不动调度器那条路径的语义（那边 +1 与 next_run_at 推进必须原子发生），
         只补上手动触发这一路的计数。
         """
-        task = self.get_task_by_id(task_id)
-        if not task:
-            return
-        task.run_count = (task.run_count or 0) + 1
-        task.updated_at = datetime.now(timezone.utc)
+        self.db.execute(
+            update(ScheduledTask)
+            .where(ScheduledTask.task_id == task_id)
+            .values(
+                run_count=func.coalesce(ScheduledTask.run_count, 0) + 1,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
         self.db.commit()
 
     def finalize_after_run(self, task_id: str) -> None:

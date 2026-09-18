@@ -20,6 +20,7 @@ export const CORE_DICT: Record<string, string> = {
   '项目': 'Project',
   '对话': 'Chat',
   '计划模式': 'Plan Mode',
+  '任务计划清单': 'Task Plan',
 
   // App.tsx — recommend banner
   '推荐用法：优先使用知识库检索可提升可引用性与结果可靠性。': 'Tip: Using Knowledge Base retrieval improves citability and result reliability.',

@@ -2570,7 +2570,7 @@ async def create_agent_executor(
             if _mode_prompt_text:
                 _mode_prompt = str(_mode_prompt_text)
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
-                _mode_prompt = _pvs_mode.render_system_prompt_of_kind(_mode_prompt_kind)
+                _mode_prompt = _pvs_mode.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
 
         if turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
@@ -2677,12 +2677,12 @@ async def create_agent_executor(
 
         # ── Inject code-capability system prompt ──
         # Gating: CODE_CAPABILITY_ENABLED=true injects in all modes.
-        # Single source of truth render_code_capability_segment (same source as the Config console preview).
+        # Single source of truth render_kind_segment (same source as the Config console preview).
         if code_capability_enabled() and (not turbo_mode or _turbo_code_exec):
             try:
                 from core.services import prompt_version_service as _pvs
 
-                _code_exec_text = _pvs.render_code_capability_segment()
+                _code_exec_text = _pvs.render_kind_segment("code_exec")
             except Exception:
                 _code_exec_text = ""
             if _code_exec_text:

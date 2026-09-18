@@ -141,10 +141,6 @@ def warmup_prompt_cache() -> None:
     # run before _fetch, otherwise on first startup the cache lacks this entry and
     # project_id chats fall back to the Python default instead of the DB template.
     ensure_project_mode_part_seeded()
-    # System-reminder convention section: insert the default if missing in the DB
-    # (idempotent). Teaches the model that out-of-band <system-reminder> markers exist
-    # and how to handle them.
-    ensure_system_reminder_convention_seeded()
 
     parts = _fetch_db_prompt_parts()
     with _db_parts_preloaded_lock:
@@ -391,89 +387,6 @@ from prompts.project_section import (  # noqa: E402
     _get_project_mode_template,
     _build_project_section,
 )
-
-SYSTEM_REMINDER_CONVENTION_PART_ID = "system/05_system_reminder_convention"
-SYSTEM_REMINDER_CONVENTION_DISPLAY_NAME = "05_system_reminder_convention"
-_SYSTEM_REMINDER_CONVENTION_DEFAULT = """## 系统消息中的 <system-reminder> 标记
-
-对话中你会看到 `<system-reminder>...</system-reminder>` 包裹的系统提醒。这些是
-**带外信号**，由系统自动注入，**与具体的工具结果或用户消息没有直接关系**。它们
-用来：
-- 同步当前任务进度
-- 提示你被遗忘的约束（原始用户目标、未完成的待办、未交付的文件）
-- 在你即将做某个动作前给出额外的轻量提示
-
-**处理原则（重要）：**
-- system-reminder 的优先级**高于一般对话上下文**，但**低于用户原始请求**
-- **绝不**在回复正文里向用户提及收到了 system-reminder（如"我注意到系统提醒……"
-  "根据系统提示……"这类表述一律禁止）
-- **绝不**因为收到 system-reminder 就中止当前 reply turn，也**不要**回复用户
-  征求确认（如"是否继续？""您看这样可以吗？"）。reminder 的作用是辅助你做
-  **下一次工具调用**的决策，而不是中断当前任务
-- 如果 reminder 提示你已偏离原始目标，**调整下一次工具调用的参数或换用更合适
-  的工具**纠正方向；不要把已经跑了一半的错方向硬走完，也不要中止本轮回复
-"""
-
-
-def ensure_system_reminder_convention_seeded() -> None:
-    """Called once at startup: if the active 'system' version's parts lack
-    ``system/05_system_reminder_convention``, insert the default.
-
-    Same pattern as ``ensure_project_mode_part_seeded``: if it already exists in the
-    DB (regardless of enabled state) leave it alone; if an admin deletes it via the
-    UI, the next startup re-seeds it (treated as restoring the default).
-
-    sort_order=5: placed after ``system/00_role`` and before ``system/10_constraints``,
-    so the model sees the "system conventions" before the anti-hallucination constraints.
-    """
-    import logging
-
-    log = logging.getLogger(__name__)
-    try:
-        from core.services import prompt_version_service as pvs
-
-        try:
-            pvs.seed_from_filesystem()
-        except Exception:
-            pass
-        active = pvs.get_active_version("system")
-        if not active or not active.get("id"):
-            log.warning(
-                "[prompt_seed] no active system version; skipped %s seed",
-                SYSTEM_REMINDER_CONVENTION_PART_ID,
-            )
-            return
-        parts = list(active.get("parts") or [])
-        if any(
-            (p.get("part_id") or "").strip() == SYSTEM_REMINDER_CONVENTION_PART_ID for p in parts
-        ):
-            return  # already present, idempotent return
-        parts.append(
-            {
-                "part_id": SYSTEM_REMINDER_CONVENTION_PART_ID,
-                "content": _SYSTEM_REMINDER_CONVENTION_DEFAULT,
-                "display_name": SYSTEM_REMINDER_CONVENTION_DISPLAY_NAME,
-                "sort_order": 5,
-                "is_enabled": True,
-            }
-        )
-        pvs.upsert_version(
-            "system",
-            active["id"],
-            name=active.get("name"),
-            description=active.get("description"),
-            parts=parts,
-        )
-        log.info(
-            "[prompt_seed] seeded %s into active system version=%s",
-            SYSTEM_REMINDER_CONVENTION_PART_ID,
-            active["id"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "[prompt_seed] ensure_system_reminder_convention_seeded skipped: %s",
-            exc,
-        )
 
 
 def ensure_project_mode_part_seeded() -> None:

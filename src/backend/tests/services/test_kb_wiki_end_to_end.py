@@ -603,3 +603,61 @@ def test_batching_never_crosses_knowledge_bases(wiki_db):
 
     siblings = job_queue.claim_sibling_ingest_jobs(session, "worker-1", KB_ID, limit=10)
     assert all(s.kb_id == KB_ID for s in siblings)
+
+
+def test_one_knowledge_base_runs_one_batch_at_a_time(wiki_db):
+    """同一个库同时只允许一批在跑。
+
+    同库两批并发会丢更新：写页阶段先把既有页读成内存快照，再逐条基于快照重写、
+    最后整体 upsert，而不同文档抽出同名 slug 是常态——后写的会覆盖先写的。
+    生产上两个 uvicorn worker 各跑一个 wiki worker 同啃一个库，内存也随之翻倍。
+    """
+    from core.kb.wiki import jobs as job_queue
+
+    session, _ = wiki_db
+    job_queue.enqueue_ingest(session, KB_ID, ["doc-a"])
+    job_queue.enqueue_ingest(session, KB_ID, ["doc-b"])
+
+    assert job_queue.claim_next_job(session, "worker-1") is not None
+    assert job_queue.claim_next_job(session, "worker-2") is None
+
+
+def test_a_busy_knowledge_base_does_not_block_other_ones(wiki_db):
+    """同库串行不能退化成全局串行，否则一个大库会把其他库全堵死。"""
+    from core.kb.wiki import jobs as job_queue
+
+    session, _ = wiki_db
+    session.add(
+        KBSpace(
+            kb_id="kb_other",
+            user_id=USER_ID,
+            name="别的库",
+            visibility="private",
+            extra_data={"index_modes": ["wiki"]},
+        )
+    )
+    session.commit()
+    job_queue.enqueue_ingest(session, KB_ID, ["mine"])
+    job_queue.enqueue_ingest(session, "kb_other", ["theirs"])
+
+    first = job_queue.claim_next_job(session, "worker-1")
+    second = job_queue.claim_next_job(session, "worker-2")
+    assert first is not None and second is not None
+    assert {first.kb_id, second.kb_id} == {KB_ID, "kb_other"}
+
+
+def test_a_dead_workers_knowledge_base_is_taken_over(wiki_db):
+    """持有者死了（心跳停摆）之后这个库必须能被接管，不能因为互斥而永远卡住。"""
+    from core.kb.wiki import jobs as job_queue
+    from core.kb.wiki.jobs import STALE_AFTER, _now
+
+    session, _ = wiki_db
+    job_queue.enqueue_ingest(session, KB_ID, ["doc-a"])
+    claimed = job_queue.claim_next_job(session, "worker-1")
+    assert claimed is not None
+
+    claimed.heartbeat_at = _now() - STALE_AFTER * 2
+    session.commit()
+
+    retaken = job_queue.claim_next_job(session, "worker-2")
+    assert retaken is not None and retaken.job_id == claimed.job_id

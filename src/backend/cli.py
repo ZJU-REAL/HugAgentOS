@@ -61,7 +61,9 @@ def _status(message: str, *, file=None, **kwargs) -> None:
 
 
 def data_dir() -> Path:
-    return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
+    from core.config.runtime_env import local_data_dir
+
+    return local_data_dir()
 
 
 def ensure_loopback_proxy_bypass() -> None:
@@ -106,6 +108,12 @@ def _resolve_frontend_dist() -> Optional[str]:
     src = Path(__file__).resolve().parents[1]
     cand = src / "frontend" / "dist"
     return str(cand) if (cand / "index.html").exists() else None
+
+
+def _site_template_home() -> Path:
+    from core.services.plugin_device_assets import site_template_home
+
+    return site_template_home()
 
 
 def apply_local_env(port: int) -> dict:
@@ -174,8 +182,6 @@ def apply_local_env(port: int) -> dict:
         # vite config all reference a container-canonical /opt/site-template + /workspace.
         # In local mode we provision the template under the data dir and point the
         # scripts at the real workspace via these envs (Docker keeps its baked defaults).
-        "SITE_TEMPLATE_HOME": str(dd / "site-template"),
-        "SITE_TEMPLATE_DIR": str(dd / "site-template" / "react-vite"),
         "SITE_NODE_BASE": str(dd / "workspace" / ".site-node"),
         "PORT": str(port),
     }
@@ -183,6 +189,18 @@ def apply_local_env(port: int) -> dict:
         defaults["FRONTEND_DIST_DIR"] = dist
     for k, v in defaults.items():
         os.environ.setdefault(k, v)
+
+    # Deliberately after the loop above: ``core.services`` pulls in
+    # ``core.config.settings``, and ``settings`` snapshots the environment the
+    # first time it is imported. Resolving the site-template path while building
+    # ``defaults`` would freeze a settings object that predates
+    # ``DEPLOY_PROFILE=local`` — the whole process would then run as a non-local
+    # deployment (no ``/api`` prefix bridge, no static frontend, mock auth).
+    site_home = _site_template_home()
+    defaults["SITE_TEMPLATE_HOME"] = str(site_home)
+    defaults["SITE_TEMPLATE_DIR"] = str(site_home / "react-vite")
+    os.environ.setdefault("SITE_TEMPLATE_HOME", defaults["SITE_TEMPLATE_HOME"])
+    os.environ.setdefault("SITE_TEMPLATE_DIR", defaults["SITE_TEMPLATE_DIR"])
     return defaults
 
 
@@ -357,9 +375,20 @@ def mark_web_onboarding_complete(user_id: str) -> None:
 # Recommended default plugin set for a personal single-machine install: task
 # scheduling, skill authoring/market, and conversational site-building. Others
 # (IM / email / low-code) need per-user credentials, so they're opt-in only.
-_DEFAULT_PLUGINS = ["automation", "skill-manager", "sites"]
-_DEFAULT_PLUGINS_MARKER = ".default-plugins-v1"
 _DEFAULT_PLUGIN_BOOTSTRAP_ENV = "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"
+
+
+def _default_plugins() -> list:
+    """推荐的默认插件集合，与库里的引导保持同一份来源。"""
+    from core.services.plugin_service import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS
+
+    return list(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS)
+
+
+def _default_plugins_marker() -> Path:
+    from core.services.plugin_service import LOCAL_BOOTSTRAP_MARKER_NAME
+
+    return data_dir() / LOCAL_BOOTSTRAP_MARKER_NAME
 
 
 def list_installable_plugins() -> list:
@@ -409,36 +438,32 @@ def ensure_default_plugins_once() -> bool:
 
     Returns ``True`` when this call performed the first successful bootstrap.
     """
-    marker = data_dir() / _DEFAULT_PLUGINS_MARKER
+    marker = _default_plugins_marker()
     if marker.is_file():
-        # Plugin choices stay untouched after first bootstrap, while the bundled
-        # site template may still receive compatible fixes in desktop upgrades.
-        provision_site_template(verbose=False)
         return False
 
-    installed = install_plugins(_DEFAULT_PLUGINS)
-    missing = [slug for slug in _DEFAULT_PLUGINS if slug not in installed]
+    defaults = _default_plugins()
+    installed = install_plugins(defaults)
+    missing = [slug for slug in defaults if slug not in installed]
     if missing:
         raise RuntimeError(f"默认插件安装不完整：{', '.join(missing)}")
-    if not provision_site_template(verbose=True):
-        raise RuntimeError("站点模板初始化失败")
-
     temporary = marker.with_name(f"{marker.name}.{os.getpid()}.tmp")
-    temporary.write_text("\n".join(_DEFAULT_PLUGINS) + "\n", encoding="utf-8")
+    temporary.write_text("\n".join(defaults) + "\n", encoding="utf-8")
     os.replace(temporary, marker)
     return True
 
 
 def _select_plugins_interactively(available: list) -> list:
     """Show the plugin menu, return the slugs the user picked."""
+    recommended = _default_plugins()
     print("\n[插件] 选择要安装的插件（可在插件市场随时增减）")
     for i, it in enumerate(available, 1):
-        rec = " ★推荐" if it["slug"] in _DEFAULT_PLUGINS else ""
+        rec = " ★推荐" if it["slug"] in recommended else ""
         installed = "（已装）" if it.get("installed") else ""
         desc = (it.get("description") or "")[:42]
         print(f"  {i:>2}. {it['name']}{rec}{installed} — {desc}")
     rec_nums = ",".join(
-        str(i) for i, it in enumerate(available, 1) if it["slug"] in _DEFAULT_PLUGINS
+        str(i) for i, it in enumerate(available, 1) if it["slug"] in recommended
     )
     print("  输入序号（逗号分隔）、'all' 全装、'none' 跳过；直接回车装推荐项。")
     raw = _prompt("  选择", rec_nums).strip().lower()
@@ -518,62 +543,23 @@ def configure_search_engine(engine: str, api_key: str) -> None:
 # ── Site-building template (React path) ──────────────────────────────────────
 
 
-def _repo_site_template_dir() -> Optional[Path]:
-    """Locate the shipped React site template (docker/site-template/) in the repo."""
-    # src/backend/cli.py → parents[2] = repo root
-    root = Path(__file__).resolve().parents[2]
-    cand = root / "docker" / "site-template"
-    return cand if (cand / "init-react-site.sh").is_file() else None
+def report_site_template(verbose: bool = True) -> bool:
+    """向导里报一句建站模板的状态；铺设本身在安装站点插件时就做了。"""
+    from core.services.plugin_device_assets import site_template_home
 
-
-def provision_site_template(verbose: bool = False) -> bool:
-    """Copy the React site template into the data dir so path-B building works.
-
-    Docker bakes this into the sandbox image at /opt/site-template; the host
-    subprocess sandbox has no such layer, so we materialize it under
-    ``SITE_TEMPLATE_HOME`` (set in ``apply_local_env``). node_modules is populated
-    lazily by the init script on first build (self-heal), keeping onboard fast.
-    Returns True if the template is in place.
-    """
-    import shutil
-
-    src = _repo_site_template_dir()
-    home = Path(os.environ.get("SITE_TEMPLATE_HOME", str(data_dir() / "site-template")))
-    if src is None:
-        if verbose:
-            _status("  ! 未找到站点模板（docker/site-template/），React 建站不可用")
+    home = site_template_home()
+    ready = (home / "init-react-site.sh").is_file()
+    if not verbose:
+        return ready
+    if not ready:
+        _status("  ! 站点模板未就绪，React 建站不可用", file=sys.stderr)
         return False
-    try:
-        # Lay down the react-vite template WITHOUT node_modules (init script runs
-        # npm install into it on first use) only when it's not already there —
-        # leave any built deps alone. The init script itself is always refreshed.
-        home.mkdir(parents=True, exist_ok=True)
-        if not (home / "init-react-site.sh").is_file():
-            shutil.copytree(
-                src / "react-vite",
-                home / "react-vite",
-                ignore=shutil.ignore_patterns("node_modules"),
-                dirs_exist_ok=True,
-            )
-        shutil.copy2(src / "init-react-site.sh", home / "init-react-site.sh")
-        os.chmod(home / "init-react-site.sh", 0o755)
-    except Exception as exc:  # noqa: BLE001
-        if verbose:
-            _status(f"  ! 站点模板铺入失败：{exc}", file=sys.stderr)
-        return False
-    if verbose:
-        tools = _probe_host_tools()
-        if tools["node"] and tools["npm"]:
-            _status(f"  ✓ React 建站模板已就绪：{home}")
-        else:
-            _status(
-                f"  ✓ React 建站模板已铺入：{home}"
-                "（缺 Node/npm，装 Node ≥ 20 后首次建站会自动装依赖）"
-            )
+    tools = _probe_host_tools()
+    if tools["node"] and tools["npm"]:
+        _status(f"  ✓ React 建站模板已就绪：{home}")
+    else:
+        _status(f"  ✓ React 建站模板已铺入：{home}（未检测到 Node/npm，首次构建时需要）")
     return True
-
-
-# ── Host tool capability probe ────────────────────────────────────────────────
 
 
 def _probe_host_tools() -> dict:
@@ -752,7 +738,7 @@ def cmd_onboard(args) -> int:
         raw = (args.plugins or "default").strip().lower()
         avail_slugs = {it["slug"] for it in list_installable_plugins() if not it.get("installed")}
         if raw in ("", "default"):
-            slugs = [s for s in _DEFAULT_PLUGINS if s in avail_slugs]
+            slugs = [s for s in _default_plugins() if s in avail_slugs]
         elif raw in ("none", "-"):
             slugs = []
         elif raw == "all":
@@ -764,9 +750,9 @@ def cmd_onboard(args) -> int:
     if slugs:
         print(f"\n[插件] 安装 {len(slugs)} 个插件…")
         installed_slugs = install_plugins(slugs)
-        # Site-building plugin → provision the React project template so path B works locally.
+        # 站点插件的建站模板在安装时就铺好了，这里只把状态说给用户听。
         if "sites" in installed_slugs:
-            provision_site_template(verbose=True)
+            report_site_template()
 
     # Step 4 — file parser (PDF / scanned-document parsing on upload). Optional.
     fp_url = args.file_parser_url
@@ -829,19 +815,32 @@ def _open_browser_when_ready(port: int) -> None:
         pass
 
 
+def bootstrap_default_plugins_if_needed() -> None:
+    """按形态决定要不要装本机默认插件。
+
+    混合模式（桥接已注入）下能力一律以云端账号同步下来的为准，本机不自带。Windows
+    壳在双模式下本就不会设引导变量，UOS 壳是无条件设的——判断放在这里，两端和历史
+    启动脚本才是同一套规矩。
+    """
+    from core.capabilities import device_catalog
+
+    if os.getenv(_DEFAULT_PLUGIN_BOOTSTRAP_ENV) != "1" or device_catalog.active():
+        return
+    try:
+        bootstrapped = ensure_default_plugins_once()
+    except Exception as exc:  # noqa: BLE001
+        # The desktop readiness endpoint must not go healthy with only a
+        # partial default-plugin set. No marker is written on failure, so
+        # the next installer-managed start will retry the full bootstrap.
+        raise RuntimeError(f"默认插件初始化失败，下次启动将重试：{exc}") from exc
+    if bootstrapped:
+        _status("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
+
+
 def cmd_serve(args) -> int:
     apply_local_env(args.port)
     _ensure_schema_and_seed()
-    if os.getenv(_DEFAULT_PLUGIN_BOOTSTRAP_ENV) == "1":
-        try:
-            bootstrapped = ensure_default_plugins_once()
-        except Exception as exc:  # noqa: BLE001
-            # The desktop readiness endpoint must not go healthy with only a
-            # partial default-plugin set. No marker is written on failure, so
-            # the next installer-managed start will retry the full bootstrap.
-            raise RuntimeError(f"默认插件初始化失败，下次启动将重试：{exc}") from exc
-        if bootstrapped:
-            _status("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
+    bootstrap_default_plugins_if_needed()
     import uvicorn
     from api.app import app
 

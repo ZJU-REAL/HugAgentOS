@@ -90,6 +90,9 @@ DEFAULT_BOOTSTRAP_PLUGIN_SLUGS: Tuple[str, ...] = (
     "sites",
 )
 DEFAULT_BOOTSTRAP_MARKER_ID = "default_plugins_bootstrap_v1"
+# 本机（桌面 / 单机）引导用的是数据目录里的文件标记，不是库里的行：装过一次之后
+# 卸掉某个默认插件是用户的明确选择，不该在下次启动时被复活。
+LOCAL_BOOTSTRAP_MARKER_NAME = ".default-plugins-v1"
 
 # ── Plugin market display metadata (display_name / category / icon) ──────────
 # The Agent Plugins standard manifest carries no display fields — display
@@ -674,6 +677,11 @@ def _apply_normalized(
         },
         owner_user_id=owner_user_id,
     )
+    # 插件在本机需要的资产（如站点插件的建站模板）跟着插件走：装到哪台机器上，就在
+    # 哪台机器上铺。云端同步装的那条走 desktop_cloud_bundles 的发布钩子，同一张表。
+    from core.services.plugin_device_assets import provision_for
+
+    provision_for(np.slug)
     logger.info(
         "plugin_%s: slug=%s kind=%s owner=%s skills=%d mcp=%d dropped=%d "
         "ontology_validation=%s forced=%s",
@@ -950,6 +958,15 @@ def list_installed(
       with the skill library showing global skills).
     """
     from sqlalchemy import or_
+
+    from core.capabilities import device_catalog
+
+    if device_catalog.active():
+        # 混合模式：装什么由云端账号定。本机业务库里的行是历史遗留（早期版本的本机
+        # 引导、或安装请求还打在本机的那阵子装的），它们的连接器指向本机没人监听的
+        # 端口，跑不通，列出来只会和云端同步下来的同名插件并排。不删行——机器切回
+        # 纯本机模式时它们照旧生效。
+        return []
 
     q = db.query(InstalledPlugin)
     if owner_user_id is None:

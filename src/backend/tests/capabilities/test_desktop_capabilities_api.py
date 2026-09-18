@@ -62,7 +62,7 @@ class _Resp:
 
 
 class _Cloud:
-    def __init__(self, files_by_id: dict, suppressed=()):
+    def __init__(self, files_by_id: dict, disabled=()):
         entries, self.bundles = [], {}
         for sid, files in files_by_id.items():
             md = files.get("SKILL.md") or _md(sid)
@@ -77,10 +77,12 @@ class _Cloud:
                     "scope": "shared",
                     "content_hash": h,
                     "mcp_server_ids": [],
+                    "enabled": sid not in set(disabled),
+                    "source_plugin": "",
                 }
             )
             self.bundles[sid] = _zip(sid, {"SKILL.md": md, **extra})
-        self.manifest = build_skill_manifest(entries, list(suppressed))
+        self.manifest = build_skill_manifest(entries)
 
     def get(self, url, headers=None, timeout=None):
         if url.endswith("/skills/manifest"):

@@ -8,7 +8,8 @@
   就已经可用，界面上没有任何「待下载 / 在本机准备」的手动步骤；
 - 本机已就绪（ready）而云端内容哈希变了的技能自动拉新版本到新的 revision
   目录并切换视图；
-- 云端停用（``suppressed_ids``）的技能在本机置为停用，文件保留；
+- 清单是账号的技能**全集**，云端停用的一并下发：本机照样装好，只是初值为停用。
+  装了什么由云端定，开不开由本机定，再同步一次不会翻掉用户在本机的开关；
 - 从清单消失的技能撤销运行授权；历史 revision 留给运行记录与恢复。
 
 下载的包先落 staging，解压后按同一哈希算法核对内容，再以 ``os.replace`` 发布
@@ -90,7 +91,6 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
     profile = _profile(state)
     cloud_base = str(state["cloud_base"])
     wanted = {s["skill_id"]: s for s in manifest["skills"]}
-    suppressed = set(manifest["suppressed_ids"])
     existing = {
         inst.key: inst
         for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile, include_removed=True)
@@ -106,8 +106,9 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
             version=entry["version"],
             content_hash=entry["content_hash"],
             source="cloud",
+            source_plugin=entry["source_plugin"] or None,
             payload={"scope": entry["scope"], "mcp_server_ids": list(entry["mcp_server_ids"])},
-            enabled=True,
+            initial_enabled=bool(entry["enabled"]),
         )
         if not inst.ready:
             needs_prepare.append(inst.install_id)
@@ -116,14 +117,8 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
         elif inst.payload.get("update_available"):
             needs_prepare.append(inst.install_id)
     for sid, inst in existing.items():
-        if sid in wanted:
-            continue
-        if sid in suppressed:
-            if inst.state != "removed":
-                registry.set_state(inst.install_id, inst.state, payload_update={"source_enabled": False})
-                registry.set_enabled(inst.install_id, False)
-            continue
-        if inst.state != "removed":
+        # 清单是全集，不在里面就是账号里没有了——停用过的仍在清单内，不会走到这。
+        if sid not in wanted and inst.state != "removed":
             registry.mark_removed(inst.install_id)
     return needs_prepare
 
@@ -252,11 +247,7 @@ def apply_to_enabled_skill_ids(skill_ids: List[str]) -> List[str]:
     from core.capabilities.plugins import enabled_cloud_skill_intents
 
     plugin_intents = enabled_cloud_skill_intents(skills.current_local_user_id())
-    hidden = (
-        set(manifest["suppressed_ids"])
-        | set(resolution.conflicts)
-        | (set(resolution.unusable) - plugin_intents)
-    )
+    hidden = set(resolution.conflicts) | (set(resolution.unusable) - plugin_intents)
     ready = [c.runtime_name for c in resolution.chosen.values() if c.source == "cloud"]
     kept = [sid for sid in skill_ids if sid not in hidden]
     seen = set(kept)
@@ -297,7 +288,6 @@ def status() -> Dict[str, Any]:
         "cloud_skill_count": len((manifest or {}).get("skills") or []),
         "installed_count": sum(1 for i in installations if i["state"] == "ready"),
         "pending_count": sum(1 for i in installations if i["state"] == "pending"),
-        "suppressed_count": len((manifest or {}).get("suppressed_ids") or []),
         "installations": installations,
         "last_error": err,
     }

@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import mapped_column, relationship
@@ -58,6 +59,8 @@ class ScheduledTask(Base):
     status = Column(String(20), nullable=False, default="active")
     next_run_at = Column(TIMESTAMP(timezone=True))
     last_run_at = Column(TIMESTAMP(timezone=True))
+    # 用户点「立即执行」时写入，调度器取走后清空（见 AutomationService.request_manual_trigger）。
+    manual_trigger_at = Column(TIMESTAMP(timezone=True))
     run_count = Column(Integer, default=0)
     max_runs = Column(Integer)
 
@@ -99,6 +102,11 @@ class ScheduledTask(Base):
         Index("idx_scheduled_tasks_user_id", "user_id"),
         Index("idx_scheduled_tasks_status", "status"),
         Index("idx_scheduled_tasks_user_status", "user_id", "status"),
+        Index(
+            "idx_scheduled_tasks_manual_trigger",
+            "manual_trigger_at",
+            postgresql_where=text("manual_trigger_at IS NOT NULL"),
+        ),
     )
 
 

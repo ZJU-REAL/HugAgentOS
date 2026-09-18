@@ -18,6 +18,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from core.auth.backend import UserContext, get_current_user
+from core.infra.logging import quiet_access_log
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -348,6 +349,7 @@ def _preferences(kind: str, user_id: str) -> Dict[str, str]:
 
 
 @router.get("/installations", summary="本机能力：意图、设备状态与解析结果")
+@quiet_access_log
 async def list_installations(kind: str = "skill", user: UserContext = Depends(get_current_user)):
     _require_desktop_store()
     from core.capabilities.change_sync import annotate

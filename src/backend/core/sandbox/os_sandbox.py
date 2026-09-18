@@ -14,10 +14,12 @@ User's choice                Resulting policy
 Preset ``full``              No confinement at all. This is the preset whose
                              entire meaning is "run it as me"; honouring it is
                              not a fallback, it is the setting.
-Preset ``ask`` / ``auto``    Filesystem restricted: reads open, writes limited
-                             to the workspace, the folders granted read-write,
-                             and the paths this one command was approved to
-                             write. Scratch space is private.
+Preset ``ask`` / ``auto``    Filesystem restricted: reads open **except** this
+                             install's own directories (see
+                             :func:`protected_read_paths`), writes limited to
+                             the workspace, the folders granted read-write, and
+                             the paths this one command was approved to write.
+                             Scratch space is private.
 Grant mode ``read``          Contributes a readable root and no write.
 ``workspace_write = block``  No writable roots at all — a read-only sandbox.
 ``danger.network = block``   Network restricted; anything else leaves it open,
@@ -70,7 +72,9 @@ def local_state_dir() -> str:
     Reuses the data directory the rest of local mode already agrees on rather
     than introducing a sandbox-specific location.
     """
-    return str(Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser())
+    from core.config.runtime_env import local_data_dir
+
+    return str(local_data_dir())
 
 
 def protected_metadata_names() -> tuple[str, ...]:
@@ -81,6 +85,38 @@ def protected_metadata_names() -> tuple[str, ...]:
     editing a list.
     """
     return (VERSION_CONTROL_METADATA_NAME, os.path.basename(local_state_dir()))
+
+
+# The installed runtime's own root. The other two directories this install owns
+# already have an accessor (``local_state_dir``) or a named constant
+# (``capabilities.paths.CAPS_ROOT_ENV``); this one does not, so it is read here.
+_INSTALL_ROOT_ENV = "HUGAGENT_INSTALL_ROOT"
+
+
+def protected_read_paths() -> tuple[str, ...]:
+    """Directories a sandboxed command may not read, derived from this install.
+
+    These hold the agent's own authority and records — the local database, the
+    desktop bridge secret, the capability store, the installed runtime. A
+    command that could read them could read every past conversation and then
+    authenticate to the local backend as the signed-in user.
+
+    The locations come from what the desktop shell actually injected at startup,
+    so a rebranded or relocated install protects its own directories with no
+    list to maintain.
+
+    Only the workspace lives inside them, and it stays reachable: the sandbox
+    resolves the *narrowest* matching entry, and the writable workspace root is
+    deeper than the data root denied here.
+    """
+    from core.capabilities.paths import CAPS_ROOT_ENV
+
+    candidates = [local_state_dir()]
+    for name in (CAPS_ROOT_ENV, _INSTALL_ROOT_ENV):
+        raw = (os.getenv(name) or "").strip()
+        if raw:
+            candidates.append(str(Path(raw).expanduser()))
+    return tuple(dict.fromkeys(candidates))
 
 
 def build_context(*, workspace_root: str, cwd: Optional[str] = None) -> PolicyContext:
@@ -177,4 +213,5 @@ __all__ = [
     "local_state_dir",
     "policy_unenforceable_reason",
     "protected_metadata_names",
+    "protected_read_paths",
 ]

@@ -278,7 +278,10 @@ def trigger_automation(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """立即手动触发一次自动化任务执行（异步），仅 active / paused 状态可触发。"""
+    """立即手动触发一次自动化任务执行（异步），仅 active / paused 状态可触发。
+
+    只登记请求，执行由调度器接手——原因见 ``request_manual_trigger``。
+    """
     svc = AutomationService(db)
     task = svc.get_task(task_id, user.user_id)
     if not task:
@@ -286,16 +289,7 @@ def trigger_automation(
     if task.status not in ("active", "paused"):
         raise HTTPException(status_code=400, detail=f"任务状态为 '{task.status}'，无法手动触发")
 
-    from orchestration.schedulers.automation_scheduler import get_scheduler
-    scheduler = get_scheduler()
-    if not scheduler:
-        raise HTTPException(status_code=503, detail="任务调度服务尚未就绪")
-    if scheduler:
-        import asyncio
-        # 手动触发不经过调度器的 advance_next_run，累计执行次数得在这里补一次，
-        # 否则详情页会出现「执行记录有好几条、累计执行 0 次」。
-        svc.bump_run_count(task.task_id)
-        asyncio.create_task(scheduler.execute_task(task.task_id, task.user_id))
+    svc.request_manual_trigger(task)
     return success_response(message="已触发执行")
 
 

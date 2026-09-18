@@ -155,7 +155,7 @@ def validate_manifest(raw: Any) -> Dict[str, Any]:
 
 # ── Skill manifest ───────────────────────────────────────────────────────
 
-SKILL_MANIFEST_VERSION = 1
+SKILL_MANIFEST_VERSION = 2
 
 _SKILL_ENTRY_KEYS = frozenset(
     {
@@ -166,6 +166,11 @@ _SKILL_ENTRY_KEYS = frozenset(
         "scope",
         "content_hash",
         "mcp_server_ids",
+        # 云端当前的启停，只作本机首次落地的初值：装了什么由云端决定，开不开由本机决定。
+        "enabled",
+        # 属于哪个插件（空串表示独立技能）。插件的组件只在插件下露面，不单独进技能库，
+        # 这个归属得由技能自己带着——插件清单是另一次同步，靠它反查会有空窗。
+        "source_plugin",
     }
 )
 
@@ -177,15 +182,17 @@ def skill_content_hash(skill_content: str, extra_files: Dict[str, Any]) -> str:
     return canonical_hash(files)
 
 
-def build_skill_manifest(skills: List[Dict[str, Any]], suppressed_ids: List[str]) -> Dict[str, Any]:
-    """Seal the user's effective skill set plus cloud-known but unavailable ids."""
+def build_skill_manifest(skills: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Seal every skill this account owns, enabled or not.
+
+    清单是「这个账号有哪些技能」，不是「哪些开着」。停用的一并下发，本机才装得全：
+    插件的子技能、智能体依赖的技能在云端常是关着的，只发启用的会让它们在本机整片缺失。
+    """
     snapshot = copy.deepcopy(skills)
-    suppressed = sorted({str(x) for x in suppressed_ids if str(x).strip()})
     return {
         "version": SKILL_MANIFEST_VERSION,
-        "revision": canonical_hash({"skills": snapshot, "suppressed_ids": suppressed}),
+        "revision": canonical_hash({"skills": snapshot}),
         "skills": snapshot,
-        "suppressed_ids": suppressed,
     }
 
 
@@ -195,12 +202,9 @@ def validate_skill_manifest(raw: Any) -> Dict[str, Any]:
     if raw.get("version") != SKILL_MANIFEST_VERSION:
         raise CapabilityManifestError("unsupported skill manifest version")
     skills = raw.get("skills")
-    suppressed = raw.get("suppressed_ids")
     revision = str(raw.get("revision") or "")
-    if not isinstance(skills, list) or not isinstance(suppressed, list) or not revision:
-        raise CapabilityManifestError(
-            "skill manifest is missing skills, suppressed_ids or revision"
-        )
+    if not isinstance(skills, list) or not revision:
+        raise CapabilityManifestError("skill manifest is missing skills or revision")
 
     normalized: List[Dict[str, Any]] = []
     seen: set = set()
@@ -214,18 +218,18 @@ def validate_skill_manifest(raw: Any) -> Dict[str, Any]:
             raise CapabilityManifestError("skill manifest entry has an invalid scope")
         if not isinstance(raw_skill.get("mcp_server_ids"), list):
             raise CapabilityManifestError("skill manifest entry has invalid mcp_server_ids")
+        if not isinstance(raw_skill.get("enabled"), bool):
+            raise CapabilityManifestError("skill manifest entry has an invalid enabled flag")
+        if not isinstance(raw_skill.get("source_plugin"), str):
+            raise CapabilityManifestError("skill manifest entry has an invalid source_plugin")
         seen.add(skill_id)
         normalized.append(copy.deepcopy(raw_skill))
-    suppressed_ids = [str(x) for x in suppressed]
-    if suppressed_ids != sorted(set(suppressed_ids)):
-        raise CapabilityManifestError("skill manifest suppressed_ids must be sorted and unique")
-    if canonical_hash({"skills": normalized, "suppressed_ids": suppressed_ids}) != revision:
+    if canonical_hash({"skills": normalized}) != revision:
         raise CapabilityManifestError("skill manifest revision mismatch")
     return {
         "version": SKILL_MANIFEST_VERSION,
         "revision": revision,
         "skills": normalized,
-        "suppressed_ids": suppressed_ids,
     }
 
 

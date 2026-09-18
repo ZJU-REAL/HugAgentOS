@@ -204,8 +204,9 @@ def test_both_streaming_gateways_block_cross_chunk_canary(monkeypatch, model):
 def test_collector_reads_only_authorized_mcp_and_model_credentials(monkeypatch):
     monkeypatch.setattr(
         cap,
-        "_user_effective_configs",
+        "_user_capability_configs",
         lambda *a, **k: (
+            ["allowed"],
             ["allowed"],
             {
                 "allowed": {
@@ -256,7 +257,7 @@ def test_collector_unavailability_fails_closed_without_raw_error(monkeypatch):
     def unavailable(*args, **kwargs):
         raise ValueError(CANARY)
 
-    monkeypatch.setattr(cap, "_user_effective_configs", unavailable)
+    monkeypatch.setattr(cap, "_user_capability_configs", unavailable)
     with pytest.raises(cap.CapabilityContentRejected) as caught:
         _REAL_COLLECTOR("user")
     assert CANARY not in str(caught.value)

@@ -147,6 +147,20 @@ export function isHybridDual(): boolean {
   return _hybridDual;
 }
 
+let _capabilityPlaneReady = false;
+/** 由 deploymentModeStore 在本机首轮能力同步完成后开启（壳的 /__desktop/events）。
+ *
+ *  闸门是「能力已同步」而不是「身份已认出」：身份一就绪就切到本机读，首轮同步
+ *  还没落完，能力中心会先渲染一版残缺清单，用户看到的是自己的能力凭空少了一半。 */
+export function setCapabilityPlaneReady(ready: boolean) {
+  _capabilityPlaneReady = ready;
+}
+
+/** 四类能力此刻是不是从本机读写（见 capabilityTargetHeaders）。 */
+export function capabilitiesRouteLocal(): boolean {
+  return _hybridDual && _capabilityPlaneReady;
+}
+
 const _localProjects = new Set<string>();
 const _localChats = new Set<string>();
 const _localLoops = new Set<string>();
@@ -180,24 +194,59 @@ function localHeader(): Record<string, string> {
   return { [LOCAL_TARGET_HEADER]: 'local' };
 }
 
-/** 四类能力（智能体 / 技能 / 连接器 / 插件）的写入接口。 */
-const CAPABILITY_WRITE_PATH = /^\/v1\/(catalog|plugins|marketplace|agent-marketplace|mcp-market|agents)(\/|$)/;
-/** 知识库挂在 catalog 下，但它不是能力项，仍然归云端。 */
-const KB_PATH = /^\/v1\/catalog\/kb(\/|$)/;
+/** 路由目标：`local` / `cloud` 是调用方的显式声明，不给就按下面的前缀表自动判定。 */
+export type RequestTarget = 'local' | 'cloud';
 
-/** 混合模式下四类能力的写入一律落本机：本机自成一套能力体系，启停与增删就地
- *  生效，不经云端往返——云端只在登录和能力增删时下发清单，不认启停变更。
+/** 「这台机器上装了什么」——四类能力落在本机的接口。整条前缀归本机的写成字符串，
+ *  只有部分子路径归本机的写成正则；新增一个能力入口在这里加一行，判定逻辑不用动。 */
+const LOCAL_CAPABILITY_PATHS: (string | RegExp)[] = [
+  'catalog', //          四类能力的启停目录（catalog.py）
+  'agents', //           智能体（agents.py）
+  'me/skills', //        自建技能（me_capabilities.py，prefix=/v1/me）
+  'me/mcp-servers', //   自建连接器（同上）
+  // 插件只有「本机这份清单长什么样、开还是关」归本机：装什么由云端账号定，市场
+  // 列表与详情、安装、导入、卸载、展示信息、共享应用授权都只存在于云端，打到本机
+  // 会在本机装出第二份——那份的连接器指向本机没人监听的端口，跑不通。界面贡献跟着
+  // 启停走，同样归本机，否则本机关掉的插件面板还留在界面上。
+  /^\/v1\/plugins\/(installed|ui-contributions)$/,
+  /^\/v1\/plugins\/installed\/[^/]+\/(detail|enable)$/,
+];
+
+/** 前缀命中时仍归云端的例外。
+ *  - 知识库挂在 catalog 下，但它不是装在这台机器上的东西，只存在于云端。 */
+const CLOUD_ONLY_PREFIXES = ['catalog/kb'];
+
+function underPrefix(path: string, entries: (string | RegExp)[]): boolean {
+  return entries.some((entry) =>
+    typeof entry === 'string'
+      ? path === `/v1/${entry}` || path.startsWith(`/v1/${entry}/`)
+      : entry.test(path),
+  );
+}
+
+/** 混合模式下四类能力在本机的**读和写都打本机**：本机自成一套能力体系，启停与增删就地
+ *  生效，不经云端往返。
+ *
+ *  读必须和写同源。读云端、写本机会让能力中心显示的是云端那份、真正生效的是本机那份：
+ *  用户在本机关掉的连接器界面上仍是开着的，插件开关点完当场弹回原位。
+ *
+ *  本机执行面还没认出云端身份时唯一存在的来源就是云端，这段时间照旧读云端——那不是第二
+ *  个真源，是本机那份还不存在。
+ *
+ *  与云端市场打交道的请求（安装、申请上架、OAuth 授权）不在表里，打到云端。装完之后云端
+ *  能力变更号会变，左侧边栏出现同步入口，用户点一下才把它落到本机。
+ *
  *  纯本机模式的壳本来就把所有请求指向本机后端，不必额外打头。 */
-function capabilityWriteHeaders(url: string, method?: string): Record<string, string> {
-  if (!_hybridDual) return {};
-  const verb = (method || 'GET').toUpperCase();
-  if (verb === 'GET' || verb === 'HEAD' || verb === 'OPTIONS') return {};
+function capabilityTargetHeaders(url: string): Record<string, string> {
+  if (!capabilitiesRouteLocal()) return {};
   // 调用方给的可能是裸路径，也可能是带 /api 前缀的整地址，一律从 /v1/ 起算。
   const pathname = new URL(url, 'http://request.invalid').pathname;
   const start = pathname.indexOf('/v1/');
   if (start < 0) return {};
   const path = pathname.slice(start);
-  if (KB_PATH.test(path) || !CAPABILITY_WRITE_PATH.test(path)) return {};
+  if (underPrefix(path, CLOUD_ONLY_PREFIXES) || !underPrefix(path, LOCAL_CAPABILITY_PATHS)) {
+    return {};
+  }
   return localHeader();
 }
 
@@ -360,41 +409,37 @@ function throwIfSessionExpired(status: number, payload: unknown, localTarget = f
   throw new Error('Session expired');
 }
 
-/** 云端每次让能力缓存失效都会换一个变更号，随响应头下发。桌面双模式下发现它变了
- *  就同步一次本机能力——这是「不轮询」下发现云端改动的信号，不产生额外请求。 */
+/** 云端每次让能力缓存失效都会换一个变更号，随响应头下发。桌面双模式下它变了只说明
+ *  「云端有改动可以同步」，**不会**自己去同步：发现和执行分开，和桌面端「检查更新」
+ *  一样由用户点一下才真正落到本机。检测本身不产生任何额外请求。 */
 const CAPABILITY_EPOCH_HEADER = 'x-hugagent-capability-epoch';
 let _capabilityEpoch: string | null = null;
-let _capabilitySyncTimer: ReturnType<typeof setTimeout> | null = null;
+let _onCapabilityDrift: (() => void) | null = null;
 
 function noteCloudCapabilityEpoch(epoch: string | null) {
   if (!epoch) return;
   const previous = _capabilityEpoch;
   _capabilityEpoch = epoch;
   if (previous === null || previous === epoch || !_hybridDual) return;
-  if (_capabilitySyncTimer) clearTimeout(_capabilitySyncTimer);
-  _capabilitySyncTimer = setTimeout(() => {
-    _capabilitySyncTimer = null;
-    void syncDeviceCapabilities().then(() => _onCapabilitiesSynced?.()).catch(() => {});
-  }, 500);
+  _onCapabilityDrift?.();
 }
 
-let _onCapabilitiesSynced: (() => void) | null = null;
-/** 同步完成后刷新界面上的本机/云端标记（由 desktopCapabilityStore 注册）。 */
-export function setCapabilitySyncListener(fn: (() => void) | null) {
-  _onCapabilitiesSynced = fn;
+/** 云端能力有改动时通知界面亮出同步入口（由 capabilitySyncStore 注册）。 */
+export function setCapabilityDriftListener(fn: (() => void) | null) {
+  _onCapabilityDrift = fn;
 }
 
 export async function apiRequest<T>(
   path: string,
   options?: RequestInit,
-  target?: 'local',
+  target?: RequestTarget,
 ): Promise<T> {
   const url = `${getApiUrl()}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     // 混合路由：显式声明本地目标时打头（web / 非双模式下反代忽略该头）。
     ...(target === 'local' ? localHeader() : {}),
-    ...capabilityWriteHeaders(path, options?.method),
+    ...(target === 'cloud' ? {} : capabilityTargetHeaders(path)),
     // 兜底：与 authFetch 同源推断——路径含本地项目/本地会话 id 时自动打头，
     // 否则 file-confirm / pending-confirm 等会话作用域请求会被误发云端，
     // 云端无此会话而报「会话不存在或无权访问」。
@@ -555,13 +600,19 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
 }
 
 export async function getCatalog(): Promise<Catalog> {
-  const wrapped = await apiRequest<unknown>('/v1/catalog');
-  const data = unwrapData<JsonObject>(wrapped);
+  const items = (value: unknown) => (Array.isArray(value) ? value : []) as CatalogItem[];
+  const data = unwrapData<JsonObject>(await apiRequest<unknown>('/v1/catalog'));
+  // 知识库不是「这台机器上装了什么」，它一直只存在于云端。混合模式下能力那三类
+  // 已经改从本机读（读写必须同源），知识库就得单独再取云端那一份补上，否则界面上
+  // 会整块消失。非混合模式下两次请求打的是同一个后端，取到的也是同一份。
+  const kb = capabilitiesRouteLocal()
+    ? items(unwrapData<JsonObject>(await apiRequest<unknown>('/v1/catalog', undefined, 'cloud')).kb)
+    : items(data.kb);
   return {
-    skills: (Array.isArray(data.skills) ? data.skills : []) as CatalogItem[],
-    agents: (Array.isArray(data.agents) ? data.agents : []) as CatalogItem[],
-    mcp: (Array.isArray(data.mcp) ? data.mcp : []) as CatalogItem[],
-    kb: (Array.isArray(data.kb) ? data.kb : []) as CatalogItem[],
+    skills: items(data.skills),
+    agents: items(data.agents),
+    mcp: items(data.mcp),
+    kb,
   };
 }
 
@@ -1942,9 +1993,10 @@ export async function withdrawMcpMarketSubmission(submissionId: string): Promise
 export async function uploadMySkill(file: File): Promise<{ id: string; skipped?: unknown[] }> {
   const form = new FormData();
   form.append('file', file);
-  // Cannot use apiRequest (it forces a JSON Content-Type); multipart goes through fetch directly.
+  // apiRequest 会强制 JSON Content-Type，multipart 用不了；改走 authFetch——它和
+  // apiRequest 挂的是同一套混合路由判定，不会漏标成云端写入。
   const url = `${getApiUrl()}/v1/me/skills/upload`;
-  const response = await fetch(url, { method: 'POST', credentials: 'include', body: form });
+  const response = await authFetch(url, { method: 'POST', body: form });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(readErrorMessage(payload, t('上传失败：{status}', { status: response.status })));
@@ -2048,9 +2100,9 @@ export async function uploadMySkillFile(
   const form = new FormData();
   form.append('file', file);
   if (path) form.append('path', path);
-  // multipart cannot go through apiRequest (it forces a JSON Content-Type)
+  // multipart 走不了 apiRequest（它强制 JSON Content-Type），authFetch 带同一套路由判定
   const url = `${getApiUrl()}/v1/me/skills/${encodeURIComponent(skillId)}/files/upload`;
-  const response = await fetch(url, { method: 'POST', credentials: 'include', body: form });
+  const response = await authFetch(url, { method: 'POST', body: form });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(readErrorMessage(payload, t('上传失败：{status}', { status: response.status })));
@@ -2061,7 +2113,7 @@ export async function uploadMySkillFile(
 // Export my private skill as a zip and trigger a browser download.
 export async function exportMySkillZip(skillId: string): Promise<void> {
   const url = `${getApiUrl()}/v1/me/skills/${encodeURIComponent(skillId)}/export`;
-  const response = await fetch(url, { credentials: 'include' });
+  const response = await authFetch(url);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(readErrorMessage(payload, t('导出失败：{status}', { status: response.status })));
@@ -2303,7 +2355,7 @@ export async function importPlugin(
   if (secrets && Object.keys(secrets).length > 0) {
     formData.append('secrets', JSON.stringify(secrets));
   }
-  const response = await fetch(url, { method: 'POST', credentials: 'include', body: formData });
+  const response = await authFetch(url, { method: 'POST', body: formData });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throwIfSessionExpired(response.status, payload);
@@ -2604,9 +2656,7 @@ export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   const url = request?.url ?? String(input);
   const headers = new Headers(inferTargetHeadersFromUrl(url));
   new Headers(init?.headers ?? request?.headers).forEach((value, key) => headers.set(key, value));
-  for (const [key, value] of Object.entries(
-    capabilityWriteHeaders(url, init?.method ?? request?.method),
-  )) {
+  for (const [key, value] of Object.entries(capabilityTargetHeaders(url))) {
     headers.set(key, value);
   }
   const localTarget = headers.get(LOCAL_TARGET_HEADER) === 'local'

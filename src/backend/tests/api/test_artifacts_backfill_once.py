@@ -114,7 +114,6 @@ def test_listing_never_runs_the_scan_on_the_request(user_with_history, monkeypat
     后者是仓库明文约定（见 core/kb/index_queue.py 开头的复盘）：``BackgroundTasks``
     的同步任务会吃掉 anyio 请求线程池的令牌，而每个请求都要经 ``get_db`` 拿一个。
     """
-    monkeypatch.setattr(route, "_reconcile_mirror_on_read", lambda user_id: None)
     monkeypatch.setattr(
         route,
         "_backfill_artifacts_from_messages",

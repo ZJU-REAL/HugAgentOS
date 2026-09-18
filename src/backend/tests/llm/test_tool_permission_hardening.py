@@ -7,6 +7,8 @@ a trusted unattended run, or an MCP tool accidentally entering the registry.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from agentscope.message import ToolCallBlock
 from core.llm.agent_factory import _default_allow_builtin_tools
@@ -187,7 +189,8 @@ async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
     Channel and automation entry points are trusted enough not to stop and ask,
     but they are not a reason to hand a command more of the machine than the
     user's own configuration allows — so the ticket carries that configuration's
-    preset and scope, exactly as an interactive run would.
+    preset and scope, exactly as an interactive run would. The sandbox only
+    exists in local mode, which is where these entry points meet host commands.
     """
     registry = ToolPermissionRegistry()
     registry.register("bash", builtin_tool_permission("bash"), source="native")
@@ -200,7 +203,8 @@ async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
         ),
     )
 
-    outcome = await service.authorize(_tool_call("bash", {"command": "touch /tmp/x"}))
+    with patch("core.config.local_mode.local_mode_enabled", return_value=True):
+        outcome = await service.authorize(_tool_call("bash", {"command": "touch /tmp/x"}))
 
     assert outcome.proceed is True
     assert outcome.ticket is not None
@@ -210,6 +214,42 @@ async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
     assert outcome.ticket.local_command.approval_mode == "ask"
     assert outcome.ticket.local_command.confined is True
     assert outcome.audit["decision"] == "allow_trusted_unattended"
+
+
+@pytest.mark.asyncio
+async def test_trusted_unattended_run_still_obeys_a_policy_denial():
+    """Being unattended answers the confirmation; it does not waive the policy.
+
+    The earlier implementation returned a ticket before evaluating any intent,
+    so a scheduled run could read or write host paths the user's own policy
+    blocks outright — the one thing no preset is allowed to skip.
+    """
+    from core.sandbox.local_policy import Policy
+
+    registry = ToolPermissionRegistry()
+    registry.register("Read", builtin_tool_permission("Read"), source="native")
+    service = ToolPermissionService(
+        registry,
+        _runtime(
+            interactive=False,
+            approval_available=False,
+            default_allow=True,
+        ),
+    )
+
+    with (
+        patch("core.config.local_mode.local_mode_enabled", return_value=True),
+        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch(
+            "core.services.local_grant_service.policy_for_gate",
+            return_value=Policy(out_of_scope="block"),
+        ),
+    ):
+        outcome = await service.authorize(_tool_call("Read", {"file_path": "/etc/shadow"}))
+
+    assert outcome.proceed is False
+    assert outcome.ticket is None
+    assert outcome.audit["decision"] == "deny"
 
 
 @pytest.mark.parametrize(

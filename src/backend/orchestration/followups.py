@@ -6,7 +6,7 @@ the user might want to ask next.  The questions are returned as
 structured data (not embedded in the response text), so the frontend
 can render them as clickable buttons.
 
-Uses the same httpx + OpenAI-compatible API pattern as summarizer.py.
+走 core.llm.single_turn，端点用哪条协议由它按配置决定。
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Optional
 
-import httpx
 from core.config.settings import settings
+from core.llm.single_turn import Endpoint, complete
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ _PROMPT_TEMPLATE = """/no_think
 """
 
 
-def _resolve_followup_config() -> tuple[str, str, str, str]:
+def _resolve_followup_endpoint() -> Optional[Endpoint]:
     """Resolve model config from DB: try 'followup' role, then 'summarizer', then 'main_agent'."""
     try:
         from core.services.model_config import ModelConfigService
@@ -46,11 +46,11 @@ def _resolve_followup_config() -> tuple[str, str, str, str]:
         svc = ModelConfigService.get_instance()
         for role in ("followup", "summarizer", "main_agent"):
             cfg = svc.resolve(role)
-            if cfg:
-                return cfg.base_url, cfg.api_key, cfg.model_name, cfg.provider
+            if cfg and cfg.base_url and cfg.api_key and cfg.model_name:
+                return Endpoint.from_resolved(cfg)
     except Exception as exc:  # noqa: BLE001
         _LOGGER.debug("ModelConfigService unavailable for followup: %s", exc)
-    return "", "", "", ""
+    return None
 
 
 class FollowUpGenerator:
@@ -77,16 +77,11 @@ class FollowUpGenerator:
         if not self.enabled:
             _LOGGER.warning("[followup] disabled, skipping")
             return []
-        resolved = _resolve_followup_config()
-        model_url, api_key, model_name = resolved[:3]
-        provider = resolved[3] if len(resolved) > 3 else "unknown"
-        if not model_url or not api_key or not model_name:
-            _LOGGER.warning(
-                "[followup] no model config resolved (url=%s, model=%s)",
-                bool(model_url),
-                model_name,
-            )
+        endpoint = _resolve_followup_endpoint()
+        if endpoint is None:
+            _LOGGER.warning("[followup] no model config resolved")
             return []
+        model_name = endpoint.model_name
         if not user_message or not assistant_response:
             _LOGGER.warning(
                 "[followup] empty input: user_msg=%d, assistant=%d",
@@ -117,43 +112,17 @@ class FollowUpGenerator:
                 assistant_preview=assistant_response[:500],
             )
 
-            # Build request body — avoid sending thinking-related params
-            # that may cause errors on models that don't support them.
-            req_body: dict = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.5,
-                "max_tokens": 512,
-            }
-            # For thinking-capable models, explicitly disable thinking
-            model_lower = model_name.lower()
-            if any(k in model_lower for k in ("deepseek", "r1", "qwen")):
-                req_body["chat_template_kwargs"] = {"enable_thinking": False}
-
-            # 桌面本机执行面的模型行存的是账号绑定的网关引用而不是密钥；凭据由
-            # 桌面模型凭据模块按当前桥接状态实时注入（与主对话同一来源）。
-            from core.services.desktop_model_credentials import prepare_request_headers
-
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    f"{model_url}/chat/completions",
-                    headers=prepare_request_headers(api_key, model_url),
-                    json=req_body,
-                )
-
-            if resp.status_code != 200:
-                _LOGGER.warning(
-                    "[followup] API error: %s %s",
-                    resp.status_code,
-                    resp.text[:200],
-                )
-                return []
+            result = await complete(
+                endpoint,
+                prompt,
+                temperature=0.5,
+                max_tokens=512,
+                timeout=timeout,
+            )
 
             status = "success"
-            payload = resp.json()
-            response_usage = payload.get("usage") or {}
-
-            raw = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+            response_usage = result.usage
+            raw = result.text
             _LOGGER.info(
                 "[followup] raw LLM response (%d chars): %s", len(raw), raw[:200]
             )
@@ -182,7 +151,6 @@ class FollowUpGenerator:
                     )
                     from core.services.harness_ledger import HarnessUsageLedger
 
-                    details = response_usage.get("prompt_tokens_details") or {}
                     recorder = usage_recorder or HarnessUsageLedger()
                     await record_usage_safely(
                         recorder,
@@ -190,7 +158,7 @@ class FollowUpGenerator:
                             run_id=run_id,
                             kind="model",
                             operation_name=model_name,
-                            provider=provider or "unknown",
+                            provider=endpoint.provider,
                             model=model_name,
                             status=status,
                             latency_ms=int((time.monotonic() - started) * 1_000),
@@ -202,9 +170,7 @@ class FollowUpGenerator:
                                     response_usage.get("completion_tokens") or 0
                                 ),
                                 cache_read_tokens=int(
-                                    response_usage.get("cache_read_tokens")
-                                    or details.get("cached_tokens")
-                                    or 0
+                                    response_usage.get("cache_read_tokens") or 0
                                 ),
                                 cache_write_tokens=int(
                                     response_usage.get("cache_write_tokens") or 0

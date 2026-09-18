@@ -726,8 +726,12 @@ def _make_openai_compatible(
     )
 
 
-def _wants_responses(spec, api_protocol: Optional[str]) -> bool:
+def wants_responses(spec, api_protocol: Optional[str]) -> bool:
     """Whether this endpoint should be driven over ``/responses``.
+
+    Public because the desktop model gateway has to route to the *same* path
+    this module will call. When the two disagreed, every Responses-protocol
+    model was proxied to ``/chat/completions`` and came back 404.
 
     Responses is the default: it carries reasoning as a first-class item instead of
     forcing it through ``reasoning_content``, so a thinking model's own reasoning can be
@@ -867,7 +871,7 @@ def make_chat_model(
             stream=stream,
         )
     # engine == "openai" (incl. azure_openai and all OpenAI-compatible vendor presets)
-    if _wants_responses(spec, api_protocol):
+    if wants_responses(spec, api_protocol):
         return _make_openai_responses(
             spec,
             model=model,

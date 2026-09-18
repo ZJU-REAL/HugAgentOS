@@ -2,7 +2,6 @@ import type { Catalog, ChatMessage, ChatStore } from './types';
 import { newMessageUid } from './utils/messageIdentity';
 
 export const STORAGE_KEY = 'hugagent_ui_chat_history_v2';
-export const ENABLE_KEY = 'hugagent_ui_enabled_catalog_v1';
 
 export const defaultCatalog: Catalog = {
   skills: [],
@@ -439,27 +438,6 @@ export function saveJsonPref(key: string, value: object) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch { /* localStorage unavailable (private mode / quota) */ }
-}
-
-export function loadCatalog(): Catalog {
-  try {
-    const raw = localStorage.getItem(ENABLE_KEY);
-    if (!raw) return structuredClone(defaultCatalog);
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return structuredClone(defaultCatalog);
-    return {
-      skills: Array.isArray(parsed.skills) ? parsed.skills : [],
-      agents: Array.isArray(parsed.agents) ? parsed.agents : [],
-      mcp: Array.isArray(parsed.mcp) ? parsed.mcp : [],
-      kb: Array.isArray(parsed.kb) ? parsed.kb : [],
-    };
-  } catch {
-    return structuredClone(defaultCatalog);
-  }
-}
-
-export function saveCatalog(catalog: Catalog) {
-  localStorage.setItem(ENABLE_KEY, JSON.stringify(catalog));
 }
 
 export function nowId(prefix = 'chat') {

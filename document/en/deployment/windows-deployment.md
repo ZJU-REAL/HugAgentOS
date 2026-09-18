@@ -183,6 +183,30 @@ docker compose --profile mem0 up -d
 | Repo/storage on `/mnt/c` | Not supported (performance and path-semantics issues); must live on the WSL2 filesystem |
 | Admin "rebuild sandbox dependencies" | Requires a correct `DOCKER_GID`; with a wrong GID the feature degrades gracefully without affecting anything else |
 
+## Where capabilities come from in hybrid mode
+
+In hybrid mode the agent, skill, connector and plugin lists all come from the capabilities
+synced down from the current cloud account. The local service no longer ships default plugins,
+and the built-in skills and connectors that ship with the package take no part either — they are
+neither listed in the capability centre nor assembled, so the model cannot call them. The cloud
+decides what is installed — installing, importing, uninstalling and editing display metadata all
+happen on the cloud account, after which the sidebar offers a sync entry that applies them
+locally when you click it. The device decides what is on — enable state and interface
+contributions are recorded locally, so disabling a plugin withdraws its panels immediately.
+Skills and connectors you created yourself exist only on this machine and are always kept.
+
+Default plugins installed locally by earlier versions (scheduled tasks, skill manager, sites)
+are not deleted; they simply take no part in hybrid mode — not listed, not assembled. Switch the
+machine back to local-only and they work again. Local-only deployments are unaffected and still
+install the default plugins on first start.
+
+The sites plugin also needs a build template on the device (the React template and
+`init-react-site.sh`). That asset follows the plugin: it is provisioned on local install, when a
+cloud sync prepares the plugin, and when a package upgrade refreshes plugins already present — so
+a site-building skill synced from the cloud can still build sites inside a local project, while a
+machine without the plugin gets nothing. Container deployments are unaffected: the sandbox image
+already carries `/opt/site-template`.
+
 ## Plugins and site publishing in hybrid mode
 
 With desktop capabilities v2, both the main agent and subagents first see a plugin directory.

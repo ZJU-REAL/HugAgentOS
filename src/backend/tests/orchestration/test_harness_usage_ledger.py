@@ -228,10 +228,18 @@ async def test_compaction_http_retry_is_also_physical_model_usage(
     import core.services.compaction_service as compaction
 
     ledger = HarnessUsageLedger(ledger_env)
+    from core.llm.single_turn import Endpoint
+
     monkeypatch.setattr(
         compaction,
         "_resolve_summarizer_model",
-        lambda: ("http://fake", "key", "summary-model", "summary-provider"),
+        lambda: Endpoint(
+            base_url="http://fake",
+            api_key="key",
+            model_name="summary-model",
+            provider="summary-provider",
+            api_protocol="chat_completions",
+        ),
     )
     monkeypatch.setattr(compaction, "_load_base_system_prompt", lambda: "")
 
@@ -370,13 +378,17 @@ async def test_model_internal_provider_fallback_records_both_requests(ledger_env
 
 @pytest.mark.asyncio
 async def test_followup_http_call_is_included_in_run_usage(ledger_env, monkeypatch):
+    from core.llm import single_turn
     from orchestration import followups
 
-    monkeypatch.setattr(
-        followups,
-        "_resolve_followup_config",
-        lambda: ("http://fake", "key", "followup-model", "followup-provider"),
+    endpoint = single_turn.Endpoint(
+        base_url="http://fake",
+        api_key="key",
+        model_name="followup-model",
+        provider="followup-provider",
+        api_protocol="chat_completions",
     )
+    monkeypatch.setattr(followups, "_resolve_followup_endpoint", lambda: endpoint)
 
     class Response:
         status_code = 200
@@ -401,7 +413,7 @@ async def test_followup_http_call_is_included_in_run_usage(ledger_env, monkeypat
         async def post(self, *args, **kwargs):
             return Response()
 
-    monkeypatch.setattr(followups.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(single_turn.httpx, "AsyncClient", Client)
     generator = followups.FollowUpGenerator()
     generator.enabled = True
     questions = await generator.generate(

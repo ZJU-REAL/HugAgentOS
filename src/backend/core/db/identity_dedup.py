@@ -35,7 +35,9 @@ UNIQUE_INDEX_NAME = "uq_users_shadow_user_center_id"
 
 def default_backup_dir() -> Path:
     """本机数据根下的备份目录（``HUGAGENT_HOME`` 由桌面壳注入）。"""
-    return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser() / "backups"
+    from core.config.runtime_env import local_data_dir
+
+    return local_data_dir() / "backups"
 
 
 def _expanding(sql: str) -> Any:

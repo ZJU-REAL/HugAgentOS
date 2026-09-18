@@ -24,7 +24,9 @@ _MAX_PER_FILE = 10
 
 
 def _data_dir() -> Path:
-    return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
+    from core.config.runtime_env import local_data_dir
+
+    return local_data_dir()
 
 
 def _snap_root() -> Path:

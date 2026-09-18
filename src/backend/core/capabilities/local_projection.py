@@ -24,6 +24,12 @@ def sync_local_skills() -> None:
             if not inspect(db.get_bind()).has_table(AdminSkill.__tablename__):
                 return
             rows = db.query(AdminSkill).order_by(AdminSkill.skill_id).all()
+            # 混合模式：本机业务库里的插件整体不参与（见 plugin_service.list_installed），
+            # 它们的技能同样不投影——否则会和云端同步下来的同名技能抢运行名。用户自建的
+            # 技能没有归属插件，照常投影：那是他自己的东西，只有这台机器上有。
+            from . import device_catalog
+
+            hybrid = device_catalog.active()
             definitions = [
                 {
                     "skill_id": row.skill_id,
@@ -38,6 +44,7 @@ def sync_local_skills() -> None:
                     "enabled": bool(row.is_enabled),
                 }
                 for row in rows
+                if not (row.source_plugin and hybrid)
             ]
         live = {}
         for definition in definitions:

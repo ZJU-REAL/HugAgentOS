@@ -11,6 +11,7 @@ Covers the pieces that are new or SQLite-risky (see
 """
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -649,3 +650,45 @@ def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit)
     assert "127.0.0.1" in os.environ["NO_PROXY"]
     if explicit is not None:
         assert "HTTP_PROXY" not in os.environ
+
+
+def test_apply_local_env_seeds_the_profile_before_settings_is_frozen(tmp_path):
+    """``DEPLOY_PROFILE`` must be in the environment before ``settings`` reads it.
+
+    ``core.config.settings`` snapshots the environment the first time it is
+    imported, and ``core.services`` imports it transitively. Resolving anything
+    that reaches ``core.services`` while building the local defaults therefore
+    freezes a settings object that predates ``DEPLOY_PROFILE=local``: the local
+    profile then silently runs as a compose deployment — no ``/api`` prefix
+    bridge, no static frontend, mock auth — which in the desktop shell shows up
+    as "本机执行面尚未就绪" on every hybrid request.
+
+    A fresh interpreter is required: ``settings`` is a module-level singleton.
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path as _Path
+
+    backend = str(_Path(__file__).resolve().parents[1])
+    script = (
+        "import os, sys, json\n"
+        "os.environ.pop('DEPLOY_PROFILE', None)\n"
+        f"os.environ['HUGAGENT_HOME'] = {str(tmp_path / 'home')!r}\n"
+        "import cli\n"
+        "cli.apply_local_env(port=18999)\n"
+        "from core.config.settings import settings\n"
+        "print(json.dumps({'is_local': settings.deploy.is_local,\n"
+        "                  'site_home': os.environ.get('SITE_TEMPLATE_HOME', '')}))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": backend},
+        cwd=backend,
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    payload = json.loads(out.stdout.strip().splitlines()[-1])
+    assert payload["is_local"] is True
+    assert payload["site_home"]

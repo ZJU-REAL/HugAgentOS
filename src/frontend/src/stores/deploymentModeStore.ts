@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { setHybridDual } from '../api';
+import { setCapabilityPlaneReady, setHybridDual } from '../api';
 
 /**
  * Desktop deployment-mode signal.
@@ -167,6 +167,7 @@ if (initial.isDesktop && typeof EventSource !== 'undefined') {
         || localService.message !== previous.localService?.message
         || localService.progress !== previous.localService?.progress
         || localService.ready !== previous.localService?.ready;
+      if (capabilitiesReady !== previous.capabilitiesReady) setCapabilityPlaneReady(capabilitiesReady);
       if (serviceChanged || localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
           || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError
           || capabilitySyncRetrying !== previous.capabilitySyncRetrying) {
