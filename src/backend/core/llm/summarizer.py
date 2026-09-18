@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 import logging
-from typing import Dict, List
-
-import httpx
+from typing import Dict, List, Optional
 
 from core.config.settings import settings
+from core.llm.single_turn import Endpoint, complete
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _resolve_summarizer_config() -> tuple[str, str, str]:
-    """Resolve model_url, api_key, model_name from DB (summarizer role)."""
+def _resolve_summarizer_endpoint() -> Optional[Endpoint]:
+    """Resolve the summarizer role's endpoint from DB."""
     try:
         from core.services.model_config import ModelConfigService
         cfg = ModelConfigService.get_instance().resolve("summarizer")
-        if cfg:
-            return cfg.base_url, cfg.api_key, cfg.model_name
+        if cfg and cfg.base_url and cfg.api_key and cfg.model_name:
+            return Endpoint.from_resolved(cfg)
     except Exception as exc:
         _LOGGER.debug("ModelConfigService unavailable for summarizer: %s", exc)
-    return "", "", ""
+    return None
 
 
 class ConversationSummarizer:
@@ -69,51 +68,24 @@ class ConversationSummarizer:
         if not self.enabled:
             return None
 
-        model_url, api_key, model_name = _resolve_summarizer_config()
-        if not model_url or not api_key or not model_name:
+        endpoint = _resolve_summarizer_endpoint()
+        if endpoint is None:
             _LOGGER.debug("Summarization skipped: model not configured")
             return None
         if not messages:
             return None
 
         try:
-            prompt = self._build_summary_prompt(messages)
-
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{model_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model_name,
-                        "messages": [
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                        "max_tokens": 2048,
-                        "enable_thinking": False,
-                        "chat_template_kwargs": {"enable_thinking": False},
-                    },
-                )
-
-                if response.status_code != 200:
-                    _LOGGER.error(
-                        "Summarization API error: %s %s", response.status_code, response.text[:200]
-                    )
-                    return None
-
-                data = response.json()
-                raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                summary = raw.strip()
-                summary = summary.strip('"\'。！？,.!? \n\t')
-
-                if len(summary) > 30:
-                    summary = summary[:30]
-
-                _LOGGER.info("Generated summary: %s", summary)
-                return summary or None
+            result = await complete(
+                endpoint,
+                self._build_summary_prompt(messages),
+                temperature=0.3,
+                max_tokens=2048,
+                timeout=timeout,
+            )
+            summary = result.text.strip('"\'。！？,.!? \n\t')[:30]
+            _LOGGER.info("Generated summary: %s", summary)
+            return summary or None
 
         except Exception as e:
             _LOGGER.error("Failed to generate summary: %s", e)

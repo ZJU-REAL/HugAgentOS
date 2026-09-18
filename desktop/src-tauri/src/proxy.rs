@@ -70,6 +70,9 @@ pub struct ProxyState {
     /// 云端身份是否已推到本机执行面（hybrid::on_cloud_login 维护）。
     pub bridge_sync: Arc<RwLock<crate::hybrid::BridgeSync>>,
     pub session_epoch: Arc<crate::auth::SessionEpoch>,
+    /// 反代实际监听的端口，`serve` 绑定后填入。同源判定要用它拼出自己的 origin：
+    /// 端口每次启动随机，不能写死，也没法在建 state 时就知道。
+    pub bound_port: Arc<std::sync::atomic::AtomicU16>,
 }
 
 /// 前端标记「该请求属于本地项目」的头；反代读取后剥离，不透传给任何后端。
@@ -80,6 +83,7 @@ pub const BRIDGE_USER_HEADER: &str = "x-desktop-bridge-user";
 
 /// 在 127.0.0.1 随机端口起反代，返回实际端口。axum serve 在后台 task 常驻。
 pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> {
+    let bound_port = state.bound_port.clone();
     let index = web_dir.join("index.html");
     // SPA 首页注入平台标题栏；macOS 保留原生菜单与交通灯，只叠加轻量工具栏。
     // Windows/Linux 继续使用一体化自绘标题栏。静态资源仍直接读取原 dist。
@@ -143,6 +147,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
+    bound_port.store(port, std::sync::atomic::Ordering::Relaxed);
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -151,6 +156,29 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     });
 
     Ok(port)
+}
+
+/// 这次请求是不是来自本窗口自己的页面。
+///
+/// 反代常驻在回环口上，并且**代替调用方注入凭据**——云端路由塞会话 cookie，本机路由塞
+/// 桥接秘密。也就是说，够得着这个端口的人不需要任何凭据就能以已登录用户的身份调后端。
+/// 端口随机只是提高了猜的成本，不是边界。
+///
+/// 浏览器引擎会如实标注请求的来源，这里就用它来判定：`Origin` 必须正好是本反代自己的
+/// 地址；没有 `Origin` 的请求（同源 GET、页面跳转）看 `Sec-Fetch-Site`。两者都拿不到，
+/// 说明发起方根本不是这个 WebView（curl、同机的其它程序），拒绝。
+fn is_same_origin(headers: &HeaderMap, port: u16) -> bool {
+    // WebView 指向的是 127.0.0.1；localhost 是同一个回环地址的另一种写法，
+    // 一并认，免得换个写法就整站不可用。
+    let allowed = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        return allowed.iter().any(|value| value == origin);
+    }
+    match headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        // same-origin = 本页面发起；none = 用户直接导航（地址栏 / 壳的跳转哨兵）。
+        Some(site) => site.eq_ignore_ascii_case("same-origin") || site.eq_ignore_ascii_case("none"),
+        None => false,
+    }
 }
 
 /// 正式站点及其管理接口只认云端：本机既不再托管站点，也不接受旧客户端遗留的
@@ -171,6 +199,10 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     let headers: HeaderMap = parts.headers;
 
     let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+
+    if !is_same_origin(&headers, state.bound_port.load(std::sync::atomic::Ordering::Relaxed)) {
+        return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
+    }
 
     // 混合架构（Dual）：前端给「本地项目」的请求打 x-hugagent-target: local，
     // 反代把它们转到当前品牌的本机执行面，其余一律云端。单一形态不路由。
@@ -321,7 +353,14 @@ async fn close_confirm_page() -> Html<String> {
 
 /// 把标题栏的缩放动作转给壳层。动作 id 与原生菜单共用，这里只做白名单校验，
 /// 「哪个 id 对应哪一档」只在 `menu::dispatch_for_window` 定义一处。
-async fn zoom_action(State(state): State<ProxyState>, Path(action): Path<String>) -> StatusCode {
+async fn zoom_action(
+    State(state): State<ProxyState>,
+    Path(action): Path<String>,
+    headers: HeaderMap,
+) -> StatusCode {
+    if !is_same_origin(&headers, state.bound_port.load(std::sync::atomic::Ordering::Relaxed)) {
+        return StatusCode::FORBIDDEN;
+    }
     if !matches!(action.as_str(), "zoom_in" | "zoom_out" | "zoom_reset") {
         return StatusCode::BAD_REQUEST;
     }
@@ -531,9 +570,15 @@ async fn desktop_events(
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-async fn start_local_install(State(state): State<ProxyState>) -> Json<SetupStatus> {
+async fn start_local_install(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_same_origin(&headers, state.bound_port.load(std::sync::atomic::Ordering::Relaxed)) {
+        return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
+    }
     state.local_server.prepare_in_background();
-    setup_status(State(state)).await
+    setup_status(State(state)).await.into_response()
 }
 
 /// 极简 HTML 属性/文本转义，防止后端地址里的引号破坏 value。
@@ -1661,6 +1706,53 @@ const SERVER_CONFIG_HTML: &str = r##"<!doctype html>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value.parse().unwrap(),
+            );
+        }
+        map
+    }
+
+    #[test]
+    fn only_this_windows_own_pages_may_use_the_injected_credentials() {
+        // 本页面发起的请求：两种标注任取其一都认。
+        assert!(is_same_origin(
+            &headers(&[("origin", "http://127.0.0.1:5173")]),
+            5173
+        ));
+        assert!(is_same_origin(
+            &headers(&[("origin", "http://localhost:5173")]),
+            5173
+        ));
+        assert!(is_same_origin(
+            &headers(&[("sec-fetch-site", "same-origin")]),
+            5173
+        ));
+        // 用户直接导航（壳的跳转哨兵走的就是这条）。
+        assert!(is_same_origin(&headers(&[("sec-fetch-site", "none")]), 5173));
+
+        // 网页跨站打过来。
+        assert!(!is_same_origin(
+            &headers(&[("origin", "https://evil.example")]),
+            5173
+        ));
+        // 端口对不上——另一个实例的页面也不行。
+        assert!(!is_same_origin(
+            &headers(&[("origin", "http://127.0.0.1:5174")]),
+            5173
+        ));
+        assert!(!is_same_origin(
+            &headers(&[("sec-fetch-site", "cross-site")]),
+            5173
+        ));
+        // 同机的其它程序（curl 之类）两种标注都给不出。
+        assert!(!is_same_origin(&headers(&[]), 5173));
+    }
 
     #[test]
     fn hybrid_file_menu_only_has_chat_folder_and_exit() {

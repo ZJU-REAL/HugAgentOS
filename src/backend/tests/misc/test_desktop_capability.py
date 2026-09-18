@@ -505,8 +505,9 @@ def test_capability_manifest_contains_current_sanitized_schemas(monkeypatch, db_
     db_session.commit()
     monkeypatch.setattr(
         cap,
-        "_user_effective_configs",
+        "_user_capability_configs",
         lambda _uid: (
+            ["private-search"],
             ["private-search"],
             {
                 "private-search": {

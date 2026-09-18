@@ -12,6 +12,17 @@ from core.db.models import ChatMessage, ChatSession
 from core.llm import compaction as C
 from core.services.chat_service import ChatService
 from core.services import compaction_service as S
+from core.llm.single_turn import Endpoint
+
+
+def _endpoint():
+    """压缩用的摘要端点；线路钉在 chat 上，这些用例验的是超窗自救不是协议。"""
+    return Endpoint(
+        base_url="http://fake",
+        api_key="k",
+        model_name="test-model",
+        api_protocol="chat_completions",
+    )
 
 
 CHAT_ID = "chat_compact_test"
@@ -331,7 +342,7 @@ def test_summarize_context_overflow_self_heal(monkeypatch):
     """Summary input exceeds the window → drop the oldest history and retry until it fits (aligned with Codex's ContextWindowExceeded handling)."""
     import asyncio
 
-    monkeypatch.setattr(S, "_resolve_summarizer_model", lambda: ("http://fake", "k", "test-model"))
+    monkeypatch.setattr(S, "_resolve_summarizer_model", lambda: _endpoint())
     monkeypatch.setattr(S, "_load_base_system_prompt", lambda: "SYS PROMPT")
 
     calls = []
@@ -379,7 +390,7 @@ def test_summarize_non_context_error_no_retry(monkeypatch):
     """Non-context-overflow errors (e.g. auth failure) skip the self-heal loop; return None after one attempt."""
     import asyncio
 
-    monkeypatch.setattr(S, "_resolve_summarizer_model", lambda: ("http://fake", "k", "test-model"))
+    monkeypatch.setattr(S, "_resolve_summarizer_model", lambda: _endpoint())
     monkeypatch.setattr(S, "_load_base_system_prompt", lambda: "")
 
     calls = []

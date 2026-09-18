@@ -91,27 +91,28 @@ async def _call_llm(
     when supported — otherwise we strip ``<think>...</think>`` blocks from
     the response post-hoc.
     """
+    from core.llm.single_turn import Endpoint, build_request, parse_response, turns
+
     cfg = ModelConfigService.get_instance().resolve("main_agent")
     if cfg is None:
-        base_url = os.environ.get("MODEL_URL", "")
-        api_key = os.environ.get("API_KEY", "")
-        model_name = os.environ.get("BASE_MODEL_NAME", "")
+        endpoint = Endpoint(
+            base_url=os.environ.get("MODEL_URL", ""),
+            api_key=os.environ.get("API_KEY", ""),
+            model_name=os.environ.get("BASE_MODEL_NAME", ""),
+        )
         timeout = 60
     else:
-        base_url = cfg.base_url
-        api_key = cfg.api_key
-        model_name = cfg.model_name
+        endpoint = Endpoint.from_resolved(cfg)
         timeout = cfg.timeout
 
-    if not base_url or not model_name:
+    if not endpoint.base_url or not endpoint.model_name:
         raise RuntimeError("main_agent model not configured")
 
-    messages: List[Dict[str, str]] = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
-
-    url = base_url.rstrip("/") + "/chat/completions"
+    base_url = endpoint.base_url
+    api_key = endpoint.api_key
+    url, _auth, base_payload = build_request(
+        endpoint, turns(prompt, system or None), temperature=0.3, max_tokens=max_tokens
+    )
     from core.services import desktop_model_credentials as credentials
 
     desktop_reference = credentials.is_reference(api_key)
@@ -139,44 +140,28 @@ async def _call_llm(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-    base_payload = {
-        "model": model_name,
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": max_tokens,
-        "stream": desktop_reference,
-    }
-    payload_with_extra = {
-        **base_payload,
-        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-    }
+    base_payload["stream"] = desktop_reference
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=hooks) as client:
         if desktop_reference:
             # The desktop gateway uses SSE. Keep the internal helper's text
             # contract while validating identity for every actual request.
-            raw = await _read_desktop_stream(
-                client, url, (payload_with_extra, base_payload), headers
-            )
+            raw = await _read_desktop_stream(client, url, endpoint, base_payload, headers)
             require_owner()
             require_current_account(captured)
             return raw.strip()
-        # Try with extra_body first (vLLM / qwen3 / DeepSeek-compatible);
-        # fall back to plain payload if endpoint rejects unknown fields.
-        resp = await client.post(url, json=payload_with_extra, headers=headers)
-        if resp.status_code >= 400:
-            resp = await client.post(url, json=base_payload, headers=headers)
+        resp = await client.post(url, json=base_payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
-    try:
-        raw = data["choices"][0]["message"]["content"] or ""
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"unexpected LLM response shape: {data}") from exc
-    return raw.strip()
+    return parse_response(endpoint, data).text
+
+
+# 一次重试：够让轮换后的凭据生效，又不至于把失败放大成重复计费。
+_CREDENTIAL_ROTATION_ATTEMPTS = 2
 
 
 def _is_security_rejection(response) -> bool:
-    """Safety failures must not be retried with a weaker request shape."""
+    """Safety failures must not be retried with rotated credentials."""
     try:
         pending = [response.json()]
     except ValueError:
@@ -201,18 +186,26 @@ def _is_security_rejection(response) -> bool:
     return False
 
 
-async def _read_desktop_stream(client, url, payloads, headers) -> str:
-    """Return only a complete OpenAI SSE answer; never accept a partial error body."""
+async def _read_desktop_stream(client, url, endpoint, payload, headers) -> str:
+    """Return only a complete SSE answer; never accept a partial error body.
+
+    事件形状按端点说的协议解析（``core.llm.single_turn``），不做两种形状都试一遍的猜测。
+    发两次是为了让轮换后的凭据有一次生效的机会——每次请求的钩子都会重新注入当前令牌；
+    真正的安全拒绝不重试，否则等于拿新令牌再撞一次同一堵墙。
+    """
+    from core.llm.single_turn import stream_complete, stream_delta
+
     try:
-        for index, payload in enumerate(payloads):
+        for attempt in range(_CREDENTIAL_ROTATION_ATTEMPTS):
             async with client.stream("POST", url, json=payload, headers=headers) as response:
                 if response.status_code >= 400:
                     await response.aread()
-                    if (
-                        index == 0
+                    retriable = (
+                        attempt + 1 < _CREDENTIAL_ROTATION_ATTEMPTS
                         and response.status_code in (400, 422)
                         and not _is_security_rejection(response)
-                    ):
+                    )
+                    if retriable:
                         continue
                     raise CloudUnavailable("cloud model request failed")
                 parts = []
@@ -231,12 +224,9 @@ async def _read_desktop_stream(client, url, payloads, headers) -> str:
                         chunk = json.loads(event)
                         if not isinstance(chunk, dict) or "error" in chunk:
                             raise ValueError("error event")
-                        for choice in chunk.get("choices") or []:
-                            text = (choice.get("delta") or {}).get("content")
-                            if text is not None:
-                                if not isinstance(text, str):
-                                    raise ValueError("invalid content delta")
-                                parts.append(text)
+                        parts.append(stream_delta(endpoint, chunk))
+                        if stream_complete(endpoint, chunk):
+                            return "".join(parts)
                     except (ValueError, TypeError, AttributeError) as exc:
                         raise CloudUnavailable("cloud model returned an invalid stream") from exc
                 raise CloudUnavailable("cloud model stream ended before completion")

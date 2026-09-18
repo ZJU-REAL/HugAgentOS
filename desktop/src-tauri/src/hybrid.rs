@@ -228,6 +228,7 @@ pub fn on_cloud_login(
             // 之后的能力变动由变更号驱动，不需要有人一直敲门。
             let next_renewal = tokio::time::Instant::now()
                 + std::time::Duration::from_secs(delay);
+            let mut attempts = 0u32;
             while tokio::time::Instant::now() < next_renewal {
                 if !current_session(&session_epoch, expected, &session_token, &token).await {
                     return;
@@ -252,9 +253,15 @@ pub fn on_cloud_login(
                         sync.error = error;
                         drop(sync);
                         local_server.notify_changed();
+                        attempts = 0;
+                    } else {
+                        attempts = attempts.saturating_add(1);
                     }
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(readiness_poll_delay_ms(
+                    attempts,
+                )))
+                .await;
             }
         }
     });
@@ -277,6 +284,17 @@ async fn read_capability_readiness(
         .map_err(|_| "本机能力同步进度格式无效".to_string())?;
     let data = &body["data"];
     Ok((data["ready"].as_bool() == Some(true), data["error"].as_str().map(str::to_owned)))
+}
+
+/// 就绪轮询的起步间隔：用户正盯着同步页，头几次要足够快。
+const READINESS_POLL_BASE_MS: u64 = 500;
+/// 一直不就绪时的间隔上限。卡住的状态不该一直以两次每秒敲本机后端——实测那会在
+/// 本机日志里堆出几十万条请求，日志体积的绝大部分都来自这一个循环。
+const READINESS_POLL_MAX_MS: u64 = 15_000;
+
+/// 读取就绪状态的退避间隔：读数没变化就逐步拉长，一有变化立刻回到起步间隔。
+fn readiness_poll_delay_ms(unchanged_reads: u32) -> u64 {
+    (READINESS_POLL_BASE_MS << unchanged_reads.min(5)).min(READINESS_POLL_MAX_MS)
 }
 
 /// Renew one minute before expiry; the cloud caps `expires_in` at 600 s.
@@ -654,6 +672,16 @@ pub fn base64_encode(input: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_polling_backs_off_and_is_capped() {
+        assert_eq!(readiness_poll_delay_ms(0), READINESS_POLL_BASE_MS);
+        assert_eq!(readiness_poll_delay_ms(1), 1_000);
+        assert_eq!(readiness_poll_delay_ms(4), 8_000);
+        // 卡在未就绪状态时封顶，不会再退化成每秒两次敲本机后端。
+        assert_eq!(readiness_poll_delay_ms(5), READINESS_POLL_MAX_MS);
+        assert_eq!(readiness_poll_delay_ms(u32::MAX), READINESS_POLL_MAX_MS);
+    }
 
     #[test]
     fn base64_matches_known_vectors() {

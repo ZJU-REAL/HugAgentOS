@@ -78,9 +78,15 @@ def list_installed(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return success_response(data={"items": ps.list_installed(
-        db, owner_user_id=str(user.user_id), include_global=True
-    )})
+    from core.capabilities import device_catalog
+
+    items = ps.list_installed(db, owner_user_id=str(user.user_id), include_global=True)
+    # 本机后端：云端账号装的插件登记在本机登记表里，业务库没有行——不投影进来，
+    # 能力中心的插件页在混合模式下就是空的。
+    items = device_catalog.merge_items(
+        items, device_catalog.plugin_entries(), key="install_id"
+    )
+    return success_response(data={"items": items})
 
 
 @router.get("/installed/{install_id}/detail", summary="已安装插件详情（含组件）")
@@ -90,6 +96,12 @@ def get_installed_detail(
     db: Session = Depends(get_db),
 ):
     """已安装插件的完整详情：技能（含指令/文件清单）+ MCP（含工具列表）。"""
+    # 云端同步来的插件在本机业务库里查不到，走登记表那份，否则详情页直接 404。
+    from core.capabilities import device_catalog
+
+    projected = device_catalog.plugin_detail(install_id)
+    if projected is not None:
+        return success_response(data=projected)
     return success_response(data=ps.get_installed_detail(
         db, install_id, owner_user_id=str(user.user_id)
     ))
@@ -220,6 +232,12 @@ def set_enabled(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # 云端同步来的插件登记在本机登记表里，业务库没有行——写用户覆盖既不生效也读不回来。
+    from core.capabilities import device_catalog
+
+    if device_catalog.set_plugin_enabled(install_id, body.enabled):
+        return success_response(data={"install_id": install_id, "enabled": body.enabled})
+
     # Each user toggles on their own (writes a per-user override); global plugins can also be
     # enabled/disabled per user without affecting others.
     result = ps.set_plugin_enabled_for_user(

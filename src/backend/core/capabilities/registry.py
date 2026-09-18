@@ -184,13 +184,20 @@ def upsert(
     source_plugin: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     enabled: Optional[bool] = None,
+    initial_enabled: Optional[bool] = None,
     db: Optional[Session] = None,
 ) -> Installation:
-    """Create or refresh the intent row. State transitions are done by the setters below."""
+    """Create or refresh the intent row. State transitions are done by the setters below.
+
+    ``enabled`` 是本机意图，每次都写；``initial_enabled`` 只在这台机器第一次见到这个
+    条目时作初值。云端同步走后者：云端决定这台机器上装了什么，开不开是本机自己的事，
+    再同步一次不该把用户在本机关掉的东西重新打开。
+    """
     iid = install_id(ref.kind, profile_id, ref.key)
     with _session(db) as s:
         row = s.get(DeviceCapabilityInstallation, iid)
         if row is None:
+            seed = enabled if enabled is not None else initial_enabled
             row = DeviceCapabilityInstallation(
                 install_id=iid,
                 profile_id=profile_id,
@@ -200,7 +207,7 @@ def upsert(
                 ref_namespace=ref.namespace,
                 ref_id=ref.id,
                 state="pending",
-                enabled=True if enabled is None else enabled,
+                enabled=True if seed is None else bool(seed),
                 source=source,
                 generation=0,
             )
@@ -224,8 +231,7 @@ def upsert(
         if payload:
             row.payload = {**dict(row.payload or {}), **payload}
         if enabled is not None:
-            row.payload = {**dict(row.payload or {}), "source_enabled": bool(enabled)}
-            row.enabled = bool(enabled and (row.payload or {}).get("device_enabled_override", True))
+            row.enabled = bool(enabled)
         if row.state == "removed":
             row.state = "pending"
         s.flush()

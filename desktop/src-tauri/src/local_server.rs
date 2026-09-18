@@ -497,10 +497,7 @@ impl LocalServerManager {
                 }
                 std::fs::create_dir_all(self.root.join("logs"))
                     .map_err(|e| format!("创建日志目录失败：{e}"))?;
-                let stdout = open_log(&self.log_path())?;
-                let stderr = stdout
-                    .try_clone()
-                    .map_err(|e| format!("打开服务错误日志失败：{e}"))?;
+                let log = Arc::new(Mutex::new(RotatingLog::open(&self.log_path())?));
                 let backend_cli = release
                     .source_dir
                     .join("src")
@@ -544,8 +541,10 @@ impl LocalServerManager {
                         self.node_runtime_dir().join("browsers"),
                     )
                     .stdin(Stdio::null())
-                    .stdout(Stdio::from(stdout))
-                    .stderr(Stdio::from(stderr));
+                    // 走管道而不是直接把文件交给子进程：句柄留在壳这边，日志才能在运行
+                    // 中滚存，而不是只在下次启动时才发现已经涨到几百 MB。
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
                 self.apply_tool_path(&mut command);
                 // 混合架构：把桥接秘密注入本机后端（身份桥 + 壳持有的本机控制台令牌）。
                 // 工具全部来自云端：本机不引导带 MCP 的默认插件，也不起内置 MCP。
@@ -567,6 +566,12 @@ impl LocalServerManager {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(error);
+                }
+                if let Some(output) = child.stdout.take() {
+                    pump_output(output, log.clone());
+                }
+                if let Some(errors) = child.stderr.take() {
+                    pump_output(errors, log);
                 }
                 let pid = child.id();
                 if let Err(error) = std::fs::write(self.pid_path(), pid.to_string()) {
@@ -830,27 +835,82 @@ impl Drop for LocalServerManager {
 /// 单个日志文件的上限；超过就滚存一代，只保留当前与上一代。
 const MAX_LOG_BYTES: u64 = 32 * 1024 * 1024;
 
-fn open_log(path: &Path) -> Result<File, String> {
-    rotate_log(path);
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| format!("打开服务日志失败：{e}"))
+/// 服务日志的滚存写入器。
+///
+/// 服务日志是追加写的，不滚存就会一直涨。此前只在**启动那一刻**查一次大小，而托盘常驻
+/// 正是这个产品的用法——一次连续运行攒到 450 MB 是实测过的。上限要在运行中生效，就必须
+/// 由壳自己持有文件句柄：子进程那边拿到的是管道，句柄换一份它无感，Windows 上也不会出现
+/// 「文件正被占用、改不了名」。
+struct RotatingLog {
+    path: PathBuf,
+    /// ``None`` 只出现在滚存过程中间：改名前必须真正关掉句柄，Windows 上改名一个
+    /// 仍被打开的文件会失败——那正是"轮转看起来没生效"的样子。
+    file: Option<File>,
+    written: u64,
+    limit: u64,
 }
 
-/// 服务日志是追加写的，不滚存就会一直涨（实测跑几天到过数百 MB，写放大明显）。
-/// 每次启动检查一次：超限就把当前这份挪成 `.1`，覆盖掉更早那一代。
-fn rotate_log(path: &Path) {
-    let oversized = std::fs::metadata(path)
-        .map(|meta| meta.len() >= MAX_LOG_BYTES)
-        .unwrap_or(false);
-    if !oversized {
-        return;
+impl RotatingLog {
+    fn open(path: &Path) -> Result<Self, String> {
+        Self::with_limit(path, MAX_LOG_BYTES)
     }
-    let mut previous = path.as_os_str().to_os_string();
-    previous.push(".1");
-    let _ = std::fs::rename(path, PathBuf::from(previous));
+
+    fn with_limit(path: &Path, limit: u64) -> Result<Self, String> {
+        let mut log = Self {
+            path: path.to_path_buf(),
+            file: None,
+            written: 0,
+            limit,
+        };
+        log.reopen().map_err(|e| format!("打开服务日志失败：{e}"))?;
+        log.rotate_if_oversized();
+        Ok(log)
+    }
+
+    fn reopen(&mut self) -> std::io::Result<()> {
+        let file = OpenOptions::new().create(true).append(true).open(&self.path)?;
+        self.written = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        self.file = Some(file);
+        Ok(())
+    }
+
+    fn rotate_if_oversized(&mut self) {
+        if self.written < self.limit {
+            return;
+        }
+        let mut previous = self.path.as_os_str().to_os_string();
+        previous.push(".1");
+        self.file = None;
+        let _ = std::fs::rename(&self.path, PathBuf::from(previous));
+        let _ = self.reopen();
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        let Some(file) = self.file.as_mut() else {
+            return;
+        };
+        if file.write_all(bytes).is_ok() {
+            self.written += bytes.len() as u64;
+            self.rotate_if_oversized();
+        }
+    }
+}
+
+/// 把子进程的一路输出抽到滚存日志里。管道关闭（子进程退出）时线程自然结束。
+fn pump_output<R: std::io::Read + Send + 'static>(mut source: R, log: Arc<Mutex<RotatingLog>>) {
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match source.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(count) => {
+                    if let Ok(mut log) = log.lock() {
+                        log.append(&buffer[..count]);
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn backup_local_data(data_root: &Path, backups_root: &Path) -> Result<Option<PathBuf>, String> {
@@ -1306,6 +1366,32 @@ mod tests {
             assert!(config.contains("runtime-manifest.json"));
             assert!(!config.contains("\"../generated/server-ce\": \"server-ce\""));
         }
+    }
+
+    #[test]
+    fn service_log_rotates_while_running_and_keeps_one_generation() {
+        let dir = std::env::temp_dir().join(format!(
+            "hugagent-desktop-log-rotate-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("server.log");
+        let mut log = RotatingLog::with_limit(&path, 64).unwrap();
+
+        log.append(&[b'a'; 40]);
+        assert!(!dir.join("server.log.1").exists(), "未到上限不应滚存");
+
+        log.append(&[b'b'; 40]);
+        // 句柄必须真的关掉才改得动名字；否则 Windows 上这一步静默失败，
+        // 日志会继续长在同一个文件里——实测攒到过 450 MB。
+        let previous = dir.join("server.log.1");
+        assert!(previous.exists(), "越过上限后应滚存出上一代");
+        assert_eq!(std::fs::read(&previous).unwrap().len(), 80);
+        assert_eq!(std::fs::read(&path).unwrap().len(), 0, "当前这份应从零开始");
+
+        log.append(&[b'c'; 40]);
+        assert_eq!(std::fs::read(&path).unwrap().len(), 40, "滚存后仍可继续写入");
     }
 
     #[test]

@@ -604,16 +604,28 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
 
     kb_items: List[Dict[str, Any]] = public_kb_items + public_local_kb_items + private_kb_items
 
-    # Plugin components are shown only under "Plugins"; remove them from the skill / MCP tool library lists (avoids duplication; does not affect enablement resolution).
-    plugin_skill_ids, plugin_mcp_ids = _plugin_component_ids(db)
-    skill_list = [
-        it
-        for it in merge_items(
+    # 桌面双端的本机后端：云端账号的技能与连接器同步在本机登记表里，业务库中没有
+    # 对应行。不在这里叠加进来，能力中心就只剩本机自带的内置项——显示的和真正生效的
+    # 不是同一份。云端部署下叠加层为空，这几行是恒等变换。
+    from core.capabilities import device_catalog
+
+    overlay = device_catalog.catalog_overlay()
+    skill_list = device_catalog.merge_items(
+        merge_items(
             base_catalog.get("skills", []) + owned_skill_items, user_overrides.get("skills", [])
-        )
-        if it.get("id") not in plugin_skill_ids
-    ]
-    mcp_list = [it for it in mcp_items if it.get("id") not in plugin_mcp_ids]
+        ),
+        overlay["skills"],
+    )
+    mcp_list = device_catalog.merge_items(mcp_items, overlay["mcp"])
+
+    # Plugin components are shown only under "Plugins"; remove them from the skill / MCP tool library lists (avoids duplication; does not affect enablement resolution).
+    # 三个来源合起来才完整：业务库里的归属、内置插件包扫描、以及本机登记表里云端
+    # 同步来的那部分。剔除放在叠加之后，两边的条目走同一道口径。
+    plugin_skill_ids, plugin_mcp_ids = _plugin_component_ids(db)
+    plugin_skill_ids |= overlay["hidden_skills"]
+    plugin_mcp_ids |= overlay["hidden_mcp"]
+    skill_list = [it for it in skill_list if it.get("id") not in plugin_skill_ids]
+    mcp_list = [it for it in mcp_list if it.get("id") not in plugin_mcp_ids]
 
     data = {
         "skills": skill_list,
@@ -675,6 +687,22 @@ def update_catalog_item(
             message="At least one field must be provided",
             data={"allowed_fields": ["enabled", "config"]},
         )
+
+    # 云端同步来的技能 / 智能体登记在本机登记表里，业务库没有对应行，写目录覆盖
+    # 不会生效也读不回来。启停就写它——读写同源，运行时解析读的也是这份。
+    if request.enabled is not None and normalized_kind in ("skill", "agent"):
+        from core.capabilities import device_catalog
+
+        if device_catalog.set_enabled(normalized_kind, id, request.enabled):
+            return success_response(
+                data={
+                    "kind": normalized_kind,
+                    "id": id,
+                    "enabled": request.enabled,
+                    "config": {},
+                },
+                message="Capability toggle saved on this device",
+            )
 
     # 云端下发的连接器不在本机目录里，它是在目录解析之后按 mcp.json 的托管标志
     # 追加回来的——所以启停只有写进那里才作数，写目录覆盖不会生效。

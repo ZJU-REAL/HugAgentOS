@@ -37,7 +37,13 @@ def _zip(skill_id: str, files: dict) -> bytes:
     return buf.getvalue()
 
 
-def _entry(skill_id: str, content_hash: str, scope: str = "shared") -> dict:
+def _entry(
+    skill_id: str,
+    content_hash: str,
+    scope: str = "shared",
+    enabled: bool = True,
+    source_plugin: str = "",
+) -> dict:
     return {
         "skill_id": skill_id,
         "display_name": skill_id,
@@ -46,6 +52,8 @@ def _entry(skill_id: str, content_hash: str, scope: str = "shared") -> dict:
         "scope": scope,
         "content_hash": content_hash,
         "mcp_server_ids": [],
+        "enabled": enabled,
+        "source_plugin": source_plugin,
     }
 
 
@@ -59,8 +67,7 @@ def _token(user_id: str) -> str:
 
 def test_skill_manifest_roundtrip_and_strictness():
     h = skill_content_hash(_skill_md("a"), {"scripts/run.py": "print(1)"})
-    manifest = build_skill_manifest([_entry("a", h)], ["z", "b", "b"])
-    assert manifest["suppressed_ids"] == ["b", "z"]
+    manifest = build_skill_manifest([_entry("a", h)])
     assert validate_skill_manifest(json.loads(json.dumps(manifest))) == manifest
 
     bad = json.loads(json.dumps(manifest))
@@ -168,16 +175,27 @@ def index_db(tmp_path, monkeypatch):
     engine.dispose()
 
 
-def _cloud(monkeypatch, skills_: dict, suppressed=()):
-    """skills_: {skill_id: {rel: content}} → 假云端 + manifest。"""
+def _cloud(monkeypatch, skills_: dict, disabled=(), owned_by=None):
+    """skills_: {skill_id: {rel: content}} → 假云端 + manifest。
+
+    ``disabled`` 里的技能仍在清单里，只是云端当前是停用的——清单下发的是全集。
+    ``owned_by`` 给技能标上所属插件（{skill_id: slug}）。
+    """
     entries, bundles = [], {}
     for sid, files in skills_.items():
         md = files.get("SKILL.md") or _skill_md(sid)
         extra = {k: v for k, v in files.items() if k != "SKILL.md"}
         h = skill_content_hash(md, extra)
-        entries.append(_entry(sid, h))
+        entries.append(
+            _entry(
+                sid,
+                h,
+                enabled=sid not in set(disabled),
+                source_plugin=(owned_by or {}).get(sid, ""),
+            )
+        )
         bundles[sid] = (_zip(sid, {"SKILL.md": md, **extra}), h)
-    fake = _FakeCloud(build_skill_manifest(entries, list(suppressed)), bundles)
+    fake = _FakeCloud(build_skill_manifest(entries), bundles)
     monkeypatch.setattr("httpx.get", fake.get)
     return fake
 
@@ -272,9 +290,13 @@ def test_ready_skill_auto_updates_on_new_cloud_content(dirs, monkeypatch):
 
 
 def test_apply_to_enabled_skill_ids_follows_cloud(dirs, monkeypatch):
-    _cloud(monkeypatch, {"ppt-design": {}, "market-x": {}}, suppressed=["word-editing"])
+    _cloud(
+        monkeypatch,
+        {"ppt-design": {}, "market-x": {}, "word-editing": {}},
+        disabled=["word-editing"],
+    )
     cloud_skills.sync_blocking(_STATE)
-    # 同步即就绪：账号里的技能同一轮全部进清单，云端停用的仍被剔除
+    # 同步即就绪：账号里的技能同一轮全部装好，停用的装了但不进本轮启用集
     out = bridge.apply_to_enabled_skill_ids(["word-editing", "ppt-design", "local-only"])
     assert out == ["ppt-design", "local-only", "market-x"]
     assert bridge.apply_to_enabled_skill_ids(list(out)) == out
@@ -289,16 +311,28 @@ def test_apply_noop_when_bridge_inactive_or_unsynced(dirs, monkeypatch):
     assert bridge.apply_to_enabled_skill_ids(list(ids)) == ids  # manifest 尚未同步
 
 
-def test_suppressed_cloud_skill_is_disabled_but_kept(dirs, monkeypatch):
-    _cloud(monkeypatch, {"market-x": {}})
-    cloud_skills.sync_blocking(_STATE)
-    cloud_skills.prepare(_STATE, [_iid("market-x")])
-    _cloud(monkeypatch, {}, suppressed=["market-x"])
+def test_cloud_disabled_skill_is_still_installed(dirs, monkeypatch):
+    """云端关着的技能也要装到本机：插件的子技能、智能体依赖的技能常常就是关着的。"""
+    _cloud(monkeypatch, {"market-x": {}}, disabled=["market-x"])
     cloud_skills.sync_blocking(_STATE)
     inst = registry.get(_iid("market-x"))
     assert inst.state == "ready" and inst.enabled is False
     assert store.revisions(KIND_SKILL, _PROFILE, "market-x")
-    assert bridge.apply_to_enabled_skill_ids(["market-x", "other"]) == ["other"]
+    assert bridge.apply_to_enabled_skill_ids(["other"]) == ["other"]
+
+
+def test_device_toggle_is_not_overwritten_by_a_later_sync(dirs, monkeypatch):
+    """启停归本机：在本机开/关过之后，再同步一次云端清单不会把它翻回去。"""
+    _cloud(monkeypatch, {"market-x": {}, "ppt-design": {}}, disabled=["market-x"])
+    cloud_skills.sync_blocking(_STATE)
+    registry.set_enabled(_iid("market-x"), True)
+    registry.set_enabled(_iid("ppt-design"), False)
+
+    _cloud(monkeypatch, {"market-x": {}, "ppt-design": {}}, disabled=["market-x"])
+    cloud_skills.sync_blocking(_STATE)
+
+    assert registry.get(_iid("market-x")).enabled is True
+    assert registry.get(_iid("ppt-design")).enabled is False
 
 
 def test_account_switch_keeps_files_isolated_per_profile(dirs, monkeypatch):
@@ -340,3 +374,12 @@ def test_local_fork_takes_the_name_by_preference(dirs, monkeypatch):
     view = skill_config.sync_user_skill_view("u")
     assert "mine" in (view / "ppt-design" / "SKILL.md").read_text()
     assert skills.last_resolution("u").reasons["ppt-design"] == "preference"
+
+
+def test_plugin_ownership_is_recorded_on_the_skill(dirs, monkeypatch):
+    """插件的子技能自己带着归属，界面据此把它留在插件下、不放进技能库。"""
+    _cloud(monkeypatch, {"feishu-doc": {}, "market-x": {}}, owned_by={"feishu-doc": "feishu"})
+    cloud_skills.sync_blocking(_STATE)
+
+    assert registry.get(_iid("feishu-doc")).source_plugin == "feishu"
+    assert registry.get(_iid("market-x")).source_plugin is None

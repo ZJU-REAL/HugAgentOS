@@ -35,6 +35,7 @@ from urllib.parse import urlsplit
 from core.config.settings import settings
 from core.infra.logging import get_logger
 from core.infra.proc import no_window_kwargs
+from core.sandbox import runner_auth
 
 logger = get_logger(__name__)
 
@@ -453,6 +454,11 @@ async def _start_script_runner(py: str) -> None:
     provider (default)."""
     if settings.sandbox.provider != "script_runner":
         return
+    # 本机形态下 sidecar 监听的是回环口，同机任何进程都够得着——包括刚被 OS 沙箱
+    # 关起来的那条命令（回环在沙箱里依然可达）。没有这个密钥，它再调一次 /execute
+    # 就能拿到一个不带任何约束的子进程，等于从自己所在的沙箱里走出来。密钥经环境变量
+    # 交给 sidecar，用户命令那一侧用的是白名单 env，拿不到它。
+    os.environ[runner_auth.ENV_VAR] = runner_auth.ensure_token()
     runner_port = _script_runner_port()
     # 清理后目标端口仍有监听者 → 是外部程序在占用。不同品牌的桌面壳
     # 应通过独立端口命名空间避免走到这里。

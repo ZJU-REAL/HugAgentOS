@@ -492,6 +492,7 @@ def update_sidebar_order(
 
 
 @router.get("/active-runs", summary="列出当前用户所有进行中的会话")
+@quiet_access_log
 def list_active_chat_runs(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1851,6 +1852,7 @@ def chat_stream_resume(
 
 
 @router.get("/{chat_id}/active-run", summary="探测会话是否有进行中的 run")
+@quiet_access_log
 def chat_active_run(
     chat_id: str,
     user: UserContext = Depends(get_current_user),

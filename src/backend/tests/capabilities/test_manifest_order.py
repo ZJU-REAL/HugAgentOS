@@ -35,10 +35,12 @@ def manifest(kind, digest):
                     "scope": "shared",
                     "content_hash": digest,
                     "mcp_server_ids": [],
+                    "enabled": True,
+                    "source_plugin": "",
                 }
             ]
         )
-        return build_skill_manifest(entries, [])
+        return build_skill_manifest(entries)
     entry = {
         "name": "Item",
         "description": "",

@@ -467,6 +467,11 @@ def _project_managed_profile(st: Dict[str, Any], manifest: Dict[str, Any]) -> No
             cloud_instance_id=cloud_issuer(str(st["cloud_base"])),
             catalog_revision=str(manifest["revision"]),
             servers=list(manifest.get("servers") or []),
+            initial_enabled={
+                str(s["server_id"]): bool(s.get("enabled", True))
+                for s in manifest.get("servers") or []
+                if isinstance(s, dict) and s.get("server_id")
+            },
         )
     except mcp_json.McpJsonCorrupt as exc:
         logger.error("[cloud-bridge] mcp.json unreadable, projection skipped: %s", exc)
@@ -485,6 +490,49 @@ def _managed_enabled(st: Dict[str, Any]) -> Dict[str, bool]:
     except mcp_json.McpJsonError as exc:
         logger.warning("[cloud-bridge] mcp.json managed flags unavailable: %s", exc)
         return {}
+
+
+def managed_connectors() -> List[Dict[str, Any]]:
+    """云端下发的连接器全集（含本机停用的），供本机能力中心展示。
+
+    ``_bridge_context`` 是装配用的，它按本机停用标志把关掉的过滤掉了——界面要的是
+    「有哪些」，关掉的也得列出来，开关才有地方可点。启停仍以本机 mcp.json 为准。
+
+    只读已缓存的清单，不触发任何刷新：这是界面读取路径，同步有它自己的时机。
+    """
+    st = get_state()
+    if not st or not bridge_enabled():
+        return []
+    with _manifest_lock:
+        manifest = _manifest
+    if not manifest:
+        return []
+    enabled = _managed_enabled(st)
+    out: List[Dict[str, Any]] = []
+    for server in manifest.get("servers") or []:
+        if not isinstance(server, dict):
+            continue
+        sid = str(server.get("server_id") or "").strip()
+        if not sid:
+            continue
+        out.append(
+            {
+                "server_id": sid,
+                "display_name": str(server.get("display_name") or sid),
+                "description": str(server.get("description") or ""),
+                "enabled": bool(enabled.get(sid, True)),
+                "source_plugin": str(server.get("source_plugin") or ""),
+                "tools": [
+                    {
+                        "name": str(tool.get("name") or ""),
+                        "description": str(tool.get("description") or ""),
+                    }
+                    for tool in server.get("tools") or []
+                    if isinstance(tool, dict)
+                ],
+            }
+        )
+    return out
 
 
 def set_managed_connector_enabled(server_id: str, enabled: bool) -> bool:

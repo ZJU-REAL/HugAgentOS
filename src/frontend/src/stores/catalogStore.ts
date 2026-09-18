@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { Catalog, KbTabKey, PanelKey } from '../types';
 import { getCatalog, updateCatalogItem } from '../api';
-import { loadCatalog, saveCatalog } from '../storage';
+import { defaultCatalog } from '../storage';
 import { navigateTo, pathForPanel } from '../routing/navigation';
+import { useDeploymentModeStore } from './deploymentModeStore';
 import { pathForKbTab } from '../routing/subPages';
 
 /**
@@ -31,23 +32,22 @@ interface CatalogState {
   setSelectedId: (id: string | null) => void;
   setKbTab: (tab: KbTabKey) => void;
 
-  /** Fetch catalog from backend, merge with localStorage enabled state */
+  /** Fetch catalog from backend (the only source of enabled state). */
   fetchCatalog: () => Promise<void>;
   /** Toggle item enabled/disabled (optimistic update + backend sync) */
   toggleItem: (kind: 'skills' | 'agents' | 'mcp' | 'kb', itemId: string, enabled: boolean) => Promise<void>;
 }
 
 export const useCatalogStore = create<CatalogState>((set, get) => ({
-  catalog: loadCatalog(),
+  // 首屏占位：只有形状，没有启停状态。启停的真源是后端，浏览器里不留第二份——
+  // 留了就会出现「界面显示的和实际生效的不是同一份」。
+  catalog: structuredClone(defaultCatalog),
   catalogLoading: true,
   panelEntryNonce: 0,
   manageQuery: '',
   selectedId: null,
 
-  setCatalog: (catalog) => {
-    set({ catalog });
-    saveCatalog(catalog);
-  },
+  setCatalog: (catalog) => set({ catalog }),
   setCatalogLoading: (v) => set({ catalogLoading: v }),
   setPanel: (panel, sub) => {
     set((state) => ({
@@ -67,27 +67,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   fetchCatalog: async () => {
     try {
       set({ catalogLoading: true });
-      const remote = await getCatalog();
-      // Merge local enabled states onto remote catalog
-      const local = loadCatalog();
-      const mergeEnabled = <T extends { id: string; enabled: boolean }>(
-        remoteItems: T[],
-        localItems: { id: string; enabled: boolean }[],
-      ): T[] => {
-        const localMap = new Map(localItems.map((i) => [i.id, i.enabled]));
-        return remoteItems.map((item) => ({
-          ...item,
-          enabled: localMap.has(item.id) ? localMap.get(item.id)! : item.enabled,
-        }));
-      };
-      const merged: Catalog = {
-        skills: mergeEnabled(remote.skills, local.skills),
-        agents: mergeEnabled(remote.agents, local.agents),
-        mcp: mergeEnabled(remote.mcp, local.mcp),
-        kb: mergeEnabled(remote.kb, local.kb),
-      };
-      set({ catalog: merged, catalogLoading: false });
-      saveCatalog(merged);
+      set({ catalog: await getCatalog(), catalogLoading: false });
     } catch (e) {
       console.error('Failed to fetch catalog:', e);
       set({ catalogLoading: false });
@@ -95,21 +75,27 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   },
 
   toggleItem: async (kind, itemId, enabled) => {
-    const { catalog } = get();
-    // Optimistic update
-    const updated = {
-      ...catalog,
-      [kind]: catalog[kind].map((item) =>
-        item.id === itemId ? { ...item, enabled } : item,
+    const previous = get().catalog;
+    const apply = (value: boolean) => ({
+      ...get().catalog,
+      [kind]: get().catalog[kind].map((item) =>
+        item.id === itemId ? { ...item, enabled: value } : item,
       ),
-    };
-    set({ catalog: updated });
-    saveCatalog(updated);
-    // Sync to backend
+    });
+    set({ catalog: apply(enabled) });
     try {
       await updateCatalogItem(kind, itemId, enabled);
     } catch (e) {
+      // 后端没写成就把开关拨回去：开关显示的必须是真正生效的那个状态。
       console.error('Failed to sync catalog toggle:', e);
+      set({ catalog: previous });
+      throw e;
     }
   },
 }));
+
+// 首轮能力同步落完的那一刻，能力目录的来源从云端切到本机（见 api.ts 的
+// capabilityTargetHeaders）。重新拉一次，界面显示的才是真正生效的那份。
+useDeploymentModeStore.subscribe((next, previous) => {
+  if (next.capabilitiesReady && !previous.capabilitiesReady) void useCatalogStore.getState().fetchCatalog();
+});

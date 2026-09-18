@@ -127,6 +127,48 @@ const PROGRESS_HTML: &str = r#"<!doctype html><html lang="zh-CN"><head><meta cha
 /// - `update_base`：桌面发布源根地址，用于拼更新 endpoint。
 /// - `silent`：为 true 时「已是最新」「检查失败」都不弹框（预留给启动静默检查）；
 ///   发现新版只保存状态，由用户点击下载入口后确认安装。
+/// 下载到的安装包在装完之后就没用了。
+///
+/// Windows 上装好之后本进程直接 `exit(0)` 把控制权交给安装器，代码走不到任何清理点；
+/// updater 那边的临时目录又是显式 `keep()` 的。于是每更新一次，`%TEMP%` 里就永久多一份
+/// 完整安装包——本产品的包里带着 Python 运行时，一份就上百 MB，用户永远不会去翻。
+/// 下次检查更新时顺手把上次留下的清掉：那时它一定已经装完了。
+/// updater 建临时目录时用的名字形状：`<应用名>-<版本>-updater-<随机后缀>`
+/// （tauri-plugin-updater 的 `make_temp_dir`）。只认这个形状，别人的临时目录不碰。
+const INSTALLER_TEMP_MARKER: &str = "-updater-";
+/// 多久之前留下的就算上一轮的残骸。装机是分钟级的事，一小时足够宽。
+const STALE_INSTALLER_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+fn sweep_stale_installers(app_name: &str) {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let prefix = format!("{}-", app_name.to_ascii_lowercase());
+    let Some(keep_after) = std::time::SystemTime::now().checked_sub(STALE_INSTALLER_AGE) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !name.starts_with(&prefix) || !name.contains(INSTALLER_TEMP_MARKER) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map(|modified| modified < keep_after)
+            .unwrap_or(false);
+        if !stale {
+            continue;
+        }
+        let path = entry.path();
+        let _ = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+    }
+}
+
 pub fn check_and_install(app: AppHandle, update_base: String, silent: bool) {
     let Some(guard) = begin() else {
         if !silent {
@@ -142,6 +184,7 @@ pub fn check_and_install(app: AppHandle, update_base: String, silent: bool) {
     };
     tauri::async_runtime::spawn(async move {
         let _guard = guard;
+        sweep_stale_installers(&app.package_info().name);
         let endpoint = format!(
             "{}/api/v1/desktop/latest.json?target={{{{target}}}}&arch={{{{arch}}}}",
             update_base.trim_end_matches('/')

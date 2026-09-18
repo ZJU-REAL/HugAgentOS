@@ -204,6 +204,7 @@ def _apply_intent(
         if kind == KIND_PLUGIN:
             payload = {
                 "cloud_install_id": str(entry[id_key]),
+                "category": str(entry.get("category") or ""),
                 "components": {
                     key: entry.get(key, []) for key in ("skills", "mcp", "agents", "plugins")
                 },
@@ -217,7 +218,7 @@ def _apply_intent(
             content_hash=str(entry["content_hash"]),
             source="cloud",
             payload=payload,
-            enabled=enabled,
+            initial_enabled=enabled,
         )
         if not (
             inst.ready and inst.resolved_revision == revision_for_hash(inst.content_hash or "")

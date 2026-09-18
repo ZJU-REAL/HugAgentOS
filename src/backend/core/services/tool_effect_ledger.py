@@ -1084,6 +1084,13 @@ class ToolEffectJournal:
         Covers the tool effect ledger and leases plus the other append-only
         per-run journals (harness usage attempts, harness events, run
         operations); without this they grow without bound.
+
+        The run's own recovery columns go the same way. ``recovery_snapshot``
+        carries the whole conversation as of that turn, so a long chat stores
+        roughly its own history once per turn — the single largest thing in a
+        desktop database. Only crash recovery reads it, and only for runs that
+        are still live and still replayable, which is exactly what the cutoff
+        and the settled filter below exclude.
         """
         from core.db.models import ChatRunOperation, HarnessEventLog, HarnessUsageAttempt
 
@@ -1113,6 +1120,18 @@ class ToolEffectJournal:
                     )
                     .delete(synchronize_session=False)
                 )
+            deleted += (
+                db.query(ChatRun)
+                .filter(
+                    ChatRun.status.notin_((*LIVE_STATUSES, "needs_attention")),
+                    ChatRun.completed_at < cutoff,
+                    ChatRun.recovery_snapshot.isnot(None),
+                )
+                .update(
+                    {ChatRun.recovery_snapshot: None, ChatRun.request_payload: None},
+                    synchronize_session=False,
+                )
+            )
             db.commit()
             return deleted
 

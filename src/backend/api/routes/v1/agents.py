@@ -75,7 +75,15 @@ async def list_agents(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return success_response(data=UserAgentService(db).list_for_user(user.user_id))
+    # 本机后端：云端账号的智能体登记在本机登记表里，业务库没有对应行。
+    from core.capabilities import device_catalog
+
+    agents = device_catalog.merge_items(
+        UserAgentService(db).list_for_user(user.user_id),
+        device_catalog.agent_entries(),
+        key="agent_id",
+    )
+    return success_response(data=agents)
 
 
 @router.get("/available-resources", summary="可绑定到子智能体的资源列表")
@@ -227,13 +235,22 @@ async def update_agent(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    data = body.model_dump(exclude_none=True)
+    # 云端同步来的智能体登记在本机登记表里，本机业务库没有对应行——不先拦下来，
+    # 卡片上的开关会打成 404。本机只允许改启停，定义仍以云端那份为准。
+    from core.capabilities import device_catalog
+
+    projected = device_catalog.toggle_projected_agent(agent_id, data)
+    if projected is not None:
+        return success_response(data=projected)
+
     try:
         agent = UserAgentService(db).update(
             agent_id,
             user_id=user.user_id,
             operator_name=user.username,
             owner_type="user",
-            data=body.model_dump(exclude_none=True),
+            data=data,
         )
     except LookupError:
         return error_response(code=404, message="Agent not found")

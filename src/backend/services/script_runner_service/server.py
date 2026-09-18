@@ -9,6 +9,7 @@ database/Redis/API-key access.
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import mimetypes
@@ -24,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -45,7 +46,29 @@ else:
     from runtime_tools import resolve_bash_executable as _resolve_bash_executable
     from runtime_tools import windows_tool_path_entries
 
-app = FastAPI(title="HugAgentOS Script Runner", docs_url=None, redoc_url=None)
+# 与后端共享的密钥。这个服务以当前用户身份执行任意命令，本机形态下又监听在回环口上
+# ——同机任何进程（包括刚被 OS 沙箱关起来的那条命令）都够得着。没有它，调用方只要不带
+# sandbox_launch 再调一次 /execute，就能拿到一个完全不受约束的子进程。
+_AUTH_TOKEN = (os.getenv("SANDBOX_RUNNER_TOKEN") or "").strip()
+
+
+def _require_token(request: Request) -> None:
+    if not _AUTH_TOKEN:
+        return
+    header = request.headers.get("authorization") or ""
+    scheme, _, value = header.partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(value.strip(), _AUTH_TOKEN):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+app = FastAPI(
+    title="HugAgentOS Script Runner",
+    docs_url=None,
+    redoc_url=None,
+    # 没有对外契约要发布；发布了反而等于给同机的探测者一份端点清单。
+    openapi_url=None,
+    dependencies=[Depends(_require_token)],
+)
 
 # ── Configuration ──
 MAX_TIMEOUT = int(os.getenv("SCRIPT_MAX_TIMEOUT", "120"))
@@ -886,6 +909,45 @@ async def close_session(req: SessionRequest):
     if existed:
         shutil.rmtree(workspace, ignore_errors=True)
     return {"closed": existed}
+
+
+class ReapRequest(BaseModel):
+    idle_seconds: int
+
+
+@app.post("/sessions/reap")
+async def reap_idle_sessions(req: ReapRequest):
+    """Delete conversation workspaces nobody has touched for ``idle_seconds``.
+
+    Every conversation gets a directory under ``.sessions`` and only
+    ``/sessions/close`` ever removed one — which nothing calls when a chat is
+    merely abandoned or soft-deleted. The activity timestamp `touch_session`
+    already maintains is exactly what tells them apart.
+
+    Overflowed tool results land in ``.offload`` and are addressed by path from
+    the conversation that produced them, so they age out on the same clock.
+    """
+    idle_seconds = max(60, int(req.idle_seconds or 0))
+    cutoff = time.time() - idle_seconds
+    reaped = 0
+    for root, pattern in (
+        (Path(WORKSPACE_ROOT) / SESSION_WORKSPACES_DIR, "*"),
+        (Path(WORKSPACE_ROOT) / ".offload", "*"),
+    ):
+        if not root.is_dir():
+            continue
+        for entry in root.glob(pattern):
+            try:
+                if entry.stat().st_mtime >= cutoff:
+                    continue
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
+                reaped += 1
+            except OSError:
+                continue
+    return {"reaped": reaped}
 
 
 @app.post("/sessions/touch")
