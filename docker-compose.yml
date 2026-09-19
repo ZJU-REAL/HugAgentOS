@@ -170,6 +170,7 @@ services:
       SANDBOX_MAX_CONCURRENT: ${SANDBOX_MAX_CONCURRENT:-4}
       SANDBOX_TOOLS_ENABLED: ${SANDBOX_TOOLS_ENABLED:-false}
       SANDBOX_RUNNER_URL: ${SANDBOX_RUNNER_URL:-http://script-runner:8900}
+      SANDBOX_RUNNER_TOKEN: ${SANDBOX_RUNNER_TOKEN:-}
       SANDBOX_TOOLS_TIMEOUT: ${SANDBOX_TOOLS_TIMEOUT:-30}
       SANDBOX_TOOLS_MAX_TIMEOUT: ${SANDBOX_TOOLS_MAX_TIMEOUT:-120}
       SANDBOX_IDLE_TTL_S: ${SANDBOX_IDLE_TTL_S:-3600}
@@ -222,6 +223,7 @@ services:
     networks:
     - hugagent-network
     restart: unless-stopped
+    mem_limit: ${BACKEND_MEM_LIMIT:-6g}
   mcp:
     build:
       context: .
@@ -340,6 +342,7 @@ services:
       SCRIPT_DEFAULT_TIMEOUT: ${SANDBOX_TOOLS_TIMEOUT:-30}
       SCRIPT_MAX_MEMORY_MB: ${SANDBOX_TOOLS_MAX_MEMORY:-256}
       SANDBOX_ARTIFACT_MAX_BYTES: ${SANDBOX_ARTIFACT_MAX_BYTES:-104857600}
+      SANDBOX_RUNNER_TOKEN: ${SANDBOX_RUNNER_TOKEN:-}
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       NODE_PATH: /usr/lib/node_modules
     mem_limit: 1g

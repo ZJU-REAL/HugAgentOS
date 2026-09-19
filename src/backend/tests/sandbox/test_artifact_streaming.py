@@ -66,14 +66,14 @@ async def test_script_runner_raw_endpoint_enforces_limit(monkeypatch, tmp_path):
     monkeypatch.setattr(runner_server, "MAX_ARTIFACT_EXPORT_BYTES", 8)
 
     response = await runner_server.get_file_raw(
-        runner_server.GetFileRequest(session_id="chat-1", path="/workspace/within.pdf")
+        runner_server.GetFileRequest(session_id="chat-1", path="within.pdf")
     )
     assert Path(response.path) == within
     assert response.headers["x-artifact-size"] == "8"
 
     with pytest.raises(HTTPException) as exc_info:
         await runner_server.get_file_raw(
-            runner_server.GetFileRequest(session_id="chat-1", path="/workspace/over.pdf")
+            runner_server.GetFileRequest(session_id="chat-1", path="over.pdf")
         )
     assert exc_info.value.status_code == 413
 

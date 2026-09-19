@@ -249,30 +249,39 @@ def _resp_json(payload: dict[str, Any]) -> ToolResponse:
     )
 
 
-def _validate_workspace_path(path: str, *, additional_roots: tuple[str, ...] = ()) -> str | None:
-    """Reject paths outside the workspace root or with traversal segments.
-    Returns an error string on rejection, None on success."""
-    from core.sandbox._common import WORKSPACE as _WS
+def _validate_workspace_path(
+    path: str,
+    *,
+    root: str | None = None,
+    additional_roots: tuple[str, ...] = (),
+) -> str | None:
+    """路径必须落在工作目录内（或调用方显式给出的其它目录内）。
 
-    from ._paths import canonicalize_ws_path
+    ``root`` 是这次调用的工作目录——本机形态下就是这个会话自己的目录。不传时退回
+    部署级的工作区根（容器里会话隔离由执行服务自己做）。``additional_roots`` 留给
+    "用户显式指定"的位置：绑定的本地项目文件夹、已授权的目录。
 
+    返回错误字符串表示拒绝，``None`` 表示通过。
+    """
+    from core.sandbox._common import WORKSPACE
+
+    base = root or WORKSPACE
     if not path or not isinstance(path, str):
         return "path 必须为非空字符串"
     import ntpath
     import posixpath
 
-    path = canonicalize_ws_path(path)
-    windows = bool(ntpath.splitdrive(_WS)[0])
+    windows = bool(ntpath.splitdrive(base)[0])
     pathmod = ntpath if windows else posixpath
     parts = path.replace(chr(92), "/").split("/")
     if ".." in parts:
         return f"path 不允许包含 ..: {path}"
     target = pathmod.normcase(pathmod.normpath(path))
-    for allowed in (_WS, *additional_roots):
-        root = pathmod.normcase(pathmod.normpath(allowed))
+    for allowed in (base, *additional_roots):
+        allowed_root = pathmod.normcase(pathmod.normpath(allowed))
         try:
-            if pathmod.commonpath([root, target]) == root:
+            if pathmod.commonpath([allowed_root, target]) == allowed_root:
                 return None
         except ValueError:
             continue
-    return f"path 必须在 {_WS}/ 下: {path}"
+    return f"path 必须在 {base}/ 下: {path}"

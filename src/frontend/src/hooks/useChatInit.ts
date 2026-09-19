@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { t } from '../i18n';
 import { authFetch, checkSession, listActiveBatchPlans, getBatchPlan, chatTargetHeaders, isHybridDual, isLocalChat, registerLocalChat, toPlanProgress, LOCAL_TARGET_HEADER } from '../api';
-import { newDraftChatId, saveCatalog } from '../storage';
+import { newDraftChatId } from '../storage';
 import { usePanel } from '../routing/usePanel';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
@@ -13,7 +13,7 @@ import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { isLocalDraftChat, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult, ReferencedChatCard } from '../types';
+import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult, ReferencedChatCard } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -524,7 +524,7 @@ export function useChatInit() {
     currentChatId, sessionLoadEpoch, bumpSessionLoadEpoch,
     hydrateForUser,
   } = useChatStore();
-  const { catalog, setCatalog, setCatalogLoading } = useCatalogStore();
+  const fetchCatalog = useCatalogStore((state) => state.fetchCatalog);
   const panel = usePanel();
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -584,36 +584,12 @@ export function useChatInit() {
       .catch(() => {});
   }, [panel, authChecking, authUser, setFeatureUpdates]);
 
-  // Persist catalog
-  useEffect(() => {
-    saveCatalog(catalog);
-  }, [catalog]);
-
-  // Refresh catalog from backend
-  const refreshCatalog = async () => {
-    setCatalogLoading(true);
-    try {
-      const r = await authFetch(`${effectiveApiUrl}/v1/catalog`, { method: 'GET' });
-      if (!r.ok) { setCatalogLoading(false); return; }
-      const payload = await r.json();
-      const remote = payload?.data ?? payload;
-      if (!remote || typeof remote !== 'object') { setCatalogLoading(false); return; }
-      const next: Catalog = {
-        skills: Array.isArray(remote.skills) ? remote.skills : [],
-        agents: Array.isArray(remote.agents) ? remote.agents : [],
-        mcp: Array.isArray(remote.mcp) ? remote.mcp : [],
-        kb: Array.isArray(remote.kb) ? remote.kb : [],
-      };
-      setCatalog(next);
-    } catch {} finally {
-      setCatalogLoading(false);
-    }
-  };
-
+  // 能力目录只有 catalogStore.fetchCatalog 一个取法；这里曾经另写过一份等价实现，
+  // 两份分别演化就会出现「同一个开关两个页面显示不一样」。
   useEffect(() => {
     if (authChecking || !authUser) return;
-    refreshCatalog();
-  }, [effectiveApiUrl, authUser, authChecking]);
+    void fetchCatalog();
+  }, [effectiveApiUrl, authUser, authChecking, fetchCatalog]);
 
   // Fetch tool display names
   useEffect(() => {
@@ -1035,7 +1011,7 @@ export function useChatInit() {
 
   return {
     effectiveApiUrl,
-    refreshCatalog,
+    refreshCatalog: fetchCatalog,
     searchTimerRef,
   };
 }

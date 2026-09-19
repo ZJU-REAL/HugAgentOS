@@ -4,25 +4,14 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-import httpx
-
 from core.config.settings import settings
+# 分类与摘要共用 summarizer 角色，所以共用同一个解析器，避免两份会漂移的副本。
+from core.llm.summarizer import _resolve_summarizer_endpoint
+from core.llm.single_turn import complete
 
 _LOGGER = logging.getLogger(__name__)
 
 BUSINESS_TOPICS = ['综合咨询', '政策解读', '事项办理', '材料比对', '知识检索', '数据分析']
-
-
-def _resolve_classifier_config() -> tuple[str, str, str]:
-    """Resolve model config from DB (summarizer role, shared with classification)."""
-    try:
-        from core.services.model_config import ModelConfigService
-        cfg = ModelConfigService.get_instance().resolve("summarizer")
-        if cfg:
-            return cfg.base_url, cfg.api_key, cfg.model_name
-    except Exception as exc:
-        _LOGGER.debug("ModelConfigService unavailable for classifier: %s", exc)
-    return "", "", ""
 
 
 class ConversationClassifier:
@@ -63,54 +52,33 @@ class ConversationClassifier:
         if not self.enabled:
             return None
 
-        model_url, api_key, model_name = _resolve_classifier_config()
-        if not model_url or not api_key or not model_name:
+        endpoint = _resolve_summarizer_endpoint()
+        if endpoint is None:
             _LOGGER.debug("Classification skipped: model not configured")
             return None
         if not messages:
             return None
 
         try:
-            prompt = self._build_classify_prompt(messages)
-
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{model_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model_name,
-                        "messages": [
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 2048,
-                        "enable_thinking": False,
-                        "chat_template_kwargs": {"enable_thinking": False},
-                    },
+            result = (
+                await complete(
+                    endpoint,
+                    self._build_classify_prompt(messages),
+                    temperature=0.1,
+                    max_tokens=2048,
+                    timeout=timeout,
                 )
+            ).text
 
-                if response.status_code != 200:
-                    _LOGGER.error(
-                        "Classification API error: %s %s", response.status_code, response.text[:200]
-                    )
-                    return None
+            for topic in BUSINESS_TOPICS:
+                if topic in result:
+                    _LOGGER.info("Classified as: %s", topic)
+                    return topic
 
-                data = response.json()
-                raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                result = raw.strip()
-
-                for topic in BUSINESS_TOPICS:
-                    if topic in result:
-                        _LOGGER.info("Classified as: %s", topic)
-                        return topic
-
-                _LOGGER.warning(
-                    "LLM returned unexpected classification: %r, defaulting to 综合咨询", result[:100]
-                )
-                return "综合咨询"
+            _LOGGER.warning(
+                "LLM returned unexpected classification: %r, defaulting to 综合咨询", result[:100]
+            )
+            return "综合咨询"
 
         except Exception as e:
             _LOGGER.error("Failed to classify conversation: %s", e)

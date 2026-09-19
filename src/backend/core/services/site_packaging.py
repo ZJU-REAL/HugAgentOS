@@ -87,12 +87,16 @@ async def pack_and_fetch_dir(
 
     provider = get_sandbox_provider()
     archive_name = f".__site_pack_{uuid.uuid4().hex}.tgz"
-    archive_path = "/workspace/" + archive_name
+    from core.llm.tools._paths import workspace_directory
+    import os
+
+    working_directory = workspace_directory(_sess)
+    archive_path = os.path.join(working_directory, archive_name)
     script_name = archive_name + ".py"
     cleanup_name = archive_name + ".cleanup.py"
     options = {
         "source": src,
-        "archive_name": archive_name,
+        "archive_name": archive_path,
         "excludes": [".git", "node_modules", "__pycache__", ".hugagent-source-manifest.json", *extra_excludes],
         "max_files": UNPACK_MAX_FILES,
         "max_file_bytes": MAX_SITE_FILE_BYTES,
@@ -130,7 +134,7 @@ async def pack_and_fetch_dir(
             cleanup = await provider.execute(ExecuteRequest(
                 script_content=(
                     "from pathlib import Path\n"
-                    f"for path in {(archive_path, '/workspace/' + script_name, '/workspace/' + cleanup_name)!r}:\n"
+                    f"for path in {(archive_path, os.path.join(working_directory, script_name), os.path.join(working_directory, cleanup_name))!r}:\n"
                     "    Path(path).unlink(missing_ok=True)\n"
                 ),
                 script_name=cleanup_name,

@@ -27,6 +27,7 @@ from core.db.models import (
     ToolEffectLedger,
     UserShadow,
 )
+from core.infra.background import spawn
 from core.infra.data_masking import mask_sensitive_data
 from core.infra.logging import chat_id_var, get_logger, trace_id_var, user_id_var
 
@@ -58,11 +59,6 @@ _REDACT_FIELDS = [
     ).split(",")
     if s.strip()
 ]
-
-# Retain pending tasks so the event loop can't GC them mid-flight when the
-# originating SSE request ends.
-_pending_write_tasks: "set[asyncio.Task]" = set()
-
 
 def _new_id() -> str:
     return uuid.uuid4().hex
@@ -647,22 +643,9 @@ async def write_skill_call(record: Dict[str, Any]) -> str:
     return log_id
 
 
-def _fire_and_forget(coro) -> None:
-    # Keep a reference until the task completes so the event loop can't GC
-    # it mid-flight when the originating request ends.
-    try:
-        task = asyncio.get_running_loop().create_task(coro)
-    except RuntimeError:
-        logger.debug("log_writer: no running loop, dropping write")
-        coro.close()
-        return
-    _pending_write_tasks.add(task)
-    task.add_done_callback(_pending_write_tasks.discard)
-
-
 def schedule_tool_call_write(record: Dict[str, Any]) -> None:
-    _fire_and_forget(write_tool_call(record))
+    spawn(write_tool_call(record), name="log_writer.tool_call")
 
 
 def schedule_skill_call_write(record: Dict[str, Any]) -> None:
-    _fire_and_forget(write_skill_call(record))
+    spawn(write_skill_call(record), name="log_writer.skill_call")

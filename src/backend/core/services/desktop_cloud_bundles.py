@@ -108,6 +108,11 @@ def _prepare(kind: str, state: Dict[str, Any], inst: registry.Installation) -> N
                 inst.install_id,
                 plugins.component_install_ids(inst.profile_id, plugins.load_manifest(comp)),
             )
+            # 云端同步下来的插件同样要在本机铺它自己的资产：站点插件的建站流程要在
+            # 本机跑 init-react-site.sh，插件从云端来不代表这一步可以省。
+            from core.services.plugin_device_assets import provision_for
+
+            provision_for(inst.key)
 
     prepare_component(
         state,
@@ -204,6 +209,7 @@ def _apply_intent(
         if kind == KIND_PLUGIN:
             payload = {
                 "cloud_install_id": str(entry[id_key]),
+                "category": str(entry.get("category") or ""),
                 "components": {
                     key: entry.get(key, []) for key in ("skills", "mcp", "agents", "plugins")
                 },
@@ -217,7 +223,7 @@ def _apply_intent(
             content_hash=str(entry["content_hash"]),
             source="cloud",
             payload=payload,
-            enabled=enabled,
+            initial_enabled=enabled,
         )
         if not (
             inst.ready and inst.resolved_revision == revision_for_hash(inst.content_hash or "")

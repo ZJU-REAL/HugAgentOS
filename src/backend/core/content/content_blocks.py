@@ -202,15 +202,10 @@ def normalize_app_config(payload: Any) -> dict[str, Any]:
     return {"apps": list(DEFAULT_APP_CONFIG["apps"])}
 
 
+# 空的初始负载：哪些 kind 存在、默认版本叫什么，由
+# prompt_version_service.KIND_SPECS 单独持有并在 seed 时写入，这里不再抄一份清单。
 DEFAULT_PROMPT_VERSIONS: dict[str, Any] = {
-    "active": {
-        "system": "default",
-        "code_exec": "default",
-        "distillation": "default",
-        "plan_mode": "default",
-        "subagents": "default",
-        "turbo": "default",
-    },
+    "active": {},
     "versions": [],
 }
 

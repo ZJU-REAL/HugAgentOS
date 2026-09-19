@@ -51,7 +51,7 @@ split 一次生成 N 个文件，CLI 把它们都写到 `--output-dir`。**每�
 ```python
 new_fids = []
 for name in produced_names:
-    r = sandbox_get_artifact(src_path=f"/workspace/parts/{name}", name=name)
+    r = sandbox_get_artifact(src_path=f"./parts/{name}", name=name)
     new_fids.append(r["file_id"])
 pin_to_workspace(file_ids=new_fids)   # 一次性 pin 全部
 ```
@@ -101,7 +101,7 @@ pin_to_workspace(file_ids=new_fids)   # 一次性 pin 全部
 ## 9. payload 超过 ~128KB 触发 `Argument list too long`
 
 `--spec '<inline>'` 或 `--fields '<inline>'` 都有 `-file` 兜底变体。超过
-几 KB 就先 `Write` 到 `/workspace/<name>.json`，再用 `--spec-file` /
+几 KB 就先 `Write` 到 `./<name>.json`，再用 `--spec-file` /
 `--fields-file`。
 
 ---
@@ -110,7 +110,7 @@ pin_to_workspace(file_ids=new_fids)   # 一次性 pin 全部
 
 spec 里 `{"type":"image","path":"chart1"}` 的 `path` 字段是**本地 id**，
 不是绝对路径。要让 cli 找到真图片，必须额外传
-`--image chart1=/workspace/chart1.png`。
+`--image chart1=./chart1.png`。
 
 两种典型错法：
 

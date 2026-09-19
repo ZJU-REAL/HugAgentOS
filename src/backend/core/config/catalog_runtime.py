@@ -18,6 +18,7 @@ from core.config.catalog import get_catalog
 from core.config.catalog_common import _item
 from core.config.catalog_loader import (
     DB_HIDDEN_SERVERS,
+    DB_UMBRELLA_ICON,
     DB_UMBRELLA_ID,
     _database_query_capability_available,
     resolve_skill_detail,
@@ -48,28 +49,32 @@ def invalidate_runtime_catalog_cache() -> None:
         _runtime_db_cache.clear()
 
 
-def _merge_items_by_id(
-    base_items: List[Dict[str, Any]], db_items: List[Dict[str, Any]]
+def merge_items_by_id(
+    base_items: List[Dict[str, Any]], db_items: List[Dict[str, Any]], key: str = "id"
 ) -> List[Dict[str, Any]]:
     """Merge DB items into a catalog bucket by id.
 
     Existing static ids keep their original position, but DB metadata/enabled
     state wins. New DB-only ids are appended in the order provided by callers.
+    ``key`` names the identity field, for buckets keyed by something other than
+    ``id`` (agents by ``agent_id``, plugins by ``slug`` — a plugin's install id
+    differs between the device copy and the cloud copy, its slug does not).
     """
     merged: List[Dict[str, Any]] = [
-        dict(item) for item in base_items if isinstance(item, dict) and item.get("id")
+        dict(item) for item in base_items if isinstance(item, dict) and item.get(key)
     ]
-    index = {str(item.get("id")): i for i, item in enumerate(merged)}
+    index = {str(item.get(key)): i for i, item in enumerate(merged)}
     for item in db_items:
-        item_id = str(item.get("id", "")).strip()
+        item_id = str(item.get(key, "")).strip()
         if not item_id:
             continue
         if item_id in index:
             merged[index[item_id]] = {**merged[index[item_id]], **item}
         else:
             index[item_id] = len(merged)
-            merged.append(item)
+            merged.append(dict(item))
     return merged
+
 
 
 def _public_db_skill_items(db: Session, *, include_runtime_details: bool) -> List[Dict[str, Any]]:
@@ -155,7 +160,9 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
                 item["detail"] = detail
         items.append(item)
     if database_tools and _database_query_capability_available():
-        items.append({"id": DB_UMBRELLA_ID, "tools": sorted(database_tools)})
+        items.append(
+            {"id": DB_UMBRELLA_ID, "tools": sorted(database_tools), "icon": DB_UMBRELLA_ICON}
+        )
     return items
 
 
@@ -253,6 +260,15 @@ def get_runtime_catalog(
         if not isinstance(catalog.get(key), list):
             catalog[key] = []
 
+    from core.capabilities import device_catalog
+
+    if device_catalog.active():
+        # 混合模式：能力一律以云端账号同步下来的那份为准。本机自带的内置技能 / 连接器
+        # 在这里就整体清空，清单、装配、显式点选、开关校验——所有读这份目录的地方同时
+        # 生效，不会出现"能力中心看不到、模型还调得到"。用户自建的私有条目不走这条路，
+        # 由 catalog_resolver / 路由按 owner 单独取，不受影响。
+        return {**catalog, "skills": [], "mcp": []}
+
     # A deployment can retain old catalog data or an in-process cache from a
     # build that shipped database-query support.  The edition's runnable MCP
     # registry is authoritative: never surface the synthetic umbrella when its
@@ -270,11 +286,11 @@ def get_runtime_catalog(
             include_runtime_details=include_runtime_details,
         )
         _set_database_query_state(catalog, db_query_enabled)
-        catalog["skills"] = _merge_items_by_id(
+        catalog["skills"] = merge_items_by_id(
             catalog.get("skills") or [],
             db_skills,
         )
-        catalog["mcp"] = _merge_items_by_id(
+        catalog["mcp"] = merge_items_by_id(
             catalog.get("mcp") or [],
             db_mcps,
         )

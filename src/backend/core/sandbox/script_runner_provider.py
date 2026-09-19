@@ -32,6 +32,7 @@ from .protocol import (
     StagedFile,
     StageFile,
 )
+from .runner_auth import auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class ScriptRunnerProvider:
         }
 
         last_exc: Exception | None = None
-        async with httpx.AsyncClient(timeout=http_timeout) as client:
+        async with httpx.AsyncClient(timeout=http_timeout, headers=auth_headers()) as client:
             for attempt in range(2):
                 try:
                     resp = await client.post(f"{self._base_url}/execute", json=body)
@@ -149,7 +150,7 @@ class ScriptRunnerProvider:
             "files": [{"name": f.name, "content_b64": f.content_b64} for f in files],
         }
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
                 resp = await client.post(f"{self._base_url}/stage", json=body)
                 resp.raise_for_status()
                 staged_raw = resp.json().get("staged", [])
@@ -175,7 +176,7 @@ class ScriptRunnerProvider:
             "content_b64": base64.b64encode(content).decode("ascii"),
         }
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
                 resp = await client.post(f"{self._base_url}/put_file", json=body)
                 resp.raise_for_status()
         except httpx.ConnectError as e:
@@ -192,7 +193,7 @@ class ScriptRunnerProvider:
     ) -> bytes:
         """Read bytes from this conversation's sidecar workspace."""
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
                 resp = await client.post(
                     f"{self._base_url}/get_file",
                     json={"session_id": session_id, "user_id": user_id, "path": path},
@@ -225,7 +226,7 @@ class ScriptRunnerProvider:
             pool=10.0,
         )
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, headers=auth_headers()) as client:
                 async with client.stream(
                     "POST",
                     f"{self._base_url}/get_file_raw",
@@ -274,7 +275,7 @@ class ScriptRunnerProvider:
         if not session_id:
             return
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
                 resp = await client.post(
                     f"{self._base_url}/sessions/close",
                     json={"session_id": session_id},
@@ -288,7 +289,7 @@ class ScriptRunnerProvider:
         if not session_id:
             return False
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, headers=auth_headers()) as client:
                 resp = await client.post(
                     f"{self._base_url}/sessions/touch",
                     json={"session_id": session_id},
@@ -304,7 +305,7 @@ class ScriptRunnerProvider:
 
     async def health(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=3) as client:
+            async with httpx.AsyncClient(timeout=3, headers=auth_headers()) as client:
                 resp = await client.get(f"{self._base_url}/health")
                 return resp.status_code == 200
         except Exception:

@@ -221,3 +221,145 @@ def test_mcp_json_call_gateway_uses_schema_revision_and_safe_context(monkeypatch
         "x-chat-id": "chat-1",
         "x-reranker-enabled": "true",
     }
+
+
+def _provider(provider_type: str, provider: str, api_protocol):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        provider_type=provider_type,
+        provider=provider,
+        extra_config={"api_protocol": api_protocol} if api_protocol else {},
+    )
+
+
+def test_gateway_forwards_each_model_on_the_protocol_it_actually_speaks():
+    """A Responses-protocol model must not be proxied to ``/chat/completions``.
+
+    The path used to come from the provider *type* alone, so every model whose
+    probe found ``/responses`` was forwarded to ``/chat/completions`` and came
+    back 404. On the desktop that is not a visible error: failover quietly walks
+    on to whichever model does speak chat completions, so every local turn paid
+    a wasted upstream round trip and then ran on a model nobody selected.
+    """
+    resolve = service._upstream_model_path
+
+    assert resolve(_provider("chat", "openai_compatible", "responses")) == "responses"
+    assert resolve(_provider("chat", "deepseek", "responses")) == "responses"
+    assert (
+        resolve(_provider("chat", "openai_compatible", "chat_completions")) == "chat/completions"
+    )
+    assert resolve(_provider("chat", "zhipu", "chat_completions")) == "chat/completions"
+    # Never probed: same default the model client itself applies.
+    assert resolve(_provider("chat", "openai_compatible", None)) == "responses"
+    # Non-chat models have exactly one route each.
+    assert resolve(_provider("embedding", "openai_compatible", None)) == "embeddings"
+    assert resolve(_provider("reranker", "openai_compatible", None)) == "rerank"
+
+
+class _StubSession:
+    """A session whose provider lookup returns exactly one prepared row."""
+
+    def __init__(self, provider):
+        self._provider = provider
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def query(self, *_models):
+        return self
+
+    def filter(self, *_conditions):
+        return self
+
+    def first(self):
+        return self._provider
+
+
+def test_a_responses_model_reaches_the_gateway_instead_of_404(monkeypatch):
+    """The whole route, not just the path helper.
+
+    The 404 came from this route's own guard — it compares the path the client
+    asked for against the one the gateway derived. A Responses-protocol model
+    asks for ``/responses`` while the gateway derived ``chat/completions``, so
+    the request never reached any upstream. On the desktop that surfaced as a
+    silent failover onto whichever model does speak chat completions.
+    """
+    from types import SimpleNamespace
+
+    captured: dict = {}
+
+    class EventStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.completed"}\n\n'
+
+    provider = SimpleNamespace(
+        provider_id="provider-1",
+        provider="openai_compatible",
+        provider_type="chat",
+        model_name="deepseekv4-flash-vision",
+        base_url="http://192.0.2.10:1029/v1",
+        api_key="real-cloud-key",
+        is_active=True,
+        extra_config={"api_protocol": "responses"},
+    )
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=EventStream()
+        )
+
+    monkeypatch.setattr(service, "SessionLocal", lambda: _StubSession(provider))
+    monkeypatch.setattr(service, "_model_provider_allowed", lambda *_a, **_k: True)
+    # 出口脱敏集合与本用例无关；品牌分支在这里还会查凭据策略，测试环境没有。
+    monkeypatch.setattr(service, "gateway_stream_secrets", lambda *_a, **_k: set())
+    monkeypatch.setattr(
+        routes, "_gateway_client", httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    )
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes._require_capability_user] = lambda: "user-1"
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/desktop/capability/gateway/models/provider-1/responses",
+            headers={"authorization": "Bearer desktop-capability-token"},
+            json={"model": "whatever-the-client-said", "input": "hi"},
+        )
+
+    assert response.status_code == 200, "Responses 协议的模型不应再被网关判成 404"
+    assert captured["url"] == "http://192.0.2.10:1029/v1/responses"
+
+
+def test_a_chat_completions_model_still_rejects_a_responses_request(monkeypatch):
+    """The guard itself stays: a client may not pick the upstream path."""
+    from types import SimpleNamespace
+
+    provider = SimpleNamespace(
+        provider_id="provider-2",
+        provider="zhipu",
+        provider_type="chat",
+        model_name="glm-5.3",
+        base_url="http://192.0.2.11:1029/v1",
+        api_key="k",
+        is_active=True,
+        extra_config={"api_protocol": "chat_completions"},
+    )
+    monkeypatch.setattr(service, "SessionLocal", lambda: _StubSession(provider))
+    monkeypatch.setattr(service, "_model_provider_allowed", lambda *_a, **_k: True)
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes._require_capability_user] = lambda: "user-1"
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/desktop/capability/gateway/models/provider-2/responses",
+            headers={"authorization": "Bearer desktop-capability-token"},
+            json={"input": "hi"},
+        )
+
+    assert response.status_code == 404

@@ -31,6 +31,7 @@ def factory_template():
 
 @pytest.fixture
 def frozen(index_db, caps_root, monkeypatch):
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
     monkeypatch.setattr(skills, "current_account_profile", lambda: None)
     monkeypatch.setattr(
@@ -77,8 +78,8 @@ async def test_real_factory_prompt_and_native_registry_preserve_two_custom_alias
     assert set(native) == {"mine-one", "mine-two"}
     for alias, marker in (("mine-one", "MARKER_ONE"), ("mine-two", "MARKER_TWO")):
         assert "- `" + alias + "`" in prompt
-        assert prepared.bindings[alias]["revision"] not in prompt
-        assert native[alias].name == alias and native[alias].dir == "/workspace/skills/" + alias
+        assert str(Path(loader.get_skill_dir(alias)).resolve()) in prompt
+        assert native[alias].name == alias and native[alias].dir == str(Path(loader.get_skill_dir(alias)).resolve())
         assert native[alias].markdown == marker
         loaded = await toolkit.builtin_skill_viewer.tool(alias, AgentState())
         assert "\n".join(block.text for block in loaded.content) == marker
@@ -98,10 +99,10 @@ async def test_native_projection_is_detached_and_custom_alias_reads_frozen_bytes
     native["custom-local"].dir = "/wrong"
     again = await toolkit._get_available_skills()
     assert again["custom-local"].name == "custom-local"
-    assert again["custom-local"].dir == "/workspace/skills/custom-local"
+    assert again["custom-local"].dir == str(Path(loader.get_skill_dir("custom-local")).resolve())
     register_sandboxed_view_text_file(collector, [loader.get_skill_dir("custom-local")], loader)
     tool = collector.get_tool("view_text_file")._func
-    response = await tool("/workspace/skills/custom-local/SKILL.md")
+    response = await tool(str(Path(loader.get_skill_dir("custom-local")).resolve() / "SKILL.md"))
     assert "FROZEN_CONTENT" in "\n".join(block.text for block in response.content)
     denied = await tool(
         "/workspace/skills/" + prepared.bindings["custom-local"]["revision"] + "/SKILL.md"
@@ -140,8 +141,8 @@ def test_explicit_skill_hint_uses_authorized_alias_instead_of_store_revision(fro
     monkeypatch.setattr(loader, "get_skill_dir", lambda sid: physical)
     monkeypatch.setattr("core.agent_skills.loader.get_skill_loader", lambda: loader)
     hint = _build_skill_injection({"skill_id": "chosen-local-alias", "skill_name": "Chosen"})
-    assert "/workspace/skills/chosen-local-alias/SKILL.md" in hint["content"]
-    assert prepared.bindings["chosen-local-alias"]["revision"] not in hint["content"]
+    assert physical + "/SKILL.md" in hint["content"]
+    assert "chosen-local-alias" in hint["content"]
 
 
 @pytest.mark.asyncio

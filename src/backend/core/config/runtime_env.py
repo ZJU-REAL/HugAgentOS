@@ -10,9 +10,19 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def local_data_dir() -> Path:
+    """本机部署的数据根（``HUGAGENT_HOME``，由桌面壳注入）。
+
+    库、能力文件、备份、快照都挂在这个根下。它是一句 ``os.getenv`` 的事，但散抄
+    到各处就会在改默认值时漏掉一处，所以只在这里算一次。
+    """
+    return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
 
 # Env vars produced by ``ModelConfigService.get_mcp_env_overlay()``. Looking up
 # a non-model env var should not pay the cost of building that dict.

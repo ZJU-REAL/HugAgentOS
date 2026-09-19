@@ -60,31 +60,6 @@ def test_desktop_local_install_never_provisions_system_tools():
     )
 
 
-def test_windows_workspace_rewrite_treats_backslashes_literally():
-    workspace = r"C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\data\workspace"
-
-    rewritten = server._rewrite_workspace_refs(
-        'open("/workspace/myspace/report.txt")', workspace
-    )
-
-    assert rewritten == (
-        'open("C:\\Users\\Aaron\\AppData\\Local\\com.hugagent.desktop\\local-server'
-        '\\data\\workspace/myspace/report.txt")'
-    )
-    assert server._rewrite_workspace_refs(
-        rf"{workspace}/myspace/report.txt", workspace
-    ) == rf"{workspace}/myspace/report.txt"
-
-
-def test_windows_git_bash_receives_msys_workspace_path():
-    workspace = r"C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\data\workspace"
-
-    assert server._execution_workspace_root("bash", workspace, "nt") == (
-        "/c/Users/Aaron/AppData/Local/com.hugagent.desktop/local-server/data/workspace"
-    )
-    assert server._execution_workspace_root("python", workspace, "nt") == workspace.replace(chr(92), "/")
-
-
 def test_timeout_kills_the_whole_process_group(monkeypatch, tmp_path):
     """A timed-out bash tree must not leave document-tool descendants alive."""
     monkeypatch.setenv("DEPLOY_PROFILE", "local")

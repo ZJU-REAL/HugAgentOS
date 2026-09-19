@@ -237,3 +237,17 @@ def test_reformat_unsupported_extension(tmp_path):
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload["ok"] is False
     assert "unsupported" in payload["error"]["message"].lower()
+
+
+def test_shim_uses_its_own_skill_directory_with_spaces(tmp_path):
+    relocated = tmp_path / "中文 PDF tools"
+    shutil.copytree(SKILL_DIR, relocated)
+    env = {**os.environ, "PY_BIN": sys.executable}
+    env["PDF_SKILL_DIR"] = str(tmp_path / "unrelated-skill")
+    env.pop("SKILL_DIR", None)
+    result = subprocess.run(
+        ["sh", str(relocated / "scripts/pdf-cli"), "--help"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "create" in result.stdout

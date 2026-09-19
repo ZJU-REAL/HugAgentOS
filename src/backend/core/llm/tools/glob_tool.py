@@ -39,7 +39,7 @@ def register_glob(
 
     async def Glob(
         pattern: str,
-        path: str = "/workspace",
+        path: str = ".",
         limit: int = DEFAULT_GLOB_PAGE_SIZE,
         page: int = 1,
     ) -> "ToolResponse":  # type: ignore[name-defined]
@@ -66,7 +66,7 @@ def register_glob(
             from .project_working_copy import directory
 
             root = directory(scope.project_id)
-            if path == "/workspace" or path == root:
+            if path in (".", "/workspace") or path == root:
                 path = "/myspace/" + scope.folder_name
             elif path.startswith(root + "/"):
                 path = "/myspace/" + scope.folder_name + path[len(root) :]
@@ -166,7 +166,7 @@ def register_glob(
 
     Glob.__doc__ = (
         "按 glob 模式查找文件，按修改时间倒序分页返回。\n\n"
-        "- ``path`` 默认 ``/workspace``；传 ``/myspace``（或其子文件夹）则按我的\n"
+        "- ``path`` 默认 ``.``（本次会话的工作目录）；传 ``/myspace``（或其子文件夹）则按我的\n"
         "  空间真实目录树匹配。\n"
         "- ``pattern``：普通 glob ``*.py``（只在 ``path`` 当层匹配）、深度匹配\n"
         "  ``**/*.py`` / ``src/**/test_*.py``（跨子目录）。\n"
@@ -174,7 +174,7 @@ def register_glob(
         "  继续取，没有条数上限。\n\n"
         "Args:\n"
         "    pattern (`str`): glob 模式。\n"
-        "    path (`str`): 搜索起点，绝对路径，默认 ``/workspace``；找用户\n"
+        "    path (`str`): 搜索起点，默认 ``.``（本次会话的工作目录）；找用户\n"
         "        「我的空间」文件时用 ``/myspace`` 或其子文件夹。\n"
         f"    limit (`int`): 每页条数，默认 {DEFAULT_GLOB_PAGE_SIZE}，无上限；\n"
         "        填 0 或负数表示不分页、一次返回全部。\n"

@@ -9,7 +9,7 @@ use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use crate::child_process::hide_console;
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tar::EntryType;
 use zip::ZipArchive;
 
@@ -636,7 +636,7 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 }
 
 fn staging_path(parent: &Path, id: &str) -> PathBuf {
-    parent.join(format!(".{id}.stage-{}", nonce()))
+    parent.join(format!(".{id}{STAGING_MARKER}{}", nonce()))
 }
 
 fn nonce() -> u128 {
@@ -662,14 +662,40 @@ fn remove_tree(path: &Path) {
     }
 }
 
+/// 解压暂存目录名里的固定段，`staging_path` 拼名字和 `prune_children` 认残骸用的是
+/// 同一个常量。安装中途被杀或断电会留下一份，每份都是一整套 Python 运行时；下次安装
+/// 用的是新的 nonce，删不到旧的那份。
+const STAGING_MARKER: &str = ".stage-";
+/// 多久没动过就认定这份暂存目录已经没人在写了。解压是持续写入的，正在进行的那份
+/// 修改时间一直在刷新，不会落进这个窗口。
+const ABANDONED_STAGING: Duration = Duration::from_secs(60 * 60);
+
+fn is_abandoned(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .and_then(|modified| SystemTime::now().duration_since(modified).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::Other, "modified in the future")
+        }))
+        .map(|age| age >= ABANDONED_STAGING)
+        .unwrap_or(false)
+}
+
 fn prune_children(root: &Path, keep: &HashSet<String>) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || keep.contains(&name) {
+        if keep.contains(&name) {
             continue;
+        }
+        // 点开头的是安装过程中的临时项，正常不该删；但崩溃遗留的解压暂存目录
+        // 也长这样，而且没人再认领它——每崩一次就永久多占一整份运行时的空间。
+        // 只清明显已经没人在写的那些，免得误伤正在进行的解压。
+        if name.starts_with('.') {
+            if !name.contains(STAGING_MARKER) || !is_abandoned(&entry.path()) {
+                continue;
+            }
         }
         remove_tree(&entry.path());
     }

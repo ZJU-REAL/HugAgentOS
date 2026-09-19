@@ -17,6 +17,8 @@ Redis、没有就用进程内那份（单进程部署本来就只允许一个 wo
 写一套双后端，顺带拿到三件事：条目自带过期、进程内那份跨事件循环安全（子智能体跑
 在自己的循环上），以及和 ``core.infra.leader`` 等模块同一套语义。
 
+绑定同时写正反两个方向，反向那条（容器 → 会话）见 ``_REVERSE_KEY``。
+
 绑定和「最后一次使用」写在同一条记录里，所以记一次使用就是一次写、没有读改写。
 最后使用时间必须共享：空闲回收按「这个会话多久没动」决定要不要快照+销毁，而一个
 worker 只看得见自己服务过的轮次；不共享的话，连着五轮都由 B 处理时 A 会把 B 正在
@@ -39,6 +41,11 @@ logger = logging.getLogger(__name__)
 
 _KEY = "jx:sandbox:session:{session_id}"
 _LOCK_KEY = "jx:sandbox:claim:{session_id}"
+# 反向索引：从容器反查「它属于哪个会话」。正向那条够不着——问的人手里只有容器 id，
+# 而 keyspace 只能按 key 取、不能反查值。沙箱空闲池靠它守住「队列里只有无主容器」：
+# 队列条目的老化时间只在入队时打、不被真实使用刷新，少了这道判定就会把会话正在用的
+# 容器当成闲置销毁掉（生产事故：``/workspace`` 连同产物一起没了）。
+_REVERSE_KEY = "jx:sandbox:bound:{sandbox_id}"
 
 # 认领只护住「查登记 → 连上去 / 新建 → 写登记」这一段。建容器最慢的路径是从快照恢复，
 # 实测十几秒，所以锁的存活时间要盖得住它；持有者结束就主动删，正常不会等到过期。
@@ -103,18 +110,44 @@ async def lookup(session_id: str) -> Optional[str]:
 
 async def remember(session_id: str, sandbox_id: str) -> None:
     """记下「这个会话用这台容器，刚刚用过」。建好之后和每次使用都调它。"""
-    await get_ephemeral_state().put(
+    state = get_ephemeral_state()
+    ttl = _binding_ttl_s()
+    await state.put(
         _KEY.format(session_id=session_id),
         json.dumps({"sandbox_id": str(sandbox_id), "active_at": time.time()}),
-        ttl=_binding_ttl_s(),
+        ttl=ttl,
     )
+    # 反向索引和正向记录同写同活，否则长会话跑过一个 TTL 之后就问不出主人了。
+    await state.put(_REVERSE_KEY.format(sandbox_id=sandbox_id), session_id, ttl=ttl)
 
 
 async def forget(session_id: str, sandbox_id: str) -> None:
     """撤销登记——只在它仍指向这个沙箱时，免得抹掉别人刚建的那条。"""
     entry = await _read(session_id)
     if entry and entry[0] == str(sandbox_id):
-        await get_ephemeral_state().drop(_KEY.format(session_id=session_id))
+        await get_ephemeral_state().drop(
+            _KEY.format(session_id=session_id),
+            _REVERSE_KEY.format(sandbox_id=sandbox_id),
+        )
+
+
+async def bound_session(sandbox_id: str) -> Optional[str]:
+    """这台容器当前属于哪个会话；无主返回 ``None``。
+
+    空闲池用它守住「队列里只有无主容器」，重启后的沙箱认领用它区分「无主，可以收进
+    池」和「仍在服务会话，别碰」。反向索引会过期——会话换了容器之后，旧容器那条要等
+    TTL 才消失——所以回正向记录复核一次，对不上就顺手清掉，两个方向只留一个事实。
+    """
+    state = get_ephemeral_state()
+    key = _REVERSE_KEY.format(sandbox_id=sandbox_id)
+    sid = await state.get(key)
+    if not sid:
+        return None
+    entry = await _read(sid)
+    if entry and entry[0] == str(sandbox_id):
+        return sid
+    await state.drop(key)
+    return None
 
 
 async def in_use_elsewhere(session_id: str, idle_threshold_s: float) -> bool:

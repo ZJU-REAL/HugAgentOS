@@ -30,6 +30,22 @@ def strip_think_tags(text: str) -> str:
 
 # ── Model config helper ────────────────────────────────────────────────────
 
+def resolve_main_endpoint():
+    """main_agent 端点，带上它说的协议——KB 的两处抽取都得走对那条线。"""
+    from core.llm.single_turn import Endpoint
+
+    try:
+        from core.services.model_config import ModelConfigService
+
+        cfg = ModelConfigService.get_instance().resolve("main_agent")
+        if cfg and cfg.base_url and cfg.model_name:
+            return Endpoint.from_resolved(cfg)
+    except Exception:
+        pass
+    base_url, api_key, model_name = resolve_main_model_config()
+    return Endpoint(base_url=base_url, api_key=api_key, model_name=model_name)
+
+
 def resolve_main_model_config() -> tuple[str, str, str]:
     """Resolve main_agent model config from DB, with env fallback."""
     try:
@@ -48,35 +64,40 @@ def resolve_main_model_config() -> tuple[str, str, str]:
 
 # ── LLM-powered enrichment ─────────────────────────────────────────────────
 
-def extract_keywords_llm(content: str, count: int) -> list[str]:
-    """Call configured LLM to extract keywords from a text chunk."""
+def _call_main_model(
+    *, system: str, user: str, temperature: float, max_tokens: int, timeout: int = 30
+) -> str:
+    """跑一次主模型补全；未配置时返回空串，调用方按「这一步没产出」处理。"""
     import requests as _requests
 
-    model_url, api_key, model_name = resolve_main_model_config()
-    if not model_url or not model_name:
-        return []
+    from core.llm.single_turn import build_request, parse_response, turns
+
+    endpoint = resolve_main_endpoint()
+    if not endpoint.base_url or not endpoint.model_name:
+        return ""
+    url, headers, payload = build_request(
+        endpoint, turns(user, system), temperature=temperature, max_tokens=max_tokens
+    )
+    resp = _requests.post(url, headers=headers, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return parse_response(endpoint, resp.json()).text
+
+
+def extract_keywords_llm(content: str, count: int) -> list[str]:
+    """Call configured LLM to extract keywords from a text chunk."""
     try:
-        resp = _requests.post(
-            f"{model_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": (
-                        "你是关键词提取工具。"
-                        "输出规则：只输出关键词，用英文逗号分隔，不要编号，不要解释，不要分析过程。"
-                        "示例输出：数字化转型,产业升级,人工智能"
-                    )},
-                    {"role": "user", "content": f"从以下文本提取{count}个关键词，直接输出逗号分隔的关键词：\n\n{content[:2000]}"},
-                ],
-                "temperature": 0.1,
-                "max_tokens": 200,
-            },
-            timeout=30,
+        raw = strip_think_tags(
+            _call_main_model(
+                system=(
+                    "你是关键词提取工具。"
+                    "输出规则：只输出关键词，用英文逗号分隔，不要编号，不要解释，不要分析过程。"
+                    "示例输出：数字化转型,产业升级,人工智能"
+                ),
+                user=f"从以下文本提取{count}个关键词，直接输出逗号分隔的关键词：\n\n{content[:2000]}",
+                temperature=0.1,
+                max_tokens=200,
+            )
         )
-        resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-        raw = strip_think_tags(raw)
         lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
         best_line = raw
         for line in reversed(lines):
@@ -92,33 +113,19 @@ def extract_keywords_llm(content: str, count: int) -> list[str]:
 
 def generate_questions_llm(content: str, count: int) -> list[str]:
     """Call configured LLM to generate retrieval questions for a text chunk."""
-    import requests as _requests
-
-    model_url, api_key, model_name = resolve_main_model_config()
-    if not model_url or not model_name:
-        return []
     try:
-        resp = _requests.post(
-            f"{model_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": (
-                        "你是问题生成工具。"
-                        "输出规则：每行一个问题，不要编号，不要解释，不要分析过程。直接输出问题本身。"
-                        "示例输出：\n什么是数字化转型？\n如何申报产业升级项目？"
-                    )},
-                    {"role": "user", "content": f"根据以下文本生成{count}个检索问题，每行一个：\n\n{content[:2000]}"},
-                ],
-                "temperature": 0.3,
-                "max_tokens": 500,
-            },
-            timeout=30,
+        raw = strip_think_tags(
+            _call_main_model(
+                system=(
+                    "你是问题生成工具。"
+                    "输出规则：每行一个问题，不要编号，不要解释，不要分析过程。直接输出问题本身。"
+                    "示例输出：\n什么是数字化转型？\n如何申报产业升级项目？"
+                ),
+                user=f"根据以下文本生成{count}个检索问题，每行一个：\n\n{content[:2000]}",
+                temperature=0.3,
+                max_tokens=500,
+            )
         )
-        resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-        raw = strip_think_tags(raw)
         questions = []
         for q in raw.split("\n"):
             q = q.strip().lstrip("0123456789.、）)-— ").strip()

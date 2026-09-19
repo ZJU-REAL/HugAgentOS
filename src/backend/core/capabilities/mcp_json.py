@@ -375,8 +375,13 @@ def project_managed_profile(
     catalog_revision: str,
     servers: List[Dict[str, Any]],
     enabled_overrides: Optional[Dict[str, bool]] = None,
+    initial_enabled: Optional[Dict[str, bool]] = None,
 ) -> McpJson:
-    """Replace one profile's managed projection from a validated manifest."""
+    """Replace one profile's managed projection from a validated manifest.
+
+    ``initial_enabled`` 只对这台机器第一次见到的 server 生效：清单带着云端此刻的
+    启停下来，作为初值；已经在本机记过账的，保留本机那一份，同步不覆盖。
+    """
     safe_segment(profile)
     doc = load()
     previous = doc.managed.get(profile) or {}
@@ -385,7 +390,8 @@ def project_managed_profile(
     for s in servers:
         sid = str(s["server_id"])
         prev = prev_servers.get(sid) or {}
-        enabled = bool((enabled_overrides or {}).get(sid, prev.get("enabled", True)))
+        seeded = prev.get("enabled", (initial_enabled or {}).get(sid, True))
+        enabled = bool((enabled_overrides or {}).get(sid, seeded))
         projected[sid] = {
             "resourceRef": {
                 "issuer": cloud_instance_id,

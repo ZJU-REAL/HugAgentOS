@@ -365,7 +365,7 @@ def _known_cloud_secrets(user_id: str, *, fresh: bool = True) -> set[str]:
     resolved the target from.
     """
     try:
-        keys, configs = _user_effective_configs(user_id, use_cache=not fresh)
+        keys, _enabled, configs = _user_capability_configs(user_id, use_cache=not fresh)
         found: set[str] = set()
         for key in keys:
             found.update(_secrets_from_config(configs.get(key) or {}))
@@ -477,17 +477,25 @@ async def guard_capability_stream(chunks, secrets: set[str]):
 # 网关每次工具调用都要做归属校验；底层 get_owned_servers 不带缓存（防跨用户
 # 泄漏的设计），这里按用户加同节奏的 30s TTL，命中后校验退化为纯内存查找。
 _EFFECTIVE_TTL_S = 30.0
-_effective_cache: Dict[str, Tuple[float, List[str], Dict[str, dict]]] = {}
+_effective_cache: Dict[str, Tuple[float, List[str], List[str], Dict[str, dict]]] = {}
 _effective_lock = threading.Lock()
 
 
-def _user_effective_configs(
+def _user_capability_configs(
     user_id: str, *, use_cache: bool = True
-) -> Tuple[List[str], Dict[str, dict]]:
-    """当前用户最终可用的 (server_id 有序列表, {server_id: 已物化连接配置})。
+) -> Tuple[List[str], List[str], Dict[str, dict]]:
+    """(账号拥有的 server_id, 云端此刻启用的 server_id, {server_id: 已物化连接配置})。
 
-    复用 agent 装配同一条门控链（catalog resolver + 全局/私有配置合并），
-    保证网关授权口径与会话装配完全一致。配置含云端侧凭据，仅进程内使用。
+    两个集合的分工，就是「装了什么」与「开着什么」的分工：
+
+    - **拥有集**是管理员放行的全局连接器加上这个用户自己的私有连接器（含他在云端
+      关掉的）。清单下发和网关授权都按它来——插件带来的连接器在云端常是关着的，
+      按启用集下发会让插件在桌面端只剩个空壳，打开开关也调不通。
+    - **启用集**是云端此刻的有效启停，只用来给本机首次落地一个初值。之后开关归
+      本机，云端再改也不回头覆盖。
+
+    管理员停用的连接器不在拥有集里，本机也就打不开——这条边界没有放宽。
+    配置含云端侧凭据，仅进程内使用。
     """
     uid = str(user_id)
     now = time.monotonic()
@@ -495,35 +503,40 @@ def _user_effective_configs(
         with _effective_lock:
             hit = _effective_cache.get(uid)
             if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-                return list(hit[1]), dict(hit[2])
+                return list(hit[1]), list(hit[2]), dict(hit[3])
 
     from core.config.catalog_resolver import resolve_all_runtime_enabled
     from core.llm.agent_factory import _effective_mcp_server_keys
     from core.services.mcp_service import McpServerConfigService
 
     svc = McpServerConfigService.get_instance()
-    owned = svc.get_owned_servers(uid)
+    owned = svc.get_owned_servers(uid, enabled_only=False)
     with SessionLocal() as db:
         _skills, _agents, mcps = resolve_all_runtime_enabled(db, uid)
-    keys = _effective_mcp_server_keys(
-        None, None, enabled_mcp_ids=list(mcps or []), owned_servers=owned
-    )
     all_cfgs = dict(svc.get_all_servers(enabled_only=True))
     all_cfgs.update(owned)
+    available = list(all_cfgs.keys())
+    enabled = _effective_mcp_server_keys(
+        None, None, enabled_mcp_ids=list(mcps or []), owned_servers=owned
+    )
 
     with _effective_lock:
-        _effective_cache[uid] = (now, list(keys), dict(all_cfgs))
-    return keys, all_cfgs
+        _effective_cache[uid] = (now, list(available), list(enabled), dict(all_cfgs))
+    return available, enabled, all_cfgs
 
 
 def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
     """构建当前用户的云端能力 manifest（server 级 + 完整脱敏 schema）。
 
-    只收 ``streamable_http`` 传输的 server——网关按 MCP streamable-http 协议
-    透明反代；stdio / sse 传输的（本就极少）不进桌面清单。凭据（URL 内嵌
-    密钥、headers、OAuth）一律留在云端连接层，manifest 不携带任何密钥。
+    清单是账号**拥有**的连接器，云端关着的也在里面（带 ``enabled=false``）：装了
+    什么由云端定，开不开由本机定。只收 ``streamable_http`` 传输的 server——网关按
+    MCP streamable-http 协议透明反代；stdio / sse 传输的（本就极少）不进桌面清单。
+    凭据（URL 内嵌密钥、headers、OAuth）一律留在云端连接层，manifest 不携带任何密钥。
     """
-    keys, all_cfgs = _user_effective_configs(user_id)
+    from core.config.catalog_runtime import _DEFAULT_MCP_ICONS
+
+    keys, enabled_keys, all_cfgs = _user_capability_configs(user_id)
+    enabled = set(enabled_keys)
 
     meta: Dict[str, AdminMcpServer] = {}
     if keys:
@@ -551,6 +564,11 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
                 "execution_scope": "cloud",
                 "tools": tools,
                 "schema_hash": canonical_hash(tools),
+                # 云端此刻的启停，只作本机首次落地的初值。
+                "enabled": sid in enabled,
+                # 图标随条目走：本机没有云端那张内置图标表，也读不到库里的自定义图标，
+                # 不带下去就是网页端有图、桌面端一片空白。
+                "icon": (row.icon if row else "") or _DEFAULT_MCP_ICONS.get(sid, ""),
             }
         )
     # The revision intentionally excludes credentials, URLs and timestamps.
@@ -560,13 +578,16 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
 def resolve_gateway_target(
     user_id: str, server_id: str, *, fresh: bool = False
 ) -> Optional[dict]:
-    """网关调用前的授权解析：server 必须在该用户当前有效集合内。
+    """网关调用前的授权解析：server 必须是该用户拥有的。
+
+    按拥有集而不是云端启用集裁决：启停已经交给本机，用户在桌面端打开的连接器
+    必须真的调得通。管理员停用的连接器不在拥有集里，这条边界没有放宽。
 
     命中返回**已物化**（含云端侧凭据/headers、URL 已去尾斜杠）的连接配置——
     只在云端进程内使用，绝不回传桌面。未命中 / 非 streamable_http / 无 URL
     一律返回 None（调用方 404，不区分“不存在/无权”）。
     """
-    keys, all_cfgs = _user_effective_configs(user_id, use_cache=not fresh)
+    keys, _enabled, all_cfgs = _user_capability_configs(user_id, use_cache=not fresh)
     if server_id not in keys:
         return None
     target = all_cfgs.get(server_id)
@@ -676,13 +697,24 @@ _SKILL_SKIP_PARTS = {"__pycache__", ".git", ".svn", ".hg", "__MACOSX"}
 _skill_manifest_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
-def _skill_snapshot(skill_id: str) -> Optional[Tuple[str, Dict[str, str], Optional[Path]]]:
-    """(SKILL.md 正文, {相对路径: 内容}, 文件系统技能目录或 None)。"""
+def _skill_info(skill_id: str):
+    from core.agent_skills.loader import get_skill_loader
+
+    return get_skill_loader()._backend.get_skill_info(skill_id)
+
+
+def _skill_snapshot(
+    skill_id: str, info=None
+) -> Optional[Tuple[str, Dict[str, str], Optional[Path]]]:
+    """(SKILL.md 正文, {相对路径: 内容}, 文件系统技能目录或 None)。
+
+    ``info`` 给已经取过的调用方复用，省一次后端查询。
+    """
     from core.agent_skills.binary_files import pack_directory
     from core.agent_skills.loader import get_skill_loader
 
     loader = get_skill_loader()
-    info = loader._backend.get_skill_info(skill_id)
+    info = _skill_info(skill_id) if info is None else info
     if info is None:
         return None
     if not info.is_database and info.content is None and info.file_path is not None:
@@ -698,10 +730,14 @@ def _skill_snapshot(skill_id: str) -> Optional[Tuple[str, Dict[str, str], Option
 
 
 def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
-    """当前用户最终可用技能的清单（含内容哈希）以及云端可见但当前不可用的 id。
+    """这个账号拥有的技能清单（含内容哈希与云端当前启停）。
 
-    ``skills`` 与会话装配走同一条门控链（catalog resolver + 归属/发布过滤），
-    ``suppressed_ids`` 让本机把云端已停用的同名技能一并停掉，做到两端一致。
+    清单回答的是「装了什么」，不是「开着什么」：库里的技能不论启停一律下发，本机才
+    装得齐——插件的子技能和智能体依赖的技能在云端常是关着的，只发启用的会让它们在
+    本机整片缺失，插件下方空无一物、智能体调用时找不到工具。``enabled`` 只作本机
+    首次落地的初值，之后启停由本机自己控制。
+
+    内置技能随本机后端一起分发，本机目录里本来就有，仍按启用集下发。
     """
     uid = str(user_id)
     now = time.monotonic()
@@ -717,15 +753,20 @@ def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[s
 
     with SessionLocal() as db:
         enabled, _agents, _mcps = resolve_all_runtime_enabled(db, uid)
-    enabled_ids = _filter_skill_ids_for_user(list(enabled or []), uid)
+    enabled_ids = set(_filter_skill_ids_for_user(list(enabled or []), uid))
     loader = get_skill_loader()
     metadata = loader.load_all_metadata()
-    visible = {sid for sid in metadata if loader.get_skill_owner(sid) in (None, uid)}
+    visible = sorted(sid for sid in metadata if loader.get_skill_owner(sid) in (None, uid))
 
     skills: List[Dict[str, Any]] = []
-    for sid in enabled_ids:
+    for sid in visible:
         meta = metadata.get(sid)
-        snapshot = _skill_snapshot(sid) if meta is not None else None
+        info = _skill_info(sid) if meta is not None else None
+        if info is None:
+            continue
+        if sid not in enabled_ids and not info.is_database:
+            continue
+        snapshot = _skill_snapshot(sid, info)
         if snapshot is None:
             continue
         content, files, _dir = snapshot
@@ -738,9 +779,11 @@ def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[s
                 "scope": "private" if loader.get_skill_owner(sid) else "shared",
                 "content_hash": skill_content_hash(content, files),
                 "mcp_server_ids": list(meta.mcp_server_ids or []),
+                "enabled": sid in enabled_ids,
+                "source_plugin": str(getattr(info, "source_plugin", "") or ""),
             }
         )
-    manifest = build_skill_manifest(skills, sorted(visible - {s["skill_id"] for s in skills}))
+    manifest = build_skill_manifest(skills)
     with _effective_lock:
         _skill_manifest_cache[uid] = (now, copy.deepcopy(manifest))
     return manifest
@@ -1027,6 +1070,28 @@ _MODEL_PATHS = {
     "embedding": "embeddings",
     "reranker": "rerank",
 }
+
+
+def _upstream_model_path(provider: ModelProvider) -> Optional[str]:
+    """上游该走哪个路径。
+
+    聊天模型有两种线上协议，走哪一种是 ``protocol_probe`` 在配置时探明、写进
+    ``extra_config.api_protocol`` 的事实。网关必须照同一份事实转发：本机端按该事实
+    调用 ``/responses``，网关却一律改投 ``/chat/completions``，上游就会 404，本机端
+    每一轮都先失败一次再回退到别的模型——用户看到的是"本机比云端慢一截"。
+    """
+    provider_type = str(provider.provider_type or "")
+    if provider_type != "chat":
+        return _MODEL_PATHS.get(provider_type)
+    from core.llm.chat_models import wants_responses
+    from core.llm.providers.protocol_probe import PROTOCOL_RESPONSES
+    from core.llm.providers.registry import get_spec
+
+    spec = get_spec(getattr(provider, "provider", None) or "openai_compatible")
+    protocol = (provider.extra_config or {}).get("api_protocol")
+    if wants_responses(spec, protocol):
+        return PROTOCOL_RESPONSES
+    return _MODEL_PATHS["chat"]
 _SENSITIVE_EXTRA_KEY_PARTS = (
     "api_key",
     "access_key",
@@ -1168,7 +1233,7 @@ def resolve_model_gateway_target(user_id: str, provider_id: str) -> Optional[dic
         ).first()
         if provider is None or not _model_is_gateway_compatible(provider):
             return None
-        path = _MODEL_PATHS.get(str(provider.provider_type or ""))
+        path = _upstream_model_path(provider)
         base_url = str(provider.base_url or "").strip().rstrip("/")
         if not path or not base_url or not _model_provider_allowed(db, user_id, provider):
             return None

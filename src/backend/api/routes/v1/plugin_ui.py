@@ -63,7 +63,15 @@ def list_ui_contributions(
     definitions are projected down to id + parameter schema; the upstream URL
     and auth header stay on the server.
     """
-    return success_response(data={"items": ps.resolve_ui_contributions(db, str(user.user_id))})
+    from core.capabilities import device_catalog
+
+    # 同上：云端账号的插件不投影进来，混合模式下这些插件的面板就整片消失。
+    items = device_catalog.merge_items(
+        ps.resolve_ui_contributions(db, str(user.user_id)),
+        device_catalog.plugin_ui_contributions(),
+        key="slug",
+    )
+    return success_response(data={"items": items})
 
 
 def _require_ui(db: Session, slug: str, user_id: str) -> Dict[str, Any]:

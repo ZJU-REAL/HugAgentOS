@@ -294,6 +294,13 @@ class JobService:
         job = self.get(job_id)
         if job is None:
             return {"calls_left": 0, "tokens_left": 0, "seconds_left": 0}
+        return self.budget_left_of(job)
+
+    def budget_left_of(self, job: Job) -> Dict[str, int]:
+        """已经持有 Job 时走这个，别再按 id 回查一遍。
+
+        状态条一次轮询要渲染 20 条作业，按 id 查等于每条多一次往返。
+        """
         budget = dict(DEFAULT_BUDGET)
         budget.update(job.budget or {})
         usage = job.usage or {}

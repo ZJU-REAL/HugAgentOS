@@ -1,6 +1,7 @@
 """A desktop project publishes its real build directory without a cloud folder."""
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
@@ -98,16 +99,68 @@ def test_publish_rejects_paths_outside_bound_project(local_project, monkeypatch,
     if escape == "symlink":
         source = root / "escape"
         source.symlink_to(outside, target_is_directory=True)
-    with pytest.raises(ValueError, match="path 必须在"):
+    with pytest.raises(ValueError, match="站点目录必须位于") as caught:
         asyncio.run(package_local_site(
             {"src_dir": str(source)}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
+    # 报错要说出项目根在哪：只说「不在范围内」模型就只能一条条猜路径。
+    assert str(root) in str(caught.value)
+
+
+def test_unbound_chat_publishes_from_its_session_directory(local_project, tmp_path, monkeypatch):
+    """没绑项目时边界是这个会话的工作目录，发布照常走通。"""
+    from core.db.models import ChatSession
+
+    _root, factory = local_project
+    with factory() as db:
+        db.get(ChatSession, "chat").project_id = None
+        db.commit()
+
+    from services.script_runner_service.workspace_paths import session_root
+
+    workspace = tmp_path / "workspace"
+    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(workspace))
+    site = Path(session_root(str(workspace), "chat")) / "sites" / "demo"
+    site.mkdir(parents=True)
+    (site / "index.html").write_text("<h1>default workspace</h1>")
+
+    async def pack(src, session_id, user_id, **kwargs):
+        return [("index.html", (site / "index.html").read_bytes())], None
+
+    monkeypatch.setattr("core.services.site_packaging.pack_and_fetch_dir", pack)
+    data, _options = asyncio.run(package_local_site(
+        {"src_dir": str(site)}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
+    assert safe_extract_tar(data) == [("index.html", b"<h1>default workspace</h1>")]
+
+
+def test_unbound_chat_still_cannot_publish_outside_the_workspace(local_project, tmp_path, monkeypatch):
+    """工作目录之外的路径发布不了。"""
+    from core.db.models import ChatSession
+
+    _root, factory = local_project
+    with factory() as db:
+        db.get(ChatSession, "chat").project_id = None
+        db.commit()
+    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path / "workspace"))
+    (tmp_path / "workspace").mkdir(exist_ok=True)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+
+    async def pack(*args, **kwargs):
+        pytest.fail("越界时不该走到打包")
+
+    monkeypatch.setattr("core.services.site_packaging.pack_and_fetch_dir", pack)
+    with pytest.raises(ValueError):
+        asyncio.run(package_local_site(
+            {"src_dir": str(outside)}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
 
 
 def test_bound_project_archive_uses_real_runner(local_project, tmp_path, monkeypatch):
     import base64
     from services.script_runner_service import server
     root, _ = local_project
+    monkeypatch.setenv("DEPLOY_PROFILE", "local")
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", str(tmp_path / "workspace"))
     class Provider:
         async def execute(self, request):
             return await server.execute(server.ExecuteRequest(
@@ -136,3 +189,38 @@ def test_windows_bound_directory_containment(monkeypatch, path, allowed):
     from core.llm.tools._tool_helpers import _validate_workspace_path
     monkeypatch.setattr(_common, "WORKSPACE", "C:/managed/workspace")
     assert (_validate_workspace_path(path, additional_roots=("D:/Desktop/站点",)) is None) == allowed
+
+
+def test_boundary_is_the_session_directory_not_the_workspace_root(local_project, tmp_path, monkeypatch):
+    """边界是这个会话的工作目录，工作区根下的别处不放行。"""
+    from core.db.models import ChatSession
+    from services.script_runner_service.workspace_paths import session_root
+
+    _root, factory = local_project
+    with factory() as db:
+        db.get(ChatSession, "chat").project_id = None
+        db.commit()
+
+    workspace = tmp_path / "workspace"
+    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(workspace))
+    session_dir = Path(session_root(str(workspace), "chat"))
+
+    inside = session_dir / "sites" / "demo"
+    inside.mkdir(parents=True)
+    (inside / "index.html").write_text("<h1>in session</h1>")
+    outside = workspace / "sites" / "demo"
+    outside.mkdir(parents=True)
+    (outside / "index.html").write_text("<h1>workspace root</h1>")
+
+    async def pack(src, session_id, user_id, **kwargs):
+        return [("index.html", (Path(src) / "index.html").read_bytes())], None
+
+    monkeypatch.setattr("core.services.site_packaging.pack_and_fetch_dir", pack)
+
+    data, _ = asyncio.run(package_local_site(
+        {"src_dir": str(inside)}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))
+    assert safe_extract_tar(data) == [("index.html", b"<h1>in session</h1>")]
+
+    with pytest.raises(ValueError):
+        asyncio.run(package_local_site(
+            {"src_dir": str(outside)}, {"x-current-user-id": "owner", "x-chat-id": "chat"}))

@@ -1023,21 +1023,14 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 if not meta:
                     logger.warning("[skill_inject] skill_id=%s not found", sid)
                     continue
-                # Trigger materialization (DB skill written to disk →
-                # bind-mounted/pushed into the sandbox), but the injected
-                # prompt must use the **sandbox path** /workspace/skills/<id>,
-                # not the backend materialized path returned by get_skill_dir
-                # (/app/storage/sandbox_skills/<id>) — the backend path does
-                # not exist inside the sandbox, and if the model uses it with
-                # bash (cat/ls/python) it gets No such file or directory.
-                # The server-resolved sid is the sandbox alias. The physical
-                # directory may end in a content revision, and a copied file's
-                # frontmatter may retain its original source name.
+                # Materialize once; each deployment publishes its own usable path.
                 skill_dir = loader.get_skill_dir(sid)
                 if not skill_dir:
                     logger.warning("[skill_inject] skill_id=%s has no skill dir", sid)
                     continue
-                sandbox_dir = f"/workspace/skills/{sid}"
+                from core.agent_skills.config import model_facing_skill_dir
+
+                sandbox_dir = model_facing_skill_dir(sid, skill_dir)
                 entries.append(f'- 「{sid}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")')
             if entries:
                 sections.append("技能（使用技能时先读取对应说明文件）：\n" + "\n".join(entries))

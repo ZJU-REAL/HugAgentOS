@@ -129,6 +129,7 @@ export const PANELS_DICT: Record<string, string> = {
   // ── Sidebar / items ──────────────────────────────────────────────────
   '新建本地项目失败': 'Could not create local project',
   '下载更新': 'Download update',
+  '同步云端能力': 'Sync cloud capabilities',
   '新建对话': 'New Chat',
   '暂无对话记录': 'No chats yet',
   '确认退出登录？': 'Sign out?',

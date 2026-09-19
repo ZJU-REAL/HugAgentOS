@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -29,8 +30,84 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+#: 每个版本池默认版本的 id。内置 kind 与自定义 kind 共用这一个约定。
+DEFAULT_VERSION_ID = "default"
+
+
+@dataclass(frozen=True)
+class KindSpec:
+    """一个内置 kind 的全部差异都集中在这里，别处不再按 kind 分支。
+
+    ``layout`` 决定目录里的 md 文件怎么变成 parts：
+
+    - ``concat``：目录下每个 ``*.system.md`` 是一段，拼起来构成一份提示词
+    - ``independent``：每个文件是一份互不相干的独立提示词，按 part_id 单取
+    - ``single``：整个 kind 只有 ``<kind>.system.md`` 一个文件
+    """
+
+    subdir: tuple[str, ...]
+    layout: str
+    label: str
+    name: str
+    desc: str
+
+
 #: 内置 kind：各自对应一段固定的运行时装配位置，有文件系统兜底，不可删。
-BUILTIN_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents", "turbo")
+#: 新增一个内置 kind = 这张表加一行 + 放好 md 文件，不必再改别处。
+KIND_SPECS: Dict[str, KindSpec] = {
+    "system": KindSpec(
+        ("default", "system"),
+        "concat",
+        "系统提示词",
+        "default - 标准系统提示词",
+        "当前默认系统提示词，包含 role / constraints / tools / workflow / format",
+    ),
+    "turbo": KindSpec(
+        ("turbo",),
+        "single",
+        "极速模式",
+        "default - 极速模式",
+        "极速模式（快速查询）系统提示词：仅联网搜索/网页抓取/知识库检索三类工具，"
+        "1-2 轮并行调用后直接作答",
+    ),
+    "plan_mode": KindSpec(
+        ("plan_mode",),
+        "single",
+        "计划模式",
+        "default - 计划模式",
+        "Plan 模式下用于拆解用户任务为可执行步骤的 sub-agent 系统提示词",
+    ),
+    "plan_tool": KindSpec(
+        ("plan_tool",),
+        "single",
+        "任务计划清单",
+        "default - 任务计划清单",
+        "顶层对话注册 update_plan 工具时追加的计划清单说明",
+    ),
+    "code_exec": KindSpec(
+        ("code_exec", "system"),
+        "concat",
+        "代码执行",
+        "default - 代码执行 (沙盒)",
+        "Lab 代码执行模式的系统提示词（沙盒环境、工具能力、执行规范等）",
+    ),
+    "distillation": KindSpec(
+        ("distillation",),
+        "independent",
+        "蒸馏",
+        "default - 技能蒸馏",
+        "从对话轨迹蒸馏出可复用技能的系统提示词",
+    ),
+    "subagents": KindSpec(
+        ("subagents",),
+        "independent",
+        "平台默认子智能体",
+        "default - 平台默认子智能体",
+        "探索员、执行员和审查员三个平台内置角色的独立系统提示词",
+    ),
+}
+
+BUILTIN_KINDS = tuple(KIND_SPECS)
 
 #: 兼容别名。历史上这个名字既是"内置清单"也是"合法性白名单"；自定义 kind 出现后
 #: 两者分家了——校验一律走 :func:`is_valid_kind`，这里只保留内置那批。
@@ -57,17 +134,7 @@ def list_custom_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
 
 def all_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
     """内置 + 自定义的完整 kind 清单，供管理端渲染 tab 与模式绑定下拉。"""
-    labels = {
-        "system": "系统提示词",
-        "turbo": "极速模式",
-        "plan_mode": "计划模式",
-        "code_exec": "代码执行",
-        "distillation": "蒸馏",
-        "subagents": "子智能体",
-    }
-    items = [
-        {"key": k, "label": labels.get(k, k), "builtin": True} for k in BUILTIN_KINDS
-    ]
+    items = [{"key": k, "label": s.label, "builtin": True} for k, s in KIND_SPECS.items()]
     items += [{**c, "builtin": False} for c in list_custom_kinds(db)]
     return items
 
@@ -122,7 +189,7 @@ def create_custom_kind(
 def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
     """删掉一个自定义 kind 及其全部版本。内置 kind 拒绝删除。
 
-    注意：绑了这个 kind 的对话模式会退回默认提示词装配（``render_system_prompt_of_kind``
+    注意：绑了这个 kind 的对话模式会退回默认提示词装配（``render_kind_segment(fs_fallback=False)``
     取不到就返回空串，装配侧按"没配提示词"处理），不会让对话起不来。
     """
     if key in BUILTIN_KINDS:
@@ -142,6 +209,10 @@ def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
 _payload_cache: Optional[Dict[str, Any]] = None
 _payload_cache_lock = Lock()
 
+# kind -> (目录签名, parts)。签名变了才重读磁盘，见 _read_fs_parts。
+_fs_parts_cache: Dict[str, tuple] = {}
+_fs_parts_cache_lock = Lock()
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -152,84 +223,94 @@ def _backend_root() -> Path:
 
 
 def _fs_dir(kind: str) -> Path:
-    root = _backend_root() / "prompts" / "prompt_text"
-    if kind == "system":
-        return root / "default" / "system"
-    if kind == "code_exec":
-        return root / "code_exec" / "system"
-    if kind == "distillation":
-        return root / "distillation"
-    if kind == "plan_mode":
-        return root / "plan_mode"
-    if kind == "subagents":
-        return root / "subagents"
-    if kind == "turbo":
-        return root / "turbo"
-    raise ValueError(f"unknown kind: {kind}")
+    spec = KIND_SPECS.get(kind)
+    if spec is None:
+        raise ValueError(f"unknown kind: {kind}")
+    return _backend_root().joinpath("prompts", "prompt_text", *spec.subdir)
+
+
+def _fs_signature(dirp: Path) -> tuple:
+    """目录里每个 md 的 (文件名, mtime, 大小)。用它判断要不要重读磁盘。"""
+    try:
+        names = sorted(f for f in os.listdir(dirp) if f.endswith(".system.md"))
+    except OSError:
+        return ()
+    sig: List[tuple] = []
+    for name in names:
+        try:
+            st = os.stat(dirp / name)
+        except OSError:
+            continue
+        sig.append((name, st.st_mtime_ns, st.st_size))
+    return tuple(sig)
 
 
 def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
     """Read on-disk markdown into a parts[] list.
 
-    For system/code_exec: each *.system.md file under the kind's system/ dir
-    becomes one part. part_id = "system/<name>" (name stripped of .system.md).
-    For distillation/subagents: every file is an independent prompt part.
-    For plan_mode: its single file becomes one part.
+    布局由 :data:`KIND_SPECS` 的 ``layout`` 决定（concat / independent / single）。
+    concat 版的 sort_order 取文件名的数字前缀（``05_x`` → 5），新增文件落到它本该
+    在的位置，不挤动相邻段。
+
+    结果按目录内容签名缓存：这些 md 是只读的部署产物，而本函数落在每轮对话的
+    提示词兜底路径和管理台的每次 GET 上，不做缓存就是反复读同一批文件。
     """
-    parts: List[Dict[str, Any]] = []
     dirp = _fs_dir(kind)
+    sig = _fs_signature(dirp)
+    with _fs_parts_cache_lock:
+        cached = _fs_parts_cache.get(kind)
+        if cached is not None and cached[0] == sig:
+            return _clone(cached[1])
 
-    if kind in {"distillation", "subagents"}:
-        # Each *.system.md is a separate part (skill_distiller is always first, for
-        # backward compatibility).
-        # Note: distillation's parts are mutually independent prompts (used individually
-        # by part_id, see render_active_prompt_part), unlike system which is concatenated
-        # into a single prompt.
-        if not dirp.is_dir():
-            return parts
-        files = sorted(f for f in os.listdir(dirp) if f.endswith(".system.md"))
+    parts = _build_fs_parts(kind, dirp, [name for name, _, _ in sig])
+    with _fs_parts_cache_lock:
+        _fs_parts_cache[kind] = (sig, parts)
+    return _clone(parts)
+
+
+def _build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, Any]]:
+    layout = KIND_SPECS[kind].layout
+
+    if layout == "single":
+        fname = f"{kind}.system.md"
+        if fname not in files:
+            return []
+        return [
+            {
+                "part_id": kind,
+                "display_name": kind,
+                "content": (dirp / fname).read_text(encoding="utf-8"),
+                "sort_order": 0,
+                "is_enabled": True,
+            }
+        ]
+
+    if layout == "independent":
+        # 每个文件是一份独立提示词（按 part_id 单取，见 render_active_prompt_part），
+        # 不像 concat 那样拼成一份。skill_distiller 固定排头，兼容旧数据。
         if kind == "distillation":
-            files.sort(key=lambda f: (f != "skill_distiller.system.md", f))
-        for idx, fname in enumerate(files):
-            name = fname[: -len(".system.md")]
-            parts.append(
-                {
-                    "part_id": name,
-                    "display_name": name,
-                    "content": (dirp / fname).read_text(encoding="utf-8"),
-                    "sort_order": idx * 10,
-                    "is_enabled": True,
-                }
-            )
-        return parts
+            files = sorted(files, key=lambda f: (f != "skill_distiller.system.md", f))
+        return [
+            {
+                "part_id": fname[: -len(".system.md")],
+                "display_name": fname[: -len(".system.md")],
+                "content": (dirp / fname).read_text(encoding="utf-8"),
+                "sort_order": idx * 10,
+                "is_enabled": True,
+            }
+            for idx, fname in enumerate(files)
+        ]
 
-    if kind in {"plan_mode", "turbo"}:
-        fp = dirp / f"{kind}.system.md"
-        if fp.exists():
-            parts.append(
-                {
-                    "part_id": kind,
-                    "display_name": kind,
-                    "content": fp.read_text(encoding="utf-8"),
-                    "sort_order": 0,
-                    "is_enabled": True,
-                }
-            )
-        return parts
-
-    if not dirp.is_dir():
-        return parts
-    files = sorted(f for f in os.listdir(dirp) if f.endswith(".system.md"))
+    parts: List[Dict[str, Any]] = []
     for idx, fname in enumerate(files):
         name = fname[: -len(".system.md")]
-        content = (dirp / fname).read_text(encoding="utf-8")
-        part_id = f"system/{name}"
+        prefix = name.split("_", 1)[0]
         parts.append(
             {
-                "part_id": part_id,
+                "part_id": f"system/{name}",
                 "display_name": name,
-                "content": content,
-                "sort_order": idx * 10,
+                "content": (dirp / fname).read_text(encoding="utf-8"),
+                "sort_order": int(prefix) if prefix.isdigit() else idx * 10,
                 "is_enabled": True,
             }
         )
@@ -238,39 +319,16 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
 
 def _default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Dict[str, Any]:
     """Build a new version dict from filesystem for a given kind."""
-    if kind == "system":
-        vid = version_id or "default"
-        name = "default - 标准系统提示词"
-        desc = "当前默认系统提示词，包含 role / constraints / tools / workflow / format"
-    elif kind == "code_exec":
-        vid = version_id or "default"
-        name = "default - 代码执行 (沙盒)"
-        desc = "Lab 代码执行模式的系统提示词（沙盒环境、工具能力、执行规范等）"
-    elif kind == "distillation":
-        vid = version_id or "default"
-        name = "default - 技能蒸馏"
-        desc = "从对话轨迹蒸馏出可复用技能的系统提示词"
-    elif kind == "plan_mode":
-        vid = version_id or "default"
-        name = "default - 计划模式"
-        desc = "Plan 模式下用于拆解用户任务为可执行步骤的 sub-agent 系统提示词"
-    elif kind == "subagents":
-        vid = version_id or "default"
-        name = "default - 平台默认子智能体"
-        desc = "探索员、执行员和审查员三个平台内置角色的独立系统提示词"
-    elif kind == "turbo":
-        vid = version_id or "default"
-        name = "default - 极速模式"
-        desc = "极速模式（快速查询）系统提示词：仅联网搜索/网页抓取/知识库检索三类工具，1-2 轮并行调用后直接作答"
-    else:
+    spec = KIND_SPECS.get(kind)
+    if spec is None:
         raise ValueError(f"unknown kind: {kind}")
 
     now = datetime.now(timezone.utc).isoformat()
     return {
-        "id": vid,
+        "id": version_id or DEFAULT_VERSION_ID,
         "kind": kind,
-        "name": name,
-        "description": desc,
+        "name": spec.name,
+        "description": spec.desc,
         "parts": _read_fs_parts(kind),
         "created_at": now,
         "updated_at": now,
@@ -609,55 +667,30 @@ def seed_from_filesystem(
             added.append("plan_mode/default (migrated)")
             changed = True
 
-    # Default versions (system + code_exec + distillation + plan_mode + subagents)
-    for kind in VALID_KINDS:
-        default_id = DEFAULT_PROMPT_VERSIONS["active"].get(kind)
-        if default_id and not exists(kind, default_id):
-            versions.append(_default_version_for_kind(kind, default_id))
-            added.append(f"{kind}/{default_id}")
+    # 每个内置 kind 的默认版本：没有就按文件系统建；已有就把**新增**的 md 文件补进去。
+    # 补这一步是因为默认版本只在首次冷启动时从文件系统建一次，之后新加的 *.system.md
+    # 再也进不了已建库的部署。已有 part 的正文原样保留，管理员改过的不会被覆盖。
+    for kind in BUILTIN_KINDS:
+        if not exists(kind, DEFAULT_VERSION_ID):
+            default_row = _default_version_for_kind(kind, DEFAULT_VERSION_ID)
+            versions.append(default_row)
+            added.append(f"{kind}/{DEFAULT_VERSION_ID}")
             changed = True
+        else:
+            default_row = next(
+                v for v in versions if v.get("kind") == kind and v.get("id") == DEFAULT_VERSION_ID
+            )
+            existing_pids = {
+                (p.get("part_id") or "").strip() for p in default_row.get("parts") or []
+            }
+            for fs_part in _read_fs_parts(kind):
+                if fs_part["part_id"] not in existing_pids:
+                    default_row.setdefault("parts", []).append(fs_part)
+                    added.append(f"{kind}/{DEFAULT_VERSION_ID}:{fs_part['part_id']}")
+                    changed = True
         if kind not in active:
-            active[kind] = default_id
+            active[kind] = DEFAULT_VERSION_ID
             changed = True
-
-    # ── Backfill: distillation multi-part expansion ──
-    # In older databases, distillation/default has only the single skill_distiller part;
-    # add the newly-introduced independent prompt parts from the filesystem
-    # (session_digest / colleague_distiller / personal_distiller) into that version,
-    # leaving existing parts' content untouched, so they can be edited in Config's
-    # prompt management.
-    dist_default_id = DEFAULT_PROMPT_VERSIONS["active"].get("distillation") or "default"
-    dist_default = next(
-        (v for v in versions if v.get("kind") == "distillation" and v.get("id") == dist_default_id),
-        None,
-    )
-    if dist_default is not None:
-        existing_pids = {(p.get("part_id") or "").strip() for p in dist_default.get("parts") or []}
-        for fs_part in _read_fs_parts("distillation"):
-            if fs_part["part_id"] not in existing_pids:
-                dist_default.setdefault("parts", []).append(fs_part)
-                added.append(f"distillation/{dist_default_id}:{fs_part['part_id']}")
-                changed = True
-
-    # Backfill platform sub-agent role prompts without overwriting operator edits.
-    subagents_default_id = DEFAULT_PROMPT_VERSIONS["active"].get("subagents") or "default"
-    subagents_default = next(
-        (
-            v
-            for v in versions
-            if v.get("kind") == "subagents" and v.get("id") == subagents_default_id
-        ),
-        None,
-    )
-    if subagents_default is not None:
-        existing_pids = {
-            (p.get("part_id") or "").strip() for p in subagents_default.get("parts") or []
-        }
-        for fs_part in _read_fs_parts("subagents"):
-            if fs_part["part_id"] not in existing_pids:
-                subagents_default.setdefault("parts", []).append(fs_part)
-                added.append(f"subagents/{subagents_default_id}:{fs_part['part_id']}")
-                changed = True
 
     if added or changed:
         _save_payload(payload, db=db, updated_by="system_seed")
@@ -717,82 +750,79 @@ def render_active_prompt_part(
     return None
 
 
-def render_code_capability_segment(db: Optional[Session] = None) -> str:
-    """The **single source of truth** for the code-execution capability (``code_exec``)
-    prompt segment.
-
-    When CODE_CAPABILITY_ENABLED is on in all modes (or in a Lab code_exec session), at
-    runtime agent_factory appends this segment to the end of the system prompt. The
-    Config backend ``/v1/admin/prompts/preview`` also calls this function, ensuring the
-    main-agent prompt shown in the backend **does not drift** from what the agent
-    actually sees (fixes "the backend was missing the code-execution segment").
-
-    Priority: DB code_exec active version → filesystem fallback
-    (``prompts/prompt_text/code_exec/system/*.system.md``). Returns "" if there is no
-    content.
-    """
+def _skipped_parts(kind: str) -> set:
     try:
-        rendered = render_active_prompt("code_exec", db=db)
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled():
+            from prompts.desktop_workspace import SKIP_PARTS
+            return SKIP_PARTS.get(kind) or set()
+    except Exception:
+        logger.debug("local-mode check failed while assembling %s", kind, exc_info=True)
+    return set()
+
+
+def render_kind_segment(
+    kind: str, db: Optional[Session] = None, *, fs_fallback: bool = True
+) -> str:
+    """某个 kind 装配好的正文：DB 激活版本 → 文件系统默认，都没有就返回空串。
+
+    这是「一个 kind 的正文怎么取」的唯一实现——代码执行段、极速模式、任务计划清单
+    以及 Config 管理台 ``/v1/admin/prompts/preview`` 的预览都走它，预览与智能体
+    实际看到的因此不会漂移。
+
+    文件系统这一步读的就是播种用的那批 md，所以尚未播种的部署渲染出来的，与它之后
+    存进库里的是同一份。``fs_fallback=False`` 用于「对话模式」绑定的 kind：绑了个
+    空 kind 就该退回默认装配，而不是套用别的 kind 的话术。
+    """
+    skip = _skipped_parts(kind)
+    try:
+        rendered = _render_active_parts(kind, db=db, skip=skip)
         if rendered:
             return rendered
     except Exception:
-        logger.debug("render code_exec active prompt failed", exc_info=True)
-    # Filesystem fallback: src/backend/prompts/prompt_text/code_exec/system/
-    backend_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    ce_dir = os.path.join(backend_root, "prompts", "prompt_text", "code_exec", "system")
-    if os.path.isdir(ce_dir):
-        parts: List[str] = []
-        for fn in sorted(f for f in os.listdir(ce_dir) if f.endswith(".system.md")):
-            try:
-                with open(os.path.join(ce_dir, fn), "r", encoding="utf-8") as f:
-                    parts.append(f.read())
-            except Exception:
-                continue
-        if parts:
-            return "\n\n".join(parts)
-    return ""
-
-
-def render_system_prompt_of_kind(kind: str, db: Optional[Session] = None) -> str:
-    """渲染任意 kind 的激活提示词，取不到返回空串。
-
-    「对话模式」允许官方模式各自绑定一个版本池 kind（极速模式绑的就是 ``turbo``）。
-    这里刻意不做兜底文案——绑了个空 kind 就该退回默认装配，而不是套用极速的话术。
-    """
-    try:
-        return render_active_prompt(kind, db=db) or ""
-    except Exception:
-        logger.debug("render active prompt of kind=%s failed", kind, exc_info=True)
+        logger.debug("render %s active prompt failed", kind, exc_info=True)
+    if not fs_fallback or kind not in KIND_SPECS:
         return ""
+    chunks = [
+        (p.get("content") or "").strip()
+        for p in _read_fs_parts(kind)
+        if p.get("is_enabled", True)
+        and (p.get("content") or "").strip()
+        and (p.get("part_id") or "") not in skip
+    ]
+    return "\n\n".join(chunks)
+
+
+def _render_active_parts(kind: str, *, db: Optional[Session], skip: set) -> Optional[str]:
+    """激活版本的正文，按 ``skip`` 剔除若干段。``skip`` 为空时等同 render_active_prompt。"""
+    if not skip:
+        return render_active_prompt(kind, db=db)
+    version = get_active_version(kind, db=db)
+    if not version:
+        return None
+    chunks = [
+        (p.get("content") or "").strip()
+        for p in (version.get("parts") or [])
+        if p.get("is_enabled", True)
+        and (p.get("content") or "").strip()
+        and (p.get("part_id") or "").strip() not in skip
+    ]
+    return "\n\n".join(chunks) or None
+
+
+#: 极速模式在库和文件都取不到时的最后兜底——它替换掉整份系统提示词，返回空串会让
+#: 智能体裸奔，所以这一段必须留在代码里。
+_TURBO_LAST_RESORT = (
+    "你是极速查询助手。收到问题后，最多发起 1-2 轮工具调用（同一轮内可并行"
+    "调用多个检索工具），拿到结果立即用中文简洁作答，并标注信息来源。"
+    "不要使用超出检索范围的工具，不要反复迭代。"
+)
 
 
 def render_turbo_system_prompt(db: Optional[Session] = None) -> str:
-    """The single source of truth for the turbo-mode (极速模式) system prompt.
+    """极速模式（快速查询）的整份系统提示词。
 
-    Turbo mode replaces the full assembled system prompt with this standalone
-    one: the agent only carries retrieval tools (internet_search / web_fetch /
-    knowledge-base retrieval), so none of the default prompt's tool/workflow
-    sections apply.
-
-    Priority: DB ``turbo`` active version → filesystem fallback
-    (``prompts/prompt_text/turbo/turbo.system.md``) → minimal hardcoded prompt.
+    极速模式不做常规装配：智能体只带检索类工具，默认提示词的工具/流程段都不适用。
     """
-    try:
-        rendered = render_active_prompt("turbo", db=db)
-        if rendered:
-            return rendered
-    except Exception:
-        logger.debug("render turbo active prompt failed", exc_info=True)
-    fp = _fs_dir("turbo") / "turbo.system.md"
-    try:
-        if fp.exists():
-            content = fp.read_text(encoding="utf-8").strip()
-            if content:
-                return content
-    except Exception:
-        logger.debug("read turbo fs prompt failed", exc_info=True)
-    return (
-        "你是极速查询助手。收到问题后，最多发起 1-2 轮工具调用（同一轮内可并行"
-        "调用多个检索工具），拿到结果立即用中文简洁作答，并标注信息来源。"
-        "不要使用超出检索范围的工具，不要反复迭代。"
-    )
+    return render_kind_segment("turbo", db=db) or _TURBO_LAST_RESORT

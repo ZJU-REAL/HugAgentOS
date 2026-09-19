@@ -254,6 +254,12 @@ def account_authorized_for(user_id: Optional[str]) -> bool:
 
 
 def builtin_candidates() -> List[Candidate]:
+    """安装包自带的技能。
+
+    混合模式下它们不进能力中心、也不会被启用（目录层在 ``get_runtime_catalog`` 里就清空
+    了），但**候选必须留着**：云端技能会声明对自带技能的依赖，自带的那份还是云端副本在
+    本平台跑不了时的兜底，候选一空这两条链路就断了。
+    """
     root = builtin_dir()
     out: List[Candidate] = []
     if not root.is_dir():

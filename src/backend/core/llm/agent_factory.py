@@ -1726,23 +1726,15 @@ async def create_agent_executor(
     # skills effectively unloaded, invocable only manually via /). Keeps the
     # Chinese view_text_file guidance + restores the skill-list loop.
     #
-    # Desktop registrations project each native Skill to its resolved runtime
-    # alias and /workspace/skills/<alias>, keeping the immutable physical path
-    # private to the loader. Legacy registrations still use their directory ID.
-    # Never infer a desktop name from the store's trailing revision or from a
-    # copied file's original frontmatter name.
+    # Skill.dir is supplied by the deployment's path policy.
     _SKILL_INSTRUCTION_TEMPLATE = (
         "# 技能（Agent Skills）\n"
         "以下是当前可用的技能列表。**技能不是工具，不能直接调用。**\n"
         "当用户请求匹配某技能的描述时，你**必须先**使用 `view_text_file` 工具读取"
-        "`/workspace/skills/<技能名>/SKILL.md`（`<技能名>` 原样取下方列表的技能名），"
-        "然后严格按其中指令执行。\n"
+        "下方该技能列出的 SKILL.md 路径，然后严格按其中指令执行。\n"
         "**禁止跳过加载步骤直接调用 MCP 工具。**\n\n"
-        "# 可用技能（`技能名`：适用场景）：{% for skill in skills %}\n"
-        "- `{{ skill.dir.rstrip('/').split('/')[-1] }}`"
-        "{% if skill.name and skill.name != skill.dir.rstrip('/').split('/')[-1] %}"
-        "（{{ skill.name }}）{% endif %}"
-        "：{{ skill.description }}{% endfor %}"
+        "# 可用技能（技能名、说明文件、适用场景）：{% for skill in skills %}\n"
+        "- `{{ skill.name }}`：`{{ skill.dir }}/SKILL.md` — {{ skill.description }}{% endfor %}"
     )
 
     # The declarative permission middleware governs built-in tools only. A
@@ -2570,7 +2562,7 @@ async def create_agent_executor(
             if _mode_prompt_text:
                 _mode_prompt = str(_mode_prompt_text)
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
-                _mode_prompt = _pvs_mode.render_system_prompt_of_kind(_mode_prompt_kind)
+                _mode_prompt = _pvs_mode.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
 
         if turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
@@ -2621,13 +2613,16 @@ async def create_agent_executor(
                 "tools": tool_schemas,
                 "mcp_servers": enabled_mcp_keys,
                 "enabled_kbs": enabled_kb_ids,
+                "chat_id": chat_id,
+                "sandbox_session_id": _sbx_sess,
             }
             # Project mode: let _build_project_section receive project_name / instructions / files / folder
             if project_ctx:
                 _sp_ctx.update(project_ctx)
-                if project_ctx.get("project_is_local") and current_user_id and chat_id:
-                    from core.services.local_site_sources import editing_prompt
-                    _sp_ctx["local_site_edit"] = editing_prompt(str(current_user_id), chat_id)
+            from core.config.local_mode import local_mode_enabled
+            if local_mode_enabled() and current_user_id and chat_id:
+                from core.services.local_site_sources import editing_prompt
+                _sp_ctx["local_site_edit"] = editing_prompt(str(current_user_id), chat_id)
             system_prompt = build_system_prompt(
                 cfg, ctx=_sp_ctx, manifest_builder=_manifest_builder
             )
@@ -2677,12 +2672,12 @@ async def create_agent_executor(
 
         # ── Inject code-capability system prompt ──
         # Gating: CODE_CAPABILITY_ENABLED=true injects in all modes.
-        # Single source of truth render_code_capability_segment (same source as the Config console preview).
+        # Single source of truth render_kind_segment (same source as the Config console preview).
         if code_capability_enabled() and (not turbo_mode or _turbo_code_exec):
             try:
                 from core.services import prompt_version_service as _pvs
 
-                _code_exec_text = _pvs.render_code_capability_segment()
+                _code_exec_text = _pvs.render_kind_segment("code_exec")
             except Exception:
                 _code_exec_text = ""
             if _code_exec_text:

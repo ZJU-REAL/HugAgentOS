@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shlex
 import threading
 import time
 import uuid
@@ -131,12 +133,49 @@ class _ChatConfirm:
     pending: Dict[str, _Pending] = field(default_factory=dict)
     # (op, logical_path) → confirm_id; concurrent/duplicate writes dedup to the same pending
     key_index: Dict[Tuple[str, str], str] = field(default_factory=dict)
-    # "allow for this whole session" is isolated by permission domain.  A
-    # MySpace approval must never authorize local host commands or automation.
-    session_allow_kinds: set[str] = field(default_factory=set)
+    # "allow for this whole session" is isolated by permission domain **and**,
+    # for the host domains, by what was actually approved. A MySpace approval
+    # must never authorize local host commands or automation; and saying yes to
+    # one write under a project folder must not silently cover every other
+    # folder on the machine for the rest of the conversation.
+    session_allows: set[Tuple[str, str]] = field(default_factory=set)
     # the stream consumer uses this to push "show confirmation bar" events to the frontend (lazily created on the event loop)
     ui_signals: Optional[asyncio.Queue] = None
     last_ts: float = field(default_factory=time.monotonic)
+
+
+def _session_scope(kind: str, logical_path: str) -> str:
+    """What a "allow for this whole session" answer actually covers.
+
+    For the host domains the answer is about a place, not about a category:
+    approving one write under a project folder should cover that folder for the
+    rest of the conversation and nothing else. Approving a command covers that
+    program, not every program. The remaining domains have no sub-scope — a
+    MySpace approval has always meant "this conversation's MySpace writes".
+    """
+    if kind.startswith(KIND_LOCAL_PATH_PREFIX):
+        resolved = os.path.realpath(os.path.expanduser(logical_path or ""))
+        parent = os.path.dirname(resolved)
+        return parent or resolved
+    if kind == KIND_LOCAL_CMD:
+        try:
+            parts = shlex.split(logical_path or "")
+        except ValueError:
+            parts = (logical_path or "").split()
+        return parts[0] if parts else ""
+    return ""
+
+
+def _scope_covers(kind: str, granted: str, logical_path: str) -> bool:
+    """Whether an existing session grant reaches this target."""
+    if kind.startswith(KIND_LOCAL_PATH_PREFIX):
+        if not granted:
+            return False
+        target = os.path.realpath(os.path.expanduser(logical_path or ""))
+        return target == granted or target.startswith(granted.rstrip(os.sep) + os.sep)
+    if kind == KIND_LOCAL_CMD:
+        return bool(granted) and _session_scope(kind, logical_path) == granted
+    return True
 
 
 _LOCK = threading.RLock()
@@ -182,7 +221,7 @@ def allow_session(chat_id: Optional[str]) -> None:
         return
     with _LOCK:
         st = _get_chat(chat_id)
-        st.session_allow_kinds.add(KIND_MYSPACE)
+        st.session_allows.add((KIND_MYSPACE, ""))
         st.last_ts = time.monotonic()
 
 
@@ -352,7 +391,8 @@ def set_decision(
         cascaded: list[str] = []
         cascade_evs: list[asyncio.Event] = []
         if decision == DECISION_ALLOW_SESSION:
-            st.session_allow_kinds.add(p.kind)
+            granted = _session_scope(p.kind, p.logical_path)
+            st.session_allows.add((p.kind, granted))
             for other_cid, op_p in st.pending.items():
                 if other_cid == confirm_id or op_p.decision is not None:
                     continue
@@ -360,6 +400,8 @@ def set_decision(
                 # local-host confirmations never authorize one another; a
                 # design picker is never an approval domain at all.
                 if op_p.kind != p.kind or op_p.kind == KIND_DESIGN_PICK:
+                    continue
+                if not _scope_covers(p.kind, granted, op_p.logical_path):
                     continue
                 op_p.decision = DECISION_ALLOW_SESSION
                 cascade_evs.append(op_p.event)
@@ -451,12 +493,12 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
         ),
         "deny": (
             f"用户拒绝了对「我的空间」的{op}操作（{logical_path}）。"
-            f"不要重试该写入。如确需产物，改写到沙盒 /workspace/ 下，"
+            f"不要重试该写入。如确需产物，改写到本次会话的工作目录（相对路径），"
             f"或向用户澄清意图。"
         ),
         "timeout": (
             f"等待用户确认对「我的空间」的{op}操作超时（{logical_path}），"
-            f"已放弃未写入。请简短告知用户超时，让其重新发起或改写 /workspace/。"
+            f"已放弃未写入。请简短告知用户超时，让其重新发起或改写到会话工作目录。"
         ),
     }[phase]
 
@@ -645,14 +687,21 @@ async def gate(
             "logical_path": logical_path,
             "error": (
                 "非交互模式（批量/子智能体）禁止写用户「我的空间」。"
-                "请改写到沙盒 /workspace/，或由用户在主对话中亲自操作。"
+                "请改写到本次会话的工作目录（相对路径），或由用户在主对话中亲自操作。"
             ),
         }
 
+    # 没有 chat_id 的运行共用一个桶，彼此之间没有任何归属关系；会话授权在那里
+    # 等于「谁先点的头，后面所有人都免问」，所以这一类不参与会话授权。
     cid_key = chat_id or "_nochat_"
 
     def _session_allowed(st: _ChatConfirm):
-        return (None,) if kind in st.session_allow_kinds else None
+        if not chat_id:
+            return None
+        for granted_kind, granted_scope in st.session_allows:
+            if granted_kind == kind and _scope_covers(kind, granted_scope, logical_path):
+                return (None,)
+        return None
 
     short, cid, p = _register_pending(
         cid_key,

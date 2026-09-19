@@ -11,6 +11,7 @@ Covers the pieces that are new or SQLite-risky (see
 """
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -560,77 +561,6 @@ def test_local_env_merges_loopback_hosts_into_no_proxy(monkeypatch):
     assert os.environ["NO_PROXY"].split(",").count("127.0.0.1") == 1
 
 
-# ── /workspace alias (site-building + skills work when WORKSPACE != /workspace) ─
-
-
-def test_workspace_path_alias_in_local_mode(monkeypatch):
-    """When the real workspace root differs (no-Docker local), the file-tool path
-    layer must alias a leading /workspace → the real root, accept it in validation,
-    and leave /myspace and lookalikes (/workspaces) untouched. No-op in Docker."""
-    import core.llm.tools._paths as p
-
-    monkeypatch.setattr(p, "WORKSPACE_ROOT", "/home/u/.hugagent/workspace")
-    assert p.canonicalize_ws_path("/workspace") == "/home/u/.hugagent/workspace"
-    assert (
-        p.canonicalize_ws_path("/workspace/site-src/foo")
-        == "/home/u/.hugagent/workspace/site-src/foo"
-    )
-    assert p.canonicalize_ws_path("/workspaces/other") == "/workspaces/other"
-    assert p.canonicalize_ws_path("/myspace/a") == "/myspace/a"
-    # The model passes container-canonical /workspace paths → validation accepts them.
-    assert p.validate_workspace_path("/workspace/.site-dist/x") is None
-    # to_physical_path returns the aliased (real) root for non-myspace paths.
-    assert (
-        p.to_physical_path("/workspace/site-src/foo", "u1")
-        == "/home/u/.hugagent/workspace/site-src/foo"
-    )
-
-    # Docker parity: root == /workspace → every alias is a byte-for-byte no-op.
-    monkeypatch.setattr(p, "WORKSPACE_ROOT", "/workspace")
-    assert p.canonicalize_ws_path("/workspace/site-src/foo") == "/workspace/site-src/foo"
-
-
-def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
-    """Logical aliases are mapped once; physical paths retain their identity."""
-    import services.script_runner_service.server as srv
-
-    local_root = str(tmp_path / "Application Support" / "HugAgentOS" / "workspace")
-    monkeypatch.setattr(srv, "WORKSPACE_ROOT", local_root)
-    session_root = str(srv._session_workspace("chat-1", create=True))
-    assert srv._canon_ws("/workspace", "chat-1") == session_root
-    assert srv._canon_ws("/workspace/a.txt", "chat-1") == f"{session_root}/a.txt"
-    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{local_root}/a.txt"
-    assert srv._canon_ws("/workspaces/x", "chat-1") == "/workspaces/x"
-
-    # Existing quotes remain intact, while an unquoted canonical path gains a
-    # safely quoted prefix when the macOS Application Support mapping adds
-    # spaces. /workspaces is only a lookalike and must remain untouched.
-    out = srv._rewrite_bash_workspace_refs(
-        "cd '/workspace/site' && tar -czf '/workspace/site.tgz' .; echo /workspaces",
-        local_root,
-    )
-    assert out == (
-        f"cd '{local_root}/site' && tar -czf '{local_root}/site.tgz' .; echo /workspaces"
-    )
-    assert srv._rewrite_bash_workspace_refs(
-        "cd /workspace/site && tar -czf /workspace/site.tgz .",
-        local_root,
-    ) == (f"cd '{local_root}'/site && tar -czf '{local_root}'/site.tgz .")
-    # File tools also return the expanded physical_path.  If the model feeds it
-    # into Bash verbatim, protect it exactly like the canonical /workspace form.
-    assert srv._rewrite_bash_workspace_refs(
-        f"ls {local_root}/site && test -f {local_root}/site/index.html",
-        local_root,
-    ) == (f"ls '{local_root}'/site && test -f '{local_root}'/site/index.html")
-    assert (
-        srv._rewrite_bash_workspace_refs(
-            f"ls '{local_root}/site'",
-            local_root,
-        )
-        == f"ls '{local_root}/site'"
-    )
-
-
 @pytest.mark.parametrize("explicit", [None, "", "http://configured:8080"])
 def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit):
     import os
@@ -649,3 +579,45 @@ def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit)
     assert "127.0.0.1" in os.environ["NO_PROXY"]
     if explicit is not None:
         assert "HTTP_PROXY" not in os.environ
+
+
+def test_apply_local_env_seeds_the_profile_before_settings_is_frozen(tmp_path):
+    """``DEPLOY_PROFILE`` must be in the environment before ``settings`` reads it.
+
+    ``core.config.settings`` snapshots the environment the first time it is
+    imported, and ``core.services`` imports it transitively. Resolving anything
+    that reaches ``core.services`` while building the local defaults therefore
+    freezes a settings object that predates ``DEPLOY_PROFILE=local``: the local
+    profile then silently runs as a compose deployment — no ``/api`` prefix
+    bridge, no static frontend, mock auth — which in the desktop shell shows up
+    as "本机执行面尚未就绪" on every hybrid request.
+
+    A fresh interpreter is required: ``settings`` is a module-level singleton.
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path as _Path
+
+    backend = str(_Path(__file__).resolve().parents[1])
+    script = (
+        "import os, sys, json\n"
+        "os.environ.pop('DEPLOY_PROFILE', None)\n"
+        f"os.environ['HUGAGENT_HOME'] = {str(tmp_path / 'home')!r}\n"
+        "import cli\n"
+        "cli.apply_local_env(port=18999)\n"
+        "from core.config.settings import settings\n"
+        "print(json.dumps({'is_local': settings.deploy.is_local,\n"
+        "                  'site_home': os.environ.get('SITE_TEMPLATE_HOME', '')}))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": backend},
+        cwd=backend,
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    payload = json.loads(out.stdout.strip().splitlines()[-1])
+    assert payload["is_local"] is True
+    assert payload["site_home"]

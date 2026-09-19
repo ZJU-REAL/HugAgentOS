@@ -355,3 +355,15 @@ async def test_remote_edit_handles_a_sandbox_read_error_without_a_scope_error():
 
     payload = _payload(response)
     assert payload["error"] == "读取文件失败: read failed"
+
+
+def test_gate_treats_the_session_directory_as_the_workspace(monkeypatch, tmp_path):
+    """权限闸里的"工作区"就是本次对话的工作目录，不是部署级工作区根。"""
+    from core.llm.tool_permissions import PermissionRuntime, ToolPermissionRegistry, ToolPermissionService
+    from services.script_runner_service.workspace_paths import session_root
+
+    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    runtime = PermissionRuntime(chat_id="chat-1", user_id="u1", interactive=False, approval_available=False)
+    service = ToolPermissionService(ToolPermissionRegistry(), runtime)
+
+    assert service._session_workspace() == session_root(str(tmp_path), "chat-1")

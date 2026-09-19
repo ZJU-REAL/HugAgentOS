@@ -95,7 +95,7 @@ def _prompt_refs() -> List[AssetRef]:
     from core.services import prompt_version_service
 
     refs: List[AssetRef] = []
-    for kind in ("system", "code_exec", "distillation", "plan_mode", "turbo"):
+    for kind in prompt_version_service.BUILTIN_KINDS:
         try:
             active = prompt_version_service.get_active_version(kind)
         except Exception:

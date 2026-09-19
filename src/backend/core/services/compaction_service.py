@@ -286,17 +286,19 @@ def resolve_active_tokens(usage: Optional[Dict[str, Any]]) -> int:
 # ── Summary LLM call (mirrors the one-shot httpx call in followups.py) ───────
 
 
-def _resolve_summarizer_model() -> tuple[str, str, str, str]:
+def _resolve_summarizer_model():
     """Use the main chat model because compaction input may fill its window."""
+    from core.llm.single_turn import Endpoint
+
     try:
         from core.services.model_config import ModelConfigService
 
         c = ModelConfigService.get_instance().resolve("main_agent")
-        if c:
-            return c.base_url, c.api_key, c.model_name, c.provider
+        if c and c.base_url and c.api_key and c.model_name:
+            return Endpoint.from_resolved(c)
     except Exception as exc:  # noqa: BLE001
         logger.debug("[compaction] model config unavailable: %s", exc)
-    return "", "", "", ""
+    return None
 
 
 # Rendering lives beside the region logic; keep the historical name here for
@@ -385,12 +387,12 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
     The leading system message (base prompt) and the trailing summarization
     instruction are never dropped.
     """
-    resolved = _resolve_summarizer_model()
-    url, key, model = resolved[:3]
-    provider = resolved[3] if len(resolved) > 3 else "unknown"
-    if not url or not key or not model:
+    endpoint = _resolve_summarizer_model()
+    if endpoint is None:
         logger.warning("[compaction] no summarizer model resolved")
         return None
+    model = endpoint.model_name
+    provider = endpoint.provider
 
     messages = _flatten_for_summary(history)
     base_prompt = _load_base_system_prompt()
@@ -420,9 +422,7 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
                 budget,
             )
 
-    req: dict = {"model": model, "messages": messages, "temperature": 0.3}
-    if any(k in model.lower() for k in ("deepseek", "r1", "qwen")):
-        req["chat_template_kwargs"] = {"enable_thinking": False}
+    from core.llm.single_turn import build_request, parse_response
 
     # (2) Call + reactive context-overflow self-rescue. The optional context is
     # bound by CompactionCoordinator so each direct HTTP try becomes one
@@ -475,16 +475,11 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
 
     for attempt in range(_SUMMARIZE_MAX_ATTEMPTS):
         started = time.monotonic()
+        # 每轮重挂消息：上下文超限的自救会就地删掉最老的几条。
+        endpoint_url, headers, req = build_request(endpoint, messages, temperature=0.3)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    f"{url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=req,
-                )
+                resp = await client.post(endpoint_url, headers=headers, json=req)
         except asyncio.CancelledError:
             await record_attempt(status="cancelled", started=started)
             raise
@@ -497,9 +492,7 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
 
         if resp.status_code == 200:
             await record_attempt(resp, status="success", started=started)
-            raw = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-            summary = raw.strip()
-            return summary or None
+            return parse_response(endpoint, resp.json()).text or None
 
         body = resp.text[:500]
         await record_attempt(resp, status="failed", started=started)
@@ -509,7 +502,6 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
         if _looks_like_context_error(resp.status_code, body) and droppable > 1:
             drop_n = max(1, droppable // 5)
             del messages[droppable_start : droppable_start + drop_n]
-            req["messages"] = messages
             logger.info(
                 "[compaction] summarizer context exceeded, dropped %d oldest, retry %d/%d",
                 drop_n,

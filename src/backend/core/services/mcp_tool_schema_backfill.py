@@ -45,6 +45,15 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
     from core.db.models import AdminMcpServer
     from core.services.mcp_management_service import probe_mcp_connectivity
 
+    from core.capabilities import device_catalog
+
+    if device_catalog.active() and not server_ids:
+        # 混合模式下工具 schema 随云端能力清单下发，不靠探活取。业务库里留下的
+        # 本机插件行指向 compose 服务名，桌面端根本连不上——照探只会每次启动都
+        # 刷一轮「无法连接远端 MCP」，修不好任何东西。
+        logger.debug("[mcp-schema] hybrid desktop: schemas come from the cloud manifest, skipping probe")
+        return 0
+
     db = SessionLocal()
     try:
         query = db.query(AdminMcpServer).filter(AdminMcpServer.is_enabled.is_(True))

@@ -53,7 +53,7 @@ def test_stale_skill_response_cannot_repopulate_switched_account(index_db, caps_
     a, b = state("a"), state("b")
     current = [a]
     monkeypatch.setattr(bridge, "get_state", lambda: current[0])
-    manifest = build_skill_manifest([], ["private-a"])
+    manifest = build_skill_manifest([])
 
     def fetch(_):
         current[0] = b
@@ -322,7 +322,7 @@ async def test_runner_executes_frozen_view_after_background_update(
     )
     response = await server.execute(
         server.ExecuteRequest(
-            script_content="cat /workspace/skills/example/SKILL.md",
+            script_content=f"cat {run.view_dir}/example/SKILL.md",
             script_name="frozen.sh",
             language="bash",
             session_id="chat-a",
@@ -432,7 +432,7 @@ def test_cloud_removal_revokes_access_but_retains_history_bytes(index_db, caps_r
     monkeypatch.setattr(cloud_skills, "_download", lambda *_: _zip({"SKILL.md": "v1"}))
     cloud_skills.prepare_one(st, inst.install_id)
     saved = registry.get(inst.install_id)
-    cloud_skills._reconcile_intent(_ordered_skill_manifest(st, build_skill_manifest([], [])), st)
+    cloud_skills._reconcile_intent(_ordered_skill_manifest(st, build_skill_manifest([])), st)
     assert registry.get(inst.install_id).state == "removed"
     assert (
         store.get(
@@ -760,7 +760,7 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     first = asyncio.create_task(
         server.execute(
             server.ExecuteRequest(
-                script_content="sleep 0.2; cat /workspace/skills/example/SKILL.md",
+                script_content=f"sleep 0.2; cat {old.view_dir}/example/SKILL.md",
                 script_name="old.sh",
                 language="bash",
                 session_id="same-chat",
@@ -772,7 +772,7 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     await asyncio.sleep(0.05)
     second = await server.execute(
         server.ExecuteRequest(
-            script_content="cat /workspace/skills/example/SKILL.md",
+            script_content=f"cat {new.view_dir}/example/SKILL.md",
             script_name="new.sh",
             language="bash",
             session_id="same-chat",
@@ -799,9 +799,6 @@ def test_multiple_failed_updates_keep_actual_resolved_hash(index_db, caps_root, 
 
 def test_device_disable_survives_cloud_manifest_refresh(index_db, caps_root, monkeypatch):
     st, inst = _intent(monkeypatch)
-    registry.set_state(
-        inst.install_id, inst.state, payload_update={"device_enabled_override": False}
-    )
     registry.set_enabled(inst.install_id, False)
     from core.services.desktop_capability_protocol import skill_content_hash
 
@@ -815,9 +812,10 @@ def test_device_disable_survives_cloud_manifest_refresh(index_db, caps_root, mon
                 "scope": "shared",
                 "content_hash": skill_content_hash("v1", {}),
                 "mcp_server_ids": [],
+                "enabled": True,
+                "source_plugin": "",
             }
-        ],
-        [],
+        ]
     )
     cloud_skills._reconcile_intent(_ordered_skill_manifest(st, manifest), st)
     assert not registry.get(inst.install_id).enabled

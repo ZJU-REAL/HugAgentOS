@@ -46,7 +46,7 @@ def register_grep(
 
     async def Grep(
         pattern: str,
-        path: str = "/workspace",
+        path: str = ".",
         glob: str = "",
         output_mode: str = "files_with_matches",
         case_insensitive: bool = False,
@@ -81,7 +81,7 @@ def register_grep(
             except HTTPException as exc:
                 return resp_json({"error": exc.detail, "status": exc.status_code})
             prefix = "/myspace/" + scope.folder_name
-            if path == "/workspace" or path == prefix:
+            if path in (".", "/workspace") or path == prefix:
                 path = directory(scope.project_id)
             elif path.startswith(prefix + "/"):
                 path = directory(scope.project_id) + path[len(prefix):]
@@ -195,7 +195,7 @@ def register_grep(
         "（返回 ``myspace_materialized`` 计数）；二进制文档搜不到，改用 Read 看解析文本。\n\n"
         "Args:\n"
         "    pattern (`str`): 正则表达式。\n"
-        "    path (`str`): 搜索路径，默认 ``/workspace``；搜用户「我的空间」\n"
+        "    path (`str`): 搜索路径，默认 ``.``（本次会话的工作目录）；搜用户「我的空间」\n"
         "        时用 ``/myspace`` 或其子文件夹。\n"
         "    glob (`str`): 可选文件名 glob 过滤（如 ``*.py``）。\n"
         "    output_mode (`str`): files_with_matches | content | count。\n"

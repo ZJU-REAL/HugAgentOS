@@ -53,6 +53,18 @@ DELETE = "delete"
 SYSTEM_WRITE = "system_write"
 NETWORK = "network"
 PRIVILEGE = "privilege"
+# Reading the operating system's own credential store. An agent never needs it,
+# and one such command hands over the desktop session token in plain text — the
+# rest of the danger table is about damage, this one is about impersonation.
+CREDENTIAL = "credential"
+
+# Writing to a path outside the workspace and outside every granted folder.
+#
+# Not a configurable category: its disposition **is** ``Policy.out_of_scope``.
+# It exists so the layer above can tell "ordinary write" from "write somewhere
+# the user never authorized" — 「替我批准」is meant to wave through the former,
+# and it used to wave through the latter too because nothing marked it.
+OUT_OF_SCOPE_WRITE = "out_of_scope_write"
 
 # A triggered danger category is recorded in ``EvalResult.reasons`` under this
 # prefix. Callers that need to know *why* a command needs confirming read it
@@ -107,7 +119,7 @@ class Policy:
     danger: dict = field(default_factory=dict)
 
     def disposition_for(self, category: str) -> str:
-        return self.danger.get(category, _DEFAULT_DANGER[category])
+        return self.danger.get(category, _DEFAULT_DANGER.get(category, CONFIRM))
 
 
 # Sane defaults. System writes and privilege escalation are hard-blocked by
@@ -118,7 +130,13 @@ _DEFAULT_DANGER = {
     SYSTEM_WRITE: "block",
     NETWORK: "confirm",
     PRIVILEGE: "block",
+    CREDENTIAL: "block",
 }
+
+# The configurable danger vocabulary, derived from the defaults above so the
+# settings panel, its validation and the "allow everything" preset cannot drift
+# apart from the classifier. Adding a category here is enough for all of them.
+DANGER_CATEGORIES = tuple(_DEFAULT_DANGER)
 
 
 @dataclass
@@ -181,6 +199,9 @@ _POSIX_DANGER = [
     (NETWORK, _command_re(r"curl|wget|nc|ncat|scp|sftp|ssh|telnet")),
     (NETWORK, re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba)?sh\b", re.I)),
     (PRIVILEGE, _command_re(r"sudo|doas|su")),
+    # macOS keychain / freedesktop secret service / kernel keyring: the same
+    # stores the desktop client itself keeps the session token in.
+    (CREDENTIAL, _command_re(r"security|secret-tool|keyctl|gnome-keyring(-daemon)?")),
 ]
 
 _WINDOWS_DANGER = [
@@ -190,6 +211,8 @@ _WINDOWS_DANGER = [
     (SYSTEM_WRITE, re.compile(r"\breg\s+(add|delete)\b.*HKLM", re.I)),
     (NETWORK, _command_re(r"Invoke-WebRequest|iwr|curl|wget|certutil|bitsadmin")),
     (PRIVILEGE, re.compile(r"\brunas\b|-Verb\s+RunAs", re.I)),
+    (CREDENTIAL, _command_re(r"cmdkey|vaultcmd")),
+    (CREDENTIAL, re.compile(r"\b(Get-Credential|Get-StoredCredential|PasswordVault)\b", re.I)),
 ]
 
 
@@ -480,6 +503,10 @@ def evaluate_local_path(
             if scope_decision != ALLOW:
                 reason = "read-only grant write" if matching_grants else "out-of-scope path"
                 reasons.append(f"{reason}: {resolved}")
+                if intent == WRITE:
+                    # 处置仍然是 policy.out_of_scope；这里只是标出「这不是一次普通写入」，
+                    # 好让「替我批准」停下来问一句，而不是当成日常操作直接放过去。
+                    reasons.append(f"{DANGER_REASON_PREFIX}{OUT_OF_SCOPE_WRITE}")
     decisions.append(scope_decision)
     return EvalResult(decision=max(decisions, key=lambda d: _SEVERITY[d]), reasons=reasons)
 
@@ -633,6 +660,10 @@ __all__ = [
     "SYSTEM_WRITE",
     "NETWORK",
     "PRIVILEGE",
+    "CREDENTIAL",
+    "OUT_OF_SCOPE_WRITE",
+    "DANGER_CATEGORIES",
+    "danger_categories",
     "Grant",
     "Policy",
     "EvalResult",

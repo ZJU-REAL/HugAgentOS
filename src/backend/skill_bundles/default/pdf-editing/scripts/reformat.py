@@ -10,7 +10,7 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage:
-    reformat.py --input /workspace/notes.md --output /workspace/notes.pdf
+    reformat.py --input ./notes.md --output ./notes.pdf
     reformat.py --input draft.docx --output final.pdf --doc-type magazine \\
         --title "年度报告" --author "工信局" --date "2026-05" --accent "#0a5"
 """

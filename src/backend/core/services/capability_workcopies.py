@@ -85,7 +85,7 @@ def _snapshot(db, user, kind, key):
                 ]
             }
         else:
-            allowed = set(capabilities._user_effective_configs(user, use_cache=False)[0])
+            allowed = set(capabilities._user_capability_configs(user, use_cache=False)[0])
         if key not in allowed:
             raise HTTPException(404, detail="capability not available")
     current = _files(row, kind)

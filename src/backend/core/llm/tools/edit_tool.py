@@ -301,7 +301,7 @@ def register_edit(
         "  扩大上下文使其唯一；或传 ``replace_all=true`` 替换所有匹配。\n\n"
         "如果文件在 Read 之后被外部修改了，Edit 会失败并提示重新 Read。\n\n"
         "Args:\n"
-        "    file_path (`str`): 文件路径。默认沙盒 ``/workspace/...``；仅在用户\n"
+        "    file_path (`str`): 文件路径。默认相对本次会话的工作目录；仅在用户\n"
         "        要求改其「我的空间」文件时用 ``/myspace/...``。\n"
         "    old_string (`str`): 要被替换的原内容。必须与文件中现存内容精确一致。\n"
         "    new_string (`str`): 替换后的新内容。必须与 old_string 不同。\n"

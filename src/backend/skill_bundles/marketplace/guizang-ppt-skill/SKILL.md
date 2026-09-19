@@ -38,7 +38,7 @@ license: AGPL-3.0-only
 
 - 本包固定到 marketplace 清单记录的上游 commit，并以只读技能文件装入沙盒；不要在技能目录执行 `git fetch`、`git pull` 或覆盖文件。升级由 marketplace 维护者完成。
 - `{baseDir}` 表示本技能根目录。用沙盒的文本读取和 Bash 工具读取参考文件、复制模板、运行校验器。
-- 默认在 `/workspace/outputs/<deck-name>/` 创建交付目录；该目录至少包含 `index.html`、`assets/motion.min.js` 和按需创建的 `images/`。交付时把整个目录打成 ZIP，不能只交付 HTML。
+- 默认在 `./outputs/<deck-name>/` 创建交付目录；该目录至少包含 `index.html`、`assets/motion.min.js` 和按需创建的 `images/`。交付时把整个目录打成 ZIP，不能只交付 HTML。
 - 模板会优先加载本地 `assets/motion.min.js`。Google Fonts、Lucide 图标，以及可选 MapLibre 地图/OSM 瓦片仍需要网络；断网交付前必须在无网络环境完成一次视觉检查。
 - 只有当前智能体确实注册了图像生成工具时，才能执行下文的可选配图步骤；否则使用用户素材、内置截图背景或清晰标注的占位图，不要声称已调用 GPT-M 2.0。
 
@@ -59,7 +59,7 @@ license: AGPL-3.0-only
 
 ### Step 0 · 确认运行环境（必做）
 
-本 marketplace 包已经固定并记录上游版本，技能目录不是 Git 仓库且为只读。直接使用当前版本，不要在执行任务时自更新。先确认 `/workspace` 可写，再进入后续流程。
+本 marketplace 包已经固定并记录上游版本，技能目录不是 Git 仓库且为只读。直接使用当前版本，不要在执行任务时自更新。先确认 `.` 可写，再进入后续流程。
 
 ### Step 1 · 需求澄清(**动手前必做**)
 
@@ -173,19 +173,19 @@ license: AGPL-3.0-only
 
 ### Step 2 · 拷贝模板
 
-**根据 Step 1 选定的风格,拷贝对应的模板**到目标位置（默认是 `/workspace/outputs/<deck-name>/index.html`），同时建立 `images/` 和 `assets/`，并复制 Motion One 的本地离线副本。
+**根据 Step 1 选定的风格,拷贝对应的模板**到目标位置（默认是 `./outputs/<deck-name>/index.html`），同时建立 `images/` 和 `assets/`，并复制 Motion One 的本地离线副本。
 
 ```bash
-mkdir -p "/workspace/outputs/<deck-name>/images" "/workspace/outputs/<deck-name>/assets"
+mkdir -p "./outputs/<deck-name>/images" "./outputs/<deck-name>/assets"
 
 # 风格 A · 电子杂志风
-cp "{baseDir}/assets/template.html" "/workspace/outputs/<deck-name>/index.html"
+cp "{baseDir}/assets/template.html" "./outputs/<deck-name>/index.html"
 
 # 或 风格 B · 瑞士国际主义风
-cp "{baseDir}/assets/template-swiss.html" "/workspace/outputs/<deck-name>/index.html"
+cp "{baseDir}/assets/template-swiss.html" "./outputs/<deck-name>/index.html"
 
 # 两种风格都要复制；模板会优先从这个相对路径加载 Motion One
-cp "{baseDir}/assets/motion.min.js" "/workspace/outputs/<deck-name>/assets/motion.min.js"
+cp "{baseDir}/assets/motion.min.js" "./outputs/<deck-name>/assets/motion.min.js"
 ```
 
 两个 `template*.html` 都是**完整可运行**的文件——CSS、WebGL shader、翻页 JS、演讲者模式、观众屏同步、字体/图标 CDN 全已预设好,只有 `<!-- SLIDES_HERE -->` 占位符和 `SPEAKER_NOTES` 等待你填充。
@@ -530,11 +530,11 @@ node {baseDir}/scripts/validate-swiss-deck.mjs path/to/index.html
 用沙盒内置的 Playwright/Chromium 打开 `index.html` 并截图检查。HTML 使用相对路径加载图片，不需要启动本地服务器。预览完成后，将整个交付目录压缩为 ZIP，确保本地 Motion One 和图片一起交付：
 
 ```bash
-cd "/workspace/outputs/<deck-name>"
+cd "./outputs/<deck-name>"
 zip -r "../<deck-name>.zip" .
 ```
 
-把 `/workspace/outputs/<deck-name>.zip` 作为最终制品返回给用户；如平台支持 HTML 预览，也可以同时返回 `index.html`。
+把 `./outputs/<deck-name>.zip` 作为最终制品返回给用户；如平台支持 HTML 预览，也可以同时返回 `index.html`。
 
 预览时不能只看普通页面。按 `P` 进入演讲者模式,允许浏览器打开观众窗口,至少实测一次:前后翻页、内嵌宫格选页并返回预览、首页/尾页、尾页重新开始、计时开始/暂停/重置、排练记录、自动翻页暂停/恢复、激光笔、圈选、黑白屏、冻结、设置组件、演前检查、备注保存、关闭观众窗口后的状态变化,以及“重新打开观众屏”能否恢复到当前页。
 

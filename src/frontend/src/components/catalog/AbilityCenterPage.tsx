@@ -42,13 +42,13 @@ export function AbilityCenterPage() {
   useEffect(() => {
     if (!dual) return;
     const kind: DeviceCapabilityKind = abilityTab === 'skills' ? 'skill' : abilityTab === 'plugins' ? 'plugin' : abilityTab === 'mcp' ? 'mcp' : 'agent';
+    // 回到窗口才重新拉一次来源标记。定时器在这里是多余的：用户看不见的时候刷新没有
+    // 意义，看得见的时候 focus / visibilitychange 已经覆盖了每一次回到页面。
     const refresh = () => { if (document.visibilityState === 'visible') void load(kind, true); };
     refresh();
-    const timer = window.setInterval(refresh, 10000);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };

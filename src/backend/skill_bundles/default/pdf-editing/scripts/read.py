@@ -13,12 +13,12 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage examples:
-    read.py --mode text     --input /workspace/doc.pdf
-    read.py --mode text     --input /workspace/doc.pdf --pages 1,3,5
-    read.py --mode outline  --input /workspace/doc.pdf
-    read.py --mode metadata --input /workspace/doc.pdf
-    read.py --mode overview --input /workspace/doc.pdf
-    read.py --mode form-fields --input /workspace/form.pdf
+    read.py --mode text     --input ./doc.pdf
+    read.py --mode text     --input ./doc.pdf --pages 1,3,5
+    read.py --mode outline  --input ./doc.pdf
+    read.py --mode metadata --input ./doc.pdf
+    read.py --mode overview --input ./doc.pdf
+    read.py --mode form-fields --input ./form.pdf
 """
 from __future__ import annotations
 

@@ -44,6 +44,8 @@ def state(monkeypatch, caps_root):
         base_url=value["cloud_base"] + "/api/v1/desktop/capability/gateway/models/p1",
         api_key="desktop-capability:" + profile_id(value["cloud_base"], "alice"),
         model_name="mock-model",
+        # 这些用例验的是凭据与流的处理，把线路钉在 chat 上，别让协议默认值把它们卷进来。
+        extra={"api_protocol": "chat_completions"},
     )
     monkeypatch.setattr(
         batch.ModelConfigService,
@@ -157,6 +159,7 @@ async def test_regular_cloud_provider_keeps_existing_auth(monkeypatch):
         base_url="https://provider.example/v1",
         api_key="synthetic-provider-key",
         model_name="ordinary",
+        extra={"api_protocol": "chat_completions"},
     )
     monkeypatch.setattr(
         batch.ModelConfigService,
@@ -325,27 +328,59 @@ async def test_security_rejection_never_downgrades_payload(state, monkeypatch, s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [400, 422])
-async def test_unknown_extra_field_retains_single_compatibility_retry(state, monkeypatch, status):
+async def test_thinking_switch_goes_on_the_wire_not_in_an_extra_body_envelope(state, monkeypatch):
+    """关思考的开关是线上字段，不是 ``extra_body`` 信封。
+
+    旧写法把 ``extra_body`` 当成一个真的请求字段发出去——没有服务端认识它，于是每次
+    都先吃一个 400 再脱掉它重发一遍。开关直接放在顶层就不需要那次重试，请求也只发一次。
+    """
     seen = []
 
     def upstream(request):
-        payload = json.loads(request.content)
-        seen.append(payload)
-        if len(seen) == 1:
-            return httpx.Response(
-                status,
-                json={
-                    "error": {
-                        "code": "unsupported_parameter",
-                        "message": "extra_body is not supported",
-                    }
-                },
-            )
+        seen.append(json.loads(request.content))
         return _sse("compatible result")
 
     _transport(monkeypatch, upstream)
     assert await batch._call_llm("test input", user_id="local-alice") == "compatible result"
-    assert len(seen) == 2
-    assert "extra_body" in seen[0] and "extra_body" not in seen[1]
-    assert all(payload["stream"] is True for payload in seen)
+    assert len(seen) == 1
+    assert "extra_body" not in seen[0]
+    assert seen[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert seen[0]["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_responses_endpoint_is_driven_over_the_responses_line(state, monkeypatch):
+    """端点说 Responses，批量就按 Responses 发、按 Responses 读。
+
+    以前批量一律硬拼 ``/chat/completions``，桌面网关按模型登记的协议只放行对应那条路径，
+    于是整个批量执行在这类模型上直接 404。
+    """
+    config = ResolvedModelConfig(
+        base_url=state["cloud_base"] + "/api/v1/desktop/capability/gateway/models/p1",
+        api_key="desktop-capability:" + profile_id(state["cloud_base"], "alice"),
+        model_name="mock-model",
+        extra={"api_protocol": "responses"},
+    )
+    monkeypatch.setattr(
+        batch.ModelConfigService,
+        "get_instance",
+        lambda: SimpleNamespace(resolve=lambda role: config),
+    )
+    seen = []
+
+    def upstream(request):
+        seen.append((str(request.url), json.loads(request.content)))
+        events = [
+            {"type": "response.output_text.delta", "delta": "答"},
+            {"type": "response.output_text.delta", "delta": "案"},
+            {"type": "response.completed"},
+        ]
+        body = "".join("data: " + json.dumps(e) + "\n\n" for e in events)
+        return httpx.Response(200, text=body, headers={"Content-Type": "text/event-stream"})
+
+    _transport(monkeypatch, upstream)
+    assert await batch._call_llm("test input", user_id="local-alice") == "答案"
+    url, payload = seen[0]
+    assert url.endswith("/responses")
+    assert payload["input"][0]["content"][0]["type"] == "input_text"
+    assert "messages" not in payload

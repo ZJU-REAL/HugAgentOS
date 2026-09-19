@@ -12,12 +12,13 @@
 from typing import List, Optional
 
 from core.auth.backend import UserContext, get_current_user
-from core.db.engine import SessionLocal
+from core.db.engine import get_db
 from core.db.models import Job
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
 from core.services.job_service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -40,7 +41,7 @@ def _view(svc: JobService, job: Job) -> dict:
         "status": job.status,
         "stats": stats,
         "usage": dict(job.usage or {}),
-        "budget_left": svc.budget_left(job.job_id),
+        "budget_left": svc.budget_left_of(job),
         "error": job.error_message or "",
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
@@ -48,33 +49,38 @@ def _view(svc: JobService, job: Job) -> dict:
     }
 
 
+# 复用 get_db 注入的会话，不再 with SessionLocal() 另开一个：鉴权依赖
+# get_current_user 已经持有它，各开一个等于每次轮询占两条池连接。
 @router.get("", summary="列出作业（按会话过滤，供状态条轮询）")
-async def list_jobs(
+def list_jobs(
     chat_id: Optional[str] = Query(None, description="只看这个会话的作业"),
     live: bool = Query(True, description="true 只返回未结束的作业（状态条默认口径）"),
     limit: int = Query(20, ge=1, le=100),
     user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """列出当前用户的作业。默认只给未结束的——状态条只关心"现在有没有在跑"。"""
-    with SessionLocal() as db:
-        svc = JobService(db)
-        q = db.query(Job).filter(Job.user_id == user.user_id)
-        if chat_id:
-            q = q.filter(Job.chat_id == chat_id)
-        if live:
-            q = q.filter(Job.status.in_(_LIVE_STATUSES))
-        rows: List[Job] = q.order_by(Job.created_at.desc()).limit(limit).all()
-        return success_response(data={"jobs": [_view(svc, r) for r in rows]})
+    svc = JobService(db)
+    q = db.query(Job).filter(Job.user_id == user.user_id)
+    if chat_id:
+        q = q.filter(Job.chat_id == chat_id)
+    if live:
+        q = q.filter(Job.status.in_(_LIVE_STATUSES))
+    rows: List[Job] = q.order_by(Job.created_at.desc()).limit(limit).all()
+    return success_response(data={"jobs": [_view(svc, r) for r in rows]})
 
 
 @router.get("/{job_id}", summary="查单个作业进度")
-async def get_job(job_id: str, user: UserContext = Depends(get_current_user)):
-    with SessionLocal() as db:
-        svc = JobService(db)
-        job = svc.get(job_id)
-        if job is None or job.user_id != user.user_id:
-            raise HTTPException(status_code=404, detail="job not found")
-        return success_response(data=_view(svc, job))
+def get_job(
+    job_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    svc = JobService(db)
+    job = svc.get(job_id)
+    if job is None or job.user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="job not found")
+    return success_response(data=_view(svc, job))
 
 
 @router.post("/{job_id}/cancel", summary="用户手动取消作业")

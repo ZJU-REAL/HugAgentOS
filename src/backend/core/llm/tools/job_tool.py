@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+from ._paths import quote_shell_path as _quote_path
 from typing import Any, Dict, List, Optional
 
 from agentscope.message import TextBlock
@@ -109,7 +110,7 @@ def register_run_job(
 
         怎么用（三步）：
 
-        1. 用 ``write`` 把作业脚本写到沙箱，例如 ``/workspace/jobs/fill.py``。
+        1. 用 ``write`` 把作业脚本写到沙箱，例如 ``jobs/fill.py``。
            脚本里 ``from hugagent_job import ledger, agent, job, log`` 即可，SDK 由系统注入：
 
              - ``ledger.seed([{"key": "r2", "payload": {...}}, ...])`` 建台账（按 key 幂等）
@@ -145,7 +146,7 @@ def register_run_job(
            其余一切用标准 Python：抓网页、解析、写 Excel、``subprocess`` 跑校验命令。
            **验收能机检就别烧模型**——``mypy`` / ``pytest`` / 一段校验函数都比 ``agent()`` 便宜。
 
-        2. ``run_job(action="start", script_path="/workspace/jobs/fill.py", name="补全展品")``。
+        2. ``run_job(action="start", script_path="jobs/fill.py", name="补全展品")``。
         3. 作业结束后用 ``action="export"`` 把台账导成沙箱里的 JSONL，再用 bash/python
            读它写产物（Excel、报告、校验）。**不要**把逐项结果读回对话。
 
@@ -192,7 +193,7 @@ def register_run_job(
             max_seconds (`int`): 墙钟秒数上限，0 = 用默认。
             concurrency (`int`): 子作业并发，默认 8，上限 16。
             dest_path (`str`): 仅 export：导出文件路径，默认
-                ``/workspace/jobs/<job_id>_ledger.jsonl``。
+                ``jobs/<job_id>_ledger.jsonl``。
             status (`str`): 仅 export：只导出这些状态，逗号分隔（如 ``"done,not_found"``）；
                 留空导出全部。
 
@@ -262,7 +263,7 @@ def register_run_job(
             # 脚本会被压成一行落地 → SyntaxError（实测踩过）。base64 -w0 保字节不变。
             try:
                 code, out, err = await job_runtime._sbx_bash(
-                    f"base64 -w0 {script_path} 2>/dev/null || base64 -i {script_path}",
+                    f"base64 -w0 {_quote_path(script_path)} 2>/dev/null || base64 -i {_quote_path(script_path)}",
                     session_id=sandbox_session_id,
                     user_id=user_id,
                     timeout=30,
@@ -444,7 +445,7 @@ def register_run_job(
                     rows.extend(svc.pending(job_id, status=st))
                 stats = svc.stats(job_id)
 
-            dest = dest_path or f"/workspace/jobs/{job_id}_ledger.jsonl"
+            dest = dest_path or f"jobs/{job_id}_ledger.jsonl"
             body = "\n".join(_json.dumps(r, ensure_ascii=False) for r in rows)
             # 分块写 + 读回校验：单条 bash 携带大 base64 到约 170KB 会**静默失败**
             # （exit=0、stderr 空、文件不存在）。568 行台账正好落在这个区间——历史上

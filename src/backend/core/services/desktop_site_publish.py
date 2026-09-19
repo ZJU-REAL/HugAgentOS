@@ -19,6 +19,16 @@ class SiteUploadOptions(SitePublishScopeFields):
     description: str = Field("", max_length=2000)
 
 
+def _session_workspace_root(chat_id: str | None) -> str | None:
+    """这个会话的工作目录。"""
+    if not chat_id:
+        return None
+    from core.sandbox._common import WORKSPACE
+    from services.script_runner_service.workspace_paths import session_root
+
+    return session_root(WORKSPACE, str(chat_id))
+
+
 async def package_local_site(arguments, headers):
     """Read the current local sandbox, never a path on the remote backend."""
     from core.config.local_mode import local_mode_enabled
@@ -33,7 +43,7 @@ async def package_local_site(arguments, headers):
     if not user_id:
         raise ValueError("发布站点缺少本机用户身份")
     if local_mode_enabled() and not chat_id:
-        raise ValueError("本机站点发布必须使用已绑定本地项目的会话")
+        raise ValueError("本机站点发布必须提供当前会话标识")
     arguments.pop("_desktop_source", None)
     project_id, project_dir = resolve_project_context(chat_id or "", user_id)
     src = str(arguments.get("src_dir") or "").strip().rstrip("/")
@@ -51,21 +61,26 @@ async def package_local_site(arguments, headers):
         src = project_dir or "/workspace/site"
     import os
 
-    if not os.path.isabs(src):
-        src = "/workspace/" + src
+    if not os.path.isabs(src) and local_mode_enabled() and project_dir:
+        src = os.path.join(project_dir, src)
     src = to_physical_path(src, user_id, session_id=chat_id)
     # A desktop project root is an explicitly bound host directory. It is not
     # necessarily under the managed scratch workspace (e.g. Windows Desktop).
     # Keep containment checks; authorize only the current owned project's root.
     roots = (project_dir,) if local_mode_enabled() and project_dir else ()
-    error = _validate_workspace_path(src + "/", additional_roots=roots)
+    error = _validate_workspace_path(
+        src + "/", root=_session_workspace_root(chat_id), additional_roots=roots
+    )
     if error:
+        if project_dir:
+            # 报错要说出边界在哪，否则调用方只能一条条猜路径。
+            raise ValueError(f"站点目录必须位于 {project_dir} 内，当前传入的是 {src}。")
         raise ValueError(error)
     source = str(arguments.get("source_dir") or "").strip().rstrip("/")
     if source and source == src:
         source = "" if not arguments.get("source_dir") else source
-    if source and not os.path.isabs(source):
-        source = "/workspace/" + source
+    if source and not os.path.isabs(source) and local_mode_enabled() and project_dir:
+        source = os.path.join(project_dir, source)
     if source and to_physical_path(source, user_id, session_id=chat_id) == src:
         raise ValueError("src_dir 必须指向构建产物，不能与 source_dir 相同")
     if local_mode_enabled() and chat_id:

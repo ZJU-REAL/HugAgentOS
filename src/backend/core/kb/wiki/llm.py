@@ -14,15 +14,14 @@
 from __future__ import annotations
 
 import logging
-import os
 import random
 import re
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
 from core.llm._distill_shared import parse_strict_json, strip_think_blocks
+from core.llm.single_turn import Endpoint, build_request, parse_response, turns
 
 logger = logging.getLogger(__name__)
 
@@ -39,32 +38,28 @@ class WikiQuotaExceeded(RuntimeError):
     """本作业的 LLM 调用次数已达上限。"""
 
 
-@dataclass
-class _ModelEndpoint:
-    base_url: str
-    api_key: str
-    model_name: str
-
-
-def _resolve_endpoint() -> _ModelEndpoint:
+def _resolve_endpoint() -> Endpoint:
     """kb_wiki 角色 → main_agent 角色 → 环境变量。
 
-    只有 ``kb_wiki`` 这一层是 Wiki 特有的，后面两级回落复用
+    只有 ``kb_wiki`` 这一层是 Wiki 特有的，最后一级回落复用
     ``kb_processing.resolve_main_model_config``——同一个知识库子系统里，向量化与
     Wiki 生成对「主模型在哪」必须给出同一个答案。
     """
     try:
         from core.services.model_config import ModelConfigService
 
-        cfg = ModelConfigService.get_instance().resolve("kb_wiki")
-        if cfg and cfg.base_url and cfg.model_name:
-            return _ModelEndpoint(cfg.base_url.rstrip("/"), cfg.api_key, cfg.model_name)
+        svc = ModelConfigService.get_instance()
+        for role in ("kb_wiki", "main_agent"):
+            cfg = svc.resolve(role)
+            if cfg and cfg.base_url and cfg.model_name:
+                return Endpoint.from_resolved(cfg)
     except Exception as exc:  # noqa: BLE001 - 配置服务不可用时退到主模型，不阻断管线
         logger.warning("Wiki 模型角色解析失败，回落主模型: %s", exc)
 
     from core.content.kb_processing import resolve_main_model_config
 
-    return _ModelEndpoint(*resolve_main_model_config())
+    base_url, api_key, model_name = resolve_main_model_config()
+    return Endpoint(base_url=base_url, api_key=api_key, model_name=model_name)
 
 
 def wiki_model_configured() -> bool:
@@ -181,39 +176,18 @@ def call_llm(
             "未配置 Wiki 生成模型：请在模型管理中为「知识库 Wiki 实体抽取」角色绑定供应商"
         )
 
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": user})
-
-    payload = {
-        "model": endpoint.model_name,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    headers = {
-        "Authorization": f"Bearer {endpoint.api_key}",
-        "Content-Type": "application/json",
-    }
+    url, headers, payload = build_request(
+        endpoint, turns(user, system), temperature=temperature, max_tokens=max_tokens
+    )
 
     last_exc: Optional[Exception] = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            response = requests.post(
-                f"{endpoint.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=timeout,
-            )
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
             response.raise_for_status()
-            body = response.json()
-            content = str(
-                ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-            )
-            cleaned = strip_think_blocks(content)
+            cleaned = parse_response(endpoint, response.json()).text
             if budget is not None:
-                budget.record(len(system or "") + len(user), len(content))
+                budget.record(len(system or "") + len(user), len(cleaned))
             return cleaned
         except Exception as exc:  # noqa: BLE001 - 统一分类后决定是否重试
             last_exc = exc

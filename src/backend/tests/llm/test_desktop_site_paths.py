@@ -44,23 +44,23 @@ def test_portable_archive_rejects_links(tmp_path):
     with pytest.raises(ValueError,match="linked"):
         pack_directory(source,tmp_path/"bundle.tgz",[],10,1024,1024,2048)
 
-def test_native_file_alias_matches_command_session(tmp_path, monkeypatch):
+def test_paths_are_used_as_given(tmp_path, monkeypatch):
+    """本机模式下路径不做任何改写：给什么就是什么。
+
+    此前 ``/workspace/...`` 会被改写到会话目录，于是同一个"工作区"在提示词、
+    bash cwd、文件工具三处各有一套说法，模型只能靠拼路径去对齐。
+    """
     from core.llm.tools import _paths
     from core.config import local_mode
     from services.script_runner_service import server
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
-    target=_paths.to_physical_path("/workspace/site/index.html", None, session_id="chat-site")
-    assert target == str(server._session_workspace("chat-site")/"site/index.html")
-    assert not server._session_workspace("chat-site").exists()
-
-def test_physical_session_identity_is_idempotent():
-    from services.script_runner_service.workspace_paths import resolve_path
-    root = "C:/Users/Aaron/workspace"
-    path = resolve_path("/workspace/site",root,"chat")
-    assert resolve_path(path,root,"chat") == path
-    assert resolve_path(path,root,"other-chat") == path
+    real = str(server._session_workspace("chat-site") / "site" / "index.html")
+    assert _paths.to_physical_path(real, None, session_id="chat-site") == real
+    # 逻辑写法不再被搬到别处
+    assert _paths.to_physical_path("/workspace/site/index.html", None,
+                                   session_id="chat-site") == "/workspace/site/index.html"
 
 def test_publish_uses_real_runner_and_same_session_files(tmp_path, monkeypatch):
     import asyncio
@@ -68,6 +68,9 @@ def test_publish_uses_real_runner_and_same_session_files(tmp_path, monkeypatch):
     from services.script_runner_service import server
     from core.services import site_packaging
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
+    monkeypatch.setenv("DEPLOY_PROFILE", "local")
     workspace = server._session_workspace("site-chat",create=True)
     (workspace/"site").mkdir()
     (workspace/"site/index.html").write_bytes(b"<html>same session</html>")
@@ -106,14 +109,15 @@ async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypat
     monkeypatch.setattr("core.sandbox.get_sandbox_provider",lambda:ScriptRunnerProvider())
     toolkit=_Toolkit()
     register_write(toolkit,chat_id="chat-1",user_id="user-1",state=ReadStateTracker(),interactive=False)
-    outcome=await _service("Write",interactive=False).authorize(_call("Write",{"file_path":"/workspace/site/index.html","content":"same-file"}))
+    real_path=str(server._session_workspace("chat-1",create=True)/"site"/"index.html")
+    outcome=await _service("Write",interactive=False).authorize(_call("Write",{"file_path":real_path,"content":"same-file"}))
     assert outcome.proceed
     token=CURRENT_PERMISSION_TICKET.set(outcome.ticket)
     try:
-        response=await toolkit.fn(file_path="/workspace/site/index.html",content="same-file")
+        response=await toolkit.fn(file_path=real_path,content="same-file")
     finally:
         CURRENT_PERMISSION_TICKET.reset(token)
     assert _payload(response).get("ok"),_payload(response)
-    result=await server.execute(server.ExecuteRequest(session_id="chat-1",user_id="user-1",language="bash",script_name="read.sh",script_content='IFS= read -r text < /workspace/site/index.html; printf "%s" "$text"'))
+    result=await server.execute(server.ExecuteRequest(session_id="chat-1",user_id="user-1",language="bash",script_name="read.sh",script_content=f'IFS= read -r text < "{real_path}"; printf "%s" "$text"'))
     assert result.exit_code == 0,result.stderr
     assert result.stdout.strip()=="same-file"

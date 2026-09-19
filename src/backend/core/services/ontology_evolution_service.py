@@ -6,7 +6,6 @@ an active-version pointer; activation remains an explicit administrator action.
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 import logging
@@ -17,6 +16,7 @@ from threading import Lock
 from typing import Any
 
 from core.db.models import ChatMessage, OntologyEnforcementEvent
+from core.infra.background import spawn
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.memory.sanitizer import sanitize
 from core.services.ontology_service import OntologyService
@@ -24,7 +24,6 @@ from sqlalchemy.orm import Session
 
 _SECTIONS = {"term": "concepts", "relation": "relations", "constraint": "constraints"}
 logger = logging.getLogger(__name__)
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
 _SCHEDULE_LOCK = Lock()
 _EVOLUTION_RUNNING = False
 
@@ -32,10 +31,6 @@ _EVOLUTION_RUNNING = False
 def schedule_ontology_evolution(*, user_id: str) -> bool:
     """Debounce the low-priority evidence prefilter on the current event loop."""
     global _EVOLUTION_RUNNING
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return False
     with _SCHEDULE_LOCK:
         if _EVOLUTION_RUNNING:
             return False
@@ -59,9 +54,7 @@ def schedule_ontology_evolution(*, user_id: str) -> bool:
             with _SCHEDULE_LOCK:
                 _EVOLUTION_RUNNING = False
 
-    task = loop.create_task(_run(), name="ontology-evolution-prefilter")
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    spawn(_run(), name="ontology-evolution-prefilter")
     return True
 
 

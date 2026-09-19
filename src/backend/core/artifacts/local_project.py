@@ -133,13 +133,6 @@ def resolve_project_reference(item: dict) -> dict | None:
 def is_project_file_path(path: str, scope) -> bool:
     if not scope or not scope.is_local or not scope.local_path:
         return False
-    from core.llm.tools._paths import canonicalize_ws_path
-
-    slug = getattr(scope, "local_slug", None)
-    if slug:
-        logical_root = Path(canonicalize_ws_path(f"/workspace/local/{slug}"))
-        if Path(canonicalize_ws_path(path)).is_relative_to(logical_root):
-            return True
     root = Path(scope.local_path).expanduser().resolve()
     source = Path(path).expanduser()
     # Retain lexical membership so an escaping link is rejected, not exported.

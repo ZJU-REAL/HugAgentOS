@@ -1,4 +1,5 @@
 import { DesktopUpdateEntry } from '../../desktop/DesktopUpdateEntry';
+import { CapabilitySyncEntry } from '../../desktop/CapabilitySyncEntry';
 import { useDesktopUpdateStatus } from '../../desktop/useDesktopUpdateStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
@@ -788,6 +789,7 @@ export function Sidebar({
           )}
           <div className="jx-miniRailSpacer" />
           <div className="jx-miniRailFooter">
+            <CapabilitySyncEntry className="jx-miniRailBtn" />
             <DesktopUpdateEntry status={desktopUpdateStatus} className="jx-miniRailBtn">
               <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
                 <Tooltip title={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助 / 更新记录')} placement="right">
@@ -1105,6 +1107,7 @@ export function Sidebar({
               <span className="jx-userName">{authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')}</span>
             </button>
           </Dropdown>
+          <CapabilitySyncEntry className="jx-helpBtn" />
           <DesktopUpdateEntry status={desktopUpdateStatus} className="jx-helpBtn">
             <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
               <button className="jx-helpBtn" title={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助')}>

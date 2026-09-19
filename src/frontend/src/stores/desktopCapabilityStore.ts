@@ -1,4 +1,4 @@
-import { getDeviceCapabilities, setCapabilitySyncListener } from '../api';
+import { getDeviceCapabilities } from '../api';
 import { useDeploymentModeStore } from './deploymentModeStore';
 import { useAuthStore } from './authStore';
 import { createDesktopCapabilityStore } from './desktopCapabilityState';
@@ -14,7 +14,7 @@ useAuthStore.subscribe((next, previous) => {
 useDeploymentModeStore.subscribe((next, previous) => {
   if (next.provisionMode !== previous.provisionMode || next.serverBase !== previous.serverBase) {
     useDesktopCapabilityStore.getState().reset();
+  } else if (next.capabilitiesReady && !previous.capabilitiesReady) {
+    useDesktopCapabilityStore.getState().reloadAll();
   }
 });
-// 云端能力被改动 → api.ts 同步完本机能力后刷新来源标记。
-setCapabilitySyncListener(() => useDesktopCapabilityStore.getState().reloadAll());

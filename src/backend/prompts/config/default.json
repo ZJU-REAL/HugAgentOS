@@ -5,6 +5,7 @@
     "prompt_dir": "./prompts/prompt_text/default",
     "parts": [
       "system/00_role",
+      "system/05_system_reminder_convention",
       "system/10_constraints",
       "system/20_tools",
       "system/30_workflow",

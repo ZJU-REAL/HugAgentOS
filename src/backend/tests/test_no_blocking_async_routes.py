@@ -5,7 +5,8 @@
 事件循环才能收尾释放锁，两边互相干等，全部接口一起停摆（生产曾因站点面板并发只读请求
 触发过一次）。声明成 ``def`` 则由 FastAPI 丢进线程池，阻塞只占一个线程。
 
-因此：拿同步 ``Session`` 且函数体内没有任何 ``await`` 的路由，必须写成 ``def``。
+因此：用同步会话（``db: Session`` 参数或就地 ``SessionLocal()``）且函数体内没有任何
+``await`` 的路由，必须写成 ``def``。
 """
 
 import ast
@@ -25,10 +26,22 @@ def _is_route(node: ast.AsyncFunctionDef) -> bool:
     )
 
 
-def _takes_sync_session(node: ast.AsyncFunctionDef) -> bool:
-    return any(
+def _uses_sync_session(node: ast.AsyncFunctionDef) -> bool:
+    """声明式（``db: Session``）与就地开的（``with SessionLocal()``）一样算。
+
+    只认参数注解会漏掉后者，而后者一样在事件循环上跑阻塞查询——生产上请求量最大的
+    ``/v1/jobs`` 正是这样从这条守卫底下溜过去的。
+    """
+    if any(
         arg.annotation is not None and ast.unparse(arg.annotation) == "Session"
         for arg in list(node.args.args) + list(node.args.kwonlyargs)
+    ):
+        return True
+    return any(
+        isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Name)
+        and sub.func.id == "SessionLocal"
+        for sub in ast.walk(node)
     )
 
 
@@ -53,7 +66,7 @@ def _offenders():
                 if (
                     isinstance(node, ast.AsyncFunctionDef)
                     and _is_route(node)
-                    and _takes_sync_session(node)
+                    and _uses_sync_session(node)
                     and not _has_await(node)
                 ):
                     found.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno} {node.name}")

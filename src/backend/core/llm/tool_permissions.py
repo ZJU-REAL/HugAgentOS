@@ -270,6 +270,24 @@ class LocalCommandAuthorization:
             ) from exc
 
 
+class TicketLifetime:
+    """票据的有效期标记，由中间件在分派前后翻转。
+
+    ``CURRENT_PERMISSION_TICKET`` 是 ContextVar：工具体内 ``create_task`` 派生的子任务
+    会**复制**当前上下文，中间件退出时的 ``reset`` 管不到那份副本 —— 票据会随子任务
+    一直活着。把有效期放在票据对象自己身上（而不是只靠 ContextVar 的生命周期），
+    子任务拿到的是同一个对象，主分派一结束它那份也立刻失效。
+    """
+
+    __slots__ = ("active",)
+
+    def __init__(self) -> None:
+        self.active = True
+
+    def expire(self) -> None:
+        self.active = False
+
+
 @dataclass(frozen=True)
 class PermissionTicket:
     tool_name: str
@@ -279,6 +297,11 @@ class PermissionTicket:
     intents: tuple[PermissionIntent, ...]
     local_command: Optional[LocalCommandAuthorization] = None
     reasons: tuple[str, ...] = ()
+    lifetime: TicketLifetime = field(default_factory=TicketLifetime)
+
+    @property
+    def active(self) -> bool:
+        return self.lifetime.active
 
     def matches(self, tool_call: Any) -> bool:
         return (
@@ -348,7 +371,7 @@ def require_local_path_permission(path: str, action: str) -> None:
     if not local_mode_enabled():
         return
     ticket = CURRENT_PERMISSION_TICKET.get()
-    if ticket is None or not ticket.authorizes_path(path, action):
+    if ticket is None or not ticket.active or not ticket.authorizes_path(path, action):
         raise PermissionEnforcementError(
             f"本机文件{action}缺少匹配的预执行授权票据，已拒绝访问：{path}"
         )
@@ -358,7 +381,9 @@ def current_local_command_authorization(
     command: str,
 ) -> Optional[LocalCommandAuthorization]:
     ticket = CURRENT_PERMISSION_TICKET.get()
-    auth = ticket.local_command if ticket is not None else None
+    if ticket is None or not ticket.active:
+        return None
+    auth = ticket.local_command
     return auth if auth is not None and auth.command == command else None
 
 
@@ -610,8 +635,36 @@ def builtin_tool_permission(tool_name: str) -> Optional[ToolPermissionSpec]:
             "dest_path", WRITE, tool_name="sandbox_put_artifact"
         ),
         "sandbox_get_artifact": local_path_tool("src_path", READ, tool_name="sandbox_get_artifact"),
+        # 批量作业会把 ``script_path`` 的内容读出来当脚本正文执行，``dest_path`` 是
+        # 它导出台账的落点。两者都是模型给的裸路径，必须和其它文件工具同样受管，
+        # 否则这条路等于一个不受策略约束的任意路径读取通道。
+        "run_job": local_path_tool(
+            "script_path",
+            READ,
+            tool_name="run_job",
+            additional_paths=(("dest_path", WRITE),),
+        ),
     }
     return governed.get(tool_name)
+
+
+def _too_broad_write_root(path: str) -> bool:
+    """Whether granting ``path`` as a writable root would hand out far too much.
+
+    A not-yet-created target has to be widened to its parent directory for the
+    file to be creatable at all. That is fine for ``~/project/out.txt`` and very
+    much not fine for ``~/out.txt``: the home directory holds every credential
+    file and dotfile the user owns. Compare by resolved identity so a symlinked
+    home is recognised too.
+    """
+    resolved = _canonical_path(path)
+    if resolved == os.path.dirname(resolved):  # filesystem / drive root
+        return True
+    try:
+        home = _canonical_path(os.path.expanduser("~"))
+    except (OSError, RuntimeError):
+        return False
+    return resolved == home
 
 
 def _one_shot_write_root(path: str) -> Optional[str]:
@@ -619,7 +672,12 @@ def _one_shot_write_root(path: str) -> Optional[str]:
     if os.path.exists(target):
         return target
     parent = os.path.dirname(target)
-    return parent if parent != target and os.path.isdir(parent) else None
+    if parent == target or not os.path.isdir(parent):
+        return None
+    if _too_broad_write_root(parent):
+        logger.info("[tool-permission] refusing over-broad one-shot write root %r", parent)
+        return None
+    return parent
 
 
 class ToolPermissionService:
@@ -666,44 +724,9 @@ class ToolPermissionService:
                 },
             )
 
-        if self.runtime.default_allow:
-            # Trusted unattended entry points skip the *prompts*, never the
-            # sandbox: the ticket carries the same scope the user configured, so
-            # a scheduled or channel run is confined exactly like a chat one.
-            approval_mode, grants, policy = self._safe_local_security()
-            local_command = next(
-                (
-                    self._local_command_authorization(
-                        command=intent.target,
-                        approval_mode=approval_mode,
-                        grants=grants,
-                        policy=policy,
-                    )
-                    for intent in intents
-                    if intent.domain == DOMAIN_LOCAL_COMMAND
-                ),
-                None,
-            )
-            ticket = PermissionTicket(
-                tool_name=name,
-                tool_call_id=call_id,
-                args_hash=_json_hash(args),
-                spec_key=spec.key,
-                intents=intents,
-                local_command=local_command,
-                reasons=("trusted_unattended_run",),
-            )
-            audit = ticket.audit_dict()
-            audit["decision"] = "allow_trusted_unattended"
-            logger.info(
-                "[tool-permission] decision=allow_trusted_unattended " "tool=%s call=%s intents=%s",
-                name,
-                call_id,
-                [intent.domain for intent in intents],
-            )
-            return PermissionOutcome(True, ticket=ticket, audit=audit)
-
         reasons: list[str] = []
+        if self.runtime.default_allow:
+            reasons.append("trusted_unattended_run")
         local_command: Optional[LocalCommandAuthorization] = None
         for intent in intents:
             result = await self._authorize_intent(intent)
@@ -734,14 +757,18 @@ class ToolPermissionService:
             local_command=local_command,
             reasons=tuple(dict.fromkeys(reasons)),
         )
+        audit = ticket.audit_dict()
+        if self.runtime.default_allow:
+            audit["decision"] = "allow_trusted_unattended"
         logger.info(
-            "[tool-permission] decision=allow tool=%s call=%s intents=%s reasons=%s",
+            "[tool-permission] decision=%s tool=%s call=%s intents=%s reasons=%s",
+            audit["decision"],
             name,
             call_id,
             [intent.domain for intent in intents],
             ticket.reasons,
         )
-        return PermissionOutcome(True, ticket=ticket, audit=ticket.audit_dict())
+        return PermissionOutcome(True, ticket=ticket, audit=audit)
 
     def _answers_for_user(self, *, dangerous: bool) -> bool:
         """Whether a would-be confirmation is answered "yes" without asking.
@@ -749,8 +776,26 @@ class ToolPermissionService:
         「完全放开」一律不问；「替我批准」只替用户过普通操作，删除和被本地
         安全策略判为危险的那些仍旧停下来问。任何一档都只跳过"问"这一步——
         策略判定的硬拒绝照样拒绝。
+
+        受信任的无人值守入口（定时任务、IM 渠道）同样只跳过"问"：没有人在场可答
+        的确认视为已答应，这样这些入口的既有能力一条不少；但它们**不再**绕过策略
+        判定本身 —— ``deny`` 依旧拒绝，沙箱范围依旧按用户配置收拢。
         """
+        if self.runtime.default_allow:
+            return True
         return _preset_answers(self.runtime.approval_mode, dangerous=dangerous)
+
+    def _no_ui_pass_through(self, intent: PermissionIntent) -> bool:
+        """Whether this intent is declared to pass through when nobody can answer.
+
+        The fallback is a field on the intent, not a rule any single domain
+        invents for itself: refusing is right for host access the user never
+        saw, and passing through is right for governance that always used to
+        happen silently. Both answers live in the declaration.
+        """
+        if self.runtime.approval_available and self.runtime.chat_id:
+            return False
+        return intent.on_no_ui == FALLBACK_ALLOW
 
     async def _authorize_intent(self, intent: PermissionIntent) -> dict[str, Any]:
         if intent.domain == DOMAIN_DENY:
@@ -800,12 +845,23 @@ class ToolPermissionService:
                 ),
             )
 
+    def _session_workspace(self) -> str:
+        """本次对话的工作目录——权限闸里的"工作区"就是它。
+
+        目录内自由读写；出了这个目录的绝对路径按授权与策略判定（放行 / 需确认 /
+        拦截），不额外加规则。
+        """
+        from core.sandbox._common import WORKSPACE
+        from services.script_runner_service.workspace_paths import session_root
+
+        session = self.runtime.sandbox_session_id or self.runtime.chat_id
+        return session_root(WORKSPACE, str(session)) if session else WORKSPACE
+
     async def _authorize_local_path(self, intent: PermissionIntent) -> dict[str, Any]:
         from core.config.local_mode import local_mode_enabled
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox._common import WORKSPACE
         from core.sandbox.local_policy import danger_categories, evaluate_local_path
 
         _mode, grants, policy = self._safe_local_security()
@@ -814,7 +870,7 @@ class ToolPermissionService:
             intent=intent.action,
             grants=grants,
             policy=policy,
-            workspace_root=WORKSPACE,
+            workspace_root=self._session_workspace(),
             platform="windows" if os.name == "nt" else "posix",
         )
         logger.info(
@@ -839,6 +895,9 @@ class ToolPermissionService:
             return {
                 "reasons": [*verdict.reasons, f"approved_by_preset:{self.runtime.approval_mode}"]
             }
+
+        if self._no_ui_pass_through(intent):
+            return {"reasons": [*verdict.reasons, "no_approval_ui_pass_through:local_path"]}
 
         from core.llm.tools import _myspace_confirm as confirm
 
@@ -892,8 +951,10 @@ class ToolPermissionService:
                 ),
                 "reasons": verdict.reasons,
             }
-        if verdict.decision == "confirm" and not self._answers_for_user(
-            dangerous=bool(danger_categories(verdict.reasons))
+        if (
+            verdict.decision == "confirm"
+            and not self._answers_for_user(dangerous=bool(danger_categories(verdict.reasons)))
+            and not self._no_ui_pass_through(intent)
         ):
             from core.llm.tools import _myspace_confirm as confirm
 
@@ -919,6 +980,22 @@ class ToolPermissionService:
                 one_shot_write_targets=tuple(verdict.write_paths),
             ),
         }
+
+    def _physical(self, logical: str) -> str:
+        """Host path for a model-facing path.
+
+        The command classifier works in the model's ``/workspace`` namespace, so
+        the write targets it reports are logical. Handing those straight to the
+        sandbox would name a directory that does not exist on this host and the
+        approved one-shot write would be silently dropped.
+        """
+        try:
+            from core.llm.tools._paths import to_physical_path
+
+            session = self.runtime.sandbox_session_id or self.runtime.chat_id
+            return to_physical_path(logical, self.runtime.user_id, session_id=session)
+        except Exception:  # noqa: BLE001 - an untranslatable path stays as given
+            return logical
 
     def _local_command_authorization(
         self,
@@ -969,19 +1046,29 @@ class ToolPermissionService:
                 readable.append(grant.path)
         if may_write:
             for target in one_shot_write_targets:
-                root = _one_shot_write_root(target)
+                root = _one_shot_write_root(self._physical(target))
                 if root:
                     _admit(root)
+
+        from core.sandbox.os_sandbox import protected_read_paths
 
         return LocalCommandAuthorization(
             command=command,
             approval_mode=approval_mode,
-            workspace_root=WORKSPACE,
+            workspace_root=self._session_workspace(),
             access=LocalAccessDecision(
                 approval_mode=approval_mode,
                 unconfined=approval_mode in UNCONFINED_APPROVAL_MODES,
                 writable_roots=tuple(writable),
                 readable_roots=tuple(dict.fromkeys(readable)),
+                # This install's own directories stay unreadable whatever the
+                # preset: they hold the local database, the desktop bridge
+                # secret and the capability store, and a command that could read
+                # them could impersonate the signed-in user against the local
+                # backend. The workspace sits inside one of them and remains
+                # reachable — the sandbox resolves the narrowest entry, and the
+                # workspace root admitted above is deeper.
+                denied_paths=protected_read_paths(),
                 # A read-only preset gets no scratch space either; "may not
                 # write" would be a strange thing to say while handing out a
                 # writable directory.
@@ -1090,6 +1177,7 @@ class ToolPermissionMiddleware(MiddlewareBase):
                     }
                 yield item
         finally:
+            outcome.ticket.lifetime.expire()
             CURRENT_PERMISSION_TICKET.reset(token)
 
 

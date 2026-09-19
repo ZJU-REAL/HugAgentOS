@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Mapping, Optional, cast
 
-from sqlalchemy import or_
+from sqlalchemy import and_, case, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
@@ -39,6 +39,9 @@ from core.services.run_journal import (
 logger = logging.getLogger(__name__)
 
 RECOVERY_POLICIES = ("replay_safe", "reconcile", "never_replay")
+# needs_attention 的现场值得多留一阵子再回收，保留期是普通终态的这个倍数——从
+# 同一个 retention_days 推导，不额外引入一个可独立漂移的阈值。
+_ATTENTION_RETENTION_FACTOR = 4
 _REDACT_FIELDS = [
     "password",
     "token",
@@ -1084,35 +1087,84 @@ class ToolEffectJournal:
         Covers the tool effect ledger and leases plus the other append-only
         per-run journals (harness usage attempts, harness events, run
         operations); without this they grow without bound.
+
+        The run's own recovery columns go the same way. ``recovery_snapshot``
+        carries the whole conversation as of that turn, so a long chat stores
+        roughly its own history once per turn — the single largest thing in a
+        desktop database. Only crash recovery reads it, and only for runs that
+        are still live and still replayable, which is exactly what the cutoff
+        and the settled filter below exclude.
+
+        ``needs_attention`` is kept ``_ATTENTION_RETENTION_FACTOR`` times longer
+        rather than exempted, and that applies to every tier above. Exempting it
+        means never: nothing in the backend transitions a run out of that status,
+        so an exemption pins its journals — and its snapshot — for good. In
+        production every record that had outlived the retention window belonged
+        to such a run.
         """
         from core.db.models import ChatRunOperation, HarnessEventLog, HarnessUsageAttempt
 
-        cutoff = _aware(self._clock()) - timedelta(days=retention_days)
+        now = _aware(self._clock())
+        cutoff = now - timedelta(days=retention_days)
+        attention_cutoff = now - timedelta(days=retention_days * _ATTENTION_RETENTION_FACTOR)
         with self._sessions() as db:
-            settled_runs = db.query(ChatRun.run_id).filter(
-                ChatRun.status.notin_((*LIVE_STATUSES, "needs_attention"))
-            )
+
+            earliest_cutoff = max(cutoff, attention_cutoff)
+
+            def _prunable(run_col, stamp):
+                """Row whose run is terminal and past that run's retention tier.
+
+                ``stamp < earliest_cutoff`` is implied by the EXISTS (it is the
+                loosest of the tiers) and stated anyway: it is the only
+                predicate on these tables an index can serve, and without it the
+                planner has nothing to range-scan on.
+                """
+                tier = case(
+                    (ChatRun.status == "needs_attention", attention_cutoff),
+                    else_=cutoff,
+                )
+                return and_(
+                    stamp < earliest_cutoff,
+                    db.query(ChatRun.run_id)
+                    .filter(
+                        ChatRun.run_id == run_col,
+                        ChatRun.status.notin_(LIVE_STATUSES),
+                        stamp < tier,
+                    )
+                    .exists(),
+                )
+
             deleted = (
                 db.query(ToolEffectLedger)
-                .filter(
-                    ToolEffectLedger.created_at < cutoff,
-                    ToolEffectLedger.run_id.in_(settled_runs),
-                )
+                .filter(_prunable(ToolEffectLedger.run_id, ToolEffectLedger.created_at))
                 .delete(synchronize_session=False)
             )
             db.query(ToolEffectLease).filter(
-                ToolEffectLease.updated_at < cutoff,
-                ToolEffectLease.run_id.in_(settled_runs),
+                _prunable(ToolEffectLease.run_id, ToolEffectLease.updated_at)
             ).delete(synchronize_session=False)
             for model in (HarnessUsageAttempt, HarnessEventLog, ChatRunOperation):
                 deleted += (
                     db.query(model)
-                    .filter(
-                        model.created_at < cutoff,
-                        model.run_id.in_(settled_runs),
-                    )
+                    .filter(_prunable(model.run_id, model.created_at))
                     .delete(synchronize_session=False)
                 )
+            deleted += (
+                db.query(ChatRun)
+                .filter(
+                    ChatRun.status.notin_(LIVE_STATUSES),
+                    ChatRun.completed_at < earliest_cutoff,
+                    ChatRun.completed_at
+                    < case(
+                        (ChatRun.status == "needs_attention", attention_cutoff),
+                        else_=cutoff,
+                    ),
+                    ChatRun.recovery_snapshot.isnot(None),
+                )
+                .update(
+                    {ChatRun.recovery_snapshot: None, ChatRun.request_payload: None},
+                    synchronize_session=False,
+                )
+            )
             db.commit()
             return deleted
 

@@ -103,6 +103,7 @@ WORKDIR /app
 # Excel / PPT now go through the `officecli` binary installed below.
 COPY src/backend/skill_bundles/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
 RUN chmod +x /usr/local/bin/pdf-cli
+ENV PDF_SKILL_DIR=/workspace/skills/pdf-editing
 
 # officecli（OfficeCLI）——内置的 officecli-* / morph-ppt* 十个技能靠它运行
 # （Bash(officecli *)）。单文件原生二进制，内嵌 .NET runtime，不依赖 Office 或

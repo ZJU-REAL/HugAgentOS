@@ -35,12 +35,12 @@ PDF 内容时，才进入这份 SKILL。下面几件事看上去能"完成任务
 5. **改完中间稿（`pdf-cli create` 的 spec JSON / 待重排的 markdown 草稿 /
    `fill-form` 的 fields JSON）就停手，忘了重新跑 `pdf-cli` 出最终 .pdf**。
    常见现场：你把 spec 调了一轮，回复就说"已经把 X 章节改成 Y，spec 保存在
-   `/workspace/spec.json`"——然后收尾。**这些 spec / markdown / fields 都不是
+   `./spec.json`"——然后收尾。**这些 spec / markdown / fields 都不是
    用户要的东西，`.pdf` 才是**。中间稿每改一轮都得重新跑 `pdf-cli create` /
    `pdf-cli reformat` / `pdf-cli fill-form` 把新版 `.pdf` 产出来，再走
    `sandbox_get_artifact` + `pin_to_workspace` 把最新文件推给用户。stop 在
    spec / markdown 草稿上 = 这一轮没交付。
-6. **`pdf-cli` 跑完了，只在回复里说"PDF 已生成，路径 `/workspace/xxx.pdf`"
+6. **`pdf-cli` 跑完了，只在回复里说"PDF 已生成，路径 `./xxx.pdf`"
    就收尾**。沙盒磁盘对用户**完全是黑盒**——你告诉他"沙盒里有个文件在这里"，
    等同于没交付：用户的对话区 / 我的空间不会自动出现这个文件，他没办法点开、
    下载、看里面的内容。CLI 跑完后必须接 `sandbox_get_artifact` 拿 `file_id`，
@@ -54,22 +54,26 @@ PDF 内容时，才进入这份 SKILL。下面几件事看上去能"完成任务
 
 ## 运行模型（必须先理解这个，再谈调命令）
 
+下面的 `pdf-cli` 表示本次加载技能的 `"{baseDir}/scripts/pdf-cli"`。
+执行命令时使用这个带引号的脚本路径；保持当前会话工作目录，输入输出使用相对路径。
+不要切换到技能目录运行作业。
+
 LLM 没有 `pdf_*` 工具可以直接调。每次 PDF 操作是 **3 步组合 + 1 步交付**：
 
 ```
 # Step 1：如果用户上传过原始 pdf（有 file_id），把它送进沙盒
 sandbox_put_artifact(artifact_id="<原始 pdf 的 file_id>",
-                     dest_path="/workspace/in.pdf")
-  → {"ok": true, "artifact_id": "...", "dest_path": "/workspace/in.pdf"}
+                     dest_path="./in.pdf")
+  → {"ok": true, "artifact_id": "...", "dest_path": "./in.pdf"}
 
 # Step 2：bash 跑 pdf-cli
-bash("pdf-cli <subcmd> --input /workspace/in.pdf \
-                        --output /workspace/out.pdf \
+bash("pdf-cli <subcmd> --input ./in.pdf \
+                        --output ./out.pdf \
                         <子命令特定参数>")
   → stdout 返回 JSON 结果（{"ok": bool, "meta": ...}）
 
 # Step 3：把沙盒里的成稿提取出来登记成 artifact
-sandbox_get_artifact(src_path="/workspace/out.pdf",
+sandbox_get_artifact(src_path="./out.pdf",
                      name="终稿.pdf")
   → {"ok": true, "file_id": "<新 file_id>", "url": "/files/...", ...}
 
@@ -121,12 +125,12 @@ pin_to_workspace(file_ids=["<新 file_id>"])
 程图的报告 spec 轻松破 10KB）。bash 命令行有 ~128KB 上限，触发 `Argument
 list too long` 就直接报错。
 
-**永远的兜底**：先 `Write` 把 JSON 写到 `/workspace/spec.json`，再用
+**永远的兜底**：先 `Write` 把 JSON 写到 `./spec.json`，再用
 `--spec-file`：
 
 ```bash
-Write(file_path="/workspace/spec.json", content="<json>")
-bash("pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.json")
+Write(file_path="./spec.json", content="<json>")
+bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
 ```
 
 `fill-form` 的 `--fields-file` 是同理兜底。
@@ -141,12 +145,12 @@ bash("pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.
 - 用户要的是 **.pdf**，我交付的也是 .pdf 吗？（不是偷偷换成了 .docx /
   「贴在回答里的 markdown 文字让用户自己复制粘贴 / 另存为 PDF」？）
 - 是不是用 `pdf-cli create`（从零）/ `pdf-cli reformat`（从 md/docx 改造）/
-  `pdf-cli merge` / `pdf-cli fill-form` 真的产出过 `/workspace/<...>.pdf` 这个
+  `pdf-cli merge` / `pdf-cli fill-form` 真的产出过 `./<...>.pdf` 这个
   文件？（没跑过这条命令 = 没有 .pdf，必返工）
 - 中途如果改过 spec JSON / markdown 草稿 / fields JSON 这类中间稿，**改完之后
   有没有再跑一次 `pdf-cli` 把最新版 .pdf 重新生成出来**？（停在改完 spec / md
   上 = 没交付）
-- `sandbox_get_artifact(src_path="/workspace/<...>.pdf", name="...")` 跑了，
+- `sandbox_get_artifact(src_path="./<...>.pdf", name="...")` 跑了，
   拿到了 `file_id` 了吗？
 - **`pin_to_workspace(file_ids=["<file_id>"])` 调了吗？**
   —— 这一步不可省：没 pin，文件只是后端 artifact 存储里的一条匿名记录，

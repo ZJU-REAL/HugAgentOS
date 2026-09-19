@@ -21,6 +21,7 @@ from core.auth.capabilities import resolve_user_capabilities
 from core.channels.registry import get_adapter, list_adapters
 from core.db.models import ChannelConnection
 from core.db.repository.channel import ChannelConnectionRepository
+from core.infra.background import spawn
 from core.infra.crypto import encrypt_secret
 from core.infra.exceptions import (
     AccessDeniedError,
@@ -384,7 +385,6 @@ class ChannelService:
         Returns the response body (dict) sent back to the channel. Signature verification
         failure raises AccessDeniedError.
         """
-        import asyncio
         import json
 
         conn = self.repo.get_by_id(channel_id)
@@ -414,12 +414,7 @@ class ChannelService:
             return {"code": 0}  # non-message event, ack
         from core.channels.inbound import handle_inbound
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(handle_inbound(inbound))
-        except RuntimeError:
-            # Not inside an event loop (rare) — synchronous fallback
-            asyncio.run(handle_inbound(inbound))
+        spawn(handle_inbound(inbound), name="channel.handle_inbound")
         return {"code": 0}
 
     def handle_webhook_get(self, channel_id: str, params: Dict[str, str]) -> str:

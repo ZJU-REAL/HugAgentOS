@@ -11,6 +11,7 @@ no longer coexists with this ``tools/`` package.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -28,43 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_skill_path(file_path: str, loader: Any = None) -> str | None:
-    """Try to resolve a non-existent skill file path to the materialized cache."""
-    parts = file_path.replace("\\", "/").split("/")
-    candidates: list[tuple[str, str]] = []
-    for i, seg in enumerate(parts):
-        if seg == "skills" and i + 2 <= len(parts) - 1:
-            skill_id = parts[i + 1]
-            rel_path = "/".join(parts[i + 2:])
-            if skill_id and rel_path:
-                candidates.append((skill_id, rel_path))
-
-    if getattr(loader, "capability_run", None) is not None:
-        for skill_id, rel_path in reversed(candidates):
-            skill_dir = loader.get_skill_dir(skill_id)
-            if skill_dir:
-                candidate = os.path.join(skill_dir, rel_path)
-                if os.path.exists(candidate):
-                    return candidate
-        return None
-
-    from core.agent_skills.config import get_sandbox_skills_dir
-    cache_root = str(get_sandbox_skills_dir())
-    for skill_id, rel_path in reversed(candidates):
-        cache_path = os.path.join(cache_root, skill_id, rel_path)
-        if os.path.exists(cache_path):
-            return cache_path
-
-        try:
-            loader = get_skill_loader()
-            skill_dir = loader.get_skill_dir(skill_id)
-            if skill_dir:
-                candidate = os.path.join(skill_dir, rel_path)
-                if os.path.exists(candidate):
-                    return candidate
-        except Exception:
-            pass
-
-    return None
+    from ._paths import path_rules
+    return path_rules().resolve_skill_file(file_path, loader)
 
 
 def _extract_skill_id_from_skill_file(file_path: str) -> str | None:
@@ -93,29 +59,32 @@ def _build_skill_bash_hint(
         return None
 
     name = getattr(spec, "name", skill_id) or skill_id
-    sandbox_dir = f"/workspace/skills/{skill_id}"
+    from core.agent_skills.config import model_facing_skill_dir
 
-    # Best-effort: grab an example script name (if SKILL.md still carries executable_scripts metadata)
-    example_cmd = None
+    sandbox_dir = model_facing_skill_dir(skill_id, skill_dir)
+
+    from ._paths import path_rules
+
+    quote = path_rules().quote_shell_path
     scripts = list(getattr(spec, "executable_scripts", None) or [])
-    if scripts:
-        first = (scripts[0].get("name") or "").strip()
-        if first:
-            example_cmd = f"cd {sandbox_dir} && bash {first}" if first.endswith(".sh") else f"cd {sandbox_dir} && python {first}"
-    if not example_cmd:
-        example_cmd = f"cd {sandbox_dir} && ls"
+    first = (scripts[0].get("name") or "").strip() if scripts else ""
+    if first:
+        interpreter = "bash" if first.endswith(".sh") else "python"
+        example_cmd = f"{interpreter} {quote(sandbox_dir + '/' + first)}"
+    else:
+        example_cmd = f"ls -- {quote(sandbox_dir)}"
 
     lines = [
         "",
         "----- Runtime Hint -----",
         f"当前已加载技能：{name}",
-        f"技能文件已同步到沙盒：{sandbox_dir}/（首次 bash 调用时自动落盘）",
+        f"技能目录：{sandbox_dir}/。脚本使用绝对路径启动，输入输出相对当前工作目录。",
         "调用方式：使用 `bash` 工具，按 SKILL.md 给出的命令拼接，例如：",
-        f"  bash(command=\"{example_cmd}\")",
+        f"  bash(command={json.dumps(example_cmd, ensure_ascii=False)})",
         "若用户上传的文件需要传给脚本：",
-        '  sandbox_put_artifact(artifact_id="ua_xxx", dest_path="/workspace/input.docx")',
+        '  sandbox_put_artifact(artifact_id="ua_xxx", dest_path="input.docx")',
         "脚本产出文件后，登记成可下载的 artifact：",
-        '  sandbox_get_artifact(src_path="/workspace/output.docx")',
+        '  sandbox_get_artifact(src_path="output.docx")',
     ]
     return "\n".join(lines)
 
@@ -213,11 +182,11 @@ def register_sandboxed_view_text_file(
             if loaded_skill_ids is not None and skill_id:
                 loaded_skill_ids.add(skill_id)
             for i, block in enumerate(resp.content):
-                if hasattr(block, "text") and "{baseDir}" in block.text:
-                    resp.content[i] = TextBlock(
-                        type="text",
-                        text=block.text.replace("{baseDir}", skill_dir),
-                    )
+                text = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                if "{baseDir}" in text:
+                    from core.agent_skills.config import model_facing_skill_dir
+                    directory = model_facing_skill_dir(skill_id or "", skill_dir).replace(chr(92), "/")
+                    resp.content[i] = TextBlock(type="text", text=text.replace("{baseDir}", directory))
             if skill_id:
                 runtime_hint = _build_skill_bash_hint(loader, skill_id, skill_dir)
                 if runtime_hint:

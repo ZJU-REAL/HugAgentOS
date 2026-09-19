@@ -8,8 +8,8 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage:
-    split.py --input /workspace/doc.pdf --output-dir /workspace/parts --ranges 1-3,4-6,7
-    split.py --input /workspace/doc.pdf --output-dir /workspace/parts \\
+    split.py --input ./doc.pdf --output-dir ./parts --ranges 1-3,4-6,7
+    split.py --input ./doc.pdf --output-dir ./parts \\
         --ranges 1-3,4-6 --names chapter1.pdf chapter2.pdf
 """
 from __future__ import annotations

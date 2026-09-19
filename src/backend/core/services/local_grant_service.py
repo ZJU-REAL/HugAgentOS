@@ -20,14 +20,19 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List
 
+# 分类词表只有一处真源（分类器自己），这里跟着它走：新增一类危险操作不必再同步改一遍
+# 校验、设置面板和「完全放开」那三处。
+from core.sandbox.local_policy import DANGER_CATEGORIES as _DANGER_CATEGORIES
+
 _LOCK = threading.Lock()
 _VALID_MODES = ("read", "readwrite")
 _VALID_DISPOSITIONS = ("block", "confirm", "allow")
-_DANGER_CATEGORIES = ("delete", "system_write", "network", "privilege")
 
 
 def _data_dir() -> Path:
-    return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
+    from core.config.runtime_env import local_data_dir
+
+    return local_data_dir()
 
 
 def _store_path() -> Path:
@@ -140,14 +145,13 @@ def policy_for_gate(approval_mode: str) -> Any:
       - ``ask``/``auto``：走用户配置的分类处置 / 内置默认（中间地带）；两档在
         本机策略上一致，区别是"要不要停下来问"，那由权限网关按危险类别决定。
     """
-    from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
+    from core.sandbox.local_policy import Policy
 
     if approval_mode == "full":
-        categories = (DELETE, SYSTEM_WRITE, NETWORK, PRIVILEGE)
         return Policy(
             out_of_scope="allow",
             workspace_write="allow",
-            danger={c: "allow" for c in categories},
+            danger={category: "allow" for category in _DANGER_CATEGORIES},
         )
     stored = get_policy()
     out_of_scope = stored.get("out_of_scope", "confirm")
