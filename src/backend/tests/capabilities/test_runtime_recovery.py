@@ -322,7 +322,7 @@ async def test_runner_executes_frozen_view_after_background_update(
     )
     response = await server.execute(
         server.ExecuteRequest(
-            script_content="cat /workspace/skills/example/SKILL.md",
+            script_content=f"cat {run.view_dir}/example/SKILL.md",
             script_name="frozen.sh",
             language="bash",
             session_id="chat-a",
@@ -760,7 +760,7 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     first = asyncio.create_task(
         server.execute(
             server.ExecuteRequest(
-                script_content="sleep 0.2; cat /workspace/skills/example/SKILL.md",
+                script_content=f"sleep 0.2; cat {old.view_dir}/example/SKILL.md",
                 script_name="old.sh",
                 language="bash",
                 session_id="same-chat",
@@ -772,7 +772,7 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     await asyncio.sleep(0.05)
     second = await server.execute(
         server.ExecuteRequest(
-            script_content="cat /workspace/skills/example/SKILL.md",
+            script_content=f"cat {new.view_dir}/example/SKILL.md",
             script_name="new.sh",
             language="bash",
             session_id="same-chat",

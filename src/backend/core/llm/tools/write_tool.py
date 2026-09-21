@@ -37,6 +37,7 @@ from ._common import (
 from ._paths import (
     basename,
     is_myspace_physical,
+    WORKSPACE_ROOT,
     parent_dir,
     to_physical_path,
     validate_project_scope_path,
@@ -245,7 +246,7 @@ def register_write(
         # The host-local script runner implements parent creation inside its
         # native put_file endpoint.  Asking it to run POSIX ``mkdir -p`` first
         # breaks standard Windows installations before the actual write starts.
-        if pd and pd != "/workspace" and provider.name != "script_runner":
+        if pd and pd != WORKSPACE_ROOT and provider.name != "script_runner":
             mk_exit, _, mk_err = await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(pd)}",
                 chat_id=_sess,

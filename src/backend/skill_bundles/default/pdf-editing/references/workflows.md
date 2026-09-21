@@ -2,7 +2,7 @@
 
 完整的端到端工具调用序列。`pdf-cli` 已经在 PATH 里。
 
-> 共同前置：所有路径假设落在 `/workspace/`；产物最终一定走
+> 共同前置：所有路径假设落在 `./`；产物最终一定走
 > `sandbox_get_artifact` + `pin_to_workspace` 交付。
 
 ---
@@ -12,14 +12,14 @@
 > "总结一下这份政策文件"
 
 ```python
-sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="/workspace/in.pdf")
+sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="./in.pdf")
 
 # 第一眼：metadata + outline
-bash("pdf-cli read --mode overview --input /workspace/in.pdf")
+bash("pdf-cli read --mode overview --input ./in.pdf")
 # → 拿到页数、有没有目录、章节结构
 
 # 按章节抓正文（若 PDF 太长可只抓特定页号）
-bash("pdf-cli read --mode text --input /workspace/in.pdf --pages 1,2,3")
+bash("pdf-cli read --mode text --input ./in.pdf --pages 1,2,3")
 
 # 回答用户。不产新文件，不需要 pin。
 ```
@@ -33,13 +33,13 @@ bash("pdf-cli read --mode text --input /workspace/in.pdf --pages 1,2,3")
 ```python
 # 把 5 份上传文件依次送进沙盒
 for i, fid in enumerate(uploaded_fids):
-    sandbox_put_artifact(artifact_id=fid, dest_path=f"/workspace/in_{i}.pdf")
+    sandbox_put_artifact(artifact_id=fid, dest_path=f"./in_{i}.pdf")
 
 # 一次合并
-bash("""pdf-cli merge --output /workspace/all.pdf \
-    --inputs /workspace/in_0.pdf /workspace/in_1.pdf /workspace/in_2.pdf /workspace/in_3.pdf /workspace/in_4.pdf""")
+bash("""pdf-cli merge --output ./all.pdf \
+    --inputs ./in_0.pdf ./in_1.pdf ./in_2.pdf ./in_3.pdf ./in_4.pdf""")
 
-sandbox_get_artifact(src_path="/workspace/all.pdf", name="月报汇总.pdf")
+sandbox_get_artifact(src_path="./all.pdf", name="月报汇总.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 
@@ -50,21 +50,21 @@ pin_to_workspace(file_ids=["fid_new"])
 > "100 页的标书帮我按章节拆出来"
 
 ```python
-sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="/workspace/in.pdf")
+sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="./in.pdf")
 
 # 先看目录确定页码
-bash("pdf-cli read --mode outline --input /workspace/in.pdf")
+bash("pdf-cli read --mode outline --input ./in.pdf")
 # → 假设拿到 [{"title":"投标函","page":1}, {"title":"商务部分","page":15}, ...]
 
 # 按页码切
-bash("""pdf-cli split --input /workspace/in.pdf --output-dir /workspace/parts \
+bash("""pdf-cli split --input ./in.pdf --output-dir ./parts \
     --ranges 1-14,15-40,41-80,81-100 \
     --names 投标函.pdf 商务部分.pdf 技术部分.pdf 附件.pdf""")
 
 # 4 份各自登记
 new_fids = []
 for name in ("投标函.pdf","商务部分.pdf","技术部分.pdf","附件.pdf"):
-    r = sandbox_get_artifact(src_path=f"/workspace/parts/{name}", name=name)
+    r = sandbox_get_artifact(src_path=f"./parts/{name}", name=name)
     new_fids.append(r["file_id"])
 
 # 一次 pin 全部
@@ -78,16 +78,16 @@ pin_to_workspace(file_ids=new_fids)
 > "帮我填一下这份政府申请表"
 
 ```python
-sandbox_put_artifact(artifact_id="<表单 fid>", dest_path="/workspace/form.pdf")
+sandbox_put_artifact(artifact_id="<表单 fid>", dest_path="./form.pdf")
 
 # Step 1：摸清字段
-bash("pdf-cli read --mode form-fields --input /workspace/form.pdf")
+bash("pdf-cli read --mode form-fields --input ./form.pdf")
 # → fields: [{"name":"CompanyName","type":"text"},
 #            {"name":"Province","type":"dropdown","choices":["浙江","江苏",...]},
 #            {"name":"AcceptTerms","type":"checkbox"}, ...]
 
 # Step 2：构造 fields.json（按用户提供的资料和字段约束）
-Write(file_path="/workspace/fields.json", content='''{
+Write(file_path="./fields.json", content='''{
   "CompanyName": "示例科技有限公司",
   "Province": "浙江",
   "AcceptTerms": "yes",
@@ -95,10 +95,10 @@ Write(file_path="/workspace/fields.json", content='''{
 }''')
 
 # Step 3：写入
-bash("""pdf-cli fill-form --input /workspace/form.pdf --output /workspace/filled.pdf \
-    --fields-file /workspace/fields.json""")
+bash("""pdf-cli fill-form --input ./form.pdf --output ./filled.pdf \
+    --fields-file ./fields.json""")
 
-sandbox_get_artifact(src_path="/workspace/filled.pdf", name="填好的申请表.pdf")
+sandbox_get_artifact(src_path="./filled.pdf", name="填好的申请表.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 
@@ -110,7 +110,7 @@ pin_to_workspace(file_ids=["fid_new"])
 
 ```python
 # 大 payload → 先写 spec
-Write(file_path="/workspace/spec.json", content='''{
+Write(file_path="./spec.json", content='''{
   "title": "示例市智能制造产业链分析 Q3",
   "doc_type": "magazine",
   "author": "示例市工信局",
@@ -135,9 +135,9 @@ Write(file_path="/workspace/spec.json", content='''{
   ]
 }''')
 
-bash("pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.json")
+bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
 
-sandbox_get_artifact(src_path="/workspace/report.pdf", name="智能制造产业链分析 Q3.pdf")
+sandbox_get_artifact(src_path="./report.pdf", name="智能制造产业链分析 Q3.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 
@@ -149,13 +149,13 @@ pin_to_workspace(file_ids=["fid_new"])
 
 ```python
 # 用户已经把 markdown 内容给到对话里 → 写到沙盒
-Write(file_path="/workspace/draft.md", content="<markdown content here>")
+Write(file_path="./draft.md", content="<markdown content here>")
 
 # 一行 reformat
-bash("""pdf-cli reformat --input /workspace/draft.md --output /workspace/final.pdf \
+bash("""pdf-cli reformat --input ./draft.md --output ./final.pdf \
     --doc-type report --title "Q3 工作小结" --author "示例区工信局" --date "2026-05" --accent "#0a5" """)
 
-sandbox_get_artifact(src_path="/workspace/final.pdf", name="Q3 工作小结.pdf")
+sandbox_get_artifact(src_path="./final.pdf", name="Q3 工作小结.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 
@@ -166,12 +166,12 @@ pin_to_workspace(file_ids=["fid_new"])
 > "把这份 Word 报告做成印刷级 PDF"
 
 ```python
-sandbox_put_artifact(artifact_id="<docx fid>", dest_path="/workspace/in.docx")
+sandbox_put_artifact(artifact_id="<docx fid>", dest_path="./in.docx")
 
-bash("""pdf-cli reformat --input /workspace/in.docx --output /workspace/styled.pdf \
+bash("""pdf-cli reformat --input ./in.docx --output ./styled.pdf \
     --doc-type editorial""")
 
-sandbox_get_artifact(src_path="/workspace/styled.pdf", name="样式 PDF.pdf")
+sandbox_get_artifact(src_path="./styled.pdf", name="样式 PDF.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 

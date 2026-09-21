@@ -533,6 +533,8 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
     MCP streamable-http 协议透明反代；stdio / sse 传输的（本就极少）不进桌面清单。
     凭据（URL 内嵌密钥、headers、OAuth）一律留在云端连接层，manifest 不携带任何密钥。
     """
+    from core.config.catalog_runtime import _DEFAULT_MCP_ICONS
+
     keys, enabled_keys, all_cfgs = _user_capability_configs(user_id)
     enabled = set(enabled_keys)
 
@@ -564,6 +566,9 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
                 "schema_hash": canonical_hash(tools),
                 # 云端此刻的启停，只作本机首次落地的初值。
                 "enabled": sid in enabled,
+                # 图标随条目走：本机没有云端那张内置图标表，也读不到库里的自定义图标，
+                # 不带下去就是网页端有图、桌面端一片空白。
+                "icon": (row.icon if row else "") or _DEFAULT_MCP_ICONS.get(sid, ""),
             }
         )
     # The revision intentionally excludes credentials, URLs and timestamps.

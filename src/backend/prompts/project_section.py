@@ -199,34 +199,9 @@ def _build_local_project_section(
     boundary enforced by the execution policy gate (ticket #07). Only injected
     when ``project_is_local`` is set, so the cloud/web deployment never sees it.
     """
-    name = (project_name or "").strip() or "(未命名项目)"
-    path = (local_path or "").strip().rstrip("/")
-    ex = path or "/Users/xxx/项目"
-    lines = [
-        "## 本地项目模式",
-        f"当前会话绑定本地项目「{name}」——它就是**用户本机电脑上的真实文件夹**"
-        + (f"：`{path}`" if path else "")
-        + "。",
-        f"**一律用这个真实绝对路径直接操作文件**（`Read`/`Write`/`Edit`/`Glob`/`Grep`/`bash` "
-        f"在本机模式都支持真实路径，读写会实时落到用户电脑上）：例如 "
-        f"`Read('{ex}/某文件')`、`Write('{ex}/新文件.txt', ...)`、`bash('ls -la {ex}')`、"
-        f"`bash('rm {ex}/某文件')`。**不要**去 `/workspace/local/...` 找（那只是内部映射，可能不存在）。",
-        "",
-        "**在这个真实文件夹里新建、修改、删除、运行文件即可，产物实时出现在用户电脑上——"
-        "不需要、也不要引导用户上传到「我的空间」。**",
-        "需要向用户展示项目文件时，直接调用 pin_to_workspace(file_paths=[真实文件路径或项目相对路径])。"
-        "pin 只展示原文件，不复制、不上传；不要为交付另存到 artifacts。"
-        "sandbox_get_artifact 登记项目文件也只返回原文件引用；临时沙盒文件仍需导出。",
-        "建站必须先在本地项目真实目录下的 sites/<站点名>/ 编写源码，"
-        "不要把最终源码留在 /workspace/site 或 /workspace/site-src。"
-        "编辑已有站点先读取当前站点的 source_dir 并原地修改；"
-        "构建后 publish_site 的 src_dir 指向构建产物、source_dir 指向项目源码，"
-        "静态站显式传 src_dir 指向页面目录。发布只同步托管文件，源码保留本机。",
-        "越出授权目录的操作与危险命令受本机权限策略约束（可能被拦截或需用户确认）；"
-        "改本机文件前系统会自动快照、可回滚。",
-    ]
-    section = "\n".join(lines)
-    instr = _render_instructions_block(project_instructions)
-    if instr and instr.strip():
-        section = section + "\n\n" + instr.strip()
+    from prompts.desktop_templates import render_desktop_part
+    variables = dict(project_name=(project_name or "").strip(), local_path=(local_path or "").strip())
+    section = render_desktop_part("project" if variables["local_path"] else "project_missing", **variables)
+    if project_instructions.strip():
+        section += "\n\n" + render_desktop_part("project_instructions", instructions=project_instructions.strip())
     return _collapse_blanks(section)

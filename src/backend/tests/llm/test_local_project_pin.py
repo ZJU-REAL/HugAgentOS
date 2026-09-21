@@ -84,9 +84,9 @@ def local_project(tmp_path, db_session, monkeypatch):
     chat_id_var.reset(chat_token)
 
 
-def pin_tool(scope):
+def pin_tool(scope, session_id=None):
     collector = ToolCollector()
-    register_pin_to_workspace(collector, scope=scope)
+    register_pin_to_workspace(collector, scope=scope, sandbox_session_id=session_id)
 
     async def invoke(**args):
         from core.llm.tool_permissions import (
@@ -292,9 +292,12 @@ def test_scratch_export_keeps_copy_behavior(local_project, monkeypatch, tmp_path
     from core.artifacts.local_project import is_local_project_ref
 
     source, scope = local_project
-    scratch = tmp_path / "scratch.txt"
-    scratch.write_text("scratch output")
     from core.llm.tools import _paths
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    scratch = root / "scratch.txt"
+    scratch.write_text("scratch output")
 
     original_resolve = _paths.to_physical_path
     monkeypatch.setattr(
@@ -454,3 +457,155 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
 
         monkeypatch.delenv("HUGAGENT_DESKTOP_BRIDGE_SECRET")
         assert client.get(f"/files/{fid}?inline=1", headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize("bound_project", [False, True])
+def test_pin_session_file_without_export(local_project, monkeypatch, tmp_path, bound_project):
+    from core.llm.tools import _paths
+    from core.artifacts.store import get_artifact
+    from core.services.local_grant_service import add_grant
+
+    _, scope = local_project
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    add_grant(str(root))
+    source = root / "index.html"
+    source.write_text("<h1>session output</h1>")
+    pin = pin_tool(scope if bound_project else None, session_id="pin-chat")
+    result = json.loads(asyncio.run(pin(file_paths=[str(source)])).content[0].text)
+    assert result["ok"], result
+    assert len(result["pinned"]) == 1, result
+    item = get_artifact(result["pinned"][0]["file_id"])
+    assert Path(item["path"]).read_text() == "<h1>session output</h1>"
+    assert source.exists()
+
+
+@pytest.mark.parametrize("case", ["missing", "directory", "other-session", "symlink", "too-large", "cloud"])
+def test_path_delivery_rejects_invalid_sources(local_project, monkeypatch, tmp_path, case):
+    from dataclasses import replace
+    from core.llm.tools import _paths
+    from core.services.local_grant_service import add_grant
+    from core.config.settings import settings
+    import importlib
+
+    _, scope = local_project
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    add_grant(str(tmp_path))
+    source = root / "output.txt"
+    if case == "directory":
+        source.mkdir()
+    elif case in ("other-session", "symlink"):
+        other = Path(_paths.workspace_directory("other-chat"))
+        other.mkdir(parents=True)
+        target = other / "private.txt"
+        target.write_text("other conversation")
+        if case == "symlink":
+            source.symlink_to(target)
+        else:
+            source = target
+    elif case == "too-large":
+        source.write_text("oversized")
+        monkeypatch.setattr(
+            importlib.import_module("core.config.settings"), "settings",
+            replace(settings, sandbox=replace(settings.sandbox, artifact_max_bytes=3)),
+        )
+    elif case == "cloud":
+        source.write_text("cloud")
+        monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
+    result = json.loads(asyncio.run(
+        pin_tool(None, session_id="pin-chat")(file_paths=[str(source)])
+    ).content[0].text)
+    assert result["ok"] is False, result
+    assert result["pinned"] == [] and len(result["failed"]) == 1
+    assert workspace.get_pinned() == []
+
+
+def test_session_relative_delivery_reports_partial_failure(local_project, monkeypatch, tmp_path):
+    from core.llm.tools import _paths
+    from core.services.local_grant_service import add_grant
+    from core.artifacts.store import get_artifact
+
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    add_grant(str(root))
+    source = root / "output.txt"
+    source.write_text("delivered")
+    result = json.loads(asyncio.run(
+        pin_tool(None, session_id="pin-chat")(file_paths=["output.txt", "missing.txt"])
+    ).content[0].text)
+    assert result["ok"] is True and len(result["pinned"]) == 1
+    assert len(result["failed"]) == 1
+    source.unlink()
+    item = get_artifact(result["pinned"][0]["file_id"])
+    assert Path(item["path"]).read_text() == "delivered"
+
+
+def test_session_delivery_deduplicates_retries_but_keeps_changed_content(local_project, monkeypatch, tmp_path):
+    from core.llm.tools import _paths
+    from core.services.local_grant_service import add_grant
+
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    add_grant(str(root))
+    source = root / "output.txt"
+    source.write_text("first")
+    pin = pin_tool(None, session_id="pin-chat")
+    first = json.loads(asyncio.run(pin(file_paths=[str(source), str(source)])).content[0].text)
+    assert first["pinned_count"] == 1
+    retry = json.loads(asyncio.run(pin(file_paths=[str(source)])).content[0].text)
+    assert retry["pinned"][0]["already_pinned"] is True
+    assert retry["pinned_count"] == 1
+    source.write_text("second")
+    changed = json.loads(asyncio.run(pin(file_paths=[str(source)])).content[0].text)
+    assert changed["pinned_count"] == 2
+    assert changed["pinned"][0]["file_id"] != first["pinned"][0]["file_id"]
+
+
+def test_design_picker_accepts_local_images_without_pinning(local_project, monkeypatch, tmp_path):
+    from core.llm.tools import _paths, _myspace_confirm
+    from core.llm.tools.design_picker_tool import register_choose_design
+    from core.services.local_grant_service import add_grant
+    from core.llm.tool_permissions import (
+        ToolPermissionRegistry, ToolPermissionService, PermissionRuntime, CURRENT_PERMISSION_TICKET,
+    )
+    from core.artifacts.store import get_artifact
+
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
+    root = Path(_paths.workspace_directory("pin-chat"))
+    root.mkdir(parents=True)
+    add_grant(str(root))
+    from PIL import Image
+    options = []
+    for name, color in [("a", "red"), ("b", "blue")]:
+        source = root / (name + ".png")
+        Image.new("RGB", (2, 2), color).save(source)
+        options.append({"id": name, "title": name, "image_path": str(source)})
+    async def choose(**kwargs):
+        for option in kwargs["options"]:
+            assert get_artifact(option["image_file_id"])["mime_type"] == "image/png"
+        return {"status": "chosen", "option_id": "b"}
+    monkeypatch.setattr(_myspace_confirm, "pick", choose)
+    collector = ToolCollector()
+    register_choose_design(collector, chat_id="pin-chat", user_id="pin-user")
+    registry = ToolPermissionRegistry()
+    registry.register("choose_design", collector.permission_specs["choose_design"], source="test")
+    service = ToolPermissionService(registry, PermissionRuntime(
+        chat_id="pin-chat", user_id="pin-user", interactive=False, approval_available=False,
+    ))
+    async def invoke():
+        args = {"question": "Select", "options": options}
+        outcome = await service.authorize(SimpleNamespace(name="choose_design", id="pick-call", input=args))
+        assert outcome.proceed
+        token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
+        try:
+            return await collector.get_tool("choose_design")._func(**args)
+        finally:
+            CURRENT_PERMISSION_TICKET.reset(token)
+    result = json.loads(asyncio.run(invoke()).content[0].text)
+    assert result["ok"] and result["selected_id"] == "b"
+    assert workspace.get_pinned() == []

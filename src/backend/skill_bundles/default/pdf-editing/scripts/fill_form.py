@@ -9,10 +9,10 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage:
-    fill_form.py --input /workspace/form.pdf --output /workspace/filled.pdf \\
+    fill_form.py --input ./form.pdf --output ./filled.pdf \\
       --fields '{"Name":"张三","BirthDate":"1990-01-01","Newsletter":"yes"}'
 
-    fill_form.py --input form.pdf --output filled.pdf --fields-file /workspace/fields.json
+    fill_form.py --input form.pdf --output filled.pdf --fields-file ./fields.json
 """
 from __future__ import annotations
 

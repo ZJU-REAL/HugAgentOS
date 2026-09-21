@@ -35,7 +35,15 @@ from core.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
-JOB_ROOT = "/workspace/.job"
+def _job_directory(session_id: str, job_row_id: str) -> str:
+    from core.llm.tools._paths import workspace_directory
+    return f"{workspace_directory(session_id)}/.job/{job_row_id}"
+
+
+def _quote_path(path: str) -> str:
+    from core.llm.tools._paths import path_rules
+    return path_rules().quote_shell_path(path)
+
 
 # 进程内活跃 job 的驱动 task —— 与 chat_run/loop 的做法一致：进程内 task 还活着的 job
 # 不按孤儿处理，重启后才由 resume_running_jobs() 对账。
@@ -687,7 +695,7 @@ async def _runner_liveness(
 
     返回 (是否还活着, 终态说明)。
     """
-    workdir = f"{JOB_ROOT}/{job_row_id}"
+    workdir = _quote_path(_job_directory(session_id, job_row_id))
     cmd = (
         f"cd {workdir} 2>/dev/null || exit 9; "
         "if pgrep -f '_runner.py' >/dev/null 2>&1; then echo ALIVE; else echo DEAD; fi; "
@@ -739,7 +747,9 @@ async def prepare_and_launch(
     错误直接回到模型/用户手上。
     """
     callback_url = await resolve_callback_base(session_id=session_id, user_id=user_id)
-    workdir = f"{JOB_ROOT}/{job_row_id}"
+    if interpreter == "${PY_BIN:-python3}":
+        interpreter = '"${PY_BIN:-python3}"'
+    workdir = _quote_path(_job_directory(session_id, job_row_id))
     cmd = "\n".join(
         [
             "set -e",
@@ -771,6 +781,7 @@ async def write_sandbox_file(
     170KB；568 行台账导出正好落在这个区间，于是"导出成功"但文件从来没出现过）。
     所以这里按块追加，并且以**沙箱里读回的真实字节数**为准，绝不用调用方的计数报成功。
     """
+    path = _quote_path(path)
     raw = (content or "").encode("utf-8")
     b64 = base64.b64encode(raw).decode("ascii")
     # 单块 48KB b64（≈36KB 原文），远离静默失败拐点
@@ -778,7 +789,7 @@ async def write_sandbox_file(
     parts = [b64[i : i + chunk] for i in range(0, len(b64), chunk)] or [""]
 
     code, out, err = await _sbx_bash(
-        f"mkdir -p $(dirname {path}) && : > {path}.b64",
+        f'mkdir -p "$(dirname -- {path})" && : > {path}.b64',
         session_id=session_id,
         user_id=user_id,
         timeout=60,
@@ -814,7 +825,7 @@ async def write_sandbox_file(
 async def read_runner_log(job_row_id: str, *, user_id: str, session_id: str, tail: int = 40) -> str:
     # 同样走 base64：沙箱 execute 的 stdout 会丢换行，直接 tail 出来的日志会连成一坨
     code, out, _ = await _sbx_bash(
-        f"tail -n {int(tail)} {JOB_ROOT}/{job_row_id}/runner.log 2>/dev/null | base64 -w0 || true",
+        f"tail -n {int(tail)} {_quote_path(_job_directory(session_id, job_row_id) + '/runner.log')} 2>/dev/null | base64 -w0 || true",
         session_id=session_id,
         user_id=user_id,
         timeout=30,
@@ -1053,7 +1064,7 @@ async def cancel_job(job_row_id: str, *, user_id: str) -> bool:
         task.cancel()
     if session_id:
         await _sbx_bash(
-            f"pkill -f '{JOB_ROOT}/{job_row_id}' || true",
+            f"pkill -f {_quote_path(_job_directory(session_id, job_row_id))} || true",
             session_id=session_id,
             user_id=user_id,
             timeout=30,

@@ -48,7 +48,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 | Security & audit | — | ➕ Operation audit, chat history review, invocation logs, security console |
 | Billing & usage | ✅ View your own token usage | ➕ Billing reports (aggregation, model pricing, CSV export); quota enforcement (planned) |
 | Content admin console (/admin) | — (replaced by the personal capability hub) | ➕ Skills / prompt version canary / MCP / agents / KB management |
-| System console (/config) | — | ➕ Users / teams / invites / security / service configs / License panel |
+| System console (/config) | ✅ Prompt management: system/desktop versions, preview and snapshots (instance administrator required) | ➕ Users / teams / invites / security / service configs / License panel |
 | Branding | ⚠️ Rebrandable (attribution retained) | ➕ Full white-label |
 
 > Note the 2026-06 boundary adjustment: **automation, batch execution, data canvas (personal editing), and memory L2 vector / L3 graph moved from EE down to CE**. EE keeps only their organizational increments (canvas multi-user collaboration, team quota billing, etc.).

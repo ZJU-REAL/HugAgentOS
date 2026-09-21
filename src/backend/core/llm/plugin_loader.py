@@ -663,11 +663,19 @@ def resolve_desktop_progressive_plugins(
     installations = {
         row.install_id: row for row in registry.list_installations(include_removed=True)
     }
+    # 混合模式下装了什么由云端账号决定，本机自带的那份不参与解析：它和云端同名的
+    # 那个会互相顶替，而本机这份的组件 MCP 用的是 compose 里的服务名
+    # （``http://mcp:<port>/mcp/``），桌面端没有那台主机、也没有对应的 sidecar，
+    # 连不上就被判不可用——于是日志里反复刷「missing MCP」，用户以为建站坏了。
+    # 单机安装（没有云端账号）不受影响：那里本机 profile 本来就是唯一来源。
+    from core.capabilities import device_catalog
+
+    allowed_profiles = (profile,) if (device_catalog.active() and profile) else (LOCAL_PROFILE, profile)
     prepared_rows = []
     for row in list(installations.values()):
         if row.kind != "plugin" or row.state == "removed":
             continue
-        if row.profile_id not in (LOCAL_PROFILE, profile) or not row.enabled:
+        if row.profile_id not in allowed_profiles or not row.enabled:
             continue
         if row.payload.get("owner_user_id") not in (None, "", user_id):
             continue
@@ -1096,10 +1104,13 @@ def register_load_plugin(
                             RuntimeNamedSkillLoader(d, sid, prepared)
                         )
                     else:
-                        stage.group.skills_or_loaders.append(LocalSkillLoader(directory=d))
+                        from core.llm.tool_collector import RuntimeNamedSkillLoader
+                        stage.group.skills_or_loaders.append(RuntimeNamedSkillLoader(d, sid))
                     item = meta.get(sid)
                     desc = str(getattr(item, "description", "") or "")
-                    skill_lines.append(f"- `{sid}`：{desc}" if desc else f"- `{sid}`")
+                    from core.agent_skills.config import model_facing_skill_dir
+                    skill_path = model_facing_skill_dir(sid, d)
+                    skill_lines.append(f"- `{sid}`：`{skill_path}/SKILL.md` — {desc}")
                     # Ontology gate sees the activated skill's trusted tags too.
                     try:
                         from core.ontology.validator import register_runtime_asset_tags
@@ -1155,8 +1166,7 @@ def register_load_plugin(
             )
         if skill_lines:
             parts.append(
-                "新增技能（使用前必须先用 `view_text_file` 读取 "
-                "`/workspace/skills/<技能名>/SKILL.md`）：\n" + "\n".join(skill_lines)
+                "新增技能（使用前必须先用 `view_text_file` 读取所列说明文件）：\n" + "\n".join(skill_lines)
             )
         if failed_servers:
             parts.append("以下 MCP 服务连接失败，其工具本轮不可用：" + "、".join(failed_servers))

@@ -83,7 +83,7 @@ lark-cli drive +search --query "<关键词>" --space-ids <space_id> --doc-types 
 
 具体子命令的参数以各 lark 技能（lark-sheets / lark-base / lark-whiteboard）为准，不确定时先查对应技能的用法，不要硬猜 flag。
 
-**docx 正文**在返回 JSON 的 `data.document.content`。正文不长可直接读；多篇或较长时落到沙箱文件（如 `/workspace/.feishu_kb/doc_<obj_token>.md`）再通读。`--doc` 传 token、`--doc-format markdown` 指定内容格式（别把 token 当位置参数，`--format` 是输出封装格式不是内容格式）。
+**docx 正文**在返回 JSON 的 `data.document.content`。正文不长可直接读；多篇或较长时落到沙箱文件（如 `./.feishu_kb/doc_<obj_token>.md`）再通读。`--doc` 传 token、`--doc-format markdown` 指定内容格式（别把 token 当位置参数，`--format` 是输出封装格式不是内容格式）。
 
 **省 token（可选）**：长文档可先用 `--scope outline` 拉标题大纲定位，再用 `--scope keyword --keyword "<词>"` 只取命中段落，不必整篇拉。
 

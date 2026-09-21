@@ -270,26 +270,6 @@ class ScriptRunnerProvider:
         except httpx.HTTPError as exc:
             raise SandboxError(f"get_file {path} 流式读取失败: {exc}") from exc
 
-    async def reap_idle_sessions(self) -> int:
-        """Drop conversation workspaces and overflow files nobody has touched.
-
-        The startup reaper looks for this method on whichever provider is in
-        use; without it the host profile kept every conversation's directory
-        forever, including the ones whose chat the user deleted. The threshold
-        is the sandbox's single duration knob, same as every other provider.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
-                resp = await client.post(
-                    f"{self._base_url}/sessions/reap",
-                    json={"idle_seconds": settings.sandbox.idle_ttl_s},
-                )
-                resp.raise_for_status()
-                return int(resp.json().get("reaped") or 0)
-        except Exception as exc:  # lifecycle cleanup must never break a request
-            logger.warning("[script_runner] reap_idle_sessions failed: %s", exc)
-            return 0
-
     async def close_session(self, session_id: Optional[str]) -> None:
         """Delete one conversation workspace without affecting other sessions."""
         if not session_id:

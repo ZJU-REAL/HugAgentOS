@@ -9,7 +9,7 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage:
-    merge.py --output /workspace/merged.pdf --inputs /workspace/a.pdf /workspace/b.pdf /workspace/c.pdf
+    merge.py --output ./merged.pdf --inputs ./a.pdf ./b.pdf ./c.pdf
 """
 from __future__ import annotations
 

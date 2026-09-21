@@ -400,3 +400,70 @@ def _attach_assets(results: list) -> None:
         assets = grouped.get(item.get("id", ""))
         if assets:
             item["images"] = assets
+
+
+def retrieve_public_local_kb(
+    query: str,
+    dataset_id: str = "",
+    top_k: int = 10,
+    *,
+    allowed_kb_ids: str | None = None,
+    current_user_id: str | None = None,
+    reranker_enabled: str | None = None,
+) -> dict:
+    """Search only accessible shared local spaces through the public tool."""
+    from core.db.engine import SessionLocal
+    from core.db.models import KBSpace
+
+    user_id = (current_user_id or _get_current_user_id()).strip()
+    if not user_id:
+        return {
+            "items": [],
+            "error": {
+                "code": "access_denied",
+                "message": "未能获取当前用户 ID",
+                "retryable": False,
+            },
+        }
+    with SessionLocal() as db:
+        accessible = get_accessible_local_kb_ids(db, user_id)
+        rows = (
+            db.query(KBSpace.kb_id)
+            .filter(
+                KBSpace.deleted_at.is_(None),
+                KBSpace.visibility.in_(["public", "scoped"]),
+                KBSpace.kb_id.in_(accessible),
+            )
+            .all()
+        )
+        shared_ids = {row.kb_id for row in rows}
+    selected = (
+        {k.strip() for k in allowed_kb_ids.split(",") if k.strip()}
+        if allowed_kb_ids is not None
+        else _get_allowed_kb_ids()
+    )
+    if selected:
+        shared_ids &= selected
+    requested = (dataset_id or "").strip()
+    if requested and requested not in shared_ids:
+        return {
+            "items": [],
+            "error": {
+                "code": "access_denied",
+                "message": "指定知识库不在当前可检索的本地公有/共享库范围内",
+                "retryable": False,
+            },
+        }
+    if not shared_ids:
+        # Never pass an empty allowlist to retrieve_local_kb: its auto-resolution
+        # includes private spaces, which are outside this public tool's scope.
+        return {"items": [], "available_kbs": []}
+    result = retrieve_local_kb(
+        kb_id=requested,
+        query=query,
+        top_k=top_k,
+        allowed_kb_ids=",".join(sorted(shared_ids)),
+        current_user_id=user_id,
+        reranker_enabled=reranker_enabled,
+    )
+    return result if isinstance(result, dict) else {"items": result}

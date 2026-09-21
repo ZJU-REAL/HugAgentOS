@@ -131,7 +131,7 @@ def _skill_item(inst) -> Dict[str, Any]:
 def _connector_item(server: Dict[str, Any]) -> Dict[str, Any]:
     sid = str(server["server_id"])
     description = str(server.get("description") or "")
-    return {
+    item = {
         "id": sid,
         "kind": "mcp_server",
         "name": str(server.get("display_name") or sid),
@@ -140,6 +140,41 @@ def _connector_item(server: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(server.get("enabled", True)),
         "version": "1",
         "config": {"server": sid},
+    }
+    icon = str(server.get("icon") or "")
+    if icon:
+        item["icon"] = icon
+    return item
+
+
+def _db_umbrella_item(members: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """把数据库类连接器合并成云端展示的那一个「数据库查询」条目。
+
+    ``query_database`` / ``db_query`` / ``es_query`` 在云端从来不单独露面：能力目录
+    把它们收进一个伞形条目，按所连数据库类型在运行时选路（见
+    ``agent_factory`` 对 ``DB_UMBRELLA_ID`` 的展开）。桌面端此前直接摊开云端下发的
+    原始 server，于是同一份能力在网页端叫「数据库查询」、在桌面端叫「Elasticsearch
+    查询」，用户会以为数据库工具没同步下来。
+
+    启停取成员的并集：任一成员开着，伞形就是开着的。
+    """
+    from core.config.catalog_loader import (
+        DB_UMBRELLA_DESC,
+        DB_UMBRELLA_ICON,
+        DB_UMBRELLA_ID,
+        DB_UMBRELLA_NAME,
+    )
+
+    return {
+        "id": DB_UMBRELLA_ID,
+        "kind": "mcp_server",
+        "name": DB_UMBRELLA_NAME,
+        "description": DB_UMBRELLA_DESC,
+        "desc": DB_UMBRELLA_DESC,
+        "enabled": any(bool(m.get("enabled", True)) for m in members),
+        "version": "1",
+        "config": {"server": DB_UMBRELLA_ID},
+        "icon": DB_UMBRELLA_ICON,
     }
 
 
@@ -165,9 +200,18 @@ def catalog_overlay() -> Dict[str, Any]:
         components = dict(inst.payload.get("components") or {})
         hidden_skills.update(str(sid) for sid in components.get("skills") or [])
         hidden_mcp.update(str(mid) for mid in components.get("mcp") or [])
+    from core.config.catalog_loader import DB_HIDDEN_SERVERS
+
+    standalone = [s for s in connectors if not s.get("source_plugin")]
+    db_members = [s for s in standalone if str(s.get("server_id")) in DB_HIDDEN_SERVERS]
+    mcp_items = [
+        _connector_item(s) for s in standalone if str(s.get("server_id")) not in DB_HIDDEN_SERVERS
+    ]
+    if db_members:
+        mcp_items.append(_db_umbrella_item(db_members))
     return {
         "skills": [_skill_item(inst) for inst in skills if not inst.source_plugin],
-        "mcp": [_connector_item(s) for s in connectors if not s.get("source_plugin")],
+        "mcp": mcp_items,
         "hidden_skills": hidden_skills,
         "hidden_mcp": hidden_mcp,
     }

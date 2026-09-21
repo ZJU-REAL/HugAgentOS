@@ -408,3 +408,34 @@ Choose File → New Window or press Ctrl+Shift+N to open another desktop window.
 Windows share authentication, configuration, and the local service, while conversation navigation
 is independent. Closing one window keeps other visible windows running; the final window uses
 the existing close preference.
+
+
+Chats without a bound project can also publish and edit sites. Source and output directories must remain inside that chat’s durable `.sessions/<chat-hash>/` workspace; publication records are stored on the original chat. Edit reopens that chat without creating a project or switching to a new session directory. Republishing retains the original `site_id`. Editing is unavailable after an account switch, missing source files, or loss of the original chat. Sites whose source binding was not saved by an older client require verification of the original files before restoring the binding; upgrading does not recreate missing source.
+
+
+### Desktop agent environment context
+
+The local backend supplies `environment_context` to regular chats, custom modes and subagents: actual `cwd`, OS, shell, date, timezone, workspace roots and a permission snapshot. Cloud backends do not inject this block.
+
+`cwd` matches the durable session directory used by Bash and relative file paths. The selected project is reported separately as `project_root`; selecting it does not change the execution directory. Use absolute paths for project files and explicitly `cd` to the quoted project directory within each project command. Later calls start from the default directory again.
+
+On Windows, the `bash` tool still uses bundled Git Bash and reports `shell=bash`. Windows-specific guidance is only injected on Windows, not macOS/Linux; invoking another installed shell when needed is not prohibited. The permission preset comes from the current run and directory grants from local configuration; the execution gate remains authoritative. Use `pin_to_workspace(file_paths=[...])` to display references to original project files.
+
+### macOS updater archive requirements
+
+Use desktop/scripts/create-macos-update.py when manually archiving a Mac application. The system tar may add ._* AppleDouble metadata that breaks Tauri update extraction.
+The publisher validates a single .app root, rejects metadata sidecars, and checks the application version. Sign and publish only the validated archive.
+
+
+### Site skills and prompts
+
+Site creation, target lookup, in-place editing, builds, and publishing are provided on demand by
+the sites plugin's `site-builder` skill. System and local project prompts no longer inject site
+workflow rules, candidate records, or lookup failure hints. Ordinary chats do not prefetch sites.
+Editing retrieves current records through `list_sites`. Missing project paths remain generic project context.
+
+The upgrade migration removes the retired `site_mode`, `site_records`, and `site_lookup_failed`
+desktop parts and the stock site paragraph in `project`, preserving other custom text and active
+version selections. Administrator-rewritten project site instructions require separate review.
+Hybrid installations also need the cloud sites plugin updated and synced. The local backend is
+delivered in a new full desktop package; updating only the cloud does not remove old client injection.

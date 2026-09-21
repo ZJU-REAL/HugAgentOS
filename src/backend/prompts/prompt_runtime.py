@@ -200,22 +200,7 @@ _TOOLS_AND_SKILLS_NOTICE = (
     "处理请求时先匹配技能描述；没有匹配技能时，再直接调用最合适的 MCP 工具。"
 )
 
-# Authoritative override appended on the desktop LOCAL backend. "My Space" is a
-# cloud concept and does not exist locally; this cancels all the /myspace/ +
-# artifact-net-disk guidance from the base prompt so the model works on the
-# user's real local files instead.
-_LOCAL_MODE_OVERRIDE = (
-    "## 【本机模式 · 最高优先级，覆盖上文】\n"
-    "你现在运行在**用户本机电脑**上（桌面本地模式），沙盒就是用户电脑的**真实文件系统**。\n"
-    "**用真实的本机绝对路径直接读写/运行文件**（例如 `/Users/xxx/Desktop/a.txt`、"
-    "`/Users/xxx/project/main.py`）——`Read`/`Write`/`Edit`/`Glob`/`Grep`/`bash` 在本机模式下"
-    "**都接受并推荐使用真实路径**。当前本地项目关联的真实文件夹路径已在项目上下文里给出，直接在它下面操作。\n"
-    "**本机没有「我的空间」**（那是云端概念）：上文所有关于 `/myspace/`、`pin_to_workspace`、"
-    "`list_myspace_files`、`CreateFolder`/`Move`/`Delete` 我的空间、「存到我的空间/留档」的说明，"
-    "在本机模式下**一律不适用，请忽略**，也**不要**往 `/myspace/` 写。\n"
-    "- 交付产物：直接写进用户的真实文件夹即可，他在本机就能看到；不需要 pin 到我的空间。\n"
-    "- 越权目录与危险命令受本机权限策略约束，可能被拦截或需用户确认；改本机文件前系统会自动快照、可回滚。"
-)
+from prompts.desktop_workspace import build_local_mode_guidance, build_environment_context, desktop_prompt_text
 
 
 def build_subagent_system_prompt(
@@ -447,6 +432,7 @@ def build_system_prompt(
     ctx: Dict[str, Any] | None = None,
     *,
     manifest_builder: Optional[PromptManifestBuilder] = None,
+    desktop_preview: bool = False,
 ) -> str:
     """Build the system prompt from config + runtime context.
 
@@ -471,7 +457,17 @@ def build_system_prompt(
         A non-empty system prompt string.
     """
 
-    ctx = ctx or {}
+    ctx = dict(ctx or {})
+    from core.config.local_mode import local_mode_enabled
+
+    is_local = desktop_preview or local_mode_enabled()
+    # Snapshot before hashing: permission/path changes must invalidate cached facts.
+    if is_local:
+        from prompts.desktop_templates import desktop_parts
+        ctx["desktop_parts"] = desktop_parts()
+        ctx["desktop_environment"] = (ctx.get("preview_environment") if desktop_preview else None) or build_environment_context(
+            ctx, current_date=_PROMPT_NOW_SENTINEL
+        )
     # Day granularity only: the date is constant within a day → the system prompt is
     # byte-stable all day → LLM prefix cache hits all day (a second-level timestamp
     # would change every request and bust the cache).
@@ -619,6 +615,8 @@ def build_system_prompt(
                     continue
                 content = p.get("content") or ""
             txt = render_template(content, vars={**ctx, "now": _PROMPT_NOW_SENTINEL}, strict=False)
+            if is_local:
+                txt = desktop_prompt_text(txt)
             if txt.strip():
                 chunks.append(txt.strip())
                 _record_section(
@@ -643,6 +641,8 @@ def build_system_prompt(
             txt = render_template(
                 db_row["content"], vars={**ctx, "now": _PROMPT_NOW_SENTINEL}, strict=False
             )
+            if is_local:
+                txt = desktop_prompt_text(txt)
             if txt.strip():
                 chunks.append(txt.strip())
                 _record_section(
@@ -706,6 +706,8 @@ def build_system_prompt(
                         part_id_str, "system", vars={**ctx, "now": _PROMPT_NOW_SENTINEL}
                     )
 
+                if is_local:
+                    txt = desktop_prompt_text(txt)
                 if txt.strip():
                     chunks.append(txt.strip())
                     _record_section(
@@ -725,6 +727,8 @@ def build_system_prompt(
             base = fs_provider.get_prompt(
                 "system", "system", vars={**ctx, "now": _PROMPT_NOW_SENTINEL}
             )
+            if is_local:
+                base = desktop_prompt_text(base)
             _record_section(
                 "system",
                 base,
@@ -747,6 +751,8 @@ def build_system_prompt(
         base = inline_provider.get_prompt(
             "system", "system", vars={**ctx, "now": _PROMPT_NOW_SENTINEL}
         )
+        if is_local:
+            base = desktop_prompt_text(base)
         _record_section(
             "system/inline",
             base,
@@ -824,8 +830,6 @@ def build_system_prompt(
                 project_file_count=ctx.get("project_file_count"),
             )
         if proj_section:
-            if ctx.get("project_is_local") and ctx.get("local_site_edit"):
-                proj_section += "\n\n" + str(ctx["local_site_edit"])
             base = (base + "\n\n" + proj_section).strip()
             _record_section(
                 "runtime/project",
@@ -839,28 +843,21 @@ def build_system_prompt(
                 sensitive=True,
             )
 
-    # ── Local desktop mode override ──
-    # On the local backend there is no "My Space" (artifact net-disk) — it is a
-    # cloud/server concept. Append an authoritative override (last = strongest)
-    # so the model ignores all the /myspace/ + pin_to_workspace + folder-op
-    # guidance above and works directly in the local folder instead. Covers every
-    # local-mode chat, project-bound or not.
-    try:
-        from core.config.local_mode import local_mode_enabled
-
-        if local_mode_enabled():
-            base = (base + "\n\n" + _LOCAL_MODE_OVERRIDE).strip()
+    # Desktop facts are independent of project instructions and remain in the
+    # system prompt when agent_factory extracts runtime/project as a ContextItem.
+    if is_local:
+        environment = ctx["desktop_environment"]
+        guidance = build_local_mode_guidance()
+        for section_id, content in (
+            ("runtime/environment", environment),
+            ("runtime/local_mode", guidance),
+        ):
+            base = (base + "\n\n" + content).strip()
             _record_section(
-                "runtime/local_mode_override",
-                _LOCAL_MODE_OVERRIDE,
-                origin="builtin:local_mode",
-                trust="platform",
-                priority=950,
-                cache_class="deployment",
-                version="1",
+                section_id, content, origin="builtin:local_mode", trust="platform",
+                priority=950, cache_class="workspace", version=prompt_context_hash,
+                sensitive=True,
             )
-    except Exception:
-        pass
 
     # Store template in cache (with placeholder instead of real time)
     # Only the renderer-owned sentinel is dynamic. Replacing every occurrence

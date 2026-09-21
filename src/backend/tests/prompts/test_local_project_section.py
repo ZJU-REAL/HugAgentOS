@@ -60,3 +60,52 @@ def test_local_section_handles_missing_path_and_slug():
         project_name="", project_instructions="", local_path="", local_slug=""
     )
     assert "本地项目模式" in s  # renders even without a resolved path
+
+
+def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
+    from core.llm.tools import _paths
+    from core.llm.tools.sandbox_tool import register_bash
+    from prompts.prompt_config import PromptConfig
+    from prompts.prompt_runtime import build_system_prompt
+    from services.script_runner_service.workspace_paths import session_root
+
+    root = "/tmp/中文 workspace"
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
+    monkeypatch.setattr("core.sandbox._common.WORKSPACE", root)
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", root)
+    monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
+    ctx = {"chat_id": "display-chat", "sandbox_session_id": "effective-session"}
+    prompt = build_system_prompt(PromptConfig(), ctx)
+    functions = {}
+
+    class Toolkit:
+        def register_tool_function(self, fn, **kwargs):
+            functions[fn.__name__] = fn
+
+    register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), **ctx)
+    description = functions["bash"].__doc__
+    expected = session_root(root, "effective-session")
+    assert expected in prompt and expected in description
+    assert session_root(root, "display-chat") not in prompt + description
+    assert root + "/skills" not in description
+    assert "当前会话默认工作目录" in description
+
+
+def test_cloud_bash_description_keeps_container_paths(monkeypatch):
+    from core.llm.tools import _paths
+    from core.llm.tools.sandbox_tool import register_bash
+
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", "/workspace")
+    monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
+    functions = {}
+
+    class Toolkit:
+        def register_tool_function(self, fn, **kwargs):
+            functions[fn.__name__] = fn
+
+    register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), chat_id="cloud-chat")
+    doc = functions["bash"].__doc__
+    assert "工作目录默认 /workspace" in doc
+    assert "/workspace/skills" in doc
+    assert ".sessions" not in doc

@@ -247,6 +247,85 @@ def test_plugin_connector_stays_out_of_the_connector_library(bridged, monkeypatc
     assert overlay["hidden_mcp"] == {"feishu-mcp"}
 
 
+def test_connector_projection_carries_the_cloud_icon(bridged, monkeypatch):
+    """图标随连接器一起下发，否则同一个工具在网页端有图、桌面端一片空白。"""
+    monkeypatch.setattr(
+        device_catalog,
+        "_managed_connectors",
+        lambda: [
+            {"server_id": "web_fetch", "display_name": "网站信息抓取", "description": "",
+             "enabled": True, "source_plugin": "", "icon": "/home/mcp/source.svg", "tools": []},
+            {"server_id": "no_icon", "display_name": "无图标", "description": "",
+             "enabled": True, "source_plugin": "", "icon": "", "tools": []},
+        ],
+    )
+
+    by_id = {item["id"]: item for item in device_catalog.catalog_overlay()["mcp"]}
+
+    assert by_id["web_fetch"]["icon"] == "/home/mcp/source.svg"
+    # 没有图标就不要塞一个空串进去——前端据此回落到默认图标。
+    assert "icon" not in by_id["no_icon"]
+
+
+def test_database_connectors_collapse_into_the_umbrella_item(bridged, monkeypatch):
+    """``query_database`` / ``db_query`` / ``es_query`` 在云端合并成一个「数据库查询」。
+
+    桌面端此前直接摊开云端下发的原始 server，同一份能力在网页端叫「数据库查询」、
+    在桌面端叫「Elasticsearch 查询」，用户会以为数据库工具没同步下来。
+    """
+    from core.config.catalog_loader import DB_UMBRELLA_ID, DB_UMBRELLA_NAME
+
+    monkeypatch.setattr(
+        device_catalog,
+        "_managed_connectors",
+        lambda: [
+            {"server_id": "es_query", "display_name": "Elasticsearch 查询", "description": "",
+             "enabled": False, "source_plugin": "", "icon": "", "tools": []},
+            {"server_id": "query_database", "display_name": "数据库查询", "description": "",
+             "enabled": True, "source_plugin": "", "icon": "", "tools": []},
+            {"server_id": "web_fetch", "display_name": "网站信息抓取", "description": "",
+             "enabled": True, "source_plugin": "", "icon": "", "tools": []},
+        ],
+    )
+
+    items = device_catalog.catalog_overlay()["mcp"]
+    ids = [item["id"] for item in items]
+
+    assert "es_query" not in ids and "query_database" not in ids
+    assert ids.count(DB_UMBRELLA_ID) == 1
+    umbrella = next(item for item in items if item["id"] == DB_UMBRELLA_ID)
+    assert umbrella["name"] == DB_UMBRELLA_NAME
+    # 任一成员开着，伞形就是开着的。
+    assert umbrella["enabled"] is True
+    assert "web_fetch" in ids
+
+
+def test_umbrella_toggle_reaches_every_member(bridged, monkeypatch):
+    """伞形条目本身没有对应的 server，开关必须落到它收拢的成员上。"""
+    from core.config.catalog_loader import DB_UMBRELLA_ID
+
+    # bridge 模块在 import 时就把 bridge_enabled 绑成了本地名，得按这个名字打桩。
+    monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
+    monkeypatch.setattr(
+        bridge,
+        "managed_connectors",
+        lambda: [
+            {"server_id": "es_query", "enabled": True},
+            {"server_id": "query_database", "enabled": True},
+            {"server_id": "web_fetch", "enabled": True},
+        ],
+    )
+    written: list = []
+    monkeypatch.setattr(
+        "core.capabilities.mcp_json.set_managed_enabled",
+        lambda profile, server_id, enabled: written.append((server_id, enabled)),
+    )
+
+    assert bridge.set_managed_connector_enabled(DB_UMBRELLA_ID, False) is True
+
+    assert sorted(written) == [("es_query", False), ("query_database", False)]
+
+
 def _install_plugin_with_ui(profile: str, slug: str, ui: dict, *, enabled: bool = True):
     """云端同步下来的插件：登记表一条 + 存储里的 plugin.json（带界面贡献）。"""
     from core.capabilities import store

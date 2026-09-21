@@ -18,7 +18,7 @@ _SITE_HINT_MARKERS = (
 def strip_site_mode_hint_from_user_messages(conn: sa.engine.Connection) -> int:
     """删掉历史用户消息尾部残留的站点规则，返回订正条数。
 
-    规则已改由后端在系统提示里注入（``agent_factory._site_mode_hint``），留在消息里
+    规则由站点插件的 site-builder 技能提供，留在消息里
     对模型没有用处，只会在刷新页面时显示成用户自己说过的话。只截掉规则那一段，
     用户自己打的字原样保留。
     """
@@ -45,4 +45,52 @@ def strip_site_mode_hint_from_user_messages(conn: sa.engine.Connection) -> int:
             {"content": text[:cut].rstrip(), "mid": message_id},
         )
         repaired += 1
+    return repaired
+
+
+def remove_desktop_site_prompt_parts(conn: sa.engine.Connection) -> int:
+    """Retire site-only parts once; preserve other versions and custom project text."""
+    from copy import deepcopy
+
+    blocks = sa.table(
+        "content_blocks", sa.column("id", sa.String), sa.column("payload", sa.JSON)
+    )
+    payload = conn.execute(
+        sa.select(blocks.c.payload).where(blocks.c.id == "prompt_versions")
+    ).scalar_one_or_none()
+    if not isinstance(payload, dict):
+        return 0
+    updated = deepcopy(payload)
+    retired = {"site_mode", "site_records", "site_lookup_failed"}
+    # Exact legacy stock paragraph only; never rewrite administrator prose.
+    legacy_project_line = (
+        "建站在本地项目真实目录下的 sites/<站点名>/ 编写源码。"
+        "编辑已有站点先读取当前站点的 source_dir 并原地修改；"
+        "构建后 publish_site 的 src_dir 指向构建产物、source_dir 指向项目源码。"
+    )
+    legacy_project_lines = {
+        legacy_project_line,
+        "越出授权目录的操作与危险命令受本机权限策略约束；文件工具修改前的快照可用于回滚。",
+    }
+    repaired = 0
+    for version in updated.get("versions", []):
+        if version.get("kind") != "desktop":
+            continue
+        original = deepcopy(version.get("parts", []))
+        parts = [part for part in original if part.get("part_id") not in retired]
+        for part in parts:
+            if part.get("part_id") != "project":
+                continue
+            content = part.get("content", "")
+            part["content"] = "".join(
+                line for line in content.splitlines(keepends=True)
+                if line.strip() not in legacy_project_lines
+            )
+        if parts != version.get("parts", []):
+            version["parts"] = parts
+            repaired += 1
+    if repaired:
+        conn.execute(
+            blocks.update().where(blocks.c.id == "prompt_versions").values(payload=updated)
+        )
     return repaired

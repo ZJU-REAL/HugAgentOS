@@ -63,4 +63,5 @@ def pack_directory(source, target, excludes, max_files, max_file_bytes, max_tota
 
 if __name__ == "__main__":
     options = json.load(sys.stdin)
-    pack_directory(target="/workspace/" + options.pop("archive_name"), **options)
+    # 归档落在脚本的 cwd（就是这个会话的工作目录），不写死 /workspace。
+    pack_directory(target=options.pop("archive_name"), **options)

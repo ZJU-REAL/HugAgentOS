@@ -14,20 +14,20 @@ This file covers **3D-specific additions** and an **enriched design system** com
 
 ## 运行环境与交付链（本系统专用，先读这一段）
 
-**`officecli` 已经预装在沙盒镜像的 `/usr/local/bin/officecli`，不要联网安装、不要 curl。**
+**`officecli` 已经预装在运行环境的 PATH 中，不要联网安装、不要 curl。**
 `bash` 工具直接调用即可，自检用 `officecli --version`。
 
-所有命令都在**沙盒**里执行，文件一律落在 `/workspace/` 下。一次完整作业 = 3 步 + 1 步交付：
+所有命令在当前会话工作目录执行，输入输出使用相对路径或用户指定的真实路径。一次完整作业 = 3 步 + 1 步交付：
 
 ```
 # Step 1（仅当用户上传过原始文件）把 artifact 送进沙盒
-sandbox_put_artifact(artifact_id="<用户文件的 file_id>", dest_path="/workspace/in.docx")
+sandbox_put_artifact(artifact_id="<用户文件的 file_id>", dest_path="./in.docx")
 
 # Step 2 用 bash 跑 officecli —— 本文件下面讲的全部命令都在这一步里
-bash("officecli create /workspace/out.docx")
+bash("officecli create ./out.docx")
 
 # Step 3 把成稿从沙盒取出、登记成 artifact，拿到新的 file_id
-sandbox_get_artifact(src_path="/workspace/out.docx", name="终稿.docx")
+sandbox_get_artifact(src_path="./out.docx", name="终稿.docx")
 
 # Step 4（必做）交付给用户
 pin_to_workspace(file_ids=["<新 file_id>"])
@@ -35,12 +35,12 @@ pin_to_workspace(file_ids=["<新 file_id>"])
 
 **铁律**：
 
-- `sandbox_put_artifact` = 放**进**沙盒，`sandbox_get_artifact` = 从沙盒**取出**，别搞反；两个路径参数都必须以 `/workspace/` 开头。
+- `sandbox_put_artifact` = 放**进**沙盒，`sandbox_get_artifact` = 从沙盒**取出**，别搞反；两个路径参数使用当前工作目录内的相对路径或真实绝对路径。
 - 拿到 `file_id` 却不 `pin_to_workspace` 就等于没交付，用户看不到文件。多个产物一次性放进同一个列表，别分多次调用。
-- 下文示例里的 `$FILE` 和相对路径，都要换成 `/workspace/` 下的绝对路径。
+- 下文示例里的 `$FILE` 指实际文件；相对路径按当前会话工作目录解析。
 - 下文的可视化质检（`view <file> screenshot` / `view <file> html`）依赖沙盒内的 Chromium，镜像已预装；截图失败就按下文 fallback 走 `view html`，并如实标注「未做视觉验证」，不要谎报 PASS。
 - **导出 PDF 不要用 `officecli view <file> pdf`** —— 那个模式依赖本系统没有安装的 exporter 插件，必然失败。改用沙盒里的 LibreOffice：
-  `soffice --headless --convert-to pdf --outdir /workspace /workspace/out.docx`。.xlsx / .pptx 换掉扩展名同理，但要沙盒里装了 LibreOffice Calc / Impress 才转得动；转换报错就如实告诉用户 PDF 没导出成功、主产物仍是原文件，不要谎报已导出。
+  `soffice --headless --convert-to pdf --outdir . ./out.docx`。.xlsx / .pptx 换掉扩展名同理，但要沙盒里装了 LibreOffice Calc / Impress 才转得动；转换报错就如实告诉用户 PDF 没导出成功、主产物仍是原文件，不要谎报已导出。
 
 ## Use when
 

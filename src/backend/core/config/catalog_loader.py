@@ -26,6 +26,9 @@ _LOGGER = logging.getLogger(__name__)
 DB_HIDDEN_SERVERS = {"query_database", "db_query", "es_query"}
 DB_UMBRELLA_ID = "database_query"
 DB_UMBRELLA_NAME = "数据库查询"
+# 伞形条目没有对应的 AdminMcpServer 行，图标取不到库里——定义在这里，云端目录与
+# 桌面端投影共用同一个值，两边才不会一边有图标一边没有。
+DB_UMBRELLA_ICON = "/home/mcp/database.svg"
 DB_UMBRELLA_DESC = (
     "统一的数据库查询能力。在 Config 后台「数据库工具」里配置数据源后，"
     "按所连数据库类型自动选择：自建智能取数走 query_database，直连 MySQL/PostgreSQL "

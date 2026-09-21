@@ -50,11 +50,14 @@ class KindSpec:
     label: str
     name: str
     desc: str
+    visible: bool = True
+    preview: str | None = None
 
 
 #: 内置 kind：各自对应一段固定的运行时装配位置，有文件系统兜底，不可删。
 #: 新增一个内置 kind = 这张表加一行 + 放好 md 文件，不必再改别处。
 KIND_SPECS: Dict[str, KindSpec] = {
+    "desktop": KindSpec(("desktop",), "independent", "桌面端", "default - 桌面端提示词", "本机环境、文件、项目与工具规则；仅桌面端装配", preview="desktop-preview"),
     "system": KindSpec(
         ("default", "system"),
         "concat",
@@ -104,6 +107,7 @@ KIND_SPECS: Dict[str, KindSpec] = {
         "平台默认子智能体",
         "default - 平台默认子智能体",
         "探索员、执行员和审查员三个平台内置角色的独立系统提示词",
+        visible=False,
     ),
 }
 
@@ -134,7 +138,7 @@ def list_custom_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
 
 def all_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
     """内置 + 自定义的完整 kind 清单，供管理端渲染 tab 与模式绑定下拉。"""
-    items = [{"key": k, "label": s.label, "builtin": True} for k, s in KIND_SPECS.items()]
+    items = [{"key": k, "label": s.label, "builtin": True, "visible": s.visible, "preview": s.preview, "description": s.desc} for k, s in KIND_SPECS.items()]
     items += [{**c, "builtin": False} for c in list_custom_kinds(db)]
     return items
 
@@ -750,6 +754,18 @@ def render_active_prompt_part(
     return None
 
 
+def _skipped_parts(kind: str) -> set:
+    try:
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled():
+            from prompts.desktop_workspace import SKIP_PARTS
+            return SKIP_PARTS.get(kind) or set()
+    except Exception:
+        logger.debug("local-mode check failed while assembling %s", kind, exc_info=True)
+    return set()
+
+
 def render_kind_segment(
     kind: str, db: Optional[Session] = None, *, fs_fallback: bool = True
 ) -> str:
@@ -763,8 +779,9 @@ def render_kind_segment(
     存进库里的是同一份。``fs_fallback=False`` 用于「对话模式」绑定的 kind：绑了个
     空 kind 就该退回默认装配，而不是套用别的 kind 的话术。
     """
+    skip = _skipped_parts(kind)
     try:
-        rendered = render_active_prompt(kind, db=db)
+        rendered = _render_active_parts(kind, db=db, skip=skip)
         if rendered:
             return rendered
     except Exception:
@@ -774,9 +791,28 @@ def render_kind_segment(
     chunks = [
         (p.get("content") or "").strip()
         for p in _read_fs_parts(kind)
-        if p.get("is_enabled", True) and (p.get("content") or "").strip()
+        if p.get("is_enabled", True)
+        and (p.get("content") or "").strip()
+        and (p.get("part_id") or "") not in skip
     ]
     return "\n\n".join(chunks)
+
+
+def _render_active_parts(kind: str, *, db: Optional[Session], skip: set) -> Optional[str]:
+    """激活版本的正文，按 ``skip`` 剔除若干段。``skip`` 为空时等同 render_active_prompt。"""
+    if not skip:
+        return render_active_prompt(kind, db=db)
+    version = get_active_version(kind, db=db)
+    if not version:
+        return None
+    chunks = [
+        (p.get("content") or "").strip()
+        for p in (version.get("parts") or [])
+        if p.get("is_enabled", True)
+        and (p.get("content") or "").strip()
+        and (p.get("part_id") or "").strip() not in skip
+    ]
+    return "\n\n".join(chunks) or None
 
 
 #: 极速模式在库和文件都取不到时的最后兜底——它替换掉整份系统提示词，返回空串会让
@@ -794,3 +830,13 @@ def render_turbo_system_prompt(db: Optional[Session] = None) -> str:
     极速模式不做常规装配：智能体只带检索类工具，默认提示词的工具/流程段都不适用。
     """
     return render_kind_segment("turbo", db=db) or _TURBO_LAST_RESORT
+
+
+def effective_parts(kind: str, db: Optional[Session] = None) -> List[Dict[str, Any]]:
+    """Read the active version, with whole-version filesystem fallback only."""
+    try:
+        version = get_active_version(kind, db=db)
+    except Exception:
+        logger.warning("Prompt version unavailable for %s; using filesystem", kind, exc_info=True)
+        version = None
+    return version.get("parts", []) if version is not None else _read_fs_parts(kind)

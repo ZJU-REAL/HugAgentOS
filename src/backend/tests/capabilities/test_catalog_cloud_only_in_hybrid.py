@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.capabilities import registry, skills
 from core.capabilities.paths import KIND_SKILL
 from core.capabilities.ref import cloud_ref, profile_id
@@ -73,3 +75,44 @@ def test_private_capabilities_of_this_user_survive(hybrid_catalog_client):
     session.commit()
 
     assert "my-own" in _catalog(hybrid_catalog_client, "skills")
+
+
+@pytest.mark.parametrize("hybrid", [True, False])
+def test_local_profile_plugins_only_resolve_off_hybrid(index_db, caps_root, monkeypatch, hybrid):
+    """混合模式下本机自带的插件不参与解析——装了什么由云端账号说了算。
+
+    回归的是桌面端「建站插件不可用」：本机业务库里留着一份同名的 sites 插件，它的
+    组件 MCP 用的是 compose 服务名 ``http://mcp:<port>/mcp/``，桌面端既没有那台
+    主机也没有对应 sidecar，连不上就被判不可用，日志里反复刷 missing MCP，还会和
+    云端那份同名插件互相顶替。单机安装没有云端账号，本机 profile 仍是唯一来源。
+    """
+    from core.capabilities import device_catalog, plugins
+    from core.llm import plugin_loader
+    from core.services.desktop_capability_protocol import skill_content_hash
+
+    monkeypatch.setattr(device_catalog, "active", lambda: hybrid)
+    monkeypatch.setattr(skills, "current_account_profile", lambda: profile_id(CLOUD_BASE, CLOUD_USER))
+    monkeypatch.setattr(skills, "account_authorized_for", lambda _uid: True)
+    monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
+
+    body = "---\nname: sitebuilder\ndescription: Build sites\n---\nBuild a site."
+    skills.publish_local_skill(
+        "sitebuilder",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {"slug": "sites", "name": "本机 sites", "components": {"skills": ["sitebuilder"]}},
+        owner_user_id="owner",
+    )
+
+    plan = plugin_loader.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["sitebuilder"],
+        enabled_mcp_ids=[],
+        plugin_ids=None,
+    )
+
+    slugs = [p.slug for p in plan.deferred]
+    assert ("sites" in slugs) is (not hybrid), (hybrid, slugs)

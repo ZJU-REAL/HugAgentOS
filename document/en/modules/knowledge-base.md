@@ -2,12 +2,12 @@
 
 > Last updated: 2026-07-19
 
-HugAgentOS supports two knowledge base flavors that can run side by side and are presented together in the capability center:
+HugAgentOS supports local and external knowledge storage. Public retrieval selects one source through platform configuration; private spaces remain independent:
 
 1. **Self-hosted knowledge bases**: document upload → parent-child chunking → vectorization into Milvus → dense + sparse hybrid retrieval (RRF fusion) → optional reranking. Community Edition (CE) provides only private spaces owned by the current user. Admin-managed public spaces are an Enterprise Edition (EE) capability.
 2. **External Dify knowledge bases** (Enterprise Edition, EE): with `KNOWLEDGE_BASE=dify`, the backend injects Dify datasets into the capability catalog at runtime, and retrieval goes through the Dify Retrieval API.
 
-Both flavors are exposed to the agent as MCP tools: self-hosted retrieval uses `retrieve_local_kb`, Dify uses `retrieve_dataset_content` — both served by the same MCP server (`mcp_servers/retrieve_dataset_content_mcp/`).
+Public retrieval uses `retrieve_dataset_content`, selecting either accessible local public/shared spaces or the configured external backend. Personal/private retrieval uses `retrieve_local_kb`. Both are served by the same MCP server (`mcp_servers/retrieve_dataset_content_mcp/`).
 
 In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` returns only private spaces owned by the current user. The backend rejects create requests with `visibility=public` and does not expose Dify or shared-knowledge-base service settings, so this boundary does not rely on frontend hiding alone.
 
@@ -34,9 +34,9 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
     · kb_parser.parse_and_chunk()              │    · optional reranker pass
     · (optional) LLM keywords / questions      │    · user_id isolation + global public KBs
     · embed_batch() → Milvus insert            │
-    · parent chunks → PostgreSQL kb_chunks     └─ retrieve_dataset_content (Dify)
-    · update kb_documents.indexing_status           · calls Dify /datasets/{id}/retrieve
-                                                     · multi-dataset → sort by score, truncate
+    · parent chunks → PostgreSQL kb_chunks     └─ retrieve_dataset_content (selected backend)
+    · update kb_documents.indexing_status           · local: accessible public/shared spaces
+                                                     · external: selected provider only, no local merge
 ```
 
 ## Self-hosted knowledge bases
@@ -174,6 +174,8 @@ Business logic is centralized in `core/services/kb_service.py::KBService`.
 ### Admin public knowledge bases (Enterprise Edition, EE)
 
 The `/v1/admin/kb/*` admin routes live in `src/backend/api/routes/v1/admin_kb.py`, gated by the `content_admin` feature flag (EE router table in `api/routes/v1/__init__.py`). Public spaces are owned by the synthetic system account `system_public_kb` (`kb_service.py::SYSTEM_KB_OWNER_ID`), have `visibility=public`, and are visible and searchable by all users. The admin side additionally offers raw file download, Office-to-PDF online preview, and chunk content editing / deletion.
+
+Public retrieval through `retrieve_dataset_content` selects exactly one source according to platform configuration. Platform-local mode (`knowledge_base.provider=custom`) searches only local public/shared spaces accessible to the current user, excluding private spaces. External mode searches only the selected Dify, FastGPT or WeKnora backend using that backend's own connection settings. Results are never merged across sources, and empty results or errors never trigger a cross-source fallback. The public knowledge-base list uses the same source selection; private spaces remain accessible through the separate `retrieve_local_kb` tool.
 
 ## External Dify knowledge bases (Enterprise Edition, EE)
 

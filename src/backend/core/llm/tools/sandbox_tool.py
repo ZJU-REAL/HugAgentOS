@@ -246,21 +246,9 @@ def register_bash(
 
         return _resp_json(payload)
 
-    from core.sandbox._common import WORKSPACE as _WS
+    from ._paths import WORKSPACE_ROOT, path_rules
 
-    bash.__doc__ = (
-        "在沙盒里执行一条 shell 命令（默认 bash 解释器）。\n\n"
-        "约定：\n"
-        f"- 工作目录默认 {_WS}。已加载的技能文件位于 {_WS}/skills/<skill_id>/，\n"
-        f'  典型用法：bash(command="cd {_WS}/skills/<id> && bash scripts/foo.sh")。\n'
-        "- 用户「我的空间」在沙盒里就挂在 /myspace/ 下，写进去的文件会自动同步回\n"
-        "  「我的空间」，不必再登记。路径只有 /myspace/... 这一种写法。\n"
-        f"- 多步骤工作流可以连用多次 bash——{_WS} 在整轮对话内是持久的，\n"
-        "  上一条命令写下的文件下一条命令直接能读。\n"
-        "- 用户上传的文件不会自动出现在沙盒里。需要时先调 \n"
-        f"  sandbox_put_artifact(artifact_id, dest_path) 把它拷进 {_WS}。\n"
-        "- 脚本产出的文件如需让用户下载，调用 sandbox_get_artifact(src_path) 把它\n"
-        "  登记成 artifact——bash 本身不会自动登记产物。\n\n"
+    bash.__doc__ = path_rules().bash_workspace_instructions(WORKSPACE_ROOT, _sess) + (
         "Args:\n"
         "    command (`str`): 完整 shell 命令字符串。可以包含管道、重定向、\n"
         "        here-doc、命令链 (&&, ;, ||) 等任意 bash 语法。\n"
@@ -327,14 +315,12 @@ def register_sandbox_put_artifact(
         if not artifact_id or not isinstance(artifact_id, str):
             return _resp_json({"error": "artifact_id 必须为非空字符串"})
 
-        path_err = _validate_workspace_path(dest_path)
-        if path_err:
-            return _resp_json({"error": path_err})
-        # Alias the canonical /workspace → real root before handing to the provider
-        # (no-op in Docker); the model writes /workspace paths from the prompt/skills.
-        from ._paths import to_physical_path
+        from ._paths import to_physical_path, workspace_directory
 
         dest_path = to_physical_path(dest_path, user_id, session_id=_sess)
+        path_err = _validate_workspace_path(dest_path, root=workspace_directory(_sess))
+        if path_err:
+            return _resp_json({"error": path_err})
 
         # _resolve_artifact_files accepts the {filename: artifact_id} shape;
         # using dest_path as the key is fine — it is only the key of the returned dict.
@@ -369,7 +355,7 @@ def register_sandbox_put_artifact(
         "供 bash/脚本读取处理。\n\n"
         "Args:\n"
         "    artifact_id (`str`): artifact 的 file_id（如 ua_xxx）。必须属于当前用户。\n"
-        "    dest_path (`str`): 沙盒里的目标绝对路径，必须以 /workspace/ 开头，\n"
+        "    dest_path (`str`): 当前工作目录内的绝对路径或相对路径，\n"
         "        不允许包含 .. 路径段。父目录会自动创建。\n\n"
         "Returns:\n"
         "    JSON: {ok: true, artifact_id, dest_path, size} 成功；\n"
@@ -428,12 +414,12 @@ def register_sandbox_get_artifact(
                     ref["url"] = f"/files/{ref['file_id']}"
                     return _resp_json({"ok": True, **ref, "artifacts": [ref]})
 
-        path_err = _validate_workspace_path(src_path)
-        if path_err:
-            return _resp_json({"error": path_err})
-        from ._paths import to_physical_path
+        from ._paths import to_physical_path, workspace_directory
 
         src_path = to_physical_path(src_path, user_id, session_id=_sess)
+        path_err = _validate_workspace_path(src_path, root=workspace_directory(_sess))
+        if path_err:
+            return _resp_json({"error": path_err})
 
         provider = _get_provider()
         from core.sandbox import SandboxFileTooLargeError as _SandboxFileTooLargeError
@@ -475,7 +461,7 @@ def register_sandbox_get_artifact(
             if size <= 0:
                 return _resp_json({"error": f"文件 {src_path} 为空"})
 
-            out_name = (name or src_path.rsplit("/", 1)[-1]).strip() or "output"
+            out_name = (name or Path(src_path).name).strip() or "output"
             mime, _ = _mt.guess_type(out_name)
             mime = mime or "application/octet-stream"
 
@@ -512,7 +498,7 @@ def register_sandbox_get_artifact(
         "`pin_to_workspace(file_ids=[...])` 文件才作为附件出现在对话区；\n"
         "**禁止**把 file_id 或 url 写进正文当下载链接。\n\n"
         "Args:\n"
-        "    src_path (`str`): 沙盒 /workspace/ 路径，或当前本机项目中的真实绝对路径。\n"
+        "    src_path (`str`): 工作目录内的绝对或相对路径，或当前本机项目中的真实绝对路径。\n"
         "    name (`str`, 可选): 用户面向的文件名。不传则取 src_path 的 basename。\n\n"
         "Returns:\n"
         "    JSON: {ok: true, file_id, name, url, mime_type, size, artifacts: [...]}\n"

@@ -79,15 +79,19 @@ def list_all_datasets(
     allowed_kb_ids: str | None = None,
     current_user_id: str | None = None,
 ) -> Dict[str, Any]:
-    public_items = list_external_datasets(
-        allowed_dataset_ids=allowed_dataset_ids,
-        allowed_kb_ids=allowed_kb_ids,
-        current_user_id=current_user_id,
-    )
+    from core.kb.external_provider import is_enabled
+
     local_shared, private_items = _list_local_datasets(
         allowed_kb_ids=allowed_kb_ids, current_user_id=current_user_id
     )
-    public_items.extend(local_shared)
+    if is_enabled():
+        public_items = list_external_datasets(
+            allowed_dataset_ids=allowed_dataset_ids,
+            allowed_kb_ids=allowed_kb_ids,
+            current_user_id=current_user_id,
+        )
+    else:
+        public_items = local_shared
     return {
         "public_datasets": public_items,
         "private_datasets": private_items,

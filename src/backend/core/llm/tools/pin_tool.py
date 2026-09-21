@@ -49,8 +49,9 @@ def register_pin_to_workspace(
         不要分多次；单个也传列表。中间稿（编辑链里的临时文件、调试草图）不要 pin。
         重复调用会累加、已 pin 的自动去重，个别 ID 失败不影响其余文件交付。
 
-        **本机项目**：直接用 ``file_paths=["项目内相对路径或绝对路径"]`` 展示已生成的原文件，
-        不复制、不上传到 artifacts。重复交付同一文件保持同一引用。不要为 pin 复制文件。
+        **本机模式**：直接用 ``file_paths=["项目内相对路径或绝对路径"]`` 交付已生成的文件，无需先调用 sandbox_get_artifact。
+        项目文件展示原文件引用；当前会话工作目录文件自动登记后交付。
+        已绑定项目时相对路径以项目目录为准，交付会话文件请传绝对路径。
         其他模式用 ``file_ids``，不要把路径放进 ID 列表。ID 来源：
         沙盒文件先 ``sandbox_get_artifact`` 登记；``generate_chart_tool`` 与
         word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``list_myspace_files``。
@@ -60,11 +61,11 @@ def register_pin_to_workspace(
                 artifact 文件 ID 列表，取自前面工具返回的 ``file_id``，或用户上传
                 文件的 ``ua_*`` ID。只 pin 一个也要传列表（``["fid_xxx"]``）。
 
-            file_paths (`List[str]`): 本机项目已有文件的路径列表。仅本机项目可用，与 file_ids 可同时传入。
+            file_paths (`List[str]`): 本机项目或当前会话工作目录内的文件路径列表。仅本机模式可用，与 file_ids 可同时传入。
 
         Returns:
             JSON: ``{ok, pinned: [{file_id, name, already_pinned}], failed: [{file_id, error}], pinned_count}``。
-            ``ok=false`` 仅在入参完全无效时；个别 ID 失败只出现在 ``failed`` 里。
+            ``ok=false`` 表示本次没有成功交付文件；部分失败见 ``failed``。
         """
         import json as _json
 
@@ -106,12 +107,13 @@ def register_pin_to_workspace(
         to_persist: list[Dict[str, Any]] = []
 
         if file_paths:
-            from core.artifacts.local_project import reference_project_file
+            from .local_delivery import prepare_local_delivery
             from core.infra.logging import user_id_var
             from fastapi import HTTPException
 
             if not isinstance(file_paths, list):
                 file_paths = [file_paths]
+            prepared_paths: set[str] = set()
             for path in file_paths:
                 if not isinstance(path, str) or not path.strip():
                     failed_results.append({"path": str(path), "error": "文件路径必须是非空字符串"})
@@ -120,8 +122,16 @@ def register_pin_to_workspace(
                     from core.artifacts.local_project import project_file_path
                     from core.infra.logging import chat_id_var
                     physical = project_file_path(path, scope, user_id_var.get(), sandbox_session_id or chat_id_var.get())
-                    item = reference_project_file(physical, scope=scope, user_id=user_id_var.get() or "")
+                    if physical in prepared_paths:
+                        continue
+                    import asyncio
+                    item = await asyncio.to_thread(
+                        prepare_local_delivery, physical, scope=scope,
+                        user_id=user_id_var.get() or "",
+                        session_id=sandbox_session_id or chat_id_var.get(),
+                    )
                     raw_ids = [*raw_ids, item["file_id"]]
+                    prepared_paths.add(physical)
                 except (HTTPException, OSError, ValueError) as exc:
                     failed_results.append({"path": path, "error": str(getattr(exc, "detail", exc))})
 
@@ -195,7 +205,7 @@ def register_pin_to_workspace(
             logger.warning("pin_to_workspace: eager DB persist failed: %s", exc)
 
         result: Dict[str, Any] = {
-            "ok": True,
+            "ok": bool(pinned_results),
             "pinned": pinned_results,
             "pinned_count": len(_workspace.get_pinned_file_ids()),
         }

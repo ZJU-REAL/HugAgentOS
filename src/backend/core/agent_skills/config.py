@@ -151,6 +151,19 @@ def get_enabled_skill_sources() -> List[SkillSourceConfig]:
     return [src for src in get_default_skill_sources() if src.enabled]
 
 
+def sandbox_skills_path() -> Path:
+    """共享技能目录的路径——只算不建。
+
+    ``get_sandbox_skills_dir`` 会顺带创建目录；只想知道"它叫什么"的调用方不该为此
+    承担一次写盘（也不该在写不了时被迫吞异常、悄悄换成另一个路径）。
+    """
+    explicit = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    storage = os.getenv("STORAGE_PATH", "").strip() or "/app/storage"
+    return Path(storage) / "sandbox_skills"
+
+
 def get_sandbox_skills_dir() -> Path:
     """Host-backed directory holding the files of every **shared** skill.
 
@@ -172,11 +185,7 @@ def get_sandbox_skills_dir() -> Path:
     startup sync) don't each re-guard.
     """
     explicit = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
-    if explicit:
-        candidate = Path(explicit).expanduser()
-    else:
-        storage = os.getenv("STORAGE_PATH", "").strip() or "/app/storage"
-        candidate = Path(storage) / "sandbox_skills"
+    candidate = sandbox_skills_path()
     try:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate.resolve()
@@ -417,3 +426,10 @@ def _prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
     if removed:
         logger.info("[skills-purge] pruned %d stale skill dirs", removed)
     return removed
+
+
+def model_facing_skill_dir(skill_id: str, real_dir: str) -> str:
+    """Return the directory visible to this deployment's execution tools."""
+    from core.llm.tools._paths import path_rules
+
+    return path_rules().skill_directory(skill_id, real_dir)

@@ -845,12 +845,23 @@ class ToolPermissionService:
                 ),
             )
 
+    def _session_workspace(self) -> str:
+        """本次对话的工作目录——权限闸里的"工作区"就是它。
+
+        目录内自由读写；出了这个目录的绝对路径按授权与策略判定（放行 / 需确认 /
+        拦截），不额外加规则。
+        """
+        from core.sandbox._common import WORKSPACE
+        from services.script_runner_service.workspace_paths import session_root
+
+        session = self.runtime.sandbox_session_id or self.runtime.chat_id
+        return session_root(WORKSPACE, str(session)) if session else WORKSPACE
+
     async def _authorize_local_path(self, intent: PermissionIntent) -> dict[str, Any]:
         from core.config.local_mode import local_mode_enabled
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox._common import WORKSPACE
         from core.sandbox.local_policy import danger_categories, evaluate_local_path
 
         _mode, grants, policy = self._safe_local_security()
@@ -859,7 +870,7 @@ class ToolPermissionService:
             intent=intent.action,
             grants=grants,
             policy=policy,
-            workspace_root=WORKSPACE,
+            workspace_root=self._session_workspace(),
             platform="windows" if os.name == "nt" else "posix",
         )
         logger.info(
@@ -1044,7 +1055,7 @@ class ToolPermissionService:
         return LocalCommandAuthorization(
             command=command,
             approval_mode=approval_mode,
-            workspace_root=WORKSPACE,
+            workspace_root=self._session_workspace(),
             access=LocalAccessDecision(
                 approval_mode=approval_mode,
                 unconfined=approval_mode in UNCONFINED_APPROVAL_MODES,

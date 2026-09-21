@@ -132,9 +132,7 @@ def maybe_snapshot_local(physical_path: str) -> None:
 
         if not local_mode_enabled():
             return
-        from core.llm.tools._paths import canonicalize_ws_path
-
-        real = os.path.realpath(canonicalize_ws_path(physical_path))
+        real = os.path.realpath(physical_path)
         snapshot(real)
     except Exception:
         pass

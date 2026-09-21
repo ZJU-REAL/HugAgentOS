@@ -14,8 +14,8 @@
 提取全文文本（可选页号）。
 
 ```bash
-pdf-cli read --mode text --input /workspace/doc.pdf
-pdf-cli read --mode text --input /workspace/doc.pdf --pages 1,3,5
+pdf-cli read --mode text --input ./doc.pdf
+pdf-cli read --mode text --input ./doc.pdf --pages 1,3,5
 ```
 
 | 参数 | 必填 | 默认 | 说明 |
@@ -30,7 +30,7 @@ pdf-cli read --mode text --input /workspace/doc.pdf --pages 1,3,5
 返回书签 / 目录的扁平列表。
 
 ```bash
-pdf-cli read --mode outline --input /workspace/doc.pdf
+pdf-cli read --mode outline --input ./doc.pdf
 ```
 
 返回：`{ok, meta: {bookmark_count, outline: [{title, page (1-based), level}, ...]}}`。
@@ -41,7 +41,7 @@ pdf-cli read --mode outline --input /workspace/doc.pdf
 文档基础信息：页数 / 标题 / 作者 / 生成器 / 是否加密。
 
 ```bash
-pdf-cli read --mode metadata --input /workspace/doc.pdf
+pdf-cli read --mode metadata --input ./doc.pdf
 ```
 
 返回：`{ok, meta: {page_count, title, author, subject, creator, producer, is_encrypted}}`
@@ -52,7 +52,7 @@ pdf-cli read --mode metadata --input /workspace/doc.pdf
 `pdf_open_document` MCP 工具。
 
 ```bash
-pdf-cli read --mode overview --input /workspace/doc.pdf
+pdf-cli read --mode overview --input ./doc.pdf
 ```
 
 ### `--mode form-fields`
@@ -60,7 +60,7 @@ pdf-cli read --mode overview --input /workspace/doc.pdf
 列出 AcroForm 表单字段。**填表前必先跑这一步**，拿字段名 / 类型 / 可选值。
 
 ```bash
-pdf-cli read --mode form-fields --input /workspace/form.pdf
+pdf-cli read --mode form-fields --input ./form.pdf
 ```
 
 返回：`{ok, meta: {has_fields, field_count, fields: [{name, type, value?, page?, choices?, states?, checked_value?, radio_values?}, ...]}}`
@@ -85,8 +85,8 @@ pdf-cli read --mode form-fields --input /workspace/form.pdf
 合并多份 PDF（按顺序拼接），≥ 2 份输入。
 
 ```bash
-pdf-cli merge --output /workspace/all.pdf \
-    --inputs /workspace/a.pdf /workspace/b.pdf /workspace/c.pdf
+pdf-cli merge --output ./all.pdf \
+    --inputs ./a.pdf ./b.pdf ./c.pdf
 ```
 
 | 参数 | 必填 | 说明 |
@@ -103,11 +103,11 @@ pdf-cli merge --output /workspace/all.pdf \
 按页范围拆成 N 个 PDF。
 
 ```bash
-pdf-cli split --input /workspace/doc.pdf --output-dir /workspace/parts \
+pdf-cli split --input ./doc.pdf --output-dir ./parts \
     --ranges 1-3,4-6,7
 
 # 指定文件名
-pdf-cli split --input /workspace/doc.pdf --output-dir /workspace/parts \
+pdf-cli split --input ./doc.pdf --output-dir ./parts \
     --ranges 1-3,4-6 --names chapter1.pdf chapter2.pdf
 ```
 
@@ -129,11 +129,11 @@ pdf-cli split --input /workspace/doc.pdf --output-dir /workspace/parts \
 向 AcroForm 字段写值。
 
 ```bash
-pdf-cli fill-form --input /workspace/form.pdf --output /workspace/filled.pdf \
+pdf-cli fill-form --input ./form.pdf --output ./filled.pdf \
     --fields '{"Name":"张三","BirthDate":"1990-01-01","Newsletter":"yes"}'
 
 # 大 payload
-pdf-cli fill-form --input form.pdf --output filled.pdf --fields-file /workspace/fields.json
+pdf-cli fill-form --input form.pdf --output filled.pdf --fields-file ./fields.json
 ```
 
 | 参数 | 必填 | 说明 |
@@ -153,11 +153,11 @@ pdf-cli fill-form --input form.pdf --output filled.pdf --fields-file /workspace/
 从零生成印刷级设计感 PDF。
 
 ```bash
-pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.json
+pdf-cli create --output ./report.pdf --spec-file ./spec.json
 
 # 带图片资源（cover + 正文 image 块都通过 --image 引用本地 id）
-pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.json \
-    --image chart1=/workspace/chart1.png --image cover=/workspace/cover.jpg
+pdf-cli create --output ./report.pdf --spec-file ./spec.json \
+    --image chart1=./chart1.png --image cover=./cover.jpg
 ```
 
 | 参数 | 必填 | 说明 |
@@ -205,7 +205,7 @@ pdf-cli create --output /workspace/report.pdf --spec-file /workspace/spec.json \
 `create` 一个引擎，但内容从源文件解析）。
 
 ```bash
-pdf-cli reformat --input /workspace/notes.md --output /workspace/notes.pdf
+pdf-cli reformat --input ./notes.md --output ./notes.pdf
 pdf-cli reformat --input draft.docx --output final.pdf \
     --doc-type magazine --title "年度报告" --author "工信局" --date "2026-05" --accent "#0a5"
 ```

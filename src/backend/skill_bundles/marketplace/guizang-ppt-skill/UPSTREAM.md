@@ -13,7 +13,7 @@
 - 将上游 `<SKILL_ROOT>` 路径替换为 HugAgentOS 支持的 `{baseDir}` 占位符。
 - 禁用技能运行时的 Git 自更新；marketplace 安装目录是固定版本的只读材料。
 - 生成 deck 时复制本地 `assets/motion.min.js`，避免模板在断网时遗漏 Motion One 的本地回退资源。
-- 将默认输出位置改为 `/workspace/outputs/`，并要求整目录 ZIP 交付，防止相对图片与本地脚本丢失。
+- 将默认输出位置改为 `./outputs/`，并要求整目录 ZIP 交付，防止相对图片与本地脚本丢失。
 - 图像生成步骤改为能力检测：仅在当前智能体实际注册了对应工具时启用。
 
 除以上 HugAgentOS 运行适配外，模板、参考资料、背景图片和校验脚本均来自上述固定 commit。

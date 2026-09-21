@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
+import plistlib
 from datetime import datetime, timezone
 
 TARGET = re.compile(r"^(windows|darwin|linux)-(x86_64|aarch64|i686|armv7)$")
@@ -61,6 +63,32 @@ def publish_name(version, platform, sha256, artifact_name):
     return f"{version}-{platform}-{sha256[:16]}-{name}"
 
 
+def validate_macos_archive(artifact, version):
+    """Tauri must see one application root, never AppleDouble sidecars."""
+    with tarfile.open(artifact, "r:gz") as archive:
+        roots = set()
+        for member in archive.getmembers():
+            parts = member.name.rstrip("/").split("/")
+            if member.name.startswith("/") or ".." in parts:
+                raise ValueError("Unsafe path in macOS updater archive")
+            if any(part.startswith("._") or part == "__MACOSX" for part in parts):
+                raise ValueError("AppleDouble metadata in macOS updater archive; repack without macOS metadata")
+            roots.add(parts[0])
+        if len(roots) != 1 or not next(iter(roots), "").endswith(".app"):
+            raise ValueError("macOS updater archive must contain exactly one .app root")
+        app = next(iter(roots))
+        try:
+            info = archive.extractfile(app + "/Contents/Info.plist")
+            if info is None:
+                raise ValueError("Missing macOS application Info.plist")
+            with info:
+                metadata = plistlib.load(info)
+        except KeyError as error:
+            raise ValueError("Missing macOS application Info.plist") from error
+        if metadata.get("CFBundleShortVersionString") != version:
+            raise ValueError("macOS application version does not match release version")
+
+
 def select_artifact(bundle, target, version):
     if bundle is None or not bundle.is_dir():
         raise ValueError("--bundle must be an existing artifact directory")
@@ -76,6 +104,8 @@ def select_artifact(bundle, target, version):
     choices = exact or matches
     if len(choices) != 1:
         raise ValueError("Expected exactly one matching updater artifact")
+    if target.startswith("darwin-"):
+        validate_macos_archive(choices[0], version)
     return choices[0]
 
 

@@ -11,12 +11,12 @@ Output: a single JSON line to stdout. exit 0 on success, 1 on business error,
 2 on argparse error.
 
 Usage:
-    create.py --output /workspace/report.pdf --spec-file /workspace/spec.json
+    create.py --output ./report.pdf --spec-file ./spec.json
 
-    create.py --output /workspace/report.pdf --spec-file /workspace/spec.json \\
-      --image chart1=/workspace/chart1.png --image cover=/workspace/cover.jpg
+    create.py --output ./report.pdf --spec-file ./spec.json \\
+      --image chart1=./chart1.png --image cover=./cover.jpg
 
-spec example (write to /workspace/spec.json):
+spec example (write to ./spec.json):
     {
       "title": "Q3 产业链分析",
       "doc_type": "report",

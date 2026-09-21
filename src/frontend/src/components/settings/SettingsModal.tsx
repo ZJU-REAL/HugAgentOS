@@ -163,7 +163,7 @@ export default function SettingsPage() {
   }, [isCE, authUser?.user_id]);
   // Only show a section in the settings center when the admin has enabled the corresponding capability bit
   const sections = useMemo<SectionDef[]>(() => {
-    let base = multiTenancy
+    let base = (multiTenancy || (isCE && sysAccess))
       ? [...SETTINGS_SECTIONS, ...EDITION_SETTINGS_SECTIONS]
       : SETTINGS_SECTIONS;
     if (!ontologyValidationAllowed) {
@@ -893,7 +893,7 @@ export default function SettingsPage() {
         </section>
         )}
 
-        <EditionSettingsContent activeSection={activeSection} enabled={multiTenancy} />
+        <EditionSettingsContent activeSection={activeSection} enabled={multiTenancy || (isCE && sysAccess)} />
 
         {/* ── API-Key (shown only when the admin has enabled it) ─────────────────── */}
         {apiKeyEnabled && activeSection === 'apikey' && (

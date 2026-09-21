@@ -54,7 +54,7 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "execute_sql": "执行 SQL 查询",
     "search_objects": "探查库表结构",
     "retrieve_dataset_content": "公有知识库检索",
-    "retrieve_local_kb": "私有知识库检索",
+    "retrieve_local_kb": "本地知识库检索",
     "list_datasets": "查看知识库列表",
     # LLM Wiki / 概念图谱（仅 Wiki-capable 知识库后端下暴露）
     "wiki_overview": "知识地图总览",

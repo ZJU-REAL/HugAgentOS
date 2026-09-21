@@ -194,36 +194,6 @@ _WORKFLOW_MODE_HINT = (
 )
 
 
-# 站点模式提示段 —— 只在会话由「实验室 → 站点」入口创建时拼进系统提示（与上面两段同源做法）。
-# 这段规则以前是前端拼在用户消息尾部发过来的，会被原样落库、刷新后显示在用户气泡里；
-# 现在放回系统提示，用户消息只存用户自己打的字。
-def _site_mode_hint(project_ctx: Optional[Dict[str, Any]] = None) -> str:
-    """建站会话与站点编辑会话的作业规则（会话挂在项目上即为编辑会话）。"""
-    ctx = project_ctx or {}
-    if ctx.get("project_id"):
-        folder = str(ctx.get("project_folder_name") or "").strip() or "<项目文件夹>"
-        return (
-            "\n\n## 站点编辑模式（用户已主动进入）\n"
-            f"本会话是站点编辑会话，该站点的全部源码已在项目文件夹 /myspace/{folder}/ 中。"
-            "请先用 glob 查看现有文件，然后**直接在原文件上增量修改**——不要在其他目录重新生成整站。\n"
-            "发布方式按工程类型分流：\n"
-            "① 项目里**有 package.json**（React 构建型工程）→ 先跑 init 脚本自愈依赖，"
-            "再改 src/ 源码 → npm run build → `publish_site` 带 src_dir=构建产物目录 + "
-            "source_dir=项目文件夹（详见 site-builder 技能「编辑会话」一节），"
-            "**绝不能把源码目录直接当站点发布**；\n"
-            "② 没有 package.json（静态站）→ 改完直接调 `publish_site`"
-            "（title 传站点名即可，src_dir 与 site_id 都不用传，后端按本会话绑定的项目自动定位同一站点）。\n"
-            "两种方式 URL 都不变、版本 +1，发布后把访问链接以 markdown 链接形式发给用户。\n"
-        )
-    return (
-        "\n\n## 站点建站模式（用户已主动进入）\n"
-        "本会话是建站会话。请在沙箱工作目录里生成完整的静态网站"
-        "（必须包含 index.html 入口，可包含多页面、CSS、JS、图片等），"
-        "完成后调用 `publish_site` 工具发布，并把访问链接以 markdown 链接形式发给用户。\n"
-        "若用户要在已发布站点上继续修改，带上该站点的 site_id 重新发布（URL 不变、版本 +1）。\n"
-    )
-
-
 from orchestration.registry import AgentSpec
 
 # Repo-level env files are loaded once by core.config.settings (repo root only,
@@ -749,9 +719,6 @@ async def create_agent_executor(
     # 只有它为 True 才注册 run_job 并注入作业脚本写法——与计划模式/批量执行同属"用户触发的
     # 模式"，不触发就完全不存在，普通问答不会被无关的批量规则干扰。
     workflow_mode: bool = False,
-    # site_mode: 站点会话（实验室『站点』入口创建）。建站或编辑的作业规则由系统提示注入，
-    # 不再由前端拼进用户消息——用户消息里只有用户自己打的字。
-    site_mode: bool = False,
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
     # True explicitly after determining (has chat_id, not
@@ -1726,23 +1693,15 @@ async def create_agent_executor(
     # skills effectively unloaded, invocable only manually via /). Keeps the
     # Chinese view_text_file guidance + restores the skill-list loop.
     #
-    # Desktop registrations project each native Skill to its resolved runtime
-    # alias and /workspace/skills/<alias>, keeping the immutable physical path
-    # private to the loader. Legacy registrations still use their directory ID.
-    # Never infer a desktop name from the store's trailing revision or from a
-    # copied file's original frontmatter name.
+    # Skill.dir is supplied by the deployment's path policy.
     _SKILL_INSTRUCTION_TEMPLATE = (
         "# 技能（Agent Skills）\n"
         "以下是当前可用的技能列表。**技能不是工具，不能直接调用。**\n"
         "当用户请求匹配某技能的描述时，你**必须先**使用 `view_text_file` 工具读取"
-        "`/workspace/skills/<技能名>/SKILL.md`（`<技能名>` 原样取下方列表的技能名），"
-        "然后严格按其中指令执行。\n"
+        "下方该技能列出的 SKILL.md 路径，然后严格按其中指令执行。\n"
         "**禁止跳过加载步骤直接调用 MCP 工具。**\n\n"
-        "# 可用技能（`技能名`：适用场景）：{% for skill in skills %}\n"
-        "- `{{ skill.dir.rstrip('/').split('/')[-1] }}`"
-        "{% if skill.name and skill.name != skill.dir.rstrip('/').split('/')[-1] %}"
-        "（{{ skill.name }}）{% endif %}"
-        "：{{ skill.description }}{% endfor %}"
+        "# 可用技能（技能名、说明文件、适用场景）：{% for skill in skills %}\n"
+        "- `{{ skill.name }}`：`{{ skill.dir }}/SKILL.md` — {{ skill.description }}{% endfor %}"
     )
 
     # The declarative permission middleware governs built-in tools only. A
@@ -2112,13 +2071,15 @@ async def create_agent_executor(
                 sandbox_session_id=_sbx_sess,
                 user_id=current_user_id,
             )
-        register_sandbox_get_artifact(
-            toolkit,
-            chat_id=chat_id,
-            sandbox_session_id=_sbx_sess,
-            user_id=current_user_id,
-            scope=_proj_scope,
-        )
+        from core.config.local_mode import local_mode_enabled
+        if not local_mode_enabled():
+            register_sandbox_get_artifact(
+                toolkit,
+                chat_id=chat_id,
+                sandbox_session_id=_sbx_sess,
+                user_id=current_user_id,
+                scope=_proj_scope,
+            )
         # Site publishing is now plugin-based: the sites plugin's site_publish
         # MCP provides the publish_site tool; the built-in native tool is no
         # longer registered here (see mcp_servers/site_publish_mcp +
@@ -2143,6 +2104,9 @@ async def create_agent_executor(
                 toolkit,
                 chat_id=chat_id,
                 interactive=_ui_reachable,
+                sandbox_session_id=_sbx_sess,
+                user_id=current_user_id,
+                scope=_proj_scope,
             )
 
         # ── Phase 3.6: Register file-operation tools (Read/Edit/Write/Glob/
@@ -2473,6 +2437,10 @@ async def create_agent_executor(
             enabled_mcp_keys,
             enabled_kb_ids=enabled_kb_ids,
         )
+        from core.config.local_mode import local_mode_enabled
+        if local_mode_enabled():
+            from prompts.desktop_workspace import desktop_prompt_text
+            system_prompt = desktop_prompt_text(system_prompt)
         _manifest_builder.add_prompt_section(
             "subagent/base",
             system_prompt,
@@ -2583,6 +2551,10 @@ async def create_agent_executor(
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
             system_prompt = _mode_prompt or _pvs_turbo.render_turbo_system_prompt()
+            from core.config.local_mode import local_mode_enabled
+            if local_mode_enabled():
+                from prompts.desktop_workspace import desktop_prompt_text
+                system_prompt = desktop_prompt_text(system_prompt)
             _manifest_builder.add_prompt_section(
                 "mode/base",
                 system_prompt,
@@ -2601,6 +2573,10 @@ async def create_agent_executor(
             # 不收窄的模式配了专属提示词：整段替换默认装配（和收窄模式同一语义），
             # 但工具/技能面不动——那是 tool_scope 管的事。
             system_prompt = _mode_prompt
+            from core.config.local_mode import local_mode_enabled
+            if local_mode_enabled():
+                from prompts.desktop_workspace import desktop_prompt_text
+                system_prompt = desktop_prompt_text(system_prompt)
             _manifest_builder.add_prompt_section(
                 "mode/base",
                 system_prompt,
@@ -2621,13 +2597,13 @@ async def create_agent_executor(
                 "tools": tool_schemas,
                 "mcp_servers": enabled_mcp_keys,
                 "enabled_kbs": enabled_kb_ids,
+                "chat_id": chat_id,
+                "sandbox_session_id": _sbx_sess,
+                "approval_mode": approval_mode,
             }
             # Project mode: let _build_project_section receive project_name / instructions / files / folder
             if project_ctx:
                 _sp_ctx.update(project_ctx)
-                if project_ctx.get("project_is_local") and current_user_id and chat_id:
-                    from core.services.local_site_sources import editing_prompt
-                    _sp_ctx["local_site_edit"] = editing_prompt(str(current_user_id), chat_id)
             system_prompt = build_system_prompt(
                 cfg, ctx=_sp_ctx, manifest_builder=_manifest_builder
             )
@@ -2776,21 +2752,6 @@ async def create_agent_executor(
             )
             _log.info("[factory] +%s workflow mode hint injected", _elapsed())
 
-        # ── Inject site-mode hint (chat created from the Lab → Sites entry) ──
-        if site_mode:
-            _site_hint = _site_mode_hint(project_ctx)
-            system_prompt += _site_hint
-            _manifest_builder.add_prompt_section(
-                "runtime/site_mode",
-                _site_hint,
-                origin="builtin:site_mode",
-                trust="platform",
-                priority=880,
-                cache_class="mode",
-                version="1",
-            )
-            _log.info("[factory] +%s site mode hint injected", _elapsed())
-
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
             from core.llm.builtin_subagents import refresh_builtin_subagents
@@ -2901,6 +2862,31 @@ async def create_agent_executor(
                 "[factory] +%s update_plan tool registered (chat_id=%s)",
                 _elapsed(),
                 chat_id,
+            )
+
+    # Custom modes and subagents bypass build_system_prompt but execute on the
+    # same desktop runner. Environment facts must survive that prompt choice.
+    from core.config.local_mode import local_mode_enabled
+
+    if local_mode_enabled() and not any(
+        section.id in {"runtime/environment", "runtime/local_mode"}
+        for section, _ in _manifest_builder.prompt_section_sources()
+    ):
+        from datetime import datetime
+        from prompts.desktop_workspace import build_local_mode_guidance, build_environment_context
+
+        environment = build_environment_context(
+            {**(project_ctx or {}), "chat_id": chat_id,
+             "sandbox_session_id": _sbx_sess, "approval_mode": approval_mode},
+            current_date=datetime.now().strftime("%Y-%m-%d"),
+        )
+        for section_id, content in (
+            ("runtime/environment", environment), ("runtime/local_mode", build_local_mode_guidance()),
+        ):
+            system_prompt += "\n\n" + content
+            _manifest_builder.add_prompt_section(
+                section_id, content, origin="builtin:local_mode", trust="platform",
+                priority=950, cache_class="workspace", version="1", sensitive=True,
             )
 
     # Prompt fragments this task type carries, per the active profile.

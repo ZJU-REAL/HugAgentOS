@@ -40,6 +40,8 @@ from core.llm.tool_permissions import (
     builtin_tool_permission,
 )
 
+from core.agent_skills.config import model_facing_skill_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,7 @@ _cached_runtime_skill = lru_cache(maxsize=256)(_parse_runtime_skill)
 
 
 class RuntimeNamedSkillLoader(SkillLoaderBase):
-    """Read frozen physical files while exposing their authorized sandbox alias."""
+    """Read frozen files and expose a deployment-appropriate directory."""
 
     def __init__(self, directory: str, runtime_name: str, capability_run=None) -> None:
         self.directory = directory
@@ -98,7 +100,7 @@ class RuntimeNamedSkillLoader(SkillLoaderBase):
                 Skill(
                     name=self.runtime_name,
                     description=description,
-                    dir=f"/workspace/skills/{self.runtime_name}",
+                    dir=model_facing_skill_dir(self.runtime_name, self.directory),
                     markdown=markdown,
                     updated_at=updated_at,
                 )
@@ -128,7 +130,7 @@ class RuntimeNamedSkillLoader(SkillLoaderBase):
                 return []
         physical = await self._physical_loader.list_skills()
         return [
-            replace(skill, name=self.runtime_name, dir=f"/workspace/skills/{self.runtime_name}")
+            replace(skill, name=self.runtime_name, dir=model_facing_skill_dir(self.runtime_name, self.directory))
             for skill in physical
         ]
 
@@ -222,8 +224,8 @@ class ToolCollector:
                 self._skill_loaders.append(
                     RuntimeNamedSkillLoader(skill_dir, runtime_name, capability_run)
                 )
-        elif skill_dir not in self._skill_loaders:
-            self._skill_loaders.append(skill_dir)
+        else:
+            self.register_agent_skill(skill_dir, runtime_name=Path(skill_dir).name)
 
     def register_mcp_client(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
         # 2.0 goes through Toolkit(mcps=); this should never be called — kept as an empty fallback against legacy call paths.

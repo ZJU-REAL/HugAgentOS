@@ -7,9 +7,7 @@ write outputs to. Resolution order, first match wins:
        Used by the in-process MCP runner so concurrent tool calls each get
        their own temp workdir without racing on process-wide state.
     2. ``OFFICE_LIB_WORKDIR`` env var — explicit override (sandbox or test).
-    3. ``/workspace`` exists and cwd is at-or-below it → cwd (script_runner).
-    4. ``/workspace`` exists but cwd is elsewhere → ``/workspace`` (opensandbox).
-    5. Else → cwd (dev/test default).
+    3. Current working directory supplied by the caller.
 """
 from __future__ import annotations
 
@@ -61,19 +59,6 @@ def workdir() -> Path:
     env_override = os.environ.get("OFFICE_LIB_WORKDIR")
     if env_override:
         return Path(env_override).resolve()
-
-    workspace = Path("/workspace")
-    if workspace.is_dir():
-        cwd = Path.cwd().resolve()
-        ws_resolved = workspace.resolve()
-        try:
-            cwd.relative_to(ws_resolved)
-        except ValueError:
-            # cwd is NOT under /workspace → opensandbox-style; use /workspace
-            return ws_resolved
-        else:
-            # cwd IS /workspace itself or a subdir → script_runner-style; use cwd
-            return cwd
 
     return Path.cwd().resolve()
 

@@ -10,15 +10,15 @@
 
 ```bash
 # Step 1：先盘点
-pdf-cli read --mode form-fields --input /workspace/form.pdf
+pdf-cli read --mode form-fields --input ./form.pdf
 # → 返回 fields: [{name, type, value?, choices?, states?, checked_value?, radio_values?, page?}, ...]
 
 # Step 2：按字段类型构造 JSON
-Write(file_path="/workspace/fields.json", content='{"Name":"张三","Subscribed":"yes",...}')
+Write(file_path="./fields.json", content='{"Name":"张三","Subscribed":"yes",...}')
 
 # Step 3：写入
-pdf-cli fill-form --input /workspace/form.pdf --output /workspace/filled.pdf \
-    --fields-file /workspace/fields.json
+pdf-cli fill-form --input ./form.pdf --output ./filled.pdf \
+    --fields-file ./fields.json
 ```
 
 ---

@@ -8,14 +8,12 @@ database/Redis/API-key access.
 
 import asyncio
 import base64
-import hashlib
 import hmac
 import json
 import logging
 import mimetypes
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -38,11 +36,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("script-runner")
 
 if __package__:
-    from .workspace_paths import session_root, resolve_path
+    from .workspace_paths import session_root
     from .runtime_tools import resolve_bash_executable as _resolve_bash_executable
     from .runtime_tools import windows_tool_path_entries
 else:
-    from workspace_paths import session_root, resolve_path
+    from workspace_paths import session_root
     from runtime_tools import resolve_bash_executable as _resolve_bash_executable
     from runtime_tools import windows_tool_path_entries
 
@@ -84,8 +82,6 @@ WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
 # Skills reach this container as two read-only mounts (see docker-compose.yml):
 # the shared tree, and the root holding every user's per-user view. A session
 # gets its own user's view linked in as ``<workspace>/skills``.
-SHARED_SKILLS_DIR = "sandbox_skills"
-USER_SKILLS_DIR = ".skills_u"
 SESSION_WORKSPACES_DIR = ".sessions"
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
@@ -93,158 +89,13 @@ MAX_ARTIFACT_EXPORT_BYTES = max(
     1, int(os.getenv("SANDBOX_ARTIFACT_MAX_BYTES", str(100 * 1024 * 1024)))
 )
 
-# Local-profile /workspace→real-root rewrite for executed script text. Compiled
-# once here (invariant: WORKSPACE_ROOT is read from env at import). None in Docker,
-# where the roots are equal and no rewrite is needed. Match /workspace only at a
-# path boundary so an unrelated substring like /workspaces is left alone.
-_WS_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.\\/-])/workspace(?=/|$|["\'\s:;)&|])')
-
-# 模型只认识 /myspace 这一种写法。opensandbox / cube 一人一沙箱，能在容器里建软链；
-# 这个 runner 是所有用户共用一个服务，根上建全局软链会指向"最后一个用的人"，属于跨用户
-# 串数据。所以改成按请求里的 user_id 就地改写路径，根目录映射仍交给既有的 /workspace 链路。
-_MYSPACE_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.\\/-])/myspace(?=/|$|["\'\s:;)&|])')
-
-
-def _rewrite_myspace_refs(value: str, user_id: Optional[str]) -> str:
-    """把 /myspace[/...] 展开成 /workspace/myspace/{uid}[/...]。
-
-    没有 user_id 时原样返回 —— 无从判断是谁的空间，宁可让路径不存在而报错，
-    也不能猜一个用户。
-    """
-    if not isinstance(value, str) or not user_id:
-        return value
-    _validate_user_id(user_id)
-    return _MYSPACE_PATH_RE.sub(f"/workspace/myspace/{user_id}", value)
-
-
-def _rewrite_workspace_refs(value: str, workspace_root: str = WORKSPACE_ROOT) -> str:
-    """Map canonical workspace references without treating ``\\`` as regex escapes."""
-    if not isinstance(value, str) or workspace_root == "/workspace":
-        return value
-    replacement = workspace_root.rstrip("/\\")
-    return _WS_PATH_RE.sub(lambda _match: replacement, value)
-
-
-def _bash_quote_state(value: str, end: int) -> Optional[str]:
-    """Return the shell quote containing ``value[end]`` (single/double/None).
-
-    The local desktop workspace commonly lives below macOS ``Application
-    Support``.  A blind ``/workspace`` replacement therefore turns a valid
-    unquoted command into several shell words.  We only need enough shell
-    awareness to preserve existing quotes and safely quote unquoted path
-    prefixes; Bash remains responsible for parsing the full script.
-    """
-    state: Optional[str] = None
-    escaped = False
-    for char in value[:end]:
-        if state == "single":
-            if char == "'":
-                state = None
-            continue
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-        elif state == "double":
-            if char == '"':
-                state = None
-        elif char == "'":
-            state = "single"
-        elif char == '"':
-            state = "double"
-    return state
-
-
-def _quote_bash_path_refs(
-    value: str,
-    pattern: re.Pattern[str],
-    replacement: str,
-) -> str:
-    """Replace path prefixes while preserving or adding shell-safe quoting."""
-
-    def _replace(match: re.Match[str]) -> str:
-        quote_state = _bash_quote_state(value, match.start())
-        if quote_state == "single":
-            return replacement.replace("'", "'\"'\"'")
-        if quote_state == "double":
-            return (
-                replacement.replace("\\", "\\\\")
-                .replace('"', '\\"')
-                .replace("$", "\\$")
-                .replace("`", "\\`")
-            )
-        # Quoting only the rewritten prefix is valid shell concatenation:
-        # '/Users/.../workspace'/site resolves as one path while the suffix
-        # remains visible to the boundary-matching regex.
-        return shlex.quote(replacement)
-
-    return pattern.sub(_replace, value)
-
-
-def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
-    """Map canonical and expanded workspace paths without breaking spaces.
-
-    File tools return both the logical ``/workspace/...`` path and the expanded
-    host path.  A later Bash call may therefore contain either spelling.  Quote
-    the expanded spelling first, then map the canonical spelling, so both stay
-    one shell word when the local data directory contains spaces.
-    """
-    if not isinstance(value, str) or workspace_root == "/workspace":
-        return value
-    replacement = workspace_root.rstrip("/\\")
-    expanded_re = re.compile(
-        rf"(?<![A-Za-z0-9_.\\/\-]){re.escape(replacement)}" r"(?=/|$|[\"'\s:;)&|])"
-    )
-    value = _quote_bash_path_refs(value, expanded_re, replacement)
-    return _quote_bash_path_refs(value, _WS_PATH_RE, replacement)
-
-
-def _execution_workspace_root(
-    language: str,
-    workspace_root: str = WORKSPACE_ROOT,
-    platform: str = os.name,
-) -> str:
-    """Return the path syntax understood by the selected host interpreter."""
-    if platform != "nt":
-        return workspace_root
-    if language != "bash":
-        return workspace_root.replace(chr(92), "/")
-    match = re.match(r"^([A-Za-z]):[\\/](.*)$", workspace_root)
-    if not match:
-        return workspace_root.replace("\\", "/")
-    drive, rest = match.groups()
-    return f"/{drive.lower()}/{rest.replace(chr(92), '/')}"
-
-
-def _rewrite_execution_paths(
-    value: str,
-    language: str,
-    workspace_root: str = WORKSPACE_ROOT,
-    user_id: Optional[str] = None,
-    skills_root: Optional[str] = None,
-) -> str:
-    # 先把 /myspace 展开成 /workspace/myspace/{uid}，后面的根目录映射与引号处理
-    # 就全部复用既有逻辑，不必再写一套。
-    value = _rewrite_myspace_refs(value, user_id)
-    # Protect the frozen skill root from the mutable conversation-workspace
-    # mapping. Another run in this chat may relink its compatibility skills dir.
-    marker = "__HUGAGENT_PREPARED_SKILLS_ROOT__"
-    if skills_root:
-        skill_pattern = re.compile(_WS_PATH_RE.pattern.replace("/workspace", "/workspace/skills"))
-        value = skill_pattern.sub(marker, value)
-    target_root = _execution_workspace_root(language, workspace_root)
-    if target_root != workspace_root:
-        # File tools may already have expanded /workspace to the native root.
-        value = value.replace(workspace_root, target_root)
-    if language == "bash":
-        value = _rewrite_bash_workspace_refs(value, target_root)
-        if skills_root:
-            frozen = _execution_workspace_root(language, skills_root)
-            value = _quote_bash_path_refs(value, re.compile(marker), frozen)
-        return value
-    value = _rewrite_workspace_refs(value, target_root)
-    return value.replace(marker, skills_root.replace(chr(92), "/")) if skills_root else value
+def _workspace_rules():
+    if __package__:
+        from . import desktop_workspace, sandbox_workspace
+    else:
+        import desktop_workspace
+        import sandbox_workspace
+    return desktop_workspace if os.getenv("DEPLOY_PROFILE", "").strip().lower() == "local" else sandbox_workspace
 
 
 def _validate_session_id(session_id: str) -> str:
@@ -255,63 +106,6 @@ def _validate_session_id(session_id: str) -> str:
     if len(value) > 512:
         raise HTTPException(400, "session_id 过长")
     return value
-
-
-def _ensure_shared_dir_link(link: Path, target: Path) -> None:
-    """Expose a shared read-mostly directory inside one session workspace.
-
-    Always a directory link (symlink on POSIX, NTFS junction on Windows) that is
-    re-pointed when the target changes — never a copy, which would go stale the
-    moment a skill is installed and would leave one copy per session on disk. A
-    link that cannot be created is a hard error: the session has no usable skill
-    tree and must say so instead of pretending.
-    """
-    if not target.exists():
-        return
-    from core.capabilities.junction import LinkError, ensure_directory_link
-
-    try:
-        ensure_directory_link(link, target, allowed_roots=[target])
-    except LinkError as exc:
-        raise HTTPException(500, f"会话工作区无法建立技能视图链接：{exc}") from exc
-
-
-def _user_skill_views_root() -> Path:
-    """Root holding one skill view per user.
-
-    In the compose deployment the backend's per-user views are mounted at a fixed
-    container path (``.skills_u``). In the no-Docker local profile the runner
-    shares the host filesystem with the backend, which builds the views next to
-    ``SANDBOX_SKILLS_DIR`` under ``<name>_u`` — derive the same path from the same
-    variable rather than keeping two conventions.
-    """
-    skills_root = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
-    if skills_root:
-        root = Path(skills_root)
-        return root.parent / f"{root.name}_u"
-    return Path(WORKSPACE_ROOT) / USER_SKILLS_DIR
-
-
-def _skills_dir_for(user_id: Optional[str]) -> Path:
-    """The skill tree one session may see: the user's own view, else shared-only.
-
-    The user view holds that user's private skills plus a link per shared skill,
-    so another user's private skill files (a market skill's secrets.json among
-    them) are never reachable from this session. Falls back to the shared tree
-    when the user has no view yet, and to the legacy single mount when a
-    deployment has not picked up the two skill mounts yet.
-    """
-    shared = Path(WORKSPACE_ROOT) / SHARED_SKILLS_DIR
-    if user_id:
-        view = _user_skill_views_root() / user_id
-        if view.is_dir():
-            return view
-    if shared.is_dir():
-        return shared
-    skills_root = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
-    if skills_root and Path(skills_root).is_dir():
-        return Path(skills_root)
-    return Path(WORKSPACE_ROOT) / "skills"
 
 
 def _session_workspace(
@@ -328,22 +122,9 @@ def _session_workspace(
         workspace.mkdir(parents=True, exist_ok=True)
         if user_id:
             _validate_user_id(user_id)
-        skills_target = _skills_dir_for(user_id)
-        if capability_view_key is not None:
-            if not re.fullmatch(r"[a-f0-9]{64}", capability_view_key):
-                raise HTTPException(400, "invalid prepared capability view")
-            caps = os.getenv("HUGAGENT_CAPS_ROOT", "").strip()
-            if not caps:
-                raise HTTPException(409, "prepared capability view requires local execution")
-            root = Path(caps).resolve()
-            skills_target = root / ".capabilities" / "views" / capability_view_key / "skills"
-            if not skills_target.is_dir() or not skills_target.resolve().is_relative_to(root):
-                raise HTTPException(409, "prepared capability view is missing or invalid")
-        _ensure_shared_dir_link(workspace / "skills", skills_target)
-        if user_id:
-            shared_myspace = Path(WORKSPACE_ROOT) / "myspace" / user_id
-            shared_myspace.mkdir(parents=True, exist_ok=True)
-            _ensure_shared_dir_link(workspace / "myspace" / user_id, shared_myspace)
+        _workspace_rules().prepare_workspace(
+            workspace, WORKSPACE_ROOT, user_id, capability_view_key,
+        )
     return workspace
 
 
@@ -413,7 +194,7 @@ else:
         _val = os.getenv(_key)
         if _val:
             SAFE_ENV[_key] = _val
-for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH", "JX_FONT_DIR"):
+for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH", "JX_FONT_DIR", "PDF_SKILL_DIR"):
     _val = os.getenv(_key)
     if _val:
         SAFE_ENV[_key] = _val
@@ -458,6 +239,7 @@ def _local_safe_path_entries() -> list[str]:
 if os.getenv("DEPLOY_PROFILE") == "local":
     # Keep the bundled native tool at the version verified by the desktop release.
     SAFE_ENV["OFFICECLI_SKIP_UPDATE"] = "1"
+    SAFE_ENV["PY_BIN"] = sys.executable
     for _k in (
         "SCRIPT_RUNNER_WORKSPACE",
         "SITE_TEMPLATE_HOME",
@@ -606,30 +388,22 @@ class GetFileResponse(BaseModel):
     size: int
 
 
-def _canon_ws(path: str, session_id: str, user_id: Optional[str] = None) -> str:
-    """Alias canonical ``/workspace[/...]`` to one session's physical root.
-
-    Mirror of ``core.llm.tools._paths.canonicalize_ws_path`` — this sidecar imports
-    nothing from ``core`` (it ships as a standalone image), so the logic is copied;
-    keep the two in sync.
-    """
-    if not isinstance(path, str):
-        return path
-    _session_workspace(session_id, create=True, user_id=user_id)
-    return resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
-
-
 def _validate_workspace_path(
     path: str,
     session_id: str,
     user_id: Optional[str] = None,
+    *,
+    read_only: bool = False,
 ) -> Path:
-    """Confine file APIs to this session plus its explicitly bound MySpace."""
+    """Confine file APIs to this session plus its explicitly bound MySpace.
+
+    相对路径按这个会话的工作目录解析——那本来就是执行时的 cwd。绝对路径原样用，
+    不做任何改写。
+    """
     workspace = _session_workspace(session_id, create=True, user_id=user_id).resolve()
-    p = Path(_canon_ws(path, session_id, user_id)).resolve()
-    allowed_roots = [workspace]
-    if user_id:
-        allowed_roots.append((Path(WORKSPACE_ROOT) / "myspace" / user_id).resolve())
+    rules = _workspace_rules()
+    p = rules.file_path(path, workspace, WORKSPACE_ROOT).resolve()
+    allowed_roots = [workspace, *(p.resolve() for p in rules.extra_roots(WORKSPACE_ROOT, user_id, read_only=read_only))]
     for allowed in allowed_roots:
         try:
             p.relative_to(allowed)
@@ -637,7 +411,7 @@ def _validate_workspace_path(
         except ValueError:
             continue
     else:
-        raise HTTPException(400, f"路径必须在当前会话 /workspace 下: {path}")
+        raise HTTPException(400, f"路径必须在当前会话工作目录 {workspace} 下: {path}")
     return p
 
 
@@ -670,7 +444,7 @@ MAX_FETCH_FILE_SIZE = 64 * 1024 * 1024
 @app.post("/get_file", response_model=GetFileResponse)
 async def get_file(req: GetFileRequest):
     """Read a file from the sandbox and return it base64-encoded."""
-    p = _validate_workspace_path(req.path, req.session_id, req.user_id)
+    p = _validate_workspace_path(req.path, req.session_id, req.user_id, read_only=True)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
     data = p.read_bytes()
@@ -685,7 +459,7 @@ async def get_file(req: GetFileRequest):
 @app.post("/get_file_raw", response_class=FileResponse)
 async def get_file_raw(req: GetFileRequest) -> FileResponse:
     """Stream a sandbox file without Base64 expansion."""
-    p = _validate_workspace_path(req.path, req.session_id, req.user_id)
+    p = _validate_workspace_path(req.path, req.session_id, req.user_id, read_only=True)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
     size = p.stat().st_size
@@ -742,46 +516,32 @@ async def execute(req: ExecuteRequest):
         raise HTTPException(400, f"脚本过大: {len(req.script_content)} > {MAX_SCRIPT_SIZE}")
     timeout = min(req.timeout, MAX_TIMEOUT)
 
-    # The model always sees /workspace. Map that canonical path to the one durable
-    # directory owned by this conversation, in Docker and local profiles alike.
+    # Each conversation owns a durable cwd; the selected profile owns path semantics.
     session_workspace = _session_workspace(
         req.session_id,
         create=True,
         user_id=req.user_id,
         capability_view_key=req.capability_view_key,
     )
-    frozen_skills_root = str((session_workspace / "skills").resolve()) if req.capability_view_key else None
-    req.script_content = _rewrite_execution_paths(
-        req.script_content,
-        req.language,
-        str(session_workspace),
-        user_id=req.user_id,
-        skills_root=frozen_skills_root,
+    req.script_content = _workspace_rules().execution_text(
+        req.script_content, req.language, session_workspace, req.user_id,
     )
-    if isinstance(req.params, dict) and req.params:
+    if isinstance(req.params, dict):
         _args = req.params.get("_args")
         if isinstance(_args, list):
             req.params["_args"] = [
-                (
-                    _rewrite_execution_paths(
-                        a, req.language, str(session_workspace), user_id=req.user_id, skills_root=frozen_skills_root
-                    )
-                    if isinstance(a, str)
-                    else a
-                )
-                for a in _args
+                _workspace_rules().execution_text(a, req.language, session_workspace, req.user_id)
+                if isinstance(a, str) else a for a in _args
             ]
-
     # ── Filename safety validation (prevent path traversal) ──
     _validate_filename(req.script_name)
     for file_dict in filter(None, [req.resource_files, req.input_files, req.input_files_b64]):
         for fname in file_dict:
             _validate_filename(fname)
 
-    # ── Prepare temporary working directory ──
-    work_dir = Path(tempfile.mkdtemp(prefix="skill_", dir=session_workspace))
+    # 工作目录就是这个对话自己的目录，不另开临时子目录。
+    work_dir = session_workspace
     seeded_files: set[str] = set()
-    # Snapshot existing files in the workspace root before execution
     _pre_existing_root_files: set = set()
     try:
         for _f in session_workspace.iterdir():
@@ -790,10 +550,14 @@ async def execute(req: ExecuteRequest):
     except Exception:
         pass
     try:
-        # Write the script file
-        script_path = work_dir / req.script_name
-        script_path.parent.mkdir(parents=True, exist_ok=True)
-        script_path.write_text(req.script_content, encoding="utf-8")
+        # The cwd is durable, but each invocation owns a distinct script.
+        # O_EXCL creation prevents overwriting a user's file or another tool call.
+        fd, script_file = tempfile.mkstemp(
+            prefix=".__exec_", suffix=Path(req.script_name).suffix, dir=work_dir,
+        )
+        script_path = Path(script_file)
+        with os.fdopen(fd, "w", encoding="utf-8") as script:
+            script.write(req.script_content)
 
         # Write resource files and input files (input_files after resource_files; same-name entries overwrite)
         _seed_text_files(work_dir, req.resource_files, seeded_files)
@@ -872,12 +636,7 @@ async def execute(req: ExecuteRequest):
             return True
 
         try:
-            # 1) Scan work_dir (relative path outputs)
-            for fpath in sorted(work_dir.rglob("*")):
-                _collect_file(fpath)
-
-            # 2) Scan /workspace/ root (absolute path outputs like /workspace/output.csv)
-            #    Only collect NEW files (not pre-existing, not inside work_dir)
+            # work_dir 就是会话工作目录：只收本次新产生的根文件，已存在的不重复回传。
             for fpath in sorted(workspace_root.iterdir()):
                 if fpath.is_dir():
                     continue
@@ -892,9 +651,11 @@ async def execute(req: ExecuteRequest):
         return ExecuteResponse(**result)
 
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        # Do not wipe the session root here. Files remain durable for every main/
-        # child-agent call in the same conversation; close_session is the boundary.
+        # 目录本身不删；只清掉本次写进去的脚本文件。
+        try:
+            script_path.unlink(missing_ok=True)
+        except (OSError, NameError):
+            pass
 
 
 class SessionRequest(BaseModel):
@@ -909,45 +670,6 @@ async def close_session(req: SessionRequest):
     if existed:
         shutil.rmtree(workspace, ignore_errors=True)
     return {"closed": existed}
-
-
-class ReapRequest(BaseModel):
-    idle_seconds: int
-
-
-@app.post("/sessions/reap")
-async def reap_idle_sessions(req: ReapRequest):
-    """Delete conversation workspaces nobody has touched for ``idle_seconds``.
-
-    Every conversation gets a directory under ``.sessions`` and only
-    ``/sessions/close`` ever removed one — which nothing calls when a chat is
-    merely abandoned or soft-deleted. The activity timestamp `touch_session`
-    already maintains is exactly what tells them apart.
-
-    Overflowed tool results land in ``.offload`` and are addressed by path from
-    the conversation that produced them, so they age out on the same clock.
-    """
-    idle_seconds = max(60, int(req.idle_seconds or 0))
-    cutoff = time.time() - idle_seconds
-    reaped = 0
-    for root, pattern in (
-        (Path(WORKSPACE_ROOT) / SESSION_WORKSPACES_DIR, "*"),
-        (Path(WORKSPACE_ROOT) / ".offload", "*"),
-    ):
-        if not root.is_dir():
-            continue
-        for entry in root.glob(pattern):
-            try:
-                if entry.stat().st_mtime >= cutoff:
-                    continue
-                if entry.is_dir():
-                    shutil.rmtree(entry, ignore_errors=True)
-                else:
-                    entry.unlink(missing_ok=True)
-                reaped += 1
-            except OSError:
-                continue
-    return {"reaped": reaped}
 
 
 @app.post("/sessions/touch")
@@ -986,6 +708,7 @@ async def _execute_subprocess(
 
     nproc_limit = _subprocess_nproc_limit(cmd)
     env = dict(SAFE_ENV)
+    env.update(_workspace_rules().subprocess_environment(cwd))
     spawn_plan = None
     if sandbox_launch is not None:
         cmd = [*sandbox_launch.argv_prefix, *cmd]

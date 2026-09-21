@@ -20,7 +20,7 @@ UID = "user_a9e0c627c2674456"
 
 
 def _rewrite(value, user_id=UID):
-    from script_runner_service.server import _rewrite_myspace_refs
+    from script_runner_service.sandbox_workspace import _rewrite_myspace_refs
 
     return _rewrite_myspace_refs(value, user_id)
 
@@ -51,13 +51,10 @@ def test_rewrite_rejects_a_traversal_user_id():
         _rewrite("cat /myspace/x", user_id="../other")
 
 
-def test_bash_path_lands_in_the_session_workspace():
-    from script_runner_service.server import _rewrite_execution_paths
-
-    out = _rewrite_execution_paths(
-        "cat /myspace/x.txt", "bash", "/workspace/session_workspaces/abc", user_id=UID
-    )
-    assert out == f"cat /workspace/session_workspaces/abc/myspace/{UID}/x.txt"
+def test_workspace_paths_are_never_rewritten():
+    """``/workspace`` 不再被改写：模型拿到的就是真实路径，执行前后都不做映射。"""
+    assert _rewrite("cat /workspace/a.txt") == "cat /workspace/a.txt"
+    assert _rewrite("ls /workspace") == "ls /workspace"
 
 
 # ── cube：软链拼进执行命令，不额外多花一次往返 ──────────────────────────────

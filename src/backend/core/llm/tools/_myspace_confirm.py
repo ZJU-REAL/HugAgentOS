@@ -493,12 +493,12 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
         ),
         "deny": (
             f"用户拒绝了对「我的空间」的{op}操作（{logical_path}）。"
-            f"不要重试该写入。如确需产物，改写到沙盒 /workspace/ 下，"
+            f"不要重试该写入。如确需产物，改写到本次会话的工作目录（相对路径），"
             f"或向用户澄清意图。"
         ),
         "timeout": (
             f"等待用户确认对「我的空间」的{op}操作超时（{logical_path}），"
-            f"已放弃未写入。请简短告知用户超时，让其重新发起或改写 /workspace/。"
+            f"已放弃未写入。请简短告知用户超时，让其重新发起或改写到会话工作目录。"
         ),
     }[phase]
 
@@ -687,7 +687,7 @@ async def gate(
             "logical_path": logical_path,
             "error": (
                 "非交互模式（批量/子智能体）禁止写用户「我的空间」。"
-                "请改写到沙盒 /workspace/，或由用户在主对话中亲自操作。"
+                "请改写到本次会话的工作目录（相对路径），或由用户在主对话中亲自操作。"
             ),
         }
 

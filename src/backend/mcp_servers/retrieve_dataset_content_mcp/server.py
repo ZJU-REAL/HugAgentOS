@@ -148,19 +148,21 @@ def _get_header(ctx: Optional[Context], name: str) -> Optional[str]:
         return None
 
 
-_BASE_TOOL_DESCRIPTION = """从"知识库/数据集"检索政策文件、报告、非结构化文本片段。默认自动搜索所有可用数据集。
+_BASE_TOOL_DESCRIPTION = """公有知识库检索：严格按平台选择的知识库后端检索。
+自建模式只检索当前用户有权访问的本地公有/共享库；外部模式只检索所选 Dify、FastGPT 或 WeKnora 数据集。
+两类来源不合并，也不会在空结果或失败时互相兜底。个人私有文档使用 retrieve_local_kb。
 
 引用规则：引用返回内容时必须把条目自带的 `cite_id`（如 `e7`）原样写成 `[锚文本](cite:e7)` 标记，禁止自行编号。
 
 适用场景（涉及以下内容时**主动**调用，无需用户显式要求）：政策文件原文/解读/申报条件、
 产业分析报告、行业研究、发展规划、企业调研材料、经济运行分析等非结构化文本。
 
-调用说明：**dataset_id 默认留空**（自动搜索所有可用数据集），仅当用户指定某个知识库时才传。
-回答时从每条记录的 `segment -> content` 提取要点。
+调用说明：**dataset_id 默认留空**（搜索当前后端允许的公有/共享库），仅当用户指定某个知识库时才传。
+回答时从本地结果的 `content` 或外部结果的 `segment -> content` 提取要点。
 
 Args:
     query: 检索 query。
-    dataset_id: 数据集 ID（默认空 = 搜全部）。
+    dataset_id: 当前后端的知识库 ID（自建模式为 kb_ 前缀；默认空 = 搜当前后端允许的公有/共享库）。
     top_k: 返回片段数量。
     score_threshold: 相似度阈值。
     search_method: 检索方式（默认 hybrid_search）。
@@ -169,7 +171,7 @@ Args:
 
 调用决策:
 - 优先级高：政策/报告/规划类原文检索第一优先级。要"结构化数字"走指标类能力，要文段走我。
-- retrieve_local_kb 只查用户私有库，我查公有/共享库，不冲突时可并行。
+- 公有/共享资料用我，后端由平台配置决定；个人私有文档使用 retrieve_local_kb。
 - 内部能找到就别走外网，internet_search 只作兜底。
 """
 
@@ -203,6 +205,20 @@ async def retrieve_dataset_content(
     current_user_id = _get_header(ctx, _HDR_CURRENT_USER_ID)
 
     try:
+        from core.kb.external_provider import is_enabled
+        from mcp_servers.retrieve_dataset_content_mcp.local_impl import retrieve_public_local_kb
+
+        if not await asyncio.to_thread(is_enabled):
+            call = functools.partial(
+                retrieve_public_local_kb,
+                query=query,
+                dataset_id=dataset_id,
+                top_k=top_k,
+                allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+                current_user_id=current_user_id,
+                reranker_enabled=_get_header(ctx, _HDR_RERANKER_ENABLED),
+            )
+            return await _PRIVATE_KB_LANE.run(call, timeout=_PRIVATE_KB_TIMEOUT_SECONDS)
         items = await retrieve_dataset_content_async(
             query=query,
             dataset_id=dataset_id,
@@ -214,7 +230,7 @@ async def retrieve_dataset_content(
             allowed_dataset_ids=allowed_dataset_ids,
             current_user_id=current_user_id,
         )
-    except DatasetRetrievalTimeoutError as exc:
+    except (DatasetRetrievalTimeoutError, TimeoutError) as exc:
         _LOGGER.warning("retrieve_dataset_content timed out: %s", exc)
         return _tool_timeout_payload(
             tool="retrieve_dataset_content",
@@ -255,7 +271,8 @@ _LIST_DATASETS_DESCRIPTION = """列出当前可用的所有知识库（公有 + 
 
 Returns:
     dict: {"public_datasets": [...], "private_datasets": [...], "total": N}
-    带 dataset_id 的用 retrieve_dataset_content 检索；带 kb_id 的用 retrieve_local_kb 检索。
+    public_datasets 使用 retrieve_dataset_content，按平台配置只搜索本地公有库或所选外部后端。
+    private_datasets 使用 retrieve_local_kb。
     private_datasets 仅含当前用户自己的私有库；问"有几个公有库"以 public_datasets 为准，
     不要把本地公有库当私有库。
 """
@@ -318,31 +335,31 @@ async def list_datasets(
         }
 
 
-# ── Private KB tool ───────────────────────────────────────────────────────────
+# ── Local KB tool ───────────────────────────────────────────────────────────
 
-_BASE_LOCAL_KB_TOOL_DESCRIPTION = """从用户私有知识库中检索相关内容。
+_BASE_LOCAL_KB_TOOL_DESCRIPTION = """检索当前用户上传的个人私有知识库。
+公有/共享资料必须使用 retrieve_dataset_content，由平台配置决定来源；不要使用本工具作为公有检索的替代或兜底。
 
 引用规则：引用返回内容时必须把条目自带的 `cite_id`（如 `e7`）原样写成 `[锚文本](cite:e7)` 标记，禁止自行编号。
 
-适用场景（**主动**调用，无需用户显式要求）：用户私人上传的文档（项目材料、个人笔记、
-专属报告等）；用户提问中出现了下方"当前可用私有知识库"列表里的库名或文档名。
+适用场景（**主动**调用，无需用户显式要求）：用户个人私有库中的项目材料、个人笔记或专属文档。
 
-调用说明：kb_id 从下方"当前可用私有知识库"列表选择；没有列表或不确定时传空字符串 ""
-（自动搜索用户所有私有库），或先调 `list_datasets` 看完整列表。
+调用说明：先从 `list_datasets` 的 private_datasets 中选择明确的 kb_id（kb_ 前缀）。
+不要将 public_datasets 的库传给本工具；公有库统一走 retrieve_dataset_content。
 命中片段带 images 时，据其 caption（图的内容描述）作答并照常带 cite 标记，不要编造图中没有的数字。
 **用户要求"看这张图 / 把图发出来"时，直接在回答里写 markdown 图片 `![](url)`**（url 原样复制），
 对话区会把它渲染成图片——不需要、也不要绕去「我的空间」或沙盒找同名文件。
 
 Args:
-    kb_id: 私有知识库 ID（空字符串 = 搜全部私有库）。
+    kb_id: 当前用户选择的私有知识库 ID。
     query: 检索问题。
     top_k: 返回片段数量（默认 10）。
 
 Returns:
     dict: {"available_kbs": [...], "items": [{"title","content","kb_id","score","images?":[{"asset_id","caption","url"}]}]}
 
-调用决策: 用户问自己上传的文档时第一优先级。我只查私有库，retrieve_dataset_content
-查公有数据集；用户没明说是哪类时两者都试一遍。
+调用决策: 仅在用户需要个人私有库资料时使用。
+公有知识库检索使用 retrieve_dataset_content，按平台配置在自建公有库与外部数据集之间选择，来源不混用。
 """
 
 
@@ -362,7 +379,7 @@ async def retrieve_local_kb(
     top_k: int = 10,
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
-    """Execute private KB retrieval and return MCP-compatible payload."""
+    """Retrieve accessible uploaded KBs regardless of their visibility."""
 
     from mcp_servers.retrieve_dataset_content_mcp.impl import retrieve_local_kb as _impl
 
@@ -403,7 +420,7 @@ async def retrieve_local_kb(
             "error": {
                 "code": "tool_error",
                 "tool": "retrieve_local_kb",
-                "message": "私有知识库检索失败",
+                "message": "本地知识库检索失败",
                 "retryable": True,
             },
         }
@@ -690,11 +707,12 @@ async def wiki_fetch_source(
 # 改 mcp.list_tools 不生效——必须对 lowlevel server 重新注册一次（装饰器是
 # 覆盖写 request_handlers，不是追加）。
 
+
 _ORIGINAL_LIST_TOOLS = mcp.list_tools
 
 
 async def _list_tools_filtered():
-    """平台上没有任何 Wiki 源时，把 Wiki 工具从清单里摘掉。
+    """平台没有 Wiki 源时隐藏 Wiki 工具；公有检索按配置选择后端。
 
     每次 list_tools 都重新判定，所以切换知识库后端、或新建了一个开 Wiki 的自建库
     之后，无需重启 mcp 容器。

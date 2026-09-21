@@ -18,6 +18,7 @@ from core.config.catalog import get_catalog
 from core.config.catalog_common import _item
 from core.config.catalog_loader import (
     DB_HIDDEN_SERVERS,
+    DB_UMBRELLA_ICON,
     DB_UMBRELLA_ID,
     _database_query_capability_available,
     resolve_skill_detail,
@@ -159,7 +160,9 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
                 item["detail"] = detail
         items.append(item)
     if database_tools and _database_query_capability_available():
-        items.append({"id": DB_UMBRELLA_ID, "tools": sorted(database_tools)})
+        items.append(
+            {"id": DB_UMBRELLA_ID, "tools": sorted(database_tools), "icon": DB_UMBRELLA_ICON}
+        )
     return items
 
 
