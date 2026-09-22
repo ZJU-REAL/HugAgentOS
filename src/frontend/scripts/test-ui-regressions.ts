@@ -1,3 +1,4 @@
+import { finishSubagentToolCall } from "../src/utils/streamSegments";
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
@@ -360,3 +361,16 @@ import type { ChatItem, ChatMessage } from '../src/types';
 }
 
 console.log('ui regression checks OK');
+
+// A child terminal event settles its card and unfinished nested tools.
+{
+  const cards: import('../src/types').ToolCall[] = [{
+    id: 'child', name: 'call_subagent', status: 'running',
+    subSteps: [{ kind: 'tool', toolId: 'nested', status: 'running' },
+               { kind: 'tool', toolId: 'done', status: 'success' }],
+  }];
+  cards[0] = finishSubagentToolCall(cards[0], 'interrupted');
+  assert.equal(cards[0].status, 'interrupted');
+  assert.equal(cards[0].subSteps?.[0].status, 'interrupted');
+  assert.equal(cards[0].subSteps?.[1].status, 'success');
+}

@@ -94,6 +94,9 @@ _HEARTBEAT_INTERVAL_SEC = 15.0
 # within this many seconds (no yield, no raise, not cancelled) it is judged
 # hung; a TimeoutError is raised and handled by the existing except path that
 # writes the failed terminal state, so the run never stays in running forever.
+# Initial visible response budget; heartbeats and setup events do not count.
+_FIRST_RESPONSE_TIMEOUT_SEC = 30.0
+
 _INACTIVITY_TIMEOUT_SEC = float(os.getenv("CHAT_RUN_INACTIVITY_TIMEOUT_SEC", "600"))
 # Defense in depth: periodically check runs that are running and older than
 # this age (backstop for the watchdog, also cleans up historical zombie runs).
@@ -144,6 +147,7 @@ async def _aiter_with_inactivity_timeout(
     timeout: float,
     *,
     is_activity: Callable[[Any], bool] | None = None,
+    first_response_timeout: float | None = None,
 ):
     """Yield from an async iterator and enforce a meaningful-activity deadline.
 
@@ -154,17 +158,33 @@ async def _aiter_with_inactivity_timeout(
 
     Transport keep-alives may still be yielded to the caller, but they do not
     reset the deadline when ``is_activity`` marks them as non-meaningful.
+    The optional first-response deadline is absolute until visible output;
+    it is then disabled for the remainder of this workflow.
     """
     activity_check = is_activity or (lambda _: True)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    first_deadline = (
+        loop.time() + first_response_timeout
+        if first_response_timeout is not None else None
+    )
+
+    def timeout_error() -> TimeoutError:
+        from core.infra.exceptions import FirstResponseTimeoutError
+
+        if first_deadline is not None and loop.time() >= first_deadline:
+            return FirstResponseTimeoutError()
+        return TimeoutError(f"工作流 {timeout:.0f}s 内无有效输出，已判定为卡死并中止")
 
     while True:
-        remaining = deadline - loop.time()
+        effective_deadline = (
+            min(deadline, first_deadline) if first_deadline is not None else deadline
+        )
+        remaining = effective_deadline - loop.time()
         if remaining <= 0:
             with contextlib.suppress(Exception):
                 await aiter.aclose()  # type: ignore[attr-defined]
-            raise TimeoutError(f"工作流 {timeout:.0f}s 内无有效输出，已判定为卡死并中止")
+            raise timeout_error()
         try:
             item = await asyncio.wait_for(aiter.__anext__(), timeout=remaining)
         except StopAsyncIteration:
@@ -172,10 +192,25 @@ async def _aiter_with_inactivity_timeout(
         except asyncio.TimeoutError as exc:
             with contextlib.suppress(Exception):
                 await aiter.aclose()  # type: ignore[attr-defined]
-            raise TimeoutError(f"工作流 {timeout:.0f}s 内无有效输出，已判定为卡死并中止") from exc
+            raise timeout_error() from exc
+        if first_deadline is not None and _is_first_response(item):
+            first_deadline = None
         if activity_check(item):
             deadline = loop.time() + timeout
         yield item
+
+
+def _is_first_response(item: Any) -> bool:
+    """Only visible model output or a tool interaction ends the initial wait."""
+    kind = item.get("type")
+    if kind in {"ai_message", "content", "thinking"}:
+        return bool(item.get("delta"))
+    if kind == "content_replace":
+        return bool(item.get("content"))
+    return kind in {
+        "tool_call_start", "tool_call_delta", "tool_call", "tool_result",
+        "tool_pending", "batch_confirm", "file_confirm", "plan_update",
+    }
 
 
 def _is_chat_run_activity(item: Any, chat_id: str) -> bool:
@@ -1437,6 +1472,7 @@ async def _run_workflow(
             ),
             _INACTIVITY_TIMEOUT_SEC,
             is_activity=lambda item: _is_chat_run_activity(item, chat_id),
+            first_response_timeout=_FIRST_RESPONSE_TIMEOUT_SEC,
         ):
             now = time.monotonic()
             if now >= next_cancel_poll:

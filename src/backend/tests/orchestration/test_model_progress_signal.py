@@ -171,3 +171,37 @@ async def test_user_question_resolved_is_drained_before_immediate_stream_done(mo
         "user_question_resolved",
         {"event": "resolved", "request_id": "req-fast", "outcome": "answered"},
     ) in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_kind", ["close", "shutdown", "cancel"])
+async def test_stream_termination_joins_real_producer(exit_kind):
+    stopped = asyncio.Event()
+
+    async def reply_stream(inputs=None):
+        try:
+            yield ToolCallStartEvent()
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0.03)
+            stopped.set()
+
+    agent = _fake_agent([])
+    agent.reply_stream = reply_stream
+    sa = StreamingAgent(agent, [])
+    stream = sa.stream([], {"enable_thinking": True})
+    await anext(stream)
+    if exit_kind == "shutdown":
+        await sa.shutdown()
+    elif exit_kind == "cancel":
+        task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        await stream.aclose()
+    assert stopped.is_set()
+    await stream.aclose()

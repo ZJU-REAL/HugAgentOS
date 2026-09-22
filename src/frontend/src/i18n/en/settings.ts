@@ -632,6 +632,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '模型供应商已添加并通过连通性校验': 'Model provider added and connectivity verified',
   '连通性正常（{ms}ms）': 'Connectivity OK ({ms}ms)',
   '连通性失败：{msg}': 'Connectivity failed: {msg}',
+  '默认跟随用户选择的模型': 'Follows the user-selected model by default',
   '角色分配已更新': 'Role assignment updated',
   '角色指派': 'Role Assignment',
   '模型选择': 'Model Selection',

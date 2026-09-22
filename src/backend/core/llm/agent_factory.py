@@ -28,6 +28,7 @@ from core.llm.execution_manifest import PromptManifestBuilder, tool_manifest_fro
 from core.llm.manifest_agent import ManifestBoundAgent
 from core.llm.mcp_manager import close_clients
 from core.llm.mcp_pool import MCPConnectionPool
+from core.llm.mcp_manager import close_factory_clients_on_error, own_factory_client
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
     AgentRuntimeState,
@@ -44,7 +45,6 @@ from core.llm.middlewares import (
     ToolEffectMiddleware,
     WorkspacePinHintMiddleware,
 )
-from core.llm.providers.registry import get_spec, split_provider_extra
 from core.llm.tool_collector import ToolCollector
 from core.llm.tools import (
     ReadStateTracker,
@@ -692,6 +692,7 @@ def _resolve_prompt_fragments(fragment_ids: list[str]) -> list[str]:
     return [by_id[fid] for fid in fragment_ids if by_id.get(fid)]
 
 
+@close_factory_clients_on_error
 async def create_agent_executor(
     agent_spec: Optional[AgentSpec] = None,
     user_query: Optional[str] = None,
@@ -814,6 +815,22 @@ async def create_agent_executor(
     """
     import asyncio
     from core.llm.middlewares import CURRENT_RUN_BINDING
+
+    # The shared subagent role is an administrator override. Resolve it before
+    # tools/vision/manifests so all surfaces use the same effective provider.
+    _shared_subagent_cfg = None
+    if user_agent is not None:
+        from core.services.model_config import ModelConfigService
+
+        _model_service = ModelConfigService.get_instance()
+        _role_cfg = await asyncio.to_thread(_model_service.resolve, "subagent")
+        if _role_cfg is not None:
+            _shared_subagent_cfg = await asyncio.to_thread(
+                _model_service.resolve_provider, _role_cfg.provider_id
+            )
+        if _shared_subagent_cfg is not None:
+            model_provider_id = _shared_subagent_cfg.provider_id
+            model_name = _shared_subagent_cfg.model_name
 
     inherited_run_binding = CURRENT_RUN_BINDING.get()
     if inherited_run_binding is not None:
@@ -1785,7 +1802,7 @@ async def create_agent_executor(
                     key,
                 )
                 return None
-            client = make_client(key, _http_cfg, is_stateful=False)
+            client = own_factory_client(make_client(key, _http_cfg, is_stateful=False))
             if uses_manifest_schema(_http_cfg):
                 # The complete, authorized schema arrived in the dynamic cloud
                 # manifest. Agent construction is network-free; only a model-
@@ -2130,7 +2147,10 @@ async def create_agent_executor(
         from core.vision import resolve_vision_mode
 
         _vision_mode = resolve_vision_mode(
-            getattr(user_agent, "model_provider_id", None) or model_provider_id or ""
+            (_shared_subagent_cfg.provider_id if _shared_subagent_cfg else None)
+            or getattr(user_agent, "model_provider_id", None)
+            or model_provider_id
+            or ""
         )
 
         if code_capability_enabled():
@@ -2926,14 +2946,16 @@ async def create_agent_executor(
     # `code_exec` role is kept as an optional ops override (operators can map it
     # explicitly in model_config), but it is not referenced by default.
     default_model = None
+    _subagent_model_pinned = False
     _selected_provider_cfg = None
     _selected_provider_id = (model_provider_id or "").strip()
     if _selected_provider_id:
         try:
             from core.services.model_config import ModelConfigService
 
-            _selected_provider_cfg = ModelConfigService.get_instance().resolve_provider(
-                _selected_provider_id
+            _selected_provider_cfg = (
+                _shared_subagent_cfg
+                or ModelConfigService.get_instance().resolve_provider(_selected_provider_id)
             )
             if _selected_provider_cfg:
                 from core.llm.chat_models import build_model_for_mode
@@ -2945,8 +2967,9 @@ async def create_agent_executor(
                     _selected_provider_cfg,
                     mode=_mode,
                 )
+                _subagent_model_pinned = user_agent is not None
                 _log.info(
-                    "[factory] using user-selected model: %s",
+                    "[factory] using selected model: %s",
                     _selected_provider_cfg.model_name,
                 )
         except Exception as exc:
@@ -2987,104 +3010,66 @@ async def create_agent_executor(
 
     # ── Sub-agent config override (model / temperature / max_tokens) ──
     # Triggers when user_agent specifies a custom model provider, a non-null
-    # temperature, or a non-null max_tokens. Non-overridden fields fall back to
-    # the main_agent model config so temperature-only overrides still work.
-    # A subagent with an explicitly configured model → set the pin; downstream DynamicModelMiddleware must not override it by chat_mode.
-    _subagent_model_pinned = False
-    if user_agent is not None:
+    # temperature, or a non-null max_tokens. The shared role takes precedence;
+    # otherwise parameter-only overrides retain the user's selected provider.
+    # Pin selected child models to avoid replacing their fresh, thread-local
+    # client with a cached main-agent client in DynamicModelMiddleware.
+    if user_agent is not None and _shared_subagent_cfg is None:
         _user_temp = float(user_agent.temperature) if user_agent.temperature is not None else None
         _user_max_tokens = user_agent.max_tokens or None
         _user_timeout = user_agent.timeout or None
         _user_provider_id = user_agent.model_provider_id
 
-        if _user_provider_id or _user_temp is not None or _user_max_tokens:
+        if _user_provider_id or _user_temp is not None or _user_max_tokens or _user_timeout:
             try:
-                from core.db.engine import SessionLocal
-                from core.db.models import ModelProvider
+                from core.llm.chat_models import build_model_for_mode
                 from core.services.model_config import ModelConfigService
 
-                provider = None
-                if _user_provider_id:
-                    with SessionLocal() as _db:
-                        provider = (
-                            _db.query(ModelProvider)
-                            .filter(
-                                ModelProvider.provider_id == _user_provider_id,
-                                ModelProvider.is_active == True,
-                            )
-                            .first()
-                        )
+                _model_service = ModelConfigService.get_instance()
+                _provider_cfg = (
+                    _model_service.resolve_provider(_user_provider_id)
+                    if _user_provider_id
+                    else None
+                )
+                _base_cfg = (
+                    _provider_cfg or _selected_provider_cfg or _model_service.resolve("main_agent")
+                )
+                if _base_cfg is not None:
+                    _override_cfg = replace(
+                        _base_cfg,
+                        temperature=(
+                            _user_temp if _user_temp is not None else _base_cfg.temperature
+                        ),
+                        max_tokens=_user_max_tokens or _base_cfg.max_tokens,
+                        timeout=_user_timeout or _base_cfg.timeout,
+                    )
+                    from core.llm.failover import with_failover
 
-                # Fallback model config (main_agent) for params the user didn't override
-                _fallback_cfg = ModelConfigService.get_instance().resolve("main_agent")
-
-                _final_model = (
-                    provider.model_name
-                    if provider
-                    else (_fallback_cfg.model_name if _fallback_cfg else None)
-                )
-                _final_base_url = (
-                    provider.base_url
-                    if provider
-                    else (_fallback_cfg.base_url if _fallback_cfg else None)
-                )
-                _final_api_key = (
-                    provider.api_key
-                    if provider
-                    else (_fallback_cfg.api_key if _fallback_cfg else None)
-                )
-                if provider:
-                    _final_provider = getattr(provider, "provider", None) or "openai_compatible"
-                    _final_provider_extra = split_provider_extra(
-                        get_spec(_final_provider), provider.extra_config or {}
+                    _overrides = {
+                        key: value
+                        for key, value in {
+                            "temperature": _user_temp,
+                            "max_tokens": _user_max_tokens,
+                            "timeout": _user_timeout,
+                        }.items()
+                        if value is not None
+                    }
+                    _mode = (chat_mode or "medium").lower()
+                    default_model = with_failover(
+                        build_model_for_mode(_override_cfg, mode=_mode, stream=True),
+                        _override_cfg,
+                        mode=_mode,
+                        parameter_overrides=_overrides,
                     )
-                    _final_api_protocol = (provider.extra_config or {}).get("api_protocol")
-                else:
-                    _final_provider = (
-                        _fallback_cfg.provider if _fallback_cfg else "openai_compatible"
-                    )
-                    _final_provider_extra = _fallback_cfg.provider_extra if _fallback_cfg else {}
-                    _final_api_protocol = (
-                        (_fallback_cfg.extra or {}).get("api_protocol") if _fallback_cfg else None
-                    )
-                _final_temp = (
-                    _user_temp
-                    if _user_temp is not None
-                    else (_fallback_cfg.temperature if _fallback_cfg else 0.6)
-                )
-                _final_max_tokens = _user_max_tokens or (
-                    _fallback_cfg.max_tokens if _fallback_cfg else None
-                )
-                _final_timeout = _user_timeout or (_fallback_cfg.timeout if _fallback_cfg else 120)
-
-                if _final_model and _final_base_url and _final_api_key:
-                    default_model = make_chat_model(
-                        model=_final_model,
-                        temperature=_final_temp,
-                        max_tokens=_final_max_tokens,
-                        timeout=_final_timeout,
-                        base_url=_final_base_url,
-                        api_key=_final_api_key,
-                        provider=_final_provider,
-                        provider_extra=_final_provider_extra,
-                        api_protocol=_final_api_protocol,
-                        stream=True,
-                    )
-                    # Only an explicitly selected model provider pins; changing
-                    # only temp/max_tokens (provider is None, model falls back
-                    # to the main config) does not pin, preserving dynamic
-                    # chat_mode switching.
-                    _subagent_model_pinned = provider is not None
+                    # Parameter overrides must survive on_reply too. The model
+                    # is freshly constructed in this child's event loop.
+                    _subagent_model_pinned = True
+                    model_provider_id = _override_cfg.provider_id
                     _log.info(
-                        "[factory] subagent config override: model=%s, temp=%s, max_tokens=%s, pinned=%s",
-                        _final_model,
-                        _final_temp,
-                        _final_max_tokens,
-                        _subagent_model_pinned,
-                    )
-                else:
-                    _log.warning(
-                        "[factory] subagent override skipped: missing model/base_url/api_key"
+                        "[factory] subagent config override: model=%s, temp=%s, max_tokens=%s",
+                        _override_cfg.model_name,
+                        _override_cfg.temperature,
+                        _override_cfg.max_tokens,
                     )
             except Exception as exc:
                 _log.warning("[factory] subagent config override failed: %s, using default", exc)
@@ -3320,6 +3305,8 @@ async def create_agent_executor(
         # The effective model name is read directly off the model object (the AS2 attribute is .model), same source as the compression window
         model_name=getattr(default_model, "model", None) or model_name or "",
         model_pinned=_subagent_model_pinned,
+        model_provider_id=model_provider_id or "",
+        chat_mode=chat_mode,
         user_id=current_user_id,
         chat_id=chat_id,
         run_id=run_id,

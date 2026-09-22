@@ -360,7 +360,13 @@ async def _replay(
         yield item
 
 
-def with_failover(primary: ChatModelBase, resolved: Any, *, mode: Optional[str] = None):
+def with_failover(
+    primary: ChatModelBase,
+    resolved: Any,
+    *,
+    mode: Optional[str] = None,
+    parameter_overrides: Optional[dict[str, Any]] = None,
+):
     """Wrap *primary* in its failover chain, or return it unchanged when alone.
 
     ``resolved`` is the ``ResolvedModelConfig`` *primary* was built from; it is
@@ -376,6 +382,10 @@ def with_failover(primary: ChatModelBase, resolved: Any, *, mode: Optional[str] 
         return primary
 
     fallbacks = [c for c in chain if not resolved or c.provider_id != resolved.provider_id]
+    if parameter_overrides:
+        from dataclasses import replace
+
+        fallbacks = [replace(cfg, **parameter_overrides) for cfg in fallbacks]
     if not fallbacks:
         return primary
     return FailoverChatModel(

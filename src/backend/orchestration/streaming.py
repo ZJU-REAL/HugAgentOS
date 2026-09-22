@@ -164,6 +164,7 @@ class StreamingAgent:
         agent: Agent,
         mcp_clients: List[MCPClient],
     ):
+        self._producer_task = None
         self.agent = agent
         self.mcp_clients = mcp_clients
         self._enable_thinking = False
@@ -561,6 +562,8 @@ class StreamingAgent:
                         if result_step is None:
                             raise RuntimeError(f"Tool result {tid} is missing from model context")
                     await event_q.put(("ev", (ev, result_step)))
+            except asyncio.CancelledError:
+                raise
             except BaseException as e:  # noqa: BLE001
                 import traceback
 
@@ -572,6 +575,7 @@ class StreamingAgent:
                 await event_q.put(("done", _DONE))
 
         prod_task = asyncio.create_task(_produce())
+        self._producer_task = prod_task
 
         _stream_start = time.monotonic()
         _first_event_logged = False
@@ -652,6 +656,7 @@ class StreamingAgent:
         except Exception as e:  # noqa: BLE001
             yield ("error", e)
         finally:
+            await self.stop_producer()
             # Deregister the subagent bypass — prevents late events from being written into a finished run's event_q.
             try:
                 _subagent_stream.detach(st.chat_id)
@@ -693,21 +698,6 @@ class StreamingAgent:
                 _log_ctx.__exit__(None, None, None)
             except Exception:
                 pass
-            if not prod_task.done():
-
-                async def _wait():
-                    try:
-                        await asyncio.wait_for(asyncio.shield(prod_task), timeout=10)
-                    except asyncio.TimeoutError:
-                        prod_task.cancel()
-                        try:
-                            await prod_task
-                        except BaseException:
-                            pass
-                    except Exception:
-                        pass
-
-                asyncio.create_task(_wait())
 
     async def _map_event(
         self, ev: Any, *, result_step: Optional[Dict[str, Any]] = None
@@ -987,10 +977,21 @@ class StreamingAgent:
         # images as input, so intentionally dropped; add a branch when support is needed).
         return
 
+    async def stop_producer(self):
+        """Stop actual model/tool work before closing the stream or its clients."""
+        from core.infra.task_lifecycle import cancel_and_join
+
+        task = self._producer_task
+        if task is not None:
+            await cancel_and_join(task)
+            if self._producer_task is task:
+                self._producer_task = None
+
     async def shutdown(self):
         """Close transient (per-request) MCP clients."""
         from core.llm.mcp_manager import close_clients
 
+        await self.stop_producer()
         try:
             await close_clients(self.mcp_clients)
         except Exception as exc:

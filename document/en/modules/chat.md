@@ -529,3 +529,8 @@ Skill loading, plugin loading and tools with an unambiguous connector owner disp
 Canvas omits the fixed “【agent name】的回复：” heading added by the tool response wrapper while preserving the agent’s answer. Tool batch headers fill the transcript width from their first render and keep the same width when individual tool details are expanded or collapsed.
 
 Tools inherit their connector logo; skills and tools belonging to a plugin inherit the plugin logo.
+
+
+### First response timeout
+
+Once a normal chat workflow starts, it has 30 seconds to produce visible text, reasoning text, or a tool interaction. Otherwise the run ends with “当前模型调用量大，算力资源紧张，请稍后再试！” (The model is busy; please try again later). Heartbeats, empty deltas, and setup status events do not satisfy this deadline. After the first meaningful response, only the existing inactivity timeout applies. The timeout is persisted and remains available after refresh or stream replay.

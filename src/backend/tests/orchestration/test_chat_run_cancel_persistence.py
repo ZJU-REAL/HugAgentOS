@@ -209,3 +209,71 @@ def test_fenced_by_takeover_stays_silent(cancel_env, monkeypatch):
 
     assert executor._cancelled_by_user("run-live") is False
     assert executor._cancelled_by_user("run-missing") is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("heartbeats", [True, False])
+async def test_first_response_timeout_ends_silent_run(cancel_env, monkeypatch, heartbeats):
+    monkeypatch.setattr(executor, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def silent_workflow(**_kwargs):
+        entered.set()
+        try:
+            yield {"type": "thinking", "message": "正在分析您的问题..."}
+            if not heartbeats:
+                await asyncio.Event().wait()
+            while True:
+                yield {"type": "heartbeat"}
+                yield {"type": "ai_message", "delta": ""}
+                await asyncio.sleep(0.01)
+        finally:
+            closed.set()
+
+    run = await _start(silent_workflow, monkeypatch, entered)
+    worker = executor._active_runs[run.run_id]
+    try:
+        await asyncio.wait_for(asyncio.shield(worker), timeout=1)
+        assert closed.is_set()
+        assert executor.get_run(run.run_id).status == "failed"
+        events = [event async for event in executor.follow_run(run.run_id)]
+        errors = [event for event in events if event.get("type") == "error"]
+        assert errors[0]["error"] == "当前模型调用量大，算力资源紧张，请稍后再试！"
+        with cancel_env() as db:
+            stored = db.get(ChatMessage, run.message_id)
+            assert stored.error["error"] == errors[0]["error"]
+    finally:
+        if not worker.done():
+            worker.cancel()
+            await _await_worker(worker)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_event", [
+    {"type": "ai_message", "delta": "正文"},
+    {"type": "thinking", "delta": "思考"},
+    {"type": "tool_call_start", "tool_name": "bash", "tool_id": "call-1"},
+    {"type": "plan_update", "title": "执行计划", "steps": []},
+])
+async def test_visible_response_disarms_initial_deadline(cancel_env, monkeypatch, first_event):
+    monkeypatch.setattr(executor, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
+    entered = asyncio.Event()
+    continued = asyncio.Event()
+
+    async def responding_workflow(**_kwargs):
+        yield first_event
+        entered.set()
+        await asyncio.sleep(0.2)
+        continued.set()
+        await asyncio.Event().wait()
+
+    run = await _start(responding_workflow, monkeypatch, entered)
+    worker = executor._active_runs[run.run_id]
+    try:
+        await asyncio.wait_for(continued.wait(), timeout=1)
+        assert executor.get_run(run.run_id).status == "running"
+    finally:
+        await executor.cancel_run(run.run_id, user_id="user-1")
+        await _await_worker(worker)
+    assert executor.get_run(run.run_id).status == "cancelled"

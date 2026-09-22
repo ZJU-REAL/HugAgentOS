@@ -112,6 +112,10 @@ def build_effective_user_message(
 def resolve_user_facing_error(exc: Exception) -> str:
     """Map exceptions to user-friendly Chinese error strings."""
     from core.capabilities.errors import CapabilityError
+    from core.infra.exceptions import FirstResponseTimeoutError
+
+    if isinstance(exc, FirstResponseTimeoutError):
+        return str(exc)
 
     if isinstance(exc, CapabilityError):
         # Use fixed messages: dependency metadata and upstream exception text

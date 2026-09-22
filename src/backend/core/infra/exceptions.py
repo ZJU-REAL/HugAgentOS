@@ -20,6 +20,13 @@ class AppException(Exception):
         super().__init__(self.message)
 
 
+class FirstResponseTimeoutError(TimeoutError):
+    """A chat produced no user-visible response before its deadline."""
+
+    def __init__(self):
+        super().__init__("当前模型调用量大，算力资源紧张，请稍后再试！")
+
+
 # 2xxxx - Client Request Errors
 class BadRequestError(AppException):
     """400 Bad Request."""

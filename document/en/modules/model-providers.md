@@ -1,8 +1,8 @@
 # Model Providers
 
-> Last updated: 2026-08-24
+> Last updated: 2026-09-22
 
-HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with a 30-second TTL cache, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
+HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with snapshots validated against the database revision, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
 
 ## Configuring models: providers + roles
 
@@ -11,6 +11,7 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 | role_key | Purpose | Type |
 |---|---|---|
 | `main_agent` | Main agent reasoning (required; chat endpoints return 503 if missing) | chat |
+| `subagent` | Shared subagent model (optional; follows the user's selection by default) | chat |
 | `summarizer` | Chat title summary + classification | chat |
 | `followup` | Follow-up question generation | chat |
 | `memory` | Memory extraction (mem0) | chat |
@@ -24,6 +25,12 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 | `vision` | Image understanding (vision bridge) — see below | chat |
 
 `extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported) / `supports_vision` (whether the model reads images natively) / `api_protocol` (wire protocol, see below).
+
+### Shared subagent model
+
+Select a chat provider under **Config → Model Management → Role Assignments → Subagent** to use it for all built-in and custom subagents (EE console; CE exposes the same role under Settings → Model Services). Changes apply when the next subagent is created; running tasks keep their model.
+
+Precedence is **shared subagent model → an agent's existing explicit model → the user's current model selection → main-agent default**. The shared role is unassigned by default. Subagents without an individual override follow the user's selection. Clearing the assignment or deactivating its provider restores this fallback order. The shared role uses the provider's parameters; individual parameter overrides remain effective when no shared model is assigned. Subagents inherit the current thinking mode, and dynamic model switching does not replace their selected model with the system default.
 
 ### Wire protocol: Responses by default, chat completions only as a fallback
 
@@ -101,13 +108,13 @@ Resolution order:
 | `GET /v1/models/export`, `POST /v1/models/import` | Cross-environment migration of model config |
 | `GET /v1/models/capabilities` | **Public endpoint**: exposes only the `main_agent.supports_reasoning_effort` boolean, which drives the frontend "thinking: medium/high/max" switch |
 
-All writes call `ModelConfigService.invalidate_cache()`; the whole process picks the change up within 30 seconds.
+Every model configuration write commits a database revision in the same transaction. Each worker checks that revision on its next lookup and reloads roles, providers, and failover candidates from one SQL snapshot. No TTL wait or restart is required. Model instances are isolated per event loop; running tasks retain their starting model.
 
 ## JxOpenAIChatModel (core/llm/chat_models.py)
 
 Runtime model instances are built by `make_chat_model()`, which returns `JxOpenAIChatModel` — a subclass of AgentScope 2.0's `OpenAIChatModel` that adds three things the stock class cannot do:
 
-1. **Streaming read timeout**: generating long tool-call arguments can stay silent for 130–160 s per chunk; a custom `httpx.AsyncClient` raises the read timeout to 600 s (`STREAM_READ_TIMEOUT_S`) while connect/write/pool keep the provider-configured timeout.
+1. **Request and streaming read timeout**: OpenAI-compatible, native, and LiteLLM providers honor the configured timeout without a forced 600-second minimum. It bounds an individual request/read, not the entire multi-turn task. Configure a longer timeout explicitly for slow models; retries and failover may increase total waiting time.
 2. **Thinking-chain switch**: OpenAI-compatible endpoints like Qwen / MiniMax control thinking via `extra_body.chat_template_kwargs` (`enable_thinking` / `thinking` / `reasoning_effort`), injected on every call.
 3. **Structured-output fallback (L3)**: context compression goes through `generate_structured_output()`; some models return malformed JSON, which would crash the whole `reply()`. The subclass catches the exception and returns the `L3_SYNTHETIC_METADATA` placeholder summary so compression still lands and the conversation continues.
 
@@ -119,7 +126,7 @@ Each frontend message may carry `chat_mode` (`turbo / fast / medium / high / max
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
-          → hooks._get_main_model(mode)        # process-level instance cache, invalidated by ModelConfigService.version
+          → hooks._get_main_model(mode)        # event-loop-local instance cache, invalidated by database revision
    turbo/fast → disable_thinking=True (turbo additionally narrows the agent to retrieval-only tools at assembly time)
    medium → thinking on (with effort=medium when supports_reasoning_effort)
    high/max → reasoning_effort=high/max (endpoint must declare support)
@@ -173,3 +180,7 @@ Community Edition users can see their own token usage; organization-level billin
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
 | Routing strategy | `src/backend/orchestration/strategy.py` |
 | Fail-fast on missing main model | `src/backend/api/routes/v1/chats.py::_ensure_main_model_configured` |
+
+### Child cancellation and parameter overrides
+
+Individual temperature, output-length, and timeout overrides also apply to failover candidates. Cancelling the parent withdraws queued child calls and cancels running child coroutines. Cleanup completes before the cancellation log and terminal event are emitted, including for repeated cancellation and direct agent conversations.

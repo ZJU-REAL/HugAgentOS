@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import time
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -19,6 +20,7 @@ from agentscope.tool import Toolkit
 
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
+from core.infra.task_lifecycle import settle_task
 from core.llm import subagent_sessions
 from core.llm.context_adapter import next_request_sequence, render_context_item
 from core.llm.context_ir import (
@@ -38,6 +40,35 @@ _subagent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subagent"
 
 _TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 0.05
 _TOOL_CALL_DELTA_FLUSH_CHARS = 256
+
+
+class _ChildExecution:
+    """Bridge cancellation to the task that owns the child's MCP scopes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._cancelled = False
+        self._owner = None
+
+    def bind(self, loop, task) -> None:
+        with self._lock:
+            self._owner = (loop, task)
+            if self._cancelled:
+                task.cancel()
+
+    def cancel(self) -> None:
+        with self._lock:
+            if self._cancelled:
+                return
+            self._cancelled = True
+            if self._owner is not None:
+                loop, task = self._owner
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(task.cancel)
+
+    def unbind(self) -> None:
+        with self._lock:
+            self._owner = None
 
 
 def _shared_ontology_runtime(agent_ref: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -230,6 +261,7 @@ def _run_subagent_in_thread(
     ontology_runtime: Optional[Dict[str, Any]] = None,
     parent_runtime: Optional[Dict[str, Any]] = None,
     resume_messages: Optional[List[Dict[str, Any]]] = None,
+    execution: Optional[_ChildExecution] = None,
 ) -> Tuple[bool, str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Run a single sub-agent inside a *new* event loop on a worker thread.
 
@@ -403,29 +435,35 @@ def _run_subagent_in_thread(
                 await close_clients(mcp_clients)
             except BaseException as exc:
                 logger.debug("close_clients error (ignored): %s", exc)
-            # Redis async connections are scoped to this thread-local event
-            # loop. Close them before loop.close(); otherwise redis-py retains
-            # sockets tied to a dead loop after every sub-agent invocation.
+
+    async def _owned_inner():
+        if execution is not None:
+            execution.bind(asyncio.get_running_loop(), asyncio.current_task())
+        try:
+            await asyncio.sleep(0)  # deliver cancellation before construction starts
+            return await _inner()
+        finally:
+            from core.infra.redis import close_redis
+            from core.llm.chat_models import close_loop_http_clients
+            from core.llm.hooks import release_loop_models
+
+            release_loop_models()
             try:
-                from core.infra.redis import close_redis
+                await close_loop_http_clients()
+            finally:
+                try:
+                    await close_redis()
+                finally:
+                    if execution is not None:
+                        execution.unbind()
 
-                await close_redis()
-            except BaseException as exc:
-                logger.debug("subagent redis close error (ignored): %s", exc)
-
-    loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(_inner())
+        return asyncio.run(_owned_inner())
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
-        logger.error(
-            "subagent thread failed: agent=%s, error=%s",
-            agent_name,
-            e,
-            exc_info=True,
-        )
+        logger.error("subagent thread failed: agent=%s, error=%s", agent_name, e, exc_info=True)
         return False, str(e)[:200], [], []
-    finally:
-        loop.close()
 
 
 def _child_capability_runtime(parent_runtime, agent_id):
@@ -592,30 +630,49 @@ def register_subagent_tool(
         # auditable record. Best-effort, never blocks tool execution. ──
         builtin_role = (agent_info.get("extra_config") or {}).get("builtin_role")
         _run_start = time.monotonic()
-        _sub_log_id = await log_writer.start_subagent_log(
-            {
-                "subagent_name": agent_name,
-                "subagent_type": f"builtin_{builtin_role}" if builtin_role else "user_agent",
-                "subagent_id": agent_id,
-                "input_messages": {
-                    "task": task,
-                    "context_summary": context_summary,
-                    "resume_session_id": resume_handle,
-                },
-            }
+        _sub_log_id = uuid.uuid4().hex
+        _log_start = asyncio.create_task(
+            log_writer.start_subagent_log(
+                {
+                    "id": _sub_log_id,
+                    "subagent_name": agent_name,
+                    "subagent_type": f"builtin_{builtin_role}" if builtin_role else "user_agent",
+                    "subagent_id": agent_id,
+                    "input_messages": {
+                        "task": task,
+                        "context_summary": context_summary,
+                        "resume_session_id": resume_handle,
+                    },
+                }
+            )
         )
+        _execution = _ChildExecution()
+        _worker = None
+        _submitted = None
+        _terminal = None
 
         async def _finish(status: str, *, output: str = "", error: Optional[str] = None) -> None:
-            await log_writer.finish_subagent_log(
-                _sub_log_id,
-                status=status,
-                output_content=output or None,
-                tool_calls_count=_tool_count["n"],
-                error_message=error,
-                duration_ms=int((time.monotonic() - _run_start) * 1000),
-            )
+            nonlocal _terminal
+
+            async def record_terminal():
+                await _log_start
+                await log_writer.finish_subagent_log(
+                    _sub_log_id,
+                    status=status,
+                    output_content=output or None,
+                    tool_calls_count=_tool_count["n"],
+                    error_message=error,
+                    duration_ms=int((time.monotonic() - _run_start) * 1000),
+                )
+                if _emit is not None:
+                    _emit({"sub_type": "end", "ok": status == "success", "status": status})
+
+            if _terminal is None:
+                _terminal = asyncio.create_task(record_terminal())
+            await asyncio.shield(_terminal)
 
         try:
+            await asyncio.shield(_log_start)
             loop = asyncio.get_running_loop()
             # The parent and child must share one governance run. A shallow
             # copy here would let child activations update nested lists while
@@ -635,8 +692,7 @@ def register_subagent_tool(
                     ],
                     state="error",
                 )
-            ok, text, sub_pinned, final_messages = await loop.run_in_executor(
-                _subagent_pool,
+            _submitted = _subagent_pool.submit(
                 _run_subagent_in_thread,
                 agent_id,
                 agent_name,
@@ -648,7 +704,10 @@ def register_subagent_tool(
                 ontology_runtime,
                 child_runtime,
                 resume_messages,
+                _execution,
             )
+            _worker = asyncio.wrap_future(_submitted, loop=loop)
+            ok, text, sub_pinned, final_messages = await asyncio.shield(_worker)
 
             # Feed the files the sub-agent pinned to its workspace back into the main
             # context's workspace: the sub-agent has its own workspace ContextVar in its own
@@ -671,9 +730,6 @@ def register_subagent_tool(
                 except Exception as _exc:  # noqa: BLE001
                     logger.warning("[subagent_tool] re-pin subagent files failed: %s", _exc)
 
-            if _emit is not None:
-                _emit({"sub_type": "end", "ok": bool(ok)})
-
             if not ok:
                 await _finish("failed", output=text, error=text)
                 return ToolResponse(
@@ -692,8 +748,6 @@ def register_subagent_tool(
                 len(text),
             )
 
-            await _finish("success", output=text)
-
             # Hand the parent a handle onto this child's context so a follow-up
             # task can continue it instead of re-deriving what it already knows.
             next_handle = resume_handle or subagent_sessions.new_handle()
@@ -704,6 +758,7 @@ def register_subagent_tool(
                 chat_id=chat_id,
                 messages=final_messages,
             )
+            await _finish("success", output=text)
             resume_note = (
                 f"\n\n（续跑句柄：{next_handle}。需要该子智能体在此基础上继续时，"
                 "把 resume_session_id 设为它。）"
@@ -719,6 +774,27 @@ def register_subagent_tool(
                 ]
             )
 
+        except asyncio.CancelledError:
+            _execution.cancel()
+            if _submitted is not None:
+                _submitted.cancel()  # removes queued work; running work uses the task bridge
+
+            async def finish_cancelled():
+                # Wait for the actual worker, not the cancelled asyncio wrapper.
+                # A queued child binds the already-cancelled execution before
+                # its first await, so it cannot start a model/tool call.
+                if _worker is not None:
+                    try:
+                        await settle_task(_worker)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.exception("subagent cleanup failed after cancellation")
+                await settle_task(_log_start)
+                await _finish("cancelled", error="parent task cancelled")
+
+            await settle_task(asyncio.create_task(finish_cancelled()))
+            raise
         except Exception as e:
             logger.error("call_subagent failed: agent=%s, error=%s", agent_id, e, exc_info=True)
             if _emit is not None:

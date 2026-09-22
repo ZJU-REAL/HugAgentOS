@@ -9,20 +9,22 @@ from typing import Optional
 from sqlalchemy.orm import Session, joinedload
 
 from core.db.models import ModelProvider, ModelRoleAssignment
+from core.db.model_config_revision import bump_revision
 
 
 # ── Predefined roles ─────────────────────────────────────────────────────────
 
 ROLE_DEFINITIONS: dict[str, dict] = {
     "main_agent": {"label": "主智能体推理", "type": "chat"},
+    "subagent": {"label": "子智能体", "type": "chat"},
     "summarizer": {"label": "标题摘要 + 分类", "type": "chat"},
-    "followup":   {"label": "追问生成", "type": "chat"},
-    "memory":     {"label": "记忆提取 (mem0)", "type": "chat"},
-    "embedding":  {"label": "文本向量化", "type": "embedding"},
-    "reranker":   {"label": "搜索结果重排序", "type": "reranker"},
-    "chart":      {"label": "图表代码生成", "type": "chat"},
+    "followup": {"label": "追问生成", "type": "chat"},
+    "memory": {"label": "记忆提取 (mem0)", "type": "chat"},
+    "embedding": {"label": "文本向量化", "type": "embedding"},
+    "reranker": {"label": "搜索结果重排序", "type": "reranker"},
+    "chart": {"label": "图表代码生成", "type": "chat"},
     "plan_agent": {"label": "计划模式推理", "type": "chat"},
-    "code_exec":  {"label": "代码执行推理", "type": "chat"},
+    "code_exec": {"label": "代码执行推理", "type": "chat"},
     # 自主循环的评审员/规划器共用此角色（后台模型管理页可独立指定；未配置时回落 main_agent）。
     "loop_reviewer": {"label": "自主循环评审与规划", "type": "chat"},
     # 知识库 Wiki 生成（实体/概念抽取、引文标注、页面撰写）。这是纯离线批处理，
@@ -111,6 +113,7 @@ def create_provider(db: Session, *, display_name: str, provider_type: str,
         is_active=is_active,
     )
     db.add(provider_row)
+    bump_revision(db)
     db.commit()
     db.refresh(provider_row)
     return provider_row
@@ -124,6 +127,7 @@ def update_provider(db: Session, provider_id: str, **fields) -> Optional[ModelPr
         if val is not None and hasattr(provider, key):
             setattr(provider, key, val)
     provider.updated_at = datetime.utcnow()
+    bump_revision(db)
     db.commit()
     db.refresh(provider)
     return provider
@@ -135,6 +139,7 @@ def delete_provider(db: Session, provider_id: str) -> bool:
     if provider is None:
         return False
     db.delete(provider)
+    bump_revision(db)
     db.commit()
     return True
 
@@ -217,6 +222,7 @@ def assign_role(db: Session, role_key: str, provider_id: str, updated_by: str = 
             updated_at=datetime.utcnow(),
             updated_by=updated_by,
         ))
+    bump_revision(db)
     db.commit()
     return True
 
@@ -226,6 +232,7 @@ def unassign_role(db: Session, role_key: str) -> bool:
     if row is None:
         return False
     db.delete(row)
+    bump_revision(db)
     db.commit()
     return True
 
@@ -318,5 +325,6 @@ def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
             ))
         imported_roles += 1
 
+    bump_revision(db)
     db.commit()
     return {"imported_providers": imported_providers, "imported_roles": imported_roles}

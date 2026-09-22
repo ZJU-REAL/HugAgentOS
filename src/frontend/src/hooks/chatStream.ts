@@ -29,6 +29,7 @@ import {
   liftTrailingSegmentsAboveFinalText,
   restoreDeferredThinkingTextFragment,
   type DeferredThinkingTextFragment,
+  finishSubagentToolCall,
 } from '../utils/streamSegments';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore, useAgentStore, usePluginStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
@@ -299,9 +300,10 @@ function applySubagentEvent(toolCalls: ToolCall[], eo: Record<string, unknown>):
   } else if (subType === 'error') {
     steps.push({ kind: 'content', text: '⚠ ' + (norm(eo.error) || 'error') });
   }
-  // 'start' / 'end': only update subagentName, no sub-step produced
-
-  toolCalls[idx] = { ...parent, subSteps: steps, ...(agentName ? { subagentName: agentName } : {}) };
+  const updated = { ...parent, subSteps: steps, ...(agentName ? { subagentName: agentName } : {}) };
+  const terminalStatus = norm(eo.status) === 'cancelled'
+    ? 'interrupted' : eo.ok === true ? 'success' : 'error';
+  toolCalls[idx] = subType === 'end' ? finishSubagentToolCall(updated, terminalStatus) : updated;
   return true;
 }
 

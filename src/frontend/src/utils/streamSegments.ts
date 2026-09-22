@@ -1,4 +1,4 @@
-import type { MessageSegment, SubagentStep } from '../types';
+import type { MessageSegment, SubagentStep, ToolCall } from '../types';
 
 export interface DeferredThinkingTextFragment {
   content: string;
@@ -142,4 +142,14 @@ export function restoreDeferredThinkingTextFragment(
     segments.splice(index, 0, { type: 'text', content: deferred.content });
   }
   return undefined;
+}
+
+/** A terminal child event closes unfinished steps without inventing tool results. */
+export function finishSubagentToolCall(parent: ToolCall, status: NonNullable<ToolCall['status']>): ToolCall {
+  return {
+    ...parent,
+    status,
+    subSteps: parent.subSteps?.map(step => step.kind === 'tool' && step.status === 'running'
+      ? { ...step, status: 'interrupted' } : step),
+  };
 }

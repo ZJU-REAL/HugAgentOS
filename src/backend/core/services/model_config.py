@@ -1,24 +1,22 @@
 """Central model configuration service (DB-driven, cached).
 
 Replaces all os.getenv() calls for model URLs / API keys / model names.
-Thread-safe singleton with a short TTL cache so admin changes take effect
-within seconds without requiring a restart.
+Thread-safe snapshots validated against a transactional database revision.
+Every worker observes committed changes on its next lookup without a restart.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from core.db.engine import SessionLocal
-from core.db.models import ModelProvider, ModelRoleAssignment
+from core.db.models import ContentBlock, ModelProvider, ModelRoleAssignment
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
-
-_CACHE_TTL_SECONDS = 30.0
 
 
 def _optional_int(raw: Any) -> Optional[int]:
@@ -62,11 +60,11 @@ class ModelConfigService:
 
     def __init__(self) -> None:
         self._cache: dict[str, Optional[ResolvedModelConfig]] = {}
-        self._cache_ts: float = 0.0
-        self._cache_lock = threading.Lock()
-        # Per-provider lookups share the role cache's TTL and invalidation.
+        self._revision: str | None = None
+        self._cache_lock = threading.RLock()
+        # All runtime views share one committed revision.
         self._provider_cache: dict[str, Optional[ResolvedModelConfig]] = {}
-        # Failover candidate order, rebuilt on the same TTL / invalidation.
+        # Failover candidate order belongs to the same snapshot.
         self._chain_cache: Optional[list[ResolvedModelConfig]] = None
         self._version: int = 0  # bumped on invalidate
 
@@ -80,147 +78,90 @@ class ModelConfigService:
 
     @property
     def version(self) -> int:
+        self._maybe_refresh()
         return self._version
 
     # ── resolve ────────────────────────────────────────────────────────
 
     def resolve(self, role_key: str) -> Optional[ResolvedModelConfig]:
-        """Return config for *role_key*, or None if not assigned."""
-        self._maybe_refresh()
-        return self._cache.get(role_key)
+        with self._cache_lock:
+            self._maybe_refresh()
+            return self._cache.get(role_key)
 
     def resolve_provider(self, provider_id: str) -> Optional[ResolvedModelConfig]:
-        """Return config for one active model provider id.
-
-        Used by user-facing model switching after the request provider id has
-        been allowlisted by ``user_model_selection``.
-        """
-        pid = (provider_id or "").strip()
-        if not pid:
-            return None
-        self._maybe_refresh()
-        if pid in self._provider_cache:
-            return self._provider_cache[pid]
-        resolved = self._query_provider(pid)
         with self._cache_lock:
-            self._provider_cache[pid] = resolved
-        return resolved
+            self._maybe_refresh()
+            return self._provider_cache.get((provider_id or "").strip())
 
     def resolve_failover_chain(
         self, primary: Optional[ResolvedModelConfig]
     ) -> list[ResolvedModelConfig]:
-        """Return *primary* followed by the other active chat providers to fall back to.
-
-        Ordered by ``model_providers.weight`` (higher first) — the "gateway
-        weight" an operator can already edit in the model console, and whose
-        meaning there is the same one failover needs: the larger the number,
-        the more this endpoint should be used. Ties break on the widest context
-        window, so a switch is least likely to fail on a conversation the
-        previous endpoint was still able to hold.
-
-        ``priority`` is deliberately not used: it has no editor in the console,
-        so ordering by it would be an order nobody can set.
-        """
-        self._maybe_refresh()
-        chain = [
-            c for c in self._chain_snapshot() if not primary or c.provider_id != primary.provider_id
-        ]
-        return ([primary] if primary else []) + chain
-
-    def _chain_snapshot(self) -> list[ResolvedModelConfig]:
-        if self._chain_cache is not None:
-            return self._chain_cache
-        chain: list[ResolvedModelConfig] = []
-        try:
-            db = SessionLocal()
-            try:
-                rows = (
-                    db.query(ModelProvider)
-                    .filter(
-                        ModelProvider.provider_type == "chat",
-                        ModelProvider.is_active == True,  # noqa: E712
-                    )
-                    .all()
-                )
-                ranked = [(int(p.weight or 1), self._provider_to_resolved(p)) for p in rows]
-                ranked.sort(key=lambda item: (-item[0], -item[1].context_length))
-                chain = [resolved for _, resolved in ranked]
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.warning("[ModelConfigService] failover chain load failed: %s", exc)
-            return []
         with self._cache_lock:
-            self._chain_cache = chain
-        return chain
-
-    def _query_provider(self, pid: str) -> Optional[ResolvedModelConfig]:
-        try:
-            db = SessionLocal()
-            try:
-                provider = (
-                    db.query(ModelProvider)
-                    .filter(
-                        ModelProvider.provider_id == pid,
-                        ModelProvider.provider_type == "chat",
-                        ModelProvider.is_active == True,  # noqa: E712
-                    )
-                    .first()
-                )
-                if provider is None:
-                    return None
-                return self._provider_to_resolved(provider)
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.warning("[ModelConfigService] provider resolve failed (%s): %s", pid, exc)
-            return None
-
-    # ── cache management ──────────────────────────────────────────────
+            self._maybe_refresh()
+            chain = [
+                cfg
+                for cfg in self._chain_cache or []
+                if primary is None or cfg.provider_id != primary.provider_id
+            ]
+            return ([primary] if primary else []) + chain
 
     def invalidate_cache(self) -> None:
         with self._cache_lock:
-            self._cache.clear()
-            self._provider_cache.clear()
-            self._chain_cache = None
-            self._cache_ts = 0.0
+            self._revision = None
             self._version += 1
 
     def _maybe_refresh(self) -> None:
-        now = time.monotonic()
-        if now - self._cache_ts < _CACHE_TTL_SECONDS and self._cache:
-            return
-        with self._cache_lock:
-            # double-check
-            if now - self._cache_ts < _CACHE_TTL_SECONDS and self._cache:
+        from core.db.model_config_revision import read_revision
+
+        with self._cache_lock, SessionLocal() as db:
+            revision = read_revision(db)
+            if revision == self._revision:
                 return
-            self._load_from_db()
-            self._provider_cache.clear()
-            self._chain_cache = None
-            self._cache_ts = time.monotonic()
+            # Read into a new snapshot, then publish under the same lock. An
+            # error propagates; it must not silently authorize stale models.
+            from core.db.model_config_revision import REVISION_KEY
 
-    def _load_from_db(self) -> None:
-        new_cache: dict[str, Optional[ResolvedModelConfig]] = {}
-        try:
-            db = SessionLocal()
-            try:
-                rows = (
-                    db.query(ModelRoleAssignment, ModelProvider)
-                    .join(
-                        ModelProvider, ModelRoleAssignment.provider_id == ModelProvider.provider_id
-                    )
-                    .filter(ModelProvider.is_active == True)  # noqa: E712
-                    .all()
+            snapshot_revision = (
+                select(ContentBlock.payload)
+                .where(ContentBlock.id == REVISION_KEY)
+                .scalar_subquery()
+            )
+            # One SELECT has one MVCC snapshot even under READ COMMITTED.
+            rows = (
+                db.query(ModelProvider, ModelRoleAssignment, snapshot_revision)
+                .outerjoin(
+                    ModelRoleAssignment,
+                    ModelRoleAssignment.provider_id == ModelProvider.provider_id,
                 )
-                for assignment, provider in rows:
-                    new_cache[assignment.role_key] = self._provider_to_resolved(provider)
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.warning("[ModelConfigService] DB load failed, keeping stale cache: %s", exc)
-            return  # keep whatever was there before
-
-        self._cache = new_cache
+                .all()
+            )
+            providers = list({p.provider_id: p for p, _, _ in rows if p.is_active}.values())
+            resolved = {p.provider_id: self._provider_to_resolved(p) for p in providers}
+            roles = {
+                a.role_key: resolved[a.provider_id]
+                for _, a, _ in rows
+                if a is not None and a.provider_id in resolved
+            }
+            chat = {
+                p.provider_id: resolved[p.provider_id]
+                for p in providers
+                if p.provider_type == "chat"
+            }
+            if rows:
+                revision = str((rows[0][2] or {}).get("revision", ""))
+            ranked = sorted(
+                (p for p in providers if p.provider_type == "chat"),
+                key=lambda p: (
+                    -int(p.weight or 1),
+                    -resolved[p.provider_id].context_length,
+                    p.provider_id,
+                ),
+            )
+            self._cache = roles
+            self._provider_cache = chat
+            self._chain_cache = [resolved[p.provider_id] for p in ranked]
+            self._revision = revision
+            self._version += 1
 
     @staticmethod
     def _provider_to_resolved(provider: ModelProvider) -> ResolvedModelConfig:

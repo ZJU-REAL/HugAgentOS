@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any, Dict, List
 
 import httpx
@@ -423,6 +425,35 @@ def make_stdio_client(server_name: str, server_cfg: dict) -> MCPClient:
     )
 
 
+# The factory owns transient clients until it returns them to its caller.
+# ContextVar values propagate into parallel HTTP probes, so partial construction
+# has one cleanup owner even when cancellation interrupts asyncio.gather.
+_factory_clients: ContextVar[list | None] = ContextVar("factory_mcp_clients", default=None)
+
+
+def own_factory_client(client):
+    clients = _factory_clients.get()
+    if clients is not None:
+        clients.append(client)
+    return client
+
+
+def close_factory_clients_on_error(function):
+    @wraps(function)
+    async def construct(*args, **kwargs):
+        clients = []
+        token = _factory_clients.set(clients)
+        try:
+            return await function(*args, **kwargs)
+        except BaseException:
+            await close_clients(list(reversed(clients)))
+            raise
+        finally:
+            _factory_clients.reset(token)
+
+    return construct
+
+
 async def connect_mcp_clients(
     mcp_servers: Dict[str, dict],
 ) -> List[MCPClient]:
@@ -432,8 +463,11 @@ async def connect_mcp_clients(
         client = make_stdio_client(server_name, server_cfg)
         try:
             await client.connect()
-            clients.append(client)
+            clients.append(own_factory_client(client))
             logger.debug("MCP client '%s' connected", server_name)
+        except asyncio.CancelledError:
+            await client.close()
+            raise
         except Exception as exc:
             logger.warning("Failed to connect MCP server '%s': %s", server_name, exc)
             try:
@@ -444,9 +478,27 @@ async def connect_mcp_clients(
 
 
 async def close_clients(clients: List[MCPClient]) -> None:
-    """Safely close a list of MCP clients."""
+    """Close every client in its owning task, deferring repeated cancellation."""
+    cancelled = None
+    task = asyncio.current_task()
     for client in clients:
-        try:
-            await client.close()
-        except Exception as exc:
-            logger.debug("Error closing MCP client: %s", exc)
+        while True:
+            before = task.cancelling() if task else 0
+            try:
+                await client.close()
+                break
+            except asyncio.CancelledError as exc:
+                cancelled = exc
+                if task is not None and task.cancelling() > before:
+                    # An external repeat-cancel interrupted this close. Finish
+                    # this same client's cleanup on the same task, then the rest.
+                    continue
+                # A client scope itself signalled cancellation. It must not
+                # prevent independent clients from releasing their resources.
+                logger.debug("MCP client close signalled cancellation")
+                break
+            except Exception as exc:
+                logger.debug("Error closing MCP client: %s", exc)
+                break
+    if cancelled is not None:
+        raise cancelled
