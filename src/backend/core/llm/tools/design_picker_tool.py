@@ -49,6 +49,9 @@ def register_choose_design(
     *,
     chat_id: Optional[str] = None,
     interactive: bool = True,
+    sandbox_session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    scope=None,
 ) -> None:
     """Register the ``choose_design`` tool (site-building chats only).
 
@@ -63,11 +66,11 @@ def register_choose_design(
 
         仅在建站流程中使用：先为同一站点做出 2-4 个（推荐 3 个）风格迥异的
         设计 mockup（自包含单文件 HTML），用 playwright 截图后逐张经
-        ``sandbox_get_artifact`` 登记得到 ``file_id``，再调用本工具。
+        云端用 ``sandbox_get_artifact`` 登记得到 ``file_id``；本机直接传 ``image_path``。
 
         ⚠️ 使用规则：
-        - 每个 option 的 ``image_file_id`` 必须来自 ``sandbox_get_artifact``
-          返回的 ``file_id``——这些截图是选择器素材，**不要** ``pin_to_workspace``。
+        - 云端 option 传已登记的 ``image_file_id``；本机可传截图真实绝对路径
+          ``image_path``，本工具自动登记。这些截图是选择器素材，**不要** ``pin_to_workspace``。
         - 本工具会**暂停执行等用户在界面上点选**，可能等待很久，属正常，
           不要因为耗时长而认为失败。
         - 拿到返回后必须严格按 ``selected`` 方案继续建站（布局/配色/字体
@@ -81,7 +84,8 @@ def register_choose_design(
             options (`List[dict]`):
                 2-4 个方案（推荐 3 个），每项必须包含：
                 ``id``（唯一短标识，如 "a"/"b"/"c"）、``title``（方案名，
-                如「深色科技风」）、``image_file_id``（预览截图的 file_id）；
+                如「深色科技风」）、``image_file_id``（预览截图的 file_id）
+                或本机 ``image_path``（预览截图的真实绝对路径）；
                 可选 ``brief``（一句话说明该方案的布局/配色/氛围）。
 
         Returns:
@@ -103,8 +107,28 @@ def register_choose_design(
             oid = str(raw.get("id") or "").strip()
             title = str(raw.get("title") or "").strip()
             fid = str(raw.get("image_file_id") or "").strip()
-            if not oid or not title or not fid:
-                return _err(f"options[{i}] 缺少 id/title/image_file_id 之一")
+            image_path = raw.get("image_path")
+            if not oid or not title or not (fid or image_path):
+                return _err(f"options[{i}] 缺少 id/title 或 image_file_id/image_path")
+            if image_path:
+                import asyncio
+                from fastapi import HTTPException
+                from core.infra.logging import user_id_var
+                from core.artifacts.local_project import project_file_path
+                from .local_delivery import prepare_local_delivery
+
+                if not isinstance(image_path, str):
+                    return _err(f"options[{i}].image_path 必须为字符串")
+                try:
+                    owner = user_id or user_id_var.get() or ""
+                    physical = project_file_path(image_path, scope, owner, sandbox_session_id or chat_id)
+                    ref = await asyncio.to_thread(
+                        prepare_local_delivery, physical, scope=scope, user_id=owner,
+                        session_id=sandbox_session_id or chat_id,
+                    )
+                    fid = ref["file_id"]
+                except (HTTPException, OSError, ValueError) as exc:
+                    return _err(str(getattr(exc, "detail", exc)))
             if oid in seen_ids:
                 return _err(f"options[{i}].id 重复: {oid}")
             seen_ids.add(oid)
@@ -115,7 +139,7 @@ def register_choose_design(
             if not item:
                 return _err(
                     f"options[{i}].image_file_id 无效: {fid}——请先用 "
-                    f"sandbox_get_artifact 登记截图再传其返回的 file_id"
+                    f"有效的 image_file_id，或在本机使用 image_path"
                 )
             normalized.append({
                 "id": oid,
@@ -175,7 +199,28 @@ def register_choose_design(
             }
         return resp_json(payload)
 
-    toolkit.register_tool_function(choose_design, namesake_strategy="override")
+    from core.llm.tool_permissions import ToolPermissionSpec, local_path_tool, READ
+
+    def resolve_image_paths(args, runtime):
+        from core.artifacts.local_project import project_file_path
+
+        intents = []
+        for option in args.get("options") or []:
+            path = option.get("image_path") if isinstance(option, dict) else None
+            if isinstance(path, str) and path.strip():
+                physical = project_file_path(
+                    path, scope, user_id or runtime.user_id,
+                    sandbox_session_id or chat_id or runtime.sandbox_session_id or runtime.chat_id,
+                )
+                intents.extend(local_path_tool("path", READ, tool_name="choose_design").resolver(
+                    {"path": physical}, runtime,
+                ))
+        return intents
+
+    toolkit.register_tool_function(
+        choose_design, namesake_strategy="override",
+        permission=ToolPermissionSpec("design-preview-paths", resolve_image_paths),
+    )
     logger.info("[factory] Registered choose_design tool (site-builder session)")
 
 

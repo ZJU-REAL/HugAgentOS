@@ -292,31 +292,6 @@ def open_editor(user_id: str, site_id: str) -> dict:
         }
 
 
-def editing_prompt(user_id: str, chat_id: str) -> str:
-    """Supply source records for this project or unbound chat, never choose a target."""
-    import json
-    from core.db.engine import SessionLocal
-    from core.db.models import ChatSession
-
-    with SessionLocal() as db:
-        chat = db.get(ChatSession, chat_id)
-        if (
-            not chat
-            or chat.user_id != user_id
-            or chat.deleted_at is not None
-        ):
-            return ""
-        project_id = chat.project_id
-    try:
-        entries = (project_sources(user_id, project_id) if project_id else
-                   [e for e in list_sources(user_id) if e.get("chat_id") == chat_id])
-    except HTTPException:
-        from prompts.desktop_templates import render_desktop_part
-        return render_desktop_part("site_lookup_failed")
-    from prompts.desktop_templates import render_desktop_part
-    return render_desktop_part("site_records", records=json.dumps(entries, ensure_ascii=False))
-
-
 def validate_source(user_id: str, chat_id: str, source: str, publish_dir: str) -> dict:
     """Require existing source and output inside the local project or session workspace."""
     require_local()

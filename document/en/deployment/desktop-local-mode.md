@@ -30,3 +30,13 @@ arguments. Container sandboxes retain separate mount and My Space policies.
 Validate installation and upgrades on each supported native platform. Workspace regression checks cover
 parallel execution, preservation of user files, relative-path artifact transfer and relocated skill scripts.
 Linux unit tests do not replace native Windows or macOS package acceptance.
+
+## Local file delivery
+
+Local mode delivers files from the current conversation workspace or bound project with
+`pin_to_workspace(file_paths=[...])`. It does not expose `sandbox_get_artifact` to the model.
+Project files remain live references; conversation outputs are automatically saved as attachments.
+Local read permissions still apply. Prefer real absolute paths: delivery resolves relative paths
+against the bound project, or the conversation workspace when no local project is bound.
+Cloud mode retains export followed by file-ID delivery. All-failed calls return `ok: false`;
+partial failures include separate successful and failed lists.

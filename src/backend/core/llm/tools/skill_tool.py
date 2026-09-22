@@ -83,9 +83,18 @@ def _build_skill_bash_hint(
         f"  bash(command={json.dumps(example_cmd, ensure_ascii=False)})",
         "若用户上传的文件需要传给脚本：",
         '  sandbox_put_artifact(artifact_id="ua_xxx", dest_path="input.docx")',
-        "脚本产出文件后，登记成可下载的 artifact：",
-        '  sandbox_get_artifact(src_path="output.docx")',
     ]
+    from core.config.local_mode import local_mode_enabled
+    if local_mode_enabled():
+        lines.extend([
+            "脚本产出文件后，直接交付真实绝对路径：",
+            '  pin_to_workspace(file_paths=["<cwd>/output.docx"])',
+        ])
+    else:
+        lines.extend([
+            "脚本产出文件后，登记成可下载的 artifact：",
+            '  sandbox_get_artifact(src_path="output.docx")',
+        ])
     return "\n".join(lines)
 
 
@@ -174,6 +183,15 @@ def register_sandboxed_view_text_file(
         resp = ToolResponse(content=[TextBlock(type="text", text=_text)])
 
         if _os.path.basename(real) == "SKILL.md":
+            from core.config.local_mode import local_mode_enabled
+            if local_mode_enabled() and "sandbox_get_artifact" in _text:
+                resp.content.append(TextBlock(
+                    type="text",
+                    text="本机交付适配：本环境不提供 sandbox_get_artifact。"
+                    "本技能中的导出后交付步骤改为直接调用 "
+                    "pin_to_workspace(file_paths=[文件真实绝对路径])；无需先获取 file_id。"
+                    "设计选择器的候选截图不要交付，使用 choose_design 的 image_path 参数。",
+                ))
             skill_dir = _os.path.dirname(real)
             skill_id = _extract_skill_id_from_skill_file(file_path)
             if prepared is not None:

@@ -57,7 +57,7 @@ class KindSpec:
 #: 内置 kind：各自对应一段固定的运行时装配位置，有文件系统兜底，不可删。
 #: 新增一个内置 kind = 这张表加一行 + 放好 md 文件，不必再改别处。
 KIND_SPECS: Dict[str, KindSpec] = {
-    "desktop": KindSpec(("desktop",), "independent", "桌面端", "default - 桌面端提示词", "本机环境、文件、项目、工具与站点规则；仅桌面端装配", preview="desktop-preview"),
+    "desktop": KindSpec(("desktop",), "independent", "桌面端", "default - 桌面端提示词", "本机环境、文件、项目与工具规则；仅桌面端装配", preview="desktop-preview"),
     "system": KindSpec(
         ("default", "system"),
         "concat",

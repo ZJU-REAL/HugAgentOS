@@ -425,3 +425,17 @@ On Windows, the `bash` tool still uses bundled Git Bash and reports `shell=bash`
 
 Use desktop/scripts/create-macos-update.py when manually archiving a Mac application. The system tar may add ._* AppleDouble metadata that breaks Tauri update extraction.
 The publisher validates a single .app root, rejects metadata sidecars, and checks the application version. Sign and publish only the validated archive.
+
+
+### Site skills and prompts
+
+Site creation, target lookup, in-place editing, builds, and publishing are provided on demand by
+the sites plugin's `site-builder` skill. System and local project prompts no longer inject site
+workflow rules, candidate records, or lookup failure hints. Ordinary chats do not prefetch sites.
+Editing retrieves current records through `list_sites`. Missing project paths remain generic project context.
+
+The upgrade migration removes the retired `site_mode`, `site_records`, and `site_lookup_failed`
+desktop parts and the stock site paragraph in `project`, preserving other custom text and active
+version selections. Administrator-rewritten project site instructions require separate review.
+Hybrid installations also need the cloud sites plugin updated and synced. The local backend is
+delivered in a new full desktop package; updating only the cloud does not remove old client injection.

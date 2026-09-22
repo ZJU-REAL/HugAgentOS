@@ -229,7 +229,6 @@ def test_project_query_from_new_chat_and_explicit_publish(local_project, monkeyp
     assert entry["publish_dir"] == str(page)
     assert entry["url"] == "https://cloud.example/site/resume/"
     assert entry["in_current_project"] is True
-    assert "original-site" in sources.editing_prompt("owner", "new-chat")
     (page / "index.html").write_text("<h1>Zhang San resume</h1>")
 
     async def pack(src, *_args, **_kwargs):
@@ -351,7 +350,6 @@ def test_unbound_site_can_publish_open_edit_and_republish(local_project, monkeyp
     assert sources.open_editor("owner", "unbound-site")["chat_id"] == "chat"
     assert entry["source_dir"] == str(page)
     assert list_sites("owner", "chat")[0]["editable"] is True
-    assert "unbound-site" in sources.editing_prompt("owner", "chat")
     (page / "index.html").write_text("edited")
     update_args = {"site_id": entry["site_id"], "src_dir": entry["publish_dir"]}
     data, options = asyncio.run(package_local_site(update_args, headers))

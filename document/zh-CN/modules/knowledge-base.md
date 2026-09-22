@@ -2,12 +2,12 @@
 
 > 最后更新：2026-07-19
 
-HugAgentOS 的知识库提供两种形态，可同时启用、在能力中心统一呈现：
+HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一种来源，个人私有库独立使用：
 
 1. **自建知识库**：文档上传 → 父子分块 → 向量化入 Milvus → 稠密 + 稀疏混合检索（RRF 融合）→ 可选重排。社区版 CE 仅提供当前用户拥有的私有知识库；管理员维护的公共知识库属于商业版 EE。
 2. **Dify 外接知识库**（商业版 EE）：`KNOWLEDGE_BASE=dify` 时，后端在运行时把 Dify datasets 注入能力中心目录，检索经 Dify Retrieval API 完成。
 
-两种形态最终都以 MCP 工具的形式暴露给智能体：自建走 `retrieve_local_kb`，Dify 走 `retrieve_dataset_content`，均由同一个 MCP server（`mcp_servers/retrieve_dataset_content_mcp/`）提供。
+公有检索统一使用 `retrieve_dataset_content`，按配置只走本地公有/共享库或所选外部后端；个人私有检索使用 `retrieve_local_kb`。两者由同一个 MCP server（`mcp_servers/retrieve_dataset_content_mcp/`）提供。
 
 社区版 CE 的前端只显示「私有知识库」，`/v1/catalog` 也只返回当前用户的私有库。后端会拒绝 `visibility=public` 的创建请求，并且不提供 Dify / 共享知识库服务配置，避免仅靠前端隐藏造成能力越界。
 
@@ -33,9 +33,9 @@ HugAgentOS 的知识库提供两种形态，可同时启用、在能力中心统
   vectorise_document_background()            │    · 可选 Reranker 重排
     · kb_parser.parse_and_chunk()            │    · user_id 隔离 + public kb 全局可见
     ·（可选）LLM 抽关键词/生成问题            │
-    · embed_batch() → Milvus 写入            └─ retrieve_dataset_content（Dify）
-    · 父块写 PostgreSQL kb_chunks                 · 调 Dify /datasets/{id}/retrieve
-    · 更新 kb_documents.indexing_status           · 多数据集并发→按 score 排序截断
+    · embed_batch() → Milvus 写入            └─ retrieve_dataset_content（按配置选来源）
+    · 父块写 PostgreSQL kb_chunks                 · 自建：按权限检索本地公有/共享库
+    · 更新 kb_documents.indexing_status           · 外部：只调用所选后端，不混入本地结果
 ```
 
 ## 自建知识库
@@ -159,6 +159,8 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 ### 管理员公共知识库（商业版 EE）
 
 `/v1/admin/kb/*` 管理台路由在 `src/backend/api/routes/v1/admin_kb.py`，挂 `content_admin` 能力位（EE 路由表见 `api/routes/v1/__init__.py`）。公共知识库由合成系统账号 `system_public_kb` 持有（`kb_service.py::SYSTEM_KB_OWNER_ID`），`visibility=public`，对全体用户可见可检索。管理端额外提供原始文件下载、Office 转 PDF 在线预览、分块内容编辑 / 删除等能力。
+
+公有知识库检索 `retrieve_dataset_content` 严格按平台配置选择一种来源：自建模式（`knowledge_base.provider=custom`）只检索当前用户有权访问的本地公有/共享库，排除个人私有库；外部模式只检索当前选择的 Dify、FastGPT 或 WeKnora 数据集，连接配置也按后端隔离。两种来源不合并，空结果或服务错误均不触发跨来源回退。公有知识库列表遵循相同的来源选择；私有知识库仍通过独立的 `retrieve_local_kb` 入口访问。
 
 ## Dify 外接知识库（商业版 EE）
 

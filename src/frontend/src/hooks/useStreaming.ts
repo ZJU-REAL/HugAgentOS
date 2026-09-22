@@ -507,10 +507,8 @@ export function useStreaming(
     // the selected sub-agent directly without a name lookup or a second call_subagent spawn.
     const wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
 
-    // "Site" conversation (Lab → Sites): the build / edit working rules live in the backend
-    // system prompt (agent_factory._site_mode_hint), keyed off this flag. They are deliberately
-    // NOT spliced into the message — the wire message is persisted verbatim and replayed into
-    // the user's bubble on reload, which would show the model-facing rules to the user.
+    // Preserve the site conversation marker for UI/history. Working rules are provided
+    // on demand by the sites plugin's site-builder skill, never spliced into user messages.
     const siteMode = resolveSiteModeActive(useChatStore.getState().store.chats[currentChatId], msg);
 
     // Snapshot the chat id — user may switch chats mid-stream, but this stream

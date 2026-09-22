@@ -156,3 +156,26 @@ def test_non_windows_prompt_omits_windows_guidance(monkeypatch, system):
     assert "Git Bash" not in prompt
     assert "PowerShell" not in prompt
     assert "C:/..." not in prompt
+
+
+@pytest.mark.parametrize("project", [False, True])
+def test_site_records_and_rules_are_not_ambient_context(monkeypatch, project):
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
+    ctx = {"chat_id": "site-free", "local_site_edit": "LEGACY_SITE_RECORD"}
+    if project:
+        ctx.update(project_id="p", project_is_local=True,
+                   project_name="Example", project_local_path="/tmp/example")
+    prompt = build_system_prompt(PromptConfig(), ctx)
+    assert "LEGACY_SITE_RECORD" not in prompt
+    assert "publish_site" not in prompt
+    assert "sites/<站点名>" not in prompt
+    if project:
+        assert "/tmp/example" in prompt
+
+
+def test_missing_project_path_remains_generic():
+    from prompts.project_section import _build_local_project_section
+    prompt = _build_local_project_section(project_name="Example", project_instructions="", local_path="", local_slug="")
+    assert "Example" in prompt
+    assert "确认路径" in prompt
+    assert "list_sites" not in prompt

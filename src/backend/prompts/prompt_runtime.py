@@ -830,8 +830,6 @@ def build_system_prompt(
                 project_file_count=ctx.get("project_file_count"),
             )
         if proj_section:
-            if ctx.get("project_is_local") and ctx.get("local_site_edit"):
-                proj_section += "\n\n" + str(ctx["local_site_edit"])
             base = (base + "\n\n" + proj_section).strip()
             _record_section(
                 "runtime/project",
@@ -850,8 +848,6 @@ def build_system_prompt(
     if is_local:
         environment = ctx["desktop_environment"]
         guidance = build_local_mode_guidance()
-        if not project_id and ctx.get("local_site_edit"):
-            guidance += "\n\n" + str(ctx["local_site_edit"])
         for section_id, content in (
             ("runtime/environment", environment),
             ("runtime/local_mode", guidance),

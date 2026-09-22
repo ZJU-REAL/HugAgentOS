@@ -126,3 +126,59 @@ async def test_management_permission_gate(db, monkeypatch, user_id, allowed, sta
         with pytest.raises(HTTPException) as error:
             await deps.require_system_settings(request, db=db, user=user)
         assert error.value.status_code == status
+
+
+def test_desktop_seed_has_no_site_workflow_parts(db):
+    pvs.seed_from_filesystem(db=db)
+    version = pvs.get_active_version("desktop", db=db)
+    parts = {p["part_id"]: p["content"] for p in version["parts"]}
+    assert not {"site_mode", "site_records", "site_lookup_failed"} & parts.keys()
+    assert "publish_site" not in parts["project"]
+    assert "project_missing" in parts
+
+
+def test_site_prompt_migration_is_scoped_and_idempotent(db):
+    from copy import deepcopy
+    from core.db.data_repair import remove_desktop_site_prompt_parts
+
+    legacy = (
+        "建站在本地项目真实目录下的 sites/<站点名>/ 编写源码。"
+        "编辑已有站点先读取当前站点的 source_dir 并原地修改；"
+        "构建后 publish_site 的 src_dir 指向构建产物、source_dir 指向项目源码。"
+    )
+    versions = [
+        {"kind": "desktop", "id": "default", "parts": [
+            {"part_id": "site_records", "content": "{records}"},
+            {"part_id": "site_mode", "content": "old site rules"},
+            {"part_id": "site_lookup_failed", "content": "old failure"},
+            {"part_id": "project", "content": "before\n" + legacy + "\n越出授权目录的操作与危险命令受本机权限策略约束；文件工具修改前的快照可用于回滚。\nafter\n"},
+            {"part_id": "project_missing", "content": "keep missing path"},
+        ]},
+        {"kind": "desktop", "id": "custom", "parts": [
+            {"part_id": "project", "content": "custom publish_site instructions"},
+            {"part_id": "guidance", "content": "keep guidance", "is_enabled": False},
+        ]},
+        {"kind": "system", "id": "default", "parts": [
+            {"part_id": "site_mode", "content": "keep unrelated kind"}
+        ]},
+    ]
+    payload = {"versions": versions, "active": {"desktop": "custom"}, "extra": "keep"}
+    original = deepcopy(payload)
+    db.add(ContentBlock(id="prompt_versions", payload=payload))
+    db.commit()
+    assert remove_desktop_site_prompt_parts(db.connection()) == 1
+    assert remove_desktop_site_prompt_parts(db.connection()) == 0
+    db.expire_all()
+    result = db.get(ContentBlock, "prompt_versions").payload
+    assert result["active"] == original["active"]
+    assert result["extra"] == "keep"
+    assert result["versions"][1:] == original["versions"][1:]
+    assert result["versions"][0]["parts"] == [
+        {"part_id": "project", "content": "before\nafter\n"},
+        {"part_id": "project_missing", "content": "keep missing path"},
+    ]
+
+
+def test_site_prompt_migration_handles_empty_database(db):
+    from core.db.data_repair import remove_desktop_site_prompt_parts
+    assert remove_desktop_site_prompt_parts(db.connection()) == 0
