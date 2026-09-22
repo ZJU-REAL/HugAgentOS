@@ -20,8 +20,25 @@ const KINDS: DeviceCapabilityKind[] = ['skill', 'mcp', 'agent', 'plugin'];
 const empty = (): KindState => ({ items: [], byName: {}, loaded: false, discoveryErrors: [] });
 const emptyKinds = () => ({ skill: empty(), mcp: empty(), agent: empty(), plugin: empty() });
 function fromListing(listing: DeviceCapabilityListing): KindState {
-  const byName: Record<string, DeviceCapabilityItem> = {};
-  for (const item of listing.items) byName[item.runtime_name] ||= item;
+  const byName: Record<string, DeviceCapabilityItem> = Object.create(null);
+  const groups = new Map<string, DeviceCapabilityItem[]>();
+  for (const item of listing.items) {
+    // Catalog cards project the current cloud account. A disabled cloud copy
+    // still owns its card; an old local/default copy must not supply its actions.
+    if (item.source === 'cloud' && (!listing.profile_id
+      || !item.install_id.startsWith(item.kind + ':' + listing.profile_id + ':'))) continue;
+    const group = groups.get(item.runtime_name) ?? [];
+    group.push(item);
+    groups.set(item.runtime_name, group);
+  }
+  for (const [name, items] of groups) {
+    const cloud = items.filter((item) => item.source === 'cloud');
+    const chosen = items.filter((item) => item.resolution?.outcome === 'chosen');
+    const candidates = cloud.length ? cloud : chosen.length ? chosen : items;
+    // Multiple same-named installations are ambiguous. Never choose an upload
+    // target by response order (especially agents with duplicate display names).
+    if (candidates.length === 1) byName[name] = candidates[0];
+  }
   return { items: listing.items, byName, loaded: true, discoveryErrors: listing.discovery_errors ?? [] };
 }
 

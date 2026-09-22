@@ -439,3 +439,10 @@ desktop parts and the stock site paragraph in `project`, preserving other custom
 version selections. Administrator-rewritten project site instructions require separate review.
 Hybrid installations also need the cloud sites plugin updated and synced. The local backend is
 delivered in a new full desktop package; updating only the cloud does not remove old client injection.
+
+
+### Capability sources and change indicators
+
+In hybrid mode, cloud-synced plugins, skills, connectors, and agents retain their cloud source. Same-named historical local or built-in installations do not supply the card's source or upload target. Disabled capabilities and missing dependencies do not change ownership; ambiguous names do not expose a submission action.
+
+All four kinds show an upload button only for detected local additions or modifications. Synced entries, entries without confirmed changes, and entries without file comparison support show no upload button. Submission is disabled when comparison finds identical local and cloud content. This UI fix ships in the desktop frontend; updating only the cloud backend does not change older clients.

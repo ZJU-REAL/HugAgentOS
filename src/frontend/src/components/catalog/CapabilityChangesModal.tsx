@@ -37,7 +37,7 @@ export function CapabilityChangesModal({ installId, onClose }: { installId: stri
     .map(([path]) => path)])];
   const unresolved = preview?.changes.some((row) => row.conflict && !choices[row.path]);
   const submit = async () => {
-    if (!preview) return;
+    if (!preview || !preview.changes.length) return;
     setBusy(true); setError('');
     try {
       const result = await commitCapabilityChanges({
@@ -56,7 +56,7 @@ export function CapabilityChangesModal({ installId, onClose }: { installId: stri
   return <Modal open title={t('能力文件变更')} width={860} onCancel={busy ? undefined : onClose}
     closable={!busy} maskClosable={!busy} confirmLoading={busy}
     okText={t('提交到云端')} cancelText={t('取消')} onOk={() => { void submit(); }}
-    okButtonProps={{ disabled: !preview || (needsFork ? !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(forkKey) : !!unresolved)
+    okButtonProps={{ disabled: !preview || !preview.changes.length || (needsFork ? !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(forkKey) : !!unresolved)
       || (!!sensitive.length && !acknowledge) }}>
     {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
     {!preview && !error && <Spin />}
