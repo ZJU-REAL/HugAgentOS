@@ -13,14 +13,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { AbilityCenterPage } from './src/components/catalog/AbilityCenterPage';
 import { useDeploymentModeStore } from './src/stores/deploymentModeStore';
-import { useCatalogStore } from './src/stores/catalogStore';
 import './src/styles/variables.css';
 import './src/styles/catalog.css';
 import './src/styles/mcp.css';
 useDeploymentModeStore.setState({ provisionMode: 'dual', partialCapabilities: false });
-useCatalogStore.setState({ abilityTab: 'skills', visitedAbilityTabs: ['skills'] });
 import { MemoryRouter } from 'react-router';
-createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/ability-center']}><AbilityCenterPage /></MemoryRouter>);
+createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/ability-center/skills']}><AbilityCenterPage /></MemoryRouter>);
 `, resolveDir: process.cwd(), loader: 'tsx' },
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' }, external: ['/loader.gif', '/loader-done.png'],

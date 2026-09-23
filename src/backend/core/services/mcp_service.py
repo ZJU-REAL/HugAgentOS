@@ -80,7 +80,9 @@ class McpServerConfigService:
                     cls._instance = cls()
         return cls._instance
 
-    def get_all_servers(self, enabled_only: bool = True) -> Dict[str, dict]:
+    def get_all_servers(
+        self, enabled_only: bool = True, *, use_cache: bool = True
+    ) -> Dict[str, dict]:
         """Return {server_id: config_dict} from DB, cached for 30s.
 
         The config_dict format is compatible with the old MCP_SERVERS dict:
@@ -94,6 +96,9 @@ class McpServerConfigService:
             "is_stable": True,
         }
         """
+        if not use_cache:
+            with self._lock:
+                return self._load_from_db(enabled_only, strict=True)
         now = time.monotonic()
         if self._cache is not None and (now - self._cache_ts) < _CACHE_TTL:
             return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
@@ -105,7 +110,7 @@ class McpServerConfigService:
 
             return self._load_from_db(enabled_only)
 
-    def _load_from_db(self, enabled_only: bool) -> Dict[str, dict]:
+    def _load_from_db(self, enabled_only: bool, *, strict: bool = False) -> Dict[str, dict]:
         """Load all servers from DB and rebuild cache."""
         enabled_map: Dict[str, dict] = {}
         all_map: Dict[str, dict] = {}
@@ -143,6 +148,8 @@ class McpServerConfigService:
                         enabled_map[row.server_id] = cfg
         except Exception as exc:
             logger.warning("[mcp_service] Failed to load from DB: %s", exc)
+            if strict:
+                raise
             # Return stale cache if available
             if self._cache is not None:
                 return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
@@ -272,7 +279,9 @@ class McpServerConfigService:
 
         return env
 
-    def get_owned_servers(self, user_id: str, enabled_only: bool = True) -> Dict[str, dict]:
+    def get_owned_servers(
+        self, user_id: str, enabled_only: bool = True, *, strict: bool = False
+    ) -> Dict[str, dict]:
         """Return the private MCPs a given user added themselves (owner_user_id == user_id).
 
         Queried from the DB on each call (the count is small), never cached globally, to avoid cross-user leakage. Only remote HTTP/SSE
@@ -289,6 +298,8 @@ class McpServerConfigService:
                 for row in q.order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id).all():
                     owned[row.server_id] = self._row_to_config(row)
         except Exception as exc:
+            if strict:
+                raise
             logger.warning("[mcp_service] Failed to load owned servers for %s: %s", user_id, exc)
         return owned
 

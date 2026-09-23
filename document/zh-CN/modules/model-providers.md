@@ -1,8 +1,8 @@
 # 模型接入
 
-> 最后更新：2026-08-24
+> 最后更新：2026-09-22
 
-HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ollama、DashScope、DeepSeek、各类网关均可）。模型配置以数据库为准——管理员在 Config 管理台登记「模型供应商」，再把供应商绑定到「角色」（主推理、摘要、向量化等），全链路经 `ModelConfigService` 30 秒 TTL 缓存生效，改配置无需重启。`MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` 等环境变量保留为兼容兜底与 MCP 子进程注入用途。
+HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ollama、DashScope、DeepSeek、各类网关均可）。模型配置以数据库为准——管理员在 Config 管理台登记「模型供应商」，再把供应商绑定到「角色」（主推理、摘要、向量化等），全链路经 `ModelConfigService` 校验数据库版本后使用配置快照，改配置无需重启。`MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` 等环境变量保留为兼容兜底与 MCP 子进程注入用途。
 
 ## 配置模型：供应商 + 角色
 
@@ -11,6 +11,7 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | role_key | 用途 | 类型 |
 |---|---|---|
 | `main_agent` | 主智能体推理（必配，缺失时聊天接口直接 503） | chat |
+| `subagent` | 子智能体统一模型（可选，默认跟随用户选择） | chat |
 | `summarizer` | 会话标题摘要 + 分类 | chat |
 | `followup` | 追问问题生成 | chat |
 | `memory` | 记忆抽取（mem0） | chat |
@@ -24,6 +25,12 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | `vision` | 图像理解（视觉桥）——见下节 | chat |
 
 `extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）/ `supports_vision`（是否原生支持读图）/ `api_protocol`（接口协议，见下节）等键。
+
+### 子智能体统一模型
+
+在 **Config → 模型管理 → 角色分配 → 子智能体** 选择一个对话模型供应商，即可统一用于所有内置和自建子智能体（商业版 EE 配置入口；社区版在「设置 → 模型服务」使用同一角色）。配置对下一次子智能体创建生效，运行中的任务保持原模型。
+
+优先级为：**子智能体统一模型 → 单个智能体已有的独立模型 → 用户当前选择的模型 → 主智能体默认模型**。默认不分配统一模型；没有独立配置的子智能体会跟随用户选择。清除分配或停用供应商后恢复上述回退规则。统一配置使用供应商自己的参数；未使用统一配置时，单个智能体已有的参数覆盖仍然有效。子智能体继承当前思考档位，执行过程中不会被动态模型切换还原为系统默认模型。独立参数也应用于故障切换候选。取消父任务时，排队中的子调用被撤销，运行中的子协程收到取消并完成资源清理，然后写入取消终态并结束前端子步骤。
 
 ### 接口协议：默认 Responses，不支持才回退
 
@@ -101,13 +108,13 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 | `GET /v1/models/export`、`POST /v1/models/import` | 模型配置跨环境迁移 |
 | `GET /v1/models/capabilities` | **公开端点**：仅暴露 `main_agent.supports_reasoning_effort` 布尔，前端据此显示「思考·中/高/超高」档位 |
 
-所有写操作后调 `ModelConfigService.invalidate_cache()`，30 秒内全进程生效。
+所有模型配置写操作与数据库版本号在同一事务提交。各进程下一次解析时检查版本，重新装载同一快照中的角色、供应商与故障切换候选；无需等待 TTL 或重启。模型实例按事件循环隔离，已运行任务继续使用启动时的模型。
 
 ## JxOpenAIChatModel（core/llm/chat_models.py）
 
 运行时模型实例统一由 `make_chat_model()` 构造，返回 `JxOpenAIChatModel`——AgentScope 2.0 `OpenAIChatModel` 的子类，解决三件原生类做不到的事：
 
-1. **流式读超时**：长 tool_call 参数生成时单 chunk 可静默 130–160 秒，注入自定义 `httpx.AsyncClient` 把 read 超时抬到 600 秒（`STREAM_READ_TIMEOUT_S`），connect/write/pool 仍用供应商配置的 timeout。
+1. **请求与流式读超时**：OpenAI 兼容、原生供应商和 LiteLLM 均遵守配置的 timeout，不再强制抬高至 600 秒。它限制一次请求/一次流读取的等待，不是多轮任务总时长；慢模型需要显式配置足够的超时。重试与故障切换仍可能增加总等待时间。
 2. **思考链开关**：Qwen / MiniMax 等 OpenAI 兼容端点的思考开关走 `extra_body.chat_template_kwargs`（`enable_thinking` / `thinking` / `reasoning_effort`），每次调用注入。
 3. **结构化输出兜底（L3）**：上下文压缩走 `generate_structured_output()`，个别模型返回 malformed JSON 会导致整轮 `reply()` 崩溃——子类捕获异常并返回 `L3_SYNTHETIC_METADATA` 占位摘要，压缩照常落盘、对话继续。
 
@@ -119,7 +126,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
-          → hooks._get_main_model(mode)        # 进程级实例缓存，随 ModelConfigService.version 失效
+          → hooks._get_main_model(mode)        # 事件循环隔离的实例缓存，随数据库配置版本失效
    turbo/fast → disable_thinking=True（turbo 另在 agent 装配层裁剪为仅检索工具，见提示词/对话文档）
    medium → 思考开（supports_reasoning_effort 时带 effort=medium）
    high/max → reasoning_effort=high/max（端点须声明支持）

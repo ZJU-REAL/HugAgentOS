@@ -209,8 +209,9 @@ def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
     _save_payload(payload, db=db)
     return True
 
-# Process-local cache for the payload, invalidated on write.
+# Process-local payload cache, checked against the DB revision on every read.
 _payload_cache: Optional[Dict[str, Any]] = None
+_payload_cache_key: Optional[tuple] = None
 _payload_cache_lock = Lock()
 
 # kind -> (目录签名, parts)。签名变了才重读磁盘，见 _read_fs_parts。
@@ -343,29 +344,48 @@ def _default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Di
 
 
 def _load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
-    """Read current prompt_versions payload from DB (cached)."""
-    global _payload_cache
-    with _payload_cache_lock:
-        if _payload_cache is not None:
-            # Return shallow copy so callers can't mutate the cache
-            return _payload_cache
+    """Read the committed pool revision before reusing a worker-local payload.
 
+    Workers do not share Python memory. Local invalidation alone leaves other
+    workers serving old versions indefinitely, including on read-modify-write.
+    Query columns directly so an existing ORM identity-map entry cannot hide a
+    newer payload. The payload and its revision are loaded in the same query.
+    """
+    global _payload_cache, _payload_cache_key
     own_session = db is None
     if own_session:
         db = SessionLocal()
     try:
-        row = db.query(ContentBlock).filter(ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID).first()
-        if row and isinstance(row.payload, dict):
-            payload = row.payload
-        else:
-            payload = _clone(DEFAULT_PROMPT_VERSIONS)
+        revision = (
+            db.query(ContentBlock.updated_at)
+            .filter(ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID)
+            .first()
+        )
+        cache_key = (db.get_bind(), tuple(revision) if revision is not None else None)
+        with _payload_cache_lock:
+            if _payload_cache is not None and _payload_cache_key == cache_key:
+                return _clone(_payload_cache)
+
+        row = (
+            db.query(ContentBlock.updated_at, ContentBlock.payload)
+            .filter(ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID)
+            .first()
+        )
+        payload = (
+            row.payload
+            if row is not None and isinstance(row.payload, dict)
+            else _clone(DEFAULT_PROMPT_VERSIONS)
+        )
+        # A write may have committed between the two SELECTs. Cache the revision
+        # returned with the payload, never the earlier revision probe.
+        cache_key = (db.get_bind(), (row.updated_at,) if row is not None else None)
+        with _payload_cache_lock:
+            _payload_cache = payload
+            _payload_cache_key = cache_key
+        return _clone(payload)
     finally:
         if own_session:
             db.close()
-
-    with _payload_cache_lock:
-        _payload_cache = payload
-    return payload
 
 
 def _save_payload(
@@ -401,10 +421,11 @@ def _save_payload(
 
 
 def invalidate_cache() -> None:
-    """Drop in-process payload cache. Called on writes + from prompt cache invalidators."""
-    global _payload_cache
+    """Drop this worker's cache; other workers detect the DB revision on read."""
+    global _payload_cache, _payload_cache_key
     with _payload_cache_lock:
         _payload_cache = None
+        _payload_cache_key = None
 
 
 def _clone(obj: Any) -> Any:

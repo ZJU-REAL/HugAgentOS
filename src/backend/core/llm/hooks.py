@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import threading
+from functools import wraps
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
@@ -75,40 +77,66 @@ def _get_pin_hint_state() -> Dict[str, Any]:
 
 # Desktop models also capture a cloud session in their request hook. Cached
 # instances must never cross that identity boundary, even when DB config is unchanged.
-_model_cache: dict[str | tuple[str, str], Any] = {}
+_model_cache: dict[tuple[Any, ...], Any] = {}
 _cached_version: int = -1
+
+
+_model_cache_lock = threading.RLock()
+
+
+def _serialized_model_cache(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        with _model_cache_lock:
+            return function(*args, **kwargs)
+
+    return locked
 
 
 def _check_version():
     """Invalidate cached model instances when ModelConfigService version changes."""
     global _model_cache, _cached_version
-    try:
-        from core.services.model_config import ModelConfigService
+    from core.services.model_config import ModelConfigService
 
-        current = ModelConfigService.get_instance().version
-    except Exception:
-        return
+    current = ModelConfigService.get_instance().version
     if current != _cached_version:
         _model_cache = {}
         _cached_version = current
 
 
-def _model_cache_key(name: str) -> str | tuple[str, str]:
+def _model_cache_key(name: str) -> tuple[Any, ...]:
     from core.auth.desktop_bridge import bridge_enabled
 
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
     if not bridge_enabled():
-        return name
+        return (name, loop, None)
     from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
 
     identity = _state_fingerprint(get_state())
     # Eviction only releases this cache's reference. In-flight runs keep their
     # captured model and its existing request hook, which rejects identity changes.
     for key in list(_model_cache):
-        if isinstance(key, tuple) and key[0] == name and key[1] != identity:
+        if isinstance(key, tuple) and key[0] == name and key[2] != identity:
             _model_cache.pop(key, None)
-    return name, identity
+    return name, loop, identity
 
 
+@_serialized_model_cache
+def release_loop_models() -> None:
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    for key in list(_model_cache):
+        if key[1] is loop:
+            _model_cache.pop(key, None)
+
+
+@_serialized_model_cache
 def _get_main_model(mode: str = "medium"):
     """Get the main agent model for the given chat mode (fast/medium/high/max)."""
     from core.llm.chat_models import get_default_model
@@ -136,6 +164,7 @@ def _get_main_model(mode: str = "medium"):
     return instance
 
 
+@_serialized_model_cache
 def _get_provider_model(provider_id: str, mode: str = "medium"):
     """Get a user-selected active chat provider model for the given chat mode."""
     from core.llm.chat_models import build_model_for_mode

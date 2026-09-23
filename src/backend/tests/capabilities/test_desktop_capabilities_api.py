@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import base64
 import io
 import json
@@ -19,6 +20,7 @@ from core.services import desktop_cloud_bridge as bridge
 from core.services import desktop_cloud_skills as cloud_skills
 from core.services.desktop_capability_protocol import (
     build_entity_manifest,
+    build_manifest,
     build_skill_manifest,
     skill_content_hash,
 )
@@ -64,6 +66,10 @@ class _Resp:
 class _Cloud:
     def __init__(self, files_by_id: dict, disabled=()):
         entries, self.bundles = [], {}
+        self.connectors = build_manifest([])
+        self.entities = {kind: build_entity_manifest(kind, []) for kind in ("agent", "plugin")}
+        self.requests = []
+
         for sid, files in files_by_id.items():
             md = files.get("SKILL.md") or _md(sid)
             extra = {k: v for k, v in files.items() if k != "SKILL.md"}
@@ -85,19 +91,29 @@ class _Cloud:
         self.manifest = build_skill_manifest(entries)
 
     def get(self, url, headers=None, timeout=None):
+        self.requests.append(url)
         if url.endswith("/skills/manifest"):
             return _Resp(200, body={"data": self.manifest})
         for kind, endpoint in (("agent", "agents"), ("plugin", "plugins")):
             if url.endswith(f"/{endpoint}/manifest"):
-                return _Resp(200, body={"data": build_entity_manifest(kind, [])})
+                return _Resp(200, body={"data": self.entities[kind]})
         if "/skills/" in url:
             sid = url.rsplit("/skills/", 1)[1].split("/")[0]
             return _Resp(200, content=self.bundles[sid]) if sid in self.bundles else _Resp(404)
+        if url.endswith("/capability/manifest"):
+            return _Resp(200, body={"data": self.connectors})
         return _Resp(404)
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch, index_db):
+def cloud():
+    return _Cloud({"ppt-design": {"SKILL.md": _md("ppt-design", "cloud")}, "market-x": {"a.py": "1"}})
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch, index_db, cloud):
+    monkeypatch.setattr("core.services.desktop_capability_sync_check.CHECK_INTERVAL_SECONDS", 0)
+
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "ws" / "skills"))
     monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(tmp_path / "caps"))
     monkeypatch.setenv("HUGAGENT_DESKTOP_BRIDGE_SECRET", "s")
@@ -111,9 +127,6 @@ def client(tmp_path, monkeypatch, index_db):
     monkeypatch.setattr(skills, "current_local_user_id", lambda: USER)
     monkeypatch.setattr(bridge, "get_state", lambda: dict(STATE, expires_at=time.time() + 60))
     monkeypatch.setattr("core.agent_skills.cache_refresh.refresh_skill_caches", lambda: None)
-    cloud = _Cloud(
-        {"ppt-design": {"SKILL.md": _md("ppt-design", "cloud")}, "market-x": {"a.py": "1"}}
-    )
     monkeypatch.setattr("httpx.get", cloud.get)
 
     app = FastAPI()
@@ -186,3 +199,106 @@ def test_manual_management_endpoints_are_gone(client):
 def test_endpoints_refuse_outside_desktop_store(client, monkeypatch):
     monkeypatch.delenv("HUGAGENT_CAPS_ROOT")
     assert client.get("/v1/desktop/capabilities/installations").status_code == 403
+
+
+def test_sync_check_compares_the_current_account_without_installing(client):
+    path = "/v1/desktop/capabilities/sync-check"
+    assert client.get(path).json()["data"]["changed"] is None
+    assert client.post("/v1/desktop/capabilities/sync").status_code == 200
+    before = client.get("/v1/desktop/capabilities/installations").json()["data"]
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.json()["data"]["changed"] is False
+    assert client.get("/v1/desktop/capabilities/installations").json()["data"] == before
+
+
+CHECK = "/v1/desktop/capabilities/sync-check"
+SYNC = "/v1/desktop/capabilities/sync"
+
+
+def test_content_edit_with_unchanged_count_is_detected_then_cleared(client, cloud):
+    assert client.post(SYNC).status_code == 200
+    baseline = client.get("/v1/desktop/capabilities/installations").json()
+    newer = _Cloud({"ppt-design": {"SKILL.md": _md("ppt-design", "edited")}, "market-x": {"a.py": "1"}})
+    cloud.manifest, cloud.bundles = newer.manifest, newer.bundles
+    cloud.requests.clear()
+    assert client.get(CHECK).json()["data"]["changed"] is True
+    assert all(url.endswith("/manifest") for url in cloud.requests), "checks never download bundles"
+    assert client.get("/v1/desktop/capabilities/installations").json()["data"] == baseline["data"]
+    assert client.post(SYNC).status_code == 200
+    assert client.get(CHECK).json()["data"]["changed"] is False
+
+
+@pytest.mark.parametrize("kind", ["skill", "mcp", "agent", "plugin"])
+def test_each_account_manifest_change_is_detected(client, cloud, kind):
+    assert client.post(SYNC).status_code == 200
+    if kind == "skill":
+        cloud.manifest = build_skill_manifest([])
+    elif kind == "mcp":
+        from core.services.desktop_capability_protocol import canonical_hash
+        cloud.connectors = build_manifest([{"server_id": "new", "tools": [],
+                                            "schema_hash": canonical_hash([])}])
+    elif kind == "agent":
+        cloud.entities[kind] = build_entity_manifest(kind, [{
+            "agent_id": "new", "name": "New", "description": "", "version": "1",
+            "content_hash": "a" * 64, "is_enabled": True,
+        }])
+    else:
+        cloud.entities[kind] = build_entity_manifest(kind, [{
+            "install_id": "new", "slug": "new", "name": "New", "description": "",
+            "version": "1", "category": "", "content_hash": "b" * 64, "enabled": True,
+            "skills": [], "mcp": [],
+        }])
+    assert client.get(CHECK).json()["data"]["changed"] is True
+    if kind == "mcp":
+        assert client.post(SYNC).status_code == 200
+        assert client.get(CHECK).json()["data"]["changed"] is False
+        assert any(s["server_id"] == "new" for s in bridge.managed_connectors())
+
+
+def test_toggles_and_order_alone_are_not_updates(client, cloud):
+    assert client.post(SYNC).status_code == 200
+    entries = copy.deepcopy(cloud.manifest["skills"])
+    for entry in entries:
+        entry["enabled"] = not entry["enabled"]
+    cloud.manifest = build_skill_manifest(list(reversed(entries)))
+    assert client.get(CHECK).json()["data"]["changed"] is False
+
+
+def test_network_or_invalid_manifest_is_unknown(client, cloud, monkeypatch):
+    assert client.post(SYNC).status_code == 200
+    original = cloud.get
+    def offline(*args, **kwargs):
+        raise RuntimeError("sensitive upstream detail")
+    monkeypatch.setattr("httpx.get", offline)
+    response = client.get(CHECK)
+    assert response.json()["data"]["changed"] is None
+    assert "sensitive" not in response.text
+    monkeypatch.setattr("httpx.get", original)
+    cloud.manifest = {"version": 99}
+    assert client.get(CHECK).json()["data"]["changed"] is None
+
+
+def test_check_cache_is_shared_but_invalidated_by_new_local_snapshot(client, cloud, monkeypatch):
+    assert client.post(SYNC).status_code == 200
+    cloud.manifest = build_skill_manifest([])
+    monkeypatch.setattr("core.services.desktop_capability_sync_check.CHECK_INTERVAL_SECONDS", 60)
+    assert client.get(CHECK).json()["data"]["changed"] is True
+    cloud.requests.clear()
+    assert client.get(CHECK).json()["data"]["changed"] is True
+    assert cloud.requests == []
+    assert client.post(SYNC).status_code == 200
+    assert client.get(CHECK).json()["data"]["changed"] is False
+
+
+def test_check_rejects_an_account_switch_during_request(client, cloud, monkeypatch):
+    assert client.post(SYNC).status_code == 200
+    original = cloud.get
+    def switched(*args, **kwargs):
+        result = original(*args, **kwargs)
+        monkeypatch.setattr(bridge, "get_state", lambda: {**STATE, "token": _token("u-2")})
+        return result
+    monkeypatch.setattr("httpx.get", switched)
+    response = client.get(CHECK)
+    assert response.status_code == 409
+    assert "changed" not in response.json().get("data", {})

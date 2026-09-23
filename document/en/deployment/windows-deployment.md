@@ -439,3 +439,31 @@ desktop parts and the stock site paragraph in `project`, preserving other custom
 version selections. Administrator-rewritten project site instructions require separate review.
 Hybrid installations also need the cloud sites plugin updated and synced. The local backend is
 delivered in a new full desktop package; updating only the cloud does not remove old client injection.
+
+
+### Capability sources and change indicators
+
+In hybrid mode, cloud-synced plugins, skills, connectors, and agents retain their cloud source. Same-named historical local or built-in installations do not supply the card's source or upload target. Disabled capabilities and missing dependencies do not change ownership; ambiguous names do not expose a submission action.
+
+All four kinds show an upload button only for detected local additions or modifications. Synced entries, entries without confirmed changes, and entries without file comparison support show no upload button. Submission is disabled when comparison finds identical local and cloud content. This UI fix ships in the desktop frontend; updating only the cloud backend does not change older clients.
+
+### Desktop synchronization prompts
+
+In hybrid mode, the sidebar sync entry appears only when the current account's cloud capability
+manifests differ from the snapshots already accepted by this device. Other accounts' changes,
+global epoch fluctuations and response ordering do not directly trigger the entry. Comparison covers
+connector, skill, agent and plugin entries, definitions and content hashes. Initial toggle flags in
+manifest entries alone are ignored; changes to authorized membership or definition files remain
+synchronizable changes. Existing device toggle choices are preserved.
+
+After initial readiness and during normal cloud API activity, the client makes a read-only comparison
+at most once per minute per window. The local service coalesces checks across windows by account and
+local snapshot. There is no idle polling. Checks do not download packages, install or modify device
+capabilities. Cloud outages and incomplete initial synchronization are not treated as updates.
+Synchronization still requires a click and covers all four kinds. A successful sync is checked again;
+late pre-sync or previous-account results cannot restore an obsolete prompt.
+
+Update the bundled desktop frontend, local backend and cloud backend. The new cloud backend supports
+fresh manifest reads to avoid stale worker caches causing repeated prompts. Older cloud servers may
+still return an old manifest briefly until their caches expire. Updating the website alone does not
+fix an already installed desktop client.

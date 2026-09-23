@@ -492,8 +492,12 @@ class AgentRuntimeState(AgentState):
         hand-copied field mappings from silently drifting (streaming once didn't lowercase
         chat_mode while workflow did).
         """
-        self.model_name = str(context.get("model_name", "") or "")
-        self.model_provider_id = str(context.get("model_provider_id", "") or "")
+        # A child may use the shared role or its own provider. Request context
+        # still describes the parent selection; it must not relabel a pinned
+        # child (vision routing and audit read these fields).
+        if not self.model_pinned:
+            self.model_name = str(context.get("model_name", "") or "")
+            self.model_provider_id = str(context.get("model_provider_id", "") or "")
         self.user_id = str(context.get("user_id", "") or "") or None
         self.chat_id = str(context.get("chat_id", "") or "") or None
         self.run_id = str(context.get("run_id", "") or "") or None

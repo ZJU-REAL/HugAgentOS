@@ -11,9 +11,8 @@ Dispatches by provider (vendor) to three engine kinds (see core/llm/providers/re
   - litellm: adapted via litellm (Bedrock etc.)
 
 Two hard requirements for subclassing ``OpenAIChatModel`` (OpenAI-compatible path only):
-  1. During long tool_call generation a single chunk can go silent for 130-160s → must keep the
-     read=600s httpx timeout (see STREAM_READ_TIMEOUT_S). Done by injecting a custom
-     ``httpx.AsyncClient``.
+  1. Provider-configured timeouts apply to connect/read/write/pool, including
+     streaming reads, through an owned ``httpx.AsyncClient``.
   2. Qwen/minimax go through OpenAI-compat, where the thinking-chain switch lives in
      ``extra_body.chat_template_kwargs`` rather than OpenAI-native reasoning_effort. Done by
      injecting extra_body into every call.
@@ -65,14 +64,6 @@ from core.llm.tool_result_media import NoDiskToolMediaMixin
 from prompts.prompt_config import ModelConfig
 
 logger = logging.getLogger(__name__)
-
-
-# See the 1.x comment: read timeout raised separately (default 600s), leaving ample
-# time for long tool_call args generation. Env-tunable: a hung LLM gateway holds a
-# run for this long per attempt before the client errors and retries — ops can lower
-# it (e.g. 240) when the upstream endpoint is known to be flaky, so retries and the
-# final error surface well within the run's lifetime.
-STREAM_READ_TIMEOUT_S: float = float(os.getenv("LLM_STREAM_READ_TIMEOUT_S", "600"))
 
 
 def _safe_exception_chain(exc: BaseException) -> list[dict[str, str]]:
@@ -396,7 +387,7 @@ class OpenAICompatChatModel(
         tool_choice: ToolChoice | None = None,
         **generate_kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        # ⭐ Only difference from the parent class: inject the reused http_client (with read=600s timeout) / optional Azure client
+        # ⭐ Only difference from the parent class: inject the reused http_client (with the configured timeout) / optional Azure client
         client = self._build_client()
 
         formatted_messages = await self.formatter.format(messages)
@@ -621,6 +612,17 @@ _POOL_LIMITS = httpx.Limits(
 )
 
 
+async def close_loop_http_clients() -> None:
+    """Release clients owned by a child loop before that loop is closed."""
+    import asyncio
+
+    loop_id = id(asyncio.get_running_loop())
+    keys = [key for key in list(_HTTP_CLIENTS) if key[0] == loop_id]
+    for key in keys:
+        client = _HTTP_CLIENTS.pop(key)
+        await client.aclose()
+
+
 def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: str = "") -> httpx.AsyncClient:
     import asyncio
 
@@ -656,7 +658,7 @@ def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: st
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=base_t,
-            read=max(base_t, STREAM_READ_TIMEOUT_S),
+            read=base_t,
             write=base_t,
             pool=base_t,
         ),
@@ -858,6 +860,7 @@ def make_chat_model(
             api_key=api_key,
             context_size=context_size,
             stream=stream,
+            timeout=timeout,
         )
     if spec.engine == "litellm":
         return build_litellm_model(

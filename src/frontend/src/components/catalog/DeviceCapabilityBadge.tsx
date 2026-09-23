@@ -27,11 +27,11 @@ export function DeviceCapabilityBadge({ kind, runtimeName }: {
         {item.change_state === 'modified' && <span> · {t('有本地变更')}</span>}
         {item.change_state === 'new' && <span> · {t('未提交')}</span>}
       </span>
-      {item.change_state && item.change_state !== 'unavailable' && <Tooltip
-        title={t(item.change_state === 'new' ? '本地新增，可提交到云端' : item.change_state === 'modified' ? '本地有变更，可提交到云端' : '比较云端版本')}>
+      {(item.change_state === 'new' || item.change_state === 'modified') && <Tooltip
+        title={t(item.change_state === 'new' ? '本地新增，可提交到云端' : '本地有变更，可提交到云端')}>
         <Button type="text" size="small" icon={<CloudUploadOutlined />}
           aria-label={t('比较云端版本')} onClick={() => setOpen(true)}
-          style={{ color: item.change_state === 'modified' || item.change_state === 'new' ? 'var(--color-primary)' : undefined }} />
+          style={{ color: 'var(--color-primary)' }} />
       </Tooltip>}
       {open && <CapabilityChangesModal key={item.install_id} installId={item.install_id} onClose={() => setOpen(false)} />}
     </span>

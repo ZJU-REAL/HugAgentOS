@@ -510,10 +510,10 @@ def _user_capability_configs(
     from core.services.mcp_service import McpServerConfigService
 
     svc = McpServerConfigService.get_instance()
-    owned = svc.get_owned_servers(uid, enabled_only=False)
+    owned = svc.get_owned_servers(uid, enabled_only=False, strict=not use_cache)
     with SessionLocal() as db:
         _skills, _agents, mcps = resolve_all_runtime_enabled(db, uid)
-    all_cfgs = dict(svc.get_all_servers(enabled_only=True))
+    all_cfgs = dict(svc.get_all_servers(enabled_only=True, use_cache=use_cache))
     all_cfgs.update(owned)
     available = list(all_cfgs.keys())
     enabled = _effective_mcp_server_keys(
@@ -525,7 +525,7 @@ def _user_capability_configs(
     return available, enabled, all_cfgs
 
 
-def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
+def build_user_capability_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
     """构建当前用户的云端能力 manifest（server 级 + 完整脱敏 schema）。
 
     清单是账号**拥有**的连接器，云端关着的也在里面（带 ``enabled=false``）：装了
@@ -535,7 +535,7 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
     """
     from core.config.catalog_runtime import _DEFAULT_MCP_ICONS
 
-    keys, enabled_keys, all_cfgs = _user_capability_configs(user_id)
+    keys, enabled_keys, all_cfgs = _user_capability_configs(user_id, use_cache=use_cache)
     enabled = set(enabled_keys)
 
     meta: Dict[str, AdminMcpServer] = {}

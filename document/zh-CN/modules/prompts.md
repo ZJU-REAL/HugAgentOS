@@ -33,15 +33,18 @@ src/backend/prompts/prompt_text/default/system/
 
 ### 缓存设计
 
-提示词装配带三层缓存，全部支持主动失效：
+提示词装配使用以下缓存，版本池缓存每次读取都会核对数据库版本：
 
 | 缓存 | TTL | 说明 |
 |---|---|---|
+| 版本池缓存 `_payload_cache` | 每次读取核对数据库 | 先查询 `content_blocks.updated_at`；版本变化后重新加载完整 payload。不同后端进程保存的新内容在下一次读取时可见，不依赖浏览器重复刷新或进程间通知；返回独立副本，避免调用方改动缓存 |
 | 模板缓存 `_prompt_cache` | 300s | key 含 provider、parts、DB/激活版本，以及**完整**动态上下文的 SHA-256 canonical hash（完整项目指令、完整文件清单、工具定义、MCP/KB 集合和未来新增模板变量）；key 只保存哈希，不再保存截断或明文的项目内容。`{now}` 仍以“天”为粒度替换，保持稳定前缀与模型侧缓存命中 |
 | DB parts 预载 `_db_parts_preloaded` | 启动时 `warmup_prompt_cache()` 预载，写后重载 | 首个请求不查库 |
 | DB 版本号 `_db_version_cache` | 30s | `MAX(admin_prompt_parts.updated_at)` 作为 cache-busting 版本串 |
 
-任何提示词写操作（管理台编辑、版本激活、快照导入、能力开关变更）都会调 `invalidate_prompt_cache()` 级联清空并立即重热。
+管理台版本编辑、版本激活、快照导入等操作会调 `invalidate_prompt_cache()` 级联清空并立即重热。
+
+版本池管理接口与运行时装配共用这条读取链路。激活版本编辑保存后，其他进程会读取最新正文；系统模板缓存通过激活版本的更新时间重新装配，桌面模板通过完整上下文哈希重新装配。修改未激活版本不会切换当前对话使用的版本，已在执行中的模型请求也不会被中途改写。
 
 ### 执行 Manifest 与运行时绑定
 

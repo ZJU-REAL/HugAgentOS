@@ -4,7 +4,7 @@ import { getDeviceCapabilities } from '../src/api';
 import type { DeviceCapabilityItem, DeviceCapabilityListing } from '../src/api';
 const listing = (name: string): DeviceCapabilityListing => ({
   kind: 'skill', profile_id: name,
-  items: [{ runtime_name: name, source: 'cloud', kind: 'skill' } as DeviceCapabilityItem],
+  items: [{ install_id: 'skill:' + name + ':' + name, runtime_name: name, source: 'cloud', kind: 'skill' } as DeviceCapabilityItem],
 });
 async function run() {
   const originalFetch = globalThis.fetch;
@@ -51,6 +51,33 @@ async function run() {
   assert.equal(retryStore.getState().kinds.skill.loaded, false);
   await retryStore.getState().load('skill');
   assert.equal(retryStore.getState().kinds.skill.byName.retry.source, 'cloud');
+  // These rows mirror a device upgraded from local defaults to cloud plugins.
+  // The cloud card must retain its source even when its local predecessor is first.
+  for (const kind of ['plugin', 'skill', 'mcp', 'agent'] as const) {
+    for (const reverse of [false, true]) {
+      const local = { install_id: kind + ':local:shared', runtime_name: 'shared', kind,
+        source: 'local', change_state: 'new', resolution: { outcome: 'chosen' } } as DeviceCapabilityItem;
+      const cloud = { install_id: kind + ':p_current:shared', runtime_name: 'shared', kind,
+        source: 'cloud', change_state: 'synced', usable: false,
+        resolution: { outcome: 'unusable' } } as DeviceCapabilityItem;
+      const sameName = createDesktopCapabilityStore({ list: async () => ({
+        kind, profile_id: 'p_current', items: reverse ? [cloud, local] : [local, cloud],
+      }) }, () => true);
+      await sameName.getState().load(kind);
+      assert.equal(sameName.getState().kinds[kind].byName.shared.install_id, cloud.install_id,
+        kind + ': cloud card must not inherit a local source or pending upload');
+    }
+  }
+  const ambiguous = createDesktopCapabilityStore({ list: async () => ({
+    kind: 'agent', profile_id: 'p_current', items: [
+      { install_id: 'agent:p_current:first', runtime_name: 'same title', kind: 'agent', source: 'cloud' },
+      { install_id: 'agent:p_current:second', runtime_name: 'same title', kind: 'agent', source: 'cloud' },
+      { install_id: 'agent:p_previous:old', runtime_name: 'other account', kind: 'agent', source: 'cloud' },
+    ],
+  }) }, () => true);
+  await ambiguous.getState().load('agent');
+  assert.deepEqual(Object.keys(ambiguous.getState().kinds.agent.byName), [],
+    'Ambiguous display names and stale cloud accounts must never supply an upload target');
   console.log('desktop capabilities: local routing, deduplication, cache, account isolation and retry passed');
 }
 void run().catch((error) => { console.error(error); process.exitCode = 1; });

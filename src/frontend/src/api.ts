@@ -409,24 +409,12 @@ function throwIfSessionExpired(status: number, payload: unknown, localTarget = f
   throw new Error('Session expired');
 }
 
-/** 云端每次让能力缓存失效都会换一个变更号，随响应头下发。桌面双模式下它变了只说明
- *  「云端有改动可以同步」，**不会**自己去同步：发现和执行分开，和桌面端「检查更新」
- *  一样由用户点一下才真正落到本机。检测本身不产生任何额外请求。 */
-const CAPABILITY_EPOCH_HEADER = 'x-hugagent-capability-epoch';
-let _capabilityEpoch: string | null = null;
-let _onCapabilityDrift: (() => void) | null = null;
-
-function noteCloudCapabilityEpoch(epoch: string | null) {
-  if (!epoch) return;
-  const previous = _capabilityEpoch;
-  _capabilityEpoch = epoch;
-  if (previous === null || previous === epoch || !_hybridDual) return;
-  _onCapabilityDrift?.();
-}
-
-/** 云端能力有改动时通知界面亮出同步入口（由 capabilitySyncStore 注册）。 */
-export function setCapabilityDriftListener(fn: (() => void) | null) {
-  _onCapabilityDrift = fn;
+/** Cloud activity offers a rate-limited account comparison, never a raw epoch prompt.
+ * Content edits may leave the legacy global epoch unchanged, so observe successful
+ * requests too. The store owns readiness, concurrency and the check interval. */
+let _onCapabilityCheck: (() => void) | null = null;
+export function setCapabilityCheckListener(fn: (() => void) | null) {
+  _onCapabilityCheck = fn;
 }
 
 export async function apiRequest<T>(
@@ -452,7 +440,7 @@ export async function apiRequest<T>(
     credentials: 'include',
     headers,
   });
-  if (!localTarget) noteCloudCapabilityEpoch(response.headers.get(CAPABILITY_EPOCH_HEADER));
+  if (!localTarget && response.ok && _hybridDual) _onCapabilityCheck?.();
 
   if (response.status === 204) {
     return undefined as T;
@@ -2159,6 +2147,7 @@ export interface DeviceCapabilityItem {
   enabled?: boolean;
   usable?: boolean;
   change_state?: 'new' | 'modified' | 'synced' | 'compare' | 'unavailable';
+  resolution?: { outcome: string; reason?: string | null };
 }
 
 export interface DeviceCapabilityListing {
@@ -2171,6 +2160,10 @@ export interface DeviceCapabilityListing {
 export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise<DeviceCapabilityListing> {
   const wrapped = await apiRequest<unknown>(`/v1/desktop/capabilities/installations?kind=${kind}`, undefined, 'local');
   return unwrapData<DeviceCapabilityListing>(wrapped);
+}
+
+export async function checkDeviceCapabilitySync(): Promise<{ changed: boolean | null }> {
+  return unwrapData(await apiRequest('/v1/desktop/capabilities/sync-check', undefined, 'local'));
 }
 
 export async function syncDeviceCapabilities(): Promise<Record<string, unknown>> {

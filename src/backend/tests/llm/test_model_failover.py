@@ -305,38 +305,36 @@ class _Row:
         self.extra_config = {"context_length": ctx}
 
 
-def _chain_from(rows, monkeypatch):
+def _chain_from(rows, monkeypatch, db_session):
+    from sqlalchemy.orm import sessionmaker
     from core.services import model_config as mc
+    from core.db.model_repository import create_provider
 
-    class _Q:
-        def filter(self, *a, **k):
-            return self
-
-        def all(self):
-            return rows
-
-    class _DB:
-        def query(self, *a, **k):
-            return _Q()
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(mc, "SessionLocal", lambda: _DB())
-    svc = mc.ModelConfigService()
-    return [c.provider_id for c in svc._chain_snapshot()]
+    for row in rows:
+        create_provider(
+            db_session,
+            display_name=row.display_name,
+            provider_type="chat",
+            base_url=row.base_url,
+            api_key=row.api_key,
+            model_name=row.model_name,
+            weight=row.weight,
+            extra_config=row.extra_config,
+        )
+    monkeypatch.setattr(mc, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    return [c.model_name for c in mc.ModelConfigService().resolve_failover_chain(None)]
 
 
-def test_chain_prefers_higher_gateway_weight(monkeypatch):
+def test_chain_prefers_higher_gateway_weight(monkeypatch, db_session):
     """「网关权重」是配置台上唯一能改这个顺序的旋钮，值越大越先用。"""
     rows = [_Row("low", 1, 128000), _Row("high", 9, 32000), _Row("mid", 5, 32000)]
-    assert _chain_from(rows, monkeypatch) == ["high", "mid", "low"]
+    assert _chain_from(rows, monkeypatch, db_session) == ["high", "mid", "low"]
 
 
-def test_chain_breaks_weight_ties_on_context_window(monkeypatch):
+def test_chain_breaks_weight_ties_on_context_window(monkeypatch, db_session):
     """没人调过权重时（全是默认 1），大窗口优先——切过去才接得住长对话。"""
     rows = [_Row("small", 1, 32000), _Row("big", 1, 1000000), _Row("mid", 1, 128000)]
-    assert _chain_from(rows, monkeypatch) == ["big", "mid", "small"]
+    assert _chain_from(rows, monkeypatch, db_session) == ["big", "mid", "small"]
 
 
 # ── 带媒体的请求：只能交给认得出图的候选 ────────────────────────────

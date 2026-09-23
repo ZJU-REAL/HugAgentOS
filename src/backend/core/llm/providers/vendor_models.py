@@ -2,9 +2,8 @@
 
 - Native vendors (Anthropic / Gemini / DashScope / Ollama): thin subclasses that attach the
   L3 fallback mixin + the corresponding formatter; the underlying client is constructed by the
-  native AgentScope class inside _call_api (no http_client injection point is exposed, so the
-  timeout falls back to each SDK's default; the Anthropic SDK default timeout=600s satisfies
-  long tool_call generation).
+  native AgentScope class inside _call_api. A request/stream-read deadline enforces the
+  configured timeout even when a vendor SDK has no timeout injection point.
 - litellm vendors (Bedrock, etc.): subclass OpenAIChatModel and only override _call_api to call
   litellm.acompletion instead, reusing OpenAIChatModel's OpenAI-format parser (litellm output is
   already OpenAI format). litellm is a lazy import; when not installed, only the litellm engine
@@ -13,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, AsyncGenerator, Optional
@@ -86,7 +86,8 @@ class ReplayOpenAIFormatter(ReasoningReplayMixin, NoDiskToolMediaMixin, OpenAICh
     pass
 
 
-def _with_provider(model_instance, provider_id: str):  # noqa: ANN001, ANN202
+def _with_provider(model_instance, provider_id: str, timeout: float):  # noqa: ANN001, ANN202
+    model_instance._request_timeout = float(timeout)
     model_instance.provider_id = provider_id
     model_instance.wire_protocol = _WIRE_PROTOCOLS[type(model_instance).__name__]
     model_instance.formatter.replay_provider = provider_id
@@ -95,27 +96,72 @@ def _with_provider(model_instance, provider_id: str):  # noqa: ANN001, ANN202
     return model_instance
 
 
+class NativeRequestTimeout:
+    """Bound initial response and each subsequent stream read, in the owning task."""
+
+    _request_timeout: float = 120.0
+
+    async def _call_api(self, *args, **kwargs):
+        async with asyncio.timeout(self._request_timeout):
+            response = await super()._call_api(*args, **kwargs)
+        if not hasattr(response, "__aiter__"):
+            return response
+
+        async def stream():
+            iterator = response.__aiter__()
+            try:
+                while True:
+                    try:
+                        async with asyncio.timeout(self._request_timeout):
+                            chunk = await anext(iterator)
+                    except StopAsyncIteration:
+                        break
+                    yield chunk
+            finally:
+                close = getattr(iterator, "aclose", None)
+                if close is not None:
+                    await close()
+
+        return stream()
+
+
 # ── Native vendor thin subclasses ─────────────────────────────────────────────
 class NativeAnthropicChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, AnthropicChatModel
+    NativeRequestTimeout,
+    ToolCallIdentityMixin,
+    ImageTokenCountingMixin,
+    StructuredFallbackMixin,
+    AnthropicChatModel,
 ):
     pass
 
 
 class NativeGeminiChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, GeminiChatModel
+    NativeRequestTimeout,
+    ToolCallIdentityMixin,
+    ImageTokenCountingMixin,
+    StructuredFallbackMixin,
+    GeminiChatModel,
 ):
     pass
 
 
 class NativeDashScopeChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, DashScopeChatModel
+    NativeRequestTimeout,
+    ToolCallIdentityMixin,
+    ImageTokenCountingMixin,
+    StructuredFallbackMixin,
+    DashScopeChatModel,
 ):
     pass
 
 
 class NativeOllamaChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, OllamaChatModel
+    NativeRequestTimeout,
+    ToolCallIdentityMixin,
+    ImageTokenCountingMixin,
+    StructuredFallbackMixin,
+    OllamaChatModel,
 ):
     pass
 
@@ -130,6 +176,7 @@ def build_native_model(
     api_key: str,
     context_size: int,
     stream: bool,
+    timeout: float = 120,
 ):
     """Construct the corresponding native vendor model per spec.native_class."""
     # context_size is guaranteed positive by make_chat_model (real window or caller-supplied
@@ -151,6 +198,7 @@ def build_native_model(
                 **ctx,
             ),
             spec.id,
+            timeout,
         )
 
     if spec.native_class == "GeminiChatModel":
@@ -166,6 +214,7 @@ def build_native_model(
                 **ctx,
             ),
             spec.id,
+            timeout,
         )
 
     if spec.native_class == "DashScopeChatModel":
@@ -184,6 +233,7 @@ def build_native_model(
                 **ctx,
             ),
             spec.id,
+            timeout,
         )
 
     if spec.native_class == "OllamaChatModel":
@@ -199,6 +249,7 @@ def build_native_model(
                 **ctx,
             ),
             spec.id,
+            timeout,
         )
 
     raise ValueError(f"未支持的原生厂商类：{spec.native_class}")
@@ -206,7 +257,11 @@ def build_native_model(
 
 # ── litellm adapter ───────────────────────────────────────────────────────────
 class LiteLLMChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, OpenAIChatModel
+    NativeRequestTimeout,
+    ToolCallIdentityMixin,
+    ImageTokenCountingMixin,
+    StructuredFallbackMixin,
+    OpenAIChatModel,
 ):
     """Call any vendor via litellm; reuse OpenAIChatModel's OpenAI-format parser.
 
@@ -322,11 +377,9 @@ def build_litellm_model(
         litellm_model=f"{spec.litellm_prefix}{model}",
         litellm_kwargs=litellm_kwargs,
         model=model,
-        parameters=OpenAIChatModel.Parameters(
-            temperature=temperature, max_tokens=max_tokens
-        ),
+        parameters=OpenAIChatModel.Parameters(temperature=temperature, max_tokens=max_tokens),
         stream=stream,
-        timeout=max(float(timeout or 120), 600.0),
+        timeout=float(timeout),
         context_size=context_size,
         provider_id=spec.id,
     )

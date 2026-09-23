@@ -360,13 +360,29 @@ async def list_installations(kind: str = "skill", user: UserContext = Depends(ge
     )
 
 
+@router.get("/sync-check", summary="只读比较当前账号云端与本机能力清单")
+async def check_sync(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    from core.capabilities.errors import CloudUnavailable
+    from core.services.desktop_capability_sync_check import check
+
+    try:
+        return success_response(data=await asyncio.to_thread(check, st))
+    except CloudUnavailable:
+        raise HTTPException(status_code=409, detail="cloud account changed; retry") from None
+
+
 @router.post("/sync", summary="立即同步云端能力清单")
 async def sync_now(user: UserContext = Depends(get_current_user)):
     _require_desktop_store()
     st = _bridge_state(str(user.user_id))
     from core.services import desktop_cloud_bundles, desktop_cloud_skills
-    from core.services.desktop_cloud_bridge import sync_capabilities_blocking
+    from core.services.desktop_cloud_bridge import (
+        sync_capabilities_blocking, sync_tool_manifest_blocking,
+    )
 
+    await asyncio.to_thread(sync_tool_manifest_blocking, st)
     await asyncio.to_thread(sync_capabilities_blocking, st)
     status = desktop_cloud_skills.status()
     status["bundles"] = desktop_cloud_bundles.status()

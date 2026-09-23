@@ -50,7 +50,7 @@ def _fetch(kind: str, state: Dict[str, Any]) -> Dict[str, Any]:
     ticket = manifest_order.begin(kind, _profile(state))
     with _lock:
         current = _manifests.get(kind)
-    headers = _headers(state)
+    headers = {**_headers(state), "Cache-Control": "no-cache"}
     if current:
         headers["If-None-Match"] = f'"{current["revision"]}"'
     resp = httpx.get(
@@ -290,6 +290,14 @@ def on_account_switch() -> None:
         for kind in _manifests:
             _manifests[kind] = None
             _errors[kind] = None
+
+
+def synced_manifests() -> Dict[str, Optional[Dict[str, Any]]]:
+    """Read the accepted definition snapshots without changing installations."""
+    import copy
+
+    with _lock:
+        return copy.deepcopy(_manifests)
 
 
 def status() -> Dict[str, Any]:

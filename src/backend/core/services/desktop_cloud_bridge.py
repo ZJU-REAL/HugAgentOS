@@ -44,6 +44,7 @@ _credential_rejected = ""  # account fingerprint whose current token the cloud r
 _state_loaded = False
 
 _manifest_lock = threading.Lock()
+_tool_sync_lock = threading.Lock()
 _manifest: Optional[Dict[str, Any]] = None
 _manifest_ts: float = 0.0
 _manifest_error: Optional[str] = None
@@ -315,57 +316,72 @@ def bridge_active() -> bool:
 # ── manifest 拉取（后台线程，不阻塞事件循环） ──────────────────────────
 
 
-def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
-    global _manifest, _manifest_ts, _manifest_error, _manifest_fetching, _refresh_pending
+def synced_manifest() -> Optional[Dict[str, Any]]:
+    """Read the last accepted connector snapshot without starting a refresh."""
+    import copy
+
+    with _manifest_lock:
+        return copy.deepcopy(_manifest)
+
+
+def sync_tool_manifest_blocking(st: Dict[str, Any]) -> None:
+    """Refresh connectors for both login and explicit synchronization."""
+    with _tool_sync_lock:
+        _sync_tool_manifest(st)
+
+
+def _sync_tool_manifest(st: Dict[str, Any]) -> None:
+    global _manifest, _manifest_ts, _manifest_error
+    from core.capabilities.errors import CloudUnavailable
+
+    require_current_account(st)
     url = f"{st['cloud_base']}/api/v1/desktop/capability/manifest"
-    refresh_replacement = False
-    try:
-        import httpx
-        from core.services.desktop_capability_protocol import validate_manifest
+    import httpx
+    from core.services.desktop_capability_protocol import validate_manifest
 
-        headers = cloud_headers(st)
-        with _manifest_lock:
-            current_revision = str((_manifest or {}).get("revision") or "")
-        if current_revision:
-            headers["If-None-Match"] = f'"{current_revision}"'
+    headers = {**cloud_headers(st), "Cache-Control": "no-cache"}
+    with _manifest_lock:
+        current_revision = str((_manifest or {}).get("revision") or "")
+    if current_revision:
+        headers["If-None-Match"] = f'"{current_revision}"'
 
-        resp = httpx.get(
-            url,
-            headers=headers,
-            timeout=httpx.Timeout(10.0, connect=5.0),
-        )
-        require_current_account(st)
-        if resp.status_code in (401, 403):
-            with account_scope(st):
-                clear_state()
-            return
-        if resp.status_code == 304:
-            with account_scope(st), _manifest_lock:
+    resp = httpx.get(
+        url,
+        headers=headers,
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    )
+    require_current_account(st)
+    if resp.status_code in (401, 403):
+        with account_scope(st):
+            clear_state()
+        raise CloudUnavailable("cloud authorization unavailable")
+    if resp.status_code == 304:
+        with account_scope(st), _manifest_lock:
+            _manifest_ts = time.monotonic()
+            _manifest_error = None
+    else:
+        resp.raise_for_status()
+        body = resp.json()
+        data = body.get("data") if isinstance(body, dict) else None
+        manifest = validate_manifest(data)
+        with account_scope(st):
+            with _manifest_lock:
+                _manifest = manifest
                 _manifest_ts = time.monotonic()
                 _manifest_error = None
-        else:
-            resp.raise_for_status()
-            body = resp.json()
-            data = body.get("data") if isinstance(body, dict) else None
-            manifest = validate_manifest(data)
-            # A login/account switch may have happened while this request was in
-            # flight. Discard the old response instead of racing it into the new
-            # account's cache.
-            if _state_fingerprint(get_state()) != _state_fingerprint(st):
-                logger.info("[cloud-bridge] manifest response discarded after identity change")
-                refresh_replacement = True
-                return
-            with account_scope(st):
-                with _manifest_lock:
-                    _manifest = manifest
-                    _manifest_ts = time.monotonic()
-                    _manifest_error = None
-                _project_managed_profile(st, manifest)
-            logger.info(
-                "[cloud-bridge] manifest refreshed revision=%s servers=%d",
-                manifest["revision"][:12],
-                len(manifest["servers"]),
-            )
+            _project_managed_profile(st, manifest)
+        logger.info(
+            "[cloud-bridge] manifest refreshed revision=%s servers=%d",
+            manifest["revision"][:12],
+            len(manifest["servers"]),
+        )
+
+
+def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
+    global _manifest, _manifest_ts, _manifest_error, _manifest_fetching, _refresh_pending
+    refresh_replacement = False
+    try:
+        sync_tool_manifest_blocking(st)
         # Skills, agents and plugins ride the same poll and token: their intent
         # is reconciled right after the tool manifest is known to be current.
         sync_capabilities_blocking(st)

@@ -224,7 +224,11 @@ async def get_manifest(
 ):
     from core.services.desktop_capability import build_user_capability_manifest
 
-    manifest = _public_content(user_id, lambda: build_user_capability_manifest(user_id))
+    use_cache = request.headers.get("cache-control") != "no-cache"
+    manifest = await run_in_threadpool(
+        _public_content, user_id,
+        lambda: build_user_capability_manifest(user_id, use_cache=use_cache),
+    )
     etag = f'"{manifest["revision"]}"'
     headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
     if request.headers.get("if-none-match") == etag:
@@ -260,7 +264,11 @@ async def get_skill_manifest(
 ):
     from core.services.desktop_capability import build_user_skill_manifest
 
-    manifest = _public_content(user_id, lambda: build_user_skill_manifest(user_id))
+    use_cache = request.headers.get("cache-control") != "no-cache"
+    manifest = await run_in_threadpool(
+        _public_content, user_id,
+        lambda: build_user_skill_manifest(user_id, use_cache=use_cache),
+    )
     etag = f'"{manifest["revision"]}"'
     headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
     if request.headers.get("if-none-match") == etag:
@@ -316,9 +324,12 @@ async def get_agent_manifest(
 ):
     from core.services.desktop_capability import build_user_agent_manifest
 
-    return _entity_manifest_response(
-        request, response, _public_content(user_id, lambda: build_user_agent_manifest(user_id))
+    use_cache = request.headers.get("cache-control") != "no-cache"
+    manifest = await run_in_threadpool(
+        _public_content, user_id,
+        lambda: build_user_agent_manifest(user_id, use_cache=use_cache),
     )
+    return _entity_manifest_response(request, response, manifest)
 
 
 @router.get(
@@ -341,9 +352,12 @@ async def get_plugin_manifest(
 ):
     from core.services.desktop_capability import build_user_plugin_manifest
 
-    return _entity_manifest_response(
-        request, response, _public_content(user_id, lambda: build_user_plugin_manifest(user_id))
+    use_cache = request.headers.get("cache-control") != "no-cache"
+    manifest = await run_in_threadpool(
+        _public_content, user_id,
+        lambda: build_user_plugin_manifest(user_id, use_cache=use_cache),
     )
+    return _entity_manifest_response(request, response, manifest)
 
 
 @router.get("/plugins/{install_id}/bundle", summary="下载一个插件定义包（plugin.json）")
