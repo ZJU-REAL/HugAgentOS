@@ -68,3 +68,31 @@ artifacts, and publishing.
 > Electron 43 upstream support is scheduled to end in January 2027. Treat it as the
 > current UOS compatibility baseline, keep the latest 43.x patch deployed, and qualify
 > Electron 44+ continuously.
+
+## Parity with the current Tauri client
+
+UOS shares the current React frontend and CE backend sources. Rebuilding the full package includes
+the latest capability origins, local enablement, skill sync and working-directory behavior.
+Updating the cloud alone does not replace resources in an installed client.
+
+- File supports opening a folder into a local project conversation; ordinary packages can change runtime mode.
+- View offers Zoom In, Zoom Out and Actual Size (Ctrl +/-/0 or Ctrl+wheel). Tauri's zoom steps are
+  saved in `prefs.json` and reused by new windows and after restart; system DPI remains native.
+- Help, tray and sidebar share update handling. Background release notices only offer an update;
+  confirmation opens download progress with cancellation during download. Installation still requires
+  Ed25519 signature and SHA-256 verification and UOS system authorization.
+  Older servers use low-frequency checks; reconnects back off and concurrent checks cannot install twice.
+- The loopback proxy checks Origin/Fetch Metadata before injecting session and bridge credentials;
+  direct requests without source metadata are refused.
+- Service logs rotate while running, keeping the current and previous files at up to 32 MiB each.
+  Capability readiness checks back off from 500 ms to 15 seconds. Existing UOS data and capability
+  directories are preserved without automatically migrating configuration.
+
+Full packages also support Tauri's hybrid-only build option:
+
+```bash
+JX_DEFAULT_SERVER_BASE=https://agent.example.com npm run build:hybrid-only
+```
+
+This fixes the cloud address and dual mode and requires a cloud address. Thin packages cannot be
+hybrid-only. Full offline ARM64 packages still require native aarch64 build and installation validation.

@@ -34,15 +34,18 @@ After the base prompt, runtime appends dynamic sections per context: the tools &
 
 ### Caching
 
-Prompt assembly uses three cache layers, all actively invalidatable:
+Prompt assembly uses the following caches; every pool read checks the database revision:
 
 | Cache | TTL | Notes |
 |---|---|---|
+| Version pool `_payload_cache` | DB revision checked on every read | Queries `content_blocks.updated_at` first and reloads the payload on change. Saves by another worker are visible on the next read without repeated browser refreshes or inter-process notifications. Callers receive independent copies |
 | Template cache `_prompt_cache` | 300 s | key includes provider, parts, DB/active versions and a SHA-256 canonical hash of the **complete** dynamic context (all project instructions, the complete files manifest, tool definitions, MCP/KB sets and future template variables). The key stores the hash, never a truncated/plaintext project value. `{now}` remains a day-granularity placeholder so stable prefixes keep provider-cache hits |
 | DB parts preload `_db_parts_preloaded` | preloaded at startup via `warmup_prompt_cache()`, reloaded after writes | first request never queries the DB |
 | DB version `_db_version_cache` | 30 s | `MAX(admin_prompt_parts.updated_at)` as a cache-busting version string |
 
-Any prompt write (console edit, version activation, snapshot import, capability toggle) calls `invalidate_prompt_cache()`, which cascades and immediately re-warms.
+Console version edits, activation and snapshot imports call `invalidate_prompt_cache()`, which cascades and immediately re-warms.
+
+Pool management and runtime assembly share this read path. After an active version is saved, other workers read the latest content; the system template is rebuilt using the active version timestamp, and desktop templates use the complete context hash. Editing an inactive version does not activate it, and model requests already in flight are not rewritten.
 
 ### Execution manifest and runtime binding
 

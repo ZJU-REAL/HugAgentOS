@@ -2,10 +2,32 @@
 
 from __future__ import annotations
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from core.db import engine as db_engine
+from core.db.models import AdminPromptPart, ContentBlock
+from core.services import prompt_version_service as pvs
 from prompts.prompt_config import PromptConfig, SystemPromptConfig
 from prompts import prompt_runtime
 from prompts import project_section
 from core.llm.execution_manifest import PromptManifestBuilder
+
+
+@pytest.fixture(autouse=True)
+def isolated_prompt_database(monkeypatch):
+    """An installed development pool must not override the inline test prompts."""
+    engine = create_engine("sqlite://")
+    ContentBlock.__table__.create(engine)
+    AdminPromptPart.__table__.create(engine)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(pvs, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    prompt_runtime.invalidate_prompt_cache()
+    yield
+    prompt_runtime.invalidate_prompt_cache()
+    engine.dispose()
 
 
 def test_project_instructions_after_character_200_do_not_share_cache(monkeypatch):

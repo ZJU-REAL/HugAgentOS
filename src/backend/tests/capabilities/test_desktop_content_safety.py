@@ -106,7 +106,7 @@ def test_safe_stream_keeps_exact_bytes():
     ],
 )
 def test_manifest_boundaries_return_fixed_integrity_diagnostic(monkeypatch, path, fn):
-    monkeypatch.setattr(cap, fn, lambda uid: {"revision": "a" * 64, "description": CANARY})
+    monkeypatch.setattr(cap, fn, lambda uid, **kwargs: {"revision": "a" * 64, "description": CANARY})
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes._require_capability_user] = lambda: "user"
@@ -376,3 +376,25 @@ async def test_actual_invocation_checks_custom_header_echo(monkeypatch):
             {},
             {},
         )
+
+
+@pytest.mark.parametrize("path,fn", [
+    ("/manifest", "build_user_capability_manifest"),
+    ("/skills/manifest", "build_user_skill_manifest"),
+    ("/agents/manifest", "build_user_agent_manifest"),
+    ("/plugins/manifest", "build_user_plugin_manifest"),
+])
+def test_manifest_fresh_read_request_reaches_builder(monkeypatch, path, fn):
+    calls = []
+    def build(uid, *, use_cache=True):
+        calls.append((uid, use_cache))
+        return {"revision": "a" * 64}
+    monkeypatch.setattr(cap, fn, build)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes._require_capability_user] = lambda: "current-user"
+    with TestClient(app) as client:
+        assert client.get("/v1/desktop/capability" + path).status_code == 200
+        assert client.get("/v1/desktop/capability" + path,
+                          headers={"Cache-Control": "no-cache"}).status_code == 200
+    assert calls == [("current-user", True), ("current-user", False)]

@@ -58,7 +58,7 @@ def _fetch_manifest(state: Dict[str, Any]) -> Dict[str, Any]:
     ticket = manifest_order.begin(KIND_SKILL, _profile(state))
     with _lock:
         current = copy.deepcopy(_manifest)
-    headers = _headers(state)
+    headers = {**_headers(state), "Cache-Control": "no-cache"}
     if current:
         headers["If-None-Match"] = f'"{current["revision"]}"'
     resp = httpx.get(
@@ -263,6 +263,14 @@ def on_account_switch() -> None:
         _manifest = None
         _error = None
     skills.bump_view_generation()
+
+
+def synced_manifest() -> Optional[Dict[str, Any]]:
+    """Read the accepted skill snapshot without reconciling or downloading."""
+    import copy
+
+    with _lock:
+        return copy.deepcopy(_manifest)
 
 
 def status() -> Dict[str, Any]:

@@ -506,7 +506,7 @@ def test_capability_manifest_contains_current_sanitized_schemas(monkeypatch, db_
     monkeypatch.setattr(
         cap,
         "_user_capability_configs",
-        lambda _uid: (
+        lambda _uid, **_kwargs: (
             ["private-search"],
             ["private-search"],
             {
@@ -621,3 +621,37 @@ def test_legacy_environment_cannot_hide_authorized_cloud_tools(monkeypatch, lega
     assert set(configs) == {s["server_id"] for s in servers}
     assert all(c["schema_source"] == "cloud_manifest" for c in configs.values())
     assert bridge.bridge_active()
+
+
+def test_fresh_manifests_bypass_worker_mcp_caches(monkeypatch, db_session):
+    from core.services import mcp_service
+
+    _use_test_database(monkeypatch, db_session)
+    monkeypatch.setattr(mcp_service, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    workers = [mcp_service.McpServerConfigService(), mcp_service.McpServerConfigService()]
+    row = AdminMcpServer(server_id="shared-new", display_name="Shared", transport="streamable_http",
+                         url="https://mcp.example/mcp", is_enabled=True, tools_json=[])
+    db_session.add(row)
+    db_session.commit()
+    for worker in workers:
+        assert "shared-new" in worker.get_all_servers()
+    db_session.delete(row)
+    db_session.commit()
+    for worker in workers:
+        monkeypatch.setattr(mcp_service.McpServerConfigService, "_instance", worker)
+        assert cap.build_user_capability_manifest("user-1", use_cache=False)["servers"] == []
+
+
+def test_other_users_private_connector_does_not_change_manifest(monkeypatch, db_session):
+    from core.services import mcp_service
+
+    _use_test_database(monkeypatch, db_session)
+    monkeypatch.setattr(mcp_service, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    monkeypatch.setattr(mcp_service.McpServerConfigService, "_instance", mcp_service.McpServerConfigService())
+    before = cap.build_user_capability_manifest("user-1", use_cache=False)
+    db_session.add(AdminMcpServer(server_id="other-private", owner_user_id="user-2",
+        display_name="Other", transport="streamable_http", url="https://mcp.example/mcp",
+        is_enabled=True, tools_json=[]))
+    db_session.commit()
+    assert cap.build_user_capability_manifest("user-1", use_cache=False) == before
+    assert len(cap.build_user_capability_manifest("user-2", use_cache=False)["servers"]) == 1
