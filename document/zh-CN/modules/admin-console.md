@@ -87,6 +87,8 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 
 `/v1/admin/agents`（`api/routes/v1/admin_agents.py`，`ADMIN_TOKEN`）：管理员侧子智能体 CRUD（全员可见）、可绑定资源列表（available-resources）、启停切换、导入 / 导出。
 
+子智能体状态开关使用 `PUT /v1/admin/agents/{agent_id}/toggle`。切换和列表刷新期间，该智能体的开关显示处理中并阻止重复提交，避免连续点击把状态切回。
+
 ### 知识库管理（admin_kb）（商业版 EE：content_admin）
 
 `/v1/admin/kb`（`api/routes/v1/admin_kb.py`，`ADMIN_TOKEN`）：自建**公共知识库**管理（`KBSpace.visibility == "public"`，归属系统属主），能力镜像用户态 `kb.py`——库 CRUD、AI 生成简介、文档上传 / 列表 / 原文预览（Office 转 PDF）/ 删除 / 重新索引、分块预览与逐块编辑（内容 / 标签 / 问题）。公共库对全部用户在能力目录可见、可被检索。Dify 模式下仅只读展示 Dify 数据集，写操作返回 409。详见 [知识库](knowledge-base.md)。

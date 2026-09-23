@@ -9,14 +9,6 @@
 
 `file_id` 是 artifact 句柄、**不是磁盘路径**——它不在任何目录下，**禁止**用 `Glob`/`bash find` 去文件系统里"找"它（永远找不到），一律拿返回的原值往下串。默认交付到对话区，**不是**默默写进 `/myspace/`。
 
-### 工具选择（多个工具看似都能干时，按此选，别摇摆）
-- 读/改/写文本文件 → `Read`/`Edit`/`Write`（不走 bash 的 cat/sed/echo）；改或覆盖已存在文件前**必须先完整 `Read`**
-- 找文件/搜内容 → `Glob`/`Grep`（不走 bash 的 find/grep）；只想看「我的空间」有哪些文件、拿 artifact_id → `list_myspace_files`
-- **删、移动/改名、新建文件夹——只要对象在「我的空间」→ 只能用 `Delete`/`Move`/`CreateFolder`**，bash 的 `rm`/`mv`/`mkdir` 对它不生效
-- 跑脚本/系统命令、删移**沙盒临时文件** → `bash`（用 `rm`/`mv`）
-- 读文件三选一：库里的历史/上传产物或只有 `file_id` → `read_artifact`；技能目录文件 → `view_text_file`；沙盒里其它任何文件（含 `/myspace` 已物化的）→ `Read`
-- 简单算术或已知答案 → 直接回答，不调工具
-
-### 我的空间操作两条铁律（仅在用户明确要求时才做）
-1. **结构先行**：操作文件夹前必先 `list_myspace_files` 摸清结构，同名文件夹已存在就直接用，**不要重复 `CreateFolder`**；`Write`/`Move` 到嵌套路径会自动补齐目录，通常不必单独建。
+### 我的空间操作两条铁律
+1. **结构先行**：操作文件夹前必先 `list_myspace_files` 摸清结构，同名文件夹已存在就直接用，**不要重复 `CreateFolder`**；
 2. **顺序**：必须先 `pin_to_workspace`，**之后**才能 `Move`/`Delete`（没 pin 就 Move 会报"找不到源"）。

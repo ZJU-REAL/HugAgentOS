@@ -17,6 +17,9 @@ Endpoints:
 from __future__ import annotations
 
 from typing import Optional
+from api.folder_batch_schemas import FolderBatchBody
+from core.services.folder_batch import create_folder_batch
+from core.db.models import UserFolder, UserShadow
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
@@ -85,6 +88,28 @@ def get_breadcrumb(
     if folder is None:
         raise HTTPException(status_code=404, detail="文件夹不存在")
     return success_response(data={"breadcrumb": service.get_breadcrumb(folder_id, user_id)})
+
+
+@router.post("/batch", summary="批量创建个人文件夹")
+def batch_create_folders(
+    body: FolderBatchBody,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        folders = create_folder_batch(
+            db,
+            model=UserFolder,
+            owner_model=UserShadow,
+            owner_column="user_id",
+            owner_id=str(user.user_id),
+            actor=str(user.user_id),
+            paths=body.paths,
+            parent_folder_id=body.parent_folder_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return success_response(data={"folders": folders})
 
 
 @router.post("", summary="创建个人文件夹")

@@ -29,6 +29,7 @@ def store_bytes_as_artifact(
     source: str = "user_upload",
     parsed_text: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
+    artifact_id: Optional[str] = None,
 ) -> ArtifactModel:
     """Persist bytes to storage + create one Artifact row; return the committed Artifact.
 
@@ -38,7 +39,7 @@ def store_bytes_as_artifact(
     ``parsed_text`` empty means it will be lazily backfilled later.
     """
     env = os.getenv("ENVIRONMENT", "dev")
-    artifact_id = f"ua_{uuid.uuid4().hex[:16]}"
+    artifact_id = artifact_id or f"ua_{uuid.uuid4().hex[:16]}"
     storage_key = f"{env}/{user_id}/user_uploads/{artifact_id}/{filename}"
     from core.storage import get_storage
 
@@ -46,6 +47,8 @@ def store_bytes_as_artifact(
     meta: Dict[str, Any] = {"source": source}
     if extra:
         meta.update(extra)
+    if meta.get('upload_fingerprint'):
+        meta['upload_storage_key'] = storage_key
     artifact = ArtifactModel(
         artifact_id=artifact_id,
         chat_id=chat_id,

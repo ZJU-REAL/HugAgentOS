@@ -49,6 +49,7 @@ export interface OntologyBuildFailure {
 /** HTTP 错误的结构化载体。保留后端完整响应，界面可展示校验报告等详细信息。 */
 export class ApiResponseError extends Error {
   readonly status: number;
+  retryAfterMs?: number;
   readonly payload: unknown;
   readonly data: unknown;
 
@@ -161,8 +162,15 @@ export function createApiResponseError(
   status: number,
   payload: unknown,
   fallback: string,
+  retryAfter?: string | null,
 ): ApiResponseError {
-  return new ApiResponseError(readErrorMessage(payload, fallback), status, payload);
+  const error = new ApiResponseError(readErrorMessage(payload, fallback), status, payload);
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(delay)) error.retryAfterMs = Math.max(0, delay);
+  }
+  return error;
 }
 
 /**

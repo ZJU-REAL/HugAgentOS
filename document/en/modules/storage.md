@@ -146,3 +146,33 @@ Object storage is therefore the **single source of truth**; myspace_cache is jus
 | `src/backend/core/llm/tools/myspace_vfs.py` | MySpace ↔ sandbox bidirectional sync layer |
 
 Related docs: [Sandbox](./sandbox.md) · [Projects & MySpace](./projects-myspace.md) · [Environment Variables](../deployment/environment-variables.md) · [Edition Comparison](../editions/overview.md)
+
+### Folder uploads and recovery
+
+Personal and editable team spaces accept folder pickers and recursive drops. Drops preserve empty
+directories and can include loose files. Directory pickers only expose directories containing files.
+
+POST `/v1/myspace/folders/batch` or `/v1/teams/{team_id}/folders/batch` accepts up to 200 relative
+`paths` and an optional `parent_folder_id`, returning a `data.folders` path-to-ID map. Existing
+sibling directories are reused. Total depth remains eight. Each batch is atomic; earlier batches
+remain if a later batch fails.
+
+Files use a shared browser queue with four concurrent requests and at least 200ms between request
+starts. HTTP 429 pauses the queue according to Retry-After, falling back to exponential backoff.
+Network errors, 408 and 5xx also receive up to three additional attempts. Permission, size and
+validation errors are listed as failures. Retried requests consume the same queue budget.
+
+Tasks capture the account, API address and destination. Navigation cannot redirect an upload.
+An optional UUID `upload_key` identifies each file attempt. Replays by the same user return the
+previous file; changed content/destination or a moved, overwritten or deleted result returns 409.
+Separate uploads with the same filename create separate records, preserving existing behavior.
+
+Progress, failed paths and “Retry incomplete items” are shown in the panel. The current tab saves
+the manifest in sessionStorage, without file bytes. After refresh, reselect the original files or
+folder; completed files are skipped. Recovery after closing the tab is not guaranteed. Clearing
+the upload record starts a new task and does not delete uploaded files. Persistence failures are
+shown explicitly.
+
+The existing 50 MB/nonempty-file limits and lazy parsing remain. This repair does not add chunked
+uploads, ZIP extraction, cross-tab throttling or background transfers after closing the page.
+Multiple users sharing an IP may still be throttled; the queue waits and retries.
