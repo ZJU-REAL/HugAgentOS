@@ -137,7 +137,10 @@ def stage_libreoffice(archive, asset, destination, target, scratch):
             if result.returncode != 0:
                 raise RuntimeError(f"LibreOffice administrative extraction failed: {result.returncode}")
             binary = single(extracted.rglob("program/soffice.exe"), "LibreOffice program")
-            shutil.copytree(binary.parent.parent, destination, dirs_exist_ok=True)
+            # Rename the extracted tree as a unit. Copying individual files into
+            # the deep runtime staging path can still cross MAX_PATH.
+            destination.rmdir()
+            shutil.move(str(binary.parent.parent), str(destination))
         return destination / "program/soffice.com"
     if kind == "deb-tar":
         if not sys.platform.startswith("linux"):
