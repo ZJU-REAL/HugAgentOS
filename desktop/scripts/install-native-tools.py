@@ -124,16 +124,20 @@ def stage_libreoffice(archive, asset, destination, target, scratch):
     if kind == "msi":
         if os.name != "nt":
             raise ValueError("LibreOffice MSI requires a native Windows builder")
-        msi = scratch / "LibreOffice.msi"
-        shutil.copy2(archive, msi)
-        extracted = scratch / "administrative-image"
-        # Administrative extraction only: no registration, shortcuts, associations, or reboot.
-        result = subprocess.run(["msiexec.exe", "/a", str(msi), "/qn", "/norestart",
-                                 "TARGETDIR=" + str(extracted)], timeout=600)
-        if result.returncode != 0:
-            raise RuntimeError(f"LibreOffice administrative extraction failed: {result.returncode}")
-        binary = single(extracted.rglob("program/soffice.exe"), "LibreOffice program")
-        shutil.copytree(binary.parent.parent, destination, dirs_exist_ok=True)
+        # MSI administrative extraction uses legacy MAX_PATH handling. Keep its
+        # staging path short even when the release checkout is deeply nested.
+        with tempfile.TemporaryDirectory(prefix="lo-admin-") as folder:
+            staging = Path(folder)
+            msi = staging / "LibreOffice.msi"
+            shutil.copy2(archive, msi)
+            extracted = staging / "image"
+            # Administrative extraction only: no registration or reboot.
+            result = subprocess.run(["msiexec.exe", "/a", str(msi), "/qn", "/norestart",
+                                     "TARGETDIR=" + str(extracted)], timeout=600)
+            if result.returncode != 0:
+                raise RuntimeError(f"LibreOffice administrative extraction failed: {result.returncode}")
+            binary = single(extracted.rglob("program/soffice.exe"), "LibreOffice program")
+            shutil.copytree(binary.parent.parent, destination, dirs_exist_ok=True)
         return destination / "program/soffice.com"
     if kind == "deb-tar":
         if not sys.platform.startswith("linux"):
