@@ -48,7 +48,8 @@
     "test:attachment-send": "esbuild scripts/test-attachment-send.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-send.mjs && node node_modules/.tmp/test-attachment-send.mjs",
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:hybrid-plugin-routing": "esbuild scripts/test-hybrid-plugin-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-hybrid-plugin-routing.mjs && node node_modules/.tmp/test-hybrid-plugin-routing.mjs",
-    "test:capability-sync": "esbuild scripts/test-capability-sync.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-capability-sync.mjs && node node_modules/.tmp/test-capability-sync.mjs"
+    "test:capability-sync": "esbuild scripts/test-capability-sync.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-capability-sync.mjs && node node_modules/.tmp/test-capability-sync.mjs",
+    "test:folder-upload-browser": "node scripts/test-folder-upload-browser.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

@@ -14,6 +14,7 @@ from core.db.engine import get_db
 from core.db.models import Artifact, ChatSession, UserFolder
 from core.services.artifact_service import store_bytes_as_artifact
 from core.storage import get_storage
+from core.services.upload_retry import prepare_upload
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,10 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 @router.post("/upload", summary="上传用户文件到 OSS 持久存储")
-async def upload_user_file(
+def upload_user_file(
     file: UploadFile = File(...),
     chat_id: Optional[str] = Form(None),
+    upload_key: Optional[str] = Form(None, max_length=36),
     folder_id: Optional[str] = Form(None, description="可选个人文件夹 ID（我的空间）；省略=根目录"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -43,7 +45,7 @@ async def upload_user_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
-    file_bytes = await file.read()
+    file_bytes = file.file.read(_MAX_UPLOAD_BYTES + 1)
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
 
@@ -55,20 +57,35 @@ async def upload_user_file(
     # Verify the chat_id already exists in the database (the session may not yet be created at upload time)
     db_chat_id: Optional[str] = None
     if chat_id:
-        exists = db.query(ChatSession.chat_id).filter(
-            ChatSession.chat_id == chat_id
-        ).first()
+        exists = db.query(ChatSession.chat_id).filter(ChatSession.chat_id == chat_id).first()
         if exists:
             db_chat_id = chat_id
+
+    artifact_id, retry_meta, existing = prepare_upload(
+        db,
+        key=upload_key,
+        user_id=user_id,
+        scope="personal",
+        folder_id=folder_id,
+        filename=file.filename,
+        content=file_bytes,
+        chat_id=db_chat_id,
+    )
 
     # Verify folder_id must be a valid personal folder belonging to the current user
     db_folder_id: Optional[str] = None
     if folder_id:
-        folder = db.query(UserFolder).filter(
-            UserFolder.folder_id == folder_id,
-            UserFolder.user_id == user_id,
-            UserFolder.deleted_at.is_(None),
-        ).populate_existing().with_for_update().first()
+        folder = (
+            db.query(UserFolder)
+            .filter(
+                UserFolder.folder_id == folder_id,
+                UserFolder.user_id == user_id,
+                UserFolder.deleted_at.is_(None),
+            )
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
         if not folder:
             raise HTTPException(status_code=400, detail="目标文件夹不存在")
         db_folder_id = folder_id
@@ -76,19 +93,26 @@ async def upload_user_file(
     # Leave summary / parsed_text empty. The first model turn that references
     # this file parses it server-side and caches both fields for later reads.
     try:
-        artifact = store_bytes_as_artifact(
-            db, user_id=user_id, content=file_bytes, filename=file.filename,
-            mime_type=file.content_type, chat_id=db_chat_id, user_folder_id=db_folder_id,
+        artifact = existing or store_bytes_as_artifact(
+            db,
+            user_id=user_id,
+            content=file_bytes,
+            filename=file.filename,
+            mime_type=file.content_type,
+            chat_id=db_chat_id,
+            user_folder_id=db_folder_id,
             source="user_upload",
+            artifact_id=artifact_id,
+            extra=retry_meta,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
 
     return {
         "file_id": artifact.artifact_id,
-        "name": file.filename,
-        "size": len(file_bytes),
-        "mime_type": file.content_type or "application/octet-stream",
+        "name": artifact.filename,
+        "size": artifact.size_bytes,
+        "mime_type": artifact.mime_type,
         "download_url": f"/files/{artifact.artifact_id}",
     }
 

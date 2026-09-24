@@ -15,9 +15,8 @@ import { Button, Dropdown, Input, message, Modal, Select } from 'antd';
 
 import {
   addArtifactToKnowledgeBase,
-  createPersonalFolder,
+  getApiUrl,
   getAutomationRuns,
-  uploadFile,
 } from '../../api';
 import { useDelayedFlag } from '../../hooks';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
@@ -35,8 +34,10 @@ import { buildFileUrl } from '../../utils/constants';
 import { findFolderById } from '../../utils/folderTree';
 import { EASE, SPRING } from '../../utils/motionTokens';
 import { DropOverlay } from '../common/DropOverlay';
-import type { UploadProgress } from '../common/UploadProgressBar';
-import { UploadProgressBar } from '../common/UploadProgressBar';
+import { AssetUploadStatus } from './AssetUploadStatus';
+import { useAssetUploadStore, startAssetUpload, restoreAssetUpload } from '../../stores/assetUploadStore';
+import { pickedFiles, readDroppedFiles, type UploadSelection } from '../../utils/folderUpload';
+import { useAuthStore } from '../../stores/authStore';
 import { CatalogPanel } from '../catalog';
 import { ShareRecordsPage } from '../share';
 import { DocumentList } from './DocumentList';
@@ -59,8 +60,6 @@ const TABS: Array<{ key: MySpaceTab; label: string }> = [
   { key: 'notifications', label: t('消息通知') },
 ];
 
-const UPLOAD_CONCURRENCY = 4;
-
 const scopeSlideVariants: Variants = {
   enter: (direction: number) => ({ opacity: 0, x: direction * 24 }),
   center: { opacity: 1, x: 0, transition: { duration: 0.22, ease: EASE.brandOut } },
@@ -70,22 +69,6 @@ const scopeSlideVariants: Variants = {
     transition: { duration: 0.16, ease: EASE.exit },
   }),
 };
-
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
-  const queue = items.slice();
-  const consume = async () => {
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (item === undefined) return;
-      await worker(item);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, consume));
-}
 
 export function MySpacePanel() {
   const enterAutomationChat = useAutomationChatStore((state) => state.enterAutomationChat);
@@ -118,7 +101,6 @@ export function MySpacePanel() {
     enterPersonalFolder,
     renamePersonalFolderAction,
     deletePersonalFolderAction,
-    uploadPersonalFile,
   } = useMySpaceStore();
   const { catalog, setPanel } = useCatalogStore();
   // 模块由地址决定：直接打开 /my-space/<模块> 或按前进后退时把数据切过去
@@ -133,7 +115,18 @@ export function MySpacePanel() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const navDirection = useRef(0);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const { task: uploadTask, busy: uploadBusy } = useAssetUploadStore();
+  const authUser = useAuthStore(state => state.authUser);
+  useEffect(() => { restoreAssetUpload(); }, [authUser, uploadBusy]);
+  const ownUpload = uploadTask?.owner === String(authUser?.user_id ?? '') && uploadTask?.api === getApiUrl();
+  const uploadProgress = uploadBusy && ownUpload
+    ? { done: uploadTask?.items.filter(item => item.status === 'done').length ?? 0, total: uploadTask?.items.length ?? 0 }
+    : null;
+  useEffect(() => {
+    if (!ownUpload || uploadBusy || !uploadTask || !['finished', 'failed'].includes(uploadTask.phase)) return;
+    void loadPersonalFolderTree();
+    void fetchResources(true);
+  }, [ownUpload, uploadBusy, uploadTask?.id, uploadTask?.phase, loadPersonalFolderTree, fetchResources]);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [moveFolderOpen, setMoveFolderOpen] = useState(false);
   const [moveArtifactIds, setMoveArtifactIds] = useState<string[]>([]);
@@ -172,107 +165,18 @@ export function MySpacePanel() {
     }, 300);
   }, [fetchFavorites, fetchResources, setSearchKeyword, tab]);
 
-  const handleFilesPicked = useCallback(async (files: FileList | null) => {
-    if (!files?.length) return;
-    const items = Array.from(files);
-    let completed = 0;
-    let failed = 0;
-    setUploadProgress({ done: 0, total: items.length });
-    await runWithConcurrency(items, UPLOAD_CONCURRENCY, async (file) => {
-      try {
-        await uploadPersonalFile(file);
-      } catch (error) {
-        failed += 1;
-        message.error(`${file.name}: ${(error as Error)?.message || t('上传失败')}`);
-      }
-      completed += 1;
-      setUploadProgress({ done: completed, total: items.length });
-    });
-    setUploadProgress(null);
-    if (items.length - failed > 0) {
-      message.success(t('已上传 {n} 个文件', { n: items.length - failed }));
+  const beginUpload = useCallback(async (selection: Promise<UploadSelection>) => {
+    try {
+      await startAssetUpload(selection, { kind: 'personal', folderId: selectedScope.folderId ?? null });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('上传失败'));
     }
-  }, [uploadPersonalFile]);
+  }, [selectedScope.folderId]);
 
-  const handleFolderPicked = useCallback(async (files: FileList | null) => {
-    const items = Array.from(files ?? []);
-    if (items.length === 0) return;
-
-    const directoriesByDepth = new Map<number, Set<string>>();
-    const entries: Array<{ file: File; directory: string }> = [];
-    items.forEach((file) => {
-      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? '';
-      const slash = relativePath.lastIndexOf('/');
-      const directory = slash < 0 ? '' : relativePath.slice(0, slash);
-      if (directory) {
-        const segments = directory.split('/').filter(Boolean);
-        let current = '';
-        segments.forEach((segment, index) => {
-          current = current ? `${current}/${segment}` : segment;
-          if (!directoriesByDepth.has(index + 1)) directoriesByDepth.set(index + 1, new Set());
-          directoriesByDepth.get(index + 1)?.add(current);
-        });
-      }
-      entries.push({ file, directory });
-    });
-
-    const pathToFolderId = new Map<string, string | null>([['', selectedScope.folderId]]);
-    let refreshedTree = personalFolderTree;
-    const findChild = (parentId: string | null, name: string): string | null => {
-      if (parentId === null) {
-        return refreshedTree.find((folder) => folder.name === name)?.folder_id ?? null;
-      }
-      return findFolderById(refreshedTree, parentId)?.children
-        ?.find((folder) => folder.name === name)?.folder_id ?? null;
-    };
-
-    setUploadProgress({ done: 0, total: entries.length });
-    for (const depth of Array.from(directoriesByDepth.keys()).sort((left, right) => left - right)) {
-      for (const directory of directoriesByDepth.get(depth) ?? []) {
-        const slash = directory.lastIndexOf('/');
-        const parentPath = slash < 0 ? '' : directory.slice(0, slash);
-        const name = slash < 0 ? directory : directory.slice(slash + 1);
-        const parentId = pathToFolderId.get(parentPath) ?? null;
-        try {
-          const created = await createPersonalFolder(name, parentId);
-          pathToFolderId.set(directory, created.folder_id);
-        } catch (error) {
-          await loadPersonalFolderTree();
-          refreshedTree = useMySpaceStore.getState().personalFolderTree;
-          const existing = findChild(parentId, name);
-          if (!existing) {
-            setUploadProgress(null);
-            message.error((error as Error)?.message || t('建文件夹失败：'));
-            return;
-          }
-          pathToFolderId.set(directory, existing);
-        }
-      }
-    }
-
-    let completed = 0;
-    let failed = 0;
-    await runWithConcurrency(entries, UPLOAD_CONCURRENCY, async ({ file, directory }) => {
-      try {
-        await uploadFile(file, undefined, pathToFolderId.get(directory) ?? null);
-      } catch {
-        failed += 1;
-      }
-      completed += 1;
-      setUploadProgress({ done: completed, total: entries.length });
-    });
-    setUploadProgress(null);
-    if (failed > 0) {
-      message.warning(t('上传完成：成功 {ok} 个，失败 {failed} 个', {
-        ok: entries.length - failed,
-        failed,
-      }));
-    } else {
-      message.success(t('已上传 {n} 个文件', { n: entries.length }));
-    }
-    await loadPersonalFolderTree();
-    await fetchResources(true);
-  }, [fetchResources, loadPersonalFolderTree, personalFolderTree, selectedScope.folderId]);
+  const handleFilesPicked = useCallback((files: FileList | null) => {
+    if (files?.length) void beginUpload(Promise.resolve(pickedFiles(files)));
+  }, [beginUpload]);
+  const handleFolderPicked = handleFilesPicked;
 
   const handleRenameFolder = useCallback((folderId: string, currentName: string) => {
     let nextName = currentName;
@@ -417,9 +321,9 @@ export function MySpacePanel() {
     }
   }, [fetchResources, pendingResources, selectedKbIds]);
 
-  const canDropUpload = tab === 'assets';
-  const { dragActive, dropZoneProps } = useFileDropZone(canDropUpload, (files) => {
-    void handleFilesPicked(files);
+  const canDropUpload = !uploadBusy && tab === 'assets';
+  const { dragActive, dropZoneProps } = useFileDropZone(canDropUpload, handleFilesPicked, (data) => {
+    void beginUpload(readDroppedFiles(data));
   });
   const showSkeleton = useDelayedFlag(loading && resources.length === 0);
   const currentItems = tab === 'favorites' ? favorites : resources;
@@ -446,6 +350,7 @@ export function MySpacePanel() {
 
   return (
     <div className="jx-mySpace" {...dropZoneProps}>
+      <AssetUploadStatus />
       <div className="jx-mySpace-shell">
         <div className="jx-mySpace-header">
           <div className="jx-mySpace-tabs">
@@ -558,7 +463,6 @@ export function MySpacePanel() {
                   />
                 </div>
               </div>
-              <UploadProgressBar progress={uploadProgress} />
               <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => {
                 void handleFilesPicked(event.target.files);
                 event.target.value = '';
