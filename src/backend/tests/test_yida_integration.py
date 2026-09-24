@@ -4,6 +4,7 @@ No dependency on real Yida or a real sandbox. EE persistent-sandbox state tests
 live in ``tests/sandbox/test_yida_ee_persistence.py``.
 """
 
+from core.sandbox.process_completion import CompletionMixin
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -27,6 +28,7 @@ def db():
 # ── Settings ────────────────────────────────────────────────────────────
 def test_settings_yida_arch_flag():
     from core.config.settings import settings
+
     # bind-mount is an architecture switch, kept in settings; openyida has no deployment-level
     # credentials (login is in-conversation QR scan), no system config key, no DB connection table.
     assert settings.sandbox.yida_creds_bind_mount_enabled is True
@@ -34,6 +36,7 @@ def test_settings_yida_arch_flag():
 
 def test_yida_cache_dir_path():
     from core.sandbox._common import yida_cache_dir, yida_workspace_dir
+
     p = yida_cache_dir("u_abc")
     assert p.name == "u_abc"
     assert p.parent.name == "yida_cache"
@@ -44,6 +47,7 @@ def test_yida_cache_dir_path():
 def test_yida_shared_workspace_dir_path():
     """script-runner shared sandbox working directory: one per deployment (__shared__), rooted alongside the per-user directories."""
     from core.sandbox._common import yida_shared_workspace_dir
+
     p = yida_shared_workspace_dir()
     assert p.name == "workspace"
     assert p.parent.name == "__shared__"
@@ -68,30 +72,34 @@ def test_yida_extract_result_json():
     assert extract_result_json(two)["status"] == "ok"
 
 
-def test_yida_service_status_lifecycle(tmp_path, monkeypatch):
+async def test_yida_service_status_lifecycle(tmp_path, monkeypatch):
     import core.services.yida_service as ys
 
     monkeypatch.setattr(ys, "_host_workspace_dir", lambda uid: tmp_path / uid / "workspace")
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
     svc = ys.YidaService()
 
     # No cookie → disconnected
-    assert svc.get_status("u1")["status"] == "disconnected"
+    assert (await svc.get_status("u1"))["status"] == "disconnected"
     # Pending session exists → pending (and the QR code is rendered)
-    ys._PENDING["u1"] = {
-        "session_file": ".cache/qr.json", "qr_url": "https://login.dingtalk.com/x",
-        "started_at": __import__("time").monotonic(),
-    }
-    st = svc.get_status("u1")
+    await ys._save_pending(
+        "u1",
+        {
+            "session_file": ".cache/qr.json",
+            "qr_url": "https://login.dingtalk.com/x",
+            "started_at": __import__("time").time(),
+        },
+    )
+    st = await svc.get_status("u1")
     assert st["status"] == "pending"
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
     # Cookie file written → connected
     ck = tmp_path / "u1" / "workspace" / ".cache"
     ck.mkdir(parents=True)
     (ck / "cookies-public.json").write_text('{"cookies":[],"base_url":"https://x.aliwork.com"}')
-    assert svc.get_status("u1")["status"] == "connected"
+    assert (await svc.get_status("u1"))["status"] == "connected"
     # Invalid user_id → disconnected immediately (never touching the filesystem)
-    assert svc.get_status("../etc")["status"] == "disconnected"
+    assert (await svc.get_status("../etc"))["status"] == "disconnected"
 
 
 @pytest.mark.asyncio
@@ -109,7 +117,7 @@ async def test_yida_probe_status_reconciles_real_login(
     import core.services.yida_service as ys
 
     monkeypatch.setattr(ys, "_host_workspace_dir", lambda uid: tmp_path / uid / "workspace")
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
     svc = ys.YidaService()
     cache = tmp_path / "u1" / "workspace" / ".cache"
     cache.mkdir(parents=True)
@@ -124,7 +132,9 @@ async def test_yida_probe_status_reconciles_real_login(
     monkeypatch.setattr(svc, "_run_in_sandbox", fake_run)
     result = await svc.probe_status("u1")
     assert result["status"] == expected_status
-    assert cookie_file.exists()  # an invalid probe marks this version stale; it does not destroy data
+    assert (
+        cookie_file.exists()
+    )  # an invalid probe marks this version stale; it does not destroy data
 
     if verdict == "valid":
         meta = _json.loads((tmp_path / "u1" / "connection.json").read_text(encoding="utf-8"))
@@ -134,14 +144,14 @@ async def test_yida_probe_status_reconciles_real_login(
         meta = _json.loads((tmp_path / "u1" / "connection.json").read_text(encoding="utf-8"))
         assert meta["status"] == "disconnected"
         assert meta["invalidated_cookie_mtime_ns"] == first_mtime_ns
-        assert svc.get_status("u1")["status"] == "disconnected"
+        assert (await svc.get_status("u1"))["status"] == "disconnected"
 
         # A subsequent in-chat or panel QR login overwrites the cookie.  The
         # newer version becomes connected without requiring the old marker to
         # be manually cleared.
         cookie_file.write_text('{"cookies":[{"name":"new"}]}', encoding="utf-8")
         os.utime(cookie_file, ns=(first_mtime_ns + 1_000_000, first_mtime_ns + 1_000_000))
-        assert svc.get_status("u1")["status"] == "connected"
+        assert (await svc.get_status("u1"))["status"] == "connected"
     else:
         assert not (tmp_path / "u1" / "connection.json").exists()
 
@@ -169,7 +179,7 @@ async def test_yida_service_poll_transitions(tmp_path, monkeypatch):
     import core.services.yida_service as ys
 
     monkeypatch.setattr(ys, "_host_workspace_dir", lambda uid: tmp_path / uid / "workspace")
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
     svc = ys.YidaService()
     outputs = {}
 
@@ -181,98 +191,134 @@ async def test_yida_service_poll_transitions(tmp_path, monkeypatch):
     # No pending → return the current status (disconnected)
     assert (await svc.poll_login("u1"))["status"] == "disconnected"
 
-    ys._PENDING["u1"] = {
-        "session_file": ".cache/qr.json", "qr_url": "https://q",
-        "started_at": __import__("time").monotonic(),
-    }
+    await ys._save_pending(
+        "u1",
+        {
+            "session_file": ".cache/qr.json",
+            "qr_url": "https://q",
+            "started_at": __import__("time").time(),
+        },
+    )
     # Not scanned: CLI errors with non-JSON → pending, and the QR code must be carried back (so a full-payload frontend overwrite doesn't wipe the display)
     outputs["next"] = "Error: timeout waiting for scan"
     r = await svc.poll_login("u1")
     assert r["status"] == "pending"
     assert r["qr_url"] == "https://q"
-    assert "u1" in ys._PENDING
+    assert await ys._get_pending("u1") is not None
     # Success-summary shape: printLoginResult prints only {"ok":true,...} **without a status
     # field** (the initial release tripped exactly here in real testing: treated as pending while
     # the session file was already deleted → spins forever)
-    outputs["next"] = _json.dumps({"ok": True, "corp_id": "c9", "user_id": "yu9",
-                                   "base_url": "https://y.aliwork.com", "cookies_count": 12})
+    outputs["next"] = _json.dumps(
+        {
+            "ok": True,
+            "corp_id": "c9",
+            "user_id": "yu9",
+            "base_url": "https://y.aliwork.com",
+            "cookies_count": 12,
+        }
+    )
     r = await svc.poll_login("u1")
     assert r["status"] == "connected"
     assert r["corp_id"] == "c9"
-    assert "u1" not in ys._PENDING
+    assert await ys._get_pending("u1") is None
     # Fallback: poll returns non-JSON (e.g. the session file was cleaned up by the CLI after
     # success → ENOENT), but the cookie landed on disk during the session → login deemed complete
-    ys._PENDING["u1"] = {"session_file": ".cache/qr.json", "qr_url": "q",
-                         "started_at": __import__("time").monotonic()}
+    await ys._save_pending(
+        "u1",
+        {"session_file": ".cache/qr.json", "qr_url": "q", "started_at": __import__("time").time()},
+    )
     ck2 = tmp_path / "u1" / "workspace" / ".cache"
     ck2.mkdir(parents=True, exist_ok=True)
     (ck2 / "cookies-public.json").write_text('{"cookies":[]}')
     outputs["next"] = "ENOENT: no such file or directory"
     r = await svc.poll_login("u1")
     assert r["status"] == "connected"
-    assert "u1" not in ys._PENDING
+    assert await ys._get_pending("u1") is None
     (ck2 / "cookies-public.json").unlink()
-    ys._PENDING["u1"] = {"session_file": ".cache/qr.json", "qr_url": "https://q",
-                         "started_at": __import__("time").monotonic()}
+    await ys._save_pending(
+        "u1",
+        {
+            "session_file": ".cache/qr.json",
+            "qr_url": "https://q",
+            "started_at": __import__("time").time(),
+        },
+    )
     # Multiple organizations
-    outputs["next"] = _json.dumps({
-        "status": "need_corp_selection",
-        "organizations": [{"corp_id": "c1", "corp_name": "组织一", "main_org": True}],
-    })
+    outputs["next"] = _json.dumps(
+        {
+            "status": "need_corp_selection",
+            "organizations": [{"corp_id": "c1", "corp_name": "组织一", "main_org": True}],
+        }
+    )
     r = await svc.poll_login("u1")
     assert r["status"] == "corp_selection"
     assert r["organizations"][0]["corp_id"] == "c1"
     # Completes after selecting an organization
-    outputs["next"] = _json.dumps({"status": "ok", "corp_id": "c1", "user_id": "yu1",
-                                   "base_url": "https://x.aliwork.com"})
+    outputs["next"] = _json.dumps(
+        {"status": "ok", "corp_id": "c1", "user_id": "yu1", "base_url": "https://x.aliwork.com"}
+    )
     r = await svc.poll_login("u1", corp_id="c1")
     assert r["status"] == "connected"
     assert r["corp_id"] == "c1"
-    assert "u1" not in ys._PENDING
+    assert await ys._get_pending("u1") is None
     meta = _json.loads((tmp_path / "u1" / "connection.json").read_text())
     assert meta["corp_id"] == "c1"
     # corp_id injection surface: illegal characters are rejected outright
-    ys._PENDING["u1"] = {"session_file": ".cache/qr.json", "qr_url": "q",
-                         "started_at": __import__("time").monotonic()}
+    await ys._save_pending(
+        "u1",
+        {"session_file": ".cache/qr.json", "qr_url": "q", "started_at": __import__("time").time()},
+    )
     r = await svc.poll_login("u1", corp_id="c1; rm -rf /")
     assert r["status"] == "error"
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
 
 
 @pytest.mark.asyncio
 async def test_yida_run_in_sandbox_heals_stale_sandbox(monkeypatch):
     """Existing sandbox lacks the yida volume mount (cd failure echoes the marker) → close_session
     truly destroys it, then retry with a fresh sandbox. This was the pitfall the connection panel hit
-    on first release: both the no-session_id light-pool path and old-sandbox adopt reuse trigger it."""
+    on first release: both the no-session_id light-pool path and old-sandbox adopt reuse trigger it.
+    """
     import core.services.yida_service as ys
 
     calls = {"exec": 0, "closed": []}
 
-    class FakeResult:
-        def __init__(self, stdout, exit_code, stderr=""):
-            self.stdout, self.exit_code, self.stderr = stdout, exit_code, stderr
+    def completed(stdout, exit_code, stderr=""):
+        return dict(
+            status="exited",
+            session_id=None,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            execution_time_ms=1,
+        )
 
-    class FakeProvider:
-        async def execute(self, req):
+    class FakeProvider(CompletionMixin):
+        async def start_process(self, req, yield_time_ms=10000):
             calls["exec"] += 1
-            assert req.session_id == "yida-connect-u1"  # must carry the synthetic session → persistent sandbox
+            assert (
+                req.session_id == "yida-connect-u1"
+            )  # must carry the synthetic session → persistent sandbox
             if calls["exec"] == 1:
-                return FakeResult(f"{ys._NO_WS_MARKER}\n", 97)  # stale: no mount
-            return FakeResult('{"status":"need_qr_scan","qr_url":"https://q",'
-                              '"session_file":".cache/qr.json"}', 0)
+                return completed(f"{ys._NO_WS_MARKER}\n", 97)  # stale: no mount
+            return completed(
+                '{"status":"need_qr_scan","qr_url":"https://q",' '"session_file":".cache/qr.json"}',
+                0,
+            )
 
         async def close_session(self, session_id):
             calls["closed"].append(session_id)
 
     import core.sandbox.factory as factory
+
     monkeypatch.setattr(factory, "get_sandbox_provider", lambda: FakeProvider())
 
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
     r = await ys.YidaService().start_login("u1")
     assert r["status"] == "pending"
     assert calls["exec"] == 2
     assert calls["closed"] == ["yida-connect-u1"]
-    ys._PENDING.clear()
+    await ys._clear_pending("u1")
 
 
 def test_yida_plugin_declares_connection():
@@ -282,10 +328,7 @@ def test_yida_plugin_declares_connection():
 
     from core.services.plugin_importer import normalize_plugin_dir
 
-    p = (
-        pathlib.Path(__file__).resolve().parents[1]
-        / "plugin_bundles" / "marketplace" / "yida"
-    )
+    p = pathlib.Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace" / "yida"
     assert normalize_plugin_dir(p).connection == "yida"
 
 
@@ -330,7 +373,12 @@ def test_yida_skill_md_host_adaptation():
 
     p = (
         pathlib.Path(__file__).resolve().parents[1]
-        / "plugin_bundles" / "marketplace" / "yida" / "skills" / "yida" / "SKILL.md"
+        / "plugin_bundles"
+        / "marketplace"
+        / "yida"
+        / "skills"
+        / "yida"
+        / "SKILL.md"
     )
     text = p.read_text(encoding="utf-8")
     # Fixed working-directory convention (consistent with _YIDA_WORKSPACE_MOUNT)

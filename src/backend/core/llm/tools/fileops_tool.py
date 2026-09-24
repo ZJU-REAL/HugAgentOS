@@ -10,6 +10,7 @@ those are one-off sandbox products; just use ``bash``'s ``rm`` / ``mv``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -74,7 +75,7 @@ def register_delete(
         if rel == "":
             return resp_json({"error": "不允许删除我的空间根目录"})
 
-        result = _ms.sync_delete(user_id, path, scope=scope)
+        result = await asyncio.to_thread(_ms.sync_delete, user_id, path, scope=scope)
         if "error" in result:
             return resp_json(result)
 
@@ -142,7 +143,7 @@ def register_move(
                 "Move 的源和目标都必须在「我的空间」(/myspace/...) 内。"
             )})
 
-        result = _ms.sync_move(user_id, src_path, dst_path, scope=scope)
+        result = await asyncio.to_thread(_ms.sync_move, user_id, src_path, dst_path, scope=scope)
         if "error" in result:
             return resp_json(result)
 
@@ -208,7 +209,7 @@ def register_mkdir(
                 "沙盒里建临时目录用 bash 的 mkdir。"
             )})
 
-        result = _ms.sync_mkdir(user_id, path, scope=scope)
+        result = await asyncio.to_thread(_ms.sync_mkdir, user_id, path, scope=scope)
         if "error" in result:
             return resp_json(result)
 

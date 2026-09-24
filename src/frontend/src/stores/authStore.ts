@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { rememberDesktopRequest, showDesktopApproval } from './desktopLogin';
 import { message } from 'antd';
 import { checkSession, desktopHandoff, exchangeSsoCredential, getSsoAuthorizeUrl, logout, onUnauthorized, type AuthUser } from '../api';
 import { isEditionAccessError } from '../editionAccessError';
@@ -144,13 +145,7 @@ function triggerDesktopDeepLink(deeplink: string): void {
     iframe.style.display = 'none';
     iframe.src = deeplink;
     document.body.appendChild(iframe);
-    window.setTimeout(() => {
-      try {
-        document.body.removeChild(iframe);
-      } catch {
-        // ignore
-      }
-    }, 1500);
+
   } catch {
     try {
       window.location.href = deeplink;
@@ -199,6 +194,7 @@ function showDesktopReturnOverlay(deeplink: string): void {
  * one-time handoff ticket -> wake the App + show the "you can close this page" screen.
  * Returns true on success (the caller should stay in the bridging state and not render the app). */
 async function bridgeToDesktop(): Promise<boolean> {
+  if (await showDesktopApproval()) return true;
   if (!isDesktopLogin()) return false;
   try {
     const ticket = await desktopHandoff();
@@ -216,16 +212,6 @@ async function bridgeToDesktop(): Promise<boolean> {
     // First switch the page to the clear "login succeeded, closable" state, then wake the App (avoids this page spinning forever).
     showDesktopReturnOverlay(deeplink);
     triggerDesktopDeepLink(deeplink);
-    // If the browser allows it (usually only for script-opened tabs), auto-close this
-    // page after the wake-up; if it cannot be closed, keep the "closable" notice page
-    // above instead of a loading state.
-    window.setTimeout(() => {
-      try {
-        window.close();
-      } catch {
-        // ignore
-      }
-    }, 1500);
     return true;
   } catch {
     // Ticket fetch failed: stay in the browser and render the app as usual (the user
@@ -303,6 +289,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       set({ authChecking: true });
 
+      rememberDesktopRequest();
       const params = new URLSearchParams(window.location.search);
       // Desktop: on first open with `?desktop=1`, record the intent (kept in
       // sessionStorage across the SSO round trip) and strip the param from the address

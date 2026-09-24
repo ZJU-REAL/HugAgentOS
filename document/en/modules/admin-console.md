@@ -87,6 +87,8 @@ Cross-environment snapshot endpoints `GET /v1/content/prompts/export` / `POST /v
 
 `/v1/admin/agents` (`api/routes/v1/admin_agents.py`, `ADMIN_TOKEN`): admin-owned sub-agent CRUD (visible to all users), bindable-resource listing (available-resources), enable toggle, import/export.
 
+The sub-agent status switch uses `PUT /v1/admin/agents/{agent_id}/toggle`. While the toggle and list refresh are in progress, the switch shows a loading state and prevents duplicate submissions for that agent, avoiding a second click reversing the change.
+
 ### Knowledge base management (admin_kb) (Enterprise Edition: content_admin)
 
 `/v1/admin/kb` (`api/routes/v1/admin_kb.py`, `ADMIN_TOKEN`): management of self-hosted **public knowledge bases** (`KBSpace.visibility == "public"`, owned by the system owner), mirroring the user-side `kb.py` — KB CRUD, AI-generated descriptions, document upload / listing / original-file preview (Office→PDF) / deletion / reindexing, chunk preview and per-chunk editing (content / tags / questions). Public KBs are visible to all users in the capability catalog and searchable. In Dify mode, Dify datasets are shown read-only and writes return 409. See [Knowledge Base](knowledge-base.md).

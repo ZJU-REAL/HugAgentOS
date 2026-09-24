@@ -452,7 +452,7 @@ export async function apiRequest<T>(
     throwIfSessionExpired(response.status, payload, localTarget);
     const editionError = createEditionAccessError(response.status, payload, readErrorMessage);
     if (editionError) throw editionError;
-    throw createApiResponseError(response.status, payload, `API Error: ${response.status}`);
+    throw createApiResponseError(response.status, payload, `API Error: ${response.status}`, response.headers.get("Retry-After"));
   }
   return payload as T;
 }
@@ -2725,12 +2725,13 @@ export async function uploadFile(
   file: File,
   chatId?: string,
   folderId?: string | null,
-  options: { apiUrl?: string; target?: 'local' | 'cloud'; projectId?: string } = {},
+  options: { apiUrl?: string; target?: 'local' | 'cloud'; projectId?: string; uploadKey?: string } = {},
 ): Promise<UploadedFile> {
   const origin = options.target ?? chatUploadTarget(chatId, options.projectId);
   const url = `${options.apiUrl ?? getApiUrl()}/v1/file/upload`;
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', file, file.name.split('/').pop()!);
+  if (options.uploadKey) formData.append('upload_key', options.uploadKey);
   if (chatId) formData.append('chat_id', chatId);
   if (folderId) formData.append('folder_id', folderId);
 
@@ -2744,7 +2745,7 @@ export async function uploadFile(
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     if (origin !== 'local') throwIfSessionExpired(response.status, payload);
-    throw new Error(readErrorMessage(payload, `Upload failed: ${response.status}`));
+    throw createApiResponseError(response.status, payload, `Upload failed: ${response.status}`, response.headers.get("Retry-After"));
   }
 
   const payload = await response.json();

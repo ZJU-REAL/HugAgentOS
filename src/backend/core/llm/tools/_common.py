@@ -99,7 +99,7 @@ async def sandbox_exec_bash(
 ) -> tuple[int, str, str]:
     """Run a bash script in the sandbox and return ``(exit_code, stdout, stderr)``.
 
-    Wraps ``SandboxProvider.execute`` for the Glob/Grep tools. Errors are
+    Wraps ``provider.run_to_completion`` for the Glob/Grep tools. Errors are
     surfaced as ``(exit_code=-1, stdout="", stderr=str(exc))``.
 
     NOTE: ``chat_id`` here is the *sandbox session id* — callers pass the
@@ -109,12 +109,12 @@ async def sandbox_exec_bash(
     ``user_id`` 必须传：沙箱首次执行时靠它建 ``/myspace`` 软链，漏传会让这个沙箱里
     所有 ``/myspace/...`` 路径都不存在。
     """
-    from core.sandbox import ExecuteRequest, SandboxConnectError, SandboxError, get_sandbox_provider
+    from core.sandbox import ProcessRequest, SandboxConnectError, SandboxError, get_sandbox_provider
 
     try:
         provider = get_sandbox_provider()
-        result = await provider.execute(
-            ExecuteRequest(
+        result = await provider.run_to_completion(
+            ProcessRequest(
                 script_content=script,
                 script_name="_tool_helper.sh",
                 language="bash",

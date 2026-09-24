@@ -1,3 +1,4 @@
+from tests.sandbox.runner_client import run_runner
 """Regressions for desktop identity, explicit bindings and immutable runs."""
 
 import base64
@@ -320,8 +321,8 @@ async def test_runner_executes_frozen_view_after_background_update(
     skills.publish_local_skill(
         "example", files={"SKILL.md": "v2"}, content_hash=skill_content_hash("v2", {})
     )
-    response = await server.execute(
-        server.ExecuteRequest(
+    response = await run_runner(
+        server.ProcessRequest(
             script_content=f"cat {run.view_dir}/example/SKILL.md",
             script_name="frozen.sh",
             language="bash",
@@ -758,8 +759,8 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     )
     new = runtime.prepare("concurrent-new", "u", skill_ids=["example"])
     first = asyncio.create_task(
-        server.execute(
-            server.ExecuteRequest(
+        run_runner(
+            server.ProcessRequest(
                 script_content=f"sleep 0.2; cat {old.view_dir}/example/SKILL.md",
                 script_name="old.sh",
                 language="bash",
@@ -770,8 +771,8 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
         )
     )
     await asyncio.sleep(0.05)
-    second = await server.execute(
-        server.ExecuteRequest(
+    second = await run_runner(
+        server.ProcessRequest(
             script_content=f"cat {new.view_dir}/example/SKILL.md",
             script_name="new.sh",
             language="bash",

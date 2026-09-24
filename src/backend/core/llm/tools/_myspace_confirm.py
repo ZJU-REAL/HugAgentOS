@@ -29,14 +29,13 @@ blocking would deadlock the stream") no longer hold for the current architecture
 
 Concurrent dedup: with ``parallel_tool_calls=True`` the model may emit multiple
 Write blocks concurrently in one reasoning step. Dedup by
-``(op, logical_path)`` — concurrent/duplicate writes to the same file share
+``(kind, op, logical_path)`` — concurrent/duplicate writes to the same file share
 **one** pending + one Event + only **one** confirmation bar.
 
-Storage: in-process per-chat (fine for single-worker dev; multi-worker needs
-Redis + pub/sub, since ``asyncio.Event`` does not cross processes). Event/Queue
-are created lazily and bound to the uvicorn event loop; gate (agent task) /
-stream consumer / the /file-confirm endpoint share the same loop, so
-cross-coroutine use is safe.
+Storage: requests and decisions are shared through interaction_store. Only
+waiters, execution dedup and SSE queues stay local to the owning run. HTTP
+workers atomically record decisions; the owning coroutine receives them without
+cross-thread asyncio access. Session grants are shared and permission-scoped.
 """
 
 from __future__ import annotations
@@ -52,6 +51,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 from core.llm.human_interaction import MAX_WAIT_SECONDS
+from core.llm import interaction_store
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +95,14 @@ _DECISIONS = (DECISION_ALLOW, DECISION_ALLOW_SESSION, DECISION_DENY)
 _DECISION_TIMEOUT = "_timeout"  # internal: wait timed out
 
 # design_pick-specific decision values (frontend DesignPickerCard.tsx has matching literals)
-DECISION_CHOICE = "choice"   # an option was selected (must carry option_id)
-DECISION_SKIP = "skip"       # user clicked "let the assistant decide"
+DECISION_CHOICE = "choice"  # an option was selected (must carry option_id)
+DECISION_SKIP = "skip"  # user clicked "let the assistant decide"
 _DESIGN_DECISIONS = (DECISION_CHOICE, DECISION_SKIP)
 
 # Non-interactive (batch/sub-agent) mode: reject the write outright; the model uses this to switch to /workspace
 STATUS_BLOCKED = "blocked_non_interactive"
 
-_TTL_S = 1800              # per-chat idle expiry for an **empty registry** (not collected while pending exists)
+_TTL_S = 1800  # per-chat idle expiry for an **empty registry** (not collected while pending exists)
 # Maximum tool suspend duration. While suspended the chat's pending set is
 # non-empty so _gc will not collect it, hence this value may be far larger than
 # _TTL_S. 2h covers the common "user steps away and comes back to confirm"
@@ -118,21 +118,26 @@ class _Pending:
     summary: str
     ts: float
     event: asyncio.Event
+    loop: asyncio.AbstractEventLoop = field(default_factory=asyncio.get_running_loop)
     decision: Optional[str] = None  # written by set_decision
-    waiters: int = 0                # number of tool coroutines concurrently suspended after same-key dedup
-    performed: bool = False         # whether "actually perform the write" has been claimed by some coroutine in this dedup group
-    kind: str = KIND_MYSPACE        # myspace write / automation cron-task change / design_pick
+    waiters: int = 0  # number of tool coroutines concurrently suspended after same-key dedup
+    performed: bool = (
+        False  # whether "actually perform the write" has been claimed by some coroutine in this dedup group
+    )
+    kind: str = KIND_MYSPACE  # myspace write / automation cron-task change / design_pick
     # design_pick-specific: payload={"question", "options"}, choice=selected option_id
     payload: Optional[Dict[str, Any]] = None
     choice: Optional[str] = None
+    registered: bool = False
+    registration_error: Optional[BaseException] = None
 
 
 @dataclass
 class _ChatConfirm:
     # confirm_id → _Pending
     pending: Dict[str, _Pending] = field(default_factory=dict)
-    # (op, logical_path) → confirm_id; concurrent/duplicate writes dedup to the same pending
-    key_index: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    # (kind, op, logical_path) → confirm_id; concurrent/duplicate writes dedup to the same pending
+    key_index: Dict[Tuple[str, str, str], str] = field(default_factory=dict)
     # "allow for this whole session" is isolated by permission domain **and**,
     # for the host domains, by what was actually approved. A MySpace approval
     # must never authorize local host commands or automation; and saying yes to
@@ -184,10 +189,7 @@ _CHATS: Dict[str, _ChatConfirm] = {}
 
 def _gc(now: float) -> None:
     """Lazily clean up expired chat state (call while holding the lock). Chats with pending items / suspended waiters are not cleaned."""
-    dead = [
-        c for c, st in _CHATS.items()
-        if now - st.last_ts > _TTL_S and not st.pending
-    ]
+    dead = [c for c, st in _CHATS.items() if now - st.last_ts > _TTL_S and not st.pending]
     for c in dead:
         _CHATS.pop(c, None)
 
@@ -272,9 +274,7 @@ def get_pending(chat_id: Optional[str]) -> Optional[Dict[str, Any]]:
         st = _CHATS.get(chat_id)
         if st is None or not st.pending:
             return None
-        live = [
-            (cid, p) for cid, p in st.pending.items() if p.decision is None
-        ]
+        live = [(cid, p) for cid, p in st.pending.items() if p.decision is None]
         if not live:
             return None
         # Refresh last_ts only when undecided items actually exist. Otherwise
@@ -300,9 +300,7 @@ def get_all_pending(chat_id: Optional[str]) -> list[Dict[str, Any]]:
         st = _CHATS.get(chat_id)
         if st is None or not st.pending:
             return []
-        live = [
-            (cid, p) for cid, p in st.pending.items() if p.decision is None
-        ]
+        live = [(cid, p) for cid, p in st.pending.items() if p.decision is None]
         if not live:
             return []
         st.last_ts = time.monotonic()
@@ -314,7 +312,8 @@ def list_pending_chat_ids() -> list[str]:
     """All chat_ids that have undecided pending confirmations (the out-of-band batch endpoint uses this for ownership filtering)."""
     with _LOCK:
         return [
-            cid for cid, st in _CHATS.items()
+            cid
+            for cid, st in _CHATS.items()
             if any(p.decision is None for p in st.pending.values())
         ]
 
@@ -334,6 +333,8 @@ def set_decision(
     confirm_id: str,
     decision: str,
     option_id: Optional[str] = None,
+    *,
+    cascade: bool = True,
 ) -> Dict[str, Any]:
     """Called by the out-of-band endpoint: record the user's decision and **wake** the suspended tool coroutine.
 
@@ -349,36 +350,44 @@ def set_decision(
             # out and was collected, or a backend restart wiped in-process
             # state. Mark stale so the endpoint degrades gracefully instead of
             # hard-failing.
-            return {"ok": False, "reason": "stale",
-                    "error": "该确认已失效（可能已超时或服务重启）"}
+            return {"ok": False, "reason": "stale", "error": "该确认已失效（可能已超时或服务重启）"}
         p = st.pending.get(confirm_id)
-        if p is None:
-            return {"ok": False, "reason": "stale",
-                    "error": f"confirm_id 不存在或已过期: {confirm_id}"}
+        if p is None or p.decision is not None:
+            return {
+                "ok": False,
+                "reason": "stale",
+                "error": f"confirm_id 不存在或已过期: {confirm_id}",
+            }
         # Locate the pending item first, then validate decision by kind — the
         # design_pick and approve/deny decision-value sets are mutually
         # exclusive; any cross-over is rejected, preventing a cascade or
         # misclick from waking the picker into an invalid state.
         if p.kind == KIND_DESIGN_PICK:
             if decision not in _DESIGN_DECISIONS:
-                return {"ok": False, "reason": "bad_decision",
-                        "error": f"非法 decision（design_pick）: {decision}"}
-            if decision == DECISION_CHOICE:
-                valid_ids = {
-                    str(o.get("id"))
-                    for o in (p.payload or {}).get("options", [])
+                return {
+                    "ok": False,
+                    "reason": "bad_decision",
+                    "error": f"非法 decision（design_pick）: {decision}",
                 }
+            if decision == DECISION_CHOICE:
+                valid_ids = {str(o.get("id")) for o in (p.payload or {}).get("options", [])}
                 if not option_id or str(option_id) not in valid_ids:
-                    return {"ok": False, "reason": "bad_option",
-                            "error": f"非法 option_id: {option_id}"}
+                    return {
+                        "ok": False,
+                        "reason": "bad_option",
+                        "error": f"非法 option_id: {option_id}",
+                    }
                 p.choice = str(option_id)
         else:
             if decision not in _DECISIONS:
-                return {"ok": False, "reason": "bad_decision",
-                        "error": f"非法 decision: {decision}"}
+                return {
+                    "ok": False,
+                    "reason": "bad_decision",
+                    "error": f"非法 decision: {decision}",
+                }
         st.last_ts = time.monotonic()
         p.decision = decision
-        ev = p.event
+        ev = p
         op, lp = p.op, p.logical_path
         # "Allow for this session": besides letting subsequent writes pass via
         # the same kind-scoped session grant, we must also **cascade-wake** the other confirmation
@@ -389,8 +398,8 @@ def set_decision(
         # Without the cascade they hang until timeout — manifesting as "clicked
         # allow-for-session but later items still prompt one by one" (this bug).
         cascaded: list[str] = []
-        cascade_evs: list[asyncio.Event] = []
-        if decision == DECISION_ALLOW_SESSION:
+        cascade_evs: list[_Pending] = []
+        if decision == DECISION_ALLOW_SESSION and cascade:
             granted = _session_scope(p.kind, p.logical_path)
             st.session_allows.add((p.kind, granted))
             for other_cid, op_p in st.pending.items():
@@ -404,14 +413,23 @@ def set_decision(
                 if not _scope_covers(p.kind, granted, op_p.logical_path):
                     continue
                 op_p.decision = DECISION_ALLOW_SESSION
-                cascade_evs.append(op_p.event)
+                cascade_evs.append(op_p)
                 cascaded.append(other_cid)
     # set() outside the lock: wakes all tool coroutines in gate() waiting on these Events.
-    ev.set()
-    for cev in cascade_evs:
-        cev.set()
+    for pending in [ev, *cascade_evs]:
+        try:
+            same_loop = asyncio.get_running_loop() is pending.loop
+        except RuntimeError:
+            same_loop = False
+        if same_loop:
+            pending.event.set()
+        else:
+            pending.loop.call_soon_threadsafe(pending.event.set)
     return {
-        "ok": True, "decision": decision, "op": op, "logical_path": lp,
+        "ok": True,
+        "decision": decision,
+        "op": op,
+        "logical_path": lp,
         # Other confirm_ids released by the cascade: the frontend uses this to clear the whole queue at once instead of prompting one by one.
         "cascaded": cascaded,
     }
@@ -420,6 +438,7 @@ def set_decision(
 def _confirm_enabled(kind: str = KIND_MYSPACE) -> bool:
     try:
         from core.config.settings import settings as _s
+
         if kind == KIND_AUTOMATION:
             return bool(getattr(_s.sandbox, "automation_write_confirm", True))
         if (
@@ -462,29 +481,19 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
     if kind == KIND_LOCAL_CMD or kind.startswith(KIND_LOCAL_PATH_PREFIX):
         tgt = summary or logical_path
         return {
-            "dedup": (
-                f"同一本机操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
-            ),
+            "dedup": (f"同一本机操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"),
             "deny": (
                 f"用户拒绝了该本机操作（{tgt}）。不要重试，请向用户说明已取消，"
                 f"或澄清其真实意图后再操作。"
             ),
-            "timeout": (
-                f"等待用户确认该本机操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"
-            ),
+            "timeout": (f"等待用户确认该本机操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"),
         }[phase]
     if kind == KIND_TOOL_PERMISSION or kind.startswith(KIND_TOOL_PREFIX):
         tgt = summary or logical_path
         return {
-            "dedup": (
-                f"同一工具操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
-            ),
-            "deny": (
-                f"用户拒绝了该工具操作（{tgt}）。不要重试，请向用户说明已取消。"
-            ),
-            "timeout": (
-                f"等待用户确认该工具操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"
-            ),
+            "dedup": (f"同一工具操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"),
+            "deny": (f"用户拒绝了该工具操作（{tgt}）。不要重试，请向用户说明已取消。"),
+            "timeout": (f"等待用户确认该工具操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"),
         }[phase]
     return {
         "dedup": (
@@ -503,11 +512,12 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
     }[phase]
 
 
-def _register_pending(
+async def _register_pending(
     cid_key: str,
-    key: Tuple[str, str],
+    key: Tuple[str, str, str],
     *,
     make_pending,
+    timeout,
     precheck=None,
 ) -> Tuple[Optional[tuple], Optional[str], Optional[_Pending]]:
     """Register (or dedup-reuse by key) a pending item and push a "show card" signal to the frontend.
@@ -533,9 +543,7 @@ def _register_pending(
             if short is not None:
                 return short, None, None
         existing_cid = st.key_index.get(key)
-        p: Optional[_Pending] = (
-            st.pending.get(existing_cid) if existing_cid else None
-        )
+        p: Optional[_Pending] = st.pending.get(existing_cid) if existing_cid else None
         is_new = p is None or p.decision is not None
         if is_new:
             cid = uuid.uuid4().hex[:12]
@@ -551,17 +559,41 @@ def _register_pending(
             ui_q = st.ui_signals
             ui_payload = _pending_to_info(cid, p)
 
-    if ui_q is not None and ui_payload is not None:
-        try:
-            ui_q.put_nowait(ui_payload)
-        except Exception:  # noqa: BLE001 — a queue error must not take down the tool
-            logger.warning("[confirm] ui_signals put failed", exc_info=True)
+    try:
+        if is_new:
+            try:
+                await interaction_store.register("confirm", cid_key, cid, ui_payload, timeout)
+            except BaseException as exc:
+                p.registration_error = exc
+                raise
+            finally:
+                p.registered = True
+            if ui_q is not None:
+                ui_q.put_nowait(ui_payload)
+        else:
+            # Publication can involve network I/O. A duplicate must not wait
+            # on a shared record that its first registrant has not written yet.
+            while not p.registered:
+                await asyncio.sleep(0.01)
+            if p.registration_error is not None:
+                raise p.registration_error
+    except BaseException:
+        with _LOCK:
+            p.waiters -= 1
+            last = p.waiters <= 0
+            if last:
+                st.pending.pop(cid, None)
+                if st.key_index.get(key) == cid:
+                    st.key_index.pop(key, None)
+        if last:
+            await interaction_store.remove("confirm", cid_key, cid)
+        raise
     return None, cid, p
 
 
 async def _wait_pending(
     cid_key: str,
-    key: Tuple[str, str],
+    key: Tuple[str, str, str],
     cid: str,
     p: _Pending,
     *,
@@ -588,11 +620,27 @@ async def _wait_pending(
     cancellation case, CancelledError is **re-raised** after cleanup.
     """
     cancelled = False
+    wait_error = None
     try:
-        await asyncio.wait_for(p.event.wait(), timeout=timeout)
+        # Recheck after publication: a session grant may have arrived while
+        # this request was being registered. CAS preserves any prior denial.
+        if cid_key != "_nochat_" and p.kind != KIND_DESIGN_PICK:
+            for grant_kind, scope in await _load_session_grants(cid_key):
+                if grant_kind == p.kind and _scope_covers(p.kind, scope, p.logical_path):
+                    await interaction_store.decide(
+                        "confirm", cid_key, cid, {"decision": DECISION_ALLOW_SESSION}
+                    )
+        remote = await interaction_store.wait("confirm", cid_key, cid, p.event, timeout)
+        if remote is not None and remote.get("decision"):
+            set_decision(cid_key, cid, remote["decision"], remote.get("option_id"), cascade=False)
+            if remote["decision"] == DECISION_ALLOW_SESSION:
+                await _save_session_grant(cid_key, p.kind, _session_scope(p.kind, p.logical_path))
     except asyncio.TimeoutError:
         pass
     except asyncio.CancelledError:
+        cancelled = True
+    except Exception as exc:
+        wait_error = exc
         cancelled = True
 
     expire_q: Optional[asyncio.Queue] = None
@@ -607,10 +655,7 @@ async def _wait_pending(
                 st2.pending.pop(cid, None)
                 if st2.key_index.get(key) == cid:
                     st2.key_index.pop(key, None)
-                if (
-                    (cancelled or decision == _DECISION_TIMEOUT)
-                    and st2.ui_signals is not None
-                ):
+                if (cancelled or decision == _DECISION_TIMEOUT) and st2.ui_signals is not None:
                     expire_q = st2.ui_signals
                     expire_payload = {
                         "confirm_id": cid,
@@ -627,6 +672,10 @@ async def _wait_pending(
         except Exception:  # noqa: BLE001 — a queue error must not take down the tool
             logger.warning("[confirm] expire signal put failed", exc_info=True)
 
+    if p.waiters <= 0:
+        await interaction_store.remove("confirm", cid_key, cid)
+    if wait_error is not None:
+        raise wait_error
     if cancelled:
         raise asyncio.CancelledError()
     return decision, extracted
@@ -671,7 +720,11 @@ async def gate(
                     "该操作已拒绝。请在主对话中由用户亲自执行或预先调整授权。"
                 ),
             }
-        if kind == KIND_AUTOMATION or kind == KIND_TOOL_PERMISSION or kind.startswith(KIND_TOOL_PREFIX):
+        if (
+            kind == KIND_AUTOMATION
+            or kind == KIND_TOOL_PERMISSION
+            or kind.startswith(KIND_TOOL_PREFIX)
+        ):
             return {
                 "status": STATUS_BLOCKED,
                 "op": op,
@@ -694,6 +747,11 @@ async def gate(
     # 没有 chat_id 的运行共用一个桶，彼此之间没有任何归属关系；会话授权在那里
     # 等于「谁先点的头，后面所有人都免问」，所以这一类不参与会话授权。
     cid_key = chat_id or "_nochat_"
+    if chat_id:
+        for grant_kind, scope in await _load_session_grants(chat_id):
+            if grant_kind == kind and _scope_covers(kind, scope, logical_path):
+                await _save_session_grant(chat_id, grant_kind, scope)
+                return None
 
     def _session_allowed(st: _ChatConfirm):
         if not chat_id:
@@ -703,9 +761,9 @@ async def gate(
                 return (None,)
         return None
 
-    short, cid, p = _register_pending(
+    short, cid, p = await _register_pending(
         cid_key,
-        (op, logical_path),
+        (kind, op, logical_path),
         make_pending=lambda: _Pending(
             op=op,
             logical_path=logical_path,
@@ -715,6 +773,7 @@ async def gate(
             kind=kind,
         ),
         precheck=_session_allowed,
+        timeout=timeout,
     )
     if short is not None:
         return short[0]
@@ -722,7 +781,10 @@ async def gate(
 
     logger.info(
         "[myspace-confirm] 挂起等待用户确认 chat=%s op=%s path=%s confirm_id=%s",
-        cid_key, op, logical_path, cid,
+        cid_key,
+        op,
+        logical_path,
+        cid,
     )
 
     # Execution-dedup claim (in-lock hook): under parallel_tool_calls the model
@@ -733,16 +795,16 @@ async def gate(
     # duplicate artifacts. A genuinely different subsequent write is a separate
     # pending.
     def _claim_first(pd: _Pending, decision: str) -> bool:
-        first = (
-            decision in (DECISION_ALLOW, DECISION_ALLOW_SESSION)
-            and not pd.performed
-        )
+        first = decision in (DECISION_ALLOW, DECISION_ALLOW_SESSION) and not pd.performed
         if first:
             pd.performed = True
         return first
 
     decision, first = await _wait_pending(
-        cid_key, (op, logical_path), cid, p,
+        cid_key,
+        (kind, op, logical_path),
+        cid,
+        p,
         timeout=timeout,
         expire_message="等待确认超时，已自动取消。如仍需要请重新发起。",
         cancel_message="本次运行已取消，该确认已关闭。",
@@ -753,12 +815,15 @@ async def gate(
         if first:
             logger.info(
                 "[myspace-confirm] 用户已批准(%s) chat=%s path=%s → 放行写入",
-                decision, cid_key, logical_path,
+                decision,
+                cid_key,
+                logical_path,
             )
             return None
         logger.info(
             "[myspace-confirm] 并发重复去重跳过 chat=%s path=%s（首个协程已执行）",
-            cid_key, logical_path,
+            cid_key,
+            logical_path,
         )
         return {
             "status": "deduplicated",
@@ -817,7 +882,7 @@ async def pick(
         }
 
     cid_key = chat_id or "_nochat_"
-    key = ("design_pick", (question or "")[:120])
+    key = (KIND_DESIGN_PICK, "design_pick", (question or "")[:120])
 
     def _reject_concurrent(st: _ChatConfirm):
         # The same chat already has a picker for **a different question**
@@ -833,21 +898,23 @@ async def pick(
                 and other.decision is None
                 and st.key_index.get(key) != ocid
             ):
-                return ({
-                    "status": "already_pending",
-                    "error": (
-                        "已有一个设计方案选择正在等用户操作，禁止并发发起"
-                        "第二个。请等待当前选择结果，按其返回继续。"
-                    ),
-                },)
+                return (
+                    {
+                        "status": "already_pending",
+                        "error": (
+                            "已有一个设计方案选择正在等用户操作，禁止并发发起"
+                            "第二个。请等待当前选择结果，按其返回继续。"
+                        ),
+                    },
+                )
         return None
 
-    short, cid, p = _register_pending(
+    short, cid, p = await _register_pending(
         cid_key,
         key,
         make_pending=lambda: _Pending(
             op="design_pick",
-            logical_path=key[1],
+            logical_path=key[2],
             summary=question or "请选择一个设计方案",
             ts=time.monotonic(),
             event=asyncio.Event(),
@@ -855,6 +922,7 @@ async def pick(
             payload={"question": question, "options": options},
         ),
         precheck=_reject_concurrent,
+        timeout=timeout,
     )
     if short is not None:
         return short[0]
@@ -862,12 +930,17 @@ async def pick(
 
     logger.info(
         "[design-pick] 挂起等待用户选择 chat=%s confirm_id=%s options=%d",
-        cid_key, cid, len(options),
+        cid_key,
+        cid,
+        len(options),
     )
 
     # The dedup group shares the same choice; reading it in-lock suffices, no performed claim needed.
     decision, choice = await _wait_pending(
-        cid_key, key, cid, p,
+        cid_key,
+        key,
+        cid,
+        p,
         timeout=timeout,
         expire_message="设计方案选择已超时，助手将自行选择方案继续。",
         cancel_message="本次运行已取消，设计方案选择已关闭。",
@@ -880,3 +953,76 @@ async def pick(
     if decision == DECISION_SKIP:
         return {"status": "skipped"}
     return {"status": "timeout"}
+
+
+async def get_all_pending_shared(chat_id):
+    return await interaction_store.pending("confirm", chat_id) if chat_id else []
+
+
+async def list_pending_chat_ids_shared():
+    return await interaction_store.chats("confirm")
+
+
+async def _save_session_grant(chat_id, kind, scope):
+    import hashlib
+    import json
+    from core.infra.ephemeral import get_ephemeral_state
+    from urllib.parse import quote
+
+    value = json.dumps([kind, scope])
+    key = (
+        "human-grant:v1:"
+        + quote(chat_id, safe="")
+        + ":"
+        + hashlib.sha256(value.encode()).hexdigest()
+    )
+    await get_ephemeral_state().put(key, value, ttl=_TTL_S)
+
+
+async def _load_session_grants(chat_id):
+    import json
+    from core.infra.ephemeral import get_ephemeral_state
+    from urllib.parse import quote
+
+    store = get_ephemeral_state()
+    grants = []
+    for key in await store.keys("human-grant:v1:" + quote(chat_id, safe="") + ":"):
+        raw = await store.get(key)
+        if raw:
+            grants.append(json.loads(raw))
+    return grants
+
+
+async def set_decision_shared(chat_id, confirm_id, decision, option_id=None):
+    record = await interaction_store.read("confirm", chat_id, confirm_id)
+    if record is None:
+        return {"ok": False, "reason": "stale", "error": "该确认已失效"}
+    info = record["info"]
+    kind = info["kind"]
+    if kind == KIND_DESIGN_PICK:
+        if decision not in _DESIGN_DECISIONS:
+            return {"ok": False, "reason": "bad_decision", "error": "非法设计选择"}
+        if decision == DECISION_CHOICE and str(option_id) not in {
+            str(option.get("id")) for option in info.get("options", [])
+        }:
+            return {"ok": False, "reason": "bad_option", "error": "非法设计选项"}
+    elif decision not in _DECISIONS:
+        return {"ok": False, "reason": "bad_decision", "error": "非法确认决定"}
+    payload = {"decision": decision, "option_id": option_id}
+    if not await interaction_store.decide("confirm", chat_id, confirm_id, payload):
+        return {"ok": False, "reason": "stale", "error": "该确认已失效"}
+    cascaded = []
+    if decision == DECISION_ALLOW_SESSION:
+        scope = _session_scope(kind, info["logical_path"])
+        await _save_session_grant(chat_id, kind, scope)
+        for other in await get_all_pending_shared(chat_id):
+            if other["kind"] == kind and _scope_covers(kind, scope, other["logical_path"]):
+                if await interaction_store.decide("confirm", chat_id, other["confirm_id"], payload):
+                    cascaded.append(other["confirm_id"])
+    return {
+        "ok": True,
+        "decision": decision,
+        "op": info["op"],
+        "logical_path": info["logical_path"],
+        "cascaded": cascaded,
+    }

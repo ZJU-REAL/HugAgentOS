@@ -11,6 +11,8 @@ All artifacts use the __e2e__ prefix, with hard cleanup at the end (artifact row
 
 from __future__ import annotations
 
+from core.sandbox.process_completion import CompletionMixin
+
 import asyncio
 import json
 import os
@@ -33,7 +35,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 # ── FakeSandbox: real temp directory + subprocess, /workspace → tmp rewrite ──────────
-class FakeSandbox:
+class FakeSandbox(CompletionMixin):
     def __init__(self) -> None:
         self.root = tempfile.mkdtemp(prefix="fakesbx_")
 
@@ -56,8 +58,7 @@ class FakeSandbox:
         with open(fp, "wb") as f:
             f.write(content)
 
-    async def execute(self, req):
-        from core.sandbox.protocol import ExecuteResult
+    async def start_process(self, req, yield_time_ms=10000):
 
         script = req.script_content.replace("/workspace", f"{self.root}/workspace")
         os.makedirs(f"{self.root}/workspace", exist_ok=True)
@@ -65,9 +66,9 @@ class FakeSandbox:
             ["bash", "-c", script], capture_output=True, text=True,
             timeout=req.timeout or 30,
         )
-        return ExecuteResult(
+        return dict(status="exited", session_id=None,
             stdout=proc.stdout, stderr=proc.stderr,
-            exit_code=proc.returncode, execution_time_ms=1, files=[],
+            exit_code=proc.returncode, execution_time_ms=1,
         )
 
     async def stage_files(self, user_id, files):

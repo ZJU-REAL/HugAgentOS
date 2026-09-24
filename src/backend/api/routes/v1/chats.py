@@ -390,13 +390,13 @@ def list_referencable_chats(
 
 
 @router.get("/pending-confirms", summary="批量查询本人会话的待确认我的空间写操作")
-def list_pending_confirms(
+async def list_pending_confirms(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """前端刷新/首屏加载时一次性拉取——用于在侧边栏对应会话上点亮蓝点。
 
-    注册表是进程内 per-chat（§13），逐个对候选 chat_id 做归属校验，只下发
+    注册表跨 worker 共享，逐个对候选 chat_id 做归属校验，只下发
     本人会话；待确认项数量天然很小（确认队列），逐条 DB 校验开销可忽略。
 
     注意：本路由必须声明在 ``GET /{chat_id}`` **之前**，否则会被 path
@@ -406,7 +406,7 @@ def list_pending_confirms(
 
     chat_service = ChatService(db)
     items = []
-    for cid in _mc.list_pending_chat_ids():
+    for cid in await _mc.list_pending_chat_ids_shared():
         if chat_service.get_session(cid, user.user_id) is None:
             continue
         # Cannot just take "the latest one" (get_pending): when the latest is a
@@ -414,7 +414,7 @@ def list_pending_confirms(
         # the blue dot would never light up. Prefer the latest write-confirm
         # pending; fall back to design_pick only if there is none (the frontend
         # renders that as merely lighting the blue dot).
-        pendings = _mc.get_all_pending(cid)
+        pendings = await _mc.get_all_pending_shared(cid)
         if not pendings:
             continue
         confirms = [p for p in pendings if p.get("kind") != _mc.KIND_DESIGN_PICK]
@@ -425,7 +425,7 @@ def list_pending_confirms(
 
 @router.get("/pending-user-questions", summary="批量查询本人会话的待回答问题")
 @quiet_access_log
-def list_pending_user_questions(
+async def list_pending_user_questions(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -435,11 +435,11 @@ def list_pending_user_questions(
 
     chat_service = ChatService(db)
     items = []
-    for chat_id in user_questions.list_pending_chat_ids():
+    for chat_id in await user_questions.list_pending_chat_ids_shared():
         if chat_service.get_session(chat_id, user.user_id) is None:
             continue
         items.extend(
-            {"chat_id": chat_id, **request} for request in user_questions.get_all_pending(chat_id)
+            {"chat_id": chat_id, **request} for request in await user_questions.get_all_pending_shared(chat_id)
         )
     return success_response(data={"items": items})
 
@@ -2716,7 +2716,7 @@ def submit_feedback(
     "/{chat_id}/pending-user-questions",
     summary="查询会话中等待用户回答的问题",
 )
-def get_pending_user_questions(
+async def get_pending_user_questions(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2729,7 +2729,7 @@ def get_pending_user_questions(
     from core.llm.tools import user_questions
 
     return success_response(
-        data={"requests": user_questions.get_all_pending(chat_id)},
+        data={"requests": await user_questions.get_all_pending_shared(chat_id)},
     )
 
 
@@ -2737,7 +2737,7 @@ def get_pending_user_questions(
     "/{chat_id}/user-questions/{request_id}/answer",
     summary="回答智能体主动提出的问题",
 )
-def answer_user_question(
+async def answer_user_question(
     chat_id: str,
     request_id: str,
     body: UserQuestionAnswerBody,
@@ -2751,7 +2751,7 @@ def answer_user_question(
 
     from core.llm.tools import user_questions
 
-    result = user_questions.answer(
+    result = await user_questions.answer_shared(
         chat_id,
         request_id,
         [item.model_dump(exclude_none=True) for item in body.answers],
@@ -2779,7 +2779,7 @@ def answer_user_question(
     "/{chat_id}/user-questions/{request_id}/cancel",
     summary="取消智能体主动提出的问题",
 )
-def cancel_user_question(
+async def cancel_user_question(
     chat_id: str,
     request_id: str,
     user: UserContext = Depends(get_current_user),
@@ -2792,7 +2792,7 @@ def cancel_user_question(
 
     from core.llm.tools import user_questions
 
-    result = user_questions.cancel(chat_id, request_id)
+    result = await user_questions.cancel_shared(chat_id, request_id)
     if result.get("ok"):
         return success_response(data=result)
     interrupted = _detect_chat_run_interrupted(db, chat_id)
@@ -2819,7 +2819,7 @@ class FileConfirmBody(BaseModel):
 
 
 @router.get("/{chat_id}/pending-confirm", summary="查询会话是否有待确认的我的空间写操作")
-def get_pending_confirm(
+async def get_pending_confirm(
     chat_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2835,13 +2835,13 @@ def get_pending_confirm(
     # (one round of parallel tool calls can concurrently register N distinct pending confirmations).
     return success_response(
         data={
-            "pendings": _mc.get_all_pending(chat_id),
+            "pendings": await _mc.get_all_pending_shared(chat_id),
         }
     )
 
 
 @router.post("/{chat_id}/file-confirm", summary="确认/拒绝对我的空间的写操作")
-def file_confirm(
+async def file_confirm(
     chat_id: str,
     body: FileConfirmBody,
     user: UserContext = Depends(get_current_user),
@@ -2849,8 +2849,8 @@ def file_confirm(
 ):
     """用户带外批准/拒绝一次对「我的空间」的 Write/Edit/Delete/Move（§13）。
 
-    模型**无法**自批——确认只能经此端点。批准后用户让模型重试同一操作，
-    工具校验注册表通过即真正执行；拒绝则模型据工具反馈改走 /workspace。
+    模型**无法**自批——确认只能经此端点。批准后原工具调用恢复执行，
+    不重试整个操作；拒绝则模型据工具反馈调整后续行为。
     """
     # Ownership check: must be the caller's own session
     session = ChatService(db).get_session(chat_id, user.user_id)
@@ -2859,7 +2859,7 @@ def file_confirm(
 
     from core.llm.tools import _myspace_confirm as _mc
 
-    res = _mc.set_decision(chat_id, body.confirm_id, body.decision, option_id=body.option_id)
+    res = await _mc.set_decision_shared(chat_id, body.confirm_id, body.decision, option_id=body.option_id)
     if not res.get("ok"):
         # An expired confirmation (timeout reclaim / process restart) is not the user's fault —
         # return 200 with a stale flag so the frontend silently dismisses the zombie confirmation

@@ -1,6 +1,7 @@
 """会话工作目录不会被定时回收，执行也就在这个目录里进行。"""
 
 from __future__ import annotations
+from tests.sandbox.runner_client import run_runner
 
 
 def test_script_runner_has_no_session_reaping_endpoint():
@@ -27,20 +28,13 @@ def test_execution_runs_in_the_session_directory_itself(tmp_path, monkeypatch):
     from services.script_runner_service import server
 
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
-    captured = {}
-
-    async def fake_exec(cmd, stdin_data, timeout, cwd, sandbox_launch=None):
-        captured["cwd"] = cwd
-        return {"success": True, "stdout": "", "stderr": "", "exit_code": 0}
-
-    monkeypatch.setattr(server, "_execute_subprocess", fake_exec)
-    req = server.ExecuteRequest(
-        language="python", script_content="print(1)", script_name="s.py",
+    req = server.ProcessRequest(
+        language="python", script_content="import os; print(os.getcwd())", script_name="s.py",
         session_id="chat-1", timeout=10,
     )
-    asyncio.run(server.execute(req))
+    result = asyncio.run(run_runner(req))
 
     expected = server._session_workspace("chat-1")
-    assert captured["cwd"] == str(expected)
+    assert result.stdout.strip() == str(expected)
     # 会话目录本身必须还在——它不是临时目录
     assert expected.is_dir()

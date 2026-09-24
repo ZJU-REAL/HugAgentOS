@@ -33,7 +33,7 @@ def snapshot(scope, actor):
 async def prepare(provider, session, scope, actor):
     before = await asyncio.to_thread(snapshot, scope, actor)
     root = directory(scope.project_id)
-    from core.sandbox import ExecuteRequest, SandboxError
+    from core.sandbox import ProcessRequest, SandboxError
 
     previous = []
     try:
@@ -55,8 +55,8 @@ async def prepare(provider, session, scope, actor):
     current = {path for path, _ in before}
     obsolete = set(previous) - current
     if obsolete:
-        result = await provider.execute(
-            ExecuteRequest(
+        result = await provider.run_to_completion(
+            ProcessRequest(
                 script_content="rm -f -- "
                 + " ".join(shlex.quote(root + "/" + path) for path in obsolete),
                 script_name="_project_cleanup.sh",

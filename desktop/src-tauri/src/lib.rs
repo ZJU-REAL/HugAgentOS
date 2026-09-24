@@ -1,18 +1,13 @@
-//! HugAgentOS桌面客户端（Tauri v2 瘦客户端）。
-//!
-//! 方案 B —— 系统浏览器跳转登录 + deep-link 唤起：
-//!   1. 启动：起本地反代（127.0.0.1:随机端口），加载已存 token；
-//!   2. 已登录 → 窗口直接加载 `http://127.0.0.1:<port>/`（前端经反代访问后端）；
-//!   3. 未登录 → 窗口加载登录卡片（初始态），用户点「开始使用」再打开**系统浏览器**到 `<server>/?desktop=1`；
-//!   4. 浏览器登录成功 → 前端换一次性 handoff 票据 → 跳 `hugagent://auth/callback?ticket=`；
-//!   5. OS 唤起 App → `redeem` 票据换回真正 token → 存盘 + 反代注入 cookie → 窗口跳首页；
-//!   6. 会话过期：前端要跳外部 SSO 时被导航守卫拦下 → 清 token + 重走系统浏览器登录。
+//! Desktop shell: browser-confirmed, device-bound login.
+//! Browser approval is received over HTTPS polling, independently of external
+//! protocol prompts. The custom protocol only focuses an already running app.
 
 mod auth;
 mod brand;
 mod child_process;
 mod config;
 mod credential_store;
+mod device_login;
 mod hybrid;
 mod local_payload;
 mod local_server;
@@ -176,12 +171,10 @@ pub(crate) struct Shared {
     pub(crate) bridge_sync: Arc<RwLock<hybrid::BridgeSync>>,
     pub(crate) session_epoch: Arc<auth::SessionEpoch>,
     pub(crate) device_id: String,
+    pub(crate) device_login: Arc<device_login::Login>,
 }
 
 impl Shared {
-    fn login_url(&self) -> String {
-        format!("{}/?desktop=1", self.server_base.trim_end_matches('/'))
-    }
     fn home_url(&self) -> String {
         format!("http://127.0.0.1:{}/", self.port)
     }
@@ -198,8 +191,7 @@ impl Shared {
 /// 登录页按钮 → 打开系统浏览器登录页。
 #[tauri::command]
 fn open_login(app: tauri::AppHandle) {
-    let shared = app.state::<Shared>();
-    let _ = app.opener().open_url(shared.login_url(), None::<String>);
+    start_device_login(app);
 }
 
 /// 前端退出登录时由 webview 调用：清掉本地 token（内存 + 落盘），把窗口切回登录页。
@@ -216,6 +208,7 @@ async fn logout_desktop(app: tauri::AppHandle) {
 
 /// Invalidate async tasks before waiting for writes; revoke the old cloud session.
 async fn clear_desktop_session(shared: &Shared) -> u64 {
+    cancel_device_login(shared);
     let expected = shared.session_epoch.advance();
     let old_token = {
         let _write = shared.session_epoch.local_write.lock().await;
@@ -482,6 +475,7 @@ pub fn run() {
                 cfg.provision_mode()
             };
 
+            let device_login = Arc::new(device_login::Login::default());
             let web_dir = resolve_web_dir(app);
 
             // 标题栏缩放动作：webview fetch → 反代 → 这里的 channel → 主线程施加。
@@ -489,6 +483,7 @@ pub fn run() {
 
             // 同步起反代拿到端口（仅绑定 + 后台 spawn，很快返回）。
             let pstate = proxy::ProxyState {
+                device_login: device_login.clone(),
                 http: http.clone(),
                 server_base: cfg.server_base_trimmed().to_string(),
                 cookie_name: cfg.cookie_name.clone(),
@@ -520,6 +515,7 @@ pub fn run() {
             });
 
             app.manage(Shared {
+                device_login,
                 server_base: cfg.server_base.clone(),
                 update_base: cfg.update_base(),
                 token: token.clone(),
@@ -971,16 +967,17 @@ fn build_window(app: &tauri::AppHandle, label: &str, url: &str) -> tauri::Result
                 // ——远程源（本地反代）下 `window.__TAURI__` 不保证注入、invoke 会静默失效，
                 // 而 on_navigation 是纯 Rust、一定触发。这里由壳子开系统浏览器 + 切等待态。
                 if path == "/__desktop/open-login" {
+                    start_device_login(app_for_nav.clone());
+                    return false;
+                }
+                if path == "/__desktop/cancel-login" {
                     let app2 = app_for_nav.clone();
-                    let window_label = window_label.clone();
+                    cancel_device_login(&app2.state::<Shared>());
+                    let expected = app2.state::<Shared>().session_epoch.advance();
                     tauri::async_runtime::spawn(async move {
                         let shared = app2.state::<Shared>();
-                        let _ = app2.opener().open_url(shared.login_url(), None::<String>);
-                        if let Some(w) = app2.get_webview_window(&window_label) {
-                            let _ = w.eval(format!(
-                                "window.location.replace('{}')",
-                                shared.waiting_url()
-                            ));
+                        if reset_login_state(&shared, expected).await {
+                            navigate_session_windows(&app2, &shared.login_idle_url());
                         }
                     });
                     return false;
@@ -1276,84 +1273,182 @@ fn build_window(app: &tauri::AppHandle, label: &str, url: &str) -> tauri::Result
     Ok(())
 }
 
-/// 处理 deep-link：解析 ticket → 兑换 token → 存盘 + 注入反代 → 窗口跳首页。
-fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
-    let Some(ticket) = parse_ticket(&raw_url) else {
-        return;
-    };
-    let expected = app.state::<Shared>().session_epoch.advance();
-    let app = app.clone();
+/// Cancel immediately in memory; server cleanup cannot block logout/navigation.
+fn cancel_device_login(shared: &Shared) {
+    let cancelled_generation = shared.device_login.generation();
+    shared.device_login.invalidate();
+    let login = shared.device_login.clone();
+    let http = shared.http.clone();
+    let base = shared.server_base.clone();
     tauri::async_runtime::spawn(async move {
-        let shared = app.state::<Shared>();
-        {
-            let _write = shared.session_epoch.local_write.lock().await;
-            if !shared.session_epoch.matches(expected) {
-                return;
-            }
-            *shared.token.write().await = None;
-            *shared.bridge_user.write().await = None;
-            *shared.bridge_sync.write().await = hybrid::BridgeSync::default();
-            auth::save_token(&shared.config_dir, &shared.server_base, None);
-            if shared.hybrid_local {
-                if let Err(error) =
-                    hybrid::clear_cloud_bridge(&shared.http, &shared.bridge_secret).await
-                {
-                    eprintln!("[auth] {error}");
-                }
-            }
-        }
-        shared.local_server.notify_changed();
-        if !shared.session_epoch.matches(expected) {
-            return;
-        }
-        match auth::redeem(&shared.http, &shared.server_base, &ticket).await {
-            Ok(tok) => {
-                let _write = shared.session_epoch.local_write.lock().await;
-                if !shared.session_epoch.matches(expected) {
-                    return;
-                }
-                *shared.token.write().await = Some(tok.clone());
-                auth::save_token(&shared.config_dir, &shared.server_base, Some(&tok));
-                shared.session_epoch.activate(expected);
-                drop(_write);
-                if !shared.session_epoch.matches(expected) {
-                    return;
-                }
-                // 混合架构（Dual）：登录成功即更新桥接身份并下发安全的本机执行能力。
-                if shared.hybrid_local {
-                    hybrid::on_cloud_login(
-                        shared.http.clone(),
-                        shared.server_base.trim_end_matches('/').to_string(),
-                        shared.cookie_name.clone(),
-                        shared.token.clone(),
-                        shared.bridge_user.clone(),
-                        shared.bridge_sync.clone(),
-                        shared.bridge_secret.clone(),
-                        shared.local_server.clone(),
-                        shared.device_id.clone(),
-                        shared.session_epoch.clone(),
-                        expected,
-                    );
-                }
-                let home = shared.home_url();
-                navigate_session_windows(&app, &home);
-                show_main_window(&app);
-            }
-            Err(e) => {
-                eprintln!("[deep-link] 兑换 token 失败: {e}");
-            }
+        let old = {
+            let mut slot = login.attempt.write().await;
+            if slot.as_ref().is_some_and(|a| a.generation <= cancelled_generation) { slot.take() } else { None }
+        };
+        if let Some(attempt) = old {
+            let _ = device_login::action(&http, &base, &attempt, "cancel").await;
         }
     });
 }
 
-/// 从 `hugagent://auth/callback?ticket=XXX` 抽取 ticket。
-fn parse_ticket(raw_url: &str) -> Option<String> {
-    let parsed = url::Url::parse(raw_url).ok()?;
-    parsed
-        .query_pairs()
-        .find(|(k, _)| k == "ticket")
-        .map(|(_, v)| v.into_owned())
-        .filter(|t| !t.is_empty())
+/// Starting a new attempt also clears any prior accepted-but-cancelled session.
+async fn reset_login_state(shared: &Shared, expected: u64) -> bool {
+    let _write = shared.session_epoch.local_write.lock().await;
+    if !shared.session_epoch.matches(expected) { return false; }
+    *shared.token.write().await = None;
+    auth::save_token(&shared.config_dir, &shared.server_base, None);
+    *shared.bridge_user.write().await = None;
+    *shared.bridge_sync.write().await = hybrid::BridgeSync::default();
+    if shared.hybrid_local {
+        let _ = hybrid::clear_cloud_bridge(&shared.http, &shared.bridge_secret).await;
+    }
+    shared.local_server.notify_changed();
+    shared.session_epoch.matches(expected)
+}
+
+fn start_device_login(app: tauri::AppHandle) {
+    let requested_generation = app.state::<Shared>().device_login.generation();
+    tauri::async_runtime::spawn(async move {
+        let shared = app.state::<Shared>();
+        let login = shared.device_login.clone();
+        let _start = login.start_lock.lock().await;
+        if login.generation() != requested_generation { return; }
+        let existing = login.attempt.read().await.clone();
+        if let Some(attempt) = existing.filter(|a| login.matches(a) && shared.session_epoch.matches(a.epoch)) {
+            if let Ok(url) = device_login::browser_url(&shared.server_base, &attempt.grant) {
+                let _ = app.opener().open_url(url, None::<String>);
+            }
+            return;
+        }
+        login.invalidate();
+        let generation = login.generation();
+        let epoch = shared.session_epoch.advance();
+        *login.view.write().await = device_login::View {
+            status: "starting".into(), message: "正在创建登录请求…".into(), ..Default::default()
+        };
+        navigate_session_windows(&app, &shared.waiting_url());
+        if !reset_login_state(&shared, epoch).await || login.generation() != generation { return; }
+        let secret = match device_login::new_secret() {
+            Ok(secret) => secret,
+            Err(message) => {
+                *login.view.write().await = device_login::View { status: "error".into(), message, ..Default::default() };
+                return;
+            }
+        };
+        let started = std::time::Instant::now();
+        let grant = match device_login::begin(&shared.http, &shared.server_base, &secret).await {
+            Ok(grant) => grant,
+            Err(message) => {
+                if login.generation() == generation {
+                    *login.view.write().await = device_login::View { status: "error".into(), message, ..Default::default() };
+                }
+                return;
+            }
+        };
+        let attempt = device_login::Attempt {
+            deadline: started + std::time::Duration::from_secs(grant.expires_in),
+            grant, secret, generation, epoch,
+        };
+        if login.generation() != generation || !shared.session_epoch.matches(epoch) {
+            let _ = device_login::action(&shared.http, &shared.server_base, &attempt, "cancel").await;
+            return;
+        }
+        *login.attempt.write().await = Some(attempt.clone());
+        *login.view.write().await = device_login::View {
+            status: "pending".into(),
+            message: "请在浏览器核对账号和核对码，确认登录本桌面端。".into(),
+            confirm_code: attempt.grant.confirm_code.clone(),
+        };
+        if let Ok(url) = device_login::browser_url(&shared.server_base, &attempt.grant) {
+            if app.opener().open_url(url, None::<String>).is_err() {
+                login.view.write().await.message = "浏览器未能打开，请点击重新打开。".into();
+            }
+        }
+        drop(_start);
+        let mut delay = attempt.grant.interval.clamp(2, 10);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            if !login.matches(&attempt) || !shared.session_epoch.matches(epoch) { break; }
+            let result = device_login::action(&shared.http, &shared.server_base, &attempt, "poll").await;
+            if !login.matches(&attempt) || !shared.session_epoch.matches(epoch) { break; }
+            match result {
+                Ok(data) => {
+                    delay = attempt.grant.interval.clamp(2, 10);
+                    match data["status"].as_str().unwrap_or("") {
+                        "pending" => {
+                            login.view.write().await.message = "等待浏览器确认登录…".into();
+                        }
+                        "delivered" => {
+                            let Some(token) = data["token"].as_str().filter(|s| !s.is_empty()) else { break; };
+                            // The server's cookie name must match the configured session namespace.
+                            if data["cookie_name"].as_str() != Some(shared.cookie_name.as_str()) {
+                                login.view.write().await.message = "登录会话配置不匹配，请联系管理员。".into();
+                                break;
+                            }
+                            let _write = shared.session_epoch.local_write.lock().await;
+                            if !login.matches(&attempt) || !shared.session_epoch.matches(epoch) { break; }
+                            *shared.token.write().await = Some(token.to_string());
+                            auth::save_token(&shared.config_dir, &shared.server_base, Some(token));
+                            shared.session_epoch.activate(epoch);
+                            drop(_write);
+                            if shared.hybrid_local {
+                                hybrid::on_cloud_login(
+                                    shared.http.clone(), shared.server_base.trim_end_matches('/').to_string(),
+                                    shared.cookie_name.clone(), shared.token.clone(), shared.bridge_user.clone(),
+                                    shared.bridge_sync.clone(), shared.bridge_secret.clone(), shared.local_server.clone(),
+                                    shared.device_id.clone(), shared.session_epoch.clone(), epoch,
+                                );
+                            }
+                            if login.generation() != generation || !shared.session_epoch.matches(epoch) {
+                                return;
+                            }
+                            *login.view.write().await = device_login::View {
+                                status: "completed".into(), message: "登录成功".into(),
+                                confirm_code: attempt.grant.confirm_code.clone(),
+                            };
+                            login.attempt.write().await.take();
+                            navigate_session_windows(&app, &shared.home_url());
+                            show_main_window(&app);
+                            // A lost ack never delays the user entering the app.
+                            for _ in 0..3 {
+                                if !login.matches(&attempt) || !shared.session_epoch.matches(epoch) { break; }
+                                if device_login::action(&shared.http, &shared.server_base, &attempt, "ack").await.is_ok() { break; }
+                            }
+                            return;
+                        }
+                        "cancelled" | "denied" | "completed" => {
+                            login.view.write().await.message = "登录已取消或结束，请重新登录。".into();
+                            break;
+                        }
+                        _ => { login.view.write().await.message = "登录响应无效，请重试。".into(); break; }
+                    }
+                }
+                Err(message) if message == "expired" => break,
+                Err(message) => {
+                    login.view.write().await.message = message;
+                    delay = (delay * 2).min(10);
+                }
+            }
+        }
+        if login.generation() == generation {
+            let mut view = login.view.write().await;
+            view.status = "error".into();
+            if std::time::Instant::now() >= attempt.deadline {
+                view.message = "登录请求已过期，请重新登录。".into();
+            }
+            login.attempt.write().await.take();
+        }
+        let _ = device_login::action(&shared.http, &shared.server_base, &attempt, "cancel").await;
+    });
+}
+
+/// External protocols only focus the window; credentials arrive over the bound request.
+fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
+    if let Ok(url) = url::Url::parse(&raw_url) {
+        if url.scheme() == "hugagent" && url.host_str() == Some("auth") && url.path() == "/focus" {
+            show_main_window(app);
+        }
+    }
 }
 
 /// 解析前端静态资源目录：优先打包资源 `web/`，开发期回落到仓库内的 dist。

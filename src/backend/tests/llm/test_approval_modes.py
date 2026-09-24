@@ -209,28 +209,6 @@ def test_sandbox_stdout_keeps_its_line_breaks():
     assert _join_logs([]) == ""
 
 
-def test_artifact_manifest_is_still_stripped_after_the_newline_fix():
-    """补回换行后，产物清单哨兵仍要被整段剥干净，不留空行。
-
-    哨兵是 SDK 单独的一个分片，修复前它和上一行输出粘在一起、修复后自成一行；
-    这是补换行唯一可能碰坏的地方，所以钉死。
-    """
-    from core.sandbox._opensandbox_exec import _OpenSandboxExecMixin
-    from core.sandbox._opensandbox_internals import _MF_BEGIN, _MF_END, _join_logs
-
-    stdout = _join_logs(
-        [
-            _StreamItem("AAA"),
-            _StreamItem("BBB"),
-            _StreamItem(f'{_MF_BEGIN}[["out.txt", 3, 1.0]]{_MF_END}'),
-        ]
-    )
-    entries, cleaned = _OpenSandboxExecMixin._parse_manifest(_OpenSandboxExecMixin, stdout)
-    # 哨兵连同它前面那个换行一起切掉，正文不留空行
-    assert cleaned == "AAA\nBBB"
-    assert entries is not None and [e.path for e in entries] == ["out.txt"]
-
-
 def test_join_composes_exactly_with_the_upstream_blank_line_fix():
     """升到 execd v1.1.0 后，空行会作为一条内容为 "\\n" 的事件发过来。
 

@@ -67,6 +67,7 @@ def resolve_project_context(chat_id: str, user_id: str):
             raise HTTPException(409, "源码项目未绑定有效空间文件夹")
         if project.kind == "team":
             from core.llm.tools.project_working_copy import directory
+
             return project.project_id, directory(project.project_id)
         return project.project_id, to_physical_path(f"/myspace/{folder}", user_id)
 
@@ -80,7 +81,7 @@ async def pack_and_fetch_dir(
 ) -> Tuple[Optional[List[Tuple[str, bytes]]], Optional[str]]:
     """tar the directory inside the sandbox → fetch it back → safely unpack. Returns exactly one of (files, error)."""
     from pathlib import Path
-    from core.sandbox import ExecuteRequest, get_sandbox_provider
+    from core.sandbox import ProcessRequest, get_sandbox_provider
     from core.sandbox import SandboxError, SandboxConnectError
     from core.sandbox import directory_archive
     from core.services.site_service import MAX_SITE_FILE_BYTES, MAX_SITE_TOTAL_BYTES
@@ -93,26 +94,25 @@ async def pack_and_fetch_dir(
     working_directory = workspace_directory(_sess)
     archive_path = os.path.join(working_directory, archive_name)
     script_name = archive_name + ".py"
-    cleanup_name = archive_name + ".cleanup.py"
     options = {
         "source": src,
         "archive_name": archive_path,
-        "excludes": [".git", "node_modules", "__pycache__", ".hugagent-source-manifest.json", *extra_excludes],
+        "excludes": [
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".hugagent-source-manifest.json",
+            *extra_excludes,
+        ],
         "max_files": UNPACK_MAX_FILES,
         "max_file_bytes": MAX_SITE_FILE_BYTES,
         "max_total_bytes": MAX_SITE_TOTAL_BYTES,
         "max_archive_bytes": MAX_PACK_BYTES,
     }
-    # Persistent OpenSandbox commands do not forward ExecuteRequest.params to
-    # stdin. Embed the JSON as a Python string literal so every provider runs
-    # the same portable archive program with the same inputs.
-    program = (
-        "import io, sys\n"
-        f"sys.stdin = io.StringIO({json.dumps(options, ensure_ascii=False)!r})\n"
-        + Path(directory_archive.__file__).read_text(encoding="utf-8")
-    )
-    request = ExecuteRequest(
+    program = Path(directory_archive.__file__).read_text(encoding="utf-8")
+    request = ProcessRequest(
         script_content=program,
+        params=options,
         script_name=script_name,
         language="python",
         session_id=_sess,
@@ -120,7 +120,7 @@ async def pack_and_fetch_dir(
         timeout=60,
     )
     try:
-        result = await provider.execute(request)
+        result = await provider.run_to_completion(request)
         if result.exit_code:
             return None, f"打包目录失败（{src}）: {result.stderr or result.stdout}"
         data = await provider.get_file(_sess, archive_path, user_id=user_id)
@@ -131,15 +131,20 @@ async def pack_and_fetch_dir(
         return None, f"站点打包失败: {exc}"
     finally:
         try:
-            cleanup = await provider.execute(ExecuteRequest(
-                script_content=(
-                    "from pathlib import Path\n"
-                    f"for path in {(archive_path, os.path.join(working_directory, script_name), os.path.join(working_directory, cleanup_name))!r}:\n"
-                    "    Path(path).unlink(missing_ok=True)\n"
-                ),
-                script_name=cleanup_name,
-                language="python", session_id=_sess, user_id=user_id, timeout=15,
-            ))
+            cleanup = await provider.run_to_completion(
+                ProcessRequest(
+                    script_content=(
+                        "from pathlib import Path\n"
+                        f"for path in {(archive_path,)!r}:\n"
+                        "    Path(path).unlink(missing_ok=True)\n"
+                    ),
+                    script_name="_site_cleanup.py",
+                    language="python",
+                    session_id=_sess,
+                    user_id=user_id,
+                    timeout=15,
+                )
+            )
             if cleanup.exit_code:
                 logger.error("site archive cleanup failed: %s", cleanup.stderr)
         except (SandboxError, SandboxConnectError):

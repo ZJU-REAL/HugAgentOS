@@ -11,7 +11,7 @@ from core.capabilities import runtime
 from core.capabilities.errors import IntegrityFailed
 from core.evolution import runtime_binding as audit
 from core.evolution.contract import ASSET_SKILL, AssetRef
-from core.sandbox.protocol import ExecuteRequest
+from core.sandbox.protocol import ProcessRequest
 from core.sandbox.script_runner_provider import ScriptRunnerProvider
 
 
@@ -41,7 +41,19 @@ async def test_runner_uses_scope_for_view_and_completion_checkpoint(monkeypatch,
         assert body["capability_view_key"] == view_key
         assert body["session_id"] == "chat-1"
         return httpx.Response(
-            200, json={"stdout": "ok", "stderr": "", "exit_code": 0, "execution_time_ms": 1}
+            200,
+            json={
+                "stdout": "ok",
+                "stderr": "",
+                "exit_code": 0,
+                "execution_time_ms": 1,
+                "status": "exited",
+                "_capability": {
+                    "run_id": body["capability_run_id"],
+                    "scope": body["capability_scope"],
+                    "user_id": body["user_id"],
+                },
+            },
         )
 
     client_class = httpx.AsyncClient
@@ -52,8 +64,8 @@ async def test_runner_uses_scope_for_view_and_completion_checkpoint(monkeypatch,
         "core.sandbox.script_runner_provider.httpx.AsyncClient",
         lambda **kw: client_class(transport=httpx.MockTransport(respond), **kw),
     )
-    result = await ScriptRunnerProvider().execute(
-        ExecuteRequest(
+    result = await ScriptRunnerProvider().run_to_completion(
+        ProcessRequest(
             "echo ok",
             "scope.sh",
             user_id="user-1",
@@ -84,8 +96,8 @@ async def test_missing_child_snapshot_does_not_fall_back_to_root(monkeypatch):
 
     monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", no_client)
     with pytest.raises(IntegrityFailed, match="prepared run is missing"):
-        await ScriptRunnerProvider().execute(
-            ExecuteRequest(
+        await ScriptRunnerProvider().run_to_completion(
+            ProcessRequest(
                 "echo ok",
                 "scope.sh",
                 user_id="user-1",
@@ -103,12 +115,19 @@ async def test_bash_preserves_prepared_scope(monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     captured = []
 
-    async def execute(req):
+    async def start_process(req, yield_time_ms=10000):
         captured.append(req)
-        return SimpleNamespace(stdout="ok", stderr="", exit_code=0, execution_time_ms=1, files=[])
+        return dict(
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            execution_time_ms=1,
+            status="exited",
+            session_id=None,
+        )
 
     monkeypatch.setattr(
-        "core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(execute=execute)
+        "core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(start_process=start_process)
     )
 
     class Toolkit:
@@ -212,14 +231,26 @@ async def test_child_snapshot_disappearing_after_execution_fails_closed(monkeypa
         "core.sandbox.script_runner_provider.httpx.AsyncClient",
         lambda **kw: client_class(
             transport=httpx.MockTransport(
-                lambda req: httpx.Response(200, json={"stdout": "must not return", "exit_code": 0})
+                lambda req: httpx.Response(
+                    200,
+                    json={
+                        "stdout": "must not return",
+                        "exit_code": 0,
+                        "status": "exited",
+                        "_capability": {
+                            "run_id": "run-1",
+                            "scope": "child:one",
+                            "user_id": "user-1",
+                        },
+                    },
+                )
             ),
             **kw,
         ),
     )
     with pytest.raises(IntegrityFailed, match="prepared run is missing"):
-        await ScriptRunnerProvider().execute(
-            ExecuteRequest(
+        await ScriptRunnerProvider().run_to_completion(
+            ProcessRequest(
                 "echo ok",
                 "scope.sh",
                 user_id="user-1",
@@ -271,7 +302,19 @@ async def test_real_scoped_snapshots_reach_runner_and_audit_without_root_drift(
         view_dir = caps_root / ".capabilities" / "views" / body["capability_view_key"] / "skills"
         text = (view_dir / "scope-marker" / "SKILL.md").read_text()
         return httpx.Response(
-            200, json={"stdout": text, "stderr": "", "exit_code": 0, "execution_time_ms": 1}
+            200,
+            json={
+                "stdout": text,
+                "stderr": "",
+                "exit_code": 0,
+                "execution_time_ms": 1,
+                "status": "exited",
+                "_capability": {
+                    "run_id": body["capability_run_id"],
+                    "scope": body["capability_scope"],
+                    "user_id": body["user_id"],
+                },
+            },
         )
 
     client_class = httpx.AsyncClient
@@ -283,8 +326,8 @@ async def test_real_scoped_snapshots_reach_runner_and_audit_without_root_drift(
         ("child:one", "child revision", child),
         ("", "root revision", root),
     ]:
-        result = await ScriptRunnerProvider().execute(
-            ExecuteRequest(
+        result = await ScriptRunnerProvider().run_to_completion(
+            ProcessRequest(
                 "cat /workspace/skills/scope-marker/SKILL.md",
                 "scope.sh",
                 user_id="user-1",

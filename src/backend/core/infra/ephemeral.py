@@ -46,6 +46,12 @@ class EphemeralState(Protocol):
     caller error and raises ``ValueError`` on either backend.
     """
 
+    async def keys(self, prefix: str) -> list[str]:
+        """List live keys under a namespace."""
+
+    async def compare_exchange(self, key: str, expected: str, value: str, *, ttl: int) -> bool:
+        """Replace an existing value only if it still equals expected."""
+
     async def get(self, key: str) -> Optional[str]:
         """Read a value, or None when absent/expired."""
 
@@ -77,6 +83,22 @@ class EphemeralState(Protocol):
 
 class RedisEphemeralState:
     """Redis-backed implementation for deployments that have one."""
+
+    async def keys(self, prefix: str) -> list[str]:
+        return [key async for key in get_redis().scan_iter(match=prefix + "*", count=128)]
+
+    async def compare_exchange(self, key: str, expected: str, value: str, *, ttl: int) -> bool:
+        async with get_redis().pipeline() as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.get(key) != expected:
+                    return False
+                pipe.multi()
+                pipe.set(key, value, ex=_seconds(ttl))
+                await pipe.execute()
+                return True
+            except WatchError:
+                return False
 
     async def get(self, key: str) -> Optional[str]:
         return await get_redis().get(key)
@@ -149,6 +171,21 @@ class LocalEphemeralState:
     def __init__(self) -> None:
         self._entries: dict[str, tuple[float, str]] = {}
         self._lock = threading.Lock()
+
+    async def keys(self, prefix: str) -> list[str]:
+        with self._lock:
+            self._prune(time.time())
+            return [key for key in self._entries if key.startswith(prefix)]
+
+    async def compare_exchange(self, key: str, expected: str, value: str, *, ttl: int) -> bool:
+        with self._lock:
+            now = time.time()
+            self._prune(now)
+            entry = self._entries.get(key)
+            if entry is None or entry[1] != expected:
+                return False
+            self._entries[key] = (now + _seconds(ttl), value)
+            return True
 
     def _read(self, key: str, *, pop: bool = False) -> Optional[str]:
         now = time.time()

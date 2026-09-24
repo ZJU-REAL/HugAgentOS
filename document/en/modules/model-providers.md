@@ -4,6 +4,9 @@
 
 HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with snapshots validated against the database revision, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
 
+
+In Config → Model Management (EE), use the switch in the provider list's Status column to enable or disable a model directly. Status changes do not test upstream connectivity, so an offline model can still be disabled; failed saves retain the previous state. The edit dialog no longer includes an enable switch, and editing other settings preserves the enabled state. New models are enabled by default.
+
 ## Configuring models: providers + roles
 
 Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_name / extra_config / is_active) and `model_role_assignments` (role_key → provider_id). Roles are defined in `core/db/model_repository.py::ROLE_DEFINITIONS`:

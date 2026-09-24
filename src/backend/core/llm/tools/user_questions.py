@@ -5,9 +5,9 @@ The streaming layer drains the per-chat UI queue, while the out-of-band chat
 API validates an answer and wakes the exact same tool coroutine. No synthetic
 continuation run and no model-visible tool result exist until the human answers.
 
-The registry is intentionally process-local, matching the application's
-current single-worker confirmation implementation. A process restart cancels
-the owning ChatRun; pending requests are not advertised as resumable work.
+Waiters and UI queues stay with the owning worker; requests and decisions
+are shared through interaction_store. A process restart does not replay tools;
+the owner's lease expires so dead waits are not advertised indefinitely.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
 from core.llm.human_interaction import MAX_WAIT_SECONDS
+from core.llm import interaction_store
 
 KIND_USER_QUESTION = "user_question"
 STATUS_BLOCKED = "blocked_non_interactive"
@@ -51,6 +52,7 @@ class _PendingQuestion:
     created_at: float
     expires_at: float
     event: asyncio.Event
+    loop: asyncio.AbstractEventLoop
     outcome: Optional[str] = None
     answers: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -313,9 +315,20 @@ def _claim_locked(
     pending.outcome = outcome
     pending.answers = answers or []
     state.last_ts = time.monotonic()
-    if state.ui_signals is not None:
-        state.ui_signals.put_nowait(_resolved_signal(pending))
-    pending.event.set()
+
+    def notify():
+        if state.ui_signals is not None:
+            state.ui_signals.put_nowait(_resolved_signal(pending))
+        pending.event.set()
+
+    try:
+        same_loop = asyncio.get_running_loop() is pending.loop
+    except RuntimeError:
+        same_loop = False
+    if same_loop:
+        notify()
+    else:
+        pending.loop.call_soon_threadsafe(notify)
     return True
 
 
@@ -371,6 +384,10 @@ async def ask(
         created_at=created_at,
         expires_at=created_at + timeout,
         event=asyncio.Event(),
+        loop=asyncio.get_running_loop(),
+    )
+    await interaction_store.register(
+        "question", chat_id, pending.request_id, _requested_signal(pending), timeout
     )
     with _LOCK:
         state = _state_locked(chat_id)
@@ -380,7 +397,14 @@ async def ask(
         state.ui_signals.put_nowait(_requested_signal(pending))
 
     try:
-        await asyncio.wait_for(pending.event.wait(), timeout=timeout)
+        decision = await interaction_store.wait(
+            "question", chat_id, pending.request_id, pending.event, timeout
+        )
+        if decision is not None:
+            with _LOCK:
+                _claim_locked(
+                    state, pending, outcome=decision["outcome"], answers=decision.get("answers")
+                )
     except asyncio.TimeoutError:
         with _LOCK:
             state = _CHATS.get(chat_id)
@@ -395,10 +419,51 @@ async def ask(
             if state is not None:
                 _claim_locked(state, pending, outcome="cancelled")
         raise
+    finally:
+        with _LOCK:
+            _claim_locked(state, pending, outcome="cancelled")
+        await interaction_store.remove("question", chat_id, pending.request_id)
 
     if pending.outcome == "answered":
         return {"status": "answered", "answers": copy.deepcopy(pending.answers)}
     return {"status": pending.outcome or "cancelled", "answers": []}
+
+
+async def get_all_pending_shared(chat_id):
+    return await interaction_store.pending("question", chat_id) if chat_id else []
+
+
+async def list_pending_chat_ids_shared():
+    return await interaction_store.chats("question")
+
+
+async def answer_shared(chat_id, request_id, answers):
+    record = await interaction_store.read("question", chat_id, request_id)
+    if record is None:
+        return {"ok": False, "reason": "stale", "error": "该问题已失效"}
+    try:
+        normalized = _normalize_answers(answers, record["info"]["questions"])
+    except UserQuestionValidationError as exc:
+        return {"ok": False, "reason": "bad_answer", "error": str(exc)}
+    claimed = await interaction_store.decide(
+        "question", chat_id, request_id, {"outcome": "answered", "answers": normalized}
+    )
+    return (
+        {"ok": True, "outcome": "answered"}
+        if claimed
+        else {"ok": False, "reason": "stale", "error": "该问题已失效"}
+    )
+
+
+async def cancel_shared(chat_id, request_id):
+    claimed = await interaction_store.decide(
+        "question", chat_id, request_id, {"outcome": "cancelled"}
+    )
+    return (
+        {"ok": True, "outcome": "cancelled"}
+        if claimed
+        else {"ok": False, "reason": "stale", "error": "该问题已失效"}
+    )
 
 
 __all__ = [

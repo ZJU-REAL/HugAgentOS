@@ -1,37 +1,23 @@
-"""ScriptRunnerProvider — wraps HTTP calls to the existing hugagent-script-runner container.
-
-Behavior:
-- 2 ReadTimeout retries
-- ``http_timeout = req.timeout + 30`` as the outer HTTP timeout
-- HTTPStatusError / ConnectError / TimeoutException classified and mapped to SandboxError subclasses
-"""
+"""HTTP client for managed processes and session-scoped file access."""
 
 from __future__ import annotations
+
+from .process_completion import CompletionMixin
 
 import asyncio
 import base64
 import logging
 import re
 import time
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 from core.config.settings import settings
 
 from ._common import stream_to_file
 from .errors import SandboxConnectError, SandboxError, SandboxFileTooLargeError, SandboxTimeoutError
-from .protocol import (
-    ExecuteRequest,
-    ExecuteResult,
-    SandboxAdminCapabilities,
-    SandboxAdminNotSupported,
-    SandboxFile,
-    SandboxInfo,
-    StagedFile,
-    StageFile,
-)
+from .protocol import ProcessRequest, SandboxAdminCapabilities, SandboxAdminNotSupported, SandboxInfo, StagedFile, StageFile
 from .runner_auth import auth_headers
 
 logger = logging.getLogger(__name__)
@@ -51,7 +37,7 @@ def _connect_error_message() -> str:
     return "无法连接脚本执行服务 (hugagent-script-runner)，请检查容器是否运行"
 
 
-class ScriptRunnerProvider:
+class ScriptRunnerProvider(CompletionMixin):
     name = "script_runner"
     # The sidecar runs commands as ordinary host processes, so the OS sandbox is
     # the only isolation boundary there is here.
@@ -65,7 +51,8 @@ class ScriptRunnerProvider:
     def _base_url(self) -> str:
         return settings.sandbox.runner_url
 
-    async def execute(self, req: ExecuteRequest) -> ExecuteResult:
+
+    async def _execution_body(self, req: ProcessRequest) -> dict:
         capability_view_key = None
         from core.capabilities.paths import capabilities_enabled
 
@@ -84,8 +71,6 @@ class ScriptRunnerProvider:
             capability_view_key = pinned_view.parent.name
         else:
             _refresh_skill_view(req.user_id)
-        # 30s margin covers the sidecar's own overhead (base64 encoding, transfer, etc.)
-        http_timeout = req.timeout + 30
         body = {
             "script_content": req.script_content,
             "script_name": req.script_name,
@@ -103,46 +88,67 @@ class ScriptRunnerProvider:
             "sandbox_launch": req.sandbox_launch.to_json() if req.sandbox_launch else None,
         }
 
-        last_exc: Exception | None = None
-        async with httpx.AsyncClient(timeout=http_timeout, headers=auth_headers()) as client:
-            for attempt in range(2):
-                try:
-                    resp = await client.post(f"{self._base_url}/execute", json=body)
-                    resp.raise_for_status()
-                    payload = resp.json()
-                    if capability_view_key is not None:
+        return body
+
+    async def start_process(self, req: ProcessRequest, yield_time_ms: int = 60000) -> dict:
+        body = await self._execution_body(req)
+        body["capability_run_id"] = req.capability_run_id if body["capability_view_key"] else None
+        body["capability_scope"] = req.capability_scope
+        body["yield_time_ms"] = max(250, min(yield_time_ms, 60000))
+        return await self._process_request("/processes/start", body, body["yield_time_ms"])
+
+    async def write_stdin(
+        self, session_id: str, *, sandbox_session_id: str, user_id: Optional[str] = None,
+        chars: str = "", yield_time_ms: int = 60000,
+    ) -> dict:
+        return await self._process_request("/processes/write", {
+            "session_id": session_id, "sandbox_session_id": sandbox_session_id,
+            "user_id": user_id, "chars": chars,
+            "yield_time_ms": max(0, min(yield_time_ms, 300000)),
+        }, yield_time_ms)
+
+    async def _process_request(self, route: str, body: dict, wait_ms: int) -> dict:
+        # Never retry a start/write: a lost HTTP response is not evidence that
+        # the command or the input was not already applied.
+        try:
+            async with httpx.AsyncClient(
+                timeout=max(0, min(wait_ms, 300000)) / 1000 + 30,
+                headers=auth_headers(),
+            ) as client:
+                response = await client.post(self._base_url + route, json=body)
+                response.raise_for_status()
+                payload = response.json()
+                capability = payload.pop("_capability", None)
+                if capability and capability.get("run_id"):
+                    from core.capabilities import runtime
+                    from core.capabilities.errors import IntegrityFailed
+                    try:
                         prepared = await asyncio.to_thread(
-                            runtime.get, req.capability_run_id, scope_id=req.capability_scope
+                            runtime.get, capability["run_id"], scope_id=capability.get("scope", ""),
                         )
                         if prepared is None:
                             raise IntegrityFailed("prepared run is missing")
                         await asyncio.to_thread(
-                            runtime.validate, prepared, user_id=str(req.user_id or "")
+                            runtime.validate, prepared, user_id=capability.get("user_id") or "",
                         )
-                    return _payload_to_result(payload)
-                except httpx.ReadTimeout as e:
-                    last_exc = e
-                    logger.warning(
-                        "[script_runner] ReadTimeout script=%s attempt=%d/2 (http_timeout=%ds)",
-                        req.script_name,
-                        attempt + 1,
-                        http_timeout,
-                    )
-                    continue
-                except httpx.TimeoutException as e:
-                    raise SandboxTimeoutError(
-                        f"脚本执行超时（{req.timeout}秒, {type(e).__name__}）"
-                    ) from e
-                except httpx.HTTPStatusError as e:
-                    text = e.response.text if e.response is not None else str(e)
-                    raise SandboxError(f"脚本执行失败: {text}") from e
-                except httpx.ConnectError as e:
-                    raise SandboxConnectError(_connect_error_message()) from e
-
-        raise SandboxTimeoutError(
-            f"脚本执行读取超时（{http_timeout}秒，已重试）: "
-            f"{type(last_exc).__name__ if last_exc else 'ReadTimeout'}"
-        )
+                    except Exception:
+                        if payload.get("session_id"):
+                            # Validation failure must not leave modified capability
+                            # code running. This cleanup request is never retried.
+                            await client.post(self._base_url + "/processes/write", json={
+                                "session_id": payload["session_id"],
+                                "sandbox_session_id": body.get("sandbox_session_id") or body.get("session_id"),
+                                "user_id": capability.get("user_id"),
+                                "chars": "\u0003", "yield_time_ms": 0,
+                            })
+                        raise
+                return payload
+        except httpx.HTTPStatusError as exc:
+            raise SandboxError(f"Process service rejected request: {exc.response.text}") from exc
+        except httpx.ConnectError as exc:
+            raise SandboxConnectError(_connect_error_message()) from exc
+        except httpx.HTTPError as exc:
+            raise SandboxError("Process service connection lost; execution state is uncertain. Do not automatically rerun the command.") from exc
 
     async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]:
         body = {
@@ -221,7 +227,7 @@ class ScriptRunnerProvider:
     ) -> int:
         """Stream a sandbox file from the sidecar into a local path."""
         timeout = httpx.Timeout(
-            float(settings.sandbox.max_timeout),
+            float(settings.sandbox.file_transfer_timeout_s),
             connect=10.0,
             pool=10.0,
         )
@@ -366,38 +372,3 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
         sync_user_skill_view(uid)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[script_runner] 技能视图刷新失败 user=%s: %s", uid, exc)
-
-
-def _payload_to_result(payload: dict[str, Any]) -> ExecuteResult:
-    raw_files = payload.get("files") or []
-    files = [
-        SandboxFile(
-            name=f.get("name", ""),
-            size=int(f.get("size") if f.get("size") is not None else 0),
-            content_b64=f.get("content_b64", ""),
-            mime_type=f.get("mime_type", "application/octet-stream"),
-        )
-        for f in raw_files
-    ]
-    ec = payload.get("exit_code")
-    elapsed = payload.get("execution_time_ms")
-    return ExecuteResult(
-        stdout=payload.get("stdout") or "",
-        stderr=payload.get("stderr") or "",
-        exit_code=int(ec) if ec is not None else -1,
-        execution_time_ms=int(elapsed) if elapsed is not None else 0,
-        files=files,
-    )
-
-
-def result_to_dict(result: ExecuteResult) -> dict[str, Any]:
-    """Serialize an ExecuteResult into a dict equivalent to the old sidecar HTTP response,
-    for callers that need to pass through or JSON-encode the result.
-    """
-    return {
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "exit_code": result.exit_code,
-        "execution_time_ms": result.execution_time_ms,
-        "files": [asdict(f) for f in result.files],
-    }

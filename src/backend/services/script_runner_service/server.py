@@ -9,17 +9,14 @@ database/Redis/API-key access.
 import asyncio
 import base64
 import hmac
-import json
 import logging
 import mimetypes
 import os
-import re
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -46,7 +43,7 @@ else:
 
 # 与后端共享的密钥。这个服务以当前用户身份执行任意命令，本机形态下又监听在回环口上
 # ——同机任何进程（包括刚被 OS 沙箱关起来的那条命令）都够得着。没有它，调用方只要不带
-# sandbox_launch 再调一次 /execute，就能拿到一个完全不受约束的子进程。
+# sandbox_launch 再调一次 /processes/start，就能拿到一个完全不受约束的子进程。
 _AUTH_TOKEN = (os.getenv("SANDBOX_RUNNER_TOKEN") or "").strip()
 
 
@@ -69,9 +66,6 @@ app = FastAPI(
 )
 
 # ── Configuration ──
-MAX_TIMEOUT = int(os.getenv("SCRIPT_MAX_TIMEOUT", "120"))
-DEFAULT_TIMEOUT = int(os.getenv("SCRIPT_DEFAULT_TIMEOUT", "30"))
-MAX_MEMORY_MB = int(os.getenv("SCRIPT_MAX_MEMORY_MB", "256"))
 # Workspace root. In the Docker sidecar this stays the container-absolute
 # ``/workspace`` (a mounted tmpfs). In the no-Docker local profile the runner is
 # a plain host subprocess, so the CLI points it at a real host dir such as
@@ -83,7 +77,6 @@ WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
 # the shared tree, and the root holding every user's per-user view. A session
 # gets its own user's view linked in as ``<workspace>/skills``.
 SESSION_WORKSPACES_DIR = ".sessions"
-MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
 MAX_ARTIFACT_EXPORT_BYTES = max(
     1, int(os.getenv("SANDBOX_ARTIFACT_MAX_BYTES", str(100 * 1024 * 1024)))
@@ -136,30 +129,6 @@ INTERPRETERS = {
     "python": [sys.executable, "-u"],
     "bash": [_BASH_EXECUTABLE or "hugagent-git-bash-not-installed"],
     "javascript": [shutil.which("node") or "node"],
-}
-
-# ── Generated-file capture ──
-MAX_FILE_SIZE = MAX_ARTIFACT_EXPORT_BYTES
-MAX_TOTAL_FILE_SIZE = MAX_ARTIFACT_EXPORT_BYTES
-MAX_FILE_COUNT = 20
-ALLOWED_EXTENSIONS = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".svg",
-    ".webp",
-    ".csv",
-    ".xlsx",
-    ".xls",
-    ".json",
-    ".txt",
-    ".pdf",
-    ".html",
-    ".htm",
-    ".docx",
-    ".pptx",
-    ".md",
 }
 
 # Clean environment variables — leak no sensitive information
@@ -282,12 +251,12 @@ class SandboxLaunch(BaseModel):
     spawn_plan: Optional[Dict[str, Any]] = None
 
 
-class ExecuteRequest(BaseModel):
+class ProcessRequest(BaseModel):
     script_content: str
     script_name: str
     language: str = "python"
     params: Dict[str, Any] = {}
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int | None = None
     resource_files: Optional[Dict[str, str]] = None
     input_files: Optional[Dict[str, str]] = None
     input_files_b64: Optional[Dict[str, str]] = None
@@ -302,19 +271,8 @@ class ExecuteRequest(BaseModel):
     sandbox_launch: Optional[SandboxLaunch] = None
 
 
-class FileOutput(BaseModel):
-    name: str
-    size: int
-    content_b64: str
-    mime_type: str
 
 
-class ExecuteResponse(BaseModel):
-    stdout: str
-    stderr: str
-    exit_code: int
-    execution_time_ms: int
-    files: List[FileOutput] = []
 
 
 def _validate_filename(name: str) -> None:
@@ -419,7 +377,7 @@ def _validate_workspace_path(
 async def put_file(req: PutFileRequest):
     """Write base64 bytes directly to the given sandbox path for later execute calls to reference.
 
-    Difference from /execute's input_files_b64: files written via this endpoint are
+    Difference from /processes/start's input_files_b64: files written via this endpoint are
     **not** cleaned up when execute finishes, which suits multi-step flows like
     sandbox_put_artifact ("stage first, then call bash").
     """
@@ -507,155 +465,6 @@ def _seed_b64_files(
         seeded_files.add(str(fpath.relative_to(work_dir)))
 
 
-@app.post("/execute", response_model=ExecuteResponse)
-async def execute(req: ExecuteRequest):
-    # ── Basic validation ──
-    if req.language not in INTERPRETERS:
-        raise HTTPException(400, f"不支持的语言: {req.language}")
-    if len(req.script_content) > MAX_SCRIPT_SIZE:
-        raise HTTPException(400, f"脚本过大: {len(req.script_content)} > {MAX_SCRIPT_SIZE}")
-    timeout = min(req.timeout, MAX_TIMEOUT)
-
-    # Each conversation owns a durable cwd; the selected profile owns path semantics.
-    session_workspace = _session_workspace(
-        req.session_id,
-        create=True,
-        user_id=req.user_id,
-        capability_view_key=req.capability_view_key,
-    )
-    req.script_content = _workspace_rules().execution_text(
-        req.script_content, req.language, session_workspace, req.user_id,
-    )
-    if isinstance(req.params, dict):
-        _args = req.params.get("_args")
-        if isinstance(_args, list):
-            req.params["_args"] = [
-                _workspace_rules().execution_text(a, req.language, session_workspace, req.user_id)
-                if isinstance(a, str) else a for a in _args
-            ]
-    # ── Filename safety validation (prevent path traversal) ──
-    _validate_filename(req.script_name)
-    for file_dict in filter(None, [req.resource_files, req.input_files, req.input_files_b64]):
-        for fname in file_dict:
-            _validate_filename(fname)
-
-    # 工作目录就是这个对话自己的目录，不另开临时子目录。
-    work_dir = session_workspace
-    seeded_files: set[str] = set()
-    _pre_existing_root_files: set = set()
-    try:
-        for _f in session_workspace.iterdir():
-            if _f.is_file():
-                _pre_existing_root_files.add(_f.name)
-    except Exception:
-        pass
-    try:
-        # The cwd is durable, but each invocation owns a distinct script.
-        # O_EXCL creation prevents overwriting a user's file or another tool call.
-        fd, script_file = tempfile.mkstemp(
-            prefix=".__exec_", suffix=Path(req.script_name).suffix, dir=work_dir,
-        )
-        script_path = Path(script_file)
-        with os.fdopen(fd, "w", encoding="utf-8") as script:
-            script.write(req.script_content)
-
-        # Write resource files and input files (input_files after resource_files; same-name entries overwrite)
-        _seed_text_files(work_dir, req.resource_files, seeded_files)
-        _seed_text_files(work_dir, req.input_files, seeded_files)
-        _seed_b64_files(work_dir, req.input_files_b64, seeded_files)
-
-        # ── Execute ──
-        interpreter = INTERPRETERS[req.language]
-        t0 = time.monotonic()
-
-        # Support CLI args: params._args list is appended to command line
-        cli_args: list[str] = []
-        stdin_params = dict(req.params)
-        if "_args" in stdin_params:
-            raw_args = stdin_params.pop("_args")
-            if isinstance(raw_args, list):
-                cli_args = [str(a) for a in raw_args]
-
-        result = await _execute_subprocess(
-            cmd=[*interpreter, str(script_path), *cli_args],
-            stdin_data=json.dumps(stdin_params, ensure_ascii=False),
-            timeout=timeout,
-            cwd=str(work_dir),
-            sandbox_launch=req.sandbox_launch,
-        )
-
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        result["execution_time_ms"] = elapsed_ms
-
-        # ── Scan generated file outputs ──
-        # LLM-generated code may write to work_dir (relative paths) or the workspace
-        # root (absolute paths), so both locations must be scanned
-        generated_files: List[dict] = []
-        total_size = 0
-        seen_names: set = set()
-        # Track files already present in the workspace root before execution, to avoid collecting them by mistake
-        workspace_root = session_workspace
-
-        def _collect_file(fpath: Path) -> bool:
-            """Try to collect a file. Returns True if collected."""
-            nonlocal total_size
-            if not fpath.is_file():
-                return False
-            if fpath == script_path:
-                return False
-            if fpath.is_relative_to(work_dir):
-                rel_path = str(fpath.relative_to(work_dir))
-            else:
-                rel_path = ""
-            if rel_path and rel_path in seeded_files:
-                return False
-            if fpath.suffix.lower() not in ALLOWED_EXTENSIONS:
-                return False
-            if fpath.name in seen_names:
-                return False
-            fsize = fpath.stat().st_size
-            if fsize == 0 or fsize > MAX_FILE_SIZE:
-                return False
-            if total_size + fsize > MAX_TOTAL_FILE_SIZE:
-                return False
-            if len(generated_files) >= MAX_FILE_COUNT:
-                return False
-            mime, _ = mimetypes.guess_type(str(fpath))
-            with open(fpath, "rb") as fh:
-                content_b64 = base64.b64encode(fh.read()).decode("ascii")
-            generated_files.append(
-                {
-                    "name": fpath.name,
-                    "size": fsize,
-                    "content_b64": content_b64,
-                    "mime_type": mime or "application/octet-stream",
-                }
-            )
-            seen_names.add(fpath.name)
-            total_size += fsize
-            return True
-
-        try:
-            # work_dir 就是会话工作目录：只收本次新产生的根文件，已存在的不重复回传。
-            for fpath in sorted(workspace_root.iterdir()):
-                if fpath.is_dir():
-                    continue
-                if fpath.name in _pre_existing_root_files:
-                    continue
-                _collect_file(fpath)
-        except Exception as e:
-            logger.warning("file scan error: %s", e)
-
-        result["files"] = generated_files
-
-        return ExecuteResponse(**result)
-
-    finally:
-        # 目录本身不删；只清掉本次写进去的脚本文件。
-        try:
-            script_path.unlink(missing_ok=True)
-        except (OSError, NameError):
-            pass
 
 
 class SessionRequest(BaseModel):
@@ -665,6 +474,7 @@ class SessionRequest(BaseModel):
 @app.post("/sessions/close")
 async def close_session(req: SessionRequest):
     """Delete exactly one conversation workspace."""
+    await process_sessions.close_owner(req.session_id)
     workspace = _session_workspace(req.session_id)
     existed = workspace.exists()
     if existed:
@@ -682,30 +492,10 @@ async def touch_session(req: SessionRequest):
     return {"touched": True}
 
 
-async def _execute_subprocess(
-    cmd: list,
-    stdin_data: str,
-    timeout: int,
-    cwd: str,
-    sandbox_launch: Optional[SandboxLaunch] = None,
-) -> Dict[str, Any]:
-    """Execute a command in a restricted subprocess.
 
-    ``sandbox_launch`` applies the host OS's confinement. Most platforms express
-    it as a wrapper command, so it simply goes in front of the argv; Windows
-    expresses it as an access token, which has to be attached while the process
-    is created and therefore takes the ``spawn_plan`` path below. The resource
-    limits are computed from the *original* command either way, because they
-    describe what the interpreter needs — the sandbox in front of it is not the
-    workload.
 
-    The limits and the sandbox never collide, and it is worth knowing why: a
-    launch only ever arrives under the local profile, which is exactly the
-    profile where the uid-wide ``RLIMIT_NPROC`` cap is deliberately not applied.
-    Were it applied, bubblewrap would fail to create its user namespace on any
-    machine whose login user already has more processes than the cap.
-    """
-
+async def _spawn_subprocess(cmd, cwd, sandbox_launch, files):
+    """One confinement/resource boundary for one-shot and managed commands."""
     nproc_limit = _subprocess_nproc_limit(cmd)
     env = dict(SAFE_ENV)
     env.update(_workspace_rules().subprocess_environment(cwd))
@@ -736,75 +526,15 @@ async def _execute_subprocess(
             "start_new_session": True,
         }
 
-    # Either an asyncio child or, under a Windows sandbox plan, a token-backed
-    # process exposing the same pid/returncode/kill/wait surface.
-    proc: Optional[Any] = None
-    # Do not expose PIPE file descriptors to document-tool descendants.  Some
-    # renderers briefly fan out or leave a helper behind; an inherited pipe then
-    # keeps ``communicate()`` waiting for EOF even after the requested CLI has
-    # exited successfully.  Regular temporary files avoid that false timeout and
-    # also prevent a verbose child from filling an OS pipe buffer.
-    with (
-        tempfile.TemporaryFile() as stdin_file,
-        tempfile.TemporaryFile() as stdout_file,
-        tempfile.TemporaryFile() as stderr_file,
-    ):
-        stdin_file.write(stdin_data.encode("utf-8"))
-        stdin_file.seek(0)
-        try:
-            if spawn_plan is not None:
-                proc = _spawn_with_sandbox_plan(
-                    spawn_plan, cmd, cwd=cwd, env=env, files=(stdin_file, stdout_file, stderr_file)
-                )
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=stdin_file,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    cwd=cwd,
-                    env=env,
-                    **spawn_options,
-                )
-            await asyncio.wait_for(_wait_for_process_exit(proc), timeout=timeout)
-            exit_code = proc.returncode or 0
-            # A script can exit after starting a background helper.  Clean the
-            # execution group on successful completion as well as on failure so
-            # the quick-install service cannot accumulate orphan processes.
-            await _terminate_process_group(proc)
-            stdout_file.seek(0)
-            stderr_file.seek(0)
-            stdout_bytes = stdout_file.read(MAX_OUTPUT_BYTES)
-            stderr_bytes = stderr_file.read(10240)
-            return {
-                "stdout": stdout_bytes.decode("utf-8", errors="replace"),
-                "stderr": stderr_bytes.decode("utf-8", errors="replace"),
-                "exit_code": exit_code,
-            }
-        except asyncio.TimeoutError:
-            await _terminate_process_group(proc)
-            return {"stdout": "", "stderr": f"执行超时（{timeout}秒）", "exit_code": -1}
-        except asyncio.CancelledError:
-            # Client disconnects and server shutdown cancellation need the same
-            # descendant cleanup as an ordinary execution timeout.
-            await _terminate_process_group(proc)
-            raise
-        except Exception as e:
-            await _terminate_process_group(proc)
-            logger.exception("subprocess execution failed")
-            detail = str(e)
-            if (
-                isinstance(e, FileNotFoundError)
-                and os.name == "nt"
-                and cmd
-                and Path(str(cmd[0])).stem.lower() in {"bash", "hugagent-git-bash-not-installed"}
-            ):
-                detail = "Windows 本机未找到 Bash；请安装 Git for Windows 后重启桌面客户端"
-            return {"stdout": "", "stderr": detail, "exit_code": -1}
-        finally:
-            close = getattr(proc, "close", None)
-            if close is not None:
-                close()
+    stdin_file, stdout_file, stderr_file = files
+    if spawn_plan is not None:
+        return _spawn_with_sandbox_plan(
+            spawn_plan, cmd, cwd=cwd, env=env, files=files,
+        )
+    return await asyncio.create_subprocess_exec(
+        *cmd, stdin=stdin_file, stdout=stdout_file, stderr=stderr_file,
+        cwd=cwd, env=env, **spawn_options,
+    )
 
 
 def _spawn_with_sandbox_plan(plan: Dict[str, Any], cmd: list, *, cwd, env, files):
@@ -924,3 +654,10 @@ async def _wait_for_process_exit(proc: Any) -> int:
     while proc.returncode is None:
         await asyncio.sleep(0.02)
     return proc.returncode
+
+# Both entrypoints share the same launch/confinement boundary.
+if __package__:
+    from .process_api import install as _install_process_api
+else:
+    from process_api import install as _install_process_api
+process_sessions = _install_process_api(sys.modules[__name__])

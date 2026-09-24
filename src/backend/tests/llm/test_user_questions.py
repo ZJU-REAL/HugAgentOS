@@ -150,30 +150,20 @@ async def test_non_interactive_question_does_not_register_a_wait():
 
 
 @pytest.mark.asyncio
-async def test_answer_claim_at_timeout_boundary_remains_authoritative(monkeypatch):
-    """wait_for may report timeout just after the HTTP answer won the lock."""
-
+async def test_answer_claim_at_timeout_boundary_remains_authoritative():
+    """An accepted answer stays authoritative when consumed after its deadline."""
     chat_id = "chat_user_question_timeout_race"
-
-    async def answer_then_timeout(waitable, *, timeout):
-        del timeout
-        waitable.close()
-        request_id = uq.get_all_pending(chat_id)[0]["request_id"]
-        claimed = uq.answer(
-            chat_id,
-            request_id,
-            [{"id": "style", "selected": ["option_1"]}],
-        )
-        assert claimed["ok"] is True
-        raise asyncio.TimeoutError
-
-    monkeypatch.setattr(asyncio, "wait_for", answer_then_timeout)
-    result = await uq.ask(
-        chat_id=chat_id,
-        questions=_QUESTIONS,
-        interactive=True,
-        timeout=0.01,
+    waiting = asyncio.create_task(
+        uq.ask(chat_id=chat_id, questions=_QUESTIONS, interactive=True, timeout=0.1)
     )
+    await asyncio.sleep(0.01)
+    request = (await uq.get_all_pending_shared(chat_id))[0]
+    claimed = await uq.answer_shared(
+        chat_id, request["request_id"], [{"id": "style", "selected": ["option_1"]}]
+    )
+    assert claimed["ok"] is True
+    await asyncio.sleep(0.12)
+    result = await waiting
     assert result["status"] == "answered"
     assert result["answers"][0]["selected"] == ["option_1"]
 

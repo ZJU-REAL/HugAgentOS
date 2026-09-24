@@ -9,6 +9,7 @@ const hasFilePayload = (e: React.DragEvent) =>
 export function useFileDropZone(
   enabled: boolean,
   onDropFiles: (files: FileList) => void,
+  onDropData?: (data: DataTransfer) => void,
 ) {
   const dragDepthRef = useRef(0);
   const [dragActive, setDragActive] = useState(false);
@@ -36,10 +37,11 @@ export function useFileDropZone(
     e.preventDefault();
     dragDepthRef.current = 0;
     setDragActive(false);
+    if (onDropData) { onDropData(e.dataTransfer); return; }
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
     onDropFiles(files);
-  }, [enabled, onDropFiles]);
+  }, [enabled, onDropFiles, onDropData]);
 
   return {
     dragActive,

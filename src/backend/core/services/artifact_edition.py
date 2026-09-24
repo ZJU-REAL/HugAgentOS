@@ -49,6 +49,7 @@ def can_access_artifact_metadata(db: Any, user_id: str, metadata: dict[str, Any]
 
 
 __all__ = [
+    "upload_target_matches",
     "artifact_access_metadata",
     "artifact_list_scope",
     "artifact_scope_fields",
@@ -60,3 +61,6 @@ __all__ = [
     "personal_artifact_create_fields",
     "personal_artifact_predicates",
 ]
+
+def upload_target_matches(artifact: Any, scope: str, folder_id: Optional[str]) -> bool:
+    return scope == "personal" and artifact.user_folder_id == folder_id

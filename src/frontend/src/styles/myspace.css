@@ -1428,3 +1428,10 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
 .jx-imgCard-overlayBtns > a.jx-imgCard-overlayBtn { width: auto; min-width: 34px; padding: 0 8px; white-space: nowrap; gap: 4px; }
 .jx-artifactOpen.jx-spaceImportPreview-headerAction { width: auto; background: transparent; }
 .jx-canvas-header-actions .jx-artifactOpen { width: auto; min-width: 30px; }
+
+.jx-mySpace-uploadStatus {
+  flex-shrink: 0;
+  max-height: 35%;
+  overflow: auto;
+  margin-top: 12px;
+}

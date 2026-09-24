@@ -57,6 +57,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("evolution", "router"),
     ("sites", "router"),
     ("desktop", "router"),
+    ("desktop_login", "router"),
     # The desktop shell bridge and device capability management are CE runtime APIs.
     ("desktop_capability", "router"),
     ("desktop_observability", "router"),

@@ -1,3 +1,6 @@
+
+from core.sandbox.process_completion import CompletionMixin
+from tests.sandbox.runner_client import run_runner
 """A desktop project publishes its real build directory without a cloud folder."""
 import asyncio
 import json
@@ -161,12 +164,12 @@ def test_bound_project_archive_uses_real_runner(local_project, tmp_path, monkeyp
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", str(tmp_path / "workspace"))
-    class Provider:
-        async def execute(self, request):
-            return await server.execute(server.ExecuteRequest(
+    class Provider(CompletionMixin):
+        async def start_process(self, request, yield_time_ms=10000):
+            return vars(await run_runner(server.ProcessRequest(
                 script_content=request.script_content, script_name=request.script_name,
                 language=request.language, session_id=request.session_id,
-                params=request.params, user_id=request.user_id))
+                params=request.params, user_id=request.user_id)))
         async def get_file(self, session, path, user_id=None):
             result = await server.get_file(server.GetFileRequest(session_id=session, path=path))
             return base64.b64decode(result.content_b64)

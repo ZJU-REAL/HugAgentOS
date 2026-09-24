@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from core.db.models import UserShadow
+from core.services.folder_batch import lock_folder_owner
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -142,6 +144,8 @@ class UserFolderService:
         if not ok:
             return FolderResult(False, cleaned)
 
+        lock_folder_owner(self.db, UserShadow, "user_id", user_id)
+
         if parent_folder_id is not None:
             parent = self.get(parent_folder_id, lock=True)
             if parent is None or parent.user_id != user_id:
@@ -219,6 +223,7 @@ class UserFolderService:
         return "/".join(reversed(names))
 
     def rename_folder(self, folder_id: str, name: str, actor: str) -> FolderResult:
+        lock_folder_owner(self.db, UserShadow, "user_id", actor)
         folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在")
@@ -271,6 +276,7 @@ class UserFolderService:
         new_parent_id: Optional[str],
         actor: str,
     ) -> FolderResult:
+        lock_folder_owner(self.db, UserShadow, "user_id", actor)
         folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在")
@@ -351,6 +357,7 @@ class UserFolderService:
 
     def delete_folder(self, folder_id: str, actor: str) -> Tuple[FolderResult, int]:
         """Cascading soft delete of the folder plus all descendant folders and associated artifacts. Returns the number of affected files."""
+        lock_folder_owner(self.db, UserShadow, "user_id", actor)
         folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在"), 0

@@ -500,14 +500,14 @@ def _execute_local_marker(user_id: str, skill_id: str, expected: str) -> bool:
 from cli import apply_local_env
 apply_local_env(port=int(os.environ.get("BACKEND_PORT") or "32101"))
 from core.capabilities import runtime
-from core.sandbox.protocol import ExecuteRequest
+from core.sandbox.protocol import ProcessRequest
 from core.sandbox.script_runner_provider import ScriptRunnerProvider
 async def main():
     values=json.loads(sys.stdin.read())
     run_id="offline-"+values["skill_id"]
     run=runtime.prepare(run_id,values["user_id"],skill_ids=[values["skill_id"]])
     runtime.preflight(run)
-    result=await ScriptRunnerProvider().execute(ExecuteRequest(
+    result=await ScriptRunnerProvider().run_to_completion(ProcessRequest(
         script_content="from pathlib import Path\\nprint(Path("+repr("/workspace/skills/"+values["skill_id"]+"/marker.txt")+").read_text())",
         script_name="offline_marker.py", user_id=values["user_id"],
         session_id=run_id,capability_run_id=run_id,timeout=15))

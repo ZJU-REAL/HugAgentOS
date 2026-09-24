@@ -34,6 +34,7 @@ use crate::local_server::{LocalServerManager, LocalServerStatus};
 
 #[derive(Clone)]
 pub struct ProxyState {
+    pub device_login: Arc<crate::device_login::Login>,
     pub http: reqwest::Client,
     /// 后端根地址（已去尾斜杠）。
     pub server_base: String,
@@ -118,6 +119,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
 
     let app = Router::new()
         .route("/__desktop/login", get(login_page))
+        .route("/__desktop/login/status", get(login_status))
         .route("/__desktop/close-confirm", get(close_confirm_page))
         .route("/__desktop/update-progress", get(crate::update::progress_page))
         .route("/__desktop/server-config", get(server_config_page))
@@ -156,6 +158,14 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     });
 
     Ok(port)
+}
+
+async fn login_status(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    if !is_same_origin(&headers, state.bound_port.load(std::sync::atomic::Ordering::Relaxed)) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let view = state.device_login.view.read().await.clone();
+    ([(header::CACHE_CONTROL, "no-store")], Json(view)).into_response()
 }
 
 /// 这次请求是不是来自本窗口自己的页面。
@@ -1089,10 +1099,11 @@ const LOGIN_HTML: &str = r##"<!doctype html>
     <div id="waiting" class="hidden">
       <div class="spin"></div>
       <h1>正在浏览器中登录…</h1>
-      <p class="sub">请在打开的浏览器中完成登录，<br/>成功后将自动返回本客户端。</p>
+      <p class="sub" id="login-message">请在浏览器中确认登录，完成后桌面端会自动进入。</p>
+      <p id="login-code" style="font-size:26px;letter-spacing:5px"></p>
       <div class="links">
         <a onclick="startLogin()">没反应？重新打开</a>
-        <a onclick="showIdle()">返回</a>
+        <a onclick="cancelLogin()">取消登录</a>
       </div>
     </div>
   </div>
@@ -1112,6 +1123,20 @@ const LOGIN_HTML: &str = r##"<!doctype html>
       document.getElementById('idle').classList.remove('hidden');
     }
     function startLogin(){ showWaiting(); openBrowser(); }
+    function cancelLogin(){ window.location.href='/__desktop/cancel-login'; }
+    async function refreshLogin(){
+      try {
+        const r=await fetch('/__desktop/login/status',{cache:'no-store'});
+        if(r.ok){
+          const s=await r.json();
+          document.getElementById('login-message').textContent=s.message||'正在准备登录…';
+          document.getElementById('login-code').textContent=s.confirm_code||'';
+          document.querySelector('#waiting .spin').style.display=s.status==='error'?'none':'';
+        }
+      } catch {}
+      setTimeout(refreshLogin,1000);
+    }
+    refreshLogin();
     // 启动 / 会话过期由壳子自动拉起浏览器，并带 ?waiting=1 → 直接进等待态。
     if(new URLSearchParams(location.search).get('waiting')==='1'){ showWaiting(); }
   </script>

@@ -1,6 +1,6 @@
 # Sandbox Execution System
 
-> Last updated: 2026-08-31
+> Last updated: 2026-09-24
 
 The sandbox is the isolated environment where HugAgentOS's agents execute code: every `bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
@@ -10,11 +10,13 @@ All providers follow one boundary rule: **`session_id` (`chat_id` in a conversat
 
 ## The provider protocol (core/sandbox/protocol.py)
 
-Every provider implements the same `SandboxProvider` Protocol, whose field contract aligns one-to-one with the script-runner sidecar's HTTP interface:
+Every provider implements the same `SandboxProvider` Protocol, with an internal completion API wrapping the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:
 
 | Method | Responsibility |
 |---|---|
-| `execute(req: ExecuteRequest) -> ExecuteResult` | Run a script/command; returns stdout/stderr/exit_code/duration/output files |
+| `run_to_completion(req: ProcessRequest)` | Internal business API: await completion and return final ProcessResult |
+| `start_process(req: ProcessRequest, yield_time_ms=60000)` | Start a process; return incremental output, status, process ID or exit code |
+| `write_stdin(session_id, chars="", yield_time_ms=60000)` | Wait for incremental output or interrupt the process |
 | `stage_files(user_id, files)` | Stage input files into the user's myspace cache; returns sandbox-referenceable absolute paths |
 | `put_file(session_id, path, content)` | Write bytes to a sandbox path (parent dirs auto-created) |
 | `get_file(session_id, path)` | Read file bytes from the sandbox |
@@ -23,7 +25,9 @@ Every provider implements the same `SandboxProvider` Protocol, whose field contr
 | `health()` | Health probe |
 | `admin_*` family | Read-only views for the security console (capability declaration / instance listing / detail / pool stats); unsupported abilities raise `SandboxAdminNotSupported` and the UI greys them out |
 
-Two key fields on `ExecuteRequest`:
+Internal business code calls await provider.run_to_completion(request) to receive a final ProcessResult (stdout, stderr, exit_code, execution_time_ms), without managing process IDs or invoking model tools. All three providers share process management and result collection; waiting stays inside the provider, with one launch and no automatic retry. The model tool surface remains bash / write_stdin. Commands have no default execution deadline; callers can explicitly set timeout. Individual waits, network request timeouts, and cloud sandbox lifetimes are separate limits.
+
+Two key fields on `ProcessRequest`:
 
 - **`session_id`**: every provider uses it to route the conversation workspace; calls with the same ID retain `/workspace` files, while different IDs cannot see each other. OpenSandbox and Cube additionally reuse the underlying container, MicroVM, or kernel;
 - **`user_id`**: enables myspace file visibility (bind-mount or seeding) — see Plan F below.
@@ -40,15 +44,21 @@ Switching is controlled by the `SANDBOX_PROVIDER` environment variable (`core/sa
 
 Cube's design trade-offs (the price of being remote): every language goes through "write a script file + `commands.run`" without Jupyter; **no host bind mounts** (myspace files are materialized via `put_file` by the tool layer, and skill files matching `/workspace/skills` are pushed at runtime, governed by `CUBE_SKILL_PREPUSH*`); no snapshot system; `session_id` still binds a persistent MicroVM (create on first use, connect-reuse afterwards).
 
-## The three agent-side tools
+## Agent-side tools
 
-`core/llm/tools/sandbox_tool.py` registers three tools with the agent (their `register_*` functions are invoked by `agent_factory` in Phase 3.5):
+`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `agent_factory` in Phase 3.5):
 
 | Tool | Purpose |
 |---|---|
-| `bash(command, timeout)` | Run an arbitrary shell command in the sandbox; working dir `/workspace`, files persist within a session; hard cap 120 s; an upper-case `Bash` alias is also registered (some models emit Title-cased tool names by training convention) |
+| `bash(command, timeout=None, yield_time_ms=60000)` | Start a command and wait 60 seconds by default; unfinished commands return a process `session_id` and keep running. Omitted timeout sets no command deadline; retains the `Bash` alias |
+| `write_stdin(session_id, chars="", yield_time_ms=60000)` | Wait for the same process and read incremental output; empty input waits, Ctrl+C (\u0003) requests interruption |
 | `sandbox_put_artifact(artifact_id, dest_path)` | Copy a platform artifact's bytes (user uploads, chart-tool outputs, …) into a sandbox path — uploads are never auto-visible in the sandbox |
 | `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — bash outputs never auto-appear in the attachment area |
+
+
+Execution deadlines and wait windows are separate: initial waits are 250–30000 ms; follow-up waits are capped at 300000 ms. A wait expiring never terminates the command. Explicit `timeout` remains an execution deadline and is no longer clamped to 120 seconds. All commands and internal Python/JavaScript scripts use the process API. The synchronous execution endpoint and default/maximum execution timeout settings have been removed. Process IDs are bound to the initiating user and conversation. This is non-PTY execution with closed stdin: only empty input and Ctrl+C are accepted. On headless Windows, interruption terminates the process tree.
+
+The runtime retains at most 64 process records and only evicts completed records. Pending output is bounded; `output_omitted_chars` reports omissions. Local/script_runner logs remain in the conversation workspace at `.__process_*/stdout.log` and `stderr.log`; `output_files` returns their real readable paths. A stream exceeding 64 MiB stops the command and preserves the written log. OpenSandbox background logs merge stdout/stderr; Cube commands stop above 64 MiB total output. Active commands periodically touch their sandbox: OpenSandbox can renew its lease, while compatible Cube servers may not support extending their server-side TTL; `lifetime_note` reports that limitation. Handles are runtime state, with no guarantee of recovery across backend/runner restarts. Explicit session close and graceful service shutdown clean up managed commands. Team source changes synchronize when terminal output is collected; running does not mean saved.
 
 The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: a non-empty explicit ID wins, while a missing or empty value falls back to `chat_id`. The main agent, plan execution, batch items, and every subagent therefore use one conversation sandbox, and a child run never destroys it when it finishes.
 
@@ -153,7 +163,33 @@ Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through r
 
 ## Offloading oversized tool results
 
-`core/llm/offloader.py::SandboxOffloader` implements AgentScope 2.0's `Offloader` protocol: when context compression or tool-result truncation kicks in, the overflow is no longer silently dropped — it is written via `put_file` into the hidden sandbox directory **`/workspace/.offload/`** (`tool_<call_id>.txt` / `context_<hex>.txt`), and the path is woven into the model-facing system-reminder, so the model can read the full content back on demand with `Read` or `bash(cat/grep …)`. The protocol requires these methods to **never raise** (write failures return a degradation note), and the offloader is only attached when sandbox tools are enabled.
+`CompactingAgent` keeps a bounded excerpt of oversized tool output and uses
+`SandboxOffloader` to save the **complete text** under `.offload/` in the current
+tool workspace. Images remain image inputs and are excluded from text offloads.
+The path uses the same session as `Read` and `bash`:
+
+- Local mode: `<local workspace>/.sessions/<session hash>/.offload/`, without a cloud upload.
+- Cloud `script_runner`: `/workspace/.sessions/<session hash>/.offload/`, or the
+  equivalent location under a configured workspace root.
+- OpenSandbox / Cube (EE): `/workspace/.offload/` inside the current session sandbox.
+
+Each write gets a unique filename so concurrent tools, retries and child agents
+cannot overwrite earlier results. The model receives a real path only after a
+successful write and should read pages or search selectively instead of loading
+the whole large file into context again. Permission errors, unavailable services,
+missing persistent sessions and timeouts leave the excerpt intact and explicitly
+state that the complete output was not saved. The notice suggests a narrower or
+paginated query; it never presents error text as a filename. Offload waits are
+bounded to 30 seconds, and cancellation still propagates.
+
+Context compaction and its SDK fallback use the same failure handling: a failed
+archive does not undo successful compaction or advertise a nonexistent history
+file. History archives are readable text; images and model reasoning are excluded,
+so they do not replace the original conversation record. Files follow the current
+workspace lifecycle and are not independent permanent backups.
+
+Deploy the cloud backend and the desktop bundle's local backend to receive this
+fix on both execution surfaces. Updating only the cloud does not fix old clients.
 
 ## Administrator sandbox management
 
@@ -197,8 +233,8 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `src/backend/core/sandbox/_opensandbox_internals.py` | Volume builders, metadata, user pool (EE) |
 | `src/backend/core/sandbox/_pool.py` | Two-bucket warm pool |
 | `src/backend/core/sandbox/cube_provider.py` | Cube remote-MicroVM provider (EE) |
-| `src/backend/core/llm/tools/sandbox_tool.py` | bash / sandbox_put_artifact / sandbox_get_artifact |
-| `src/backend/core/llm/offloader.py` | Overflow offloading to /workspace/.offload |
+| `src/backend/core/llm/tools/sandbox_tool.py` | bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
+| `src/backend/core/llm/offloader.py` | Overflow offloading to the session workspace |
 | `src/backend/api/routes/v1/admin_sandbox.py` | Dependency-rebuild admin API (EE) |
 | `src/backend/api/routes/v1/config_security.py` | Security-console read-only sandbox views |
 | `src/backend/core/services/sandbox_rebuild_service.py` | Image/template rebuild orchestration (EE) |

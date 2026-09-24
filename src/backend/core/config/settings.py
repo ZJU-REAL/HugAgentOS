@@ -525,11 +525,8 @@ class SandboxSettings:
         default_factory=lambda: _env("SANDBOX_RUNNER_URL", "http://script-runner:8900")
     )
     enabled: bool = field(default_factory=lambda: _bool(_env("SANDBOX_TOOLS_ENABLED", "false")))
-    default_timeout: int = field(
-        default_factory=lambda: _int(_env("SANDBOX_TOOLS_TIMEOUT", "30"), 30)
-    )
-    max_timeout: int = field(
-        default_factory=lambda: _int(_env("SANDBOX_TOOLS_MAX_TIMEOUT", "120"), 120)
+    file_transfer_timeout_s: int = field(
+        default_factory=lambda: _int(_env("SANDBOX_FILE_TRANSFER_TIMEOUT_S", "120"), 120)
     )
     # The one lifetime parameter for sandboxes (seconds), shared by every
     # provider: server-side TTL, the idle snapshot-then-release threshold and the
@@ -829,10 +826,6 @@ class SandboxSettings:
         default_factory=lambda: _int(_env("CUBE_BUILD_REGISTER_TIMEOUT_S", "900"), 900)
     )
 
-    # General
-    max_concurrent: int = field(
-        default_factory=lambda: _int(_env("SANDBOX_MAX_CONCURRENT", "4"), 4)
-    )
 
 
 @dataclass(frozen=True)

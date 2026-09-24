@@ -16,6 +16,7 @@ import base64
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,6 +33,11 @@ from core.llm.tools._tool_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Team source revisions must survive tool re-registration between model turns.
+_PENDING_TEAM_COMMANDS: dict[tuple[str, str, str], Any] = {}
+_TEAM_START_LOCK = threading.Lock()
+_TEAM_FINALIZING = object()
 
 import re as _re
 
@@ -105,8 +111,32 @@ def register_bash(
     # Effective sandbox session (``None`` → legacy fall back to chat_id).
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
-    async def bash(command: str, timeout: int = 60) -> ToolResponse:
-        from core.sandbox import ExecuteRequest as _ExecuteRequest
+    async def bash(
+        command: str, timeout: int | None = None, yield_time_ms: int = 60000,
+    ) -> ToolResponse:
+        if scope is None or scope.kind != "team":
+            return await _bash_impl(command, timeout, yield_time_ms)
+        reservation = (_sess, user_id or "", "starting")
+        with _TEAM_START_LOCK:
+            pending = [key[2] for key in _PENDING_TEAM_COMMANDS if key[:2] == reservation[:2]]
+            if pending:
+                return _resp_json({
+                    "error": "团队项目仍有命令未收尾，请先用 write_stdin 等待已有进程，避免覆盖工作副本。",
+                    "process_sessions": pending,
+                })
+            if len(_PENDING_TEAM_COMMANDS) >= 64:
+                return _resp_json({"error": "团队项目后台命令数量已达上限，请先等待已有命令完成。"})
+            _PENDING_TEAM_COMMANDS[reservation] = []
+        try:
+            return await _bash_impl(command, timeout, yield_time_ms)
+        finally:
+            with _TEAM_START_LOCK:
+                _PENDING_TEAM_COMMANDS.pop(reservation, None)
+
+    async def _bash_impl(
+        command: str, timeout: int | None = None, yield_time_ms: int = 60000,
+    ) -> ToolResponse:
+        from core.sandbox import ProcessRequest as _ProcessRequest
         from core.sandbox import SandboxConnectError as _SandboxConnectError
         from core.sandbox import SandboxError as _SandboxError
         from core.sandbox import SandboxTimeoutError as _SandboxTimeoutError
@@ -181,8 +211,10 @@ def register_bash(
             root = directory(scope.project_id)
             cmd = f"mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && " + cmd
 
-        effective_timeout = max(1, min(int(timeout or 60), 120))
-        req = _ExecuteRequest(
+        if timeout is not None and timeout <= 0:
+            return _resp_json({"error": "timeout 必须为正数；省略表示不设置命令执行期限。"})
+        effective_timeout = timeout
+        req = _ProcessRequest(
             script_content=cmd,
             script_name="_bash.sh",
             capability_run_id=getattr(getattr(loader, "capability_run", None), "run_id", None),
@@ -200,18 +232,69 @@ def register_bash(
             await _pull_myspace_updates(user_id)
 
         try:
-            result = await provider.execute(req)
+            payload = await provider.start_process(req, yield_time_ms=yield_time_ms)
         except _SandboxTimeoutError as exc:
             return _resp_json({"error": str(exc), "exit_code": -1})
         except (_SandboxConnectError, _SandboxError) as exc:
             return _resp_json({"error": str(exc), "exit_code": -1})
 
-        payload: dict = {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code,
-            "execution_time_ms": result.execution_time_ms,
-        }
+        if payload.get("status") == "running":
+            if team_project:
+                with _TEAM_START_LOCK:
+                    _PENDING_TEAM_COMMANDS[(_sess, user_id or "", payload["session_id"])] = team_before
+            return _resp_json(payload)
+        return await finish(payload, team_before)
+
+    async def write_stdin(
+        session_id: str, chars: str = "", yield_time_ms: int = 60000,
+    ) -> ToolResponse:
+        from core.sandbox import get_sandbox_provider, SandboxError
+        from .project_source_access import current_scope_error
+
+        scope_error = current_scope_error(scope, user_id, write=bool(chars))
+        if scope_error:
+            return _resp_json(scope_error)
+        try:
+            payload = await get_sandbox_provider().write_stdin(
+                session_id, sandbox_session_id=_sess, user_id=user_id,
+                chars=chars, yield_time_ms=yield_time_ms,
+            )
+        except SandboxError as exc:
+            # An expired/closed handle must not permanently block the team.
+            # Preserve any recoverable working-copy edits before releasing it.
+            if "Unknown process session" in str(exc):
+                with _TEAM_START_LOCK:
+                    has_pending = (_sess, user_id or "", session_id) in _PENDING_TEAM_COMMANDS
+                if has_pending:
+                    return await finish_process(
+                        {"error": str(exc), "exit_code": -1, "status": "lost"}, session_id,
+                    )
+            return _resp_json({"error": str(exc), "exit_code": -1})
+        if payload.get("status") == "running":
+            return _resp_json(payload)
+        return await finish_process(payload, session_id)
+
+    async def finish_process(payload: dict, session_id: str) -> ToolResponse:
+        key = (_sess, user_id or "", session_id)
+        with _TEAM_START_LOCK:
+            before = _PENDING_TEAM_COMMANDS.get(key)
+            if before is _TEAM_FINALIZING:
+                return _resp_json({**payload, "source_saved": False,
+                    "note": "另一调用正在同步团队源码，请等待同步完成。"})
+            if before is not None:
+                _PENDING_TEAM_COMMANDS[key] = _TEAM_FINALIZING
+        if scope is not None and scope.kind == "team" and before is None:
+            return _resp_json({**payload, "source_saved": False,
+                "error": "团队命令的源码基线已失效，不能自动覆盖项目文件；工作副本仍可读取。"})
+        try:
+            return await finish(payload, before or [])
+        finally:
+            with _TEAM_START_LOCK:
+                if _PENDING_TEAM_COMMANDS.get(key) is _TEAM_FINALIZING:
+                    _PENDING_TEAM_COMMANDS.pop(key, None)
+
+    async def finish(payload: dict, team_before: list) -> ToolResponse:
+        team_project = scope is not None and scope.kind == "team"
         if team_project:
             from .project_working_copy import persist, directory
             try:
@@ -235,7 +318,7 @@ def register_bash(
         # model in structured form so it hands it verbatim to the user, who
         # approves in DingTalk before retrying the original command (HITL P1 text
         # version; a proper authorization card is roadmap P2).
-        pat = _detect_dws_pat_authorization(result.exit_code, result.stdout, result.stderr)
+        pat = _detect_dws_pat_authorization(payload.get("exit_code"), payload.get("stdout", ""), payload.get("stderr", ""))
         if pat:
             payload["dingtalk_pat_authorization"] = pat
             payload["note"] = (
@@ -252,9 +335,12 @@ def register_bash(
         "Args:\n"
         "    command (`str`): 完整 shell 命令字符串。可以包含管道、重定向、\n"
         "        here-doc、命令链 (&&, ;, ||) 等任意 bash 语法。\n"
-        "    timeout (`int`): 单次命令最大执行秒数。默认 60，硬上限 120。\n\n"
+        "    yield_time_ms (`int`): 首次等待毫秒数，默认 60000，范围 250–60000。等待到期不会杀进程。\n"
+        "    timeout (`int`, 可选): 显式命令执行期限（秒）。默认不设置；不再有 120 秒硬上限。\n\n"
         "Returns:\n"
-        "    JSON: {stdout, stderr, exit_code, execution_time_ms}\n"
+        "    JSON: {stdout, stderr, exit_code, execution_time_ms, status, session_id}。\n"
+        "    status=running 时使用 write_stdin(session_id, chars='') 等待同一命令；不要重新启动或用 nohup/tail 轮询。\n"
+        "    只有 exited 且 exit_code=0 才表示执行成功。当前为非交互执行，stdin 关闭，不提供 PTY。\n"
         "    或失败时 {error, exit_code: -1}。\n"
     )
 
@@ -266,6 +352,17 @@ def register_bash(
             "不要使用 /myspace 个人镜像路径。构建产物应写入 /workspace/.site-dist/。"
         )
 
+    write_stdin.__doc__ = (
+        "继续等待 bash 返回的进程会话，读取新增输出；不会重新执行命令。\n\n"
+        "Args:\n"
+        "    session_id (`str`): bash 返回的进程会话 ID，不是对话 ID。\n"
+        "    chars (`str`): 空字符串表示等待；\\u0003 表示 Ctrl+C 中断。非 PTY 模式不接受其它输入。\n"
+        "    yield_time_ms (`int`): 最多等待毫秒数，默认 60000，上限 300000。等待到期不杀进程。\n\n"
+        "Returns:\n"
+        "    JSON: {stdout, stderr, exit_code, execution_time_ms, status, session_id}；输出仅含新增内容。\n"
+        "    running 表示继续运行；exited 时检查 exit_code 和 error。\n"
+    )
+    toolkit.register_tool_function(write_stdin, namesake_strategy="override")
     toolkit.register_tool_function(bash, namesake_strategy="override")
 
     # Lab-mode tool family is Title-cased (``Read`` / ``Edit`` / ``Write`` /
@@ -281,14 +378,17 @@ def register_bash(
     # every request against a gateway without prefix caching, and repeating the
     # guidance under two names also invites the model to treat them as two
     # different tools. The name is the whole point of this registration.
-    async def Bash(command: str, timeout: int = 60) -> ToolResponse:  # noqa: N802
-        return await bash(command=command, timeout=timeout)
+    async def Bash(
+        command: str, timeout: int | None = None, yield_time_ms: int = 60000,
+    ) -> ToolResponse:  # noqa: N802
+        return await bash(command=command, timeout=timeout, yield_time_ms=yield_time_ms)
 
     Bash.__doc__ = (
         "Alias of `bash` — identical behaviour and arguments. Prefer `bash`.\n\n"
         "Args:\n"
         "    command (`str`): 完整 shell 命令字符串。\n"
-        "    timeout (`int`): 单次命令最大执行秒数。默认 60，硬上限 120。\n"
+        "    timeout (`int`, 可选): 命令执行期限秒数，默认不设。\n"
+        "    yield_time_ms (`int`): 首次等待毫秒数，默认 60000。\n"
     )
     toolkit.register_tool_function(Bash, namesake_strategy="override")
     logger.info("[factory] Registered bash tool (chat_id=%s) [alias: Bash]", chat_id)

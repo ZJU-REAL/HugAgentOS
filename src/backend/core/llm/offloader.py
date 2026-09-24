@@ -1,78 +1,79 @@
 # -*- coding: utf-8 -*-
-"""Sandbox Offloader — on-disk implementation of the AgentScope 2.0 `Offloader` protocol.
+"""Persist truncated tool output in the same workspace as Read and bash.
 
-Background: when the 2.0 ``Agent`` compresses context / truncates overlong tool
-results, if an ``offloader`` was passed at construction time it hands the
-truncated "overflow portion" to it for persistence, and splices the returned
-path into the ``<system-reminder>`` given to the model ("You can refer to the
-file in '{path}'"). Without an offloader, that content is **simply discarded**.
-
-This implementation writes the overflow into the **sandbox** under
-``/workspace/.offload/``. Because the agent's ``Read`` and ``bash`` tools go
-through the same sandbox session (the ``_sess`` resolved by
-``resolve_sandbox_session``), the model can read the full content back via
-``Read("/workspace/.offload/xxx.txt")`` or ``bash(cat/grep …)``, turning
-"silent truncation" into "look it up on demand".
-
-Constraint: per the protocol contract — as long as the agent has an offloader
-attached, hitting truncation **always** calls into here and stuffs the return
-value into the prompt, so these methods **must never raise** (otherwise the
-whole reply turn crashes). All write failures are swallowed internally and a
-one-line degradation note is returned. Only mounted when sandbox tools are
-enabled (otherwise the agent has no Read/bash and persistence is pointless).
+Only a successful write returns a path. Callers must catch OffloadError and
+render an explicit unavailable notice instead of interpolating an error as a
+filename. This applies to tool truncation and both context-compression paths.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import ntpath
+import posixpath
 import uuid
 from typing import Any, Optional
 
 from core.llm.message_compat import flatten_tool_output
 
 logger = logging.getLogger(__name__)
+_WRITE_TIMEOUT_SEC = 30
 
-# Persistence directory inside the sandbox. Hidden directory (dot prefix) to
-# avoid polluting the "My Space" pin stream / accidental display to users.
-# put_file auto-creates parent directories. The workspace root reads from a
-# single source (the no-Docker local profile follows SCRIPT_RUNNER_WORKSPACE;
-# the Docker profile default /workspace is unchanged).
-from core.sandbox._common import WORKSPACE as _WS
 
-OFFLOAD_DIR = f"{_WS}/.offload"
+class OffloadError(RuntimeError):
+    """No readable offload file could be published."""
 
 
 class SandboxOffloader:
-    """Persist tool results / historical context that overflow during compression to the sandbox ``/workspace/.offload/``.
+    """Persist overflow under the current tool workspace's hidden .offload directory.
 
     Args:
         provider: A sandbox provider implementing the ``SandboxProvider``
             protocol (including ``put_file``).
         sandbox_session_id: The sandbox session identifier shared with the
             agent's bash/Read tools (result of ``resolve_sandbox_session(...)``;
-            may be a chat_id, ``""`` ephemeral, or ``None``).
+            must be persistent for later reads).
     """
 
-    def __init__(self, provider: Any, sandbox_session_id: Optional[str]) -> None:
+    def __init__(
+        self, provider: Any, sandbox_session_id: Optional[str], user_id: Optional[str] = None
+    ) -> None:
         self._provider = provider
         self._sess = sandbox_session_id
+        self._user_id = user_id
+
+    def _path(self, prefix: str) -> str:
+        from core.llm.tools._paths import workspace_directory
+
+        if not self._sess:
+            raise OffloadError("A persistent tool workspace is required")
+        root = workspace_directory(self._sess)
+        filename = f"{prefix}_{uuid.uuid4().hex}.txt"
+        if ntpath.splitdrive(root)[0]:
+            return ntpath.join(root, ".offload", filename)
+        return posixpath.join(root, ".offload", filename)
 
     async def _write(self, path: str, text: str) -> str:
-        """Write a file into the sandbox and return its path; on failure return a degradation note (never raises)."""
+        """Publish a path only after the provider confirms the bounded write."""
         try:
-            await self._provider.put_file(self._sess, path, text.encode("utf-8"))
-            logger.info("[offloader] wrote %d chars → %s", len(text), path)
-            return path
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[offloader] put_file 失败 path=%s: %s", path, exc)
-            return "（完整内容落盘失败，暂不可读）"
+            await asyncio.wait_for(
+                self._provider.put_file(
+                    self._sess, path, text.encode("utf-8"), user_id=self._user_id
+                ),
+                timeout=_WRITE_TIMEOUT_SEC,
+            )
+        except Exception as exc:
+            # Provider errors may contain transport details; keep them out of
+            # model-visible content and log the failure category only.
+            logger.warning("[offloader] write failed path=%s kind=%s", path, type(exc).__name__)
+            raise OffloadError("Offload file could not be saved") from exc
+        logger.info("[offloader] wrote %d chars → %s", len(text), path)
+        return path
 
     async def offload_tool_result(self, session_id: str, tool_result: Any) -> str:
-        """Persist the truncated overflow portion of a tool result; return the sandbox path."""
+        """Persist the supplied tool text and return its readable workspace path."""
         text = flatten_tool_output(getattr(tool_result, "output", None))
-        tid = getattr(tool_result, "id", None) or uuid.uuid4().hex[:8]
-        # tool_call ids look like call_xxx / uuid, filename-safe; still scrub separators as a safety net.
-        safe_tid = str(tid).replace("/", "_").replace("..", "_")
-        return await self._write(f"{OFFLOAD_DIR}/tool_{safe_tid}.txt", text)
+        return await self._write(self._path("tool"), text)
 
     async def offload_context(self, session_id: str, msgs: Any) -> str:
         """Persist compressed historical messages (flattened into readable text); return the sandbox path."""
@@ -85,8 +86,7 @@ class SandboxOffloader:
                     parts.append(f"[{role}] {getattr(b, 'text', '')}")
                 elif btype == "tool_call":
                     parts.append(
-                        f"[{role}/tool_call {getattr(b, 'name', '')}] "
-                        f"{getattr(b, 'input', '')}"
+                        f"[{role}/tool_call {getattr(b, 'name', '')}] " f"{getattr(b, 'input', '')}"
                     )
                 elif btype == "tool_result":
                     parts.append(
@@ -94,6 +94,4 @@ class SandboxOffloader:
                         f"{flatten_tool_output(getattr(b, 'output', None))}"
                     )
         text = "\n\n".join(parts)
-        return await self._write(
-            f"{OFFLOAD_DIR}/context_{uuid.uuid4().hex[:8]}.txt", text
-        )
+        return await self._write(self._path("context"), text)

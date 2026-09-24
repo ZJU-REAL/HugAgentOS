@@ -38,7 +38,12 @@ def _host_provider(execute=None):
     async def _unreachable(_req):
         raise AssertionError("execution should not have been reached")
 
-    return SimpleNamespace(runs_on_host=True, execute=execute or _unreachable)
+    async def start(req, yield_time_ms=10000):
+        result = await (execute or _unreachable)(req)
+        return {"stdout": result.stdout, "stderr": result.stderr,
+                "exit_code": result.exit_code, "execution_time_ms": result.execution_time_ms,
+                "status": "exited", "session_id": None}
+    return SimpleNamespace(runs_on_host=True, start_process=start)
 
 
 def _patch_host_provider(execute=None):
