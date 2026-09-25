@@ -35,6 +35,15 @@ Cross-platform and reference:
 
 > For capability differences between the Community and Enterprise editions, see [Edition Comparison](../editions/overview.md).
 
+## Downloading the desktop app from the web (EE)
+
+In the cloud web app, select **Download desktop app** from the sidebar Help menu.
+The page detects Windows, macOS, or Linux and downloads that platform's latest published release.
+The per-platform desktop release manifest is authoritative: if no release exists for the detected
+platform, the page says so instead of offering an old file or a package for another system.
+The file format depends on the published artifact, such as a Windows `.exe`, macOS
+`.app.tar.gz`, or Linux `.deb` / `.AppImage`. Extract a macOS `.app.tar.gz` to obtain the app.
+
 ## Post-deployment verification
 
 Whichever method you use, confirm the backend is ready with the health check after startup:

@@ -7,7 +7,6 @@ anyio cancel-scope cross-task errors from MCP clients.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import threading
@@ -37,9 +36,6 @@ logger = logging.getLogger(__name__)
 # Each thread gets its own event loop so anyio cancel scopes stay within
 # a single task — avoiding the cross-task RuntimeError.
 _subagent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subagent")
-
-_TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 0.05
-_TOOL_CALL_DELTA_FLUSH_CHARS = 256
 
 
 class _ChildExecution:
@@ -86,168 +82,110 @@ def _shared_ontology_runtime(agent_ref: Optional[Dict[str, Any]]) -> Optional[Di
 
 
 class _SubMapper:
-    """Accumulates/maps the sub-agent reply_stream's fine-grained events into frontend-renderable sub-step dicts.
-
-    Isomorphic to orchestration/streaming.py::StreamingAgent._map_event (a tool_call's
-    name/args are spread across Start/Delta/End, and tool_result text across multiple
-    Deltas), but does **not** perform side effects such as tool_log persistence —
-    pure mapping, for bypass pass-through.
-    """
+    """Adapt the main stream's normalized events to sidebar sub-steps."""
 
     def __init__(self) -> None:
-        self._names: Dict[str, str] = {}  # tool_id → name
-        self._args: Dict[str, str] = {}  # tool_id → accumulated args JSON string
-        self._arg_emit_buf: Dict[str, str] = {}  # tool_id → not-yet-emitted delta
-        self._arg_last_emit: Dict[str, float] = {}
-        self._results: Dict[str, str] = {}  # tool_id → accumulated result text
-        # Inline thinking (<think>…</think>) splitting: the deepseek/qwen family models
-        # commonly used by sub-agents inline the reasoning chain in the body deltas, and
-        # often omit the opening <think>. Buffer the leading text per "model turn" —
-        # seeing </think> confirms that segment is thinking (→ thinking sub-step, rendered
-        # as a "thinking" module) and what follows is the answer (→ content, emitted
-        # directly); if </think> never appears in the whole turn, it's a non-thinking
-        # model's plain answer, re-emitted as content at turn end. Structured
-        # ThinkingBlockDeltaEvent likewise goes through the thinking channel. State resets
-        # on each ModelCall turn.
-        self._think_buf = ""  # pending text before </think> in this turn
-        self._closed = False  # whether thinking is confirmed finished this turn (saw </think> or structured thinking)
+        self._structured = False
+        self._think_buf = ""
+        self._closed = False
 
-    def _flush_pending_as_content(self, out: List[Dict[str, Any]]) -> None:
-        if self._think_buf:
-            out.append({"sub_type": "content", "delta": self._think_buf})
-            self._think_buf = ""
+    def _flush_pending(self) -> List[Dict[str, Any]]:
+        text = self._think_buf
+        self._think_buf = ""
+        return [{"sub_type": "content", "delta": text}] if text else []
 
-    def feed(self, ev: Any) -> List[Dict[str, Any]]:
-        nm = type(ev).__name__
-        out: List[Dict[str, Any]] = []
+    def finish_turn(self) -> List[Dict[str, Any]]:
+        out = self._flush_pending()
+        self._closed = self._structured
+        return out
 
-        if nm == "TextBlockDeltaEvent":
-            d = getattr(ev, "delta", "") or ""
-            if not d:
-                return out
+    def feed(self, kind: str, payload: Any) -> List[Dict[str, Any]]:
+        if kind == "reasoning_protocol":
+            self._structured = bool(payload.get("structured_reasoning"))
+            self._closed = self._structured
+            return self._flush_pending() if self._structured else []
+        if kind == "text_delta":
+            delta = payload or ""
+            if not delta:
+                return []
             if self._closed:
-                # Thinking already ended (or this model doesn't inline thinking) → body answer; emit directly and strip leftover tags
-                d = d.replace("<think>", "").replace("</think>", "")
-                if d:
-                    out.append({"sub_type": "content", "delta": d})
-                return out
-            # Unconfirmed: buffer the leading text, wait for </think> to classify it
-            self._think_buf += d
+                delta = delta.replace("<think>", "").replace("</think>", "")
+                return [{"sub_type": "content", "delta": delta}] if delta else []
+            self._think_buf += delta
             close_i = self._think_buf.find("</think>")
-            if close_i != -1:
-                think_txt = self._think_buf[:close_i].replace("<think>", "")
-                rest = self._think_buf[close_i + len("</think>") :]
-                self._think_buf = ""
-                self._closed = True
-                if think_txt.strip():
-                    out.append({"sub_type": "thinking", "delta": think_txt})
-                if rest:
-                    out.append({"sub_type": "content", "delta": rest})
-            return out
-
-        elif nm == "ThinkingBlockDeltaEvent":
-            # Structured thinking: goes straight through the thinking channel; also marks that body text from here on this turn is the answer (emitted directly).
-            d = getattr(ev, "delta", "") or ""
+            if close_i < 0:
+                return []
+            thinking = self._think_buf[:close_i].replace("<think>", "")
+            rest = self._think_buf[close_i + len("</think>") :]
+            self._think_buf = ""
             self._closed = True
-            if d:
-                out.append({"sub_type": "thinking", "delta": d})
-
-        elif nm == "ModelCallEndEvent":
-            # Turn end: buffered text with no </think> seen all turn = a non-thinking model's answer → re-emit as content.
-            self._flush_pending_as_content(out)
-            self._closed = False
-
-        elif nm == "ToolCallStartEvent":
-            tid = getattr(ev, "tool_call_id", "") or ""
-            name = getattr(ev, "tool_call_name", "") or "unknown"
-            self._names[tid] = name
-            self._args[tid] = ""
-            self._arg_emit_buf[tid] = ""
-            self._arg_last_emit[tid] = time.monotonic()
-            out.append(
+            out = []
+            if thinking.strip():
+                out.append({"sub_type": "thinking", "delta": thinking})
+            if rest:
+                out.append({"sub_type": "content", "delta": rest})
+            return out
+        if kind == "thinking_delta":
+            self._closed = True
+            return [{"sub_type": "thinking", "delta": payload}] if payload else []
+        if kind == "tool_call_start":
+            return [
                 {
                     "sub_type": "tool_call",
-                    "tool_id": tid,
-                    "tool_name": name,
+                    "tool_id": payload["id"],
+                    "tool_name": payload["name"],
                     "input": None,
                     "status": "running",
                 }
-            )
-
-        elif nm == "ToolCallDeltaEvent":
-            tid = getattr(ev, "tool_call_id", "") or ""
-            delta = getattr(ev, "delta", "") or ""
-            if delta:
-                self._args[tid] = self._args.get(tid, "") + delta
-                pending_delta = self._arg_emit_buf.get(tid, "") + delta
-                self._arg_emit_buf[tid] = pending_delta
-                now = time.monotonic()
-                last_emit = self._arg_last_emit.get(tid, now)
-                if (
-                    len(pending_delta) >= _TOOL_CALL_DELTA_FLUSH_CHARS
-                    or now - last_emit >= _TOOL_CALL_DELTA_FLUSH_INTERVAL_S
-                ):
-                    self._arg_emit_buf[tid] = ""
-                    self._arg_last_emit[tid] = now
-                    out.append(
-                        {
-                            "sub_type": "tool_call_delta",
-                            "tool_id": tid,
-                            "tool_name": self._names.get(tid, "unknown"),
-                            "arguments_delta": pending_delta,
-                        }
-                    )
-
-        elif nm == "ToolCallEndEvent":
-            tid = getattr(ev, "tool_call_id", "") or ""
-            name = self._names.get(tid, "unknown")
-            args_str = self._args.pop(tid, "")
-            pending_delta = self._arg_emit_buf.pop(tid, "")
-            self._arg_last_emit.pop(tid, None)
-            if pending_delta:
-                out.append(
-                    {
-                        "sub_type": "tool_call_delta",
-                        "tool_id": tid,
-                        "tool_name": name,
-                        "arguments_delta": pending_delta,
-                    }
-                )
-            try:
-                args = json.loads(args_str) if args_str else {}
-            except json.JSONDecodeError:
-                args = {"_raw": args_str}
-            out.append(
+            ]
+        if kind == "tool_call_delta":
+            return [
+                {
+                    "sub_type": "tool_call_delta",
+                    "tool_id": payload["id"],
+                    "tool_name": payload["name"],
+                    "arguments_delta": payload["delta"],
+                }
+            ]
+        if kind == "tool_call":
+            return [
                 {
                     "sub_type": "tool_call",
-                    "tool_id": tid,
-                    "tool_name": name,
-                    "input": args,
+                    "tool_id": payload["id"],
+                    "tool_name": payload["name"],
+                    "input": payload["args"],
                     "status": "running",
                 }
-            )
-
-        elif nm == "ToolResultTextDeltaEvent":
-            tid = getattr(ev, "tool_call_id", "") or ""
-            self._results[tid] = self._results.get(tid, "") + (getattr(ev, "delta", "") or "")
-
-        elif nm == "ToolResultEndEvent":
-            tid = getattr(ev, "tool_call_id", "") or ""
-            content = self._results.pop(tid, "")
-            name = getattr(ev, "tool_call_name", "") or self._names.get(tid, "unknown")
-            self._names.pop(tid, None)
-            state = str(getattr(ev, "state", "") or "")
-            out.append(
+            ]
+        if kind == "tool_result":
+            return [
                 {
                     "sub_type": "tool_result",
-                    "tool_id": tid,
-                    "tool_name": name,
-                    "output": content,
-                    "status": "error" if state == "error" else "success",
+                    "tool_id": payload["id"],
+                    "tool_name": payload["name"],
+                    "output": payload["content"],
+                    "status": (
+                        "error"
+                        if payload["status"] in {"error", "denied", "interrupted"}
+                        else "success"
+                    ),
                 }
-            )
+            ]
+        return []
 
-        return out
+
+async def _map_subagent_event(
+    stream_mapper: Any, mapper: _SubMapper, chunk: Any
+) -> List[Dict[str, Any]]:
+    subs: List[Dict[str, Any]] = []
+    protocol = stream_mapper._take_reasoning_protocol()
+    if protocol:
+        subs.extend(mapper.feed("reasoning_protocol", protocol))
+    async for kind, payload in stream_mapper._map_event(chunk):
+        subs.extend(mapper.feed(kind, payload))
+    if type(chunk).__name__ == "ModelCallEndEvent":
+        subs.extend(mapper.finish_turn())
+    return subs
 
 
 def _run_subagent_in_thread(
@@ -298,6 +236,7 @@ def _run_subagent_in_thread(
             session_to_msgs,
         )
         from core.services.user_agent_service import UserAgentService
+        from orchestration.streaming import StreamingAgent
 
         builtin_spec = get_builtin_subagent(agent_id)
         if builtin_spec is not None:
@@ -398,16 +337,15 @@ def _run_subagent_in_thread(
             # to sub-steps and bypass-forwarded via emit.
             final_msg = None
             mapper = _SubMapper()
-            # Throttled liveness remains useful while small argument fragments
-            # are waiting for a batch flush, tool results are being accumulated,
-            # or leading text is still being classified as thinking/content.
+            stream_mapper = StreamingAgent(agent, mcp_clients)
+            stream_mapper._enable_thinking = True
             _last_progress = time.monotonic()
             async for chunk in agent._reply(inputs=user_msg):
                 if isinstance(chunk, Msg):
                     final_msg = chunk
                     continue
                 try:
-                    subs = mapper.feed(chunk)
+                    subs = await _map_subagent_event(stream_mapper, mapper, chunk)
                     for sub in subs:
                         emit(sub)
                     if subs:
