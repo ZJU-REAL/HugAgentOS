@@ -804,7 +804,7 @@ async def create_agent_executor(
     # polishing a 180k-char report) re-send every accumulated tool result on
     # each ReAct round — with 15-20 rounds/iteration that grows quadratically
     # to ~1M tokens per iteration. Loop callers pass a tighter cap; the
-    # offloader keeps full content readable on demand from /workspace/.offload.
+    # offloader keeps full content readable in the tool workspace .offload directory.
     tool_result_limit: Optional[int] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     """Create and return an AgentScope 2.0 Agent along with its MCP client list.
@@ -3107,7 +3107,7 @@ async def create_agent_executor(
     # rather than restated as a literal.
     context_config = ContextConfig(
         trigger_ratio=min(_trigger_ratio, AUTO_COMPACT_MAX_RATIO - 0.01),
-        # 单条工具结果进上下文的上限（超出部分 offloader 落盘到 /workspace/.offload，
+        # 单条工具结果进上下文的上限（完整文本 offloader 落盘到会话工作目录 .offload，
         # 模型按需读回）。保持 20k 不再收紧：批量场景已由 run_job 接走（逐项结果根本
         # 不进主上下文），主对话这边继续保留完整的单条可读性更划算。需要时用
         # CHAT_TOOL_RESULT_LIMIT 按部署调。
@@ -3461,9 +3461,9 @@ async def create_agent_executor(
         _plugin_runtime["permission_context"] = _state.permission_context
 
     # Offloader: when compressing/truncating overlong tool results, spill the
-    # overflow to the sandbox at /workspace/.offload/ (rather than silently
-    # discarding it); the model can read it back on demand via Read/bash. Only
-    # mounted when sandbox tools are enabled — otherwise the agent has no
+    # complete text to the current tool workspace's .offload/ directory. The model
+    # can read it back via Read/bash. Only mounted when sandbox tools are enabled;
+    # otherwise the agent has no
     # Read/bash and spilling is pointless. Uses the same _sbx_sess as bash/Read.
     _offloader = None
     if not disable_tools and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true":
@@ -3471,7 +3471,7 @@ async def create_agent_executor(
             from core.llm.offloader import SandboxOffloader
             from core.sandbox.factory import get_sandbox_provider
 
-            _offloader = SandboxOffloader(get_sandbox_provider(), _sbx_sess)
+            _offloader = SandboxOffloader(get_sandbox_provider(), _sbx_sess, user_id=current_user_id)
         except Exception as exc:  # noqa: BLE001
             _log.warning("[factory] offloader 初始化跳过: %s", exc)
 

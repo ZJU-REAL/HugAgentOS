@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.sandbox.runner_client import run_runner
 
 import asyncio
 import base64
@@ -60,8 +61,8 @@ def test_execute_reuses_files_only_inside_the_same_session(monkeypatch, tmp_path
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
 
     write_result = asyncio.run(
-        server.execute(
-            server.ExecuteRequest(
+        run_runner(
+            server.ProcessRequest(
                 session_id="chat-a",
                 script_name="write.py",
                 script_content=(
@@ -71,8 +72,8 @@ def test_execute_reuses_files_only_inside_the_same_session(monkeypatch, tmp_path
         )
     )
     same_session = asyncio.run(
-        server.execute(
-            server.ExecuteRequest(
+        run_runner(
+            server.ProcessRequest(
                 session_id="chat-a",
                 script_name="read.py",
                 script_content=(
@@ -82,8 +83,8 @@ def test_execute_reuses_files_only_inside_the_same_session(monkeypatch, tmp_path
         )
     )
     other_session = asyncio.run(
-        server.execute(
-            server.ExecuteRequest(
+        run_runner(
+            server.ProcessRequest(
                 session_id="chat-b",
                 script_name="probe.py",
                 script_content=(
@@ -117,25 +118,25 @@ def test_concurrent_commands_keep_their_own_script_and_user_files(monkeypatch, t
     workspace = server._session_workspace("concurrent", create=True)
     original = workspace / "_bash.sh"
     original.write_text("user-owned script", encoding="utf-8")
-    execute_process = server._execute_subprocess
+    execute_process = server._spawn_subprocess
     ready = 0
     gate = asyncio.Event()
 
-    async def simultaneous_spawn(**kwargs):
+    async def simultaneous_spawn(*args, **kwargs):
         nonlocal ready
         ready += 1
         if ready == 4:
             gate.set()
         await gate.wait()
-        return await execute_process(**kwargs)
+        return await execute_process(*args, **kwargs)
 
-    monkeypatch.setattr(server, "_execute_subprocess", simultaneous_spawn)
+    monkeypatch.setattr(server, "_spawn_subprocess", simultaneous_spawn)
 
     async def run():
         return await asyncio.gather(
             *[
-                server.execute(
-                    server.ExecuteRequest(
+                run_runner(
+                    server.ProcessRequest(
                         session_id="concurrent",
                         language="bash",
                         script_name="_bash.sh",
@@ -149,7 +150,7 @@ def test_concurrent_commands_keep_their_own_script_and_user_files(monkeypatch, t
     results = asyncio.run(run())
     assert [(r.exit_code, r.stdout) for r in results] == [(0, f"task{index}") for index in range(4)]
     assert original.read_text() == "user-owned script"
-    assert sorted(p.name for p in workspace.iterdir()) == ["_bash.sh"]
+    assert sorted(p.name for p in workspace.iterdir() if p.is_file()) == ["_bash.sh"]
 
 
 def test_container_skill_alias_is_private_and_executable(monkeypatch, tmp_path):
@@ -160,8 +161,8 @@ def test_container_skill_alias_is_private_and_executable(monkeypatch, tmp_path):
     skills.mkdir(parents=True)
     (skills / "run.py").write_text("print('private-skill')")
     result = asyncio.run(
-        server.execute(
-            server.ExecuteRequest(
+        run_runner(
+            server.ProcessRequest(
                 session_id="skill-chat",
                 user_id="owner",
                 language="bash",

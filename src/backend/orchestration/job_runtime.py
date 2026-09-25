@@ -35,13 +35,16 @@ from core.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
+
 def _job_directory(session_id: str, job_row_id: str) -> str:
     from core.llm.tools._paths import workspace_directory
+
     return f"{workspace_directory(session_id)}/.job/{job_row_id}"
 
 
 def _quote_path(path: str) -> str:
     from core.llm.tools._paths import path_rules
+
     return path_rules().quote_shell_path(path)
 
 
@@ -99,7 +102,7 @@ def callback_base_candidates() -> List[str]:
 
 # 探测脚本：在沙箱里逐个候选打 /health，第一个应答的即选中。只用标准库，
 # 因为沙箱镜像不保证有 curl。
-_PROBE_SOURCE = r'''import json, sys, urllib.request
+_PROBE_SOURCE = r"""import json, sys, urllib.request
 
 for base in json.loads(sys.argv[1]):
     try:
@@ -110,7 +113,7 @@ for base in json.loads(sys.argv[1]):
     except Exception:
         continue
 print("NONE")
-'''
+"""
 
 
 async def resolve_callback_base(*, session_id: str, user_id: str) -> str:
@@ -133,9 +136,7 @@ async def resolve_callback_base(*, session_id: str, user_id: str) -> str:
         f"${{PY_BIN:-python3}} /tmp/_job_probe.py '{payload}'"
     )
     try:
-        _code, out, _err = await _sbx_bash(
-            cmd, session_id=session_id, user_id=user_id, timeout=60
-        )
+        _code, out, _err = await _sbx_bash(cmd, session_id=session_id, user_id=user_id, timeout=60)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"回调地址探测失败（沙箱不可用）: {exc}") from exc
 
@@ -544,11 +545,11 @@ def _b64(text: str) -> str:
 
 async def _sbx_bash(command: str, *, session_id: str, user_id: str, timeout: int = 60):
     """在持久沙箱里跑一段 bash，返回 (exit_code, stdout, stderr)。"""
-    from core.sandbox import ExecuteRequest, get_sandbox_provider
+    from core.sandbox import ProcessRequest, get_sandbox_provider
 
     provider = get_sandbox_provider()
-    res = await provider.execute(
-        ExecuteRequest(
+    res = await provider.run_to_completion(
+        ProcessRequest(
             script_content=command,
             script_name="job_ctl.sh",
             language="bash",
@@ -684,9 +685,7 @@ def _final_from_marker(text: str) -> Tuple[str, str]:
     return "failed", ""
 
 
-async def _runner_liveness(
-    job_row_id: str, *, session_id: str, user_id: str
-) -> Tuple[bool, str]:
+async def _runner_liveness(job_row_id: str, *, session_id: str, user_id: str) -> Tuple[bool, str]:
     """探测沙箱里的 runner 进程是否还活着，并捡回它没能上报的终态。
 
     为什么必须有：终态上报是一次网络调用，它自己也会失败（实测被网关限流 429 打掉过）。
@@ -703,9 +702,7 @@ async def _runner_liveness(
         "tail -c 1200 runner.log 2>/dev/null"
     )
     try:
-        code, out, _err = await _sbx_bash(
-            cmd, session_id=session_id, user_id=user_id, timeout=45
-        )
+        code, out, _err = await _sbx_bash(cmd, session_id=session_id, user_id=user_id, timeout=45)
     except Exception as exc:  # noqa: BLE001 —— 探测失败一律当"还活着"，绝不误杀
         logger.warning("[job] liveness probe failed job=%s: %s", job_row_id, exc)
         return True, ""
@@ -912,7 +909,9 @@ async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
         now = time.monotonic()
         if now - last_progress >= _PROGRESS_EVERY_S:
             last_progress = now
-            _emit_progress(chat_id, f"作业进行中 done={stats.get('done')} pending={stats.get('pending')}")
+            _emit_progress(
+                chat_id, f"作业进行中 done={stats.get('done')} pending={stats.get('pending')}"
+            )
         # 用户看得见的那行进度：数字变了、且离上次下发够久，才发一帧。
         # 分母也要算进「变了」——台账 seed 完成时 total 从 0 跳到 N 而 settled 还是 0，
         # 只盯 settled 的话这一跳发不出去，卡片会一直停在「正在建立台账」。
@@ -928,9 +927,7 @@ async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
         # 60s 起探（给启动留足时间），之后每 90s 一次——比墙钟熔断早两个数量级发现问题。
         if session_id and now - last_liveness >= 90 and now - started >= 60:
             last_liveness = now
-            alive, tail = await _runner_liveness(
-                job_row_id, session_id=session_id, user_id=user_id
-            )
+            alive, tail = await _runner_liveness(job_row_id, session_id=session_id, user_id=user_id)
             if not alive:
                 final = _final_from_marker(tail)
                 with SessionLocal() as db:
@@ -939,9 +936,12 @@ async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
                     svc.finish(
                         job_row_id,
                         final[0],
-                        error=final[1] or f"作业进程已退出但未上报终态；runner 日志尾部：{tail[-600:]}",
+                        error=final[1]
+                        or f"作业进程已退出但未上报终态；runner 日志尾部：{tail[-600:]}",
                     )
-                logger.warning("[job] runner gone, forced terminal job=%s -> %s", job_row_id, final[0])
+                logger.warning(
+                    "[job] runner gone, forced terminal job=%s -> %s", job_row_id, final[0]
+                )
                 await _maybe_wake(job_row_id)
                 return {"status": final[0], "stats": fresh, "error": final[1]}
         if wake_every > 0 and now - last_wake >= wake_every:
@@ -1086,7 +1086,10 @@ async def resume_job(job_row_id: str, *, user_id: str, chat_id: Optional[str]) -
             return {"ok": False, "error": "作业仍在运行中"}
         script_text = job.script_text or ""
         session_id = job.sandbox_session_id or ""
-        interpreter = str((job.extra_data or {}).get("start_params", {}).get("interpreter") or "${PY_BIN:-python3}")
+        interpreter = str(
+            (job.extra_data or {}).get("start_params", {}).get("interpreter")
+            or "${PY_BIN:-python3}"
+        )
         job.status = "pending"
         job.completed_at = None
         job.error_message = None

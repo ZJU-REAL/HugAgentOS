@@ -1,6 +1,6 @@
 # 沙箱执行系统
 
-> 最后更新：2026-08-31
+> 最后更新：2026-09-24
 
 沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
@@ -10,11 +10,13 @@
 
 ## Provider 协议（core/sandbox/protocol.py）
 
-所有 provider 实现同一个 `SandboxProvider` Protocol，字段契约与 script-runner sidecar 的 HTTP 接口逐一对齐：
+所有 provider 实现同一个 `SandboxProvider` Protocol，内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：
 
 | 方法 | 职责 |
 |---|---|
-| `execute(req: ExecuteRequest) -> ExecuteResult` | 执行脚本/命令，返回 stdout/stderr/exit_code/耗时/产物文件 |
+| `run_to_completion(req: ProcessRequest)` | 内部业务入口：等待完成并返回最终 ProcessResult |
+| `start_process(req: ProcessRequest, yield_time_ms=60000)` | 启动进程，返回新增输出、状态、进程 ID 或退出码 |
+| `write_stdin(session_id, chars="", yield_time_ms=60000)` | 等待并读取新增输出，或中断进程 |
 | `stage_files(user_id, files)` | 把输入文件暂存到用户 myspace 缓存，返回沙箱内可引用的绝对路径 |
 | `put_file(session_id, path, content)` | 写字节进沙箱指定路径（自动建上级目录） |
 | `get_file(session_id, path)` | 从沙箱读文件字节 |
@@ -23,7 +25,9 @@
 | `health()` | 健康探测 |
 | `admin_*` 系列 | 安全管理台只读视图（能力声明 / 实例枚举 / 单实例详情 / 池统计），不支持的能力抛 `SandboxAdminNotSupported` 由 UI 置灰 |
 
-`ExecuteRequest` 的两个关键字段：
+内部业务通过 await provider.run_to_completion(request) 一次调用取得 ProcessResult（stdout、stderr、exit_code、execution_time_ms），不管理进程 ID，也不调用模型工具。三个 provider 共用底层进程管理和结果收集；等待在服务端内部完成，只启动一次，失败不自动重跑。模型工具层继续使用 bash / write_stdin。默认无命令运行截止时间，调用者仍可显式指定 timeout；单次等待、网络请求超时和云沙箱生命周期与命令运行时限不同。
+
+`ProcessRequest` 的两个关键字段：
 
 - **`session_id`**：所有 provider 都用它路由会话工作区；相同 ID 跨调用保留 `/workspace` 文件，不同 ID 互不可见。OpenSandbox / Cube 还会据此复用底层容器、MicroVM 或 kernel；
 - **`user_id`**：触发 myspace 文件可见性（bind-mount 或 seed），见下文 Plan F。
@@ -40,15 +44,21 @@
 
 Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写脚本文件 + `commands.run`"，不依赖 Jupyter；**无 host bind-mount**（myspace 文件由工具层经 `put_file` 物化、技能文件运行时按需推送，`CUBE_SKILL_PREPUSH` 控制预推）；无快照体系；`session_id` 仍绑定持久 MicroVM（首次 create、后续 connect 复用）。
 
-## Agent 侧三件工具
+## Agent 侧工具
 
-`core/llm/tools/sandbox_tool.py` 向智能体注册三个工具（`agent_factory` 在 Phase 3.5 调用各 `register_*`）：
+`core/llm/tools/sandbox_tool.py` 向智能体注册四个工具（`agent_factory` 在 Phase 3.5 调用各 `register_*`）：
 
 | 工具 | 作用 |
 |---|---|
-| `bash(command, timeout)` | 在沙箱执行任意 shell 命令；工作目录 `/workspace`，同会话内文件持久；硬上限 120 秒；另注册大写 `Bash` 别名（兼容部分模型按训练惯例发出的大写工具名调用） |
+| `bash(command, timeout=None, yield_time_ms=60000)` | 启动命令，默认等待 60 秒；未完成返回进程 `session_id`，命令继续运行。省略 timeout 不设命令执行期限，保留 `Bash` 别名 |
+| `write_stdin(session_id, chars="", yield_time_ms=60000)` | 等待同一进程并读取新增输出；空输入等待，Ctrl+C（\u0003）请求中断 |
 | `sandbox_put_artifact(artifact_id, dest_path)` | 把平台 artifact（用户上传文件、图表工具产物等）的字节拷入沙箱路径——沙箱不会自动看到上传文件 |
 | `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——bash 产物不会自动出现在附件区 |
+
+
+命令执行期限与等待窗口分开：首次等待范围 250–30000 毫秒，后续等待上限 300000 毫秒；等待到期不会终止命令。显式 `timeout` 仍作为执行期限，但不再截成 120 秒。所有命令和内部 Python/JavaScript 脚本统一走进程接口；旧同步执行入口和默认/最大执行时限配置已删除。进程 ID 绑定启动时的用户与会话，不能跨会话读取或中断。当前为非 PTY 执行，stdin 关闭，除空输入和 Ctrl+C 外的输入会被拒绝；Windows 无控制台时中断采用终止进程树。
+
+框架保留最多 64 个进程记录，仅回收已完成记录；新增输出有界，省略内容通过 `output_omitted_chars` 明示。本地及 script_runner 的完整输出存于当前会话工作区的 `.__process_*/stdout.log` 和 `stderr.log`，通过 `output_files` 返回真实路径；单流超过 64 MiB 时停止命令，已写日志仍可读。OpenSandbox 后台日志合并 stdout/stderr；Cube 总输出超过 64 MiB 时停止。运行期间定期调用沙箱保活：OpenSandbox 可续租，Cube 的兼容服务可能不支持延长服务端 TTL，返回 `lifetime_note` 说明这一边界。进程会话是运行时状态，不保证跨后端/runner 重启恢复；显式关闭会话或服务正常退出会清理进程。团队项目在命令终态返回后同步源码；必须等待完成，不能把 running 当成已经保存。
 
 沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：非空显式 ID 优先，未传或传空值时统一回落到 `chat_id`。主智能体、计划执行、批量项和所有子智能体因此使用同一个会话沙箱；子智能体结束时不会销毁它。
 
@@ -145,9 +155,28 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 
 技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。预热的临时（light）沙箱会发给任意用户，只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
 
-## 超长工具结果 offload
+## 超长工具结果落盘
 
-`core/llm/offloader.py::SandboxOffloader` 实现 AgentScope 2.0 的 `Offloader` 协议：上下文压缩 / 工具结果截断时，溢出内容不再被静默丢弃，而是经 `put_file` 写入沙箱隐藏目录 **`/workspace/.offload/`**（`tool_<call_id>.txt` / `context_<hex>.txt`），路径拼进给模型的 system-reminder——模型随后可用 `Read` 或 `bash(cat/grep …)` 按需回查全文。协议要求方法**绝不抛异常**（写失败返回降级说明），且仅在沙箱工具启用时挂载。
+超长工具结果由 `CompactingAgent` 保留有界节选，并通过 `SandboxOffloader`
+将**完整文本**保存到当前工具工作目录的 `.offload/`。图片继续作为图片传给模型，
+不会作为文本写入落盘文件。路径与本轮 `Read`、`bash` 使用的会话一致：
+
+- 本机模式：`<本机工作区>/.sessions/<会话哈希>/.offload/`，不上传到云端。
+- 云端 `script_runner`：`/workspace/.sessions/<会话哈希>/.offload/`；
+  自定义工作区根目录时使用对应根目录。
+- OpenSandbox / Cube（EE）：当前会话沙箱内的 `/workspace/.offload/`。
+
+每次保存使用独立文件名，避免并行工具、重试或子智能体覆盖已有文件。
+只有写入成功才向模型提供真实路径；模型应分页读取或定向搜索，避免把整份大文件
+重新塞回上下文。写入被拒绝、服务不可达、没有持久会话或保存超时时，仍保留节选，
+明确提示完整输出未保存，并建议缩小查询范围或分页重取，不将错误文本当成文件路径。
+落盘等待上限为 30 秒，用户取消仍会传播。
+
+上下文压缩及其 SDK 备用链路采用相同的失败处理：保存失败不撤销已经完成的压缩，
+也不生成不存在的历史文件指引。历史归档为可读文本，图片及模型思考不属于此归档；
+不能用它替代原始会话记录。落盘文件跟随当前工作区生命周期，不作为独立永久备份。
+
+此修复需要更新云端后端及桌面客户端捆绑的本机后端；仅更新云端不能修复旧客户端。
 
 ## 管理员沙箱管理
 
@@ -191,7 +220,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
 | `src/backend/core/sandbox/_pool.py` | 双桶预热池 |
 | `src/backend/core/sandbox/cube_provider.py` | Cube 远端 MicroVM provider（EE） |
-| `src/backend/core/llm/tools/sandbox_tool.py` | bash / sandbox_put_artifact / sandbox_get_artifact |
+| `src/backend/core/llm/tools/sandbox_tool.py` | bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
 | `src/backend/api/routes/v1/config_security.py` | 安全管理台沙箱只读视图 |

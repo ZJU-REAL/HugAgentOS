@@ -1,4 +1,4 @@
-//! 桌面端会话 token 的持久化 + handoff 票据兑换（方案 B 的 App 侧）。
+//! 桌面端会话 token 的持久化与启动校验。
 //!
 //! Session tokens are held by the OS credential store; auth.json is migration-only.
 
@@ -107,43 +107,6 @@ pub fn save_token(config_dir: &Path, server_base: &str, token: Option<&str>) {
         Err(error) => eprintln!("[auth] 系统凭据保存/清除失败（不会回落明文）: {error}"),
     }
     remove_legacy(config_dir);
-}
-
-/// 用一次性 handoff 票据换回真正的 session token（直连后端 HTTPS）。
-pub async fn redeem(
-    http: &reqwest::Client,
-    server_base: &str,
-    ticket: &str,
-) -> Result<String, String> {
-    let url = format!(
-        "{}/api/v1/auth/desktop/redeem",
-        server_base.trim_end_matches('/')
-    );
-    let resp = http
-        .post(&url)
-        .json(&serde_json::json!({ "ticket": ticket }))
-        .send()
-        .await
-        .map_err(|e| format!("网络错误: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("换票失败: HTTP {}", resp.status()));
-    }
-
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("响应解析失败: {e}"))?;
-    // 后端统一信封 { code, message, data: { token, cookie_name, expires_at } }
-    let token = body
-        .get("data")
-        .and_then(|d| d.get("token"))
-        .and_then(|t| t.as_str());
-
-    match token {
-        Some(t) if !t.is_empty() => Ok(t.to_string()),
-        _ => Err("响应缺少 token".to_string()),
-    }
 }
 
 /// 启动时校验已存 token 是否仍有效：带 cookie 直连后端打 `session/check`。

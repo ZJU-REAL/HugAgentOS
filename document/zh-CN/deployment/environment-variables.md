@@ -204,9 +204,8 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 |---|---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | `script_runner` / `opensandbox` / `cube` | CE（持久沙箱 opensandbox/cube 为 EE） |
 | `SANDBOX_TOOLS_ENABLED` | `false` | 是否给 Agent 注册 `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` 三个工具 | CE |
-| `SANDBOX_MAX_CONCURRENT` | `4` | 单进程并发沙盒执行数（预留） | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 | CE |
-| `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | 单条 bash 命令默认 / 最大超时（秒） | CE |
+| `SANDBOX_FILE_TRANSFER_TIMEOUT_S` | `120` | 文件传输请求超时（秒），不限制命令运行时长 | CE |
 | `SANDBOX_IDLE_TTL_S` | `3600` | 沙盒唯一的时长参数（秒，最小 60，全 provider 共用）：服务端 TTL、空闲回收阈值、长任务保活间隔都由它推导。会话闲置超过它，先 snapshot 再释放，下轮从快照还原 | CE |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner 内存上限（MB） | CE |

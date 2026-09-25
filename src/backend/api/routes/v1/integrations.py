@@ -69,6 +69,7 @@ async def dingtalk_disconnect(
 
 # ── Lark account connection (feishu-cli plugin / lark-cli): scan-QR device flow, same structure as DingTalk ──
 
+
 @router.get("/lark/status", summary="查询飞书连接状态")
 async def lark_status(
     probe: bool = Query(False, description="true 时真实 API 探活并对账"),
@@ -116,6 +117,7 @@ async def lark_disconnect(
 # source of truth for the connection. For multi-org accounts, poll returns corp_selection + organizations; the
 # frontend lets the user pick, then re-polls with corp_id.
 
+
 class _YidaPollRequest(BaseModel):
     corp_id: Optional[str] = None
 
@@ -126,7 +128,11 @@ async def yida_status(
     user: UserContext = Depends(get_current_user),
 ):
     svc = YidaService()
-    data = await svc.probe_status(str(user.user_id)) if probe else svc.get_status(str(user.user_id))
+    data = (
+        await svc.probe_status(str(user.user_id))
+        if probe
+        else await svc.get_status(str(user.user_id))
+    )
     return success_response(data=data)
 
 
@@ -143,7 +149,9 @@ async def yida_login_poll(
     body: Optional[_YidaPollRequest] = None,
     user: UserContext = Depends(get_current_user),
 ):
-    data = await YidaService().poll_login(str(user.user_id), corp_id=(body.corp_id if body else None))
+    data = await YidaService().poll_login(
+        str(user.user_id), corp_id=(body.corp_id if body else None)
+    )
     return success_response(data=data)
 
 
@@ -159,6 +167,7 @@ async def yida_disconnect(
 # Unlike DingTalk/Lark — email has no device flow / no QR code / no OAuth; binding is synchronous "save form → validate",
 # so there is no /login/poll; the connection is completed by POST /connect submitting the credential form.
 
+
 class _EmailServerOverrides(BaseModel):
     imap_host: Optional[str] = None
     imap_port: Optional[int] = None
@@ -170,7 +179,7 @@ class _EmailServerOverrides(BaseModel):
 
 class _EmailConnectRequest(BaseModel):
     email_address: str
-    secret: str                          # IMAP/SMTP auth code / app password
+    secret: str  # IMAP/SMTP auth code / app password
     display_name: Optional[str] = None
     server_overrides: Optional[_EmailServerOverrides] = None
 

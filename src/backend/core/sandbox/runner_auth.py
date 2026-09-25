@@ -5,7 +5,7 @@ profile it only listens inside the compose network; in the desktop local profile
 it listens on loopback, where **every process on the machine can reach it** —
 including a command the agent itself just launched inside the OS sandbox, since
 loopback stays reachable there. Without a secret, that command can call
-``/execute`` again with no confinement attached and walk straight out of the
+``/processes/start`` again with no confinement attached and walk straight out of the
 sandbox it was placed in.
 
 So the backend and the sidecar share one token:

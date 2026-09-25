@@ -130,11 +130,11 @@ async def probe_still_missing(
     script = _build_script(names)
     try:
         from core.sandbox.factory import get_sandbox_provider
-        from core.sandbox.protocol import ExecuteRequest
+        from core.sandbox.protocol import ProcessRequest
 
         provider = get_sandbox_provider()
-        result = await provider.execute(
-            ExecuteRequest(
+        result = await provider.run_to_completion(
+            ProcessRequest(
                 script_content=script,
                 script_name="skill_dep_probe.py",
                 language="python",
@@ -156,7 +156,7 @@ async def probe_still_missing(
         )
         return None
     try:
-        payload = out[idx + len(_MARKER):].strip().splitlines()[0]
+        payload = out[idx + len(_MARKER) :].strip().splitlines()[0]
         data = json.loads(payload)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[skill-deps] probe output parse failed: %s", exc)

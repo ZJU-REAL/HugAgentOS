@@ -9,6 +9,7 @@ otherwise.
 """
 
 from __future__ import annotations
+from tests.sandbox.runner_client import run_spawn
 
 import asyncio
 import dataclasses
@@ -19,7 +20,7 @@ import sys
 import pytest
 from core.sandbox.os_sandbox import LocalAccessDecision, build_context, build_policy, confine
 from core.sandbox.oslayer import SandboxLaunch
-from core.sandbox.protocol import ExecuteRequest
+from core.sandbox.protocol import ProcessRequest
 from services.script_runner_service import server
 
 
@@ -75,8 +76,8 @@ def test_the_provider_sends_the_launch_to_the_sidecar(monkeypatch):
 
     launch = SandboxLaunch(backend="bwrap", argv_prefix=("bwrap", "--"), env={"A": "B"})
     asyncio.run(
-        ScriptRunnerProvider().execute(
-            ExecuteRequest(
+        ScriptRunnerProvider().start_process(
+            ProcessRequest(
                 script_content="ls",
                 script_name="_bash.sh",
                 language="bash",
@@ -90,7 +91,7 @@ def test_the_provider_sends_the_launch_to_the_sidecar(monkeypatch):
 
 
 def test_no_launch_is_sent_as_null():
-    request = ExecuteRequest(
+    request = ProcessRequest(
         script_content="ls", script_name="_bash.sh", language="bash", session_id="chat-1"
     )
     assert request.sandbox_launch is None
@@ -124,7 +125,7 @@ def test_the_runner_spawns_with_the_prefix_and_env_it_was_given(monkeypatch, tmp
         )
 
     asyncio.run(
-        server._execute_subprocess(
+        run_spawn(
             cmd=["bash", "script.sh"],
             stdin_data="{}",
             timeout=5,
@@ -179,7 +180,7 @@ def test_the_runner_really_confines_a_command_end_to_end(monkeypatch, tmp_path):
         script_path = workspace / "probe.sh"
         script_path.write_text(script, encoding="utf-8")
         return asyncio.run(
-            server._execute_subprocess(
+            run_spawn(
                 cmd=["bash", str(script_path)],
                 stdin_data="{}",
                 timeout=30,
@@ -229,7 +230,7 @@ def test_the_runner_really_confines_git_bash_on_windows(monkeypatch, tmp_path):
         script_path = workspace / "probe.sh"
         script_path.write_text(script, encoding="utf-8")
         return asyncio.run(
-            server._execute_subprocess(
+            run_spawn(
                 cmd=[server._BASH_EXECUTABLE, str(script_path)],
                 stdin_data="{}",
                 timeout=30,

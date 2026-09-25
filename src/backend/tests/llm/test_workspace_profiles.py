@@ -1,3 +1,4 @@
+from tests.sandbox.runner_client import run_runner
 """Path identities must agree with the selected execution environment."""
 
 from dataclasses import replace
@@ -157,8 +158,8 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
         return json.loads(result.content[0].text)
 
     assert payload(await put.fn("upload", "input.txt"))["ok"]
-    result = await server.execute(
-        server.ExecuteRequest(
+    result = await run_runner(
+        server.ProcessRequest(
             session_id="chat",
             language="python",
             script_name="copy.py",

@@ -206,9 +206,8 @@ the database has no value.
 |---|---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | `script_runner` / `opensandbox` / `cube` | CE (persistent sandboxes opensandbox/cube: EE) |
 | `SANDBOX_TOOLS_ENABLED` | `false` | Register the `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` tools on the agent | CE |
-| `SANDBOX_MAX_CONCURRENT` | `4` | Concurrent sandbox executions per backend process (reserved) | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address | CE |
-| `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | Default / maximum timeout per bash command (s) | CE |
+| `SANDBOX_FILE_TRANSFER_TIMEOUT_S` | `120` | File transfer request timeout (seconds); does not limit command runtime | CE |
 | `SANDBOX_IDLE_TTL_S` | `3600` | The one sandbox lifetime parameter (s, minimum 60, shared by every provider): server-side TTL, the idle reclaim threshold and the keepalive interval are all derived from it. A session idle beyond it is snapshotted, then released, and restored from the snapshot on the next turn | CE |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner memory cap (MB) | CE |

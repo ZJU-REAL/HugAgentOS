@@ -1,5 +1,7 @@
 """The desktop sends file bytes; the cloud owns hosted sites."""
 
+
+from core.sandbox.process_completion import CompletionMixin
 import io
 import json
 import tarfile
@@ -138,11 +140,10 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     monkeypatch.setattr(bridge, "get_state", lambda: st)
     archive = bundle()
 
-    class Sandbox:
-        async def execute(self, request):
-            from core.sandbox import ExecuteResult
+    class Sandbox(CompletionMixin):
+        async def start_process(self, request, yield_time_ms=10000):
             assert request.language == "python"
-            return ExecuteResult(stdout="", stderr="", exit_code=0, execution_time_ms=1)
+            return dict(status="exited", session_id=None, stdout="", stderr="", exit_code=0, execution_time_ms=1)
 
         async def get_file(self, *args, **kwargs):
             return archive

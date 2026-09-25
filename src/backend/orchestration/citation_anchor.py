@@ -119,6 +119,7 @@ SKIP_TOOLS = frozenset(
         "Move",
         "CreateFolder",
         "bash",
+    "write_stdin",
         "Bash",
         "sandbox_put_artifact",
         "sandbox_get_artifact",

@@ -60,12 +60,28 @@ def test_workspace_paths_are_never_rewritten():
 # ── cube：软链拼进执行命令，不额外多花一次往返 ──────────────────────────────
 
 
-def test_cube_command_creates_the_symlink_inline():
-    """cube 一人一沙箱，可以建软链；必须拼在同一条命令里，且不影响脚本退出码。"""
-    import inspect
+def test_cube_command_creates_the_symlink_inline(monkeypatch):
+    """Observe the SDK command at the provider boundary, independent of helper layout."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from .test_sandbox_provider import _install_fake_e2b, _fake_sbx, _reload_cube, _bash_req
 
-    from core.sandbox.cube_provider import CubeSandboxProvider
-
-    src = inspect.getsource(CubeSandboxProvider._run)
-    assert "ln -s {mp} /myspace" in src, "cube 必须建 /myspace 软链"
-    assert "{myspace_prefix}cd {WORKSPACE}" in src, "软链要拼进同一条命令，不另花一次往返"
+    sdk, _, _ = _install_fake_e2b(monkeypatch)
+    sandbox = _fake_sbx(stdout="ok", exit_code=0)
+    sdk.create = AsyncMock(return_value=sandbox)
+    factory = _reload_cube(monkeypatch)
+    factory.reset_provider_cache()
+    provider = factory.get_sandbox_provider()
+    result = asyncio.run(
+        provider.run_to_completion(_bash_req(script_content="ls /myspace", user_id=UID))
+    )
+    assert result.exit_code == 0
+    commands = [call.args[0] for call in sandbox.commands.run.call_args_list]
+    command = next(cmd for cmd in commands if "ls /myspace" in cmd)
+    assert f"ln -s /workspace/myspace/{UID} /myspace" in command
+    assert (
+        next(
+            call for call in sandbox.commands.run.call_args_list if call.kwargs.get("background")
+        ).kwargs["cwd"]
+        == "/workspace"
+    )

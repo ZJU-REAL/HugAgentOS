@@ -1,6 +1,7 @@
 """Regression tests for quick-install script-runner process management."""
 
 from __future__ import annotations
+from tests.sandbox.runner_client import run_spawn
 
 import asyncio
 import inspect
@@ -95,16 +96,16 @@ def test_timeout_kills_the_whole_process_group(monkeypatch, tmp_path):
         proc.returncode = -signal.SIGKILL
 
     monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
-    monkeypatch.setattr(server.asyncio, "wait_for", fake_wait_for)
     monkeypatch.setattr(server.os, "killpg", fake_killpg)
 
-    result = asyncio.run(server._execute_subprocess(["bash", "job.sh"], "{}", 1, str(tmp_path)))
+    result = asyncio.run(run_spawn(["bash", "job.sh"], "{}", 1, str(tmp_path)))
 
     assert spawn_kwargs["start_new_session"] is True
     assert spawn_kwargs["preexec_fn"] is None
     assert killed == [(proc.pid, signal.SIGKILL)]
     assert proc.returncode == -signal.SIGKILL
-    assert result == {"stdout": "", "stderr": "执行超时（1秒）", "exit_code": -1}
+    assert result["exit_code"] == 124
+    assert "deadline" in result["error"]
 
 
 def test_success_uses_file_buffers_and_cleans_background_group(monkeypatch, tmp_path):
@@ -131,6 +132,8 @@ def test_success_uses_file_buffers_and_cleans_background_group(monkeypatch, tmp_
         assert kwargs["stderr"] is not asyncio.subprocess.PIPE
         kwargs["stdout"].write(b"completed\n")
         kwargs["stderr"].write(b"warning\n")
+        kwargs["stdout"].flush()
+        kwargs["stderr"].flush()
         proc.returncode = 0
         return proc
 
@@ -138,11 +141,11 @@ def test_success_uses_file_buffers_and_cleans_background_group(monkeypatch, tmp_
     monkeypatch.setattr(server.os, "killpg", lambda pid, sig: killed.append((pid, sig)))
 
     result = asyncio.run(
-        server._execute_subprocess(["bash", "job.sh"], '{"ok": true}', 1, str(tmp_path))
+        run_spawn(["bash", "job.sh"], '{"ok": true}', 1, str(tmp_path))
     )
 
     assert killed == [(proc.pid, signal.SIGKILL)]
-    assert result == {"stdout": "completed\n", "stderr": "warning\n", "exit_code": 0}
+    assert (result["stdout"], result["stderr"], result["exit_code"]) == ("completed\n", "warning\n", 0)
 
 
 def test_ce_installer_and_script_runner_ship_office_skill_runtime():
@@ -182,7 +185,7 @@ def test_local_managed_officecli_disables_self_update(tmp_path):
 from fastapi.testclient import TestClient
 from services.script_runner_service.server import app
 with TestClient(app) as client:
-    response = client.post('/execute', json={
+    response = client.post('/processes/start', json={
         'script_content': "import os; print(os.getenv('OFFICECLI_SKIP_UPDATE', 'unset'))",
         'script_name': 'check_env.py', 'language': 'python', 'session_id': 'officecli-env',
     })

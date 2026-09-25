@@ -200,14 +200,14 @@ async def _sbx_exec(
 ) -> tuple[int, str, str]:
     """Run a bash snippet in the persistent sandbox (used for git checkpoints); returns (exit_code, stdout, stderr)."""
     from core.sandbox import (
-        ExecuteRequest,
+        ProcessRequest,
         SandboxConnectError,
         SandboxError,
         SandboxTimeoutError,
         get_sandbox_provider,
     )
 
-    req = ExecuteRequest(
+    req = ProcessRequest(
         script_content=cmd,
         script_name="_loop_git.sh",
         language="bash",
@@ -216,7 +216,7 @@ async def _sbx_exec(
         user_id=user_id,
     )
     try:
-        res = await get_sandbox_provider().execute(req)
+        res = await get_sandbox_provider().run_to_completion(req)
         return res.exit_code, res.stdout or "", res.stderr or ""
     except (SandboxTimeoutError, SandboxConnectError, SandboxError) as exc:
         logger.warning("[loop] sbx_exec failed: %s", exc)

@@ -24,7 +24,7 @@ The QR code is rendered by the backend itself as a data URI from ``qr_url``
 the panel). **No DB table**: connection status uses the host-side cookie files
 as the source of truth; identity metadata lands in
 ``yida_cache/{uid}/connection.json``; in-flight QR-scan sessions live in
-process memory (with a TTL). In-chat QR login (the yida skill) writes the same
+the shared TTL store. In-chat QR login (the yida skill) writes the same
 cookie file as this panel, so the two paths interoperate.
 """
 
@@ -35,10 +35,12 @@ import logging
 import re
 import shlex
 import time
+import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.config.settings import settings
+from core.infra.ephemeral import get_ephemeral_state
 from core.sandbox._common import safe_user_id, yida_shared_workspace_dir, yida_workspace_dir
 from core.services.dingtalk_service import make_qr_data_uri
 
@@ -53,11 +55,7 @@ YIDA_WORKSPACE_MOUNT = "/home/ubuntu/yida-workspace"
 _SESSION_FILE_RE = re.compile(r"^[A-Za-z0-9._/-]{1,256}$")
 _CORP_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
-# In-flight QR-scan sessions: user_id -> {session_file, qr_url, started_at}.
-# Process memory is enough — the QR code itself expires within minutes, and
-# losing sessions on a backend restart just makes the user click "connect"
-# once more; a negligible cost.
-_PENDING: Dict[str, Dict[str, Any]] = {}
+# In-flight QR sessions are shared across API workers and expire with the QR.
 _PENDING_TTL_S = 10 * 60
 
 # ``openyida login --check-only`` / ``agent-capabilities`` only validate that
@@ -178,12 +176,40 @@ def _save_meta(user_id: str, meta: Dict[str, Any]) -> None:
         logger.warning("[yida] save connection meta failed user=%s: %s", user_id, exc)
 
 
-def _get_pending(user_id: str) -> Optional[Dict[str, Any]]:
-    p = _PENDING.get(user_id)
-    if p and time.monotonic() - p["started_at"] > _PENDING_TTL_S:
-        _PENDING.pop(user_id, None)
+def _pending_key(user_id):
+    return "yida-login:v1:" + user_id
+
+
+async def _get_pending(user_id: str) -> Optional[Dict[str, Any]]:
+    raw = await get_ephemeral_state().get(_pending_key(user_id))
+    pending = json.loads(raw) if raw else None
+    if not pending or pending.get("closed"):
         return None
-    return p
+    if time.time() - pending["started_at"] >= _PENDING_TTL_S:
+        return None
+    return pending
+
+
+async def _save_pending(user_id, pending, *, previous=None):
+    ttl = max(1, math.ceil(_PENDING_TTL_S - (time.time() - pending["started_at"])))
+    store = get_ephemeral_state()
+    if previous is not None:
+        return await store.compare_exchange(
+            _pending_key(user_id), json.dumps(previous), json.dumps(pending), ttl=ttl
+        )
+    await store.put(_pending_key(user_id), json.dumps(pending), ttl=ttl)
+    return True
+
+
+async def _clear_pending(user_id, pending=None):
+    store = get_ephemeral_state()
+    if pending is None:
+        await store.drop(_pending_key(user_id))
+    else:
+        # A late poll from a previous QR must not delete a newer login attempt.
+        await store.compare_exchange(
+            _pending_key(user_id), json.dumps(pending), '{"closed":true}', ttl=60
+        )
 
 
 def _cookies_written_since(user_id: str, pending: Dict[str, Any]) -> bool:
@@ -193,7 +219,7 @@ def _cookies_written_since(user_id: str, pending: Dict[str, Any]) -> bool:
     CLI deletes the session file on success (subsequent agent-poll calls all
     ENOENT); and login completed via the other path (in-chat skill QR scan).
     """
-    age_budget = time.monotonic() - pending["started_at"] + 5  # 5s clock slack
+    age_budget = time.time() - pending["started_at"] + 5  # 5s clock slack
     for f in _cookie_files(_host_workspace_dir(user_id)):
         try:
             if time.time() - f.stat().st_mtime <= age_budget:
@@ -211,7 +237,9 @@ _NO_WS_MARKER = "__JX_YIDA_NO_WS__"
 class YidaService:
     """No DB dependency (the cookie files are the source of truth for connection status); the constructor takes no args to match route-layer usage."""
 
-    async def _run_in_sandbox(self, user_id: str, sub_command: str, timeout: int) -> tuple[str, int]:
+    async def _run_in_sandbox(
+        self, user_id: str, sub_command: str, timeout: int
+    ) -> tuple[str, int]:
         """Run a command in the Yida workspace of this user's **persistent** sandbox; returns (stdout, exit_code).
 
         A synthetic session_id (``yida-connect-{uid}``) is mandatory:
@@ -229,7 +257,7 @@ class YidaService:
         the caller to report the error.
         """
         from core.sandbox.factory import get_sandbox_provider
-        from core.sandbox.protocol import ExecuteRequest
+        from core.sandbox.protocol import ProcessRequest
 
         provider = get_sandbox_provider()
         session_id = f"yida-connect-{user_id}"
@@ -237,7 +265,7 @@ class YidaService:
             f"cd {YIDA_WORKSPACE_MOUNT} 2>/dev/null "
             f"|| {{ echo {_NO_WS_MARKER}; exit 97; }}; {sub_command}"
         )
-        req = ExecuteRequest(
+        req = ProcessRequest(
             script_content=guarded,
             script_name="_yida_connect.sh",
             language="bash",
@@ -246,7 +274,7 @@ class YidaService:
             session_id=session_id,
         )
         for attempt in range(3):
-            result = await provider.execute(req)
+            result = await provider.run_to_completion(req)
             out = result.stdout or ""
             err = getattr(result, "stderr", "") or ""
             rc = int(result.exit_code or 0)
@@ -254,7 +282,9 @@ class YidaService:
             if stale and attempt < 2:
                 logger.info(
                     "[yida] 检测到陈旧沙箱（无工作目录挂载或无 openyida），销毁重建 "
-                    "user=%s attempt=%d", user_id, attempt + 1,
+                    "user=%s attempt=%d",
+                    user_id,
+                    attempt + 1,
                 )
                 try:
                     await provider.close_session(session_id)
@@ -263,25 +293,28 @@ class YidaService:
                 continue
             if rc != 0:
                 logger.info(
-                    "[yida] 沙箱命令非零退出 user=%s rc=%s stderr=%.300s", user_id, rc, err,
+                    "[yida] 沙箱命令非零退出 user=%s rc=%s stderr=%.300s",
+                    user_id,
+                    rc,
+                    err,
                 )
             return out, rc
         return "", 97  # theoretically unreachable (the loop always returns); a fuse
 
     # ── Status ──────────────────────────────────────────────────────────
 
-    def get_status(self, user_id: str) -> Dict[str, Any]:
+    async def get_status(self, user_id: str) -> Dict[str, Any]:
         uid = safe_user_id(user_id)
         if not uid:
             return {"status": "disconnected"}
-        pending = _get_pending(uid)
+        pending = await _get_pending(uid)
         if pending:
             # Cookies written during the session = login actually completed
             # (possibly via a timing the poll summary didn't recognize, or an
             # in-chat scan); clear pending and fall back to connected instead
             # of staying stuck in the scanning state.
             if _cookies_written_since(uid, pending):
-                _PENDING.pop(uid, None)
+                await _clear_pending(uid, pending)
             else:
                 return self._pending_response(pending)
         workspace = _host_workspace_dir(uid)
@@ -321,7 +354,7 @@ class YidaService:
         uid = safe_user_id(user_id)
         if not uid:
             return {"status": "disconnected"}
-        local_status = self.get_status(uid)
+        local_status = await self.get_status(uid)
         if local_status.get("status") in {"pending", "corp_selection"}:
             return local_status
 
@@ -360,7 +393,7 @@ class YidaService:
             logger.info("[yida] 真实探活确认登录态失效 user=%s", uid)
         else:
             logger.info("[yida] 真实探活无法判定，保留本地状态 user=%s rc=%s", uid, rc)
-        return self.get_status(uid)
+        return await self.get_status(uid)
 
     # ── Three-stage login ───────────────────────────────────────────────
 
@@ -378,11 +411,14 @@ class YidaService:
             logger.warning("[yida] session_file 非法 user=%s: %.100s", uid, session_file)
             return {"status": "error", "error": "登录会话异常，请重试"}
         qr_url = str(data.get("qr_url") or "")
-        _PENDING[uid] = {
-            "session_file": session_file,
-            "qr_url": qr_url,
-            "started_at": time.monotonic(),
-        }
+        await _save_pending(
+            uid,
+            {
+                "session_file": session_file,
+                "qr_url": qr_url,
+                "started_at": time.time(),
+            },
+        )
         return {
             "status": "pending",
             "qr_data_uri": make_qr_data_uri(qr_url),
@@ -392,10 +428,10 @@ class YidaService:
 
     async def poll_login(self, user_id: str, corp_id: Optional[str] = None) -> Dict[str, Any]:
         uid = safe_user_id(user_id)
-        pending = _get_pending(uid) if uid else None
+        pending = await _get_pending(uid) if uid else None
         if not pending:
             # No in-flight session: return the current state (may already have completed via in-chat scan)
-            return self.get_status(uid or "")
+            return await self.get_status(uid or "")
         if corp_id and not _CORP_ID_RE.match(corp_id):
             return {"status": "error", "error": "corp_id 非法"}
         sf = pending["session_file"]
@@ -414,18 +450,18 @@ class YidaService:
             # the session — if so, login actually completed; don't leave the
             # frontend spinning forever.
             if _cookies_written_since(uid, pending):
-                _PENDING.pop(uid, None)
+                await _clear_pending(uid, pending)
                 meta = {**_load_meta(uid), "connected_at": int(time.time())}
                 _save_meta(uid, meta)
                 logger.info("[yida] 登录完成（cookie 落盘兜底判定）user=%s", uid)
-                return self.get_status(uid)
+                return await self.get_status(uid)
             return self._pending_response(pending)
         status = data.get("status")
         # Success comes in two shapes: the full result carries status:"ok"; the
         # CLI printLoginResult summary is only {"ok":true, corp_id, user_id,
         # base_url, ...} **without a status field**.
         if status == "ok" or (status is None and data.get("ok") is True):
-            _PENDING.pop(uid, None)
+            await _clear_pending(uid, pending)
             meta = {
                 "corp_id": data.get("corp_id"),
                 "user_id": data.get("user_id"),
@@ -436,8 +472,20 @@ class YidaService:
             logger.info("[yida] 登录完成 user=%s corp=%s", uid, meta["corp_id"])
             return {"status": "connected", **{k: meta[k] for k in ("corp_id", "base_url")}}
         if status == "need_corp_selection":
+            previous = dict(pending)
             pending["corp_selection"] = True
             orgs = data.get("organizations") or []
+            pending["organizations"] = [
+                {
+                    "corp_id": o.get("corp_id"),
+                    "corp_name": o.get("corp_name"),
+                    "main_org": bool(o.get("main_org")),
+                }
+                for o in orgs
+                if isinstance(o, dict)
+            ]
+            if not await _save_pending(uid, pending, previous=previous):
+                return await self.get_status(uid)
             return {
                 "status": "corp_selection",
                 "organizations": [
@@ -459,6 +507,8 @@ class YidaService:
         status wholesale, so if poll's pending lacks qr_data_uri it wipes the QR
         code being displayed (in the initial release this is exactly how it got
         stuck on the "fetching login QR code..." screen, observed in practice)."""
+        if pending.get("corp_selection"):
+            return {"status": "corp_selection", "organizations": pending.get("organizations", [])}
         return {
             "status": "pending",
             "qr_data_uri": make_qr_data_uri(pending.get("qr_url")),
@@ -471,7 +521,7 @@ class YidaService:
         uid = safe_user_id(user_id)
         if not uid:
             return {"status": "disconnected"}
-        _PENDING.pop(uid, None)
+        await _clear_pending(uid)
         # Host source of truth: delete cookies + metadata (for opensandbox/script-runner this is the same file the sandbox sees)
         ws = _host_workspace_dir(uid)
         for f in _cookie_files(ws):

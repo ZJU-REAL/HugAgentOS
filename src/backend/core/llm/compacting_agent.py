@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 from agentscope.agent import Agent, ContextConfig
-from agentscope.message import DataBlock, ToolResultBlock
+from agentscope.message import DataBlock, TextBlock, ToolResultBlock
 from agentscope.model import ChatUsage
+from agentscope.workspace import Offloader
 from core.llm.execution_manifest import stable_hash
 from core.llm.manifest_agent import ManifestBoundAgent
 
@@ -108,6 +109,8 @@ class CompactingAgent(ManifestBoundAgent):
     ``ManifestBoundAgent`` intentionally implements that method as a no-op.
     """
 
+    offloader: Offloader | None
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._jx_observation: Optional[_ContextObservation] = None
@@ -117,6 +120,51 @@ class CompactingAgent(ManifestBoundAgent):
         self._jx_compacted_cursor: Optional[tuple[_MessageCursor, ...]] = None
 
     async def _split_tool_result_for_compression(
+        self, tool_result: ToolResultBlock
+    ) -> tuple[ToolResultBlock, ToolResultBlock | None]:
+        """Own offload notices so SDK 2.0 cannot treat a failure as a path.
+
+        Return no pending overflow after handling it here: the SDK still owns
+        the tool lifecycle, events and persistence, but must not offload twice.
+        """
+        kept, overflow = await self._split_tool_text(tool_result)
+        if overflow is None:
+            return kept, None
+
+        notice = (
+            "完整输出未保存，没有可读取的完整文件。"
+            "请基于现有结果继续；如需缺失内容，缩小查询范围或分页重取，"
+            "不要尝试读取不存在的文件。"
+        )
+        if self.offloader:
+            # Save the complete textual result, not just its tail. An excerpt
+            # starting halfway through JSON is not a useful recovery document.
+            output = tool_result.output
+            if isinstance(output, list):
+                output = [b for b in output if not self._is_image(b)]
+            try:
+                path = await self.offloader.offload_tool_result(
+                    self.state.session_id, tool_result.model_copy(update={"output": output})
+                )
+                if path:
+                    notice = (
+                        f"完整工具输出已保存到文件：{path}。"
+                        "当前仅展示节选；需要时使用 Read 分页读取或 grep 定向搜索，"
+                        "不要一次性读回整个大文件。"
+                    )
+            except Exception as exc:
+                logger.warning("[offloader] tool result unavailable kind=%s", type(exc).__name__)
+        reminder = "\n<<<TRUNCATED>>>\n<system-reminder>" + notice + "</system-reminder>"
+        blocks = kept.output
+        if isinstance(blocks, str):
+            blocks = [TextBlock(text=blocks)]
+        return kept.model_copy(update={"output": [*blocks, TextBlock(text=reminder)]}), None
+
+    @staticmethod
+    def _is_image(block: Any) -> bool:
+        return isinstance(block, DataBlock) and block.source.media_type.startswith("image/")
+
+    async def _split_tool_text(
         self, tool_result: ToolResultBlock
     ) -> tuple[ToolResultBlock, ToolResultBlock | None]:
         """Apply the tool text limit without offloading image payloads.
@@ -131,7 +179,7 @@ class CompactingAgent(ManifestBoundAgent):
         images = []
         non_images = []
         for block in output:
-            if isinstance(block, DataBlock) and block.source.media_type.startswith("image/"):
+            if self._is_image(block):
                 images.append(block)
             else:
                 non_images.append(block)
@@ -231,7 +279,7 @@ class CompactingAgent(ManifestBoundAgent):
         if not settings.compaction.enabled:
             # Disabling checkpoints must not disable live overflow protection.
             try:
-                await Agent.compress_context(self, cfg)
+                await self._compress_with_framework(cfg)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[compaction] framework compression failed: %r", exc)
             return
@@ -282,7 +330,7 @@ class CompactingAgent(ManifestBoundAgent):
         if not replacement:
             logger.warning("[compaction] mid-turn falling back to framework compression")
             try:
-                await Agent.compress_context(self, cfg)
+                await self._compress_with_framework(cfg)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[compaction] framework compression failed too: %r", exc)
                 return
@@ -291,6 +339,40 @@ class CompactingAgent(ManifestBoundAgent):
             return
 
         await self._apply_replacement(replacement)
+
+    async def _context_offload_notice(self, dropped: list[Any]) -> str:
+        if not self.offloader or not dropped:
+            return ""
+        try:
+            path = await self.offloader.offload_context(self.state.session_id, msgs=dropped)
+            if path:
+                return _OFFLOAD_REMINDER.format(path=path)
+        except Exception as exc:
+            logger.warning("[compaction] offload unavailable kind=%s", type(exc).__name__)
+        return (
+            "\n<system-reminder>压缩前的完整历史未保存，没有可读取的历史文件。"
+            "请使用现有摘要与保留的消息继续，勿尝试读取不存在的文件。"
+            "</system-reminder>"
+        )
+
+    async def _compress_with_framework(self, cfg: ContextConfig) -> None:
+        # SDK 2.0 updates summary BEFORE offloading, but removes old messages
+        # AFTER it. A write failure would otherwise leave summary + full history
+        # together. Let the SDK commit compression, then publish a safe notice.
+        before = self.state.context
+        offloader = self.offloader
+        self.offloader = None
+        try:
+            await Agent.compress_context(self, cfg)
+        finally:
+            self.offloader = offloader
+        # The SDK replaces the list on successful compression, including when
+        # it splits blocks inside one Msg without changing the message count.
+        # Archive the complete pre-compression snapshot to retain that boundary.
+        if self.state.context is not before:
+            self.state.summary += await self._context_offload_notice(list(before))
+            self._jx_observation = None
+            self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
 
     async def _should_compact(self) -> tuple[Optional[int], int]:
         """Return ``(limit, measured_tokens)``; ``limit`` is None when undeterminable."""
@@ -323,19 +405,13 @@ class CompactingAgent(ManifestBoundAgent):
         dropped = list(self.state.context)
         replacement = [dict(m) for m in replacement]
 
-        if self.offloader and dropped:
-            try:
-                path = await self.offloader.offload_context(self.state.session_id, msgs=dropped)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[compaction] offload failed: %r", exc)
-            else:
-                if path and replacement:
-                    # The summary row opens the replacement; the rows after it
-                    # are verbatim steps and must stay untouched.
-                    summary_row = replacement[0]
-                    summary_row["content"] = f"{summary_row.get('content') or ''}" + (
-                        _OFFLOAD_REMINDER.format(path=path)
-                    )
+        if replacement:
+            notice = await self._context_offload_notice(dropped)
+            if notice:
+                # Only the in-memory summary gets a workspace-lifetime pointer.
+                # The persisted checkpoint and verbatim recent steps stay clean.
+                summary_row = replacement[0]
+                summary_row["content"] = f"{summary_row.get('content') or ''}" + notice
 
         # Summary first, recent steps after it, matching checkpoint replay order.
         self.state.summary = ""

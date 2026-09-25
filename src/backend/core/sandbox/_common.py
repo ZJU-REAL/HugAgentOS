@@ -1,7 +1,7 @@
 """Shared constants and utility functions for sandbox providers.
 
 opensandbox_provider and future persistent/isolated providers share the same
-artifact extension whitelist, size limits, and myspace cache path rules,
+file streaming and myspace cache path rules,
 keeping behavior aligned across providers.
 """
 
@@ -21,16 +21,8 @@ from core.config.settings import settings
 from .errors import SandboxFileTooLargeError
 
 __all__ = [
-    "ALLOWED_EXTENSIONS",
-    "INTERPRETER_CMD",
-    "MAX_FILE_COUNT",
-    "MAX_FILE_SIZE",
-    "MAX_OUTPUT_BYTES",
-    "MAX_STDERR_BYTES",
-    "MAX_TOTAL_FILE_SIZE",
     "SANDBOX_RUN_GID",
     "SANDBOX_RUN_UID",
-    "STDIN_FILE",
     "USER_ID_RE",
     "WORKSPACE",
     "myspace_cache_dir",
@@ -55,38 +47,12 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# Kept aligned with services/script_runner_service/server.py
-ALLOWED_EXTENSIONS = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".svg",
-    ".webp",
-    ".csv",
-    ".xlsx",
-    ".xls",
-    ".json",
-    ".txt",
-    ".pdf",
-    ".html",
-    ".htm",
-    ".docx",
-    ".pptx",
-    ".md",
-}
-MAX_FILE_SIZE = settings.sandbox.artifact_max_bytes
-MAX_TOTAL_FILE_SIZE = settings.sandbox.artifact_max_bytes
-MAX_FILE_COUNT = 20
-
 # 沙盒内运行用户代码的身份。与 backend 容器的 appuser 同为 UID 1000，这样 bind mount
 # 进来的 myspace 目录两边同属主，沙盒写的文件 backend 能覆盖和删除。
 # 镜像里 /workspace、/home/ubuntu 也归这个 UID（见 docker/Dockerfile.opensandbox）。
 SANDBOX_RUN_UID = 1000
 SANDBOX_RUN_GID = 1000
 
-MAX_OUTPUT_BYTES = 1024 * 1024
-MAX_STDERR_BYTES = 10240
 
 
 async def stream_to_file(chunks: AsyncIterable[bytes], destination: Path, *, max_bytes: int) -> int:
@@ -119,7 +85,6 @@ async def stream_to_file(chunks: AsyncIterable[bytes], destination: Path, *, max
 # CLI exports it once so both the backend and the sidecar child agree. Kept as the
 # single source for every model-facing ``/workspace`` mention and path we build.
 WORKSPACE = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
-STDIN_FILE = f"{WORKSPACE}/.hugagent_stdin.json"
 
 USER_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -128,13 +93,6 @@ def safe_user_id(user_id: str | None) -> str:
     """Return the value unchanged if valid; return an empty string if invalid/empty.
     Uniform replacement for the scattered ``uid if uid and USER_ID_RE.match(uid) else ""`` idiom."""
     return user_id if user_id and USER_ID_RE.match(user_id) else ""
-
-
-INTERPRETER_CMD = {
-    "python": "python3 -u",
-    "javascript": "node",
-    "bash": "bash",
-}
 
 
 def purge_credential_dir(root: Path) -> None:

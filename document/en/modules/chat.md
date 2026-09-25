@@ -534,3 +534,9 @@ Tools inherit their connector logo; skills and tools belonging to a plugin inher
 ### First response timeout
 
 Once a normal chat workflow starts, it has 30 seconds to produce visible text, reasoning text, or a tool interaction. Otherwise the run ends with “当前模型调用量大，算力资源紧张，请稍后再试！” (The model is busy; please try again later). Heartbeats, empty deltas, and setup status events do not satisfy this deadline. After the first meaningful response, only the existing inactivity timeout applies. The timeout is persisted and remains available after refresh or stream replay.
+
+### Human interactions with multiple workers
+
+User questions, file and automation confirmations, host/tool permission approvals, and design choices store requests and decisions in a shared TTL store. Any worker can validate and accept the answer; the original tool call resumes on its owning worker, without starting another model task or replaying the tool. The first valid decision wins. Session approvals remain scoped to the original permission domain and path/command. Refresh recovery reads the same shared state. Pending records stop being advertised after a lost owner's lease expires; a server restart does not automatically replay interrupted operations. Redis-free desktop deployments use the single-process memory backend.
+
+Yida QR login and organization selection also use shared TTL state, allowing the same login flow to continue after a worker switch or page refresh.

@@ -4,31 +4,29 @@
 连接已部署的团队服务器，或在 Windows、macOS 和 Linux 上由客户端离线安装并托管本机 CE 单机服务。
 两种方式都通过内置本地反代访问后端。
 
-登录走**方案 B**——系统浏览器跳转登录 + `hugagent://` deep-link 唤起 App + 一次性
-handoff 票据换 token。前端源码零改动（复用 `src/frontend`）。
-
-> 完整设计见 `internal design docs`。本目录是方案 B 的落地实现。
+登录使用**浏览器确认 + 客户端主动领取**：桌面端创建有期限的请求，浏览器登录后显示
+账号和核对码，用户确认后由桌面端凭独享密钥查询并领取会话。浏览器无需打开应用，
+也不会自动关闭；`hugagent://auth/focus` 仅用于登录完成后将窗口切到前台。
 
 ## 架构一图
 
-远程服务器模式保持原有瘦客户端架构：
+远程服务器和混合模式共用以下云端认证链路：
 
-```
-桌面App ──系统浏览器──► <server>/?desktop=1 ──SSO登录──► 前端换 handoff 票据
-                                                            │
-   hugagent://auth/callback?ticket=<handoff>  ◄──浏览器跳转──┘
-        │ OS 唤起 App
-        ▼
-   POST <server>/api/v1/auth/desktop/redeem {ticket}  → 真正 session token（存 OS 私有目录）
-        │
-        ▼
-   本地反代(127.0.0.1:随机端口)  每个 /api 请求注入 Cookie: jx_session=<token>
-        │  静态资源直接 serve 前端 dist；/api/* 转发后端；SSE 逐帧透传
-        ▼
-   Nginx → FastAPI 后端集群（零改动）
+```text
+桌面 App ──创建请求（独享密钥）──► 后端（5 分钟有效）
+    │ 系统浏览器打开 /?desktop_request=<request_id>
+    ▼
+浏览器登录 → 显示账号、核对码 → 用户点击“确认登录桌面端”
+    │ 同源确认
+    ▼
+后端记录授权结果 ◄── 桌面端凭独享密钥轮询
+    │ 领取会话，桌面端保存成功后发送 ack
+    ▼
+桌面本地反代注入会话 Cookie → 登录完成
 ```
 
-deep-link 上只走**单次、秒级过期**的 handoff 票据，长期 token 永不进 URL。
+独享密钥不进入 URL 或浏览器；确认后的授权结果仅允许发起设备领取，回执后清除。
+原有 handoff/redeem 接口保留给旧客户端，新客户端不再通过 ticket 回跳接收凭据。
 
 三平台本机服务模式在这条链路前增加一层客户端托管：
 
@@ -46,9 +44,9 @@ deep-link 上只走**单次、秒级过期**的 handoff 票据，长期 token �
 
 ## 依赖的后端能力（后端已内置）
 
-- `POST /v1/auth/desktop/handoff` — 浏览器侧用当前 cookie 会话换一次性 handoff 票据
-- `POST /v1/auth/desktop/redeem`  — App 侧用票据换回 session token
-- 前端 `?desktop=1` 桥接逻辑在 `stores/authStore.ts`
+- `POST /v1/auth/desktop/requests` 创建；同一路径下的详情、approve/deny、poll/ack/cancel 完成授权
+- 新版前端 `desktop_request` 确认逻辑在 `stores/desktopLogin.ts`
+- 旧版 `handoff/redeem` 接口和 `?desktop=1` 桥接保留以兼容旧客户端
 
 ## 前置环境（构建机）
 
@@ -542,3 +540,30 @@ Windows 当前执行器为随包 Git Bash，因此声明 `shell=bash`，不声�
 手动生成 .app.tar.gz 时使用 python3 desktop/scripts/create-macos-update.py --app /path/Example.app --output /path/Example.app.tar.gz --version X.Y.Z。
 不要直接用 macOS 默认 tar 生成更新归档，它可能自动加入 ._* AppleDouble 元数据，导致 Tauri 更新解包失败。
 发布工具会拒绝 AppleDouble 条目、多个应用根目录、路径穿越和与发布版本不一致的 Info.plist。生成归档后再签名，签名后不得改变内容。
+
+
+## 浏览器确认登录（新版客户端）
+
+新版使用设备绑定的 5 分钟授权请求替代旧方案 B 的凭据回跳。客户端调用
+POST /api/v1/auth/desktop/requests，只把返回的 request_id 放入浏览器 URL 的
+desktop_request 参数；客户端随机生成的 256-bit device_secret 仅保留于进程内存。
+浏览器 GET 请求详情，显示账号与核对码，经同源 POST approve/deny 明确决策。
+客户端按 interval 查询 poll，接收后 ack；ack 清除可领取的会话凭据。ack 前同设备
+重试只返回同一个结果，避免网络响应丢失使已确认请求失效。取消/退出通过会话纪元阻止迟到结果。
+
+接口属于 CE/EE 共用路由，Redis CAS 保证多 worker 状态转换原子性，内存模式仅供单进程。
+hugagent://auth/focus 只聚焦窗口，不携带任何认证凭据。服务器原有 handoff/redeem
+接口保留给旧客户端；新客户端不再接受未绑定的旧式 ticket deep-link。
+
+验证（仓库根目录 / WSL）：
+
+- PYTHONPATH=src/backend .venv/bin/python -m pytest src/backend/tests/test_desktop_device_login.py -q
+  （内存和独立 Unix socket Redis；需要 redis-server）。
+- cd desktop/src-tauri && TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo test --lib --offline
+- cd desktop-uos && npm test
+- cd src/frontend && npm run build && node scripts/test-desktop-login-browser.mjs
+  （需要 Playwright，支持 PLAYWRIGHT_MODULE、PLAYWRIGHT_CHROMIUM_EXECUTABLE 指定已有安装）。
+
+浏览器验收启动独立回环测试 API，使用真实构建网页、真实授权 API、Rust 网络客户端和 UOS
+登录控制器。只有上游 SSO 会话由测试夹具提供，不访问真实账号或业务数据库。
+此自动测试不代替原生 Edge、系统凭据库、Tauri 窗口切换和混合模式实际能力同步的发行前验收。

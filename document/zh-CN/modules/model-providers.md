@@ -4,6 +4,9 @@
 
 HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ollama、DashScope、DeepSeek、各类网关均可）。模型配置以数据库为准——管理员在 Config 管理台登记「模型供应商」，再把供应商绑定到「角色」（主推理、摘要、向量化等），全链路经 `ModelConfigService` 校验数据库版本后使用配置快照，改配置无需重启。`MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` 等环境变量保留为兼容兜底与 MCP 子进程注入用途。
 
+
+在 Config → 模型管理（商业版 EE）的供应商列表中，直接点击「状态」列的启用／停用开关即可保存状态，无需打开编辑弹窗。状态切换不测试上游连接，因此模型离线时仍可停用；保存失败会保持原状态。编辑弹窗不再提供启用开关，保存其他配置也不会改变启用状态。新建模型默认启用。
+
 ## 配置模型：供应商 + 角色
 
 两张表（`core/db/models.py`）：`model_providers`（base_url / api_key / model_name / extra_config / is_active）与 `model_role_assignments`（role_key → provider_id）。角色定义在 `core/db/model_repository.py::ROLE_DEFINITIONS`：

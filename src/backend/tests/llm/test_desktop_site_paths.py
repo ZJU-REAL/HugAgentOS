@@ -1,4 +1,7 @@
 
+from core.sandbox.process_completion import CompletionMixin
+from tests.sandbox.runner_client import run_runner
+
 import ntpath
 import pytest
 
@@ -74,13 +77,13 @@ def test_publish_uses_real_runner_and_same_session_files(tmp_path, monkeypatch):
     workspace = server._session_workspace("site-chat",create=True)
     (workspace/"site").mkdir()
     (workspace/"site/index.html").write_bytes(b"<html>same session</html>")
-    class Provider:
-        async def execute(self, request):
-            return await server.execute(server.ExecuteRequest(
+    class Provider(CompletionMixin):
+        async def start_process(self, request, yield_time_ms=10000):
+            return vars(await run_runner(server.ProcessRequest(
                 script_content=request.script_content,script_name=request.script_name,
                 language=request.language,session_id=request.session_id,
                 params=request.params,user_id=request.user_id,
-            ))
+            )))
         async def get_file(self, session, path, user_id=None):
             result=await server.get_file(server.GetFileRequest(session_id=session,path=path))
             return base64.b64decode(result.content_b64)
@@ -118,6 +121,6 @@ async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypat
     finally:
         CURRENT_PERMISSION_TICKET.reset(token)
     assert _payload(response).get("ok"),_payload(response)
-    result=await server.execute(server.ExecuteRequest(session_id="chat-1",user_id="user-1",language="bash",script_name="read.sh",script_content=f'IFS= read -r text < "{real_path}"; printf "%s" "$text"'))
+    result=await run_runner(server.ProcessRequest(session_id="chat-1",user_id="user-1",language="bash",script_name="read.sh",script_content=f'IFS= read -r text < "{real_path}"; printf "%s" "$text"'))
     assert result.exit_code == 0,result.stderr
     assert result.stdout.strip()=="same-file"

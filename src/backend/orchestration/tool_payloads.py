@@ -200,6 +200,7 @@ def _build_skill_load_payload(skill_id: str) -> Dict[str, Any]:
 # result finally arrives.
 _FAST_EMIT_TOOLS = frozenset({
     "bash",
+    "write_stdin",
     "Read",
     "Edit",
     "Write",

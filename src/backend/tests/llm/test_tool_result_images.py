@@ -7,7 +7,6 @@ import random
 from dataclasses import replace
 
 import pytest
-from PIL import Image
 from agentscope.agent import ContextConfig
 from agentscope.message import (
     Base64Source,
@@ -28,6 +27,7 @@ from core.llm.context_ir import IMAGE_TOKEN_RESERVE
 from core.llm.offloader import SandboxOffloader
 from core.llm.tool_collector import ToolCollector
 from core.llm.tools.read_image_tool import register_read_image
+from PIL import Image
 
 
 class CaptureModel(OpenAICompatChatModel):
@@ -59,7 +59,7 @@ class MemoryStorage:
     def __init__(self):
         self.files = {}
 
-    async def put_file(self, session, path, data):
+    async def put_file(self, session, path, data, user_id=None):
         self.files[path] = data
 
 
@@ -149,7 +149,7 @@ async def test_mixed_result_preserves_images_and_offloads_only_long_text(large_p
     if text:
         assert len(files) == 1
         saved = next(iter(files.values())).decode("utf-8")
-        assert saved and saved in text
+        assert saved == text
         assert encoded not in saved
         assert "https://example.test/shot.png" not in saved
         assert text not in json.dumps(messages, ensure_ascii=False)
@@ -172,7 +172,7 @@ async def test_plain_text_still_offloads_when_over_limit():
     )
     assert wire_images(messages) == []
     assert len(files) == 1
-    assert next(iter(files.values())).decode("utf-8") in text
+    assert next(iter(files.values())).decode("utf-8") == text
     assert "<<<TRUNCATED>>>" in json.dumps(messages)
 
 

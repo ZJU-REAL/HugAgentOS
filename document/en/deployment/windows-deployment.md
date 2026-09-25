@@ -467,3 +467,27 @@ Update the bundled desktop frontend, local backend and cloud backend. The new cl
 fresh manifest reads to avoid stale worker caches causing repeated prompts. Older cloud servers may
 still return an old manifest briefly until their caches expire. Updating the website alone does not
 fix an already installed desktop client.
+
+
+### Browser-confirmed desktop login
+
+New Windows, macOS, Linux and UOS clients create a login request valid for five minutes.
+After signing in, the browser displays the current account and a verification code.
+Match it with the desktop code and select “Confirm desktop login”. The desktop receives
+the result from the server and opens the application; hybrid mode then establishes the
+local identity bridge and synchronizes capabilities. Authentication does not depend on
+an external-protocol prompt. The page stays open until you close it; its optional app
+link only focuses the desktop window.
+
+Reject in the browser or cancel in the desktop to invalidate the request. Reopening
+the browser reuses a live request; expired requests must be restarted. Temporary network
+failures retry with backoff within the deadline. After the desktop accepts and acknowledges
+delivery, the server removes the retrievable credential. Retrying delivery never creates
+an additional session. Account changes require reviewing the account and confirming again.
+The desktop-only proof never enters browser pages, URLs or disk.
+
+Update the server backend and web UI before distributing updated desktop packages.
+The old handoff/redeem endpoints remain available for older clients. CE local mode
+includes the same new API in the full desktop bundle. Reverse proxies must preserve the
+original Host, including nonstandard ports, for same-origin approval checks; the standard
+frontend Nginx configuration does so.

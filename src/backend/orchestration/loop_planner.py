@@ -18,6 +18,7 @@
 
 所有函数失败时返回兜底值（None/[]），绝不拖垮循环——driver 侧永远有旧链路可退。
 """
+
 from __future__ import annotations
 
 import json
@@ -38,11 +39,11 @@ _MODEL_ROLE = "loop_reviewer"
 # ── 侦察：只读 agent 亲自摸一遍工作区/项目 ─────────────────────────────────────
 async def _workspace_is_empty(session_id: str, user_id: str) -> bool:
     """纯任务型循环的快速短路：/workspace 还什么都没有就不值得起一次侦察 agent。"""
-    from core.sandbox import ExecuteRequest, get_sandbox_provider
+    from core.sandbox import ProcessRequest, get_sandbox_provider
 
     try:
-        res = await get_sandbox_provider().execute(
-            ExecuteRequest(
+        res = await get_sandbox_provider().run_to_completion(
+            ProcessRequest(
                 script_content="ls -A /workspace 2>/dev/null | grep -v '^\\.' | head -5",
                 script_name="_loop_scout_ls.sh",
                 language="bash",
@@ -118,8 +119,12 @@ async def scout_workspace(
     try:
         async for et, payload in sa.stream(
             [{"role": "user", "content": prompt}],
-            {"user_id": user_id, "model_name": model_name or "",
-             "enable_thinking": False, "chat_mode": "medium"},
+            {
+                "user_id": user_id,
+                "model_name": model_name or "",
+                "enable_thinking": False,
+                "chat_mode": "medium",
+            },
         ):
             if et == "text_delta":
                 text += payload
@@ -176,7 +181,9 @@ async def _plan_llm_once(
     return text
 
 
-def _sanitize_requirements(items: Optional[List[Any]], *, id_prefix: str = "R") -> List[Dict[str, Any]]:
+def _sanitize_requirements(
+    items: Optional[List[Any]], *, id_prefix: str = "R"
+) -> List[Dict[str, Any]]:
     reqs: List[Dict[str, Any]] = []
     for i, raw in enumerate(items or [], start=1):
         if not isinstance(raw, dict):
@@ -203,20 +210,20 @@ async def plan_requirements(
     """侦察纪要 + 目标 → 需求账本。失败返回 []（driver 退回旧 decompose 链路）。"""
     criteria_block = (
         "已知验收标准（据此拆，勿遗漏）：\n"
-        + "\n".join(f"- {c}" for c in goal_spec.acceptance_criteria) + "\n\n"
-        if goal_spec.acceptance_criteria else ""
+        + "\n".join(f"- {c}" for c in goal_spec.acceptance_criteria)
+        + "\n\n"
+        if goal_spec.acceptance_criteria
+        else ""
     )
     survey_block = (
         f"## 侦察纪要（侦察员亲自查看工作区后的实况，规划必须以此为准）\n{survey}\n\n"
-        if survey else ""
+        if survey
+        else ""
     )
     prompt = (
         "你是一个自主循环的规划器。把目标拆成一组**离散、可独立核验**的需求账本，"
         "循环会一次只啃一条、逐条做扎实、逐条由独立评审员核验。\n\n"
-        f"## 目标\n{goal_spec.objective}\n\n"
-        + criteria_block
-        + survey_block
-        + "## 拆解规则\n"
+        f"## 目标\n{goal_spec.objective}\n\n" + criteria_block + survey_block + "## 拆解规则\n"
         "1. 条数**按任务体量定**：简单目标 1~2 条即可，复杂目标最多 8 条；不要为了拆而拆。\n"
         "2. 每条是一个能客观判断「做没做到」的具体特性/改动/交付物；粒度适中。\n"
         "3. 若侦察纪要显示某要件**已存在且达标**，不要再立需求重做；在既有成果上补缺口。\n"
