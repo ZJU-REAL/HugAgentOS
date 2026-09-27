@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { assertMacosSigning } from "./macos-signing.mjs";
 import {
@@ -226,6 +227,7 @@ function directorySize(root) {
 
 export function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
+  const officecliEntitlements = fileURLToPath(new URL("./officecli-jit.entitlements.plist", import.meta.url));
   const { identity, mode } = assertMacosSigning();
   if (identity === "-") {
     console.warn(
@@ -249,6 +251,10 @@ export function signMacRuntime(root) {
     if (!kind.includes("Mach-O")) continue;
     const args = ["--force", "--sign", identity];
     if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
+    // OfficeCLI embeds CoreCLR, which needs JIT permission under Hardened Runtime.
+    if (path === join(root, "python", "bin", "officecli") && identity !== "-") {
+      args.push("--entitlements", officecliEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }
