@@ -40,3 +40,9 @@ Local read permissions still apply. Prefer real absolute paths: delivery resolve
 against the bound project, or the conversation workspace when no local project is bound.
 Cloud mode retains export followed by file-ID delivery. All-failed calls return `ok: false`;
 partial failures include separate successful and failed lists.
+
+## macOS signing and Keychain authorization
+
+A fixed self-signed certificate supports stable upgrade identity without Apple enrollment; Developer ID with notarization is also supported.
+Reuse the same certificate and application identifier to preserve Keychain authorization across rebuilds.
+See [macOS signing and upgrades](macos-signing.md) for build checks, certificate setup and existing-user migration.

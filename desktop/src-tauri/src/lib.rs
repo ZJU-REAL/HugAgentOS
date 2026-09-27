@@ -944,7 +944,8 @@ fn build_window(app: &tauri::AppHandle, label: &str, url: &str) -> tauri::Result
         .decorations(true)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 13.0));
+        // Move the native controls down 8 logical pixels within the existing sidebar inset.
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 21.0));
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
 

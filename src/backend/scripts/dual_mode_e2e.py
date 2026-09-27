@@ -425,9 +425,9 @@ class Device:
         deadline = time.time() + timeout_s
         with self.http.stream(
             "POST",
-            f"{self.base}/v1/chats/stream",
+            f"{self.base}/v1/agents/responses",
             headers={**self.h(user), "Accept": "text/event-stream"},
-            json={"chat_id": chat_id, "message": message, "agent_id": agent_id, **selection},
+            json={"chat_id": chat_id, "message": message, "agent_id": agent_id, **selection, "stream": True},
             timeout=timeout_s,
         ) as r:
             if r.status_code >= 400:

@@ -7,6 +7,7 @@ import {
 import { useFlashKey } from '../../hooks/useFlash';
 import { t, tCtx } from '../../i18n';
 import { useEditionStore } from '../../stores';
+import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { copyToClipboard } from '../../utils/clipboard';
 
 const { Text, Paragraph } = Typography;
@@ -225,20 +226,23 @@ export function ApiKeyPanel() {
         </Paragraph>
         <div>
           <Text strong style={{ color: 'inherit' }}>{t('智能体（原生）')}</Text>：
-          <Text code copyable>{`POST ${window.location.origin}/api/v1/chats/stream`}</Text>
+          <Text code copyable>{`POST ${stablePublicOrigin()}/api/v1/agents/responses`}</Text>
         </div>
+        <Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
+          {t('同一接口通过 stream: true 返回 SSE，通过 stream: false 直接返回 ChatResponse JSON，回复文本位于 response 字段。')}
+        </Paragraph>
         {modelGatewayEnabled && (
           <>
             <div style={{ marginTop: 6 }}>
               <Text strong style={{ color: 'inherit' }}>OpenAI {t('兼容')}</Text>
               {t('（Cherry Studio 等，Base URL）')}：
-              <Text code copyable>{`${window.location.origin}/gateway/v1`}</Text>
+              <Text code copyable>{`${stablePublicOrigin()}/gateway/v1`}</Text>
               <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>→ POST /v1/chat/completions</Text>
             </div>
             <div style={{ marginTop: 6 }}>
               <Text strong style={{ color: 'inherit' }}>Anthropic {t('兼容')}</Text>
               {t('（Claude Code 等，Base URL）')}：
-              <Text code copyable>{`${window.location.origin}/gateway/anthropic`}</Text>
+              <Text code copyable>{`${stablePublicOrigin()}/gateway/anthropic`}</Text>
               <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>→ SDK {t('自动追加')} /v1/messages</Text>
             </div>
             <Paragraph style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: 'inherit' }}>

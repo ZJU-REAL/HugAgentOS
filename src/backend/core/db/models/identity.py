@@ -144,7 +144,8 @@ class UserApiKey(Base):
     encryption) to support "copy again". The plaintext is returned exactly once at creation;
     list responses carry no plaintext — copying goes through the reveal endpoint, which
     decrypts on demand. Callers send ``Authorization: Bearer sk-jx-...``; the auth layer looks
-    the key up by hash and inherits all of that user's capabilities.
+    the key up by hash. A non-null agent_id restricts it to that agent's API
+    sessions; null preserves the full-account personal-key contract.
     """
 
     __tablename__ = "user_api_keys"
@@ -155,6 +156,9 @@ class UserApiKey(Base):
         ForeignKey("users_shadow.user_id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Immutable resource scope. No SET NULL FK: deleting an agent must never
+    # promote its credential to an unrestricted personal key.
+    agent_id = Column(String(64), nullable=True)
     name = Column(String(128), nullable=False, default="API Key")
     key_prefix = Column(
         String(32), nullable=False
@@ -172,6 +176,7 @@ class UserApiKey(Base):
     __table_args__ = (
         UniqueConstraint("key_hash", name="uq_user_api_keys_key_hash"),
         Index("idx_user_api_keys_user_id", "user_id"),
+        Index("idx_user_api_keys_user_agent", "user_id", "agent_id"),
         Index("idx_user_api_keys_key_hash", "key_hash"),
     )
 

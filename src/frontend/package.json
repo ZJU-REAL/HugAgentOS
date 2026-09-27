@@ -43,13 +43,19 @@
     "test:artifact-browser": "node scripts/test-artifact-browser.mjs",
     "test:canvas-layout-browser": "node scripts/test-canvas-layout-browser.mjs",
     "test:html-preview-browser": "node scripts/test-html-preview-browser.mjs",
-    "test:desktop-menu-update": "esbuild scripts/test-desktop-update.tsx scripts/test-desktop-folder.ts --bundle --platform=node --format=esm --jsx=automatic --packages=external --define:import.meta.env={} --outdir=node_modules/.tmp/desktop-menu-update --out-extension:.js=.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-update.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-folder.mjs",
+    "test:desktop-menu-update": "esbuild scripts/test-desktop-update.tsx scripts/test-desktop-folder.ts scripts/test-client-download.ts --bundle --platform=node --format=esm --jsx=automatic --packages=external --define:import.meta.env={} --outdir=node_modules/.tmp/desktop-menu-update --out-extension:.js=.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-update.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-folder.mjs && node node_modules/.tmp/desktop-menu-update/test-client-download.mjs",
     "test:attachment-routing": "esbuild scripts/test-attachment-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-routing.mjs && node node_modules/.tmp/test-attachment-routing.mjs",
     "test:attachment-send": "esbuild scripts/test-attachment-send.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-send.mjs && node node_modules/.tmp/test-attachment-send.mjs",
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:hybrid-plugin-routing": "esbuild scripts/test-hybrid-plugin-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-hybrid-plugin-routing.mjs && node node_modules/.tmp/test-hybrid-plugin-routing.mjs",
     "test:capability-sync": "esbuild scripts/test-capability-sync.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-capability-sync.mjs && node node_modules/.tmp/test-capability-sync.mjs",
-    "test:folder-upload-browser": "node scripts/test-folder-upload-browser.mjs"
+    "test:folder-upload-browser": "node scripts/test-folder-upload-browser.mjs",
+    "test:agent-api": "esbuild scripts/test-agent-api.ts --bundle --platform=node --format=esm --define:import.meta.env='{}' --outfile=node_modules/.tmp/test-agent-api.mjs && node node_modules/.tmp/test-agent-api.mjs",
+    "test:agent-api-browser": "node scripts/test-agent-api-browser.mjs",
+    "test:chat-fork-browser": "node scripts/test-chat-fork-browser.mjs",
+    "test:chat-fork": "esbuild scripts/test-chat-fork.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-chat-fork.mjs && node node_modules/.tmp/test-chat-fork.mjs",
+    "test:fork-composer": "esbuild scripts/test-fork-composer.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-composer.mjs && node node_modules/.tmp/test-fork-composer.mjs",
+    "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

@@ -226,8 +226,9 @@ def _run(client, headers, stub_url) -> tuple[bool, str]:
     answer_parts: list[str] = []
     with client.stream(
         "POST",
-        "/v1/chats/stream",
+        "/v1/agents/responses",
         json={
+            "stream": True,
             "chat_id": chat_id,
             "message": "看看我发的这张图，把图上的编号原样告诉我。",
             "chat_mode": "fast",

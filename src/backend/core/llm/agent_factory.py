@@ -806,6 +806,7 @@ async def create_agent_executor(
     # to ~1M tokens per iteration. Loop callers pass a tighter cap; the
     # offloader keeps full content readable in the tool workspace .offload directory.
     tool_result_limit: Optional[int] = None,
+    agent_api_scope: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     """Create and return an AgentScope 2.0 Agent along with its MCP client list.
 
@@ -815,6 +816,42 @@ async def create_agent_executor(
     """
     import asyncio
     from core.llm.middlewares import CURRENT_RUN_BINDING
+    from core.llm.agent_api_runtime import parse_api_scope, scope_mcp_servers
+    from core.llm.evaluation_runtime import parse_evaluation_scope, evaluation_user_agent
+
+    _eval_scope = parse_evaluation_scope(
+        owner_user_id=current_user_id, chat_id=chat_id, session_id=sandbox_session_id,
+    )
+    if _eval_scope is not None:
+        if agent_api_scope:
+            raise ValueError("Evaluation cannot inherit an agent API execution scope")
+        memory_enabled = False
+        project_ctx = channel_origin = mode_spec = None
+        top_level_chat = workflow_mode = plan_mode = batch_mode = turbo_mode = False
+        enabled_mcp_ids, enabled_skill_ids, enabled_kb_ids = [], [], []
+        invoked_skill_ids, invoked_mcp_ids, required_mcp_ids = [], [], []
+        required_skill_id = required_skill_name = required_plugin_id = required_plugin_name = None
+        required_plugin_skill_ids, required_plugin_mcp_ids = [], []
+        ontology_runtime = {}
+        workspace_id = sandbox_session_id = _eval_scope.session_id
+        user_agent = evaluation_user_agent(user_agent)
+        from core.llm.builtin_subagents import get_builtin_subagent
+        visible_subagents = [item for item in visible_subagents or []
+                             if get_builtin_subagent(item.get("agent_id")) is not None]
+
+    _api_scope = parse_api_scope(
+        agent_api_scope, owner_user_id=str(current_user_id or ""),
+        chat_id=chat_id, agent_id=getattr(user_agent, "agent_id", None),
+    )
+    if _api_scope is not None:
+        memory_enabled = False
+        visible_subagents = []
+        project_ctx = None
+        channel_origin = None
+        top_level_chat = False
+        workflow_mode = plan_mode = batch_mode = turbo_mode = False
+        mode_spec = None
+        sandbox_session_id = _api_scope.sandbox_session_id
 
     # The shared subagent role is an administrator override. Resolve it before
     # tools/vision/manifests so all surfaces use the same effective provider.
@@ -947,6 +984,7 @@ async def create_agent_executor(
             if (
                 not disable_tools
                 and not capabilities_enabled()
+                and _api_scope is None
                 and _plug_sub.progressive_plugin_loading_enabled()
             ):
                 try:
@@ -1134,6 +1172,7 @@ async def create_agent_executor(
         not disable_tools
         and current_user_id
         and chat_id
+        and _eval_scope is None
         and (not turbo_mode or _mode_manual_invoke)
     ):
         from core.llm import plugin_loader as _sticky_plugins
@@ -1209,7 +1248,7 @@ async def create_agent_executor(
     # Deferral happens BEFORE the skill-bound-MCP merge below so a deferred
     # skill doesn't pull its bound MCP servers into the assembly either.
     _progressive = None
-    if not disable_tools and not turbo_mode and user_agent is None and current_user_id:
+    if not disable_tools and not turbo_mode and user_agent is None and current_user_id and _eval_scope is None:
         from core.llm import plugin_loader as _plug
 
         if not capabilities_enabled() and _plug.progressive_plugin_loading_enabled():
@@ -1439,7 +1478,7 @@ async def create_agent_executor(
 
     # The current user's self-added private MCPs (owner-isolated, queried from the DB on demand)
     owned_mcp_servers: dict = {}
-    if current_user_id:
+    if current_user_id and _eval_scope is None:
         try:
             owned_mcp_servers = McpServerConfigService.get_instance().get_owned_servers(
                 str(current_user_id),
@@ -1471,6 +1510,9 @@ async def create_agent_executor(
             raise  # a desktop binding failure must not fall back to another source
         bridge_mcp_servers = {}
 
+    if _api_scope is not None and bridge_mcp_servers:
+        raise ValueError("API 模式不能借用个人桌面能力网关，请使用已发布的服务端 MCP")
+
     for _sid, _reason in _unavailable_connectors.items():
         _note_unavailable(f"连接器「{_sid}」暂不可用（{_reason}）。")
     if enabled_mcp_ids is not None:
@@ -1491,7 +1533,7 @@ async def create_agent_executor(
     # Device capabilities keep the complete authorized closure frozen, but defer
     # model exposure and MCP connections. This applies to main and child agents.
     _desktop_progressive = None
-    if capabilities_enabled() and not disable_tools:
+    if capabilities_enabled() and not disable_tools and _api_scope is None and _eval_scope is None:
         from core.llm import plugin_loader as _desktop_plugins
 
         _desktop_progressive = await asyncio.to_thread(
@@ -1671,6 +1713,11 @@ async def create_agent_executor(
         reranker_enabled=reranker_enabled,
     )
 
+    if _api_scope is not None:
+        enabled_servers = scope_mcp_servers(enabled_servers, _api_scope)
+    if _eval_scope is not None:
+        enabled_servers, enabled_mcp_keys, enabled_skill_ids = {}, [], []
+
     # ── Phase 1: Concurrent pre-loading ────────────────────────────────
     # DB overlays, skill metadata, and prompt DB parts are independent —
     # run them in parallel via thread pool to cut first-token latency.
@@ -1733,6 +1780,7 @@ async def create_agent_executor(
         and not plan_mode
         and not _is_channel_run
         and not automation_run
+        and _api_scope is None
     )
 
     if not disable_tools and enabled_servers:
@@ -1750,7 +1798,7 @@ async def create_agent_executor(
         # clients are bound to the main loop's task scope and would crash
         # anyio on cross-loop teardown. Spawn fresh per-request stdio + HTTP
         # instead, and rely on close_clients() in the caller's loop.
-        if isolated:
+        if isolated or _api_scope is not None:
             from core.llm.mcp_manager import connect_mcp_clients
 
             mcp_clients = await connect_mcp_clients(stdio_servers)
@@ -1947,7 +1995,7 @@ async def create_agent_executor(
             if d:
                 allowed_skill_dirs.append(d)
 
-    if not disable_tools and not capabilities_enabled():
+    if not disable_tools and not capabilities_enabled() and _api_scope is None and _eval_scope is None:
         from core.agent_skills.config import (
             get_enabled_skill_sources,
             get_sandbox_skills_dir,
@@ -1988,7 +2036,7 @@ async def create_agent_executor(
     # (main/plan-execute). Batch items / subagents (isolated/batch) have no
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
-    _interactive: bool = not (isolated or batch_mode)
+    _interactive: bool = not (isolated or batch_mode or _api_scope or _eval_scope)
 
     # Browser-backed model questions are deliberately a top-level standard-chat
     # capability. Channels, automation, batch/plan workers and subagents have no
@@ -2026,7 +2074,7 @@ async def create_agent_executor(
     # 只读、按 user_id 锁死作用域，注册在收窄/标准两条路之前：用户可以在任何模式下把
     # 一段旧会话引用进来，注入的名片明确要求「细节去 read_chat 取」，模式收窄了工具却
     # 不在，等于让模型对着一张读不开的名片作答。
-    if not disable_tools and current_user_id:
+    if not disable_tools and current_user_id and _api_scope is None and _eval_scope is None:
         from core.llm.tools import register_chat_history_tools
 
         register_chat_history_tools(
@@ -2036,7 +2084,7 @@ async def create_agent_executor(
             project_id=(project_ctx or {}).get("project_id"),
         )
 
-    if not disable_tools and turbo_mode and not _turbo_code_exec:
+    if not disable_tools and turbo_mode and not _turbo_code_exec and _api_scope is None and _eval_scope is None:
         # Turbo keeps only cross-turn attachment access (the file-context hook
         # references this tool for historical attachments); every other native
         # tool — sandbox/bash/file ops — is out of scope for quick lookup.
@@ -2055,7 +2103,7 @@ async def create_agent_executor(
             )
     # 收窄模式开了代码执行位（_turbo_code_exec）就走完整原生工具注册：MCP/技能面
     # 仍按模式收窄（上面已经归一），但沙箱/文件/产物工具与标准模式同一套。
-    if not disable_tools and (not turbo_mode or _turbo_code_exec):
+    if not disable_tools and (not turbo_mode or _turbo_code_exec) and _api_scope is None and _eval_scope is None:
         register_sandboxed_view_text_file(
             toolkit,
             allowed_skill_dirs,
@@ -2312,6 +2360,24 @@ async def create_agent_executor(
                 _log.warning("[factory] eligible_datasource_ids failed: %s", _e)
             if _eligible_ds:
                 register_get_data_context(toolkit, _eligible_ds)
+
+    if not disable_tools and _eval_scope is not None:
+        from core.llm.evaluation_tools import register_evaluation_tools
+        from core.vision import resolve_vision_mode
+        register_evaluation_tools(
+            toolkit, _eval_scope, read_only=read_only, allow_bash=allow_bash,
+            vision_mode=resolve_vision_mode(model_provider_id or ""),
+        )
+
+    if not disable_tools and _api_scope is not None:
+        from core.llm.agent_api_tools import register_agent_api_tools
+        register_sandboxed_view_text_file(
+            toolkit, allowed_skill_dirs, loader, loaded_skill_ids=loaded_skill_ids,
+        )
+        register_agent_api_tools(
+            toolkit, _api_scope, read_only=read_only or not allow_bash,
+            skill_dirs={sid: loader.get_skill_dir(sid) for sid in skill_ids_to_register or []},
+        )
 
     # ── Phase 4: Build system prompt (DB parts pre-fetched) ──
     _log.info("[factory] +%s tools registered", _elapsed())
@@ -2888,7 +2954,7 @@ async def create_agent_executor(
     # same desktop runner. Environment facts must survive that prompt choice.
     from core.config.local_mode import local_mode_enabled
 
-    if local_mode_enabled() and not any(
+    if _api_scope is None and _eval_scope is None and local_mode_enabled() and not any(
         section.id in {"runtime/environment", "runtime/local_mode"}
         for section, _ in _manifest_builder.prompt_section_sources()
     ):
@@ -2938,6 +3004,33 @@ async def create_agent_executor(
                 _elapsed(),
                 len(fragments),
             )
+
+    if _eval_scope is not None:
+        _eval_guidance = (
+            "This is a benchmark attempt in one leased OpenSandbox container. "
+            "Native bash, Read, Write, Edit, Glob, Grep and child agents share that container. "
+            "Use the task's requested paths. Relative file paths use /workspace. "
+            "Account files, credentials, history, memory and external connectors are unavailable. "
+            "Leave outputs at the requested task paths for the verifier; do not publish artifacts."
+        )
+        system_prompt += "\n\n" + _eval_guidance
+        _manifest_builder.add_prompt_section(
+            "runtime/evaluation", _eval_guidance, origin="builtin:evaluation",
+            trust="platform", priority=980, cache_class="capability_set", version="1",
+        )
+
+    if _api_scope is not None:
+        _api_guidance = (
+            "当前是子智能体专属 API 会话，只能使用本智能体绑定的能力及当前会话产物。"
+            "不提供账号的个人记忆、其他会话、个人空间或个人登录凭据。"
+            "bash 和文件沙箱操作需要独立容器；不可用时如实说明，不尝试主机命令或其他路径。"
+            "生成文件后用 sandbox_get_artifact 登记，再用 pin_to_workspace 交付文件 ID。"
+        )
+        system_prompt += "\n\n" + _api_guidance
+        _manifest_builder.add_prompt_section(
+            "runtime/agent_api", _api_guidance, origin="builtin:agent_api",
+            trust="platform", priority=980, cache_class="capability_set", version="1",
+        )
 
     # Create model (streaming enabled for SSE)
     # Mode-specific model role: plan mode → plan_agent → falls back to
@@ -3288,7 +3381,7 @@ async def create_agent_executor(
             user_id=current_user_id,
             interactive=_interactive,
             approval_available=_tool_approval_available,
-            default_allow=_default_allow_builtin_tools(
+            default_allow=bool(_api_scope or _eval_scope) or _default_allow_builtin_tools(
                 channel_origin=channel_origin,
                 automation_run=automation_run,
             ),
@@ -3347,7 +3440,10 @@ async def create_agent_executor(
     # 的构造一律拿不到——催一个不存在的工具只会让模型编造调用。
     if _plan_tool_enabled:
         _policy_middlewares.append(PlanStaleReminderMiddleware())
-    _policy_middlewares.append(FinishPinGuardMiddleware(batch_mode=batch_mode))
+    # The legacy guard directly pins ids found in arbitrary tool output. API
+    # delivery must go through the scoped tool's ownership check and persistence.
+    if _api_scope is None and _eval_scope is None:
+        _policy_middlewares.append(FinishPinGuardMiddleware(batch_mode=batch_mode))
     # The Agent sees one framework adapter. Transitional AgentScope policies
     # execute inside its compatibility chain and can be deleted one by one as
     # their neutral HookSpec replacements reach parity.
@@ -3471,7 +3567,13 @@ async def create_agent_executor(
             from core.llm.offloader import SandboxOffloader
             from core.sandbox.factory import get_sandbox_provider
 
-            _offloader = SandboxOffloader(get_sandbox_provider(), _sbx_sess, user_id=current_user_id)
+            if _api_scope is not None:
+                from core.llm.agent_api_tools import _provider as api_sandbox_provider
+                _offloader = SandboxOffloader(
+                    api_sandbox_provider(), _sbx_sess, user_id=_api_scope.sandbox_user_id,
+                )
+            else:
+                _offloader = SandboxOffloader(get_sandbox_provider(), _sbx_sess, user_id=current_user_id)
         except Exception as exc:  # noqa: BLE001
             _log.warning("[factory] offloader 初始化跳过: %s", exc)
 

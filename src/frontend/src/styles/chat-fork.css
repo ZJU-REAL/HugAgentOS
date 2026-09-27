@@ -1,0 +1,28 @@
+.jx-chatForkBanner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px auto 12px;
+  padding: 9px 12px;
+  width: min(100%, 880px);
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--color-bg-layout);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.jx-chatForkBanner button {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.jx-chatForkBanner button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.jx-chatForkBanner-note { margin-left: auto; opacity: .8; }
+.jx-msgActionBtn:disabled { cursor: default; opacity: .45; }

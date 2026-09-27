@@ -9,6 +9,7 @@ export const DESKTOP_RUNTIME_INPUT_FILES = Object.freeze([
   "desktop/licenses/Office-runtime-NOTICES.txt",
   "desktop/licenses/Git-Bash-NOTICES.txt",
   "desktop/scripts/build-runtime.mjs",
+  "desktop/scripts/macos-signing.mjs",
   "desktop/scripts/desktop-dependencies.mjs",
   "desktop/scripts/install-native-tools.py",
   "desktop/scripts/runtime-smoke.py",
@@ -141,11 +142,23 @@ export function readAndValidateWindowsDesktopLock(root) {
 export function desktopDependencyFingerprint(
   root,
   target = currentDesktopTarget(),
+  env = process.env,
 ) {
   const config = desktopTargetConfig(target);
   const lock = readAndValidateDesktopLock(root, target);
   const hash = createHash("sha256");
   hash.update("desktop-dependencies-v3\0");
+  if (target.startsWith("darwin-")) {
+    // Rebuild and reactivate the runtime when its signing mode or identity changes.
+    const mode = env.HUGAGENT_MACOS_SIGNING_MODE?.trim() || "developer-id";
+    const identity = env.APPLE_SIGNING_IDENTITY?.trim() || "-";
+    hash.update(mode);
+    hash.update("\0");
+    hash.update(mode === "self-signed" ? identity.toUpperCase() : identity);
+    hash.update("\0");
+    hash.update(mode === "self-signed" ? "" : env.APPLE_TEAM_ID?.trim() || "");
+    hash.update("\0");
+  }
   hash.update(target);
   hash.update("\0");
   for (const file of targetInputFiles(target)) {

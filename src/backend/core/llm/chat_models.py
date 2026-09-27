@@ -11,7 +11,7 @@ Dispatches by provider (vendor) to three engine kinds (see core/llm/providers/re
   - litellm: adapted via litellm (Bedrock etc.)
 
 Two hard requirements for subclassing ``OpenAIChatModel`` (OpenAI-compatible path only):
-  1. Provider-configured timeouts apply to connect/read/write/pool, including
+  1. A unified 600-second timeout applies to connect/read/write/pool, including
      streaming reads, through an owned ``httpx.AsyncClient``.
   2. Qwen/minimax go through OpenAI-compat, where the thinking-chain switch lives in
      ``extra_body.chat_template_kwargs`` rather than OpenAI-native reasoning_effort. Done by
@@ -634,7 +634,7 @@ def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: st
     # turn. No-op unless this process is the desktop local backend.
     install_local_network_tuning()
 
-    base_t = float(timeout) if timeout else 120.0
+    base_t = float(timeout) if timeout else 600.0
     try:
         loop_key = id(asyncio.get_running_loop())
     except RuntimeError:
@@ -842,6 +842,8 @@ def make_chat_model(
       connectivity tests / tool-type LLMs (which never enter the agent compaction loop, so the
       value participates in no computation) and the placeholder dummy model.
     """
+    # Keep legacy provider/agent settings from restoring shorter stream timeouts.
+    timeout = 600
     provider_extra = provider_extra or {}
     spec = get_spec(provider)
 

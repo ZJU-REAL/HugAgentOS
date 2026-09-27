@@ -128,11 +128,11 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ## 一次对话请求的完整生命周期
 
-入口为 `POST /v1/chats/stream`（`src/backend/api/routes/v1/chats.py`），返回 `text/event-stream`。
+入口为 `POST /v1/agents/responses`（`src/backend/api/routes/v1/chats.py`），返回 `text/event-stream`。
 
 ### 1. 接入与校验
 
-1. Nginx 把 `/api/v1/chats/stream` 转发到 backend。
+1. Nginx 把 `/api/v1/agents/responses` 转发到 backend。
 2. `api/deps.py::get_current_user` 解析 session cookie 或个人 API-Key，二者皆无返回 401。
 3. 三个只读查询（能力位解析、用户设置、会话历史）通过 `asyncio.to_thread` 并行执行，各自持独立 DB 会话。
 4. 校验子智能体归属、项目挂载权限，落库用户消息，组装 workflow context（`core/chat/context.py`）。

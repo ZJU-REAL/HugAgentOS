@@ -102,7 +102,7 @@ def request_hook(reference, base_url):
     return authorize, captured
 
 
-def sync_client_kwargs(reference, base_url, *, timeout=120):
+def sync_client_kwargs(reference, base_url, *, timeout=600):
     """Inject the same account guard into synchronous OpenAI/embedding clients."""
     if not is_reference(reference):
         return {}

@@ -8,6 +8,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertMacosSigning } from "./macos-signing.mjs";
 import { stageTrackedCeRepository } from "./ce-payload.mjs";
 import {
   currentDesktopTarget,
@@ -16,6 +17,8 @@ import {
 import { readDesktopVersion } from "./desktop-version.mjs";
 import { buildDesktopRuntime } from "./build-runtime.mjs";
 import { validateDesktopBuildTarget } from "./desktop-build-target.mjs";
+
+assertMacosSigning();
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");

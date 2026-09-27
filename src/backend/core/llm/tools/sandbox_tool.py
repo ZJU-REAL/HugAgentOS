@@ -110,6 +110,8 @@ def register_bash(
 
     # Effective sandbox session (``None`` → legacy fall back to chat_id).
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
+    from core.llm.evaluation_runtime import is_evaluation_session
+    _evaluation = is_evaluation_session(_sess)
 
     async def bash(
         command: str, timeout: int | None = None, yield_time_ms: int = 60000,
@@ -228,7 +230,7 @@ def register_bash(
         # 把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件。反方向
         # （命令写了什么、删了什么）不在这里判断：那由 core.myspace.watcher 从文件
         # 事件登记，命令返回之后才落盘的后台进程也一样收得到。
-        if user_id and not team_project:
+        if user_id and not team_project and not _evaluation:
             await _pull_myspace_updates(user_id)
 
         try:
@@ -308,7 +310,7 @@ def register_bash(
         # 沙箱的 /myspace 不在本机时（script_runner / cube），把它的现状搬进镜像目录，
         # 之后的判定与登记由 core.myspace.watcher 按同一套判据完成。bind mount 下这里
         # 直接返回 —— 沙箱写的就是镜像目录本身。
-        if user_id and not team_project:
+        if user_id and not team_project and not _evaluation:
             from core.myspace.sandbox_sync import reflect_sandbox_myspace
 
             await reflect_sandbox_myspace(session_id=_sess, user_id=user_id)

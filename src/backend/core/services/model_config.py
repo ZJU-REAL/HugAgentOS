@@ -41,7 +41,7 @@ class ResolvedModelConfig:
     # None = 不限制输出长度：请求里干脆不带 max_tokens，由模型供应商自己的默认值决定。
     max_tokens: Optional[int] = None
     context_length: int = 0  # 0 = not configured; the caller falls back to a default
-    timeout: int = 120
+    timeout: int = 600
     provider: str = "openai_compatible"  # vendor/protocol, see core/llm/providers/registry.py
     # Identity of the row this came from. ``provider`` is the vendor/protocol and
     # repeats across rows; failover tracks health per configured endpoint.
@@ -183,7 +183,7 @@ class ModelConfigService:
             temperature=float(extra.pop("temperature", 0.6)),
             max_tokens=_optional_int(extra.pop("max_tokens", None)),
             context_length=ctx_len,
-            timeout=int(extra.pop("timeout", 120)),
+            timeout=int(extra.pop("timeout", 600)),
             provider=provider_id,
             provider_extra=provider_extra,
             extra=extra,

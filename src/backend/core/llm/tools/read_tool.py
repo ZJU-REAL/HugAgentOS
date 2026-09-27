@@ -293,6 +293,9 @@ def register_read(
         except _SCE as exc:
             return resp_json({"error": f"沙盒连接失败: {exc}"})
         except _SE as exc:
+            from core.llm.evaluation_runtime import is_evaluation_session
+            if is_evaluation_session(_sess):
+                return resp_json({"error": f"Evaluation sandbox read failed: {exc}"})
             data: Optional[bytes] = None
             # First choice: folder-aware "My Space" lazy loading (user-scoped,
             # cross-chat; internally already put_file's back into the sandbox +

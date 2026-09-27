@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
+import { assertMacosSigning } from "./macos-signing.mjs";
 import {
   currentDesktopTarget,
   desktopDependencyFingerprint,
@@ -22,6 +23,7 @@ import {
 } from "./desktop-dependencies.mjs";
 
 export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }) {
+  assertMacosSigning();
   const target = currentDesktopTarget();
   const config = desktopTargetConfig(target);
   const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, target);
@@ -224,10 +226,10 @@ function directorySize(root) {
 
 export function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
-  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
+  const { identity, mode } = assertMacosSigning();
   if (identity === "-") {
     console.warn(
-      "[desktop] Apple signing identity unavailable; using ad-hoc signing for the macOS runtime.",
+      "[desktop] Explicit local-test ad-hoc signing; this runtime must not be released.",
     );
   }
   const files = [];
@@ -246,14 +248,14 @@ export function signMacRuntime(root) {
     const kind = capture("/usr/bin/file", ["-b", path]);
     if (!kind.includes("Mach-O")) continue;
     const args = ["--force", "--sign", identity];
-    if (identity !== "-") args.push("--timestamp", "--options", "runtime");
+    if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
     args.push(path);
     run("/usr/bin/codesign", args);
   }
   // Re-seal nested application resources after signing their Mach-O files.
   for (const path of bundles) {
     const args = ["--force", "--sign", identity];
-    if (identity !== "-") args.push("--timestamp", "--options", "runtime");
+    if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
     args.push(path);
     run("/usr/bin/codesign", args);
   }

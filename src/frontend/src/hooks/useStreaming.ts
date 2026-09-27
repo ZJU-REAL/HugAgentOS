@@ -640,13 +640,14 @@ export function useStreaming(
       // 也是切到默认档，这里保持同一语义）。
       const activeModeSpec = useChatModeStore.getState().modeOf(useChatStore.getState().modeSlug);
       const wireChatMode = activeModeSpec.effort_locked ? activeModeSpec.default_effort : chatMode;
-      const r = await authFetch(`${effectiveApiUrl}/v1/chats/stream`, {
+      const r = await authFetch(`${effectiveApiUrl}/v1/agents/responses`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(effectiveProjectId ? projectTargetHeaders(effectiveProjectId) : chatTargetHeaders(currentChatId)),
         },
         body: JSON.stringify({
+          stream: true,
           chat_id: currentChatId,
           message: wireMsg,
           model_name: 'qwen',

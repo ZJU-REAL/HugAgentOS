@@ -53,6 +53,7 @@ class ChatRequest(BaseModel):
 
     chat_id: str = Field(..., description="会话ID，用于维持对话上下文", max_length=100)
     message: str = Field(..., description="用户消息内容", min_length=1, max_length=10000)
+    stream: bool = Field(False, strict=True, description="true 返回 SSE 事件流；false 一次返回完整 JSON 回复")
     model_name: Optional[str] = Field(
         DEFAULT_CHAT_MODEL_ALIAS, description="使用的模型名称（qwen/deepseek）", max_length=50
     )
@@ -222,7 +223,7 @@ class ChatRequest(BaseModel):
     def reject_client_expanded_capabilities(cls, data):
         """Plugin components are server-resolved; clients may only send stable selection IDs."""
         if isinstance(data, dict):
-            forbidden = [key for key in ("skill_ids", "mcp_ids") if key in data]
+            forbidden = [key for key in ("skill_ids", "mcp_ids", "agent_api_scope", "api_key_id") if key in data]
             if forbidden:
                 raise ValueError(
                     "client-expanded capability fields are not supported; "

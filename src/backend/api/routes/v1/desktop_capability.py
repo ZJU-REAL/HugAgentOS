@@ -59,7 +59,7 @@ def _client() -> httpx.AsyncClient:
     global _gateway_client
     if _gateway_client is None:
         _gateway_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=None, write=60.0, pool=10.0),
+            timeout=httpx.Timeout(600.0),
             # 桌面端两条消息之间常常隔着几十秒；默认 5s 的 keepalive 意味着几乎
             # 每次模型调用都要重新 TCP + TLS 握手。
             limits=httpx.Limits(max_keepalive_connections=64, keepalive_expiry=300.0),

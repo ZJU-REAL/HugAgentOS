@@ -1241,6 +1241,8 @@ def run_chat_workflow(
     context: Dict[str, Any],
 ) -> WorkflowResult:
     """Run route -> target execution."""
+    from core.llm.evaluation_runtime import apply_evaluation_scope
+    context = apply_evaluation_scope(context)
 
     _explicit_command = context.get("explicit_subagent_command")
     _explicit_agent_id = (
@@ -1291,7 +1293,8 @@ def run_chat_workflow(
             from core.services.user_service import UserService as _UserService
 
             with _SessionLocal() as _db:
-                _visible_subagents = _UAS(_db).list_for_user(str(context.get("user_id", "")))
+                _visible_subagents = ([] if context.get("evaluation_session") else
+                                      _UAS(_db).list_for_user(str(context.get("user_id", ""))))
                 _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
                     str(context.get("user_id", ""))
                 )
@@ -1419,6 +1422,7 @@ def run_chat_workflow(
             approval_mode=_approval_mode(context),
             visible_subagents=_visible_subagents if _visible_subagents else None,
             chat_id=context.get("chat_id"),
+            sandbox_session_id=context.get("sandbox_session_id"),
             run_id=str(context.get("run_id") or "") or None,
             journal_owner=str(context.get("journal_owner") or "") or None,
             workspace_id=str(context.get("workspace_id") or "default"),
@@ -1619,6 +1623,10 @@ async def _astream_subagent_direct(
     with custom system_prompt, MCP tools, skills, KB, and model params.
     Shares the same streaming/memory/citation infrastructure as the main route.
     """
+    from core.llm.agent_api_runtime import apply_api_scope
+    from core.llm.evaluation_runtime import apply_evaluation_scope
+    context = apply_evaluation_scope(apply_api_scope(context))
+
     import time as _time
 
     _wf_start = _time.monotonic()
@@ -1787,6 +1795,7 @@ async def _astream_subagent_direct(
                 model_provider_id=_stream_model_provider_id,
                 chat_mode=_stream_chat_mode,
                 memory_enabled=_mem0_enabled,
+                agent_api_scope=context.get("agent_api_scope"),
                 user_agent=user_agent,
                 read_only=_direct_read_only,
                 allow_bash=_direct_allow_bash,
@@ -1812,6 +1821,7 @@ async def _astream_subagent_direct(
                 # root cause of Feishu/DingTalk CLIs reporting "not configured" in
                 # direct sub-agent conversations.
                 chat_id=context.get("chat_id"),
+                sandbox_session_id=context.get("sandbox_session_id"),
                 run_id=str(context.get("run_id") or "") or None,
                 journal_owner=str(context.get("journal_owner") or "") or None,
                 workspace_id=_mem0_workspace_id,
@@ -1835,7 +1845,8 @@ async def _astream_subagent_direct(
             # snapshot (built on the first turn, replayed byte-for-byte after). ──
             session_messages = await inject_session_blocks(
                 session_messages,
-                identity_block=await build_user_identity_block(_mem0_user_id),
+                identity_block=("" if context.get("agent_api_scope") or context.get("evaluation_session")
+                                else await build_user_identity_block(_mem0_user_id)),
                 memory_block=await resolve_session_memory(_session_memory),
             )
 
@@ -2342,18 +2353,18 @@ async def _astream_subagent_direct(
         # registration the settlement runner parks the memory report on a 45s
         # watchdog before settling, which pushed subagent cards past the client's
         # polling budget.
-        _assemble_episode_background(
-            message_id=str(context.get("message_id") or ""),
-            run_id=str(context.get("run_id") or ""),
-            chat_id=str(context.get("chat_id") or ""),
-            user_id=str(context.get("user_id") or ""),
-            objective=user_message,
-            agent=streaming_agent,
-            memory_task=_session_memory.retrieval_task,
-            latency_ms=None,
-            memory_write_enabled=_mem0_write_enabled,
-        )
-
+        if not context.get("agent_api_scope") and not context.get("evaluation_session"):
+            _assemble_episode_background(
+                message_id=str(context.get("message_id") or ""),
+                run_id=str(context.get("run_id") or ""),
+                chat_id=str(context.get("chat_id") or ""),
+                user_id=str(context.get("user_id") or ""),
+                objective=user_message,
+                agent=streaming_agent,
+                memory_task=_session_memory.retrieval_task,
+                latency_ms=None,
+                memory_write_enabled=_mem0_write_enabled,
+            )
     except BaseException as exc:
         if not isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
             _direct_exit_status = "failed"
@@ -2549,6 +2560,10 @@ async def astream_chat_workflow(
     - {"type": "meta", "route": "...", "sources": [...], ...}
     """
 
+    from core.llm.agent_api_runtime import apply_api_scope
+    from core.llm.evaluation_runtime import apply_evaluation_scope
+    context = apply_evaluation_scope(apply_api_scope(context))
+
     # ── Persistent dedicated sub-agent conversation mode ──
     # Per-turn @mentions deliberately remain on the main route so the parent
     # model emits the real call_subagent tool event and keeps normal streaming.
@@ -2693,7 +2708,8 @@ async def astream_chat_workflow(
 
             with _SessionLocal() as _db:
                 _ua_svc = _UAS(_db)
-                _visible_subagents = _ua_svc.list_for_user(_stream_user_id)
+                _visible_subagents = ([] if context.get("evaluation_session") else
+                                      _ua_svc.list_for_user(_stream_user_id))
                 _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
                     _stream_user_id
                 )
@@ -2790,6 +2806,7 @@ async def astream_chat_workflow(
             batch_mode=_batch_chat,
             workflow_mode=bool(context.get("workflow_chat", False)),
             chat_id=context.get("chat_id"),
+            sandbox_session_id=context.get("sandbox_session_id"),
             run_id=str(context.get("run_id") or "") or None,
             journal_owner=str(context.get("journal_owner") or "") or None,
             workspace_id=_mem0_workspace_id,
@@ -2905,7 +2922,8 @@ async def astream_chat_workflow(
         # so this head of the message list never moves the prefix-cache boundary.
         session_messages = await inject_session_blocks(
             session_messages,
-            identity_block=await build_user_identity_block(_mem0_user_id),
+            identity_block=("" if context.get("evaluation_session") else
+                            await build_user_identity_block(_mem0_user_id)),
             memory_block=await resolve_session_memory(_session_memory),
         )
 
@@ -3566,14 +3584,15 @@ async def astream_chat_workflow(
     # ── [evolution] Evidence assembly (SSE already closed, user isn't waiting) ──
     # The response path only bound versions and appended events; joining them
     # into one causal Episode is deliberately deferred to here.
-    _assemble_episode_background(
-        message_id=str(context.get("message_id") or ""),
-        run_id=str(context.get("run_id") or ""),
-        chat_id=str(context.get("chat_id") or ""),
-        user_id=str(context.get("user_id") or ""),
-        objective=user_message,
-        agent=streaming_agent,
-        memory_task=_session_memory.retrieval_task,
-        latency_ms=None,
-        memory_write_enabled=_mem0_write_enabled,
-    )
+    if not context.get("evaluation_session"):
+        _assemble_episode_background(
+            message_id=str(context.get("message_id") or ""),
+            run_id=str(context.get("run_id") or ""),
+            chat_id=str(context.get("chat_id") or ""),
+            user_id=str(context.get("user_id") or ""),
+            objective=user_message,
+            agent=streaming_agent,
+            memory_task=_session_memory.retrieval_task,
+            latency_ms=None,
+            memory_write_enabled=_mem0_write_enabled,
+        )

@@ -42,7 +42,7 @@ import { createAppRouter } from './src/routing/routes';
 import { bindRouter } from './src/routing/navigation';
 import { useChatStore, useCatalogStore } from './src/stores';
 import { panelFromPath } from './src/routing/navigation';
-import { abilityTabFromSubs, kbTabFrom, mySpaceTabFromSubs } from './src/routing/subPages';
+import { abilitySlug, abilityTabFromSubs, kbTabFrom, mySpaceTabFromSubs } from './src/routing/subPages';
 import { useCatalogStore as catalog } from './src/stores/catalogStore';
 import { useMySpaceStore } from './src/stores/mySpaceStore';
 
@@ -64,7 +64,7 @@ window.__routing = {
   select: (id) => useChatStore.getState().setCurrentChatId(id),
   newChat: () => useChatStore.getState().newChat(),
   setPanel: (p) => useCatalogStore.getState().setPanel(p),
-  setAbilityTab: (t) => catalog.getState().setAbilityTab(t),
+  setAbilityTab: (t) => catalog.getState().setPanel('ability_center', abilitySlug(t)),
   setKbTab: (t) => catalog.getState().setKbTab(t),
   setMySpaceTab: (t) => useMySpaceStore.getState().setTab(t),
   subs: () => ({

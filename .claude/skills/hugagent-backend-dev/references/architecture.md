@@ -44,7 +44,7 @@ Browser → Nginx (:3000 /api/ proxy) → FastAPI (api/app.py)
 ## 聊天流式请求流转
 
 ```
-POST /v1/chats/stream
+POST /v1/agents/responses
   → api/routes/v1/chats.py
   → orchestration/chat_run_executor.py     # ChatRun + Redis Stream（后台 run，SSE 跟随，断线续播）
   → orchestration/workflow.py              # 流式编排主入口

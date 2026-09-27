@@ -58,10 +58,11 @@ const r = await authFetch(`${apiUrl}/v1/file/upload`, {
 
 ```typescript
 // 发送聊天请求
-const r = await authFetch(`${apiUrl}/v1/chats/stream`, {
+const r = await authFetch(`${apiUrl}/v1/agents/responses`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
+    stream: true,
     chat_id: currentChatId,
     message: input,
     model_name: selectedModel,
@@ -116,7 +117,7 @@ while (true) {
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/v1/catalog` | 获取 Catalog（技能/智能体/MCP/KB） |
-| POST | `/v1/chats/stream` | 流式聊天 |
+| POST | `/v1/agents/responses` | 流式聊天 |
 | GET | `/v1/chats/stream/{run_id}` | 断线续播（重新跟随后台 run） |
 | GET | `/v1/meta/edition` | CE/EE 版本与能力位（editionStore 消费） |
 | GET | `/v1/chats` | 会话列表 |

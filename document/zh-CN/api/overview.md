@@ -81,19 +81,24 @@ curl http://localhost:3000/api/v1/admin/skills \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+## 统一回复接口
+
+`POST /v1/agents/responses` 使用布尔字段 `stream` 选择输出：默认 `false` 返回完整 JSON；`true` 返回 SSE。旧的两个 POST 地址已移除，客户端必须更新请求地址并显式选择所需模式。下文续播与取消接口保持不变。
+
 ## SSE 流式协议
 
-流式聊天端点 `POST /v1/chats/stream`（`src/backend/api/routes/v1/chats.py`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/orchestration/workflow.py` 产出、`src/backend/orchestration/chat_run_executor.py` 序列化上 wire。
+流式聊天端点 `POST /v1/agents/responses`（`src/backend/api/routes/v1/agent_responses.py`，`stream: true`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/orchestration/workflow.py` 产出、`src/backend/orchestration/chat_run_executor.py` 序列化上 wire。
 
 **Wire 格式**：`Content-Type: text/event-stream`，每个事件一行 `data: {JSON}`，事件类型放在 JSON 的 `type` 字段里（不使用 SSE 的 `event:` 行）；流以 `data: [DONE]` 结束。静默超过 15 秒时发送 SSE 注释行 `: heartbeat` 维持反代连接。
 
 ### 请求
 
 ```bash
-curl -N http://localhost:3000/api/v1/chats/stream \
+curl -N http://localhost:3000/api/v1/agents/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-jx-xxxxxxxx" \
   -d '{
+    "stream": true,
     "chat_id": "chat_abc123",
     "message": "帮我查一下北京今天的天气",
     "chat_mode": "fast"
@@ -167,8 +172,8 @@ data: [DONE]
 回答在后台 run 中执行，SSE 只是「跟随」——断开连接不会终止生成：
 
 ```bash
-# 断线后从头续播（from_offset 可指定起始事件偏移）
-curl -N "http://localhost:3000/api/v1/chats/stream/run_9f8e7d?from_offset=0" \
+# 断线后从头续播（from 可指定起始事件偏移）
+curl -N "http://localhost:3000/api/v1/chats/stream/run_9f8e7d?from=0" \
   -H "Authorization: Bearer sk-jx-xxxxxxxx"
 
 # 主动取消生成
@@ -190,7 +195,7 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 
 ### 其他 SSE 端点
 
-其余 SSE 端点复用同一 wire 格式：`GET /v1/batch/{plan_id}/stream`（批量执行进度）、计划模式相关流会额外出现 `plan_generated` / `plan_error` 等事件。非流式版本为 `POST /v1/chats/send`，一次性返回完整信封。
+其余 SSE 端点复用同一 wire 格式：`GET /v1/batch/{plan_id}/stream`（批量执行进度）、计划模式相关流会额外出现 `plan_generated` / `plan_error` 等事件。同一端点传 `stream: false`（默认值）时返回完整 `ChatResponse` JSON，字段为 `chat_id`、`response`、`timestamp`、`is_markdown`、`route`、`sources`、`artifacts`、`warnings`，不额外包裹 `data` 信封。
 
 ## 健康检查
 
@@ -213,6 +218,7 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 | 分组 | 模块（`api/routes/v1/`） | 前缀 | 代表端点 | 鉴权 |
 |---|---|---|---|---|
 | 会话与消息 | `chats.py` | `/v1/chats` | `POST /stream`（SSE）、`GET /stream/{run_id}`（续播）、`POST /send`（非流式）、`GET /`、`GET /{chat_id}/messages`、`POST /{chat_id}/share` | 用户 |
+| 会话与消息 | `chat_forks.py` | `/v1/chats` | `POST /{chat_id}/fork` | 用户 |
 | 会话与消息 | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`、`POST /{run_id}/steer`、`GET /{run_id}/steers`、`DELETE /{run_id}/steer/{steer_id}` | 用户 |
 | 会话与消息 | `chat_shares.py` | `/v1/chat-shares` | `POST /`、`GET /{share_id}`、`POST /{share_id}/revoke` | 用户 |
 | 会话与消息 | `summary.py` | `/v1/summary` | `POST /`（会话标题摘要） | 用户 |

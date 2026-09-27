@@ -112,7 +112,7 @@ export function hasChatInvocation(invocation?: ChatInvocationContext): boolean {
   );
 }
 
-/** Fields shared by the ordinary /v1/chats/stream request contract. */
+/** Fields shared by the ordinary /v1/agents/responses request contract. */
 export function chatInvocationRequestFields(invocation: ChatInvocationContext) {
   return {
     ...(invocation.skill ? {

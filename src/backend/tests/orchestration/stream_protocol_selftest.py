@@ -1,7 +1,7 @@
-"""Selftest: /chat/stream protocol contract.
+"""Selftest: POST /v1/agents/responses with stream=true wire contract.
 
 Run:
-  python -m selftests.stream_protocol_selftest
+  PYTHONPATH=src/backend .venv/bin/python src/backend/tests/orchestration/stream_protocol_selftest.py
 """
 
 from __future__ import annotations
@@ -20,27 +20,21 @@ def _parse_sse_chunks(raw: str) -> list[str]:
 
 
 async def _collect_stream() -> str:
-    import api.routes.chat as chat_routes
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from api.routes.v1 import agent_responses
     from api.schemas import ChatRequest
+    from core.auth.backend import UserContext
+    from orchestration import chat_run_executor
 
-    original_astream_workflow = chat_routes.astream_chat_workflow
-    original_chat_service = chat_routes.ChatService
-    original_require_auth_user = chat_routes._require_authenticated_user_id
-    original_ensure_chat_session = chat_routes._ensure_chat_session
-    original_load_session_messages = chat_routes._load_session_messages_from_db
-    original_resolve_db_user_id = chat_routes._resolve_db_user_id
+    async def fake_start(request, user, db):
+        assert request.stream is True
+        return SimpleNamespace(run_id="stream-selftest", message_id="reply-1", chat_id=request.chat_id)
 
-    class _FakeChatService:
-        def __init__(self, db):
-            _ = db
-
-        def add_message(self, **kwargs):
-            _ = kwargs
-            return None
-
-    async def _fake_astream_workflow(*, session_messages, user_message, context):
-        _ = session_messages, user_message, context
-        yield {"type": "content", "delta": "# 报告正文"}
+    async def fake_follow(run_id, *, from_offset=0):
+        assert run_id == "stream-selftest"
+        yield {"type": "content", "delta": "# 报告正文", "_internal": "must not leak"}
         yield {
             "type": "meta",
             "route": "main",
@@ -50,43 +44,28 @@ async def _collect_stream() -> str:
             "warnings": ["DOCX export unavailable: test"],
         }
 
-    try:
-        chat_routes.ChatService = _FakeChatService
-        chat_routes._require_authenticated_user_id = lambda user: "selftest_user"
-        chat_routes._resolve_db_user_id = lambda db, user, request_user_id=None: "selftest_user"
-        chat_routes._ensure_chat_session = lambda *args, **kwargs: {}
-        chat_routes._load_session_messages_from_db = lambda *args, **kwargs: []
-        chat_routes.astream_chat_workflow = _fake_astream_workflow
-        req = ChatRequest(chat_id="stream_selftest", message="生成报告", model_name="qwen")
-        response = await chat_routes.chat_stream(req)
-        pieces: list[str] = []
+    # Exercise the real response route and SSE wire formatter; replace only
+    # admission and the durable event source so no model/database is needed.
+    with patch.object(agent_responses, "_start_response_run", fake_start), patch.object(
+        chat_run_executor, "follow_run", fake_follow
+    ):
+        response = await agent_responses.agent_response(
+            ChatRequest(chat_id="stream_selftest", message="生成报告", stream=True),
+            UserContext(user_id="selftest_user", user_center_id="test", username="test"),
+            None,
+        )
+        assert response.media_type == "text/event-stream"
+        pieces = []
         async for chunk in response.body_iterator:
-            if isinstance(chunk, bytes):
-                pieces.append(chunk.decode("utf-8"))
-            else:
-                pieces.append(str(chunk))
+            pieces.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk))
         return "".join(pieces)
-    finally:
-        chat_routes.astream_chat_workflow = original_astream_workflow
-        chat_routes.ChatService = original_chat_service
-        chat_routes._require_authenticated_user_id = original_require_auth_user
-        chat_routes._resolve_db_user_id = original_resolve_db_user_id
-        chat_routes._ensure_chat_session = original_ensure_chat_session
-        chat_routes._load_session_messages_from_db = original_load_session_messages
 
 
 def main() -> int:
-    try:
-        import anyio
-    except ModuleNotFoundError as e:
-        print(f"stream_protocol_selftest: SKIP (missing dependency: {e})")
-        return 0
+    import asyncio
 
-    try:
-        payload = anyio.run(_collect_stream)
-    except ModuleNotFoundError as e:
-        print(f"stream_protocol_selftest: SKIP (missing dependency: {e})")
-        return 0
+    payload = asyncio.run(_collect_stream())
+    assert "_internal" not in payload, "transport-internal fields leaked"
 
     events = _parse_sse_chunks(payload)
     assert events, "expected at least one SSE event"

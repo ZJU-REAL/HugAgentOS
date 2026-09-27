@@ -119,7 +119,7 @@ InputArea（components/chat/）
    ▼
 useStreaming.send
    │ 1. chatStore 追加乐观 user 消息
-   │ 2. fetch POST /v1/chats/stream（附件只携带 file_id/name/mime_type）
+   │ 2. fetch POST /v1/agents/responses（附件只携带 file_id/name/mime_type）
    │ 逐行解析 data: {json}
    │ ├─ content/thinking → segments 分段追加（utils/segments.ts）
    │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → 按 tool_id 原位更新工具时间线（components/tool/）
