@@ -270,6 +270,11 @@ export function signMacRuntime(root) {
   for (const path of bundles) {
     const args = ["--force", "--sign", identity];
     if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
+    // Re-sealing the .app re-signs its main executable, so retain its exceptions.
+    if (path === join(root, "native", "libreoffice", "LibreOffice.app") && identity !== "-") {
+      args.push("--entitlements", mode === "self-signed"
+        ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }
