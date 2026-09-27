@@ -228,6 +228,8 @@ function directorySize(root) {
 export function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
   const officecliEntitlements = fileURLToPath(new URL("./officecli-jit.entitlements.plist", import.meta.url));
+  const libreOfficeJitEntitlements = fileURLToPath(new URL("./libreoffice-jit.entitlements.plist", import.meta.url));
+  const libreOfficeSelfSignedEntitlements = fileURLToPath(new URL("./libreoffice-self-signed.entitlements.plist", import.meta.url));
   const { identity, mode } = assertMacosSigning();
   if (identity === "-") {
     console.warn(
@@ -254,6 +256,12 @@ export function signMacRuntime(root) {
     // OfficeCLI embeds CoreCLR, which needs JIT permission under Hardened Runtime.
     if (path === join(root, "python", "bin", "officecli") && identity !== "-") {
       args.push("--entitlements", officecliEntitlements);
+    }
+    // LibreOffice generates UNO vtables at runtime. Self-signed builds also
+    // have no Team ID, so its executable must load its bundled libraries.
+    if (path === join(root, "native", "libreoffice", "LibreOffice.app", "Contents", "MacOS", "soffice") && identity !== "-") {
+      args.push("--entitlements", mode === "self-signed"
+        ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
     }
     args.push(path);
     run("/usr/bin/codesign", args);
