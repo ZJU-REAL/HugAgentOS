@@ -1,6 +1,7 @@
 import { DesktopUpdateEntry } from '../../desktop/DesktopUpdateEntry';
 import { CapabilitySyncEntry } from '../../desktop/CapabilitySyncEntry';
 import { useDesktopUpdateStatus } from '../../desktop/useDesktopUpdateStatus';
+import { clientDownloadTarget, latestClientDownloadUrl } from '../../desktop/clientDownload';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import { usePanel } from '../../routing/usePanel';
@@ -17,7 +18,7 @@ import {
   PushpinOutlined, PushpinFilled, StarOutlined, StarFilled,
   EllipsisOutlined, CaretDownOutlined, FolderOutlined, FolderOpenOutlined,
   ExportOutlined, ExclamationCircleFilled,
-  MessageOutlined, SortAscendingOutlined,
+  MessageOutlined, SortAscendingOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import { useUIStore, useChatStore, useAuthStore, useMySpaceStore, useAutomationChatStore, useAutomationStore, useSidebarOrderStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
@@ -31,7 +32,7 @@ import { compareSidebarItems } from '../../utils/sidebarOrder';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { CHAT_REFERENCE_MIME } from '../../utils/constants';
 import { loadJsonPref, saveJsonPref } from '../../storage';
-import { getAutomationRuns } from '../../api';
+import { getAutomationRuns, getApiUrl } from '../../api';
 import type { ChatItem, PanelKey } from '../../types';
 import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
 import { FeedbackModal } from '../../feedbackEdition';
@@ -106,6 +107,7 @@ export function Sidebar({
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [clientDownloadBusy, setClientDownloadBusy] = useState(false);
   // ── Page config (text and branding configurable via the admin console) ──
   const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
   const cfgProductSub = usePageConfig('branding.product_subtitle', 'HugAgentOS AI 智能助手');
@@ -676,6 +678,27 @@ export function Sidebar({
     ],
   };
   const desktopUpdateStatus = useDesktopUpdateStatus();
+  const isDesktop = useDeploymentModeStore((s) => s.isDesktop);
+  const downloadClient = async () => {
+    const target = clientDownloadTarget(navigator.userAgent, navigator.platform, navigator.maxTouchPoints);
+    if (!target) {
+      message.info(t('无法识别当前系统，请使用 Windows、macOS 或 Linux 浏览器下载'));
+      return;
+    }
+    setClientDownloadBusy(true);
+    try {
+      const url = await latestClientDownloadUrl(target, getApiUrl());
+      if (!url) {
+        message.info(t('当前系统暂无已发布的客户端'));
+        return;
+      }
+      window.location.href = url;
+    } catch {
+      message.error(t('获取客户端下载地址失败，请稍后重试'));
+    } finally {
+      setClientDownloadBusy(false);
+    }
+  };
   const helpMenu: MenuProps = {
     items: [
       ...(!IS_COMMUNITY_EDITION_BUILD ? [{
@@ -689,6 +712,13 @@ export function Sidebar({
         label: t('更新记录'),
         icon: <img src="/home/updates.svg" alt="" style={{ width: 16, height: 16 }} />,
         onClick: () => onSetPanel('docs'),
+      }] : []),
+      ...(!IS_COMMUNITY_EDITION_BUILD && !isDesktop ? [{
+        key: 'download_client',
+        label: t('下载客户端'),
+        icon: <DownloadOutlined style={{ fontSize: 16 }} />,
+        disabled: clientDownloadBusy,
+        onClick: () => { void downloadClient(); },
       }] : []),
       {
         key: IS_COMMUNITY_EDITION_BUILD ? 'official_docs' : 'manual',
