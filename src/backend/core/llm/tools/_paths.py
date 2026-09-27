@@ -7,6 +7,10 @@ MYSPACE_LOGICAL = "/myspace"
 
 
 def path_rules():
+    from core.llm.evaluation_runtime import CURRENT_EVALUATION_SCOPE
+    if CURRENT_EVALUATION_SCOPE.get() is not None:
+        from core.llm import evaluation_paths
+        return evaluation_paths
     from core.config.local_mode import local_mode_enabled
     if local_mode_enabled():
         from core.sandbox import desktop_paths

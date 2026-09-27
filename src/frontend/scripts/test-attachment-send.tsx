@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server';
 
 const memory = new Map<string, string>();
 const storage = { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => { memory.set(key, value); }, removeItem: (key: string) => { memory.delete(key); } };
-Object.assign(globalThis, { localStorage: storage, window: { localStorage: storage, sessionStorage: storage, setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {} } });
+Object.assign(globalThis, { localStorage: storage, window: { location: { pathname: '/', origin: 'http://localhost' }, localStorage: storage, sessionStorage: storage, setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {} } });
 Object.assign(globalThis, { document: { documentElement: {}, addEventListener() {}, removeEventListener() {} } });
 const { useStreaming } = await import('../src/hooks/useStreaming');
 const { useChatStore } = await import('../src/stores/chatStore');
@@ -27,9 +27,10 @@ globalThis.fetch = async (input, init) => {
     files.set(file_id, await file.text());
     return Response.json({ file_id, download_url: `/files/${file_id}`, name: file.name, size: file.size, mime_type: file.type });
   }
-  if (url.endsWith('/v1/chats/stream') || url.endsWith('/v1/plans/generate')) {
+  if (url.endsWith('/v1/agents/responses') || url.endsWith('/v1/plans/generate')) {
     assert.equal(new Headers(init?.headers).get('x-hugagent-target'), 'local');
     const body = JSON.parse(String(init?.body));
+    if (url.endsWith('/v1/agents/responses')) assert.equal(body.stream, true);
     sent.push(body);
     assert.equal(files.get(body.attachments[0].file_id), 'attachment bytes');
     return new Response('data: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } });

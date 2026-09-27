@@ -226,13 +226,26 @@ npm --prefix desktop run lock:desktop
 `prepare-bundle.mjs` 会在耗时构建开始前校验三者一致。公开 CE 的 Desktop Release workflow 会在
 启动 Windows x86_64、Linux x86_64、macOS arm64、macOS x86_64 四个原生目标前校验 release tag
 必须精确等于 `desktop-v<上述版本号>`；版本或 tag 不一致时不会创建任何平台产物。工作流固定使用
-`uv 0.11.33`；macOS 正式发布建议配置 Apple 证书、签名身份与 notarization 所需 secrets。
+`uv 0.11.33`。macOS 支持固定自签证书和 Developer ID 两种构建方式。
 
-Apple 凭据不是生成测试安装包的硬前置。公开 CE 的 Release workflow 在未配置 Apple secrets 时会
-自动使用 ad-hoc 身份（`-`）签名 App 及内置 Python runtime 的 Mach-O 文件，并分别生成 Apple
-Silicon 与 Intel DMG；用户首次打开时需要在“系统设置 → 隐私与安全性”中选择“仍要打开”。配置
-Developer ID 与 notarization secrets 后，workflow 会自动改用正式签名，避免这一步人工放行。
-Tauri updater 的 `TAURI_SIGNING_PRIVATE_KEY` 是独立的更新包验签机制，仍为必需项。
+没有 Apple Developer 账号时，按 [macOS 签名与升级](../document/zh-CN/deployment/macos-signing.md)
+在 Mac 构建机一次性生成固定自签证书，之后通过持久化的 `signing.py --run npm run build`
+入口构建。该入口设置 `HUGAGENT_MACOS_SIGNING_MODE=self-signed`、固定证书指纹并解锁独立钥匙串，
+支持 `HUGAGENT_RELEASE_BUILD=1` 和 CI，无需 Apple 账号或公证凭据。
+自签包具有稳定代码身份，但未获 Apple 公证，首次下载仍可能有 Gatekeeper 提示。
+
+Developer ID 模式默认启用，需要完整的 `APPLE_SIGNING_IDENTITY` 证书名称和匹配的
+`APPLE_TEAM_ID`，发布构建还需公证凭据。CE workflow 用 `vars.MACOS_SIGNING_MODE`
+选择模式，必须导入对应证书与私钥；缺失时不降级成临时签名，也不自动生成新身份。
+签名变化会改变 macOS 运行时指纹，让构建缓存和客户端替换旧身份签名的运行时。
+
+仅本地测试可同时设置 `HUGAGENT_ALLOW_ADHOC=1`、`APPLE_SIGNING_IDENTITY=-`；
+CI 和发布构建禁止该例外。Tauri updater 的 `TAURI_SIGNING_PRIVATE_KEY` 独立保留。
+
+构建后执行 `npm run verify:macos -- --bundle-dir src-tauri/target/release/bundle/macos`，
+自签模式使用同一个 `signing.py --run` 入口。验证实际签名、应用标识、固定证书和稳定身份要求；
+Developer ID 模式还验证公证票据及 Gatekeeper 状态。CI 全部检查通过后才能发布草稿。
+首次从 ad-hoc 切换到固定证书，旧钥匙串条目仍可能要求一次授权。
 
 ## 关键文件
 

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _provider: SandboxProvider | None = None
 
 
-def get_sandbox_provider() -> SandboxProvider:
+def _ordinary_provider() -> SandboxProvider:
     global _provider
     if _provider is not None:
         return _provider
@@ -55,6 +55,11 @@ def get_sandbox_provider() -> SandboxProvider:
 
     logger.info("[sandbox] activated provider=%s", _provider.name)
     return _provider
+
+
+def get_sandbox_provider() -> SandboxProvider:
+    from .session_router import SessionSandboxRouter
+    return SessionSandboxRouter(_ordinary_provider())
 
 
 def reset_provider_cache() -> None:

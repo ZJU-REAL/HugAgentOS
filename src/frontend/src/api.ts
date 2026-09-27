@@ -244,6 +244,9 @@ function capabilityTargetHeaders(url: string): Record<string, string> {
   const start = pathname.indexOf('/v1/');
   if (start < 0) return {};
   const path = pathname.slice(start);
+  // Responses execute on the caller's chat/project target. The neighboring
+  // agent catalog (including key management) still follows the capability plane.
+  if (path === '/v1/agents/responses' || path === '/v1/agents/responses/') return {};
   if (underPrefix(path, CLOUD_ONLY_PREFIXES) || !underPrefix(path, LOCAL_CAPABILITY_PATHS)) {
     return {};
   }

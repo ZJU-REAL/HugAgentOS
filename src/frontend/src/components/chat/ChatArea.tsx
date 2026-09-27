@@ -1,23 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Select, message } from 'antd';
-import { FileTextOutlined, PieChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
-import { EASE, staggerStyle } from '../../utils/motionTokens';
+import { EASE } from '../../utils/motionTokens';
 import { useDelayedFlag } from '../../hooks';
 import {
   SCROLL_TO_BOTTOM_BTN_THRESHOLD,
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useEditionStore, usePluginUiStore, useUIStore, isLocalDraftChat } from '../../stores';
-import { resolveText } from '../../plugin-ui';
-import { useCatalogStore } from '../../stores/catalogStore';
-import { useAgentStore } from '../../stores/agentStore';
-import { usePageConfig } from '../../hooks/usePageConfig';
+import { useChatStore, useBatchStore, useUIStore, isLocalDraftChat } from '../../stores';
 import { loadOlderMessages } from '../../hooks/useChatInit';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { t } from '../../i18n';
-import { resolveBatchModeActive } from '../../utils/chatMode';
 
 // Enter/exit animation params for the back-to-bottom button (module-level constants — ChatArea
 // re-renders frequently with the message stream, so avoid rebuilding the object inside the render body)
@@ -29,8 +23,6 @@ const SCROLL_BTN_TRANSITION = { duration: 0.2, ease: EASE.brandOut };
 import { MessageBubble } from './MessageBubble';
 import { ConversationNavigation } from './ConversationNavigation';
 
-const HOME_SUGGESTION_ICONS = [SearchOutlined, FileTextOutlined, PieChartOutlined] as const;
-const HOME_SUGGESTIONS_PER_PAGE = 3;
 import { InputArea } from './InputArea';
 import { PlanProgressStrip } from './PlanProgressStrip';
 import { JobProgressStrip } from './JobProgressStrip';
@@ -38,6 +30,9 @@ import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
 import { AskUserQuestionComposer } from './AskUserQuestionComposer';
 import { ChatShareBanner } from './ChatShareBanner';
+import { ChatForkBanner } from './ChatForkBanner';
+import { ChatWelcome } from './ChatWelcome';
+import { useChatWelcome } from './useChatWelcome';
 import { getChatDetail } from '../../api';
 import { chatAccessLevel } from '../../chatEdition';
 import { BatchProgressPanel } from '../batch';
@@ -63,7 +58,7 @@ function BatchPanelsForChat({ chatId }: { chatId: string }) {
   );
 }
 
-interface ChatAreaProps {
+export interface ChatAreaProps {
   send: (text?: string) => void;
   abort?: () => void;
   activateQueuedMessage?: (chatId?: string) => Promise<void>;
@@ -98,7 +93,7 @@ export function ChatArea({
     { value: 'permanent', label: t('长期') },
   ] as const;
   const {
-    store, currentChatId, setInput, planMode,
+    store, currentChatId, planMode,
     shareSelectionMode, selectedShareMessageUids,
     pendingScrollMessageTs, setPendingScrollMessageTs,
     clearShareSelection,
@@ -110,7 +105,6 @@ export function ChatArea({
   const [shareExpiryModalOpen, setShareExpiryModalOpen] = useState(false);
   const [creatingShare, setCreatingShare] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [suggestionPage, setSuggestionPage] = useState(0);
   // Shared-session access level: read-only sessions disable the input box.
   const [shareAccessLevel, setShareAccessLevel] = useState<'admin' | 'edit' | 'read' | null>(null);
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
@@ -186,11 +180,6 @@ export function ChatArea({
     }
   };
 
-  const applyQuickScenario = (prompt: string) => {
-    setInput(prompt);
-    inputRef.current?.focus();
-  };
-
   useEffect(() => {
     useChatStore.getState().clearShareSelection();
     // 引用追问不再在这里清空：它已随对话记录持久化（ChatItem.pendingQuote），
@@ -249,79 +238,8 @@ export function ChatArea({
     return () => window.clearTimeout(timer);
   }, [chat?.messages, pendingScrollMessageTs, setPendingScrollMessageTs]);
 
-  const isCE = useEditionStore((s) => s.edition === 'ce');
-  const pluginContributions = usePluginUiStore((s) => s.items);
-  // 首页快捷入口只保留插件贡献的入口（管理端配置项已下线，场景引导统一走首页建议问题）。
-  const pluginShortcuts = useMemo(() => {
-    if (isCE) return [];
-    return pluginContributions
-      .flatMap((item) => item.contributes.shortcuts || [])
-      .filter((shortcut) => !!shortcut.prompt)
-      .map((shortcut) => ({
-        id: shortcut.id,
-        label: resolveText(shortcut.label, shortcut.id),
-        icon: shortcut.icon || '',
-        prompt: resolveText(shortcut.prompt!),
-      }));
-  }, [isCE, pluginContributions]);
-
-  // ── Resolve sub-agent details for welcome page ──
-  const { agents } = useAgentStore();
-  const agentDetail = useMemo(() => {
-    const aid = chat?.agentId;
-    if (!aid) return null;
-    return agents.find((a) => a.agent_id === aid) || null;
-  }, [chat?.agentId, agents]);
-
-  // ── Page config default values ──
-  const cfgHeroTitle = usePageConfig('branding.hero_title', '你好，我是 HugAgentOS');
-  const cfgHeroSubtitle = usePageConfig('branding.hero_subtitle', '今天想从哪里开始？');
-  const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
-  const cfgDisclaimer = usePageConfig('branding.disclaimer', '');
-  const cfgInputPlaceholder = usePageConfig('texts.input_placeholder', '请输入你的问题，按Enter发送，Shift+Enter换行');
-  const showHomepageLogo = usePageConfig('homepage.show_logo', true);
-  const homepageLogoUrl = usePageConfig('homepage.logo_url', '/icon.png');
-  const showHomepageSuggestions = usePageConfig('homepage.show_suggestions', true);
-  const configuredHomepageSuggestions = usePageConfig<string[]>('homepage.suggested_questions', []);
-  const homepageSuggestions = useMemo(
-    () => showHomepageSuggestions
-      ? configuredHomepageSuggestions.filter((prompt) => typeof prompt === 'string' && prompt.trim())
-      : [],
-    [configuredHomepageSuggestions, showHomepageSuggestions],
-  );
-  const suggestionPageCount = Math.max(
-    1,
-    Math.ceil(homepageSuggestions.length / HOME_SUGGESTIONS_PER_PAGE),
-  );
-  const visibleHomepageSuggestions = useMemo(() => {
-    const start = (suggestionPage % suggestionPageCount) * HOME_SUGGESTIONS_PER_PAGE;
-    return homepageSuggestions.slice(start, start + HOME_SUGGESTIONS_PER_PAGE);
-  }, [homepageSuggestions, suggestionPage, suggestionPageCount]);
-
-  useEffect(() => {
-    setSuggestionPage(0);
-  }, [configuredHomepageSuggestions, showHomepageSuggestions]);
-
-  // ── Resolve hero text: sub-agent uses its own name/description ──
-  const isAgentChat = !!(chat?.agentId);
-  const isSiteChat = !!chat?.siteChat;
-  const heroTitle = isSiteChat
-    ? t('我们该构建什么？')
-    : isAgentChat ? (chat.agentName || t('智能体')) : cfgHeroTitle;
-  const heroSubtitle = isSiteChat
-    ? t('描述你想要的网站，AI 将为你生成并一键发布上线')
-    : isAgentChat
-      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业智能体'))
-      : cfgHeroSubtitle;
-  const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
-  const isBatchChat = resolveBatchModeActive(chat);
-  const inputPlaceholder = isSiteChat
-    ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
-    : isAgentChat
-      ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
-      : isBatchChat
-        ? t('描述要批量处理的对象与任务，例如："分别用一句话评价阿里、腾讯、字节"')
-        : cfgInputPlaceholder;
+  const welcome = useChatWelcome(chat);
+  const { isAgentChat, inputPlaceholder } = welcome;
 
   const hasNoMessages = !chat || chat.messages.length === 0;
 
@@ -361,133 +279,11 @@ export function ChatArea({
   }
 
   if (hasNoMessages) {
-    return (
-      <div className={`jx-emptyPage${!isAgentChat && !isSiteChat ? ' jx-emptyPage--main' : ''}`}>
-        {isSiteChat && (
-          <div className="jx-siteHeroTop">
-            <button
-              type="button"
-              className="jx-siteHeroTopBtn"
-              onClick={() => {
-                useCatalogStore.getState().setPanel('sites');
-              }}
-            >
-              {t('我的站点')}
-            </button>
-          </div>
-        )}
-        <div className="jx-emptyCenter jx-anim-stagger">
-          <div className="jx-heroBg" style={staggerStyle(0)}>
-            {!isAgentChat && !isSiteChat && showHomepageLogo && homepageLogoUrl && (
-              <img
-                src={homepageLogoUrl}
-                alt={`${cfgProductName} Logo`}
-                className="jx-homeBrandMark"
-              />
-            )}
-            <h1 className="jx-heroTitle">{heroTitle}</h1>
-            <p className="jx-heroSubtitle">{heroSubtitle}</p>
-            {!isAgentChat && !isSiteChat && (
-              <div className="jx-mobileHeroText">
-                <h1>HugAgentOS</h1>
-                <p>{t('你的智能任务助手')}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="jx-homeInput" style={staggerStyle(1)}>
-            {shareAccessLevel === 'read' ? (
-              <div className="jx-chatShareReadonly">
-                {t('该会话由创建者设为只读共享，无法在此发送消息')}
-              </div>
-            ) : (
-              <InputArea
-                inputRef={inputRef}
-                fileInputRef={fileInputRef}
-                send={() => send()}
-                abort={abort}
-                activateQueuedMessage={activateQueuedMessage}
-                discardQueuedMessage={discardQueuedMessage}
-                continueLoop={continueLoop}
-                handleFileSelect={handleFileSelect}
-                removeFile={removeFile}
-                placeholder={inputPlaceholder}
-                mobilePlaceholder={!isAgentChat && !isSiteChat ? t('输入问题或需求') : inputPlaceholder}
-                disableMention={isAgentChat}
-              />
-            )}
-          </div>
-
-          {/* Quick pills: only sub-agents show suggested questions */}
-          {isAgentChat && suggestedQuestions.length > 0 && (
-            <div className="jx-quickPills" style={staggerStyle(2)}>
-              {suggestedQuestions.map((prompt: string) => (
-                <button key={prompt} className="jx-quickPill" onClick={() => applyQuickScenario(prompt)}>
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
-            <div className="jx-homeSuggestions" style={staggerStyle(2)}>
-              <div className="jx-homeSuggestionList">
-                {visibleHomepageSuggestions.map((prompt, idx) => {
-                  const SuggestionIcon = HOME_SUGGESTION_ICONS[idx % HOME_SUGGESTION_ICONS.length];
-                  return (
-                    <button
-                      key={prompt}
-                      type="button"
-                      className="jx-homeSuggestion"
-                      onClick={() => applyQuickScenario(prompt)}
-                    >
-                      <SuggestionIcon className="jx-homeSuggestionIcon" aria-hidden="true" />
-                      <span>{t(prompt)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {suggestionPageCount > 1 && (
-                <button
-                  type="button"
-                  className="jx-homeSuggestionRefresh"
-                  onClick={() => setSuggestionPage((page) => (page + 1) % suggestionPageCount)}
-                  aria-label={t('换一批')}
-                >
-                  <ReloadOutlined aria-hidden="true" />
-                  <span>{t('换一批')}</span>
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Capability cards: plugin-contributed homepage entries (main agent page only) */}
-          {!isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
-            <div className="jx-capCards" style={staggerStyle(2)}>
-              {pluginShortcuts.map((card) => (
-                <button
-                  key={card.id}
-                  type="button"
-                  className="jx-capCard"
-                  onClick={() => applyQuickScenario(card.prompt)}
-                >
-                  {card.icon ? <img src={card.icon} alt="" className="jx-capCardIcon" /> : null}
-                  <span className="jx-capCardLabel">{t(card.label)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-        </div>
-        {!isAgentChat && cfgDisclaimer && cfgDisclaimer.trim() && (
-          <div className="jx-aiDisclaimer">
-            {cfgDisclaimer.split('\n').map((line, i, arr) => (
-              <span key={i}>{line}{i < arr.length - 1 ? <br /> : null}</span>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    return <ChatWelcome view={welcome} shareAccessLevel={shareAccessLevel}
+      send={send} abort={abort} activateQueuedMessage={activateQueuedMessage}
+      discardQueuedMessage={discardQueuedMessage} continueLoop={continueLoop}
+      handleFileSelect={handleFileSelect} removeFile={removeFile}
+      inputRef={inputRef} fileInputRef={fileInputRef} />;
   }
 
   const handleCreateShare = async () => {
@@ -582,6 +378,7 @@ export function ChatArea({
           </motion.div>
         )}
       </AnimatePresence>
+      <ChatForkBanner chatId={currentChatId} />
       <ChatShareBanner
         chatId={currentChatId}
         onLevelChange={handleShareLevelChange}

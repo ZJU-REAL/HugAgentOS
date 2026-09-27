@@ -119,7 +119,7 @@ InputArea (components/chat/)
    ▼
 useStreaming.send
    │ 1. chatStore appends the optimistic user message
-   │ 2. fetch POST /v1/chats/stream (attachments carry only file_id/name/mime_type)
+   │ 2. fetch POST /v1/agents/responses (attachments carry only file_id/name/mime_type)
    │ parses data: {json} line by line
    │ ├─ content/thinking → appended into segments (utils/segments.ts)
    │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → update the tool timeline in place by tool_id (components/tool/)

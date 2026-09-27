@@ -20,10 +20,23 @@
 
 长会话可在导航栏内滚动查看条目；向上翻阅并加载更早消息后，导航会同步补充。切换会话时导航重新生成，空会话不显示。打开右侧面板时导航始终跟随聊天区域，支持深色模式和触屏操作。
 
+
+## 创建聊天分支
+
+输入 `/fork` 并选择“创建聊天分支”，可从当前聊天最后一条已结束的助手回复创建分支。也可以点击某条助手回复下方的分支图标，从该回复创建分支；复制范围包含这条回复及之前的历史。新会话默认命名为“原标题 · 分支”，顶部显示来源并可返回原聊天。
+
+分支中的消息有独立 ID，可以继续提问、重新生成或删除，不改动原聊天。分支保留工具调用与结果、思考记录、引用和附件信息，复制全部所选历史，不受浏览器已加载页数限制。附件引用原文件；文件内容、项目文件和沙箱进程不创建快照。原会话的执行任务、待确认操作和队列不迁移，继承的计划与治理卡片只供查看。
+
+仅会话所有者可创建分支，并须仍有原项目的访问权限。正在生成的回复不能作为分叉位置，之前已结束的回复仍可使用。空聊天或尚无完整回复时会提示原因。桌面端的本机聊天分支仍在本机运行，云端聊天分支仍使用云端。创建期间重复点击不会产生多个分支；失败后重试沿用同一创建请求。
+
+历史 Token 用量只作展示，不重新计费或增加模型调用次数；复制的历史也不会被后台进化回填当作新执行采集。
+
+API：`POST /v1/chats/{chat_id}/fork`，请求体包含必填 UUID `request_id`、可选 `through_message_id`（包含该助手回复）和 `title`。省略边界时选用最后一条已结束的助手回复。成功返回 HTTP 201 与新会话，`metadata.fork` 记录来源和边界。相同请求 ID 与参数返回原分支，参数冲突返回 409。服务端在一个事务中复制历史，不沿用压缩检查点，防止较早分叉带入后续轮次的摘要。
+
 ## 一次对话的端到端流程
 
 ```
-浏览器 ── POST /v1/chats/stream ──▶ api/routes/v1/chats.py::chat_stream
+浏览器 ── POST /v1/agents/responses (stream=true) ──▶ api/routes/v1/agent_responses.py::agent_response
    │   1. _ensure_main_model_configured()   主模型未配置直接 503
    │   2. 鉴权 / 会话归属校验 / 读取用户能力与记忆开关
    │   3. core/chat/context.py::build_runtime_context()  组装 workflow context
@@ -52,8 +65,8 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 | 能力 | 端点 |
 |---|---|
-| 发起流式对话 | `POST /v1/chats/stream` |
-| 刷新/断线后续播 | `GET /v1/chats/stream/{run_id}?from_offset=N` |
+| 发起智能体回复（默认 JSON；`stream: true` 返回 SSE） | `POST /v1/agents/responses` |
+| 刷新/断线后续播 | `GET /v1/chats/stream/{run_id}?from=N` |
 | 探测会话进行中的 run | `GET /v1/chats/{chat_id}/active-run` |
 | 取消 run（真正杀后台任务） | `POST /v1/chat-runs/{run_id}/cancel` |
 | 在下一次安全 ReAct 边界追加指令 | `POST /v1/chat-runs/{run_id}/steer` |
@@ -333,7 +346,7 @@ framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.
 
 ## 其它入口
 
-同一编排底座还服务：消息重新生成（`POST /v1/chats/{chat_id}/regenerate`）、编辑重发（`POST /v1/chats/{chat_id}/edit`）、非流式 `POST /v1/chats/send`、批量执行（`orchestration/batch_orchestrator.py`，见 [自动化](automation.md)）与定时自动化（`orchestration/schedulers/`）。
+同一编排底座还服务：消息重新生成（`POST /v1/chats/{chat_id}/regenerate`）、编辑重发（`POST /v1/chats/{chat_id}/edit`）、非流式 `POST /v1/agents/responses`（`stream: false`）、批量执行（`orchestration/batch_orchestrator.py`，见 [自动化](automation.md)）与定时自动化（`orchestration/schedulers/`）。
 
 ## 相关源码
 
@@ -410,7 +423,7 @@ Canvas 正文会去掉工具返回值中固定添加的「【智能体名称】�
 
 ### 首次响应超时
 
-普通对话启动工作流后，若 30 秒内没有收到正文、思考文字或工具调用等有效响应，本轮会结束并显示“当前模型调用量大，算力资源紧张，请稍后再试！”。心跳、空增量和准备阶段的状态事件不解除倒计时；首次有效响应后解除该限制，后续仍使用原有无活动超时。超时结果会持久化，刷新或断线续播后仍可查看。
+普通对话启动工作流后，若 600 秒内没有收到正文、思考文字或工具调用等有效响应，本轮会结束并显示“当前模型调用量大，算力资源紧张，请稍后再试！”。心跳、空增量和准备阶段的状态事件不解除倒计时；首次有效响应后解除该限制，后续仍使用原有无活动超时。超时结果会持久化，刷新或断线续播后仍可查看。
 
 ### 多 worker 人工交互
 

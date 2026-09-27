@@ -139,11 +139,11 @@ used to support a decision.
 
 ## Lifecycle of a Chat Request
 
-The entry point is `POST /v1/chats/stream` (`src/backend/api/routes/v1/chats.py`), which returns `text/event-stream`.
+The entry point is `POST /v1/agents/responses` (`src/backend/api/routes/v1/chats.py`), which returns `text/event-stream`.
 
 ### 1. Ingress and validation
 
-1. Nginx forwards `/api/v1/chats/stream` to the backend.
+1. Nginx forwards `/api/v1/agents/responses` to the backend.
 2. `api/deps.py::get_current_user` resolves the session cookie or a personal API key; with neither, the request gets a 401.
 3. Three read-only queries (capability resolution, user settings, session history) run in parallel via `asyncio.to_thread`, each with its own DB session.
 4. The route validates sub-agent ownership and project mount permissions, persists the user message, and assembles the workflow context (`core/chat/context.py`).

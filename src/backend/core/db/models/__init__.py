@@ -24,6 +24,7 @@ from core.db.models.agent import (
     PlanStep,
     UserAgent,
 )
+from core.db.models.agent_api import AgentApiCallLog
 from core.db.models.artifact import Artifact, ContentBlock
 from core.db.models.automation import BatchPlan, PersonaDistillJob, ScheduledTask, ScheduledTaskRun
 from core.db.models.chat import (

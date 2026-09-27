@@ -2,8 +2,11 @@ import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertMacosSigning } from "./macos-signing.mjs";
 import { validateDesktopBuildTarget } from "./desktop-build-target.mjs";
 import { resolveHybridOnly } from "./desktop-hybrid-only.mjs";
+
+assertMacosSigning();
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const flavor = process.argv[2] || "full";

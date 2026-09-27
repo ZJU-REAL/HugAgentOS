@@ -1,6 +1,6 @@
 # SSE 事件类型参考
 
-流式聊天端点 `POST /v1/chats/stream` 返回 Server-Sent Events。后端把 run 跑在后台
+统一回复端点 `POST /v1/agents/responses` 在请求体 `stream: true` 时返回 Server-Sent Events（默认 false 返回完整 JSON）。后端把 run 跑在后台
 （ChatRun + Redis Stream），SSE 只是"跟随"——断线后可用 `GET /v1/chats/stream/{run_id}`
 重新接上同一条流续播。
 
@@ -233,7 +233,7 @@ const { runId } = useChatStore.getState().activeRuns[chatId];
 
 // 重连：从后台 run 的 Redis Stream 重放 + 继续跟随
 const r = await authFetch(`${apiUrl}/v1/chats/stream/${runId}`);
-// 事件格式与 POST /v1/chats/stream 完全一致
+// 事件格式与 POST /v1/agents/responses 完全一致
 ```
 
 实际编排在 `useStreaming.ts::resumeRunIfAny`：

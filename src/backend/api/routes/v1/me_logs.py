@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.db.usage_filters import model_usage_message_filter
 from core.db.models import (
     ChatMessage,
     ChatSession,
@@ -315,7 +316,7 @@ def list_my_usage(
         )
         .join(ChatSession, ChatMessage.chat_id == ChatSession.chat_id)
         .filter(ChatSession.user_id == user.user_id)
-        .filter(ChatMessage.role == "assistant")
+        .filter(model_usage_message_filter())
     )
     query = _apply_date_range(query, ChatMessage.created_at, date_from, date_to)
 
@@ -365,7 +366,7 @@ def my_usage_summary(
         db.query(group_col.label("group_key"), ChatMessage.usage)
         .join(ChatSession, ChatMessage.chat_id == ChatSession.chat_id)
         .filter(ChatSession.user_id == user.user_id)
-        .filter(ChatMessage.role == "assistant")
+        .filter(model_usage_message_filter())
     )
     query = _apply_date_range(query, ChatMessage.created_at, date_from, date_to)
 

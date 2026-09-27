@@ -31,6 +31,8 @@ class UserContext(BaseModel):
     username: str
     email: Optional[str] = None
     avatar_url: Optional[str] = None
+    api_key_id: Optional[str] = None
+    api_key_agent_id: Optional[str] = None
 
 
 def _sso_login_url() -> str:
@@ -147,23 +149,28 @@ def _resolve_api_key_context(token: Optional[str], db: Session) -> Optional[User
 
     API-Keys are valid under all AUTH_MODEs (external programmatic calls usually
     have no Cookie). Validation (enabled/not-revoked/not-expired/user permission
-    bits) is handled uniformly by ``resolve_api_key``.
+    bits) is handled uniformly by ``resolve_api_key_identity``.
     """
-    from core.services.api_key_service import resolve_api_key
+    from core.services.api_key_service import resolve_api_key_identity
 
-    user = resolve_api_key(db, token or "")
-    if not user:
+    identity = resolve_api_key_identity(db, token or "")
+    if identity is None:
         return None
+    user, key = identity
     return UserContext(
         user_id=user.user_id,
         user_center_id=user.user_center_id or "",
         username=user.username,
         email=user.email,
         avatar_url=user.avatar_url,
+        api_key_id=key.id,
+        api_key_agent_id=key.agent_id,
     )
 
 
-def _require_api_key_context(token: Optional[str], db: Session) -> UserContext:
+def _require_api_key_context(
+    token: Optional[str], db: Session, request: Optional[Request] = None
+) -> UserContext:
     """Resolve an API-Key; any failure is a 401. A Bearer that looks like an API-Key
     must be valid — never silently downgrade to anonymous. Shared by get_current_user
     and optional_user, guaranteeing the two paths have identical rejection semantics
@@ -178,6 +185,12 @@ def _require_api_key_context(token: Optional[str], db: Session) -> UserContext:
                 "data": {},
             },
         )
+    if ctx.api_key_agent_id is not None:
+        from core.auth.agent_api_scope import enforce_agent_api_route
+
+        if request is None:
+            raise HTTPException(status_code=403, detail="Scoped API key requires route context")
+        enforce_agent_api_route(request, db, ctx)
     return ctx
 
 
@@ -226,12 +239,24 @@ async def get_current_user(
     """Dependency to get current authenticated user.
 
     Authentication priority:
-      1. Cookie session (jx_session) → Redis lookup  (session mode main path)
-      2. Bearer token → mock / remote verification   (backward compatible)
+      1. Explicit API Key → credential scope (never widened by a cookie)
+      2. Desktop bridge / cookie session → existing identity flow
+      3. Other Bearer token → mock / remote verification where supported
 
-    In AUTH_MODE=session, Bearer tokens are NOT accepted.
+    AUTH_MODE=session still accepts explicit API Keys; other Bearer tokens
+    require a session cookie.
     """
     auth_mode = _auth_mode()
+
+    # An explicit API credential must not be widened by an accompanying cookie
+    # or desktop identity. Invalid/revoked scoped keys likewise fail closed.
+    from core.services.api_key_service import api_key_token_from_header, is_api_key_token
+
+    bearer_token = api_key_token_from_header(request.headers.get("authorization"))
+    if bearer_token is None and credentials is not None:
+        bearer_token = credentials.credentials.strip()
+    if is_api_key_token(bearer_token):
+        return _require_api_key_context(bearer_token, db, request)
 
     # ── 0. 桌面桥接（仅桌面壳孵化的本机后端启用；混合架构 P2）──
     # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
@@ -247,13 +272,6 @@ async def get_current_user(
     session_user = await _resolve_session_user(request)
     if session_user is not None:
         return session_user
-
-    # ── 1b. API-Key Bearer (sk-jx-...) — valid in all modes ──
-    from core.services.api_key_service import is_api_key_token
-
-    bearer_token = credentials.credentials if credentials is not None else None
-    if is_api_key_token(bearer_token):
-        return _require_api_key_context(bearer_token, db)
 
     # ── 2. No Cookie session ──
     if auth_mode == "session":
@@ -335,6 +353,12 @@ def require_auth(required: bool = True):
             request: Request, db: Session = Depends(get_db)
         ) -> Optional[UserContext]:
             auth_mode = _auth_mode()
+            from core.services.api_key_service import api_key_token_from_header
+
+            auth_header = request.headers.get("Authorization", "")
+            raw_bearer = api_key_token_from_header(auth_header)
+            if raw_bearer is not None:
+                return _require_api_key_context(raw_bearer, db, request)
 
             # Match required authentication: the desktop shell owns the local
             # identity, even when a forwarded cloud cookie is absent or stale.
@@ -353,21 +377,6 @@ def require_auth(required: bool = True):
             except HTTPException:
                 # Session cookie expired — for optional auth, return None
                 return None
-
-            # ── API-Key Bearer (sk-jx-...) — valid in all modes ──
-            from core.services.api_key_service import is_api_key_token
-
-            auth_header = request.headers.get("Authorization")
-            raw_bearer = (
-                auth_header.split(" ", 1)[1]
-                if auth_header and auth_header.startswith("Bearer ")
-                else None
-            )
-            if is_api_key_token(raw_bearer):
-                # A Bearer that looks like an API-Key must be valid — any failure is a 401, never
-                # silently downgrade to anonymous (otherwise a wrong/expired/revoked Key could
-                # continue as anonymous, i.e. bypass authentication).
-                return _require_api_key_context(raw_bearer, db)
 
             # ── session mode: no Cookie = no user ──
             if auth_mode == "session":

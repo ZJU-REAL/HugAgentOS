@@ -84,7 +84,7 @@ _TERMINAL_TYPE = "__terminal__"
 _XREAD_BLOCK_MS = 5000
 # When the SSE stream is silent longer than this, write a `: heartbeat\n\n`
 # comment line on the wire so that nginx `proxy_read_timeout` (default 60s,
-# 300s in this project) / intermediate reverse proxies / client-side proxies
+# 600s in this project) / intermediate reverse proxies / client-side proxies
 # don't treat the idle stream during a long LLM call as a dead connection and
 # kill it. The EventSource standard discards SSE comment lines, so the
 # frontend needs no changes at all.
@@ -95,7 +95,7 @@ _HEARTBEAT_INTERVAL_SEC = 15.0
 # hung; a TimeoutError is raised and handled by the existing except path that
 # writes the failed terminal state, so the run never stays in running forever.
 # Initial visible response budget; heartbeats and setup events do not count.
-_FIRST_RESPONSE_TIMEOUT_SEC = 30.0
+_FIRST_RESPONSE_TIMEOUT_SEC = 600.0
 
 _INACTIVITY_TIMEOUT_SEC = float(os.getenv("CHAT_RUN_INACTIVITY_TIMEOUT_SEC", "600"))
 # Defense in depth: periodically check runs that are running and older than
@@ -4040,6 +4040,23 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
     recovered_run = get_run(decision.run_id)
     if recovered_run and (recovered_run.request_payload or {}).get("source") == "desktop_channel":
         return False
+    from orchestration.agent_api_recovery import validate_recovery_context
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        with SessionLocal() as db:
+            restored_context = validate_recovery_context(
+                db, recovered_run, args.get("context"),
+                user_id=decision.user_id, chat_id=decision.chat_id,
+            )
+            if "context" in snapshot:
+                validate_recovery_context(
+                    db, recovered_run, snapshot["context"],
+                    user_id=decision.user_id, chat_id=decision.chat_id,
+                )
+    except (ValueError, SQLAlchemyError):
+        logger.warning("chat_run_recovery_scope_rejected", run_id=decision.run_id)
+        return False
     _register_run_task(
         decision.run_id,
         _run_workflow(
@@ -4055,7 +4072,7 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
             session_messages=list(args.get("session_messages") or []),
             effective_user_message=str(args.get("effective_user_message") or ""),
             raw_user_message=str(args.get("raw_user_message") or ""),
-            context=dict(args.get("context") or {}),
+            context=restored_context,
             model_name=(str(args["model_name"]) if args.get("model_name") else None),
             journal_owner=owner,
             recovering=True,
@@ -4078,6 +4095,27 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
     owner = _new_worker_owner(decision.run_id)
     recovered_run = get_run(decision.run_id)
     journal = _journal()
+    from orchestration.agent_api_recovery import validate_recovery_context
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        with SessionLocal() as db:
+            restored_context = validate_recovery_context(
+                db, recovered_run, snapshot.get("context"),
+                user_id=decision.user_id, chat_id=decision.chat_id,
+            )
+        worker_args = snapshot.get("worker_args")
+        if isinstance(worker_args, dict) and "context" in worker_args:
+            with SessionLocal() as db:
+                validate_recovery_context(
+                    db, recovered_run, worker_args["context"],
+                    user_id=decision.user_id, chat_id=decision.chat_id,
+                )
+    except (ValueError, SQLAlchemyError):
+        paused = journal.needs_attention(
+            decision.run_id, reason="agent API recovery scope is unavailable or inconsistent"
+        )
+        return False if paused else None
     if not journal.claim(
         decision.run_id,
         owner=owner,
@@ -4131,15 +4169,12 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
             )
             artifacts = snapshot.get("artifacts")
             if isinstance(artifacts, list):
-                context_snapshot = snapshot.get("context")
                 _persist_artifacts(
                     db,
                     decision.user_id,
                     decision.chat_id,
                     artifacts,
-                    scope=project_scope_from_context(
-                        dict(context_snapshot) if isinstance(context_snapshot, dict) else {}
-                    ),
+                    scope=project_scope_from_context(restored_context),
                     commit=False,
                 )
             worker_args = snapshot.get("worker_args")
@@ -4151,7 +4186,7 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                 chat_id=decision.chat_id,
                 user_id=decision.user_id,
                 context=(
-                    dict(context_snapshot)
+                    restored_context
                     if isinstance(context_snapshot, dict)
                     else dict(recovery_args.get("context") or {})
                 ),

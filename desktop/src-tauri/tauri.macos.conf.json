@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "beforeBuildCommand": "node scripts/prepare-bundle.mjs"
+    "beforeBuildCommand": "node scripts/prepare-bundle.mjs",
+    "beforeBundleCommand": "node scripts/macos-signing.mjs"
   },
   "bundle": {
     "targets": ["app", "dmg"],

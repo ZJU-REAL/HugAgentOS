@@ -13,7 +13,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+import { assertMacosSigning } from "./macos-signing.mjs";
 import {
   currentDesktopTarget,
   desktopDependencyFingerprint,
@@ -22,6 +24,7 @@ import {
 } from "./desktop-dependencies.mjs";
 
 export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }) {
+  assertMacosSigning();
   const target = currentDesktopTarget();
   const config = desktopTargetConfig(target);
   const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, target);
@@ -224,10 +227,13 @@ function directorySize(root) {
 
 export function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
-  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
+  const officecliEntitlements = fileURLToPath(new URL("./officecli-jit.entitlements.plist", import.meta.url));
+  const libreOfficeJitEntitlements = fileURLToPath(new URL("./libreoffice-jit.entitlements.plist", import.meta.url));
+  const libreOfficeSelfSignedEntitlements = fileURLToPath(new URL("./libreoffice-self-signed.entitlements.plist", import.meta.url));
+  const { identity, mode } = assertMacosSigning();
   if (identity === "-") {
     console.warn(
-      "[desktop] Apple signing identity unavailable; using ad-hoc signing for the macOS runtime.",
+      "[desktop] Explicit local-test ad-hoc signing; this runtime must not be released.",
     );
   }
   const files = [];
@@ -246,14 +252,29 @@ export function signMacRuntime(root) {
     const kind = capture("/usr/bin/file", ["-b", path]);
     if (!kind.includes("Mach-O")) continue;
     const args = ["--force", "--sign", identity];
-    if (identity !== "-") args.push("--timestamp", "--options", "runtime");
+    if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
+    // OfficeCLI embeds CoreCLR, which needs JIT permission under Hardened Runtime.
+    if (path === join(root, "python", "bin", "officecli") && identity !== "-") {
+      args.push("--entitlements", officecliEntitlements);
+    }
+    // LibreOffice generates UNO vtables at runtime. Self-signed builds also
+    // have no Team ID, so its executable must load its bundled libraries.
+    if (path === join(root, "native", "libreoffice", "LibreOffice.app", "Contents", "MacOS", "soffice") && identity !== "-") {
+      args.push("--entitlements", mode === "self-signed"
+        ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }
   // Re-seal nested application resources after signing their Mach-O files.
   for (const path of bundles) {
     const args = ["--force", "--sign", identity];
-    if (identity !== "-") args.push("--timestamp", "--options", "runtime");
+    if (identity !== "-") args.push(mode === "self-signed" ? "--timestamp=none" : "--timestamp", "--options", "runtime");
+    // Re-sealing the .app re-signs its main executable, so retain its exceptions.
+    if (path === join(root, "native", "libreoffice", "LibreOffice.app") && identity !== "-") {
+      args.push("--entitlements", mode === "self-signed"
+        ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }

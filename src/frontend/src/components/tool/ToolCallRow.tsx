@@ -2,6 +2,7 @@ import { useToolCapability } from '../../hooks/useToolCapability';
 import { ToolCapabilityIcon } from './ToolCapabilityIcon';
 import { useMemo, useState } from 'react';
 import { SubagentCallRow } from './SubagentCallRow';
+import { ForkedToolCallRow } from './ForkedToolCallRow';
 import type { ComponentType } from 'react';
 import {
   LoadingOutlined,
@@ -53,7 +54,11 @@ function getRowLabel(
   if (!tool.output || tool.status === 'running') return { prefix: displayName, value: '' };
 
   try {
-    const out = parsed as any;
+    const out = parsed as {
+      query?: string; url?: string; results?: unknown[]; items?: unknown[];
+      public_datasets?: unknown[]; private_datasets?: unknown[];
+      result?: { query?: string; results?: unknown[] };
+    } | null;
     const editionLabel = getEditionToolRowLabel(tool);
     if (editionLabel) return editionLabel;
 
@@ -89,15 +94,15 @@ function getRowLabel(
         return { prefix: t('知识库列表'), value: '', count: n };
       }
       case 'load_skill': {
-        const sn = (tool.input as any)?.skill_name || (tool.input as any)?.name || '';
+        const sn = (tool.input as Record<string, string> | undefined)?.skill_name || (tool.input as Record<string, string> | undefined)?.name || '';
         return { prefix: t('激活技能：'), value: sn || '' };
       }
       case 'load_plugin': {
-        const pn = (tool.input as any)?.plugin || '';
+        const pn = (tool.input as Record<string, string> | undefined)?.plugin || '';
         return { prefix: t('加载插件：'), value: String(pn) };
       }
       case 'view_text_file': {
-        const fp = (tool.input as any)?.file_name || (tool.input as any)?.path || '';
+        const fp = (tool.input as Record<string, string> | undefined)?.file_name || (tool.input as Record<string, string> | undefined)?.path || '';
         const fn = fp ? String(fp).split('/').pop() || '' : '';
         return { prefix: t('读取文件：'), value: fn };
       }
@@ -116,24 +121,24 @@ function getRowLabel(
       }
       case 'list_myspace_files': return { prefix: t('读取我的空间'), value: '' };
       case 'stage_myspace_file': {
-        const fn = (tool.input as any)?.file_path?.split('/').pop() || '';
+        const fn = (tool.input as Record<string, string> | undefined)?.file_path?.split('/').pop() || '';
         return { prefix: t('导入文件：'), value: fn };
       }
       case 'list_favorite_chats': return { prefix: t('获取收藏会话'), value: '' };
       case 'get_chat_messages': return { prefix: t('读取会话记录'), value: '' };
       case 'query_database': return { prefix: t('数据库查询'), value: '' };
       case 'bash': {
-        const cmd = (tool.input as any)?.command || '';
+        const cmd = (tool.input as Record<string, string> | undefined)?.command || '';
         // Truncate long commands so the chip doesn't blow out the row
         const display = cmd.length > 80 ? cmd.slice(0, 77) + '…' : cmd;
         return { prefix: t('执行命令'), value: display };
       }
       case 'sandbox_put_artifact': {
-        const dst = (tool.input as any)?.dest_path || '';
+        const dst = (tool.input as Record<string, string> | undefined)?.dest_path || '';
         return { prefix: t('写入沙盒文件'), value: dst };
       }
       case 'sandbox_get_artifact': {
-        const src = (tool.input as any)?.src_path || '';
+        const src = (tool.input as Record<string, string> | undefined)?.src_path || '';
         return { prefix: t('保存沙盒文件'), value: src };
       }
       case 'get_skills': return { prefix: t('获取技能列表'), value: '' };
@@ -221,6 +226,7 @@ interface ToolCallRowProps {
 
 export function ToolCallRow(props: ToolCallRowProps) {
   const identity = useToolMessageIdentity();
+  if (identity?.readOnly) return <ForkedToolCallRow tool={props.tool} identity={identity} />;
   if (props.tool.name === 'call_subagent' && props.tool.id && identity?.messageUid) {
     return <SubagentCallRow {...props} identity={{ ...identity, messageUid: identity.messageUid }} />;
   }

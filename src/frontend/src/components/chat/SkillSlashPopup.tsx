@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppstoreOutlined, BulbOutlined, MessageOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { ForkChatIcon } from './ForkChatIcon';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
 import type { InstalledPluginItem, ReferencableChat } from '../../types';
@@ -14,6 +15,7 @@ type SlashEntryBase = {
 };
 
 export type SlashEntry =
+  | (SlashEntryBase & { kind: 'chat_action'; action: 'fork' })
   | (SlashEntryBase & { kind: 'command'; command: ChatCommand })
   | (SlashEntryBase & { kind: 'skill' })
   | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem })
@@ -30,6 +32,7 @@ interface SkillSlashPopupProps {
 const POPUP_MAX_HEIGHT = 320;
 
 function sectionLabel(kind: SlashEntry['kind']): string {
+  if (kind === 'chat_action') return t('聊天操作');
   if (kind === 'command') return t('项目命令');
   if (kind === 'plugin') return t('插件');
   if (kind === 'chat') return t('引用会话');
@@ -37,6 +40,7 @@ function sectionLabel(kind: SlashEntry['kind']): string {
 }
 
 function entryIcon(kind: SlashEntry['kind']) {
+  if (kind === 'chat_action') return <ForkChatIcon className="jx-slashPopup-icon jx-slashPopup-icon--command" />;
   if (kind === 'command') return <ThunderboltOutlined className="jx-slashPopup-icon jx-slashPopup-icon--command" />;
   if (kind === 'plugin') return <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />;
   if (kind === 'chat') return <MessageOutlined className="jx-slashPopup-icon jx-slashPopup-icon--chat" />;
@@ -102,56 +106,4 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
       )}
     </AnimatePresence>
   );
-}
-
-/**
- * Hook: / slash command popup visibility + keyboard nav.
- */
-export function useSkillSlash() {
-  const [slashVisible, setSlashVisible] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-
-  function handleSlashInputChange(value: string, prevValue: string) {
-    const v = value.trimEnd();   // contentEditable may append \n
-    const p = prevValue.trimEnd();
-    if (p === '' && /^\/[^\s]*$/.test(v)) {
-      setSlashVisible(true);
-      setSelectedIndex(0);
-      return;
-    }
-    if (slashVisible) {
-      if (v.startsWith('/') && !v.slice(1).includes(' ')) {
-        setSelectedIndex(0);
-      } else {
-        setSlashVisible(false);
-      }
-    }
-  }
-
-  /** Only handles ArrowUp/Down/Escape. Enter/Tab handled by InputArea. */
-  function handleSlashKeyDown(e: React.KeyboardEvent, itemCount: number): boolean {
-    if (!slashVisible) return false;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, Math.max(0, itemCount - 1)));
-      return true;
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
-      return true;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setSlashVisible(false);
-      return true;
-    }
-    return false;
-  }
-
-  return {
-    slashVisible, setSlashVisible,
-    selectedIndex, setSelectedIndex,
-    handleSlashInputChange, handleSlashKeyDown,
-  };
 }

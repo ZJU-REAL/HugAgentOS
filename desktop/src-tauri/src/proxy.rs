@@ -238,7 +238,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         // 前端会把它当成云端会话过期。这里直接说明真实原因。模型是否已下发
         // 不在这里拦：由本机后端在真正调用模型时裁决。
         let sync = state.bridge_sync.read().await.clone();
-        if !sync.identity_ready || (uri.path().ends_with("/chats/stream") && !sync.capabilities_ready) {
+        if !sync.identity_ready || (uri.path().ends_with("/agents/responses") && !sync.capabilities_ready) {
             let reason = sync
                 .error
                 .unwrap_or_else(|| "正在同步本机身份、模型与技能，请同步完成后重试".to_string());
@@ -614,9 +614,9 @@ const TB_OFFSET_SPA: &str =
 const TB_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:34px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
-// The traffic lights start at y=13 and occupy about 14px. A 28px overlay keeps
-// their hit area clear without stacking a second, visibly empty toolbar above
-// the application's own brand row.
+// Tao's traffic-light y inset controls the native titlebar container height,
+// not the button's top edge. The 21px inset keeps the controls inside this
+// 28px drag region, above the brand row's existing 38px content inset.
 const MAC_TITLEBAR_HEIGHT: u8 = 28;
 // The SPA paints its own surfaces all the way to the window edge. Reserve
 // traffic-light space only inside the sidebar; standalone pages keep an inset.

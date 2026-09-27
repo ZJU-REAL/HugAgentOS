@@ -166,3 +166,41 @@ test("changing the runtime smoke check invalidates the cached bundle", () => {
     assert.notEqual(desktopDependencyFingerprint(fixture, "windows-x86_64"), before);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
+
+test("changing Mac signing identity replaces the cached and installed runtime", () => {
+  const old = { APPLE_SIGNING_IDENTITY: "-", HUGAGENT_ALLOW_ADHOC: "1" };
+  const next = {
+    APPLE_SIGNING_IDENTITY: "Developer ID Application: Example Company (ABCDE12345)",
+    APPLE_TEAM_ID: "ABCDE12345",
+  };
+  for (const target of ["darwin-aarch64", "darwin-x86_64"]) {
+    assert.notEqual(desktopDependencyFingerprint(repoRoot, target, old),
+      desktopDependencyFingerprint(repoRoot, target, next));
+    assert.equal(desktopDependencyFingerprint(repoRoot, target, next),
+      desktopDependencyFingerprint(repoRoot, target, { ...next, APPLE_PASSWORD: "rotated-password" }));
+  }
+  assert.equal(desktopDependencyFingerprint(repoRoot, "windows-x86_64", old),
+    desktopDependencyFingerprint(repoRoot, "windows-x86_64", next));
+});
+
+test("Mac runtime fingerprint separates signing modes and normalizes certificate fingerprints", () => {
+  const env = {
+    HUGAGENT_MACOS_SIGNING_MODE: "self-signed",
+    APPLE_SIGNING_IDENTITY: "abcdef0123456789abcdef0123456789abcdef01",
+  };
+  for (const target of ["darwin-aarch64", "darwin-x86_64"]) {
+    const fingerprint = desktopDependencyFingerprint(repoRoot, target, env);
+    assert.equal(fingerprint, desktopDependencyFingerprint(repoRoot, target, {
+      ...env, APPLE_SIGNING_IDENTITY: env.APPLE_SIGNING_IDENTITY.toUpperCase(),
+    }));
+    assert.notEqual(fingerprint, desktopDependencyFingerprint(repoRoot, target, {
+      ...env, HUGAGENT_MACOS_SIGNING_MODE: "developer-id",
+    }));
+    assert.notEqual(fingerprint, desktopDependencyFingerprint(repoRoot, target, {
+      ...env, APPLE_SIGNING_IDENTITY: "1".repeat(40),
+    }));
+    assert.equal(fingerprint, desktopDependencyFingerprint(repoRoot, target, {
+      ...env, APPLE_TEAM_ID: "IGNORED123", APPLE_PASSWORD: "irrelevant-fixture",
+    }));
+  }
+});

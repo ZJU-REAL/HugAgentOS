@@ -1,6 +1,7 @@
 /** Community-edition English dictionaries only. */
 import { CORE_DICT } from './core';
 import { CHAT_DICT } from './chat';
+import { CHAT_FORK_DICT } from './chatFork';
 import { HOOKS_DICT } from './hooks';
 import { PANELS_DICT } from './panels';
 import { TOOL_DICT } from './tool';
@@ -18,6 +19,7 @@ import { CE_SHARED_DICT } from './ceShared';
 export const EN_DICT: Record<string, string> = {
   ...CORE_DICT,
   ...CHAT_DICT,
+  ...CHAT_FORK_DICT,
   ...HOOKS_DICT,
   ...PANELS_DICT,
   ...TOOL_DICT,

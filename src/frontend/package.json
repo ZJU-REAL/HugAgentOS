@@ -49,7 +49,13 @@
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:hybrid-plugin-routing": "esbuild scripts/test-hybrid-plugin-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-hybrid-plugin-routing.mjs && node node_modules/.tmp/test-hybrid-plugin-routing.mjs",
     "test:capability-sync": "esbuild scripts/test-capability-sync.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-capability-sync.mjs && node node_modules/.tmp/test-capability-sync.mjs",
-    "test:folder-upload-browser": "node scripts/test-folder-upload-browser.mjs"
+    "test:folder-upload-browser": "node scripts/test-folder-upload-browser.mjs",
+    "test:agent-api": "esbuild scripts/test-agent-api.ts --bundle --platform=node --format=esm --define:import.meta.env='{}' --outfile=node_modules/.tmp/test-agent-api.mjs && node node_modules/.tmp/test-agent-api.mjs",
+    "test:agent-api-browser": "node scripts/test-agent-api-browser.mjs",
+    "test:chat-fork-browser": "node scripts/test-chat-fork-browser.mjs",
+    "test:chat-fork": "esbuild scripts/test-chat-fork.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-chat-fork.mjs && node node_modules/.tmp/test-chat-fork.mjs",
+    "test:fork-composer": "esbuild scripts/test-fork-composer.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-composer.mjs && node node_modules/.tmp/test-fork-composer.mjs",
+    "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

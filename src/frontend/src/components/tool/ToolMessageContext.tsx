@@ -13,6 +13,8 @@ import { createContext, useContext } from 'react';
  */
 export interface ToolMessageIdentity {
   chatId: string;
+  /** Inherited fork results are snapshots, never live control surfaces. */
+  readOnly?: boolean;
   /** Stable local identity, including messages still streaming. */
   messageUid?: string;
   /** 消息尚未落库（正在流式输出）时为空。 */

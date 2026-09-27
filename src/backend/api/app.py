@@ -520,6 +520,8 @@ async def custom_redoc_html():
 # further out and run first). Edition middleware is innermost so CORS can still
 # decorate any edition-specific rejection response.
 setup_edition_middleware(app)
+from api.middleware.agent_api_scope import AgentApiScopeMiddleware
+app.add_middleware(AgentApiScopeMiddleware)
 setup_cors(app)
 setup_logging_middleware(app)
 setup_error_handlers(app)

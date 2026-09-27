@@ -1,0 +1,56 @@
+.jx-agentApi-modal {
+  max-width: calc(100vw - 24px);
+}
+.jx-agentApi-body {
+  max-height: min(760px, calc(100dvh - 180px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.jx-agentApi-body > .ant-alert + .ant-alert { margin-top: 12px; }
+.jx-agentApi-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.jx-agentApi-create, .jx-agentApi-filters, .jx-agentApi-toolbar, .jx-agentApi-secret,
+.jx-agentApi-endpoint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.jx-agentApi-create { align-items: flex-end; }
+.jx-agentApi-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.jx-agentApi-field .ant-select { width: 100%; }
+.jx-agentApi-toolbar { justify-content: space-between; }
+.jx-agentApi-secret .ant-input { flex: 1 1 260px; }
+.jx-agentApi-filters .ant-select { flex: 1 1 180px; min-width: 0; }
+.jx-agentApi-endpoint .ant-typography { overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.jx-agentApi-code {
+  overflow: auto;
+  max-height: 340px;
+  padding: 16px;
+  margin: 12px 0 0;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-layout);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre;
+}
+.jx-agentApi-callDetail { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.jx-agentApi-callDetail > .ant-btn { justify-self: start; }
+@media (max-width: 600px) {
+  .jx-agentApi-body { max-height: calc(100dvh - 150px); }
+  .jx-agentApi-create > .ant-btn { width: 100%; }
+  .jx-agentApi-filters .ant-select { flex-basis: 100%; }
+  .jx-agentApi-section .ant-segmented { max-width: 100%; overflow-x: auto; }
+}

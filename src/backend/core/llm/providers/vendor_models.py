@@ -99,7 +99,7 @@ def _with_provider(model_instance, provider_id: str, timeout: float):  # noqa: A
 class NativeRequestTimeout:
     """Bound initial response and each subsequent stream read, in the owning task."""
 
-    _request_timeout: float = 120.0
+    _request_timeout: float = 600.0
 
     async def _call_api(self, *args, **kwargs):
         async with asyncio.timeout(self._request_timeout):
@@ -176,7 +176,7 @@ def build_native_model(
     api_key: str,
     context_size: int,
     stream: bool,
-    timeout: float = 120,
+    timeout: float = 600,
 ):
     """Construct the corresponding native vendor model per spec.native_class."""
     # context_size is guaranteed positive by make_chat_model (real window or caller-supplied

@@ -20,10 +20,23 @@ The short marks on the right of the conversation represent loaded user turns. Ho
 
 Scroll within the rail to browse long conversations. Loading earlier messages by scrolling upward adds their turns to the rail. Switching conversations rebuilds navigation; empty conversations have no rail. Navigation follows the chat area when a side panel opens and supports dark mode and touch input.
 
+
+## Create a chat branch
+
+Enter `/fork` and choose “Create chat branch” to branch from the latest finished assistant reply. The branch icon below an assistant reply creates a branch through that reply, including all preceding history. The new chat defaults to “Original title · 分支” and shows a source banner with a link back to the original chat.
+
+Messages receive independent IDs. Continuing, regenerating, or deleting branch history does not change the source chat. Tool calls and results, reasoning, references, and attachments are retained across the complete selected history, regardless of browser pagination. Attachments reference the original files; file contents, project files, and sandbox processes are not snapshotted. Running tasks, pending approvals, and queues are not transferred. Inherited plan and governance cards are read-only.
+
+Only the chat owner can branch, and access to the source project must still be valid. A reply still being generated cannot be the branch boundary, but earlier finished replies remain available. Empty chats or chats without a finished reply explain why branching is unavailable. Desktop branches retain the source chat's local or cloud execution target. Repeated clicks during creation do not create duplicates, and a failed attempt reuses its request ID when retried.
+
+Historical token usage is display-only: branching adds no model charges or call counts. Automatic evolution backfill also excludes copied history from new execution evidence.
+
+API: `POST /v1/chats/{chat_id}/fork` accepts a required UUID `request_id`, optional `through_message_id` (inclusive assistant reply), and optional `title`. Omitting the boundary selects the latest finished assistant reply. HTTP 201 returns the new session, with source and boundary details in `metadata.fork`. Repeating the same request ID and parameters returns the existing branch; conflicting parameters return 409. The server copies history in one transaction and does not inherit compaction checkpoints, preventing an earlier branch from including summaries of later turns.
+
 ## End-to-end flow of one conversation
 
 ```
-Browser ── POST /v1/chats/stream ──▶ api/routes/v1/chats.py::chat_stream
+Browser ── POST /v1/agents/responses (stream=true) ──▶ api/routes/v1/agent_responses.py::agent_response
    │   1. _ensure_main_model_configured()   503 immediately if no main model
    │   2. auth / chat-ownership checks / read user capabilities & memory flags
    │   3. core/chat/context.py::build_runtime_context()  assemble workflow context
@@ -52,8 +65,8 @@ Every sent message creates a `ChatRun` and a background task (`orchestration/cha
 
 | Capability | Endpoint |
 |---|---|
-| Start a streaming chat | `POST /v1/chats/stream` |
-| Resume after refresh / disconnect | `GET /v1/chats/stream/{run_id}?from_offset=N` |
+| Start an agent response (JSON by default; SSE with `stream: true`) | `POST /v1/agents/responses` |
+| Resume after refresh / disconnect | `GET /v1/chats/stream/{run_id}?from=N` |
 | Probe for an in-flight run | `GET /v1/chats/{chat_id}/active-run` |
 | Cancel a run (kills the background task) | `POST /v1/chat-runs/{run_id}/cancel` |
 | Add an instruction at the next safe ReAct boundary | `POST /v1/chat-runs/{run_id}/steer` |
@@ -445,7 +458,7 @@ Storage is Redis (`chat_share:*` key groups + TTL) with an in-process memory fal
 
 ## Other entry points
 
-The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/chats/send`, batch execution (`orchestration/batch_orchestrator.py`, see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
+The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false`, batch execution (`orchestration/batch_orchestrator.py`, see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
 
 ## Source map
 
@@ -533,7 +546,7 @@ Tools inherit their connector logo; skills and tools belonging to a plugin inher
 
 ### First response timeout
 
-Once a normal chat workflow starts, it has 30 seconds to produce visible text, reasoning text, or a tool interaction. Otherwise the run ends with “当前模型调用量大，算力资源紧张，请稍后再试！” (The model is busy; please try again later). Heartbeats, empty deltas, and setup status events do not satisfy this deadline. After the first meaningful response, only the existing inactivity timeout applies. The timeout is persisted and remains available after refresh or stream replay.
+Once a normal chat workflow starts, it has 600 seconds to produce visible text, reasoning text, or a tool interaction. Otherwise the run ends with “当前模型调用量大，算力资源紧张，请稍后再试！” (The model is busy; please try again later). Heartbeats, empty deltas, and setup status events do not satisfy this deadline. After the first meaningful response, only the existing inactivity timeout applies. The timeout is persisted and remains available after refresh or stream replay.
 
 ### Human interactions with multiple workers
 

@@ -108,8 +108,18 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Stage the public CE local-server payload
+        if: runner.os != 'macOS'
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs
+
+      - name: Stage the macOS payload with a temporary CI signing identity
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: >-
+          python3 scripts/setup-macos-self-signing.py
+          --directory "$RUNNER_TEMP/hugagent-ci-signing"
+          --create --name "HugAgentOS CI Local Signing"
+          --run node scripts/prepare-bundle.mjs
 
       # The new native updater regression links TaskDialogIndirect even when
       # ignored. Tauri embeds Common Controls v6 in the app, but Cargo's library

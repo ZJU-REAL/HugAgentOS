@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from core.db.engine import SessionLocal
+from core.db.usage_filters import model_usage_message_filter
 from core.evolution.trace_assembler import assemble_episode
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _candidate_messages(
             ChatMessage.chat_seq,
         )
         .filter(
-            ChatMessage.role == "assistant",
+            model_usage_message_filter(),
             ChatMessage.created_at >= since,
             ChatMessage.created_at < until,
             ~ChatMessage.message_id.in_(db.query(existing.c.message_id)),
@@ -114,9 +115,7 @@ def _outcome_from_logs(db, message_id: str, chat_id: str) -> Optional[Dict[str, 
         return None
 
     failed = [r for r in rows if str(r.status or "success") != "success"]
-    message = (
-        db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
-    )
+    message = db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
     answered = bool(message is not None and (message.content or "").strip())
     message_errored = bool(message is not None and message.error)
 
@@ -164,9 +163,7 @@ def backfill_episodes(
 
         try:
             with SessionLocal() as db:
-                rows = _candidate_messages(
-                    db, since=start, until=end, limit=batch_size, offset=0
-                )
+                rows = _candidate_messages(db, since=start, until=end, limit=batch_size, offset=0)
                 if not rows:
                     break
 
@@ -180,9 +177,7 @@ def backfill_episodes(
                     from core.evolution.events import TraceSink
                     from core.evolution.trace_assembler import emit_tool_events
 
-                    sink = TraceSink(
-                        message_id=message_id, chat_id=chat_id or "", user_id=user_id
-                    )
+                    sink = TraceSink(message_id=message_id, chat_id=chat_id or "", user_id=user_id)
                     if emit_tool_events(sink, message_id, chat_id or ""):
                         sink.flush()
 

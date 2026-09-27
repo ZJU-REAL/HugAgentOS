@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -104,7 +106,7 @@ test("release builder validates dependencies and relocatable runtime before arch
   assert.match(smoke, /import_module\("cli"\)/);
 });
 
-test("macOS release falls back to ad-hoc signing without Apple credentials", () => {
+test("macOS release requires configured signing credentials without ad-hoc fallback", () => {
   const builder = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
   const overlayWorkflow = join(
     repoDir,
@@ -121,8 +123,8 @@ test("macOS release falls back to ad-hoc signing without Apple credentials", () 
     "utf8",
   );
 
-  assert.match(builder, /APPLE_SIGNING_IDENTITY\?\.trim\(\) \|\| "-"/);
-  assert.doesNotMatch(builder, /APPLE_SIGNING_IDENTITY is required/);
+  assert.match(builder, /assertMacosSigning\(\)/);
+  assert.doesNotMatch(builder, /APPLE_SIGNING_IDENTITY\?\.trim\(\) \|\| "-"/);
   assert.match(builder, /\["--force", "--sign", identity\]/);
 
   const configureStepStart = workflow.indexOf("- name: Configure macOS signing");
@@ -133,7 +135,12 @@ test("macOS release falls back to ad-hoc signing without Apple credentials", () 
   const configureStep = workflow.slice(configureStepStart, buildStepStart);
   const buildStep = workflow.slice(buildStepStart);
   assert.match(configureStep, /APPLE_CERTIFICATE_SECRET/);
-  assert.match(configureStep, /echo 'APPLE_SIGNING_IDENTITY=-'/);
+  assert.doesNotMatch(configureStep, /echo 'APPLE_SIGNING_IDENTITY=-'/);
+  assert.match(configureStep, /exit 1/);
+  assert.match(configureStep, /vars\.MACOS_SIGNING_MODE/);
+  assert.match(configureStep, /HUGAGENT_MACOS_SIGNING_MODE/);
+  assert.match(configureStep, /self-signed/);
+  assert.match(configureStep, /\[A-Fa-f0-9\]\{40\}/);
   assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE:/);
   assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE_PASSWORD:/);
 });
@@ -186,3 +193,37 @@ test("offline desktop builds reject universal and cross-architecture targets", (
     /matching OS and CPU architecture/,
   );
 });
+
+test("CI config supports pinned self-signing without notarization and rejects incomplete modes",
+  { skip: process.platform === "win32" }, () => {
+    const overlay = join(repoDir, "ce/overlay/.github/workflows/desktop-release.yml");
+    const workflow = readFileSync(existsSync(overlay) ? overlay : join(repoDir, ".github/workflows/desktop-release.yml"), "utf8");
+    const step = workflow.split("- name: Configure macOS signing")[1].split("- name: Import macOS signing identity")[0];
+    const script = step.split("run: |\n")[1].split("\n").map((line) => line.slice(10)).join("\n");
+    const directory = mkdtempSync(join(tmpdir(), "mac-signing-ci-"));
+    const pin = "0123456789ABCDEF0123456789ABCDEF01234567";
+    const env = {
+      PATH: process.env.PATH, GITHUB_ENV: join(directory, "env"),
+      APPLE_CERTIFICATE_SECRET: "fixture-p12", APPLE_CERTIFICATE_PASSWORD_SECRET: "fixture-password",
+      APPLE_SIGNING_IDENTITY_SECRET: pin, MACOS_SIGNING_MODE: "self-signed",
+    };
+    try {
+      const run = (changes = {}) => spawnSync("bash", ["-e", "-c", script], { env: { ...env, ...changes }, encoding: "utf8" });
+      const result = run();
+      assert.equal(result.status, 0, result.stderr);
+      const exported = readFileSync(env.GITHUB_ENV, "utf8");
+      assert.match(exported, /HUGAGENT_MACOS_SIGNING_MODE=self-signed/);
+      assert.match(exported, new RegExp("APPLE_SIGNING_IDENTITY=" + pin));
+      assert.doesNotMatch(exported, /APPLE_TEAM_ID|APPLE_PASSWORD|APPLE_CERTIFICATE/);
+      assert.notEqual(run({ APPLE_SIGNING_IDENTITY_SECRET: "-" }).status, 0);
+      assert.notEqual(run({ MACOS_SIGNING_MODE: "developer-id" }).status, 0);
+      assert.notEqual(run({ MACOS_SIGNING_MODE: "typo" }).status, 0);
+      assert.notEqual(run({ APPLE_CERTIFICATE_SECRET: "" }).status, 0);
+      assert.equal(run({
+        MACOS_SIGNING_MODE: "developer-id",
+        APPLE_SIGNING_IDENTITY_SECRET: "Developer ID Application: Example (ABCDE12345)",
+        APPLE_ID_SECRET: "example@example.invalid", APPLE_PASSWORD_SECRET: "fixture",
+        APPLE_TEAM_ID_SECRET: "ABCDE12345",
+      }).status, 0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });

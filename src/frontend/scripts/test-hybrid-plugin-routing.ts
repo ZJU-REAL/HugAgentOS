@@ -9,6 +9,10 @@
 import assert from 'node:assert/strict';
 
 import {
+  apiRequest,
+  authFetch,
+  chatTargetHeaders,
+  setChatRoutingContext,
   getInstalledPluginDetail,
   installPlugin,
   listInstalledPlugins,
@@ -50,6 +54,29 @@ assert.equal(
   null,
   '展示信息是账号资产的属性',
 );
+
+// Agent responses execute on the conversation target, independently of the
+// local capability catalog. Both callers and both transports share this rule.
+let runTarget = 'cloud';
+setChatRoutingContext(() => ({ runTarget }));
+for (const stream of [false, true]) {
+  for (const selected of ['local', 'cloud']) {
+    runTarget = selected;
+    const options = {
+      method: 'POST',
+      headers: chatTargetHeaders('response-chat'),
+      body: JSON.stringify({ chat_id: 'response-chat', message: 'hello', stream }),
+    };
+    const expected = selected === 'local' ? 'local' : null;
+    assert.equal(await targetOf(() => apiRequest('/v1/agents/responses', options)), expected);
+    assert.equal(await targetOf(() => authFetch('/api/v1/agents/responses?trace=1', options)), expected);
+    assert.equal(await targetOf(() => apiRequest('/v1/agents/responses/', options)), expected);
+  }
+}
+assert.equal(await targetOf(() => apiRequest('/v1/agents/responses', { method: 'POST' })), null,
+  'unscoped API requests retain the cloud default; the catalog cannot select an execution target');
+assert.equal(await targetOf(() => apiRequest('/v1/agents/ua_one')), 'local', 'agent definitions remain local');
+assert.equal(await targetOf(() => apiRequest('/v1/agents/ua_one/api-keys')), 'local', 'agent keys follow their definition');
 
 // 非混合形态下这套分流整体不生效：web 与纯云端壳照旧全打云端。
 setHybridDual(false);

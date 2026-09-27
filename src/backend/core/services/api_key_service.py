@@ -1,10 +1,8 @@
-"""Per-user API-Key business logic.
+"""Personal and agent-scoped API credential lifecycle.
 
-API-Keys are used to call the agent over HTTP as the user (equivalent to a logged-in session, inheriting all the user's capabilities).
-Security model:
-  - The plaintext looks like ``sk-jx-<random>``, returned only once at creation; the DB stores only the SHA256 hash + prefix.
-  - Calls carry ``Authorization: Bearer sk-jx-...``; the auth layer calls ``resolve_api_key``
-    to look up by hash and verify enabled status / expiry / the user capability bit ``can_use_api_key``.
+Only the hash is used for authentication. Encrypted key material supports the
+authenticated reveal action; list responses contain only a prefix. Agent scope
+is immutable and cannot be promoted to a personal credential.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from core.db.models import UserApiKey, UserShadow
+from core.db.models import LocalUser, UserApiKey, UserShadow
 
 API_KEY_PREFIX = "sk-jx-"
 
@@ -41,11 +39,15 @@ class ApiKeyService:
 
     # ── CRUD ────────────────────────────────────────────────────────────────
 
-    def list_keys(self, user_id: str) -> List[UserApiKey]:
+    def list_keys(self, user_id: str, agent_id: Optional[str] = None) -> List[UserApiKey]:
         """Return all of a user's non-revoked keys (newest first by creation time)."""
         return (
             self.db.query(UserApiKey)
-            .filter(UserApiKey.user_id == user_id, UserApiKey.revoked_at.is_(None))
+            .filter(
+                UserApiKey.user_id == user_id,
+                UserApiKey.agent_id == agent_id,
+                UserApiKey.revoked_at.is_(None),
+            )
             .order_by(UserApiKey.created_at.desc())
             .all()
         )
@@ -55,11 +57,17 @@ class ApiKeyService:
         user_id: str,
         name: str,
         expires_in_days: Optional[int] = None,
+        *,
+        agent_id: Optional[str] = None,
     ) -> Tuple[UserApiKey, str]:
         """Generate a new key. Returns (ORM row, plaintext); the plaintext is visible only this once.
 
         ``expires_in_days=None`` means never expires; otherwise it expires N days from the current time.
         """
+        if agent_id is not None:
+            from core.services.agent_api_service import require_agent_manager
+
+            require_agent_manager(self.db, user_id, agent_id, enabled=True)
         raw = API_KEY_PREFIX + secrets.token_urlsafe(32)
         prefix = raw[:14]  # sk-jx- + first 8 random chars, for listing display
         expires_at: Optional[datetime] = None
@@ -71,10 +79,13 @@ class ApiKeyService:
         row = UserApiKey(
             id=f"ak_{uuid.uuid4().hex[:20]}",
             user_id=user_id,
+            agent_id=agent_id,
             name=(name or "API Key").strip()[:128],
             key_prefix=prefix,
             key_hash=_hash_key(raw),
-            key_enc=encrypt_secret(raw),  # reversible ciphertext, decrypted on demand for "copy again"
+            key_enc=encrypt_secret(
+                raw
+            ),  # reversible ciphertext, decrypted on demand for "copy again"
             enabled=True,
             expires_at=expires_at,
             created_at=_now(),
@@ -84,24 +95,30 @@ class ApiKeyService:
         self.db.refresh(row)
         return row, raw
 
-    def get_key(self, user_id: str, key_id: str) -> Optional[UserApiKey]:
+    def get_key(
+        self, user_id: str, key_id: str, agent_id: Optional[str] = None
+    ) -> Optional[UserApiKey]:
         """Get a single non-revoked key of a user (nonexistent / not theirs / already revoked → None)."""
         return (
             self.db.query(UserApiKey)
             .filter(
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
+                UserApiKey.agent_id == agent_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .first()
         )
 
-    def set_enabled(self, user_id: str, key_id: str, enabled: bool) -> Optional[UserApiKey]:
+    def set_enabled(
+        self, user_id: str, key_id: str, enabled: bool, agent_id: Optional[str] = None
+    ) -> Optional[UserApiKey]:
         row = (
             self.db.query(UserApiKey)
             .filter(
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
+                UserApiKey.agent_id == agent_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .first()
@@ -113,13 +130,14 @@ class ApiKeyService:
         self.db.refresh(row)
         return row
 
-    def revoke_key(self, user_id: str, key_id: str) -> bool:
+    def revoke_key(self, user_id: str, key_id: str, agent_id: Optional[str] = None) -> bool:
         """Soft delete: mark revoked_at. Once revoked, the key is immediately invalid and no longer appears in listings."""
         row = (
             self.db.query(UserApiKey)
             .filter(
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
+                UserApiKey.agent_id == agent_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .first()
@@ -137,11 +155,20 @@ def is_api_key_token(token: Optional[str]) -> bool:
     return bool(token) and token.startswith(API_KEY_PREFIX)
 
 
-def resolve_api_key(db: Session, raw: str) -> Optional[UserShadow]:
-    """Look up the user by plaintext key.
+def api_key_token_from_header(authorization: Optional[str]) -> Optional[str]:
+    """Normalize HTTP Bearer whitespace identically at every auth boundary."""
+    parts = (authorization or "").split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    token = parts[1].strip()
+    return token if is_api_key_token(token) else None
 
-    Returns UserShadow if it passes validation (enabled / not revoked / not expired / user capability bit can_use_api_key),
-    otherwise None. On a hit, throttle-updates last_used_at along the way.
+
+def resolve_api_key_identity(db: Session, raw: str) -> Optional[Tuple[UserShadow, UserApiKey]]:
+    """Return the owner and immutable credential scope after current validation.
+
+    Checks revocation, expiry, account status, API capability and agent management
+    authorization. Throttle-updates last_used_at without retaining plaintext.
     """
     if not is_api_key_token(raw):
         return None
@@ -175,6 +202,18 @@ def resolve_api_key(db: Session, raw: str) -> Optional[UserShadow]:
     if not resolve_user_capabilities(db, str(row.user_id))["can_use_api_key"]:
         return None
 
+    account = db.query(LocalUser).filter(LocalUser.user_id == row.user_id).first()
+    if account is not None and account.status != "active":
+        return None
+    if row.agent_id is not None:
+        from core.services.agent_api_service import require_agent_manager
+        from fastapi import HTTPException
+
+        try:
+            require_agent_manager(db, str(row.user_id), str(row.agent_id), enabled=True)
+        except HTTPException:
+            return None
+
     # Throttled write of last_used_at
     last = row.last_used_at
     if last is not None and last.tzinfo is None:
@@ -186,4 +225,4 @@ def resolve_api_key(db: Session, raw: str) -> Optional[UserShadow]:
         except Exception:
             db.rollback()
 
-    return user
+    return user, row

@@ -1,0 +1,22 @@
+/** Chat branching and historical, read-only records. */
+export const CHAT_FORK_DICT: Record<string, string> = {
+  '分支自：': 'Branched from:',
+  '打开原聊天': 'Open original chat',
+  '原聊天': 'Original chat',
+  '历史消息独立保存，附件保留原文件引用': 'History is saved independently; attachments reference the original files',
+  '创建聊天分支': 'Create chat branch',
+  '为此聊天创建分支': 'Branch this chat',
+  '历史记忆（只读）': 'Historical memories (read-only)',
+  '历史本体校验（只读）': 'Historical ontology review (read-only)',
+  '历史计划（只读）': 'Historical plan (read-only)',
+  '待执行': 'Pending',
+  '分叉时': 'At the branch point',
+  '聊天操作': 'Chat actions',
+  '请在已有聊天中创建分支': 'Create a branch from an existing chat',
+  '用法：/fork（不支持参数）': 'Usage: /fork (no arguments)',
+  '历史工具结果（只读）': 'Historical tool result (read-only)',
+  '请先完成一轮聊天，再创建聊天分支': 'Finish a chat turn before creating a branch',
+  '已创建聊天分支': 'Chat branch created',
+  '聊天分支已创建，历史加载失败，可重新打开该分支重试': 'Branch created, but history could not load. Reopen the branch to retry',
+  '创建聊天分支失败，请重试': 'Could not create chat branch. Please retry',
+};
