@@ -559,6 +559,7 @@ def build_user_capability_manifest(user_id: str, *, use_cache: bool = True) -> D
                 "server_id": sid,
                 "display_name": (row.display_name if row else None) or sid,
                 "description": (row.description if row else None) or "",
+                "created_at": row.created_at.isoformat() if row and row.created_at else None,
                 "source_plugin": source_plugin,
                 "origin": "cloud",
                 "execution_scope": "cloud",

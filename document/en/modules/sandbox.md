@@ -8,6 +8,7 @@ Edition split (see [editions](../editions/overview.md)): the **lightweight sandb
 
 All providers follow one boundary rule: **`session_id` (`chat_id` in a conversation) is the sole isolation key**. Different conversations use different sandboxes; the main agent, built-in subagents, user-defined subagents, and batch items in one conversation share the same `/workspace`. Model context, tool permissions, and execution threads may remain independent, but no second file sandbox is created inside a conversation.
 
+
 ## The provider protocol (core/sandbox/protocol.py)
 
 Every provider implements the same `SandboxProvider` Protocol, with an internal completion API wrapping the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:

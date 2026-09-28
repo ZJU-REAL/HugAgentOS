@@ -7,6 +7,7 @@ Three output_modes (aligned with Claude Code):
 """
 
 from __future__ import annotations
+from core.services.edition_workspace import is_shared_scope
 
 import logging
 from typing import Optional
@@ -72,20 +73,7 @@ def register_grep(
         # Grep needs to search content → first materialize that subtree of "My Space" into the sandbox in bulk on demand
         # (the batch version of lazy loading; already-in-sandbox files are not re-fetched), ensuring the search covers the real My Space.
         materialized = 0
-        if scope and scope.kind == "team":
-            from .project_working_copy import directory, prepare
-            from core.sandbox import get_sandbox_provider
-            from fastapi import HTTPException
-            try:
-                materialized = len(await prepare(get_sandbox_provider(), _sess, scope, user_id or ""))
-            except HTTPException as exc:
-                return resp_json({"error": exc.detail, "status": exc.status_code})
-            prefix = "/myspace/" + scope.folder_name
-            if path in (".", "/workspace") or path == prefix:
-                path = directory(scope.project_id)
-            elif path.startswith(prefix + "/"):
-                path = directory(scope.project_id) + path[len(prefix):]
-        elif user_id and _ms.myspace_rel(path, user_id, scope) is not None:
+        if user_id and not is_shared_scope(scope) and _ms.myspace_rel(path, user_id, scope) is not None:
             try:
                 from core.sandbox import get_sandbox_provider as _gsp
                 materialized = await _ms.materialize_tree(

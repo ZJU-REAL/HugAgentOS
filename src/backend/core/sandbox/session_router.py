@@ -18,26 +18,48 @@ class SessionSandboxRouter:
             return get_evaluation_provider()
         return self._ordinary
 
+    async def _authorized_for(self, session_id, user_id):
+        provider = self._for(session_id)
+        if str(session_id or "").startswith("eval_"):
+            return provider
+        if getattr(provider, "name", "") in ("script_runner", "cube"):
+            import asyncio
+            from core.services.edition_workspace import resolve_workspaces
+            workspaces = await asyncio.to_thread(resolve_workspaces, user_id)
+            if workspaces:
+                raise SandboxError("当前沙盒服务不支持额外空间的权限挂载，请使用 OpenSandbox")
+        return provider
+
+    async def ensure_user_workspace(self, session_id, user_id):
+        provider = await self._authorized_for(session_id, user_id)
+        await provider.ensure_user_workspace(session_id, user_id)
+
     async def run_to_completion(self, req):
-        return await self._for(req.session_id).run_to_completion(req)
+        provider = await self._authorized_for(req.session_id, req.user_id)
+        return await provider.run_to_completion(req)
 
     async def start_process(self, req, yield_time_ms=60000):
-        return await self._for(req.session_id).start_process(req, yield_time_ms=yield_time_ms)
+        provider = await self._authorized_for(req.session_id, req.user_id)
+        return await provider.start_process(req, yield_time_ms=yield_time_ms)
 
     async def write_stdin(self, session_id, *, sandbox_session_id, user_id=None, chars="", yield_time_ms=60000):
-        return await self._for(sandbox_session_id).write_stdin(
+        provider = await self._authorized_for(sandbox_session_id, user_id)
+        return await provider.write_stdin(
             session_id, sandbox_session_id=sandbox_session_id, user_id=user_id,
             chars=chars, yield_time_ms=yield_time_ms,
         )
 
     async def put_file(self, session_id, path, content, user_id=None):
-        return await self._for(session_id).put_file(session_id, path, content, user_id=user_id)
+        provider = await self._authorized_for(session_id, user_id)
+        return await provider.put_file(session_id, path, content, user_id=user_id)
 
     async def get_file(self, session_id, path, user_id=None):
-        return await self._for(session_id).get_file(session_id, path, user_id=user_id)
+        provider = await self._authorized_for(session_id, user_id)
+        return await provider.get_file(session_id, path, user_id=user_id)
 
     async def get_file_to_path(self, session_id, path, destination, *, max_bytes, user_id=None):
-        return await self._for(session_id).get_file_to_path(
+        provider = await self._authorized_for(session_id, user_id)
+        return await provider.get_file_to_path(
             session_id, path, destination, max_bytes=max_bytes, user_id=user_id,
         )
 

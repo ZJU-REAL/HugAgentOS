@@ -30,8 +30,8 @@ def _ordinary_provider() -> SandboxProvider:
     elif kind == "opensandbox":
         # Seam C5: when the persistent sandbox module is missing (CE tree), warn clearly and fall back to the lightweight sandbox
         try:
-            from .opensandbox_provider import OpenSandboxProvider
-            _provider = OpenSandboxProvider()
+            from .edition_provider import PersistentSandboxProvider
+            _provider = PersistentSandboxProvider()
         except ModuleNotFoundError:
             logger.warning(
                 "[sandbox] opensandbox provider 不可用（本发行版未携带），回退 script_runner"

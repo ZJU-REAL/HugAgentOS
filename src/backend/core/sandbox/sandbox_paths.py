@@ -23,7 +23,8 @@ def validate_path(path: str, root: str) -> str | None:
         return error
     if ".." in path.replace(chr(92), "/").split("/"):
         return f"path 不允许包含 ..: {path}"
-    if path == "/myspace" or path.startswith("/myspace/"):
+    from core.services.edition_workspace import resolve_alias
+    if resolve_alias(path) is not None or path == "/myspace" or path.startswith("/myspace/"):
         return None
     if path == root or path.startswith(root + "/"):
         return None
@@ -42,6 +43,10 @@ def workspace_directory(root: str, session_id: str | None) -> str:
 
 
 def resolve_path(path: str, root: str, session_id: str | None, user_id=None) -> str:
+    from core.services.edition_workspace import resolve_alias
+    resolved = resolve_alias(path)
+    if resolved is not None:
+        return resolved
     if path == "/myspace" or path.startswith("/myspace/"):
         return root + "/myspace/" + user_id + path[len("/myspace") :] if user_id else path
     if not posixpath.isabs(path):
@@ -149,7 +154,9 @@ def is_myspace_physical(physical_path: str, user_id: Optional[str], root: str) -
 
 def bash_workspace_instructions(root: str, session_id: str | None) -> str:
     _WS = root
+    from core.services.edition_workspace import workspace_instructions
     return (
+        workspace_instructions() + "\n"
         "在沙盒里执行一条 shell 命令（默认 bash 解释器）。\n\n"
         "约定：\n"
         f"- 工作目录默认 {_WS}。已加载的技能文件位于 {_WS}/skills/<skill_id>/，\n"

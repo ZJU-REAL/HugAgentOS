@@ -103,6 +103,7 @@ def _public_db_skill_items(db: Session, *, include_runtime_details: bool) -> Lis
             version=row.version or "1.0.0",
             config={"tags": row.tags or []},
         )
+        item["created_at"] = row.created_at.isoformat() if row.created_at else None
         if include_runtime_details:
             detail = resolve_skill_detail(row.user_intro, row.skill_content or "")
             if detail:
@@ -149,6 +150,7 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
             config={"server": row.server_id},
             icon=row.icon or _DEFAULT_MCP_ICONS.get(row.server_id, ""),
         )
+        item["created_at"] = row.created_at.isoformat() if row.created_at else None
         item["tools"] = [
             t["name"]
             for t in (row.tools_json or [])

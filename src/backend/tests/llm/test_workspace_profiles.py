@@ -125,8 +125,7 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
     monkeypatch.setattr(
-        sandbox_tool,
-        "_resolve_artifact_files",
+        "core.llm.tools.sandbox_artifact_tools._resolve_artifact_files",
         lambda files, user: (
             {path: base64.b64encode(b"input-data").decode() for path in files},
             None,
@@ -144,7 +143,7 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
             size=10,
         )
 
-    monkeypatch.setattr(sandbox_tool, "_store_generated_file_path", store)
+    monkeypatch.setattr("core.llm.tools.sandbox_artifact_tools._store_generated_file_path", store)
 
     class Toolkit:
         def register_tool_function(self, fn, **kwargs):

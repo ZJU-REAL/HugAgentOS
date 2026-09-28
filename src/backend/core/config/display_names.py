@@ -35,7 +35,7 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     "query_database": "查询数据仓库中的行业指标与统计数值，支持自然语言提问直接获取精确数据。",
     "db_query": "通过 DBHub 网关只读直连 MySQL/PostgreSQL/SQL Server/MariaDB/SQLite 等数据库，自动探查表结构并执行 SQL 取数。",
     "retrieve_dataset_content": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
-    "internet_search": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
+    "internet_search": "检索公开网页、官方文档、新闻及财经资讯，支持多查询并发、来源去重和原文核验。",
     "generate_chart_tool": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
     # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
     #  none of them goes by an MCP tool name any more)

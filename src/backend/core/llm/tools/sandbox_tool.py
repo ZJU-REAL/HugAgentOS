@@ -12,12 +12,8 @@ no longer coexists with this ``tools/`` package.
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import os
-import tempfile
-import threading
-from pathlib import Path
 from typing import Any, Optional
 
 from agentscope.tool import Toolkit
@@ -25,19 +21,9 @@ from agentscope.tool import Toolkit
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
 from core.llm.tools._common import resolve_sandbox_session
-from core.llm.tools._tool_helpers import (
-    _resolve_artifact_files,
-    _resp_json,
-    _store_generated_file_path,
-    _validate_workspace_path,
-)
+from core.llm.tools._tool_helpers import _resp_json
 
 logger = logging.getLogger(__name__)
-
-# Team source revisions must survive tool re-registration between model turns.
-_PENDING_TEAM_COMMANDS: dict[tuple[str, str, str], Any] = {}
-_TEAM_START_LOCK = threading.Lock()
-_TEAM_FINALIZING = object()
 
 import re as _re
 
@@ -116,28 +102,6 @@ def register_bash(
     async def bash(
         command: str, timeout: int | None = None, yield_time_ms: int = 60000,
     ) -> ToolResponse:
-        if scope is None or scope.kind != "team":
-            return await _bash_impl(command, timeout, yield_time_ms)
-        reservation = (_sess, user_id or "", "starting")
-        with _TEAM_START_LOCK:
-            pending = [key[2] for key in _PENDING_TEAM_COMMANDS if key[:2] == reservation[:2]]
-            if pending:
-                return _resp_json({
-                    "error": "团队项目仍有命令未收尾，请先用 write_stdin 等待已有进程，避免覆盖工作副本。",
-                    "process_sessions": pending,
-                })
-            if len(_PENDING_TEAM_COMMANDS) >= 64:
-                return _resp_json({"error": "团队项目后台命令数量已达上限，请先等待已有命令完成。"})
-            _PENDING_TEAM_COMMANDS[reservation] = []
-        try:
-            return await _bash_impl(command, timeout, yield_time_ms)
-        finally:
-            with _TEAM_START_LOCK:
-                _PENDING_TEAM_COMMANDS.pop(reservation, None)
-
-    async def _bash_impl(
-        command: str, timeout: int | None = None, yield_time_ms: int = 60000,
-    ) -> ToolResponse:
         from core.sandbox import ProcessRequest as _ProcessRequest
         from core.sandbox import SandboxConnectError as _SandboxConnectError
         from core.sandbox import SandboxError as _SandboxError
@@ -145,10 +109,9 @@ def register_bash(
         from core.sandbox import get_sandbox_provider as _get_provider
 
         from .project_source_access import current_scope_error
-        scope_error = current_scope_error(scope, user_id, write=True)
+        scope_error = current_scope_error(scope, user_id)
         if scope_error:
             return _resp_json(scope_error)
-        team_project = scope is not None and scope.kind == "team"
         cmd = (command or "").strip()
         if not cmd:
             return _resp_json({"error": "command 不能为空"})
@@ -201,17 +164,11 @@ def register_bash(
                 sandbox_launch.backend if sandbox_launch else "未启用（用户选择的权限档）",
             )
 
-        team_before = []
-        if team_project:
-            from .project_working_copy import prepare, directory
-            from fastapi import HTTPException
+        from core.services.edition_workspace import project_directory
+        root = project_directory(scope)
+        if root:
             import shlex
-            try:
-                team_before = await prepare(provider, _sess, scope, user_id or "")
-            except HTTPException as exc:
-                return _resp_json({"error": exc.detail, "status": exc.status_code})
-            root = directory(scope.project_id)
-            cmd = f"mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && " + cmd
+            cmd = f"cd {shlex.quote(root)} && " + cmd
 
         if timeout is not None and timeout <= 0:
             return _resp_json({"error": "timeout 必须为正数；省略表示不设置命令执行期限。"})
@@ -236,79 +193,43 @@ def register_bash(
         # 把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件。反方向
         # （命令写了什么、删了什么）不在这里判断：那由 core.myspace.watcher 从文件
         # 事件登记，命令返回之后才落盘的后台进程也一样收得到。
-        if user_id and not team_project and not _evaluation:
+        if user_id and not _evaluation:
             await _pull_myspace_updates(user_id)
 
+        from fastapi import HTTPException
         try:
             payload = await provider.start_process(req, yield_time_ms=yield_time_ms)
+        except HTTPException as exc:
+            return _resp_json({"error": exc.detail, "status": exc.status_code})
         except _SandboxTimeoutError as exc:
             return _resp_json({"error": str(exc), "exit_code": -1})
         except (_SandboxConnectError, _SandboxError) as exc:
             return _resp_json({"error": str(exc), "exit_code": -1})
 
         if payload.get("status") == "running":
-            if team_project:
-                with _TEAM_START_LOCK:
-                    _PENDING_TEAM_COMMANDS[(_sess, user_id or "", payload["session_id"])] = team_before
             return _resp_json(payload)
-        return await finish(payload, team_before)
+        return await finish(payload)
 
-    async def write_stdin(
-        session_id: str, chars: str = "", yield_time_ms: int = 60000,
-    ) -> ToolResponse:
-        from core.sandbox import get_sandbox_provider, SandboxError
-        from .project_source_access import current_scope_error
-
-        scope_error = current_scope_error(scope, user_id, write=bool(chars))
-        if scope_error:
-            return _resp_json(scope_error)
+    async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 60000) -> ToolResponse:
+        from core.sandbox import get_sandbox_provider
+        from fastapi import HTTPException
         try:
             payload = await get_sandbox_provider().write_stdin(
                 session_id, sandbox_session_id=_sess, user_id=user_id,
                 chars=chars, yield_time_ms=yield_time_ms,
             )
-        except SandboxError as exc:
-            # An expired/closed handle must not permanently block the team.
-            # Preserve any recoverable working-copy edits before releasing it.
-            if "Unknown process session" in str(exc):
-                with _TEAM_START_LOCK:
-                    has_pending = (_sess, user_id or "", session_id) in _PENDING_TEAM_COMMANDS
-                if has_pending:
-                    return await finish_process(
-                        {"error": str(exc), "exit_code": -1, "status": "lost"}, session_id,
-                    )
-            return _resp_json({"error": str(exc), "exit_code": -1})
+        except HTTPException as exc:
+            return _resp_json({"error": exc.detail, "status": exc.status_code})
         if payload.get("status") == "running":
             return _resp_json(payload)
-        return await finish_process(payload, session_id)
+        return await finish(payload)
 
-    async def finish_process(payload: dict, session_id: str) -> ToolResponse:
-        key = (_sess, user_id or "", session_id)
-        with _TEAM_START_LOCK:
-            before = _PENDING_TEAM_COMMANDS.get(key)
-            if before is _TEAM_FINALIZING:
-                return _resp_json({**payload, "source_saved": False,
-                    "note": "另一调用正在同步团队源码，请等待同步完成。"})
-            if before is not None:
-                _PENDING_TEAM_COMMANDS[key] = _TEAM_FINALIZING
-        if scope is not None and scope.kind == "team" and before is None:
-            return _resp_json({**payload, "source_saved": False,
-                "error": "团队命令的源码基线已失效，不能自动覆盖项目文件；工作副本仍可读取。"})
-        try:
-            return await finish(payload, before or [])
-        finally:
-            with _TEAM_START_LOCK:
-                if _PENDING_TEAM_COMMANDS.get(key) is _TEAM_FINALIZING:
-                    _PENDING_TEAM_COMMANDS.pop(key, None)
-
-    async def finish(payload: dict, team_before: list) -> ToolResponse:
-        team_project = scope is not None and scope.kind == "team"
-        if team_project:
-            from .project_working_copy import persist, directory
+    async def finish(payload: dict) -> ToolResponse:
+        from core.config.settings import settings
+        if user_id and not _evaluation and settings.sandbox.provider == "opensandbox":
+            from core.services.edition_workspace import persist_user
             try:
-                payload["project_synced_count"] = await persist(_sess, scope, user_id or "", team_before)
-                payload["project_directory"] = directory(scope.project_id)
-                payload["note"] = "修改已同步到团队项目；删除文件请使用项目文件管理。"
+                payload["workspace_synced_count"] = await asyncio.to_thread(persist_user, user_id)
             except Exception as exc:
                 payload["error"] = getattr(exc, "detail", str(exc))
                 payload["source_saved"] = False
@@ -316,7 +237,7 @@ def register_bash(
         # 沙箱的 /myspace 不在本机时（script_runner / cube），把它的现状搬进镜像目录，
         # 之后的判定与登记由 core.myspace.watcher 按同一套判据完成。bind mount 下这里
         # 直接返回 —— 沙箱写的就是镜像目录本身。
-        if user_id and not team_project and not _evaluation:
+        if user_id and not _evaluation:
             from core.myspace.sandbox_sync import reflect_sandbox_myspace
 
             await reflect_sandbox_myspace(session_id=_sess, user_id=user_id)
@@ -359,13 +280,8 @@ def register_bash(
         "    或失败时 {error, exit_code: -1}。\n"
     )
 
-    if scope and scope.kind == "team":
-        from .project_working_copy import directory
-        bash.__doc__ += (
-            "\n当前为团队项目。bash 自动在 " + directory(scope.project_id)
-            + " 中执行并同步源码；使用相对路径或该项目目录，"
-            "不要使用 /myspace 个人镜像路径。构建产物应写入 /workspace/.site-dist/。"
-        )
+    from core.services.edition_workspace import command_instructions
+    bash.__doc__ += command_instructions(scope)
 
     write_stdin.__doc__ = (
         "继续等待 bash 返回的进程会话，读取新增输出；不会重新执行命令。\n\n"
@@ -409,219 +325,4 @@ def register_bash(
     logger.info("[factory] Registered bash tool (chat_id=%s) [alias: Bash]", chat_id)
 
 
-def register_sandbox_put_artifact(
-    toolkit: Toolkit,
-    *,
-    chat_id: Optional[str] = None,
-    sandbox_session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-) -> None:
-    """Stage an artifact (user upload or previous output) into the sandbox FS."""
-    if os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() != "true":
-        return
-
-    _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
-
-    async def sandbox_put_artifact(artifact_id: str, dest_path: str) -> ToolResponse:
-        from core.sandbox import SandboxConnectError as _SandboxConnectError
-        from core.sandbox import SandboxError as _SandboxError
-        from core.sandbox import get_sandbox_provider as _get_provider
-
-        if not artifact_id or not isinstance(artifact_id, str):
-            return _resp_json({"error": "artifact_id 必须为非空字符串"})
-
-        from ._paths import to_physical_path, workspace_directory
-
-        dest_path = to_physical_path(dest_path, user_id, session_id=_sess)
-        path_err = _validate_workspace_path(dest_path, root=workspace_directory(_sess))
-        if path_err:
-            return _resp_json({"error": path_err})
-
-        # _resolve_artifact_files accepts the {filename: artifact_id} shape;
-        # using dest_path as the key is fine — it is only the key of the returned dict.
-        files_b64, err = _resolve_artifact_files({dest_path: artifact_id}, user_id)
-        if err:
-            return _resp_json({"error": err})
-        if not files_b64:
-            return _resp_json({"error": f"artifact '{artifact_id}' 解析失败"})
-
-        try:
-            content = base64.b64decode(files_b64[dest_path])
-        except Exception as exc:  # noqa: BLE001
-            return _resp_json({"error": f"artifact 字节解码失败: {exc}"})
-
-        provider = _get_provider()
-        try:
-            await provider.put_file(_sess, dest_path, content, user_id=user_id)
-        except (_SandboxError, _SandboxConnectError) as exc:
-            return _resp_json({"error": str(exc)})
-
-        return _resp_json(
-            {
-                "ok": True,
-                "artifact_id": artifact_id,
-                "dest_path": dest_path,
-                "size": len(content),
-            }
-        )
-
-    sandbox_put_artifact.__doc__ = (
-        "把已存在的 artifact（用户上传的、或之前产出的文件）拷贝到沙盒路径，\n"
-        "供 bash/脚本读取处理。\n\n"
-        "Args:\n"
-        "    artifact_id (`str`): artifact 的 file_id（如 ua_xxx）。必须属于当前用户。\n"
-        "    dest_path (`str`): 当前工作目录内的绝对路径或相对路径，\n"
-        "        不允许包含 .. 路径段。父目录会自动创建。\n\n"
-        "Returns:\n"
-        "    JSON: {ok: true, artifact_id, dest_path, size} 成功；\n"
-        "    {error: '...'} 失败（artifact 不存在、无权访问、写入失败等）。\n"
-        "限制：单个 artifact 最大 10 MB。\n"
-    )
-
-    toolkit.register_tool_function(sandbox_put_artifact, namesake_strategy="override")
-    logger.info("[factory] Registered sandbox_put_artifact tool (chat_id=%s)", chat_id)
-
-
-def register_sandbox_get_artifact(
-    toolkit: Toolkit,
-    *,
-    chat_id: Optional[str] = None,
-    sandbox_session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    scope: Optional["ProjectScope"] = None,
-) -> None:
-    """Read a sandbox file and register it as a downloadable artifact."""
-    if os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() != "true":
-        return
-
-    _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
-    from core.config.settings import settings as _settings
-
-    max_bytes = _settings.sandbox.artifact_max_bytes
-
-    async def sandbox_get_artifact(src_path: str, name: str = "") -> ToolResponse:
-        import mimetypes as _mt
-
-        from core.sandbox import SandboxConnectError as _SandboxConnectError
-        from core.sandbox import SandboxError as _SandboxError
-        from core.sandbox import get_sandbox_provider as _get_provider
-
-        from core.config.local_mode import local_mode_enabled
-        from ._paths import to_physical_path
-
-        if local_mode_enabled():
-            from core.artifacts.local_project import reference_project_file, is_project_file_path
-            from fastapi import HTTPException
-
-            local_scope = scope
-            if local_scope and local_scope.is_local:
-                physical = to_physical_path(src_path, user_id, session_id=_sess)
-                # Project files are already durable. Only scratch exports need a copy.
-                if is_project_file_path(src_path, local_scope) or is_project_file_path(physical, local_scope):
-                    try:
-                        ref = await asyncio.to_thread(
-                            reference_project_file, physical, scope=local_scope,
-                            user_id=user_id or "", name=name,
-                        )
-                    except (HTTPException, OSError, ValueError) as exc:
-                        return _resp_json({"error": str(getattr(exc, "detail", exc))})
-                    ref = {k: ref[k] for k in ("file_id", "name", "mime_type", "size")}
-                    ref["url"] = f"/files/{ref['file_id']}"
-                    return _resp_json({"ok": True, **ref, "artifacts": [ref]})
-
-        from ._paths import to_physical_path, workspace_directory
-
-        src_path = to_physical_path(src_path, user_id, session_id=_sess)
-        path_err = _validate_workspace_path(src_path, root=workspace_directory(_sess))
-        if path_err:
-            return _resp_json({"error": path_err})
-
-        provider = _get_provider()
-        from core.sandbox import SandboxFileTooLargeError as _SandboxFileTooLargeError
-
-        suffix = Path(src_path).suffix
-        with tempfile.NamedTemporaryFile(
-            prefix="sandbox-artifact-", suffix=suffix, delete=False
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            size = await provider.get_file_to_path(
-                _sess,
-                src_path,
-                tmp_path,
-                max_bytes=max_bytes,
-                user_id=user_id,
-            )
-        except _SandboxFileTooLargeError as exc:
-            tmp_path.unlink(missing_ok=True)
-            suggestion = "PDF 请按页拆分为多个文件后逐个交付；其他格式请拆包或降低内容体积。"
-            return _resp_json(
-                {
-                    "error": (
-                        f"文件 {src_path} 过大: {exc.actual_size} bytes > " f"{exc.max_size} bytes"
-                    ),
-                    "code": "sandbox_artifact_too_large",
-                    "actual_size": exc.actual_size,
-                    "max_size": exc.max_size,
-                    "suggestion": suggestion,
-                }
-            )
-        except (_SandboxError, _SandboxConnectError) as exc:
-            tmp_path.unlink(missing_ok=True)
-            return _resp_json({"error": str(exc)})
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise
-        try:
-            if size <= 0:
-                return _resp_json({"error": f"文件 {src_path} 为空"})
-
-            out_name = (name or Path(src_path).name).strip() or "output"
-            mime, _ = _mt.guess_type(out_name)
-            mime = mime or "application/octet-stream"
-
-            ref = await asyncio.to_thread(
-                _store_generated_file_path,
-                tmp_path,
-                name=out_name,
-                mime_type=mime,
-                user_id=user_id,
-                source="sandbox_get_artifact",
-                extra_metadata={"src_path": src_path} if src_path else None,
-            )
-            if not ref:
-                return _resp_json({"error": "artifact 登记失败（存储后端不可用？）"})
-
-            return _resp_json(
-                {
-                    "ok": True,
-                    "file_id": ref["file_id"],
-                    "name": ref["name"],
-                    "url": ref["url"],
-                    "mime_type": ref["mime_type"],
-                    "size": ref["size"],
-                    # frontend ToolOutputRenderer expects download links rendered as an artifacts array
-                    "artifacts": [ref],
-                }
-            )
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    sandbox_get_artifact.__doc__ = (
-        "登记文件并返回 file_id。本机项目文件只引用原文件，不复制到 artifacts；临时沙盒文件才导出保存。\n\n"
-        "⚠️ **登记 ≠ 交付**：返回的 url 默认对用户隐藏，必须再调\n"
-        "`pin_to_workspace(file_ids=[...])` 文件才作为附件出现在对话区；\n"
-        "**禁止**把 file_id 或 url 写进正文当下载链接。\n\n"
-        "Args:\n"
-        "    src_path (`str`): 工作目录内的绝对或相对路径，或当前本机项目中的真实绝对路径。\n"
-        "    name (`str`, 可选): 用户面向的文件名。不传则取 src_path 的 basename。\n\n"
-        "Returns:\n"
-        "    JSON: {ok: true, file_id, name, url, mime_type, size, artifacts: [...]}\n"
-        "    或 {error: '...'}。\n"
-        f"限制：单文件最大 {max_bytes} bytes（默认 100 MiB，可由 "
-        "SANDBOX_ARTIFACT_MAX_BYTES 配置）。超限时不要反复尝试同一文件；"
-        "PDF 应按页拆分，其他格式应拆包或降低体积后再逐个登记。\n"
-    )
-
-    toolkit.register_tool_function(sandbox_get_artifact, namesake_strategy="override")
-    logger.info("[factory] Registered sandbox_get_artifact tool (chat_id=%s)", chat_id)
+from .sandbox_artifact_tools import register_sandbox_put_artifact, register_sandbox_get_artifact

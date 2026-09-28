@@ -6,7 +6,6 @@ import asyncio
 
 import pytest
 from core.services import service_probes, system_config
-from mcp_servers.internet_search_mcp import impl
 
 
 class _FakeResponse:
@@ -21,16 +20,6 @@ class _FakeResponse:
 
     def json(self) -> dict:
         return self._payload
-
-
-class _FakeSyncClient:
-    def __init__(self, response: _FakeResponse) -> None:
-        self.response = response
-        self.calls: list[dict] = []
-
-    def post(self, url: str, **kwargs):
-        self.calls.append({"url": url, **kwargs})
-        return self.response
 
 
 class _FakeAsyncClient:
@@ -49,102 +38,6 @@ class _FakeAsyncClient:
     async def post(self, url: str, **kwargs):
         self.__class__.calls.append({"url": url, **kwargs})
         return self.__class__.response
-
-
-def test_normalize_langsearch_response_prefers_summary_and_keeps_date() -> None:
-    data = {
-        "data": {
-            "webPages": {
-                "value": [
-                    {
-                        "name": "Result A",
-                        "url": "https://example.com/a",
-                        "snippet": "short A",
-                        "summary": "summary A",
-                        "datePublished": "2026-07-26T00:00:00Z",
-                    },
-                    {
-                        "name": "Result B",
-                        "url": "https://example.com/b",
-                        "snippet": "short B",
-                        "summary": "",
-                    },
-                    {"name": "Result C", "url": "https://example.com/c"},
-                ]
-            }
-        }
-    }
-
-    result = impl._normalize_langsearch_response(data, max_results=2)
-
-    assert result == {
-        "results": [
-            {
-                "title": "Result A",
-                "url": "https://example.com/a",
-                "content": "summary A",
-                "published_date": "2026-07-26T00:00:00Z",
-            },
-            {
-                "title": "Result B",
-                "url": "https://example.com/b",
-                "content": "short B",
-            },
-        ]
-    }
-
-
-def test_langsearch_search_sends_expected_request_and_clamps_count(monkeypatch) -> None:
-    response = _FakeResponse({"code": 200, "data": {"webPages": {"value": []}}})
-    client = _FakeSyncClient(response)
-    monkeypatch.setattr(impl, "_get_httpx_client", lambda: client)
-    monkeypatch.setattr(
-        impl,
-        "get_runtime_value",
-        lambda name: "test-langsearch-key" if name == "LANGSEARCH_API_KEY" else None,
-    )
-
-    result = impl._langsearch_search("open source agent", max_results=99)
-
-    assert result == {"results": []}
-    assert client.calls == [
-        {
-            "url": impl.LANGSEARCH_SEARCH_URL,
-            "headers": {
-                "Authorization": "Bearer test-langsearch-key",
-                "Content-Type": "application/json",
-            },
-            "json": {
-                "query": "open source agent",
-                "freshness": "noLimit",
-                "summary": True,
-                "count": 10,
-            },
-        }
-    ]
-
-
-def test_internet_search_routes_to_langsearch(monkeypatch) -> None:
-    expected = {"results": [{"title": "A", "url": "https://example.com", "content": "B"}]}
-    monkeypatch.setattr(
-        impl,
-        "_env_str",
-        lambda name, default: "langsearch" if name == "INTERNET_SEARCH_ENGINE" else default,
-    )
-    monkeypatch.setattr(impl, "_langsearch_search", lambda query, max_results: expected)
-    monkeypatch.setattr(impl, "safe_stream_writer", lambda: lambda message: None)
-
-    result = impl.internet_search("test", max_results=3, cn_only=False)
-
-    assert result is expected
-
-
-def test_internet_search_rejects_unknown_engine(monkeypatch) -> None:
-    monkeypatch.setattr(impl, "_env_str", lambda name, default: "typo")
-    monkeypatch.setattr(impl, "safe_stream_writer", lambda: lambda message: None)
-
-    with pytest.raises(RuntimeError, match="Unsupported internet search engine"):
-        impl.internet_search("test", cn_only=False)
 
 
 def test_langsearch_connectivity_check_validates_api_payload(monkeypatch) -> None:

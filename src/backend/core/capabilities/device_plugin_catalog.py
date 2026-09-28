@@ -37,7 +37,7 @@ def plugin_entries(user_id=None) -> List[Dict[str, Any]]:
                 "mcp": list(components.get("mcp") or []),
                 "tools": [],
                 "import_report": inst.payload.get("import_report", {}),
-                "created_at": None,
+                "created_at": inst.created_at.isoformat() if inst.created_at else None,
             }
         )
     return entries

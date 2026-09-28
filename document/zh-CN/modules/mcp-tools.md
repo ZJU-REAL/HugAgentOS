@@ -70,12 +70,24 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 
 ### internet_search — 联网搜索（CE）
 
-`internet_search(query, max_results, topic, search_depth, include_raw_content,
-cn_only)`：通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度或 LangSearch，
-并且只读取所选引擎对应的 API Key。三种引擎的结果统一为
-`title / url / content`；`topic`、`search_depth` 和原始正文参数仅由 Tavily
-原生支持，LangSearch 会将搜索摘要映射到 `content`。该工具是兜底工具，
-仅在用户配置的知识库和其他专业工具都没有结果时使用。
+`internet_search(query, queries, max_results, topic, search_depth, include_raw_content)`
+通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度或 LangSearch，只读取所选引擎的 API Key。
+单个 `query` 与 `queries` 二选一；批量最多 4 个不同查询并发，按输入查询顺序轮流取结果，
+按 URL 去重后返回最多 8 条来源。默认返回 5 条，复杂调研可显式设置 `max_results=8`。
+不限制来源语言；Tavily 国家偏好仅在显式配置且 `topic=general` 时发送，没有默认中国偏好。
+
+公开资料和技术调研可直接使用；内部业务问题优先内部权威来源。摘要不足以支持关键结论时，
+可自主调用 `web_fetch` 核验原文。`topic`、`search_depth`、原始正文参数由 Tavily 支持；
+LangSearch 的 summary 映射为 content。
+
+来源统一保存在 `result.results`，包含标题、URL、摘要、可用发布时间、获取时间和命中查询序号。
+百度日期原值以 `date_raw` 保留，未知日期不会替换为抓取时间。`content_truncated` 表示内容裁剪，
+`results_limited` 表示已知候选因来源限额被舍弃，未知上游截断状态为 null。
+部分查询失败返回 `status=partial` 和逐查询状态，成功来源仍可引用；全部失败明确报错。
+一次搜索批次最长 45 秒，包含排队、请求与有界退避。搜索 HTTP 传输默认 50 秒，显式配置优先。
+
+`web_fetch` 返回正文 `result`、请求 URL、最终 URL、标题、获取时间及截断状态；正文默认最多
+50,000 字符，可设置 1–100,000 字符。下载最多 2 MB（解压后），超出明确标记截断。
 
 ### 产业知识中心插件（商业版 EE）
 

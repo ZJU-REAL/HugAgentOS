@@ -74,6 +74,9 @@ def _http_transport_timeout(name: str, cfg: dict, execution_timeout: float) -> f
         # Leave a small margin beyond the MCP server's own structured timeout
         # so callers receive its tool_result instead of a transport exception.
         return execution_timeout + 5.0
+    if name == "internet_search":
+        # Search returns per-query timeouts after its 45-second batch deadline.
+        return 50.0
     return 30.0
 
 

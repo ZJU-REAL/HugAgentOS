@@ -31,7 +31,7 @@ CE 在空数据库首次启动时会全局安装并启用 `automation`、
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | 轻量沙箱：1 GB 内存 / 1 CPU / read-only rootfs + tmpfs，技能目录只读挂载到 `/workspace/skills` |
 | `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `alpine:3.19` | 一次性 init：把 `docker/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `opensandbox/server:v0.1.13` | 持久沙箱控制器（商业版 EE 能力）：经宿主 `docker.sock` 按需起停 sandbox 容器，Jupyter kernel 维持跨轮上下文；对外调试端口 `${OPENSANDBOX_PORT:-8910}:8080` |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-1` | 持久沙箱控制器（商业版 EE 能力）：经宿主 `docker.sock` 按需起停 sandbox 容器，Jupyter kernel 维持跨轮上下文；对外调试端口 `${OPENSANDBOX_PORT:-8910}:8080` |
 
 ### mem0 记忆基础设施（profile `mem0`，可选）
 
@@ -187,3 +187,16 @@ make migrate-new msg="describe change"
 | OpenSandbox 配置模板 | `docker/opensandbox-config.toml.tpl` |
 | 迁移脚本 | `alembic.ini`、`src/backend/alembic/` |
 | MCP 端口单一真源 | `src/backend/mcp_servers/_ports.py` |
+
+### OpenSandbox 命令延迟与控制器镜像
+
+控制器使用 `docker/Dockerfile.opensandbox-server` 构建
+`hugagent-opensandbox-server:v0.1.13-1`。它基于固定的上游版本，对已知沙盒使用
+按名称 inspect 并校验归属标签，且在线程池中执行生命周期与代理的同步 Docker 查询，
+避免阻塞其它请求。构建时先校验上游源文件摘要并运行回归测试；升级上游版本时须重新审查补丁。
+离线交付必须包含此控制器镜像，不能仅携带原始 `opensandbox/server` 镜像。
+
+后端直连优化同时更新命令、文件、健康检查等 SDK 客户端的 endpoint 与 HTTP 基地址；
+状态轮询和增量日志不再绕回代理。直连不可达或 SDK 客户端结构不受支持时保留代理。
+首次应用这项修复需要重建控制器镜像并重启后端与控制器；遵守部署授权流程，
+应用后分别验证同会话连续命令、后端重启恢复和并发请求。

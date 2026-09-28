@@ -74,14 +74,28 @@ It is the only **per-request** server: for each chat request the backend injects
 
 ### internet_search — web search (CE)
 
-`internet_search(query, max_results, topic, search_depth, include_raw_content,
-cn_only)` selects Tavily, Baidu, or LangSearch through
-`INTERNET_SEARCH_ENGINE` and reads only the API key for the selected engine.
-All three providers return normalized `title / url / content` fields. Only
-Tavily natively supports `topic`, `search_depth`, and raw-page content.
-LangSearch maps its generated summary to `content`. The agent uses this tool
-only as a fallback when user-configured knowledge bases and other specialized
-tools return no results.
+`internet_search(query, queries, max_results, topic, search_depth, include_raw_content)`
+selects Tavily, Baidu, or LangSearch through `INTERNET_SEARCH_ENGINE`, reading only the selected API key.
+Supply either one `query` or up to four distinct `queries`. Queries run concurrently; results are interleaved
+in input-query order and deduplicated by URL, with at most eight sources. The default is five;
+set `max_results=8` for research. Sources are not filtered by language. Tavily receives a country preference
+only when explicitly configured and `topic=general`; there is no implicit China preference.
+
+Public information and technical research can use search directly. Internal business questions prioritize
+the relevant internal authority. When snippets cannot support a key claim, use `web_fetch` to verify the
+original page. Tavily supports topic, depth and raw content; LangSearch maps summary to content.
+
+The single source list is `result.results`, with title, URL, content, available publication date, retrieval
+time and matched query indices. Baidu's original date is preserved as `date_raw`; retrieval time never
+substitutes for an unknown publication date. `content_truncated` marks clipped content; `results_limited`
+marks known candidates omitted by the source cap. Unknown upstream truncation is null.
+Partial query failures retain successful, citable sources with `status=partial` and per-query status;
+all-query failure is an explicit error. A batch has a 45-second deadline including queueing and bounded
+backoff. The search HTTP transport defaults to 50 seconds; explicit timeout configuration takes precedence.
+
+`web_fetch` returns body text in `result`, requested and final URLs, title, retrieval time and truncation
+metadata. Content defaults to 50,000 characters (allowed range 1–100,000). Downloads are capped at 2 MB
+of decoded response bytes and are explicitly marked when truncated.
 
 ### Industry Knowledge Center plugin (Enterprise EE)
 

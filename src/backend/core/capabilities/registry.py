@@ -8,6 +8,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional
 
 from core.db.engine import SessionLocal
@@ -105,6 +106,7 @@ class Installation:
     generation: int
     last_error: Optional[str]
     payload: Dict[str, Any]
+    created_at: Optional[datetime]
 
     @property
     def ready(self) -> bool:
@@ -129,6 +131,7 @@ class Installation:
             "generation": self.generation,
             "last_error": self.last_error,
             "payload": dict(self.payload or {}),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 
@@ -153,6 +156,7 @@ def _to_installation(row: DeviceCapabilityInstallation) -> Installation:
         generation=int(row.generation or 0),
         last_error=row.last_error,
         payload=dict(row.payload or {}),
+        created_at=row.created_at,
     )
 
 

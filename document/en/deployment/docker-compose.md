@@ -33,7 +33,7 @@ Enterprise Edition (EE).
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | Lightweight sandbox: 1 GB RAM / 1 CPU / read-only rootfs + tmpfs; skill directory mounted read-only at `/workspace/skills` |
 | `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `alpine:3.19` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `opensandbox/server:v0.1.13` | Persistent sandbox controller (Enterprise Edition capability): starts/stops sandbox containers on demand via the host `docker.sock`; a Jupyter kernel keeps context across turns; debug port `${OPENSANDBOX_PORT:-8910}:8080` |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-1` | Persistent sandbox controller (Enterprise Edition capability): starts/stops sandbox containers on demand via the host `docker.sock`; a Jupyter kernel keeps context across turns; debug port `${OPENSANDBOX_PORT:-8910}:8080` |
 
 ### mem0 memory infrastructure (profile `mem0`, optional)
 
@@ -191,3 +191,20 @@ make migrate-new msg="describe change"
 | OpenSandbox config template | `docker/opensandbox-config.toml.tpl` |
 | Migrations | `alembic.ini`, `src/backend/alembic/` |
 | MCP port single source of truth | `src/backend/mcp_servers/_ports.py` |
+
+### OpenSandbox command latency and controller image
+
+The controller is built from `docker/Dockerfile.opensandbox-server` as
+`hugagent-opensandbox-server:v0.1.13-1`. Based on a pinned upstream release,
+it inspects known sandboxes by name and verifies ownership labels. Synchronous
+Docker lookups in lifecycle and proxy routes run in a thread pool so other requests
+remain responsive. Builds verify upstream source hashes and run regression tests;
+review the patch before upgrading upstream. Offline deliveries must include this
+controller image, rather than only the original `opensandbox/server` image.
+
+The backend direct connection updates both SDK endpoint metadata and cached HTTP
+base URLs for commands, files and health checks. Status polling and incremental
+logs no longer return through the proxy. Unreachable direct endpoints or unsupported
+SDK layouts retain the proxy. Initial rollout requires rebuilding the controller
+image and restarting the backend and controller under the deployment authorization
+process. Verify repeated commands, backend restart recovery and concurrent requests.

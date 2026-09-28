@@ -657,6 +657,7 @@ export interface CatalogItemBase {
   /** 'self' = a private item self-added by the current user (owner-isolated), used to show the "mine" badge and delete button */
   owner?: string;
   deletable?: boolean;
+  created_at?: string | null;
 }
 
 export interface SkillItem extends CatalogItemBase {

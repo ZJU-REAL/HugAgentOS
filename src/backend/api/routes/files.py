@@ -136,6 +136,8 @@ def _authorize_access(
             raise HTTPException(status_code=401, detail="请先登录")
         return
     if can_access_artifact_metadata(db, str(user.user_id), metadata):
+        from core.services.edition_workspace import refresh_artifact
+        refresh_artifact(item, file_id, db, str(user.user_id))
         return
 
     _record_audit(
@@ -293,6 +295,7 @@ def _build_direct_download_response(
         media_type=str(item.get("mime_type", "application/octet-stream")),
         filename=str(item.get("name", file_id)),
         content_disposition_type="inline" if inline else "attachment",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -493,4 +496,5 @@ def render_office_file(
         media_type="application/pdf",
         filename=f"{Path(name).stem}.pdf",
         content_disposition_type="inline",
+        headers={"Cache-Control": "no-store"},
     )

@@ -401,7 +401,7 @@ async def test_sandbox_get_artifact_streams_then_removes_temp_file(monkeypatch):
 
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
     monkeypatch.setattr(sandbox_package, "get_sandbox_provider", lambda: _Provider())
-    monkeypatch.setattr(sandbox_tool, "_store_generated_file_path", _store)
+    monkeypatch.setattr("core.llm.tools.sandbox_artifact_tools._store_generated_file_path", _store)
     toolkit = _CaptureToolkit()
     sandbox_tool.register_sandbox_get_artifact(toolkit, chat_id="chat-1", user_id="user-1")
 

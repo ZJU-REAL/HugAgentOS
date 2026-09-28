@@ -122,19 +122,22 @@ def register_write(
             )
 
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
-        from .project_source_access import current_scope_error, write_team_text, is_team_source_path
+        from .project_source_access import current_scope_error
+        from core.services.edition_workspace import write_organization_text, is_organization_path
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
             return resp_json(scope_error)
         physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
         is_persistent = is_myspace_physical(physical, user_id)
 
-        if is_team_source_path(scope, user_id, file_path):
+        if is_organization_path(scope, user_id, file_path):
             from fastapi import HTTPException
             import asyncio
             try:
+                from core.sandbox import get_sandbox_provider
+                await get_sandbox_provider().ensure_user_workspace(_sess, user_id)
                 return resp_json(await asyncio.to_thread(
-                    write_team_text, scope, user_id or "", file_path, physical, state,
+                    write_organization_text, scope, user_id or "", file_path, physical, state, session_id=_sess,
                     content=content,
                 ))
             except HTTPException as exc:

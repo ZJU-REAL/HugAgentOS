@@ -129,10 +129,10 @@ def _cloud_source_dir(db, project_id: Any) -> str:
     project = _live_project(db, project_id)
     if project is None:
         return ""
-    if project.kind == "team":
-        from core.llm.tools.project_working_copy import directory
-
-        return str(directory(project.project_id))
+    from core.services.edition_workspace import source_directory
+    directory = source_directory(project)
+    if directory:
+        return directory
     if project.kind != "personal" or not project.linked_folder_id:
         return ""
     row = db.query(UserFolder.name).filter(UserFolder.folder_id == project.linked_folder_id).first()

@@ -17,6 +17,7 @@ import { usePanelHeader } from '../../hooks/usePageConfig';
 import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { PluginIconPicker } from './PluginIconPicker';
 import { CardTail } from '../common/CardTail';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import {
   listPlugins, getInstalledPluginDetail,
   installPlugin, importPlugin, uninstallPlugin, setPluginEnabled, setInstalledPluginMeta,
@@ -221,7 +222,7 @@ export function PluginsPage() {
   const installedSlugs = useMemo(() => new Set(installed.map((p) => p.slug)), [installed]);
   const matchText = useCallback((s: string) => !query || s.toLowerCase().includes(query), [query]);
   const shownInstalled = useMemo(
-    () => installed.filter((p) => matchText(`${p.name} ${p.description} ${p.slug}`)),
+    () => sortCapabilitiesByCreation(installed.filter((p) => matchText(`${p.name} ${p.description} ${p.slug}`))),
     [installed, matchText],
   );
   const shownMarket = useMemo(

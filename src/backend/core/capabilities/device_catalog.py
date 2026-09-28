@@ -126,6 +126,7 @@ def _skill_item(inst) -> Dict[str, Any]:
         "enabled": bool(inst.enabled),
         "version": inst.version or "1",
         "source": inst.source, "install_id": inst.install_id, "revision": inst.resolved_revision,
+        "created_at": inst.created_at.isoformat() if inst.created_at else None,
     }
     if inst.profile_id == "local" and inst.payload.get("owner_user_id") and not inst.source_plugin:
         item.update(owner="self", deletable=True, icon=inst.payload.get("presentation", {}).get("icon"))
@@ -149,6 +150,7 @@ def _connector_item(server: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(server.get("enabled", True)),
         "version": "1",
         "config": {"server": sid},
+        "created_at": server.get("created_at"),
     }
     icon = str(server.get("icon") or "")
     if icon:

@@ -47,6 +47,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     "icon": icons.get(row.skill_id, ""),
                     "owner": "self",
                     "deletable": True,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
                 }
             )
     except Exception as exc:
@@ -79,6 +80,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     "detail": row.user_intro or "",
                     "owner": "self",
                     "deletable": True,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
                     "marketplace_installed": bool(extra_config.get("market_slug"))
                     or row.server_id in marketplace_server_ids,
                 }
