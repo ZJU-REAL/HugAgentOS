@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""在沙箱里脚手架一个新技能目录（含规范的 SKILL.md 模板 + 可选 references/scripts）。
-
-    python3 init_skill.py <技能名> [目标父目录]   # 默认建在 /workspace 下
-
-例：python3 init_skill.py weather-brief
-  → /workspace/weather-brief/SKILL.md（模板已填好 frontmatter 骨架）
-
-技能名须为小写字母/数字/下划线/连字符。生成后按注释填正文，再用 quick_validate.py 自检，
-最后打包 → sandbox_get_artifact → register_skill 落库。
-"""
+"""Create a skill in an explicit parent directory, defaulting to the current directory."""
 
 from __future__ import annotations
 
@@ -53,14 +44,14 @@ description: 一句话说清"做什么 + 什么时候该触发"。把典型触�
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("用法：python3 init_skill.py <技能名> [目标父目录=/workspace]")
+        print("用法：python3 init_skill.py <技能名> [目标父目录=当前工作目录]")
         return 2
     name = sys.argv[1].strip()
     if not _ID_RE.match(name):
         print(f"❌ 技能名「{name}」不合法：只能是小写字母/数字/下划线/连字符，长度 1–63。")
         return 1
-    parent = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("/workspace")
-    skill_dir = parent / name
+    parent = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.cwd()
+    skill_dir = parent.resolve() / name
     if (skill_dir / "SKILL.md").exists():
         print(f"❌ 已存在：{skill_dir / 'SKILL.md'}（不覆盖）")
         return 1
@@ -71,7 +62,7 @@ def main() -> int:
     )
     print(f"✅ 已创建 {skill_dir / 'SKILL.md'}")
     print("下一步：填正文 → python3 quick_validate.py "
-          f"{skill_dir} → 打包 tar → sandbox_get_artifact → register_skill")
+          f"{skill_dir}；本机用 install_skill(local_path)，云端打包后用 install_skill(artifact)")
     return 0
 
 

@@ -106,6 +106,7 @@ try {
   await page.getByRole('tab', { name: '调用方式', exact: true }).click();
   assert.ok((await page.locator('.jx-agentApi-code').innerText()).includes('/v1/agents/responses'));
   assert.ok((await page.locator('.jx-agentApi-code').innerText()).includes('"stream": true'));
+  assert.ok((await page.locator('.jx-agentApi-code').innerText()).includes('"agent_id": "agent-a"'));
   await page.getByText('非流式 · stream: false', { exact: true }).click();
   assert.ok((await page.locator('.jx-agentApi-code').innerText()).includes('"stream": false'));
   await page.getByRole('tab', { name: 'Python', exact: true }).click();
@@ -150,7 +151,8 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Disabled agent', exact: true }).click();
   await page.getByRole('button', { name: 'API-Key', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: /新建 Key/ }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: /新建 Key/ }).isDisabled(), false);
+  await page.getByText('此智能体已停用，但仍可通过 API 单独调用。').waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'No permission', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: 'API-Key', exact: true }).count(), 0);

@@ -9,10 +9,11 @@ assert.equal(resolveAgentApiEndpoint({ ...web, isDesktop: true, local: true, ser
 assert.equal(resolveAgentApiEndpoint({ ...web, isDesktop: true }), '');
 assert.equal(resolveAgentApiEndpoint({ ...web, isDesktop: true, local: true, serverBase: 'https://cloud.example' }), '', 'Missing local origin must not advertise a different backend');
 for (const stream of [true, false]) {
-  const example = agentApiExamples(resolveAgentApiEndpoint(web), stream);
+  const example = agentApiExamples(resolveAgentApiEndpoint(web), stream, 'ua_one');
   assert.equal(example.payload.stream, stream);
-  assert.equal('agent_id' in example.payload, false, 'The key chooses its bound agent');
+  assert.equal(example.payload.agent_id, 'ua_one');
   assert.ok(example.curl.includes(`"stream": ${stream}`));
+  assert.ok(example.curl.includes('"agent_id": "ua_one"'));
   assert.ok(example.python.includes(`"stream": ${stream ? 'True' : 'False'}`));
   assert.ok(example.python.includes('os.environ["AGENT_API_KEY"]'));
   assert.ok(example.python.includes(stream ? 'iter_lines' : 'response.json()'));

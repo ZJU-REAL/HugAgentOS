@@ -85,6 +85,8 @@ curl http://localhost:3000/api/v1/admin/skills \
 
 `POST /v1/agents/responses` accepts a boolean `stream`: the default `false` returns complete JSON, while `true` returns SSE. The former send/stream POST routes have been removed; clients must update the URL and choose the required transport. Existing resume and cancel endpoints remain unchanged.
 
+Pass `agent_id` in the request body to call a sub-agent. A personal API key from Settings can target any sub-agent the owner may access. A key created in a sub-agent's details remains limited to its bound `agent_id` and that key's API sessions; a missing or different ID is rejected. An agent disabled in the app remains callable when explicitly selected through the API. Both key types require the user's `can_use_api_key` permission. Managing personal keys does not require the model gateway entitlement.
+
 ## SSE Streaming Protocol
 
 The streaming chat endpoint `POST /v1/agents/responses` (`src/backend/api/routes/v1/agent_responses.py`, `stream: true`) starts a background run after validation, then follows that run over SSE; after a disconnect, the client can resume from any offset via `GET /v1/chats/stream/{run_id}`. Events are produced by `src/backend/orchestration/workflow.py` and serialized to the wire by `src/backend/orchestration/chat_run_executor.py`.

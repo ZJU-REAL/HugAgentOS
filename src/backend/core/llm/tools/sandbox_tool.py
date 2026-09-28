@@ -215,6 +215,8 @@ def register_bash(
 
         if timeout is not None and timeout <= 0:
             return _resp_json({"error": "timeout 必须为正数；省略表示不设置命令执行期限。"})
+        from ._paths import workspace_directory
+
         effective_timeout = timeout
         req = _ProcessRequest(
             script_content=cmd,
@@ -226,6 +228,10 @@ def register_bash(
             session_id=_sess,
             user_id=user_id,
             sandbox_launch=sandbox_launch,
+            cwd=(
+                workspace_directory(_sess, scope=scope)
+                if local_mode_enabled() and not _evaluation else None
+            ),
         )
         # 把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件。反方向
         # （命令写了什么、删了什么）不在这里判断：那由 core.myspace.watcher 从文件
@@ -333,7 +339,14 @@ def register_bash(
 
     from ._paths import WORKSPACE_ROOT, path_rules
 
-    bash.__doc__ = path_rules().bash_workspace_instructions(WORKSPACE_ROOT, _sess) + (
+    from core.sandbox import desktop_paths
+
+    rules = path_rules()
+    instructions = (
+        rules.bash_workspace_instructions(WORKSPACE_ROOT, _sess, scope=scope)
+        if rules is desktop_paths else rules.bash_workspace_instructions(WORKSPACE_ROOT, _sess)
+    )
+    bash.__doc__ = instructions + (
         "Args:\n"
         "    command (`str`): 完整 shell 命令字符串。可以包含管道、重定向、\n"
         "        here-doc、命令链 (&&, ;, ||) 等任意 bash 语法。\n"

@@ -19,6 +19,8 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from core.capabilities.paths import capabilities_enabled
+from core.services import local_skill_editor as local_editor
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.config.settings import settings
@@ -182,6 +184,8 @@ async def upload_my_skill(
     复用 admin 上传的解析链路，但打上 ``owner_user_id`` 并限 50MB。技能 id 取
     SKILL.md frontmatter ``name``，须全局唯一（与公共/他人技能冲突会被拒绝）。
     """
+    if capabilities_enabled():
+        return created_response(data=local_editor.install_archive(str(user.user_id), await file.read()))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     if not file.filename or not file.filename.endswith(".zip"):
@@ -199,6 +203,7 @@ async def upload_my_skill(
 
 
 class CreateUserSkillRequest(BaseModel):
+    expected_revision: Optional[str] = None
     name: str = Field(
         ..., pattern=r"^[a-z0-9_-]{1,63}$", description="技能 id（小写字母/数字/-/_）"
     )
@@ -237,6 +242,8 @@ def create_my_skill(
     技能 id 须全局唯一：不能与公共技能或他人私有技能冲突；与本人已有同名私有技能
     则视为更新。
     """
+    if capabilities_enabled():
+        return created_response(data=local_editor.save(str(user.user_id), body))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     skill_id = body.name
@@ -368,6 +375,8 @@ def get_my_skill(
     与手写新建表单的「技能正文」一一对应，编辑保存走 ``POST /v1/me/skills`` upsert。
     附带 ``extra_files`` 清单（文件名/大小/是否二进制），供技能文件管理 UI 渲染。
     """
+    if capabilities_enabled():
+        return success_response(data=local_editor.detail(str(user.user_id), skill_id))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = _get_own_skill(db, str(user.user_id), skill_id)
 
@@ -399,149 +408,6 @@ def get_my_skill(
     )
 
 
-# ── Private skill file management (read/write/delete/upload of files inside the skill folder) ──
-
-
-class UserSkillFileUpdate(BaseModel):
-    content: str = Field(..., description="文件内容（UTF-8 文本）")
-
-
-@router.get("/skills/{skill_id}/files/{filename:path}", summary="读取我的技能文件")
-def get_my_skill_file(
-    skill_id: str,
-    filename: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """读取自己私有技能中的单个附加文件。二进制文件只返回 ``is_binary=true`` 不回传内容。"""
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
-    row = _get_own_skill(db, str(user.user_id), skill_id)
-
-    from core.agent_skills.binary_files import is_binary_value
-
-    extra = row.extra_files or {}
-    if filename not in extra:
-        raise ResourceNotFoundError("skill_file", filename)
-    stored = extra[filename]
-    if is_binary_value(stored):
-        return success_response(data={"filename": filename, "content": "", "is_binary": True})
-    return success_response(data={"filename": filename, "content": stored, "is_binary": False})
-
-
-@router.put("/skills/{skill_id}/files/{filename:path}", summary="保存我的技能文件")
-def save_my_skill_file(
-    skill_id: str,
-    filename: str,
-    body: UserSkillFileUpdate,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """新建或更新自己私有技能中的单个附加文件（UTF-8 文本）。
-
-    SKILL.md 不走本接口（正文在编辑表单里改，经 ``POST /v1/me/skills`` 重建）。
-    """
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
-
-    filename = validate_skill_file_path(filename)
-    if filename == "SKILL.md":
-        raise BadRequestError(message="SKILL.md 请在「编辑技能」表单中修改")
-    if len(body.content.encode("utf-8")) > USER_SKILL_FILE_MAX_BYTES:
-        raise BadRequestError(
-            message=f"文件过大（上限 {USER_SKILL_FILE_MAX_BYTES // (1024 * 1024)}MB）"
-        )
-    row = _get_own_skill(db, str(user.user_id), skill_id)
-    extra = dict(row.extra_files or {})
-    extra[filename] = body.content
-    row.extra_files = extra
-    row.updated_at = datetime.utcnow()
-    flag_modified(row, "extra_files")
-    db.commit()
-    refresh_skill_caches()
-    return success_response(data={"filename": filename, "message": "File saved"})
-
-
-@router.delete("/skills/{skill_id}/files/{filename:path}", summary="删除我的技能文件")
-def delete_my_skill_file(
-    skill_id: str,
-    filename: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """删除自己私有技能中的单个附加文件。"""
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
-    row = _get_own_skill(db, str(user.user_id), skill_id)
-    extra = dict(row.extra_files or {})
-    if filename not in extra:
-        raise ResourceNotFoundError("skill_file", filename)
-    del extra[filename]
-    row.extra_files = extra
-    row.updated_at = datetime.utcnow()
-    flag_modified(row, "extra_files")
-    db.commit()
-
-    refresh_skill_caches()
-    return success_response(data={"filename": filename, "message": "File deleted"})
-
-
-@router.post("/skills/{skill_id}/files/upload", status_code=201, summary="上传我的技能文件")
-async def upload_my_skill_file(
-    skill_id: str,
-    file: UploadFile = File(...),
-    path: str = Form("", description="可选：存入的相对路径（含子目录），留空取上传文件名"),
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """以 multipart 上传单个文件到自己的私有技能，二进制按 base64 标记安全存储。"""
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
-
-    from core.agent_skills.binary_files import encode_upload
-
-    filename = validate_skill_file_path(path or file.filename or "")
-    if filename == "SKILL.md":
-        raise BadRequestError(message="SKILL.md 请在「编辑技能」表单中修改")
-    raw = await file.read()
-    if len(raw) > USER_SKILL_FILE_MAX_BYTES:
-        raise BadRequestError(
-            message=f"文件过大（上限 {USER_SKILL_FILE_MAX_BYTES // (1024 * 1024)}MB）"
-        )
-    row = _get_own_skill(db, str(user.user_id), skill_id)
-    extra = dict(row.extra_files or {})
-    extra[filename] = encode_upload(filename, raw)
-    row.extra_files = extra
-    row.updated_at = datetime.utcnow()
-    flag_modified(row, "extra_files")
-    db.commit()
-    refresh_skill_caches()
-    return success_response(
-        data={"filename": filename, "size": len(raw), "message": "File uploaded"}
-    )
-
-
-@router.get("/skills/{skill_id}/export", summary="导出我的技能 zip")
-def export_my_skill(
-    skill_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """把自己的私有技能完整导出为 zip 包（SKILL.md + 附加文件，二进制还原字节）。
-
-    导出布局与 zip 上传约定一致，可直接重新导入（备份/迁移/分享给管理员上架）。
-    """
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
-    row = _get_own_skill(db, str(user.user_id), skill_id)
-
-    from core.services.marketplace_service import build_skill_zip
-
-    data = build_skill_zip(skill_id, row.skill_content or "", row.extra_files or {})
-    safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in skill_id) or "skill"
-    logger.info("user_skill_exported_zip: %s by %s (%d bytes)", skill_id, user.user_id, len(data))
-    return Response(
-        content=data,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.zip"'},
-    )
-
-
 @router.delete("/skills/{skill_id}", summary="删除我的私有技能")
 def delete_my_skill(
     skill_id: str,
@@ -549,6 +415,8 @@ def delete_my_skill(
     db: Session = Depends(get_db),
 ):
     """删除自己上传的私有技能。只能删自己的（owner 校验）。"""
+    if capabilities_enabled():
+        return success_response(data=local_editor.uninstall(str(user.user_id), skill_id))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = (
         db.query(AdminSkill)
@@ -589,6 +457,8 @@ def set_my_skill_icon(
     db: Session = Depends(get_db),
 ):
     """给自己的私有技能设置图标（owner 校验）。空串=恢复默认。"""
+    if capabilities_enabled():
+        return success_response(data=local_editor.icon(str(user.user_id), skill_id, body.icon))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = (
         db.query(AdminSkill)
@@ -603,3 +473,7 @@ def set_my_skill_icon(
     icon = set_skill_icon(db, skill_id, body.icon)
     refresh_skill_caches()
     return success_response(data={"id": skill_id, "icon": icon})
+
+
+from .me_skill_files import router as skill_files_router
+router.include_router(skill_files_router)

@@ -332,7 +332,7 @@ impl LocalServerManager {
     pub async fn snapshot(&self) -> LocalServerStatus {
         let mut value = self.status.read().await.clone();
         value.installed = self.is_installed();
-        if self.is_ready().await {
+        if !self.needs_install() && self.is_ready().await {
             value.phase = "ready".to_string();
             value.progress = 100;
             value.message = "本机服务已就绪".to_string();

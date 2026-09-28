@@ -210,6 +210,8 @@ const LOCAL_CAPABILITY_PATHS: (string | RegExp)[] = [
   // 启停走，同样归本机，否则本机关掉的插件面板还留在界面上。
   /^\/v1\/plugins\/(installed|ui-contributions)$/,
   /^\/v1\/plugins\/installed\/[^/]+\/(detail|enable)$/,
+  /^\/v1\/plugins\/installed\/plugin(?:%3A|:)local(?:%3A|:)[^/]+(?:\/meta)?$/i,
+  'plugins/import', // Uploaded packages are installed on this device.
 ];
 
 /** 前缀命中时仍归云端的例外。

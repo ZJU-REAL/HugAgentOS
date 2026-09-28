@@ -240,7 +240,7 @@ async def agent_response(
 ):
     """同一请求通过 stream 选择完整 JSON 或 SSE；两者共享后台 Run 和权限校验。
 
-    专属 API Key 自动绑定其子智能体和 API 会话。SSE 断线可通过
+    子智能体请求须显式传入 agent_id；专属 API Key 只能调用绑定的目标和 API 会话。SSE 断线可通过
     GET /v1/chats/stream/{run_id}?from=N 续播；HTTP 断开不会取消后台任务。
     """
     run = await _start_response_run(request, user, db)

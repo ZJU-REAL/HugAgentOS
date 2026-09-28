@@ -48,13 +48,19 @@ def _profile() -> Optional[str]:
         return None
 
 
-def _installations(kind: str) -> List[Any]:
-    from . import registry
+def _installations(kind: str, user_id=None) -> List[Any]:
+    from . import registry, skills
+    from .paths import LOCAL_PROFILE
 
-    profile = _profile()
-    if not profile:
+    if not capabilities_enabled():
         return []
-    return registry.list_installations(kind=kind, profile_id=profile)
+    user_id = user_id or skills.current_local_user_id()
+    rows = [row for row in registry.list_installations(kind=kind, profile_id=LOCAL_PROFILE)
+            if user_id and (row.payload.get("owner_user_id") == user_id or (row.payload.get("shared_installation") and not active()))]
+    profile = _profile()
+    if profile and (user_id is None or skills.account_authorized_for(user_id)):
+        rows += registry.list_installations(kind=kind, profile_id=profile)
+    return rows
 
 
 def _managed_connectors() -> List[Dict[str, Any]]:
@@ -114,12 +120,15 @@ def _skill_item(inst) -> Dict[str, Any]:
     item = {
         "id": inst.key,
         "kind": "tool_bundle",
-        "name": inst.display_name or inst.key,
+        "name": inst.payload.get("presentation", {}).get("display_name") or inst.display_name or inst.key,
         "description": description,
         "desc": description,
         "enabled": bool(inst.enabled),
         "version": inst.version or "1",
+        "source": inst.source, "install_id": inst.install_id, "revision": inst.resolved_revision,
     }
+    if inst.profile_id == "local" and inst.payload.get("owner_user_id") and not inst.source_plugin:
+        item.update(owner="self", deletable=True, icon=inst.payload.get("presentation", {}).get("icon"))
     body = _skill_body(inst)
     # 详情读的是这台机器上那一版 SKILL.md 的正文——它才是这里真正会执行的内容。
     detail = skill_body_from_raw(body[0]) if body else ""
@@ -178,7 +187,7 @@ def _db_umbrella_item(members: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def catalog_overlay() -> Dict[str, Any]:
+def catalog_overlay(user_id=None) -> Dict[str, Any]:
     """能力目录在本机要叠加的那一层，一次取数算齐。
 
     - ``skills`` / ``mcp``：云端同步来的条目，停用的一并列出（开关要有地方可点）。
@@ -190,13 +199,13 @@ def catalog_overlay() -> Dict[str, Any]:
     插件那边反查会有一段空窗，用户就会看见插件的技能冒到技能库里；后者覆盖历史
     上还没有归属标记的条目。
     """
-    if not active():
+    if not capabilities_enabled():
         return {"skills": [], "mcp": [], "hidden_skills": set(), "hidden_mcp": set()}
-    skills = _installations(KIND_SKILL)
+    skills = _installations(KIND_SKILL, user_id=user_id)
     connectors = _managed_connectors()
     hidden_skills = {inst.key for inst in skills if inst.source_plugin}
     hidden_mcp = {str(s["server_id"]) for s in connectors if s.get("source_plugin")}
-    for inst in _installations(KIND_PLUGIN):
+    for inst in _installations(KIND_PLUGIN, user_id=user_id):
         components = dict(inst.payload.get("components") or {})
         hidden_skills.update(str(sid) for sid in components.get("skills") or [])
         hidden_mcp.update(str(mid) for mid in components.get("mcp") or [])
@@ -301,179 +310,41 @@ def toggle_projected_agent(agent_id: str, data: Dict[str, Any]) -> Optional[Dict
     return _agent_entry(inst, _account_definitions().get(agent_id))
 
 
-# ── 插件 ──────────────────────────────────────────────────────────────
-
-
-def plugin_entries() -> List[Dict[str, Any]]:
-    """云端账号的插件投影成 ``/v1/plugins/installed`` 的条目结构。"""
-    if not active():
-        return []
-    entries: List[Dict[str, Any]] = []
-    for inst in _installations(KIND_PLUGIN):
-        components = dict(inst.payload.get("components") or {})
-        entries.append(
-            {
-                "install_id": str(inst.payload.get("cloud_install_id") or inst.install_id),
-                "slug": inst.key,
-                "name": inst.display_name or inst.key,
-                "version": inst.version or "",
-                "description": inst.description or "",
-                "category": str(inst.payload.get("category") or ""),
-                "icon": None,
-                "source": "",
-                "enabled": bool(inst.enabled),
-                # 本机可用性：文件已就绪才谈得上调用，与用户的开关无关。
-                "callable": bool(inst.ready),
-                "is_global": False,
-                "skills": list(components.get("skills") or []),
-                "mcp": list(components.get("mcp") or []),
-                "tools": [],
-                "import_report": {},
-                "created_at": None,
-            }
-        )
-    return entries
-
-
-def plugin_ui_contributions() -> List[Dict[str, Any]]:
-    """云端投影插件的界面贡献（只给本机启用着的那些）。
-
-    界面贡献必须和启停同源：启停写在本机登记表，所以这份声明也从本机存的清单读。
-    回头去问云端的话，用户在本机关掉的插件、面板还会留在界面上。
-    """
-    if not active():
-        return []
-    from core.services.plugin_ui_contract import public_contributions
-
-    from . import plugins as caps_plugins, store
-
-    out: List[Dict[str, Any]] = []
-    for inst in _installations(KIND_PLUGIN):
-        if not (inst.enabled and inst.ready):
-            continue
-        comp = store.get(KIND_PLUGIN, inst.profile_id, inst.key, inst.resolved_revision)
-        if comp is None:
-            continue
-        try:
-            manifest = caps_plugins.load_manifest(comp)
-        except (OSError, ValueError):
-            # 清单读不出来只影响这一个插件的界面，不该让整页拿不到贡献。
-            continue
-        public = public_contributions(manifest.get("ui_contributions"), slug=inst.key)
-        if public.get("contributes"):
-            out.append(public)
-    return out
-
-
-def _projected_plugin(install_id_or_slug: str):
-    """按云端 install_id、slug 或本机 install_id 定位一条投影插件。"""
-    for inst in _installations(KIND_PLUGIN):
-        cloud_id = str(inst.payload.get("cloud_install_id") or "")
-        if install_id_or_slug in (inst.key, cloud_id, inst.install_id):
-            return inst
-    return None
-
-
-def _component_skill(profile: str, skill_id: str) -> Optional[Dict[str, Any]]:
-    from core.config.catalog_loader import skill_body_from_raw
-
-    from . import registry
-
-    inst = registry.get(registry.install_id(KIND_SKILL, profile, skill_id))
-    if inst is None or inst.state == "removed":
-        return None
-    body = _skill_body(inst)
-    return {
-        "skill_id": skill_id,
-        "name": inst.display_name or skill_id,
-        "description": inst.description or "",
-        "version": inst.version or "",
-        "tags": [],
-        "enabled": bool(inst.enabled),
-        "instructions": skill_body_from_raw(body[0]) if body else "",
-        "files": list(body[1]) if body else [],
-        "has_secrets": False,
-    }
-
-
-def _component_connector(server_id: str, known: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    entry = known.get(server_id, {})
-    return {
-        "server_id": server_id,
-        "name": str(entry.get("display_name") or server_id),
-        "description": str(entry.get("description") or ""),
-        # 云端下发的连接器一律经云端网关调用，本机不起进程。
-        "transport": "cloud_gateway",
-        "url": None,
-        "enabled": bool(entry.get("enabled", True)),
-        "needs_runtime": False,
-        "tools": list(entry.get("tools") or []),
-    }
-
-
-def plugin_detail(install_id_or_slug: str) -> Optional[Dict[str, Any]]:
-    """云端投影插件的详情：它的技能与连接器都从登记表取，界面才不会是个空壳。"""
-    if not active():
-        return None
-    inst = _projected_plugin(install_id_or_slug)
-    if inst is None:
-        return None
-    profile = inst.profile_id
-    components = dict(inst.payload.get("components") or {})
-    skills = [
-        item
-        for item in (_component_skill(profile, str(sid)) for sid in components.get("skills") or [])
-        if item is not None
-    ]
-    known = {c["server_id"]: c for c in _managed_connectors()}
-    return {
-        "install_id": str(inst.payload.get("cloud_install_id") or inst.install_id),
-        "slug": inst.key,
-        "name": inst.display_name or inst.key,
-        "is_global": False,
-        "version": inst.version or "",
-        "description": inst.description or "",
-        "category": str(inst.payload.get("category") or ""),
-        "icon": None,
-        "source": "",
-        "import_report": {},
-        "skills": skills,
-        "mcp": [_component_connector(str(mid), known) for mid in components.get("mcp") or []],
-        "admin_config": None,
-        "connection": None,
-    }
+from .device_plugin_catalog import (
+    plugin_entries, plugin_detail, plugin_ui_contributions, _projected_plugin,
+)
 
 
 # ── 启停 ──────────────────────────────────────────────────────────────
 
 
-def set_enabled(kind: str, item_id: str, enabled: bool) -> bool:
+def set_enabled(kind: str, item_id: str, enabled: bool, user_id=None) -> bool:
     """把启停写进登记表；返回 False 表示这条不是云端投影项，调用方照常处理。"""
-    if not active():
-        return False
     from . import registry
-
-    profile = _profile()
-    if not profile:
+    matches = [row for row in _installations(kind, user_id=user_id)
+               if item_id in (row.key, row.install_id)]
+    if len(matches) != 1:
         return False
-    inst = registry.get(registry.install_id(kind, profile, item_id))
-    if inst is None or inst.state == "removed":
-        return False
+    inst = matches[0]
     registry.set_enabled(inst.install_id, bool(enabled))
     _invalidate()
     return True
 
 
-def set_plugin_enabled(install_id_or_slug: str, enabled: bool) -> bool:
+def set_plugin_enabled(install_id_or_slug: str, enabled: bool, user_id=None) -> bool:
     """插件按云端 install_id 或 slug 定位后写登记表。"""
-    if not active():
+    if not capabilities_enabled():
         return False
     from . import registry
 
-    inst = _projected_plugin(install_id_or_slug)
+    inst = _projected_plugin(install_id_or_slug, user_id)
     if inst is None:
         return False
-    registry.set_enabled(inst.install_id, bool(enabled))
+    if inst.profile_id == "local":
+        from core.services.local_plugin_service import set_enabled_for_user
+        set_enabled_for_user(user_id, inst.install_id, enabled)
+    else:
+        registry.set_enabled(inst.install_id, bool(enabled))
     _invalidate()
     return True
 

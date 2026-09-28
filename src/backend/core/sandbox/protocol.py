@@ -36,6 +36,8 @@ class ProcessRequest:
     # the user's permission preset asked for none. Providers apply it verbatim
     # at the point they spawn the process; they never build or interpret one.
     sandbox_launch: Optional[SandboxLaunch] = None
+    # Explicit host cwd; session_id still owns scratch files and process handles.
+    cwd: Optional[str] = None
 
 
 @dataclass

@@ -33,6 +33,7 @@ from agentscope.tool._response import ToolResponse
 if TYPE_CHECKING:  # imported lazily at runtime to keep this module dependency-light
     from core.sandbox.os_sandbox import LocalAccessDecision
     from core.sandbox.oslayer import SandboxLaunch
+    from core.services.project_scope import ProjectScope
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,7 @@ class PermissionRuntime:
     default_allow: bool = False
     approval_mode: str = APPROVAL_ASK
     sandbox_session_id: Optional[str] = None
+    project_scope: Optional[ProjectScope] = None
 
 
 # What an intent does when no live UI can answer a confirmation (batch runs,
@@ -237,6 +239,7 @@ class LocalCommandAuthorization:
     approval_mode: str
     access: "LocalAccessDecision"
     workspace_root: str
+    cwd: Optional[str] = None
 
     @property
     def confined(self) -> bool:
@@ -259,7 +262,7 @@ class LocalCommandAuthorization:
         if not self.confined:
             return None
         policy = os_sandbox.build_policy(self.access)
-        context = os_sandbox.build_context(workspace_root=self.workspace_root)
+        context = os_sandbox.build_context(workspace_root=self.workspace_root, cwd=self.cwd)
         try:
             return os_sandbox.confine(policy, context)
         except (SandboxUnavailableError, SandboxUnenforceableError) as exc:
@@ -540,7 +543,7 @@ def local_path_tool(
             if not logical:
                 continue
             session = runtime.sandbox_session_id or runtime.chat_id
-            physical = to_physical_path(logical, runtime.user_id, session_id=session)
+            physical = to_physical_path(logical, runtime.user_id, session_id=session, scope=runtime.project_scope)
             if first is None:
                 first = (logical, physical)
             intents.append(
@@ -710,6 +713,15 @@ class ToolPermissionService:
                 },
             )
         try:
+            from core.llm.tools.project_source_access import current_scope_error
+
+            scope = self.runtime.project_scope
+            scope_error = (
+                current_scope_error(scope, self.runtime.user_id)
+                if scope is not None and scope.is_local else None
+            )
+            if scope_error:
+                return PermissionOutcome(False, payload=self._blocked(scope_error["error"]))
             intents = tuple(spec.resolver(args, self.runtime))
         except Exception as exc:  # noqa: BLE001 - declaration failures fail closed
             logger.exception("[tool-permission] resolver failed tool=%s", name)
@@ -845,11 +857,18 @@ class ToolPermissionService:
                 ),
             )
 
-    def _session_workspace(self) -> str:
-        """本次对话的工作目录——权限闸里的"工作区"就是它。
+    def _execution_directory(self) -> str:
+        from core.llm.tools._paths import workspace_directory
 
-        目录内自由读写；出了这个目录的绝对路径按授权与策略判定（放行 / 需确认 /
-        拦截），不额外加规则。
+        return workspace_directory(
+            self.runtime.sandbox_session_id or self.runtime.chat_id,
+            scope=self.runtime.project_scope,
+        )
+
+    def _session_workspace(self) -> str:
+        """会话存储目录及默认权限根；与项目执行 cwd 分开。
+
+        项目目录仍按用户现有授权判断；切换 cwd 不新增隐式文件权限。
         """
         from core.sandbox._common import WORKSPACE
         from services.script_runner_service.workspace_paths import session_root
@@ -935,10 +954,10 @@ class ToolPermissionService:
             eval_grants.append(Grant(WORKSPACE, "readwrite"))
         verdict = evaluate_local_command(
             intent.target,
-            cwd="/workspace",
+            cwd=self._execution_directory(),
             grants=eval_grants,
             policy=policy,
-            workspace_root="/workspace",
+            workspace_root=self._session_workspace(),
             platform=platform,
         )
         if verdict.decision == "deny":
@@ -993,7 +1012,7 @@ class ToolPermissionService:
             from core.llm.tools._paths import to_physical_path
 
             session = self.runtime.sandbox_session_id or self.runtime.chat_id
-            return to_physical_path(logical, self.runtime.user_id, session_id=session)
+            return to_physical_path(logical, self.runtime.user_id, session_id=session, scope=self.runtime.project_scope)
         except Exception:  # noqa: BLE001 - an untranslatable path stays as given
             return logical
 
@@ -1056,6 +1075,7 @@ class ToolPermissionService:
             command=command,
             approval_mode=approval_mode,
             workspace_root=self._session_workspace(),
+            cwd=self._execution_directory(),
             access=LocalAccessDecision(
                 approval_mode=approval_mode,
                 unconfined=approval_mode in UNCONFINED_APPROVAL_MODES,

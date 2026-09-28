@@ -8,12 +8,12 @@ import { CopyButton } from '../common/CopyButton';
 import { useAgentApiKeys } from './useAgentApiKeys';
 import { t } from '../../i18n';
 
-export function AgentApiKeys({ agentId, canCreate }: { agentId: string; canCreate: boolean }) {
+export function AgentApiKeys({ agentId }: { agentId: string }) {
   const { keys, loading, error, pending, reload, perform } = useAgentApiKeys(agentId);
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<number | 'never'>(30);
   const [plaintext, setPlaintext] = useState('');
-  const create = () => canCreate && void perform('create', (signal) => createAgentApiKey(
+  const create = () => void perform('create', (signal) => createAgentApiKey(
     agentId, name.trim() || 'API Key', expiry === 'never' ? null : expiry, signal,
   ), async (key) => {
     setPlaintext(key.api_key || '');
@@ -58,7 +58,7 @@ export function AgentApiKeys({ agentId, canCreate }: { agentId: string; canCreat
               { value: 365, label: t('365 天') }, { value: 'never', label: t('永不过期') },
             ]} />
         </label>
-        <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={pending.has('create')} disabled={!canCreate}>
+        <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={pending.has('create')} >
           {t('新建 Key')}
         </Button>
       </form>

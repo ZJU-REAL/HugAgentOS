@@ -28,10 +28,7 @@ def _project_root(project) -> Path:
 def project_file_path(path: str, scope, user_id: str | None, session_id: str | None = None) -> str:
     from core.llm.tools._paths import to_physical_path
 
-    source = Path(path).expanduser()
-    if not source.is_absolute() and scope and scope.local_path:
-        source = Path(scope.local_path).expanduser() / source
-    return to_physical_path(str(source), user_id, session_id=session_id)
+    return to_physical_path(path, user_id, session_id=session_id, scope=scope)
 
 
 def _allows_live_access(path: str, user_id: str, action: str = "read") -> bool:

@@ -491,3 +491,7 @@ The old handoff/redeem endpoints remain available for older clients. CE local mo
 includes the same new API in the full desktop bundle. Reverse proxies must preserve the
 original Host, including nonstandard ports, for same-origin approval checks; the standard
 frontend Nginx configuration does so.
+
+## Local project working directory
+
+[Local project working directory](local-project-workspace.md)

@@ -231,7 +231,7 @@ def register_read(
             return resp_json(scope_error)
 
         # Logical path /myspace/... → physical path /workspace/myspace/<uid>/...
-        physical = to_physical_path(file_path, user_id, session_id=_sess)
+        physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
 
         provider = _get_provider()
         recovered_from_artifact = False

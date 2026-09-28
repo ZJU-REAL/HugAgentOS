@@ -24,6 +24,7 @@ def install(server):
         yield_time_ms: int = 60000
         capability_run_id: str | None = None
         capability_scope: str = ""
+        cwd: str | None = None
 
     class WriteRequest(BaseModel):
         sandbox_session_id: str
@@ -44,6 +45,15 @@ def install(server):
             user_id=req.user_id,
             capability_view_key=req.capability_view_key,
         )
+        cwd = root
+        if req.cwd is not None:
+            if os.getenv("DEPLOY_PROFILE", "").strip().lower() != "local":
+                raise HTTPException(400, "Explicit cwd is supported only by the local runner")
+            if __package__:
+                from .desktop_workspace import execution_directory
+            else:
+                from desktop_workspace import execution_directory
+            cwd = execution_directory(req.cwd)
         command = server._workspace_rules().execution_text(
             req.script_content,
             req.language,
@@ -98,7 +108,7 @@ def install(server):
             try:
                 handle.proc = await server._spawn_subprocess(
                     [*server.INTERPRETERS[req.language], str(script), *args],
-                    str(root),
+                    str(cwd),
                     req.sandbox_launch,
                     (handle.stdin, handle.stdout, handle.stderr),
                 )

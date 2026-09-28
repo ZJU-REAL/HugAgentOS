@@ -90,6 +90,10 @@ def uses_manifest_schema(cfg: dict) -> bool:
     callable tool at all.
     """
     tools = cfg.get("manifest_tools")
+    if cfg.get("schema_source") == "plugin_manifest":
+        from core.services.management_contract import declared
+        return bool(tools and cfg.get("origin") == "local_plugin" and all(
+            declared(tool, cfg.get("gateway_plugin")) for tool in tools))
     return bool(
         cfg.get("schema_source") == "cloud_manifest"
         and str(cfg.get("gateway_invoke_url") or "").strip()
@@ -136,7 +140,7 @@ def make_client(
             ),
             "execution_timeout": execution_timeout,
         }
-        if cfg.get("schema_source") == "cloud_manifest":
+        if cfg.get("schema_source") in ("cloud_manifest", "plugin_manifest"):
             if not uses_manifest_schema(cfg):
                 raise ValueError(f"MCP '{name}' has an invalid cloud capability manifest")
             return ManifestMCPClient(
@@ -146,6 +150,7 @@ def make_client(
                 schema_hash=str(cfg["schema_hash"]),
                 gateway_transport=cfg.get("gateway_transport"),
                 gateway_plugin=str(cfg.get("gateway_plugin") or ""),
+                manager_cloud_available=bool(cfg.get("manager_cloud_available")),
             )
         return client_cls(
             **client_kwargs,

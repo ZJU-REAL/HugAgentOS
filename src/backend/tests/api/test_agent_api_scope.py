@@ -101,7 +101,7 @@ def test_scoped_key_is_separate_from_personal_keys_and_resolves_identity(db):
 
 @pytest.mark.parametrize(
     "change",
-    ["disabled_key", "revoked", "expired", "disabled_agent", "deleted_agent", "disabled_user"],
+    ["disabled_key", "revoked", "expired", "deleted_agent", "disabled_user"],
 )
 def test_key_validation_fails_closed(db, change):
     key, token = _key(db)
@@ -111,8 +111,6 @@ def test_key_validation_fails_closed(db, change):
         key.revoked_at = datetime.now(timezone.utc)
     elif change == "expired":
         key.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-    elif change == "disabled_agent":
-        db.get(UserAgent, "ua_one").is_enabled = False
     elif change == "deleted_agent":
         db.delete(db.get(UserAgent, "ua_one"))
     else:
@@ -121,10 +119,44 @@ def test_key_validation_fails_closed(db, change):
     assert resolve_api_key_identity(db, token) is None
 
 
+def test_disabled_agent_can_create_and_use_scoped_key(db):
+    db.get(UserAgent, "ua_one").is_enabled = False
+    db.commit()
+    key, token = _key(db)
+    assert resolve_api_key_identity(db, token)[1].id == key.id
+    request, scope = prepare_agent_api_request(
+        db, _user(key), ChatRequest(chat_id="disabled-chat", message="Hi", agent_id="ua_one")
+    )
+    assert request.agent_id == scope["agent_id"] == "ua_one"
+
+
+def test_personal_key_can_target_disabled_owned_agent(db):
+    from api.routes.v1.chats import _resolve_chat_agent_targets
+
+    db.get(UserAgent, "ua_one").is_enabled = False
+    db.commit()
+    key, token = _key(db, agent_id=None)
+    assert resolve_api_key_identity(db, token)[1].id == key.id
+    request = ChatRequest(chat_id="personal-chat", message="Hi", agent_id="ua_one")
+    prepared, scope = prepare_agent_api_request(db, _user(key), request)
+    assert prepared is request and scope is None
+    resolved, name, message, command = _resolve_chat_agent_targets(db, request, "owner")
+    assert resolved.agent_id == "ua_one" and name == "One" and message == "Hi"
+    assert command is None
+
+
+def test_scoped_key_requires_explicit_agent_id(db):
+    key, _ = _key(db)
+    with pytest.raises(HTTPException) as exc:
+        prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="missing", message="Hi"))
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "agent_id_required"
+
+
 def test_prepare_binds_agent_and_an_isolated_api_session(db):
     key, _ = _key(db)
     prepared, scope = prepare_agent_api_request(
-        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi")
+        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
     )
     assert prepared.agent_id == "ua_one"
     assert scope["version"] == 1
@@ -149,7 +181,7 @@ def test_prepare_rejects_privilege_expansion_and_records_no_body(db, payload):
     key, _ = _key(db)
     with pytest.raises(HTTPException):
         prepare_agent_api_request(
-            db, _user(key), ChatRequest(chat_id="new", message="secret body", **payload)
+            db, _user(key), ChatRequest(chat_id="new", message="secret body", **({"agent_id": "ua_one"} | payload))
         )
     record = db.query(AgentApiCallLog).one()
     assert record.status == "failed"
@@ -162,17 +194,17 @@ def test_key_cannot_reuse_owner_chat_or_another_keys_chat(db):
     db.add(ChatSession(chat_id="private", user_id="owner", title="Private"))
     db.commit()
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="private", message="Hi"))
-    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi"))
+        prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="private", message="Hi", agent_id="ua_one"))
+    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
     other, _ = _key(db)
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, _user(other), ChatRequest(chat_id="api-chat", message="Hi"))
+        prepare_agent_api_request(db, _user(other), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
 
 
 def test_global_route_gate_allows_only_own_api_runs(db):
     key, _ = _key(db)
     user = _user(key)
-    _, scope = prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi"))
+    _, scope = prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
     db.add(
         ChatRun(
             run_id="own",
@@ -233,7 +265,7 @@ def test_team_manager_can_publish_but_member_cannot_and_lost_role_revokes_access
 def test_only_persisted_own_api_artifact_can_be_downloaded(db):
     key, _ = _key(db)
     user = _user(key)
-    prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi"))
+    prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
     for artifact_id, chat_id, key_id in [
         ("owned", "api-chat", key.id),
         ("private", None, None),
@@ -292,10 +324,10 @@ async def test_explicit_key_precedes_session_in_required_and_optional_auth(db, m
 
 def test_owner_session_cannot_silently_widen_an_api_chat(db):
     key, _ = _key(db)
-    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi"))
+    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
     owner = UserContext(user_id="owner", user_center_id="owner", username="Owner")
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, owner, ChatRequest(chat_id="api-chat", message="Hi"))
+        prepare_agent_api_request(db, owner, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
 
 
 @pytest.mark.parametrize("same_key", [True, False])

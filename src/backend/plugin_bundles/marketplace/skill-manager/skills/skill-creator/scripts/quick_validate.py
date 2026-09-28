@@ -93,7 +93,7 @@ def validate_skill(path: str):
     if not body.strip():
         warnings.append("正文为空——建议写清‘怎么做’的主干（register 只强制 description，但空正文的技能几乎没用）")
 
-    msg = "✅ SKILL.md 校验通过，可以落库（register_skill）。"
+    msg = "✅ SKILL.md 校验通过，可以落库（install_skill）。"
     if warnings:
         msg += " 提醒：" + "；".join(warnings)
     return True, msg

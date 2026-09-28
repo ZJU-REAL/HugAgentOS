@@ -5,6 +5,19 @@ from .errors import NameConflict
 
 
 def cloud_plugin_selection(ident, *, user_id):
+    from .local_plugin_runtime import configs, enabled_for
+    from .device_catalog import active
+    local = [row for row in registry.list_installations(kind="plugin", profile_id="local")
+             if (row.payload.get("owner_user_id") == user_id or (row.payload.get("shared_installation") and not active()))
+             and ident in (row.key, row.install_id, *row.payload.get("legacy_ids", []))]
+    if local:
+        row = local[0]
+        components = row.payload.get("components", {}) if enabled_for(row, user_id) and row.ready else {}
+        available = configs(user_id)
+        return {"install_id": row.install_id, "name": row.display_name,
+                "skills": [sid for sid in components.get("skills", [])
+                           if (child := registry.get(registry.install_id("skill", "local", sid))) and child.enabled and child.ready],
+                "mcp": [sid for sid in components.get("mcp", []) if sid in available]}
     if not skills.account_authorized_for(user_id):
         return None
     profile = skills.current_account_profile()

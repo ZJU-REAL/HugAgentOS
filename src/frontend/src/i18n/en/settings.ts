@@ -277,6 +277,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '接口调用说明': 'API usage',
   '调用方式（原生 / OpenAI / Anthropic 兼容）见本页下方「接口调用说明」。': 'See "API usage" below on this page for the native / OpenAI / Anthropic-compatible endpoints.',
   '调用方式见本页下方「接口调用说明」。': 'See "API usage" below on this page for endpoint details.',
+  '调用子智能体时在请求体传入 agent_id；同一接口通过 stream: true 返回 SSE，通过 stream: false 返回 ChatResponse JSON。': 'Pass agent_id in the request body to call a sub-agent. The same endpoint returns SSE with stream: true or ChatResponse JSON with stream: false.',
   'OpenAI / Anthropic 兼容格式需在创建密钥时勾选「对外模型网关」后方可使用。': 'OpenAI / Anthropic-compatible formats require the "API gateway" option to be checked when creating the key.',
 
   '由外部 SSO 部门自动建立': 'Auto-created from SSO department',

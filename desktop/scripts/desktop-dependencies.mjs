@@ -10,6 +10,7 @@ export const DESKTOP_RUNTIME_INPUT_FILES = Object.freeze([
   "desktop/licenses/Git-Bash-NOTICES.txt",
   "desktop/scripts/build-runtime.mjs",
   "desktop/scripts/officecli-jit.entitlements.plist",
+  "desktop/scripts/python-self-signed.entitlements.plist",
   "desktop/scripts/libreoffice-jit.entitlements.plist",
   "desktop/scripts/libreoffice-self-signed.entitlements.plist",
   "desktop/scripts/macos-signing.mjs",
