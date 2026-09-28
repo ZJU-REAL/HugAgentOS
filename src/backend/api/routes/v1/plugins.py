@@ -42,6 +42,7 @@ from core.infra.exceptions import AccessDeniedError, BadRequestError
 from core.infra.responses import created_response, success_response
 from core.services import marketplace_listing as ml
 from core.services import plugin_service as ps
+from core.capabilities.paths import capabilities_enabled
 
 router = APIRouter(prefix="/v1/plugins", tags=["Plugin"])
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ def list_installed(
     items = ps.list_installed(db, owner_user_id=str(user.user_id), include_global=True)
     # 云端账号装的插件登记在本机登记表里、业务库没有行，要投影进来才看得到。按 slug
     # 合并：install_id 两边天生对不上（见 merge_items_by_id），云端那份的信息为准。
-    items = device_catalog.merge_items(items, device_catalog.plugin_entries(), key="slug")
+    items = device_catalog.merge_items(items, device_catalog.plugin_entries(user_id=str(user.user_id)), key="slug")
     return success_response(data={"items": items})
 
 
@@ -97,7 +98,7 @@ def get_installed_detail(
     # 云端同步来的插件在本机业务库里查不到，走登记表那份，否则详情页直接 404。
     from core.capabilities import device_catalog
 
-    projected = device_catalog.plugin_detail(install_id)
+    projected = device_catalog.plugin_detail(install_id, user_id=str(user.user_id))
     if projected is not None:
         return success_response(data=projected)
     return success_response(data=ps.get_installed_detail(
@@ -155,6 +156,9 @@ def install_plugin(
     # Both installing from and importing into the plugin marketplace require can_import_plugin
     # (same as the skill marketplace's can_add_skill); granted per user via the Config backend
     # "User Management -> Permission Config". Admin global install goes through admin_plugins.
+    if capabilities_enabled():
+        from core.services.local_market_install import install_plugin as install_local
+        return created_response(data=install_local(db, str(user.user_id), slug, body.secrets))
     _require_can_import_plugin(str(user.user_id), db)
     ml.ensure_item_visible(db, ml.KIND_PLUGIN, slug, str(user.user_id), resource="plugin")
     result = ps.install_plugin(
@@ -172,6 +176,11 @@ async def import_plugin(
     db: Session = Depends(get_db),
 ):
     """上传插件 zip 并导入（私有）。返回 import_report（imported / adapted / dropped）。"""
+    if capabilities_enabled():
+        from core.services.local_skill_editor import install_archive
+        if _parse_secrets(secrets):
+            raise BadRequestError(message="本机插件凭据请通过连接配置设置，不写入插件包")
+        return created_response(data=install_archive(str(user.user_id), await file.read(), "plugin"))
     _require_can_import_plugin(str(user.user_id), db)
     raw = await file.read()
     secret_map = _parse_secrets(secrets)
@@ -188,6 +197,10 @@ def uninstall_plugin(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if install_id.startswith("plugin:local:"):
+        from core.services import local_plugin_service as local
+        current = local.get(str(user.user_id), install_id)
+        return success_response(data=local.uninstall(str(user.user_id), install_id, current["revision"]))
     result = ps.uninstall_plugin(db, install_id, owner_user_id=str(user.user_id))
     return success_response(data=result)
 
@@ -207,6 +220,9 @@ def set_installed_meta(
 ):
     """展示信息（名称/分类/图标）是界面配置：用户自己导入/安装的私有插件由用户在此
     配置；管理员全局插件走 admin 接口，普通用户不可改。"""
+    if capabilities_enabled() and install_id.startswith("plugin:local:"):
+        from core.services.local_plugin_service import set_presentation
+        return success_response(data=set_presentation(str(user.user_id), install_id, body.model_dump(exclude_none=True)))
     return success_response(
         data=ps.set_installed_plugin_meta(
             db,
@@ -233,7 +249,7 @@ def set_enabled(
     # 云端同步来的插件登记在本机登记表里，业务库没有行——写用户覆盖既不生效也读不回来。
     from core.capabilities import device_catalog
 
-    if device_catalog.set_plugin_enabled(install_id, body.enabled):
+    if device_catalog.set_plugin_enabled(install_id, body.enabled, user_id=str(user.user_id)):
         return success_response(data={"install_id": install_id, "enabled": body.enabled})
 
     # Each user toggles on their own (writes a per-user override); global plugins can also be

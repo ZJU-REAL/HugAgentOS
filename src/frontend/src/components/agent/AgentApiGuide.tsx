@@ -6,7 +6,7 @@ import { agentApiExamples, resolveAgentApiEndpoint } from '../../utils/agentApiE
 import { CopyButton } from '../common/CopyButton';
 import { t } from '../../i18n';
 
-export function AgentApiGuide() {
+export function AgentApiGuide({ agentId }: { agentId: string }) {
   const [stream, setStream] = useState(true);
   const deployment = useDeploymentModeStore();
   const local = deployment.activeLocal || (deployment.provisionMode === 'dual' && capabilitiesRouteLocal());
@@ -15,14 +15,14 @@ export function AgentApiGuide() {
     local, serverBase: deployment.serverBase,
     localBase: deployment.localBase || (deployment.activeLocal ? deployment.serverBase : ''),
   });
-  const examples = agentApiExamples(endpoint, stream);
+  const examples = agentApiExamples(endpoint, stream, agentId);
   return <div className="jx-agentApi-section">
     {local && <Alert type="info" showIcon title={t('此地址指向本机后端，仅能从这台电脑访问。')} />}
     {!endpoint ? <Alert type="error" title={t('尚未获得后端地址，请等待连接就绪后重试。')} /> : <>
       <div className="jx-agentApi-endpoint"><Typography.Text code>POST {endpoint}</Typography.Text>
         <CopyButton text={endpoint} aria-label={t('复制接口地址')} /></div>
       <Typography.Paragraph type="secondary">
-        {t('使用本弹窗创建的 Key 即可选择此智能体，无需传 agent_id。chat_id 用于继续同一 API 会话；新会话请换一个唯一值。')}
+        {t('请求体必须传入当前智能体的 agent_id。这里创建的 Key 只能调用这个智能体；设置中的全局 Key 也可指定此 ID。chat_id 用于继续同一 API 会话。')}
       </Typography.Paragraph>
       <Segmented aria-label={t('响应方式')} value={stream ? 'stream' : 'json'}
         onChange={value => setStream(value === 'stream')}

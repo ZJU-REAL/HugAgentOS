@@ -358,9 +358,14 @@ def _extract_write_target_paths(command: str, cwd: str, platform: str) -> List[s
     """
     out: List[str] = []
 
-    def add(token: str) -> None:
+    def add(token: str, *, explicit_target: bool = False) -> None:
         candidate = token.lstrip("<>")
-        if _looks_like_path(candidate, platform):
+        # An explicit redirection also names a path when it is only a basename.
+        # Descriptor duplication and unresolved shell variables are not literals.
+        literal_basename = (
+            explicit_target and bool(candidate) and not candidate.startswith(("$", "&"))
+        )
+        if _looks_like_path(candidate, platform) or literal_basename:
             resolved = _resolve(candidate, cwd, platform)
             if resolved not in out:
                 out.append(resolved)
@@ -374,14 +379,17 @@ def _extract_write_target_paths(command: str, cwd: str, platform: str) -> List[s
         for index, token in enumerate(segment):
             if _REDIRECT_OP_RE.match(token):
                 if index + 1 < len(segment):
-                    add(segment[index + 1])
+                    target = segment[index + 1]
+                    if token.endswith(">&") and target.isdecimal():
+                        continue
+                    add(target, explicit_target=True)
                 continue
             attached = _REDIRECT_ATTACHED_RE.match(token)
             if attached:
-                add(attached.group("target"))
+                add(attached.group("target"), explicit_target=True)
                 continue
             if token.casefold().startswith("of="):
-                add(token[3:])
+                add(token[3:], explicit_target=True)
 
         # Find the executable while tolerating common wrappers and assignments.
         command_index = None
@@ -609,7 +617,7 @@ def evaluate_local_command(
     # Axis 1 — path scope.
     write_paths = _extract_write_target_paths(command, cwd, platform)
     write_path_set = set(write_paths)
-    for path in _extract_target_paths(command, cwd, platform):
+    for path in dict.fromkeys([*_extract_target_paths(command, cwd, platform), *write_paths]):
         path_result = evaluate_local_path(
             path,
             intent=WRITE if path in write_path_set else READ,

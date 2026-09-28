@@ -263,6 +263,8 @@ def _run_subagent_in_thread(
             runtime.get("sandbox_session_id"),
             runtime.get("chat_id"),
         )
+        from core.services.local_project_workspace import child_project_context
+
         agent, mcp_clients = await create_agent_executor(
             user_agent=user_agent,
             current_user_id=current_user_id,
@@ -272,7 +274,7 @@ def _run_subagent_in_thread(
             run_id=runtime.get("run_id"),
             journal_owner=runtime.get("journal_owner"),
             capability_scope=str(runtime.get("capability_scope") or ""),
-            project_ctx=runtime.get("project_ctx") if builtin_spec is not None else None,
+            project_ctx=child_project_context(runtime, builtin=builtin_spec is not None),
             channel_origin=runtime.get("channel_origin") if builtin_spec is not None else None,
             automation_run=bool(runtime.get("automation_run")),
             reranker_enabled=bool(runtime.get("reranker_enabled")),

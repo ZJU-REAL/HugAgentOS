@@ -81,6 +81,7 @@ class ScriptRunnerProvider(CompletionMixin):
             "input_files": req.input_files,
             "input_files_b64": req.input_files_b64,
             "session_id": req.session_id,
+            "cwd": req.cwd,
             "user_id": req.user_id,
             "capability_view_key": capability_view_key,
             # Pass-through: the sidecar applies the prefix and env at spawn time

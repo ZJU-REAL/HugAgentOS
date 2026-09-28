@@ -18,10 +18,11 @@ export type RefreshTarget = 'catalog' | 'agents' | 'plugins';
 
 export const MUTATING_TOOL_REFRESH: Record<string, RefreshTarget> = {
   // skill-manager → 用户的私有技能
-  register_skill: 'catalog',
+  install_skill: 'catalog',
+  update_skill: 'catalog',
+  uninstall_skill: 'catalog',
+  upload_skill_to_cloud: 'catalog',
   install_from_marketplace: 'catalog',
-  delete_skill: 'catalog',
-  edit_skill: 'catalog',
   // agent-manager → 用户的智能体
   create_agent: 'agents',
   edit_agent: 'agents',
@@ -30,8 +31,8 @@ export const MUTATING_TOOL_REFRESH: Record<string, RefreshTarget> = {
   // plugin-manager → 用户已安装的插件
   install_plugin: 'plugins',
   uninstall_plugin: 'plugins',
-  import_plugin: 'plugins',
-  set_plugin_enabled: 'plugins',
+  update_plugin: 'plugins',
+  install_plugin_from_marketplace: 'plugins',
 };
 
 // 只读动词（search_ / list_ / get_ 开头）与"申请上架"不改任何列表，故返回 undefined。

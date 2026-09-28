@@ -85,6 +85,8 @@ curl http://localhost:3000/api/v1/admin/skills \
 
 `POST /v1/agents/responses` 使用布尔字段 `stream` 选择输出：默认 `false` 返回完整 JSON；`true` 返回 SSE。旧的两个 POST 地址已移除，客户端必须更新请求地址并显式选择所需模式。下文续播与取消接口保持不变。
 
+子智能体调用在请求体中显式传入 `agent_id`。设置中的个人 API-Key 可指定自己有权访问的子智能体；子智能体详情中创建的专属 Key 仍限定于绑定的 `agent_id` 及该 Key 的 API 会话，缺少或传错 `agent_id` 会被拒绝。智能体在应用中停用后仍可显式通过 API 调用。个人和专属 Key 均受用户的 `can_use_api_key` 权限控制；个人 Key 管理接口不依赖模型网关授权。
+
 ## SSE 流式协议
 
 流式聊天端点 `POST /v1/agents/responses`（`src/backend/api/routes/v1/agent_responses.py`，`stream: true`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/orchestration/workflow.py` 产出、`src/backend/orchestration/chat_run_executor.py` 序列化上 wire。

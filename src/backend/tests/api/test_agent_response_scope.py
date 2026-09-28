@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.schemas import ChatRequest
 from api.routes.v1 import agent_responses, chats
-from core.db.models import ChatMessage, ChatRun
+from core.db.models import ChatMessage, ChatRun, UserAgent
 from core.services import agent_api_service
 from tests.api.test_agent_api_scope import db, _key, _user
 from tests.api.test_agent_response_admission import _patch_common_chat_route
@@ -12,7 +12,10 @@ from tests.api.test_agent_response_admission import _patch_common_chat_route
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_scope_preserves_message_and_never_enumerates_other_agents(db, monkeypatch, stream):
+@pytest.mark.parametrize("agent_enabled", [True, False])
+async def test_scope_preserves_message_and_never_enumerates_other_agents(db, monkeypatch, stream, agent_enabled):
+    db.get(UserAgent, "ua_one").is_enabled = agent_enabled
+    db.commit()
     key, _ = _key(db)
     ChatMessage.__table__.create(db.bind, checkfirst=True)
     _patch_common_chat_route(monkeypatch, chats)
@@ -43,7 +46,7 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(db, mon
 
     message = "调用「Two」子智能体：原样保留的内容"
     result = await agent_responses._start_response_run(
-        ChatRequest(chat_id="api-chat", message=message, stream=stream), _user(key), db,
+        ChatRequest(chat_id="api-chat", message=message, stream=stream, agent_id="ua_one"), _user(key), db,
     )
     assert captured["effective_user_message"] == message
     assert captured["raw_user_message"] == message

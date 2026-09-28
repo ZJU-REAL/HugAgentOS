@@ -41,6 +41,7 @@ def hybrid_catalog_client(tmp_path, index_db, caps_root, monkeypatch):
         lambda: {"cloud_base": CLOUD_BASE, "token": cloud_token(CLOUD_USER)},
     )
     monkeypatch.setattr("core.auth.desktop_bridge.bridge_enabled", lambda: True)
+    monkeypatch.setattr("core.capabilities.skills.current_local_user_id", lambda: CLOUD_USER)
     # 云端下发的连接器与本次断言无关，固定成空，避免依赖清单缓存。
     monkeypatch.setattr(device_catalog, "_managed_connectors", lambda: [])
 
@@ -59,3 +60,22 @@ def hybrid_catalog_client(tmp_path, index_db, caps_root, monkeypatch):
     session.close()
     engine.dispose()
     invalidate_runtime_catalog_cache()
+
+@pytest.fixture
+def client(tmp_path, index_db, caps_root, monkeypatch):
+    """Isolated local desktop API for manager lifecycle tests."""
+    from api.routes.v1.desktop_capabilities import router as desktop_router
+    from core.capabilities import skills
+    from core.services import desktop_cloud_bridge as bridge
+
+    monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "workspace" / "skills"))
+    monkeypatch.setattr("core.auth.desktop_bridge.bridge_enabled", lambda: True)
+    monkeypatch.setattr(skills, "current_local_user_id", lambda: "local-u1")
+    bridge.reset_for_tests()
+    app = FastAPI()
+    app.include_router(desktop_router)
+    app.dependency_overrides[get_current_user] = lambda: UserContext(
+        user_id="local-u1", user_center_id="local-u1", username="local-u1"
+    )
+    yield TestClient(app)
+    bridge.reset_for_tests()

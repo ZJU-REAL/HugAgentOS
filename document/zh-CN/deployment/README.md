@@ -55,3 +55,7 @@ curl -fsS http://localhost:3002/api/health
 ```
 
 返回 `{"status":"healthy",...}` 即后端正常；随后用浏览器打开对应地址、以管理员账号登录即可。
+
+## 本机技能与插件管理
+
+[本机技能与插件管理](local-capability-management.md)

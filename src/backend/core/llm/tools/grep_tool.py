@@ -95,7 +95,7 @@ def register_grep(
                 logger.warning("[grep] materialize_tree 失败 %s: %s", path, exc)
 
         # /myspace → /workspace/myspace/<uid>
-        path = to_physical_path(path, user_id, session_id=_sess)
+        path = to_physical_path(path, user_id, session_id=_sess, scope=scope)
 
         if output_mode not in _OUTPUT_MODES:
             return resp_json({

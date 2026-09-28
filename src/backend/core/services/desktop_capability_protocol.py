@@ -81,6 +81,11 @@ def public_tool_schema(raw: Any) -> Optional[Dict[str, Any]]:
         "description": str(raw.get("description") or ""),
         "inputSchema": schema,
     }
+    # Only the versioned execution declaration crosses the boundary; arbitrary metadata does not.
+    from core.services.management_contract import META_KEY
+    meta = raw.get("_meta") or raw.get("meta") or {}
+    if isinstance(meta, dict) and META_KEY in meta:
+        public["_meta"] = {META_KEY: copy.deepcopy(meta[META_KEY])}
     for key in _PUBLIC_TOOL_KEYS:
         if key in {"name", "description", "inputSchema"}:
             continue

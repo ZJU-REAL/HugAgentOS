@@ -167,21 +167,7 @@ def auth_schema_from_headers(headers: Dict[str, str] | None) -> List[Dict[str, A
     ]
 
 
-def tool_snapshot_hash(tools: Iterable[Dict[str, Any]] | None) -> str:
-    """Stable digest used to detect remote MCP tool/schema drift."""
-    normalized = sorted(
-        [
-            {
-                "name": str(item.get("name") or ""),
-                "description": str(item.get("description") or ""),
-                "inputSchema": item.get("inputSchema") or {},
-            }
-            for item in (tools or [])
-        ],
-        key=lambda item: item["name"],
-    )
-    payload = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+from core.services.mcp_tool_metadata import tool_snapshot_hash, snapshot_tool
 
 
 def _is_forbidden_ip(address: str) -> bool:
@@ -395,19 +381,7 @@ async def probe_mcp_connectivity(
                 await client.connect()
             discovered = await client.list_tools()
             tools_meta = []
-            for tool in discovered or []:
-                input_schema = (
-                    getattr(tool, "inputSchema", None) or getattr(tool, "input_schema", None) or {}
-                )
-                if hasattr(input_schema, "model_dump"):
-                    input_schema = input_schema.model_dump(mode="json")
-                tools_meta.append(
-                    {
-                        "name": tool.name,
-                        "description": getattr(tool, "description", "") or "",
-                        "inputSchema": input_schema,
-                    }
-                )
+            tools_meta = [snapshot_tool(tool) for tool in discovered or []]
             row.tools_json = tools_meta
             if db is not None and tools_meta:
                 from core.ontology.build_validator import OntologyBuildValidator

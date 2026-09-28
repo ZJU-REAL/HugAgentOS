@@ -16,6 +16,26 @@ REPLACEMENTS = {
 
 
 def upgrade_desktop_delivery_prompts(conn):
+    return _upgrade_parts(conn, REPLACEMENTS)
+
+
+CWD_REPLACEMENTS = {
+    "guidance": (
+        "project_root 是绑定的项目目录，不代表工具已经切换 cwd。操作项目文件使用真实绝对路径；执行项目命令时在同一次 Bash 调用中先 cd 到带引号的项目路径。",
+        "绑定本地项目时 cwd 与 project_root 相同；Bash、文件工具及 pin 的相对路径均以该项目目录为基准。未绑定项目时 cwd 为当前会话的持久工作目录。",
+    ),
+    "project": (
+        "项目文件使用真实绝对路径操作，不需要上传到「我的空间」。",
+        "该目录也是 Bash 的默认 cwd，以及文件工具和 pin 的相对路径基准。项目文件直接保存在这里，不需要上传到「我的空间」。",
+    ),
+}
+
+
+def upgrade_desktop_cwd_prompts(conn):
+    return _upgrade_parts(conn, CWD_REPLACEMENTS)
+
+
+def _upgrade_parts(conn, replacements):
     blocks = sa.table("content_blocks", sa.column("id", sa.String), sa.column("payload", sa.JSON))
     payload = conn.execute(
         sa.select(blocks.c.payload).where(blocks.c.id == "prompt_versions")
@@ -28,7 +48,7 @@ def upgrade_desktop_delivery_prompts(conn):
         if version.get("kind") != "desktop":
             continue
         for part in version.get("parts", []):
-            pair = REPLACEMENTS.get(part.get("part_id"))
+            pair = replacements.get(part.get("part_id"))
             content = part.get("content", "")
             if pair and pair[0] in content:
                 part["content"] = content.replace(*pair)

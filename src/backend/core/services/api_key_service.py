@@ -67,7 +67,7 @@ class ApiKeyService:
         if agent_id is not None:
             from core.services.agent_api_service import require_agent_manager
 
-            require_agent_manager(self.db, user_id, agent_id, enabled=True)
+            require_agent_manager(self.db, user_id, agent_id)
         raw = API_KEY_PREFIX + secrets.token_urlsafe(32)
         prefix = raw[:14]  # sk-jx- + first 8 random chars, for listing display
         expires_at: Optional[datetime] = None
@@ -210,7 +210,7 @@ def resolve_api_key_identity(db: Session, raw: str) -> Optional[Tuple[UserShadow
         from fastapi import HTTPException
 
         try:
-            require_agent_manager(db, str(row.user_id), str(row.agent_id), enabled=True)
+            require_agent_manager(db, str(row.user_id), str(row.agent_id))
         except HTTPException:
             return None
 

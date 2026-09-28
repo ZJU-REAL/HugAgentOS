@@ -19,16 +19,24 @@ def path_rules():
     return sandbox_paths
 
 
-def workspace_directory(session_id: str | None) -> str:
-    return path_rules().workspace_directory(WORKSPACE_ROOT, session_id)
+def workspace_directory(session_id: str | None, *, scope=None) -> str:
+    rules = path_rules()
+    from core.sandbox import desktop_paths
+    if rules is desktop_paths:
+        return rules.workspace_directory(WORKSPACE_ROOT, session_id, scope=scope)
+    return rules.workspace_directory(WORKSPACE_ROOT, session_id)
 
 
 def validate_workspace_path(path: str) -> Optional[str]:
     return path_rules().validate_path(path, WORKSPACE_ROOT)
 
 
-def to_physical_path(path: str, user_id: Optional[str], *, session_id: Optional[str] = None) -> str:
-    return path_rules().resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
+def to_physical_path(path: str, user_id: Optional[str], *, session_id: Optional[str] = None, scope=None) -> str:
+    rules = path_rules()
+    from core.sandbox import desktop_paths
+    if rules is desktop_paths:
+        return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id, scope=scope)
+    return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
 
 
 def validate_project_scope_path(path: str, project_folder_name: Optional[str]) -> Optional[str]:

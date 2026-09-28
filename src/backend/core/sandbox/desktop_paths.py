@@ -6,7 +6,11 @@ import os
 from services.script_runner_service.workspace_paths import session_root
 
 
-def workspace_directory(root: str, session_id: str | None) -> str:
+def workspace_directory(root: str, session_id: str | None, *, scope=None, validate=True) -> str:
+    if scope is not None and scope.is_local:
+        from core.services.local_project_workspace import project_directory
+
+        return project_directory(scope, validate=validate)
     return session_root(root, session_id) if session_id else root
 
 
@@ -19,10 +23,10 @@ def validate_path(path: str, root: str) -> str | None:
     return None
 
 
-def resolve_path(path: str, root: str, session_id: str | None, user_id=None) -> str:
+def resolve_path(path: str, root: str, session_id: str | None, user_id=None, *, scope=None) -> str:
     path = os.path.expanduser(path)
     if not os.path.isabs(path) and not ntpath.isabs(path):
-        path = os.path.join(workspace_directory(root, session_id), path)
+        path = os.path.join(workspace_directory(root, session_id, scope=scope), path)
     return os.path.realpath(os.path.abspath(path))
 
 
@@ -51,7 +55,7 @@ def is_myspace_physical(path, user_id, root):
     return False
 
 
-def bash_workspace_instructions(root: str, session_id: str | None) -> str:
-    cwd = workspace_directory(root, session_id)
+def bash_workspace_instructions(root: str, session_id: str | None, *, scope=None) -> str:
+    cwd = workspace_directory(root, session_id, scope=scope, validate=False)
     from prompts.desktop_templates import render_desktop_part
     return render_desktop_part("bash_tool", cwd=cwd)

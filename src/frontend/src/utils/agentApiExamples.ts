@@ -12,8 +12,8 @@ export function resolveAgentApiEndpoint(options: {
   return new URL(`${options.apiBase.replace(/\/+$/, '')}${AGENT_RESPONSES_PATH}`, options.origin).href;
 }
 
-export function agentApiExamples(endpoint: string, stream: boolean) {
-  const payload = { chat_id: 'agent-api-demo', message: 'Hello', stream };
+export function agentApiExamples(endpoint: string, stream: boolean, agentId: string) {
+  const payload = { agent_id: agentId, chat_id: 'agent-api-demo', message: 'Hello', stream };
   // Example values never contain a real key. JSON keeps user-controlled data out
   // of shell snippets; the endpoint comes from configured deployment origins.
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -27,7 +27,7 @@ export function agentApiExamples(endpoint: string, stream: boolean) {
     'import os',
     'import requests',
     '',
-    `payload = {"chat_id": "agent-api-demo", "message": "Hello", "stream": ${stream ? 'True' : 'False'}}`,
+    `payload = {"agent_id": ${JSON.stringify(agentId)}, "chat_id": "agent-api-demo", "message": "Hello", "stream": ${stream ? 'True' : 'False'}}`,
     `with requests.post(${JSON.stringify(endpoint)},`,
     '    headers={"Authorization": "Bearer " + os.environ["AGENT_API_KEY"]},',
     `    json=payload, stream=${stream ? 'True' : 'False'}, timeout=(10, 600)) as response:`,

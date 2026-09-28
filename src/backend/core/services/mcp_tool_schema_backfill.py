@@ -47,6 +47,13 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
 
     from core.capabilities import device_catalog
 
+    from core.capabilities.paths import capabilities_enabled
+    if capabilities_enabled() and not server_ids:
+        from core.services.local_legacy_plugin_migration import migrate as migrate_plugins
+        from core.services.local_management_migration import migrate as migrate_skills
+        await asyncio.to_thread(migrate_plugins)
+        await asyncio.to_thread(migrate_skills)
+
     if device_catalog.active() and not server_ids:
         # 混合模式下工具 schema 随云端能力清单下发，不靠探活取。业务库里留下的
         # 本机插件行指向 compose 服务名，桌面端根本连不上——照探只会每次启动都
@@ -56,6 +63,8 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
 
     db = SessionLocal()
     try:
+        from core.services.manager_bundle_upgrade import refresh
+        refresh(db)
         query = db.query(AdminMcpServer).filter(AdminMcpServer.is_enabled.is_(True))
         if server_ids:
             query = query.filter(AdminMcpServer.server_id.in_(list(server_ids)))

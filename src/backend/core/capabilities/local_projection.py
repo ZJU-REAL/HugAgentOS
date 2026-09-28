@@ -16,6 +16,8 @@ def sync_local_skills() -> None:
     from core.agent_skills.binary_files import decode_binary, is_binary_value
     from core.services.desktop_capability_protocol import skill_content_hash
 
+    from core.services.local_management_migration import migrate
+    migrate()
     owners = set()
     with _lock:
         with registry._session() as db:

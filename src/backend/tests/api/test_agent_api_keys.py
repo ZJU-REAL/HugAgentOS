@@ -37,13 +37,15 @@ from api.schemas import ChatRequest
 
 
 def _app(db, monkeypatch, *, user_id="owner", middleware=False):
-    from api.routes.v1 import agent_api_keys
+    from api.routes.v1 import agent_api_keys, api_keys
 
     monkeypatch.setattr(
         agent_api_keys, "resolve_user_capabilities", lambda *_: {"can_use_api_key": True}
     )
+    monkeypatch.setattr(api_keys, "resolve_user_capabilities", lambda *_: {"can_use_api_key": True})
     app = FastAPI()
     app.include_router(agent_api_keys.router)
+    app.include_router(api_keys.router)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=user_id,
         user_center_id=user_id,
@@ -100,6 +102,37 @@ async def test_key_lifecycle_dto_and_cross_agent_key_isolation(db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_personal_key_routes_exist_without_gateway_entitlement(db, monkeypatch):
+    from api.routes.v1 import CE_ROUTERS
+
+    assert ("api_keys", "router") in CE_ROUTERS
+    app = _app(db, monkeypatch)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        assert (await client.get("/v1/me/api-keys")).status_code == 200
+        created = await client.post("/v1/me/api-keys", json={"name": "Global"})
+        assert created.status_code == 201
+        key_id = created.json()["data"]["id"]
+        assert created.json()["data"]["api_key"].startswith("sk-jx-")
+        assert (await client.get("/v1/me/api-keys")).json()["data"]["items"][0]["id"] == key_id
+
+
+@pytest.mark.asyncio
+async def test_disabled_agent_keys_remain_creatable(db, monkeypatch):
+    from core.db.models import UserAgent
+
+    db.get(UserAgent, "ua_one").is_enabled = False
+    db.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(_app(db, monkeypatch)), base_url="http://test"
+    ) as client:
+        created = await client.post("/v1/agents/ua_one/api-keys", json={"name": "Disabled"})
+        assert created.status_code == 201
+        assert (await client.get("/v1/agents/ua_one/api-keys")).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_non_owner_cannot_create_or_list_keys(db, monkeypatch):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(_app(db, monkeypatch, user_id="other")),
@@ -143,7 +176,7 @@ async def test_global_gate_cannot_be_bypassed_with_cookie_or_nonstandard_admin_d
 def test_call_records_follow_durable_run_outcome_and_preserve_revoked_key_snapshot(db, outcome):
     key, _ = _key(db)
     _, scope = prepare_agent_api_request(
-        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi")
+        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
     )
     call_id = begin_agent_api_call(db, scope, True)
     run = ChatRun(
@@ -275,7 +308,7 @@ async def test_cancel_rejection_is_not_a_new_agent_invocation(db, monkeypatch):
 
     key, token = _key(db)
     _, scope = prepare_agent_api_request(
-        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi")
+        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
     )
     db.add(
         ChatRun(

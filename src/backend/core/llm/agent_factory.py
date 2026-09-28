@@ -2027,6 +2027,10 @@ async def create_agent_executor(
 
     _log.info("[factory] +%s skills registered", _elapsed())
 
+    from core.services.project_scope import project_scope_from_context
+
+    _proj_scope = project_scope_from_context(project_ctx or {})
+
     loaded_skill_ids: set[str] = set()
     # Effective sandbox session: callers may pass an explicit id to layer sessions
     # (main/plan execution → chat_id persistent kernel; batch/subagent → "" ephemeral).
@@ -2110,9 +2114,6 @@ async def create_agent_executor(
             loader,
             loaded_skill_ids=loaded_skill_ids,
         )
-
-        from core.services.project_scope import project_scope_from_context
-        _proj_scope = project_scope_from_context(project_ctx or {})
 
         # ── Phase 3.5: Register sandbox tools (bash + artifact in/out) ──
         # Skill files reach the sandbox via the unified /workspace/skills bind
@@ -3377,6 +3378,7 @@ async def create_agent_executor(
         _permission_registry,
         PermissionRuntime(
             sandbox_session_id=_sbx_sess,
+            project_scope=_proj_scope,
             chat_id=chat_id,
             user_id=current_user_id,
             interactive=_interactive,

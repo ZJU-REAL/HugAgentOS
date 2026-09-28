@@ -48,8 +48,8 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def require_agent_manager(db, user_id: str, agent_id: str, *, enabled: bool = False):
-    """Only personal owners and team managers can publish an agent credential."""
+def require_agent_manager(db, user_id: str, agent_id: str):
+    """Only the personal owner can manage an agent credential."""
     from core.services.user_agent_service import UserAgentService
 
     row = db.query(UserAgent).filter(UserAgent.agent_id == agent_id).first()
@@ -59,8 +59,6 @@ def require_agent_manager(db, user_id: str, agent_id: str, *, enabled: bool = Fa
         UserAgentService(db)._check_ownership(row, user_id, "user")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail={"code": "agent_management_required"}) from exc
-    if enabled and not row.is_enabled:
-        raise HTTPException(status_code=403, detail={"code": "agent_disabled"})
     return row
 
 
@@ -129,7 +127,9 @@ def prepare_agent_api_request(db, user, request):
     try:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request.chat_id):
             raise HTTPException(status_code=422, detail={"code": "invalid_api_chat_id"})
-        if request.agent_id and request.agent_id != agent_id:
+        if not request.agent_id:
+            raise HTTPException(status_code=422, detail={"code": "agent_id_required"})
+        if request.agent_id != agent_id:
             raise HTTPException(status_code=403, detail={"code": "agent_key_target_mismatch"})
         for field in _FORBIDDEN_INPUTS:
             value = getattr(request, field, None)
@@ -137,9 +137,9 @@ def prepare_agent_api_request(db, user, request):
                 raise HTTPException(status_code=403, detail={"code": "api_capability_override"})
         if getattr(request, "chat_mode", None) == "turbo":
             raise HTTPException(status_code=403, detail={"code": "api_capability_override"})
-        agent = require_agent_manager(db, str(user.user_id), str(agent_id), enabled=True)
+        agent = require_agent_manager(db, str(user.user_id), str(agent_id))
         _bind_api_session(db, scope, agent.name)
-        return request.model_copy(update={"agent_id": agent_id}), scope
+        return request, scope
     except HTTPException as exc:
         call_id = begin_agent_api_call(db, scope, bool(getattr(request, "stream", False)))
         fail_agent_api_call(db, call_id, exc.status_code, exc.detail["code"])

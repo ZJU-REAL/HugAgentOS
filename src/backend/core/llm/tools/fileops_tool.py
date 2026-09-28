@@ -80,7 +80,7 @@ def register_delete(
             return resp_json(result)
 
         # Simultaneously clear the sandbox physical copy (file or directory) + invalidate Read state
-        physical = to_physical_path(path, user_id, session_id=_sess)
+        physical = to_physical_path(path, user_id, session_id=_sess, scope=scope)
         try:
             await sandbox_exec_bash(
                 f"rm -rf {shell_quote(physical)}", chat_id=_sess, user_id=user_id,
@@ -148,8 +148,8 @@ def register_move(
             return resp_json(result)
 
         # Move it on the sandbox side too, to keep the same-session view consistent; failure is non-blocking (lazy loading self-heals)
-        src_phys = to_physical_path(src_path, user_id, session_id=_sess)
-        dst_phys = to_physical_path(dst_path, user_id, session_id=_sess)
+        src_phys = to_physical_path(src_path, user_id, session_id=_sess, scope=scope)
+        dst_phys = to_physical_path(dst_path, user_id, session_id=_sess, scope=scope)
         try:
             parent = dst_phys.rsplit("/", 1)[0]
             await sandbox_exec_bash(
@@ -215,7 +215,7 @@ def register_mkdir(
 
         # Create it on the sandbox side too, to keep the same-session view consistent; failure is non-blocking (lazy loading self-heals)
         try:
-            phys = to_physical_path(path, user_id, session_id=_sess)
+            phys = to_physical_path(path, user_id, session_id=_sess, scope=scope)
             await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(phys)} 2>/dev/null || true",
                 chat_id=_sess, user_id=user_id, timeout=15,

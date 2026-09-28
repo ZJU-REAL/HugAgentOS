@@ -22,7 +22,7 @@ def isolated_prompt_sources(monkeypatch, tmp_path):
     prompt_runtime._prompt_cache.clear()
 
 
-def test_environment_matches_execution_and_project_is_separate(monkeypatch, tmp_path):
+def test_environment_uses_bound_project_cwd(monkeypatch, tmp_path):
     from services.script_runner_service import server
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
@@ -33,7 +33,7 @@ def test_environment_matches_execution_and_project_is_separate(monkeypatch, tmp_
     prompt = build_system_prompt(PromptConfig(), ctx)
     block = prompt[prompt.index("<environment_context>"):prompt.index("</environment_context>") + len("</environment_context>")]
     env = ET.fromstring(block)
-    assert env.findtext("cwd") == str(server._session_workspace("actual"))
+    assert env.findtext("cwd") == "/tmp/A & B"
     assert env.findtext("project_root") == "/tmp/A & B"
     assert env.findtext("shell") == "bash"
     assert env.findtext("current_date") == "2030-01-02"

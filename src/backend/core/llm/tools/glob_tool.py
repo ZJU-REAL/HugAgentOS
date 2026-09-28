@@ -94,7 +94,7 @@ def register_glob(
                 )
 
         # /myspace → /workspace/myspace/<uid>
-        path = to_physical_path(path, user_id, session_id=_sess)
+        path = to_physical_path(path, user_id, session_id=_sess, scope=scope)
 
         # Distinguish ``**`` cross-directory matching vs plain glob:
         # - contains "**" → use find -path (needs prefix matching, strip the ``./`` prefix of **)

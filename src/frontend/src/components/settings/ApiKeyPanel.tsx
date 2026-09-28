@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Checkbox, Empty, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import {
-  createApiKey, listApiKeys, revealApiKey, revokeApiKey, toggleApiKey, type ApiKeyItem,
+  createApiKey, getApiUrl, listApiKeys, revealApiKey, revokeApiKey, toggleApiKey, type ApiKeyItem,
 } from '../../api';
 import { useFlashKey } from '../../hooks/useFlash';
 import { t, tCtx } from '../../i18n';
 import { useEditionStore } from '../../stores';
-import { stablePublicOrigin } from '../../stores/deploymentModeStore';
+import { stablePublicOrigin, useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { resolveAgentApiEndpoint } from '../../utils/agentApiExamples';
 import { copyToClipboard } from '../../utils/clipboard';
 
 const { Text, Paragraph } = Typography;
@@ -32,6 +33,12 @@ function fmtDate(s?: string | null): string {
 }
 
 export function ApiKeyPanel() {
+  const deployment = useDeploymentModeStore();
+  const nativeEndpoint = resolveAgentApiEndpoint({
+    origin: window.location.origin, apiBase: getApiUrl(), isDesktop: deployment.isDesktop,
+    local: deployment.activeLocal, serverBase: deployment.serverBase,
+    localBase: deployment.localBase || (deployment.activeLocal ? deployment.serverBase : ''),
+  });
   const [items, setItems] = useState<ApiKeyItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -226,10 +233,10 @@ export function ApiKeyPanel() {
         </Paragraph>
         <div>
           <Text strong style={{ color: 'inherit' }}>{t('智能体（原生）')}</Text>：
-          <Text code copyable>{`POST ${stablePublicOrigin()}/api/v1/agents/responses`}</Text>
+          <Text code copyable>{`POST ${nativeEndpoint}`}</Text>
         </div>
         <Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
-          {t('同一接口通过 stream: true 返回 SSE，通过 stream: false 直接返回 ChatResponse JSON，回复文本位于 response 字段。')}
+          {t('调用子智能体时在请求体传入 agent_id；同一接口通过 stream: true 返回 SSE，通过 stream: false 返回 ChatResponse JSON。')}
         </Paragraph>
         {modelGatewayEnabled && (
           <>

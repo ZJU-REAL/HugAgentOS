@@ -57,3 +57,7 @@ curl -fsS http://localhost:3002/api/health
 ```
 
 A `{"status":"healthy",...}` response means the backend is up; then open the corresponding address in a browser and log in with the admin account.
+
+## Local skill and plugin management
+
+[Local skill and plugin management](local-capability-management.md)

@@ -61,7 +61,7 @@ _BACKEND_DIR = str(Path(__file__).resolve().parents[1])
 # while silently omitting the tool.
 _REQUIRED_PLUGIN_MCP_TOOLS = {
     "automation_task": "list_scheduled_tasks",
-    "skill_manager": "list_my_skills",
+    "skill_manager": "list_skills",
     "site_publish": "publish_site",
 }
 

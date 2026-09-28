@@ -109,7 +109,6 @@ class NormalizedPlugin:
     # UI contributions (``extensions["org.hugagent"].ui``): which host view
     # renders which tool, canvas tabs, homepage shortcuts, proxied data sources
     # and self-shipped L2 modules. Validated by ``plugin_ui_contract``; None =
-    # this plugin contributes no interface and its tools render generically.
     ui: Optional[Dict[str, Any]] = None
 
 
@@ -291,11 +290,7 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
         cwd=cwd,
         needs_runtime=needs_runtime,
         note=note,
-        tools=[
-            {"name": str(t.get("name") or ""), "description": str(t.get("description") or "")}
-            for t in (raw.get("tools") or [])
-            if isinstance(t, dict) and t.get("name")
-        ],
+        tools=[dict(t) for t in (raw.get("tools") or []) if isinstance(t, dict) and t.get("name")],
     )
 
 
@@ -481,8 +476,7 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
     ui, ui_dropped = normalize_ui(_ext_or_top(manifest, ext, "ui"))
     dropped.extend(ui_dropped)
 
-    # default_enabled: native uses the manifest; CC/Codex default to all skills + remote MCP on, stdio MCP off
-    de = manifest.get("default_enabled")
+    de = _ext_or_top(manifest, ext, "default_enabled")
     if isinstance(de, dict):
         default_enabled = {
             "skills": [str(x) for x in (de.get("skills") or [])],

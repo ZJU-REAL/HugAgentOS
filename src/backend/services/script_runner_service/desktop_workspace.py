@@ -38,3 +38,13 @@ def subprocess_environment(cwd):
     import sys
 
     return {"PY_BIN": sys.executable}
+
+
+def execution_directory(raw: str) -> Path:
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise HTTPException(400, "cwd must be an absolute local directory")
+    candidate = candidate.resolve()
+    if not candidate.is_dir() or not os.access(candidate, os.R_OK | os.X_OK):
+        raise HTTPException(400, f"cwd does not exist or is inaccessible: {candidate}")
+    return candidate

@@ -126,7 +126,7 @@ def register_write(
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
             return resp_json(scope_error)
-        physical = to_physical_path(file_path, user_id, session_id=_sess)
+        physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
         is_persistent = is_myspace_physical(physical, user_id)
 
         if is_team_source_path(scope, user_id, file_path):
