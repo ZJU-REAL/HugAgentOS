@@ -2152,6 +2152,7 @@ export interface DeviceCapabilityItem {
   enabled?: boolean;
   usable?: boolean;
   change_state?: 'new' | 'modified' | 'synced' | 'compare' | 'unavailable';
+  created_at?: string | null;
   resolution?: { outcome: string; reason?: string | null };
 }
 

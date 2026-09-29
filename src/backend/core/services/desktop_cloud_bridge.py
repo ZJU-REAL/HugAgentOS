@@ -536,6 +536,7 @@ def managed_connectors() -> List[Dict[str, Any]]:
                 "server_id": sid,
                 "display_name": str(server.get("display_name") or sid),
                 "description": str(server.get("description") or ""),
+                "created_at": server.get("created_at"),
                 "enabled": bool(enabled.get(sid, True)),
                 "source_plugin": str(server.get("source_plugin") or ""),
                 "icon": str(server.get("icon") or ""),

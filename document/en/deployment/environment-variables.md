@@ -188,7 +188,7 @@ the database has no value.
 | `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
 | `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |
 | `LANGSEARCH_API_KEY` | (empty) | LangSearch Web Search API key; required when LangSearch is selected | CE |
-| `INTERNET_SEARCH_CN_ONLY` / `INTERNET_SEARCH_CN_STRICT` / `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | (empty) | Regional / parameter tuning | CE |
+| `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | (empty) | Tavily country ranking preference (general only; omitted when unset) / automatic parameters | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | HTTP backend for the data-warehouse query tool | EE (industry tool) |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | (empty) | Data-warehouse call parameters | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | (sample values) | Industry-chain information API | EE (industry tool) |

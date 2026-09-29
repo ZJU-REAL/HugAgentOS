@@ -6,6 +6,7 @@ via find's ``-name`` / ``-path`` modes.
 """
 
 from __future__ import annotations
+from core.services.edition_workspace import is_shared_scope
 
 import logging
 from typing import Optional
@@ -62,20 +63,11 @@ def register_glob(
         if scope_err:
             return resp_json({"error": scope_err})
 
-        if scope and scope.kind == "team":
-            from .project_working_copy import directory
-
-            root = directory(scope.project_id)
-            if path in (".", "/workspace") or path == root:
-                path = "/myspace/" + scope.folder_name
-            elif path.startswith(root + "/"):
-                path = "/myspace/" + scope.folder_name + path[len(root) :]
-
         # "My Space" → query the DB folder tree directly (faithful, cheap, does not depend on
         # whether the sandbox has been materialized); same data source as list_myspace_files /
         # Read lazy loading, fully eliminating the "list and read don't match" inconsistency.
         # Non-myspace paths still go through the sandbox find.
-        if user_id and _ms.myspace_rel(path, user_id, scope) is not None:
+        if user_id and not is_shared_scope(scope) and _ms.myspace_rel(path, user_id, scope) is not None:
             tree_hits = _ms.glob_tree(user_id, path, pattern, scope=scope)
             if tree_hits is not None:
                 window = tree_hits[offset : offset + page_size] if page_size else tree_hits

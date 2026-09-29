@@ -8,6 +8,7 @@
 
 沙箱遵循一个统一边界：**`session_id`（对话中即 `chat_id`）是唯一隔离键**。不同会话使用不同沙箱；同一会话的主智能体、内置子智能体、用户自建子智能体和批量项共享同一个 `/workspace`。智能体的模型上下文、工具权限和执行线程仍可独立，但不会再在会话内部创建第二个文件沙箱。
 
+
 ## Provider 协议（core/sandbox/protocol.py）
 
 所有 provider 实现同一个 `SandboxProvider` Protocol，内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：

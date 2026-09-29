@@ -36,6 +36,10 @@ def to_physical_path(path: str, user_id: Optional[str], *, session_id: Optional[
     from core.sandbox import desktop_paths
     if rules is desktop_paths:
         return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id, scope=scope)
+    from core.services.edition_workspace import resolve_project_path
+    resolved = resolve_project_path(path, user_id, WORKSPACE_ROOT, scope)
+    if resolved is not None:
+        return resolved
     return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
 
 

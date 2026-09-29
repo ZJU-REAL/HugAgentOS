@@ -65,10 +65,10 @@ def resolve_project_context(chat_id: str, user_id: str):
         folder = (ctx or {}).get("project_folder_name")
         if not folder:
             raise HTTPException(409, "源码项目未绑定有效空间文件夹")
-        if project.kind == "team":
-            from core.llm.tools.project_working_copy import directory
-
-            return project.project_id, directory(project.project_id)
+        from core.services.edition_workspace import source_directory
+        directory = source_directory(project)
+        if directory:
+            return project.project_id, directory
         return project.project_id, to_physical_path(f"/myspace/{folder}", user_id)
 
 

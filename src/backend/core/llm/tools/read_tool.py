@@ -13,6 +13,7 @@ paths" scenario.
 """
 
 from __future__ import annotations
+from core.services.edition_workspace import is_shared_scope
 
 import asyncio
 import hashlib
@@ -214,6 +215,7 @@ def register_read(
         offset: int = 0,
         limit: int = 0,
     ) -> "ToolResponse":  # type: ignore[name-defined]
+        from fastapi import HTTPException
         from core.sandbox import SandboxConnectError as _SCE
         from core.sandbox import SandboxError as _SE
         from core.sandbox import get_sandbox_provider as _get_provider
@@ -225,7 +227,8 @@ def register_read(
         if scope_err:
             return resp_json({"error": scope_err})
 
-        from .project_source_access import current_scope_error, read_team_bytes, is_team_source_path
+        from .project_source_access import current_scope_error
+        from core.services.edition_workspace import is_organization_path
         scope_error = current_scope_error(scope, user_id)
         if scope_error:
             return resp_json(scope_error)
@@ -240,12 +243,6 @@ def register_read(
         from core.config.local_mode import local_mode_enabled as _local_on
 
         _local_read: Optional[bytes] = None
-        if is_team_source_path(scope, user_id, file_path):
-            from fastapi import HTTPException
-            try:
-                _local_read = await asyncio.to_thread(read_team_bytes, scope, user_id or "", file_path)
-            except HTTPException as exc:
-                return resp_json({"error": exc.detail, "status": exc.status_code})
         if _local_on():
             try:
                 from core.llm.tool_permissions import (
@@ -264,10 +261,9 @@ def register_read(
         # snapshot. Resolve it by the authorized project ID, even when an old
         # copy already exists in this conversation's sandbox.
         if (
-            not _local_on() and scope and scope.kind != "team" and not scope.is_local and scope.folder_name
+            not _local_on() and scope and not is_shared_scope(scope) and not scope.is_local and scope.folder_name
             and _ms.myspace_rel(physical, user_id, scope) == f"{scope.folder_name}/AGENTS.md"
         ):
-            from fastapi import HTTPException
             from core.services.project_instructions import read_authorized_project_instructions
 
             try:
@@ -290,9 +286,13 @@ def register_read(
                 if _local_read is not None
                 else await provider.get_file(_sess, physical, user_id=user_id)
             )
+        except HTTPException as exc:
+            return resp_json({"error": exc.detail, "status": exc.status_code})
         except _SCE as exc:
             return resp_json({"error": f"沙盒连接失败: {exc}"})
         except _SE as exc:
+            if is_organization_path(scope, user_id, file_path):
+                return resp_json({"error": f"读取项目文件失败: {exc}"})
             from core.llm.evaluation_runtime import is_evaluation_session
             if is_evaluation_session(_sess):
                 return resp_json({"error": f"Evaluation sandbox read failed: {exc}"})
@@ -374,7 +374,6 @@ def register_read(
                         ),
                     }
                 )
-            # Continue the paginated rendering with the parsed text instead of the raw bytes
             content_bytes = parsed_text.encode("utf-8")
             parsed_fallback = True
 
@@ -400,7 +399,6 @@ def register_read(
         all_lines = text.splitlines()
         total_lines = len(all_lines)
 
-        # Parameter normalization
         req_offset = max(0, int(offset or 0))
         req_limit = int(limit or 0)
         is_partial = req_offset > 0 or (req_limit > 0)
@@ -414,18 +412,11 @@ def register_read(
             eff_limit = min(DEFAULT_LIMIT, MAX_LIMIT)
             end = min(eff_limit, total_lines)
 
-        # Slice and render into a line-numbered string
-        # Note _format_with_line_numbers expects the substring starting at line `start`
         selected = "\n".join(all_lines[start - 1 : end])
         numbered = _format_with_line_numbers(selected, start, end)
 
         truncated = end < total_lines
 
-        # Only a "full read" is recorded into state (Edit/Write depend on a full read);
-        # under the parsed-text fallback (parsed_fallback) what was read is the
-        # **parsed text** of a docx/xlsx, not the raw bytes — Edit/Write must never
-        # use it to overwrite a binary document as if it were plain text.
-        # Record both the logical and physical paths as keys so they can be mixed later
         if not is_partial and not truncated and not parsed_fallback:
             sha = hashlib.sha256(content_bytes).hexdigest()
             entry = ReadEntry(
@@ -435,10 +426,6 @@ def register_read(
                 limit=None,
             )
         elif parsed_fallback:
-            # Parsed-text fallback: record a parsed_doc marker (instead of
-            # masquerading as a partial read) so Edit/Write can give an accurate
-            # rejection reason and the model doesn't fall into a "just do another
-            # full read" loop.
             entry = ReadEntry(
                 content=b"",
                 sha256="",

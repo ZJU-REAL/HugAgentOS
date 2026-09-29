@@ -1,34 +1,34 @@
-# internet_search MCP Server
+# Internet search MCP
 
-Standalone **stdio MCP server** exposing the internet-search tool:
+The search tool accepts either `query` or `queries` (1–4 distinct queries), with
+`max_results` between 1 and 8 (default 5). A batch uses one configured provider.
+Sources are interleaved by query order and conservatively deduplicated by URL.
 
-- Tool: `internet_search(query: str, max_results: int = 5, topic: str = "general", search_depth: str = "advanced", include_raw_content: bool = False, cn_only: bool = True) -> Any`
+- `models.py`: strict input contract.
+- `providers.py`: provider request/response formats.
+- `impl.py`: asynchronous execution, deadlines, retry and bounded backpressure.
+- `merge.py`: source ordering, deduplication and content budgets.
+- `server.py`: MCP boundary and HTTP client lifespan.
 
-## Run
+Configure `INTERNET_SEARCH_ENGINE` and its corresponding API key.
+Tavily receives `INTERNET_SEARCH_COUNTRY` only when explicitly set and topic is general.
+There is no language-filter parameter or implicit country preference.
+Invalid/obsolete arguments are rejected, without legacy payload conversion.
+
+The lifespan shares an async HTTP client and an eight-request semaphore.
+At most 32 queries may be active or queued; the batch deadline is 45 seconds.
+429 and retryable 5xx responses get at most two retries within that deadline.
+Retry-After is respected, including HTTP-date values; backoff never holds a request slot.
+Cancellation drains all batch tasks. Errors expose codes, never upstream response bodies.
+
+Only `result.results` holds sources for citation injection. Partial failures have per-query
+statuses and no top-level error; complete failure is an explicit error.
+Content budgets are 2,000 characters per snippet, 8,000 per raw body and 24,000 total,
+fairly allocated across selected sources. Known result limits and content truncation are separate.
+
+Run with the repository's installed dependencies:
 
 ```bash
-python3 -m pip install mcp
-
-python3 -m mcp_servers.internet_search_mcp.server
-
-# Or (recommended)
 PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server
-```
-
-## Local self-test
-
-```bash
-python3 -m mcp_servers.internet_search_mcp._selftest
-
-# Or (recommended)
 PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp._selftest
 ```
-
-## Notes
-
-- StdIO transport: underlying tool prints are captured and forwarded to stderr.
-- Set `INTERNET_SEARCH_ENGINE` to `tavily`, `baidu`, or `langsearch`.
-- Configure only the matching `TAVILY_API_KEY`, `BAIDU_API_KEY`, or
-  `LANGSEARCH_API_KEY` for the selected engine.
-- `topic`, `search_depth`, and `include_raw_content` are Tavily-specific.
-  LangSearch maps its generated summary to the shared result `content` field.

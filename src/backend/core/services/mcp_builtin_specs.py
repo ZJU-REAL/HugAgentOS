@@ -30,7 +30,7 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
     {
         "server_id": "internet_search",
         "display_name": "互联网搜索",
-        "description": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
+        "description": "检索公开网页、官方文档、新闻及财经资讯，支持多查询并发、来源去重和原文核验。",
         "user_intro": None,
         "is_stable": True,
         "is_enabled": True,

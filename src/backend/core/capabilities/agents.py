@@ -165,7 +165,9 @@ def account_definitions(profile: Optional[str] = None) -> List[AgentDefinition]:
         if comp is None:
             continue
         try:
-            out.append(load_definition(comp, origin=SOURCE_CLOUD))
+            definition = load_definition(comp, origin=SOURCE_CLOUD)
+            definition.created_at = inst.created_at.isoformat() if inst.created_at else None
+            out.append(definition)
         except (OSError, ValueError) as exc:
             logger.warning("[caps-agents] unreadable definition %s: %s", comp.path, exc)
     return out

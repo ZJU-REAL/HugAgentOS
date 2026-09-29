@@ -7,6 +7,7 @@ import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { mergeDeviceSkills } from '../../utils/deviceSkillCatalog';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import { SearchOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useCatalogStore, useAuthStore } from '../../stores';
 import { usePanel } from '../../routing/usePanel';
@@ -122,14 +123,14 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
 
   const query = manageQuery.trim().toLowerCase();
 
-  const allSkills = useMemo(() => dual ? mergeDeviceSkills(catalog.skills, deviceSkills) : catalog.skills, [catalog.skills, deviceSkills, dual]);
+  const allSkills = useMemo(() => sortCapabilitiesByCreation(dual ? mergeDeviceSkills(catalog.skills, deviceSkills) : catalog.skills), [catalog.skills, deviceSkills, dual]);
   const filteredSkills = useMemo(() => {
     const arr = allSkills;
     return query ? arr.filter((x) => `${x.id} ${x.name} ${x.desc} ${(x.tags || []).join(' ')}`.toLowerCase().includes(query)) : arr;
   }, [allSkills, query]);
 
   const filteredAgents = useMemo(() => {
-    const arr = catalog.agents;
+    const arr = sortCapabilitiesByCreation(catalog.agents);
     return query ? arr.filter((x) => `${x.id} ${x.name} ${x.desc} ${(x.tags || []).join(' ')}`.toLowerCase().includes(query)) : arr;
   }, [catalog.agents, query]);
   const totalSkillsCount = allSkills.length;

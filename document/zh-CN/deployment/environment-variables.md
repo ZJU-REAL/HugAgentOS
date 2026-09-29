@@ -186,7 +186,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
 | `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |
 | `LANGSEARCH_API_KEY` | （空） | LangSearch Web Search API Key；选择 LangSearch 时必填 | CE |
-| `INTERNET_SEARCH_CN_ONLY` / `INTERNET_SEARCH_CN_STRICT` / `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | （空） | 搜索地域 / 参数微调 | CE |
+| `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | （空） | Tavily 国家排名偏好（仅 general，未配置则不传）/ 自动参数 | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | 数仓查询工具的 HTTP 后端 | EE（行业工具） |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | （空） | 数仓查询调用参数 | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | （示例值） | 产业链信息 API | EE（行业工具） |

@@ -10,6 +10,7 @@ export function mergeDeviceSkills(catalog: SkillItem[], device: DeviceCapability
     merged.push({
       id: item.runtime_name, name: item.display_name || item.runtime_name,
       desc: item.description || '', enabled: !!item.enabled, owner: 'device',
+      created_at: item.created_at,
     });
   }
   return merged;

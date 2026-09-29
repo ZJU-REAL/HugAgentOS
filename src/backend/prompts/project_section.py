@@ -40,7 +40,7 @@ PROJECT_MODE_DISPLAY_NAME = "项目模式段（动态附加）"
 # Available variables:
 #   {project_name}        project name (already replaced with "(未命名项目)" when empty)
 #   {folder_name}         bound folder name (may be empty)
-#   {folder_scope_text}   "我的空间" (My Space) / "团队空间" (team space)
+#   {folder_scope_text}   edition-specific folder label
 #   {folder_scope_block}  pre-rendered "bound to folder xx..." section (empty without a folder)
 #   {file_count}          total file count (int)
 #   {file_list_block}     pre-rendered "### project sandbox file list..." section (empty without files)
@@ -77,14 +77,15 @@ def _render_file_list_block(files: list, total: int) -> str:
     return "\n".join(lines)
 
 
-def _render_folder_scope_block(folder_name: str, folder_scope_text: str, file_count: int) -> str:
+def _render_folder_scope_block(folder_name: str, folder_scope_text: str, file_count: int, workspace_path: str = "") -> str:
     """Bound-folder description section. Returns '' without a folder_name."""
     f = (folder_name or "").strip()
     if not f:
         return ""
+    path = workspace_path or f"/myspace/{f}/"
     base = (
         f"该项目挂钩到{folder_scope_text}的「{f}」文件夹。"
-        f"项目相关的文件读写应当严格限定在 `/myspace/{f}/`（及其子文件夹）下，"
+        f"项目相关的文件读写应当严格限定在 `{path}`（及其子文件夹）下，"
         f"不要把项目无关的文件写到此处，也不要假设其它路径下的文件属于本项目。"
     )
     if file_count <= 0:
@@ -148,6 +149,7 @@ def _build_project_section(
     folder_kind: str,
     project_files: list | None = None,
     project_file_count: int | None = None,
+    workspace_path: str = "",
 ) -> str:
     """Build the "project mode" system-prompt section.
 
@@ -168,19 +170,23 @@ def _build_project_section(
     name = (project_name or "").strip() or "(未命名项目)"
     files = list(project_files or [])
     total = len(files) if project_file_count is None else int(project_file_count)
-    scope_text = "我的空间" if folder_kind == "personal" else "团队空间"
+    from core.services.edition_workspace import folder_scope_label
+    scope_text = folder_scope_label(folder_kind)
+
 
     vars_ = {
         "project_name": name,
         "folder_name": (folder_name or "").strip(),
         "folder_scope_text": scope_text,
-        "folder_scope_block": _render_folder_scope_block(folder_name, scope_text, total),
+        "folder_scope_block": _render_folder_scope_block(folder_name, scope_text, total, workspace_path),
         "file_count": total,
         "file_list_block": _render_file_list_block(files, total),
         "instructions_block": _render_instructions_block(project_instructions),
     }
     template = _get_project_mode_template()
     rendered = render_template(template, vars=vars_, strict=False)
+    if workspace_path:
+        rendered += f"\n当前项目工作目录：`{workspace_path}`（已挂载目录的子目录，无需暂存）。"
     return _collapse_blanks(rendered)
 
 

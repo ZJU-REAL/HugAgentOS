@@ -62,6 +62,15 @@ def _result(execution):
     }
 
 
+def _safe_attempt_id(attempt_id: str) -> str:
+    """OpenSandbox metadata labels are limited to 63 chars and must be
+    alphanumeric/-/_/. . Truncate long attempt ids so sandbox creation does not
+    fail with INVALID_METADATA_LABEL."""
+    if len(attempt_id) <= 63:
+        return attempt_id
+    return attempt_id[:63]
+
+
 async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, memory_mb=4096):
     from opensandbox import Sandbox
     from opensandbox.models.execd import RunCommandOpts
@@ -74,7 +83,7 @@ async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, 
         timeout=timedelta(seconds=ttl_seconds),
         resource={"cpu": str(cpu_count), "memory": f"{memory_mb}Mi"},
         entrypoint=["bash", "-lc", "exec sleep infinity"],
-        metadata={"hugagent-evaluation": "true", "attempt-id": attempt_id},
+        metadata={"hugagent-evaluation": "true", "attempt-id": _safe_attempt_id(attempt_id)},
         volumes=None, env=None, skip_health_check=True,
     )
     try:

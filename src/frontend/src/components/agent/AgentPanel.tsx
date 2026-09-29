@@ -28,6 +28,7 @@ import { EditionAgentBadge, useEditionAgentPolicy } from '../../agentEdition';
 import { nowId } from '../../storage';
 import { staggerStyle } from '../../utils/motionTokens';
 import { CardTail } from '../common/CardTail';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import { DRILL_IN_BACK } from '../../utils/motionVariants';
 import { AgentCreatePage } from './AgentCreatePage';
 import { usePanelHeader } from '../../hooks/usePageConfig';
@@ -145,8 +146,8 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
       a.is_enabled || a.owner_type === 'user' || a.owner_type === 'builtin'
       || editionAgentPolicy.includeInLibrary(a)
     ));
-    if (!q) return list;
-    return list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q));
+    const matched = q ? list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q)) : list;
+    return sortCapabilitiesByCreation(matched);
   }, [agents, editionAgentPolicy, search]);
 
   // 分页：与技能页 / MCP 页同一套（每页 12 + antd Pagination），智能体多起来以后

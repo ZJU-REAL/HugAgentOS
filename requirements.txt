@@ -54,6 +54,8 @@ fakeredis>=2.21.0
 
 # Database
 psycopg2-binary>=2.9.9
+# Some deployments use explicit postgresql+psycopg URLs.
+psycopg[binary]>=3.2,<4
 sqlalchemy>=2.0.25
 alembic>=1.13.0
 

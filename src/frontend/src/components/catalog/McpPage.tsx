@@ -22,6 +22,7 @@ import type { McpMarketSubmission } from '../../types';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
 import { CardTail } from '../common/CardTail';
 import { McpIcon } from './McpIcon';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -162,7 +163,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
   const query = manageQuery.trim().toLowerCase();
 
   const filteredItems = useMemo(() => {
-    const arr = catalog.mcp;
+    const arr = sortCapabilitiesByCreation(catalog.mcp);
     return query ? arr.filter((x) => `${x.id} ${x.name} ${x.desc} ${(x.tags || []).join(' ')}`.toLowerCase().includes(query)) : arr;
   }, [catalog.mcp, query]);
   const totalMcpCount = catalog.mcp.length;

@@ -5,8 +5,11 @@ Fetches a URL and extracts content as text, markdown, or raw HTML.
 
 from __future__ import annotations
 
+import asyncio
 import re
+from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -25,52 +28,72 @@ _HEADERS = {
 _REMOVE_TAGS = {"script", "style", "nav", "footer", "header", "noscript", "iframe", "svg"}
 
 
+MAX_RESPONSE_BYTES = 2_000_000
+MAX_CONTENT_CHARS = 100_000
+
+
 async def fetch_url(
     url: str,
     extract_mode: Literal["text", "markdown", "html"] = "text",
     max_chars: int = 50000,
-) -> str:
-    """Fetch a URL and extract content.
-
-    Args:
-        url: The URL to fetch.
-        extract_mode: "text", "markdown", or "html".
-        max_chars: Maximum characters to return.
-
-    Returns:
-        Extracted content string.
-    """
-    async with httpx.AsyncClient(
-        headers=_HEADERS,
-        timeout=30.0,
-        follow_redirects=True,
-        max_redirects=5,
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-
-    # Detect encoding
-    html = resp.text
-
-    if extract_mode == "html":
-        return html[:max_chars]
+) -> dict:
+    """Fetch bounded page content with source and truncation metadata."""
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("An absolute HTTP(S) URL is required")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URLs must not contain credentials")
+    if extract_mode not in {"text", "markdown", "html"}:
+        raise ValueError("Invalid extract mode")
+    if type(max_chars) is not int or not 1 <= max_chars <= MAX_CONTENT_CHARS:
+        raise ValueError("max_chars must be between 1 and 100000")
+    async with asyncio.timeout(25):
+        async with httpx.AsyncClient(
+            headers=_HEADERS,
+            timeout=20.0,
+            follow_redirects=True,
+            max_redirects=5,
+        ) as client:
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                chunks = []
+                size = 0
+                download_truncated = False
+                async for chunk in resp.aiter_bytes():
+                    room = MAX_RESPONSE_BYTES - size
+                    chunks.append(chunk[:room])
+                    size += min(len(chunk), room)
+                    if len(chunk) > room:
+                        download_truncated = True
+                        break
+                html = b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace")
+                final_url = str(resp.url)
 
     soup = BeautifulSoup(html, "lxml")
-
-    # Remove unwanted tags
-    for tag_name in _REMOVE_TAGS:
-        for tag in soup.find_all(tag_name):
+    title = soup.title.get_text(strip=True) if soup.title else None
+    if extract_mode == "html":
+        content = html
+    else:
+        for tag in soup.find_all(list(_REMOVE_TAGS)):
             tag.decompose()
+        content = _to_markdown(soup) if extract_mode == "markdown" else _to_text(soup)
+    text = content[:max_chars]
+    return {
+        "result": text,
+        "url": url,
+        "final_url": final_url,
+        "title": title,
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "published_date": None,
+        "returned_chars": len(text),
+        "content_truncated": download_truncated or len(content) > max_chars,
+        "download_truncated": download_truncated,
+    }
 
-    if extract_mode == "markdown":
-        return _to_markdown(soup, max_chars)
 
-    return _to_text(soup, max_chars)
-
-
-def _to_text(soup: BeautifulSoup, max_chars: int) -> str:
+def _to_text(soup: BeautifulSoup) -> str:
     """Extract clean text from parsed HTML."""
-    text = soup.get_text(separator="\n", strip=True)
+    text: str = soup.get_text(separator="\n", strip=True)
     # Remove any residual <style>...</style> or <script>...</script> that survived parsing
     text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
@@ -78,10 +101,10 @@ def _to_text(soup: BeautifulSoup, max_chars: int) -> str:
     text = re.sub(r"<(?:style|script)[^>]*>[^<]*", "", text, flags=re.IGNORECASE)
     # Collapse multiple blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()[:max_chars]
+    return text.strip()
 
 
-def _to_markdown(soup: BeautifulSoup, max_chars: int) -> str:
+def _to_markdown(soup: BeautifulSoup) -> str:
     """Convert parsed HTML to simplified Markdown."""
     parts: list[str] = []
 
@@ -141,17 +164,14 @@ def _to_markdown(soup: BeautifulSoup, max_chars: int) -> str:
     result = "\n".join(parts)
     # Collapse excessive newlines
     result = re.sub(r"\n{3,}", "\n\n", result)
-    return result.strip()[:max_chars]
+    return result.strip()
 
 
 def _table_to_markdown(table: Tag) -> str:
     """Convert an HTML table to Markdown table."""
     rows: list[list[str]] = []
     for tr in table.find_all("tr"):
-        cells = [
-            (td.get_text(strip=True) or "")
-            for td in tr.find_all(["td", "th"])
-        ]
+        cells = [(td.get_text(strip=True) or "") for td in tr.find_all(["td", "th"])]
         if cells:
             rows.append(cells)
 
