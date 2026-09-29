@@ -13,6 +13,7 @@ this shared service.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import os
@@ -254,7 +255,7 @@ class UserFolderService:
 
         old_rel = self._folder_rel(folder)
         folder.name = cleaned
-        folder.updated_at = datetime.utcnow()
+        folder.updated_at = utc_now()
         self.db.commit()
         self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
@@ -320,7 +321,7 @@ class UserFolderService:
 
         old_rel = self._folder_rel(folder)
         folder.parent_folder_id = new_parent_id
-        folder.updated_at = datetime.utcnow()
+        folder.updated_at = utc_now()
         self.db.commit()
         self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
@@ -363,7 +364,7 @@ class UserFolderService:
             return FolderResult(False, "文件夹不存在"), 0
 
         ids_to_delete = self._collect_descendants(folder_id)
-        now = datetime.utcnow()
+        now = utc_now()
 
         affected = (
             self.db.query(Artifact)
@@ -445,7 +446,7 @@ class UserFolderService:
         old_rel = f"{self._folder_rel(old_folder)}/" if old_folder is not None else ""
         old_rel += str(artifact.filename or "")
         artifact.user_folder_id = target_folder_id
-        artifact.updated_at = datetime.utcnow()
+        artifact.updated_at = utc_now()
         self.db.commit()
         self._drop_mirror(str(artifact.user_id), old_rel, is_dir=False)
 

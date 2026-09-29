@@ -1,4 +1,6 @@
 """SQLAlchemy ORM models — admin console."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
@@ -6,7 +8,6 @@ from core.db.engine import Base
 from core.db.model_extensions import MarketplaceListingEditionFields
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     Boolean,
     CheckConstraint,
     Column,
@@ -58,8 +59,8 @@ class AdminSkill(Base):
     # it is deleted precisely by this, without harming user-created skills.
     # See internal design docs.
     source_plugin = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (
@@ -90,11 +91,11 @@ class SkillDependencyRequest(Base):
     user_id = Column(String(64), index=True)  # user who triggered the import (maps to a person)
     missing = Column(JSONType, default=dict)  # {"pip":[...], "npm":[...], "apt":[...]}
     status = Column(String(16), nullable=False, default="pending")  # pending | satisfied | rejected
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
-    satisfied_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
+    satisfied_at = Column(UTCDateTime(timezone=True))
     satisfied_by_run_id = Column(String(64))  # the sandbox_rebuild run_id that fulfilled it
     reason = Column(Text)  # rejection reason (optional), surfaced to the user
-    rejected_at = Column(TIMESTAMP(timezone=True))
+    rejected_at = Column(UTCDateTime(timezone=True))
     rejected_by = Column(String(64))  # identifier of the rejecting admin
 
     __table_args__ = (
@@ -116,8 +117,8 @@ class AdminPromptPart(Base):
     display_name = Column(String(255), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     is_enabled = Column(Boolean, nullable=False, default=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (
@@ -155,8 +156,8 @@ class AdminMcpServer(Base):
     owner_user_id = Column(String(64), nullable=True)
     # Non-null = this MCP was installed/imported by a plugin (plugin slug); deleted precisely by this on plugin uninstall.
     source_plugin = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (
@@ -196,12 +197,12 @@ class McpMarketItem(Base):
     # suspended = security kill switch (derived installations are disabled).
     status = Column(String(16), nullable=False, default="active")
     status_reason = Column(Text)
-    last_verified_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    last_verified_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -242,8 +243,8 @@ class McpMarketVersion(Base):
     listing_notice = Column(JSONType, default=dict)
     source_server_id = Column(String(100))
     approved_by = Column(String(64))
-    approved_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    approved_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -283,12 +284,12 @@ class McpMarketSubmission(Base):
     status = Column(String(16), nullable=False, default="pending")
     review_note = Column(Text)
     reviewed_by = Column(String(64))
-    reviewed_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    reviewed_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -331,9 +332,9 @@ class McpMarketInstallation(Base):
     owner_user_id = Column(String(64))
     status = Column(String(16), nullable=False, default="active")
     installed_by = Column(String(64))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
     __table_args__ = (
@@ -398,9 +399,9 @@ class MarketplaceSubmission(Base):
 
     status = Column(String(16), nullable=False, default="pending")
     review_note = Column(Text)  # rejection reason / review note
-    reviewed_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    reviewed_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -452,8 +453,8 @@ class InstalledPlugin(Base):
     # contributes no interface. Lives on the install record so uninstalling or
     # disabling the plugin withdraws its UI in the same motion.
     ui_contributions = Column(JSONType)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (
@@ -498,8 +499,8 @@ class PluginMarketPackage(Base):
     required_secrets = Column(JSONType, default=list)
     has_admin_config = Column(Boolean, nullable=False, default=False)
     package_b64 = Column(Text, nullable=False)  # base64 of the originally uploaded zip
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (Index("idx_plugin_market_packages_category", "category"),)
@@ -522,7 +523,7 @@ class PluginMarketSkillExclusion(Base):
 
     slug = Column(String(100), primary_key=True)
     skill_name = Column(String(100), primary_key=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     created_by = Column(String(64))
 
 
@@ -545,5 +546,5 @@ class MarketplaceListingState(MarketplaceListingEditionFields, Base):
     kind = Column(String(16), primary_key=True)  # plugin | skill
     item_id = Column(String(160), primary_key=True)  # plugin slug / skill marketplace slug
     enabled = Column(Boolean, nullable=False, default=True)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     updated_by = Column(String(64))

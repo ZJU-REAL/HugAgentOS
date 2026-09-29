@@ -19,6 +19,7 @@ The clone records ``source_market_slug`` to mark it "installed".
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import json
 import logging
@@ -612,7 +613,7 @@ def _new_submission(
     admin direct-upload ``publish_agent_to_market`` / admin create-and-list
     ``create_market_agent``) share the same field set; callers pass only what differs.
     """
-    now = datetime.utcnow()
+    now = utc_now()
     return AgentMarketSubmission(
         submission_id=submission_id,
         slug=slug,
@@ -775,8 +776,8 @@ def review_submission(
     sub.review_note = (review_note or "").strip()
     if approve and (category or "").strip():
         sub.category = validate_category(category)
-    sub.reviewed_at = datetime.utcnow()
-    sub.updated_at = datetime.utcnow()
+    sub.reviewed_at = utc_now()
+    sub.updated_at = utc_now()
     db.commit()
     logger.info(
         "agent_market_submission_reviewed: id=%s slug=%s status=%s",
@@ -807,7 +808,7 @@ def publish_agent_to_market(
     if agent is None:
         raise ResourceNotFoundError("user_agent", agent_id)
 
-    now = datetime.utcnow()
+    now = utc_now()
     existing = (
         db.query(AgentMarketSubmission)
         .filter(
@@ -891,7 +892,7 @@ def create_market_agent(
     than a source ``UserAgent``, hence a synthetic placeholder ``agent_id`` (installs always use
     the snapshot and never look back at a source agent).
     """
-    now = datetime.utcnow()
+    now = utc_now()
     sub = _new_submission(
         submission_id=f"aadm_{uuid.uuid4().hex[:16]}",
         slug=_derive_slug(db, name),

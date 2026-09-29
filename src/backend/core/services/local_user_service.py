@@ -1,6 +1,7 @@
 """Local user system business logic: registration, login, password change, disabling."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import re
 import secrets
@@ -152,7 +153,7 @@ class LocalUserService:
                 email=email,
                 avatar_url=None,
                 extra_data={"auth_source": "local"},
-                last_sync_at=datetime.utcnow(),
+                last_sync_at=utc_now(),
             )
             self.db.add(shadow)
             self.db.flush()
@@ -167,7 +168,7 @@ class LocalUserService:
                     "phone": (phone or "").strip() or None,
                     "status": "active",
                     "invited_by_code": registration_credential_id(invite),
-                    "password_updated_at": datetime.utcnow(),
+                    "password_updated_at": utc_now(),
                 }
             )
 
@@ -271,7 +272,7 @@ class LocalUserService:
                 email=email,
                 avatar_url=None,
                 extra_data={"auth_source": "local"},
-                last_sync_at=datetime.utcnow(),
+                last_sync_at=utc_now(),
             )
             self.db.add(shadow)
             self.db.flush()
@@ -285,7 +286,7 @@ class LocalUserService:
                     "phone": (phone or "").strip() or None,
                     "status": status,
                     "invited_by_code": None,
-                    "password_updated_at": datetime.utcnow(),
+                    "password_updated_at": utc_now(),
                 }
             )
 
@@ -377,7 +378,7 @@ class LocalUserService:
             email=None,
             avatar_url=None,
             extra_data={"auth_source": source, "external_id": external_id},
-            last_sync_at=datetime.utcnow(),
+            last_sync_at=utc_now(),
         )
         try:
             with self.db.begin_nested():
@@ -400,7 +401,7 @@ class LocalUserService:
                 "phone": None,
                 "status": "active",
                 "invited_by_code": None,
-                "password_updated_at": datetime.utcnow(),
+                "password_updated_at": utc_now(),
             }
         )
         # Auditing is written uniformly by the caller (the OA login route's
@@ -458,14 +459,14 @@ class LocalUserService:
             return LoginResult(False, "新密码不能与原密码相同")
 
         local.password_hash = hash_password(new_password)
-        local.password_updated_at = datetime.utcnow()
-        local.updated_at = datetime.utcnow()
+        local.password_updated_at = utc_now()
+        local.updated_at = utc_now()
         shadow = self.user_repo.get_by_id(user_id)
         if shadow is not None:
             meta = dict(shadow.extra_data or {})
             meta.pop("must_change_password", None)
             shadow.extra_data = meta
-            shadow.updated_at = datetime.utcnow()
+            shadow.updated_at = utc_now()
         self.db.commit()
         return LoginResult(True, "密码修改成功", user_id=user_id)
 
@@ -521,7 +522,7 @@ class LocalUserService:
             ph = phone.strip()
             local.phone = ph or None
 
-        local.updated_at = datetime.utcnow()
+        local.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(local)
 
@@ -565,7 +566,7 @@ def ensure_ce_default_admin(db: Session) -> tuple[Optional[str], bool]:
                 "must_change_password": True,
                 "onboarding_required": True,
             },
-            last_sync_at=datetime.utcnow(),
+            last_sync_at=utc_now(),
         )
         db.add(shadow)
         db.flush()
@@ -605,7 +606,7 @@ def ensure_ce_default_admin(db: Session) -> tuple[Optional[str], bool]:
         if verify_password(CE_DEFAULT_ADMIN_PASSWORD, local.password_hash):
             meta["must_change_password"] = True
         shadow.extra_data = meta
-        shadow.updated_at = datetime.utcnow()
+        shadow.updated_at = utc_now()
 
     db.commit()
     return shadow.user_id, created

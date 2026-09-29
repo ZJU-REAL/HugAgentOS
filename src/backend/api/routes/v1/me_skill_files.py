@@ -1,4 +1,5 @@
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import uuid
@@ -98,7 +99,7 @@ def save_my_skill_file(
     extra = dict(row.extra_files or {})
     extra[filename] = body.content
     row.extra_files = extra
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     flag_modified(row, "extra_files")
     db.commit()
     refresh_skill_caches()
@@ -122,7 +123,7 @@ def delete_my_skill_file(
         raise ResourceNotFoundError("skill_file", filename)
     del extra[filename]
     row.extra_files = extra
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     flag_modified(row, "extra_files")
     db.commit()
 
@@ -157,7 +158,7 @@ async def upload_my_skill_file(
     extra = dict(row.extra_files or {})
     extra[filename] = encode_upload(filename, raw)
     row.extra_files = extra
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     flag_modified(row, "extra_files")
     db.commit()
     refresh_skill_caches()

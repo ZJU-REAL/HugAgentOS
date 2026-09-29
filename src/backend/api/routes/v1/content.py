@@ -4,6 +4,7 @@
 内容写入 / 快照导入导出 / 资产上传属商业版内容台（ADMIN/CONFIG 令牌），
 不在社区版提供——对应实现物理不进 CE 树。
 """
+from datetime import timezone
 
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +82,6 @@ async def get_manual_info():
         "exists": True,
         "filename": MANUAL_FILENAME,
         "size": stat.st_size,
-        "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "uploaded_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         "url": f"/docs/manual/{MANUAL_FILENAME}",
     })

@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/date';
 import { DesktopUpdateEntry } from '../../desktop/DesktopUpdateEntry';
 import { CapabilitySyncEntry } from '../../desktop/CapabilitySyncEntry';
 import { useDesktopUpdateStatus } from '../../desktop/useDesktopUpdateStatus';
@@ -477,8 +478,7 @@ export function Sidebar({
             chat_id: item.id,
             title: item.title,
             message_count: item.messages?.length ?? 0,
-            last_active_display: new Date(item.updatedAt || Date.now())
-              .toLocaleString('zh-CN', { hour12: false }).slice(0, 16),
+            last_active_display: formatDateTime(item.updatedAt || Date.now()).slice(0, 16),
           }));
         } catch { /* 某些浏览器只读 */ }
       }

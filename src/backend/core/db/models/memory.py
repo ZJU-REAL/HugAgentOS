@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — memory."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -42,8 +43,8 @@ class ProfileMemory(Base):
     content_md = Column(Text, nullable=False, default="")
     revision = Column(Integer, nullable=False, default=0)
     effect_receipts = Column(JSONType, nullable=False, default=dict)
-    last_compacted_at = Column(TIMESTAMP(timezone=True))
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_compacted_at = Column(UTCDateTime(timezone=True))
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (Index("idx_profile_memory_updated_at", "updated_at"),)
 
@@ -71,18 +72,18 @@ class MemoryOutbox(Base):
     status = Column(String(16), nullable=False, default="pending")
     attempts = Column(Integer, nullable=False, default=0)
     lease_owner = Column(String(128))
-    lease_expires_at = Column(TIMESTAMP(timezone=True))
-    next_attempt_at = Column(TIMESTAMP(timezone=True))
+    lease_expires_at = Column(UTCDateTime(timezone=True))
+    next_attempt_at = Column(UTCDateTime(timezone=True))
     last_error = Column(Text)
     result_json = Column(JSONType)
-    created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
-    completed_at = Column(TIMESTAMP(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint(
@@ -138,8 +139,8 @@ class MemoryRefShadow(Base):
     external_id = Column(String(128))
     content_preview = Column(String(200), default="")
     first_seen_episode_id = Column(String(64))
-    first_seen_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
-    last_seen_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    first_seen_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
+    last_seen_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     seen_count = Column(Integer, default=1, nullable=False)
 
     __table_args__ = (
@@ -166,7 +167,7 @@ class MemorySanitizerRule(Base):
     pattern = Column(Text, nullable=False)  # redact regex or classified word
     description = Column(Text)
     enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     created_by = Column(String(64))
 
     __table_args__ = (

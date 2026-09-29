@@ -1,4 +1,6 @@
 """SQLAlchemy ORM models — site hosting (build sites in chat, hosted by the platform at /site/<slug>/)."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime
 
@@ -6,7 +8,6 @@ from core.db.engine import Base
 from core.db.models.site_scope import SiteScopeMixin, site_scope_table_args
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     CheckConstraint,
     Column,
@@ -68,9 +69,9 @@ class Site(SiteScopeMixin, Base):
     # site, the password decides whether a stranger holding the link must unlock it first.
     access_password_hash = Column(String(255))
     extra_data = Column("metadata", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         *site_scope_table_args(),
@@ -89,7 +90,7 @@ class SiteKV(Base):
     site_id = Column(String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False)
     k = Column(String(64), nullable=False)
     v = Column(Text, nullable=False)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (PrimaryKeyConstraint("site_id", "k"),)
 
@@ -104,6 +105,6 @@ class SiteSubmission(Base):
     form_key = Column(String(64), nullable=False)
     payload = Column(JSONType, nullable=False)
     client_ip = Column(String(45))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
 
     __table_args__ = (Index("idx_site_submissions_site_created", "site_id", "created_at"),)

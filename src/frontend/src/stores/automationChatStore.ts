@@ -1,3 +1,4 @@
+import { parseServerTime } from '../utils/date';
 import { create } from 'zustand';
 import type { AutomationChatGroup, AutomationRun, AutomationTask } from '../types';
 import { userScopedKey, writeLocal } from '../storage';
@@ -88,7 +89,7 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
     }
 
     const latestRunAt = completedRuns.length > 0
-      ? new Date(completedRuns[0].started_at).getTime()
+      ? parseServerTime(completedRuns[0].started_at)
       : Date.now();
 
     const nextGroup: AutomationChatGroup = {
@@ -119,8 +120,8 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
             [targetRun.chat_id!]: {
               id: targetRun.chat_id!,
               title: taskName || t('定时任务'),
-              createdAt: new Date(targetRun.started_at).getTime(),
-              updatedAt: new Date(targetRun.started_at).getTime(),
+              createdAt: parseServerTime(targetRun.started_at),
+              updatedAt: parseServerTime(targetRun.started_at),
               messages: [],
               automationRun: true,
               automationTaskId: taskId,
@@ -158,8 +159,8 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
           [run.chat_id!]: {
             id: run.chat_id!,
             title: activeGroup.taskName || t('定时任务'),
-            createdAt: new Date(run.started_at).getTime(),
-            updatedAt: new Date(run.started_at).getTime(),
+            createdAt: parseServerTime(run.started_at),
+            updatedAt: parseServerTime(run.started_at),
             messages: [],
             automationRun: true,
             automationTaskId: activeGroup.taskId,
@@ -185,7 +186,7 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
       runs,
       latestCompletedChatId: completedRuns[0]?.chat_id || null,
       latestRunAt: completedRuns.length > 0
-        ? new Date(completedRuns[0].started_at).getTime()
+        ? parseServerTime(completedRuns[0].started_at)
         : activeGroup.latestRunAt,
     };
     set({ activeGroup: nextGroup });

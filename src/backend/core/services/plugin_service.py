@@ -20,6 +20,7 @@ See internal design docs for details.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import base64
 import hashlib
@@ -421,7 +422,7 @@ def _apply_skill(
             tool_names=list(meta.allowed_tools or []),
             ontology_tags=list(meta.tags or []),
         )
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     fields = dict(
         skill_content=content,
@@ -480,7 +481,7 @@ def _apply_mcp(
                 if item.get("name")
             },
         )
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == server_id).first()
     fields = dict(
         display_name=mc.display_name,
@@ -628,7 +629,7 @@ def _apply_normalized(
             .delete(synchronize_session=False)
         )
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Display metadata for the installed record: UI-configured market metadata
     # (DB override → builtin seed) wins over whatever the manifest carried.
     market_meta = resolve_market_meta(db, np.slug)
@@ -1833,7 +1834,7 @@ def publish_plugin_zip_to_market(
         )  # parse/validate; invalid input raises immediately, nothing persisted
     package_b64 = base64.b64encode(raw).decode("ascii")
     has_admin_config = bool(np.admin_config and (np.admin_config.get("fields")))
-    now = datetime.utcnow()
+    now = utc_now()
     existing = _market_row(db, np.slug)
     fields = dict(
         name=np.name,
@@ -2113,7 +2114,7 @@ def set_installed_plugin_meta(
         row.category = category.strip()
     if icon is not None:
         row.icon = _validate_icon(icon) or None
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     db.commit()
     return {
         "install_id": row.install_id,

@@ -1,4 +1,6 @@
 """SQLAlchemy ORM models — chat sessions/messages."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
@@ -9,7 +11,6 @@ from core.db.model_extensions import (
 )
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -59,7 +60,7 @@ class ChatSession(ChatSessionEditionFields, Base):
     pinned = Column(Boolean, default=False)
     favorite = Column(Boolean, default=False)
     archived = Column(Boolean, default=False)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    deleted_at = Column(UTCDateTime(timezone=True))
     extra_data = Column("metadata", JSONType, default={})
     # Project mode: the chat is mounted on a specific project (NULL = ordinary chat)
     project_id = Column(
@@ -75,11 +76,11 @@ class ChatSession(ChatSessionEditionFields, Base):
     # See internal design docs.
     channel_id = Column(String(64), nullable=True)
     external_conversation_id = Column(String(128), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
-    last_message_at = Column(TIMESTAMP(timezone=True))
+    last_message_at = Column(UTCDateTime(timezone=True))
     # Relationships
     user = relationship("UserShadow", back_populates="chat_sessions")
     messages = relationship(
@@ -161,7 +162,7 @@ class ChatMessage(Base):
     # 刷新后照着渲染。正文片段内联，思考与工具卡片按下标引用上面两列，长推理不存两份。
     # 缺失 = 段落表上线之前的老消息，展示退化成「正文 + 工具卡片」，不做顺序反推。
     extra_data = Column("metadata", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
 
     # Relationships
     session = relationship("ChatSession", back_populates="messages")
@@ -207,9 +208,9 @@ class ChatCompactionState(Base):
     checkpoint_version = Column(Integer, nullable=False, default=0, server_default="0")
     covered_seq = Column(BigInteger, nullable=False, default=0, server_default="0")
     lease_owner = Column(String(160), nullable=True)
-    lease_expires_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    lease_expires_at = Column(UTCDateTime(timezone=True), nullable=True)
     updated_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
@@ -327,7 +328,7 @@ class ChatRun(Base):
     # columns decide ownership, recovery and terminal CAS after a restart.
     run_phase = Column(String(40), nullable=False, default="accepted")
     lease_owner = Column(String(160))
-    lease_expires_at = Column(TIMESTAMP(timezone=True))
+    lease_expires_at = Column(UTCDateTime(timezone=True))
     operation_seq = Column(Integer, nullable=False, default=0)
     snapshot_version = Column(Integer, nullable=False, default=0)
     # Holds the whole in-flight run payload (megabytes on long chats); loading it
@@ -336,18 +337,18 @@ class ChatRun(Base):
     last_operation_safety = Column(String(40), nullable=False, default="replayable")
     failure_reason = Column(Text)
     updated_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-    started_at = Column(TIMESTAMP(timezone=True))
-    completed_at = Column(TIMESTAMP(timezone=True))
+    started_at = Column(UTCDateTime(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -383,7 +384,7 @@ class ChatRunOperation(Base):
     snapshot_version = Column(Integer, nullable=False, default=0)
     payload = Column(JSONType)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -417,7 +418,7 @@ class ChatSteerQueueItem(Base):
     status = Column(String(20), nullable=False, default="accepted")
     message = Column(Text, nullable=False)
     lease_owner = Column(String(160))
-    lease_expires_at = Column(TIMESTAMP(timezone=True))
+    lease_expires_at = Column(UTCDateTime(timezone=True))
     delivery_attempt = Column(Integer, nullable=False, default=0)
     superseded_by = Column(String(64))
     applied_run_id = Column(String(64))
@@ -426,15 +427,15 @@ class ChatSteerQueueItem(Base):
     )
     applied_operation_seq = Column(Integer)
     accepted_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
-    claimed_at = Column(TIMESTAMP(timezone=True))
-    applied_at = Column(TIMESTAMP(timezone=True))
-    cancelled_at = Column(TIMESTAMP(timezone=True))
+    claimed_at = Column(UTCDateTime(timezone=True))
+    applied_at = Column(UTCDateTime(timezone=True))
+    cancelled_at = Column(UTCDateTime(timezone=True))
     updated_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
@@ -504,9 +505,9 @@ class MessageFeedback(Base):
     )
     rating = Column(String(10), nullable=False)  # 'like' or 'dislike'
     comment = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     __table_args__ = (
@@ -538,12 +539,12 @@ class ChatSandboxSnapshot(Base):
         String(64), nullable=False
     )  # source sandbox id parked at the time, for debugging / reconciliation
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
     expires_at = Column(
-        TIMESTAMP(timezone=True), nullable=False
+        UTCDateTime(timezone=True), nullable=False
     )  # created_at + SNAPSHOT_RETENTION_DAYS
     size_bytes = Column(BigInteger)  # for metrics, nullable
     extra = Column(
@@ -582,7 +583,7 @@ class ToolMediaBlob(Base):
     data = Column(LargeBinary, nullable=False)
     size_bytes = Column(Integer, nullable=False)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )

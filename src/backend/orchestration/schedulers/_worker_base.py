@@ -18,6 +18,7 @@ about "a table with a status column" and nothing about skills or candidates.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import logging
@@ -96,7 +97,7 @@ def claim_next(
             return None
         setattr(row, status_field, running_value)
         if started_field and hasattr(row, started_field):
-            setattr(row, started_field, datetime.utcnow())
+            setattr(row, started_field, utc_now())
         db.commit()
         return getattr(row, pk_field)
 
@@ -118,7 +119,7 @@ def recover_stale(
     the right default because the work is idempotent by construction — that is a
     precondition of using this base class, not an assumption about the caller.
     """
-    cutoff = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+    cutoff = utc_now() - timedelta(minutes=timeout_minutes)
     try:
         with SessionLocal() as db:
             stale = (

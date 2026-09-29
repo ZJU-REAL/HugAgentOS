@@ -14,6 +14,7 @@ the endpoint is open (dev convenience). In production set the env var.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import json
 import logging
@@ -618,7 +619,7 @@ async def resolve(
             max_retries=2,
             status="pending",
             progress={"done": 0, "success": 0, "failed": 0},
-            expires_at=datetime.utcnow() + timedelta(hours=24),
+            expires_at=utc_now() + timedelta(hours=24),
         )
         db.add(plan)
         db.commit()

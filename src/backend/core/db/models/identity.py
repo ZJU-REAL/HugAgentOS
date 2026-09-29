@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — identity / teams."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -37,9 +38,9 @@ class UserShadow(Base):
     avatar_url = Column(Text)
     user_center_id = Column(String(64))
     extra_data = Column("metadata", JSONType, default={})  # Map to 'metadata' column in DB
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_sync_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    last_sync_at = Column(UTCDateTime(timezone=True))
 
     # Relationships
     chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
@@ -83,9 +84,9 @@ class LocalUser(Base):
     phone = Column(String(32))
     status = Column(String(20), nullable=False, default="active")
     invited_by_code = Column(String(32))
-    password_updated_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    password_updated_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -118,9 +119,9 @@ class UserFolder(Base):
         nullable=True,
     )
     name = Column(String(255), nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -168,10 +169,10 @@ class UserApiKey(Base):
         Text
     )  # Reversible ciphertext of the full key (Fernet), supports copy-again; NULL for legacy keys
     enabled = Column(Boolean, nullable=False, default=True)
-    expires_at = Column(TIMESTAMP(timezone=True))  # NULL = never expires
-    last_used_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    revoked_at = Column(TIMESTAMP(timezone=True))  # Soft delete: revocation time
+    expires_at = Column(UTCDateTime(timezone=True))  # NULL = never expires
+    last_used_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    revoked_at = Column(UTCDateTime(timezone=True))  # Soft delete: revocation time
 
     __table_args__ = (
         UniqueConstraint("key_hash", name="uq_user_api_keys_key_hash"),
@@ -217,14 +218,14 @@ class DingTalkConnection(Base):
         Text
     )  # Full URL with the code embedded → target of the QR code
     login_user_code = Column(String(64))
-    login_started_at = Column(TIMESTAMP(timezone=True))
+    login_started_at = Column(UTCDateTime(timezone=True))
     auth_bundle = Column(
         Text
     )  # Plan B: dws auth export --base64 (application-layer encrypted), nullable
-    last_verified_at = Column(TIMESTAMP(timezone=True))
+    last_verified_at = Column(UTCDateTime(timezone=True))
     last_error = Column(Text)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -278,14 +279,14 @@ class LarkConnection(Base):
     login_device_code = Column(
         Text
     )  # device_code obtained via --no-wait, used when completing with --device-code
-    login_started_at = Column(TIMESTAMP(timezone=True))
+    login_started_at = Column(UTCDateTime(timezone=True))
     auth_bundle = Column(
         Text
     )  # Portable credential bundle (for cube cross-machine use, application-layer encrypted), nullable
-    last_verified_at = Column(TIMESTAMP(timezone=True))
+    last_verified_at = Column(UTCDateTime(timezone=True))
     last_error = Column(Text)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -343,10 +344,10 @@ class EmailConnection(Base):
         Text
     )  # Authorization code (application-layer Fernet encryption, never stored in plaintext)
     config_bundle = Column(Text)  # base64(config.toml), for cube cross-session injection, nullable
-    last_verified_at = Column(TIMESTAMP(timezone=True))
+    last_verified_at = Column(UTCDateTime(timezone=True))
     last_error = Column(Text)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -425,10 +426,10 @@ class ChannelConnection(Base):
     # disconnected (default / disconnected) | pending (verifying) | connected | error
     status = Column(String(16), nullable=False, default="pending")
     enabled = Column(Boolean, nullable=False, default=True)
-    last_event_at = Column(TIMESTAMP(timezone=True))
+    last_event_at = Column(UTCDateTime(timezone=True))
     last_error = Column(Text)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(

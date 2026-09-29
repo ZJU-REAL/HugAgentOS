@@ -4,6 +4,7 @@ Background task logic extracted from ``api/routes/v1/kb.py``.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import os
@@ -162,7 +163,7 @@ def update_document_status(document_id: str, status: str, error: Optional[str] =
                 meta = dict(doc.extra_data or {})
                 if status == "failed" and error:
                     meta["indexing_error"] = error[:1000]
-                    meta["indexing_failed_at"] = datetime.utcnow().isoformat()
+                    meta["indexing_failed_at"] = utc_now().isoformat()
                 else:
                     meta.pop("indexing_error", None)
                     meta.pop("indexing_failed_at", None)

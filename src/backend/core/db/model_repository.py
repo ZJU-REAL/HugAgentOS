@@ -1,6 +1,7 @@
 """Repository layer for model_providers and model_role_assignments."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import uuid
 from datetime import datetime
@@ -126,7 +127,7 @@ def update_provider(db: Session, provider_id: str, **fields) -> Optional[ModelPr
     for key, val in fields.items():
         if val is not None and hasattr(provider, key):
             setattr(provider, key, val)
-    provider.updated_at = datetime.utcnow()
+    provider.updated_at = utc_now()
     bump_revision(db)
     db.commit()
     db.refresh(provider)
@@ -158,7 +159,7 @@ def set_provider_test_result(db: Session, provider_id: str, success: bool) -> No
     provider = get_provider(db, provider_id)
     if provider is None:
         return
-    provider.last_tested_at = datetime.utcnow()
+    provider.last_tested_at = utc_now()
     provider.last_test_status = "success" if success else "failure"
     db.commit()
 
@@ -213,13 +214,13 @@ def assign_role(db: Session, role_key: str, provider_id: str, updated_by: str = 
     ).first()
     if existing:
         existing.provider_id = provider_id
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = utc_now()
         existing.updated_by = updated_by
     else:
         db.add(ModelRoleAssignment(
             role_key=role_key,
             provider_id=provider_id,
-            updated_at=datetime.utcnow(),
+            updated_at=utc_now(),
             updated_by=updated_by,
         ))
     bump_revision(db)
@@ -286,7 +287,7 @@ def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
                         "model_name", "gateway_group", "weight", "priority", "extra_config", "is_active"):
                 if key in p:
                     setattr(existing, key, p[key])
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
         else:
             db.add(ModelProvider(
                 provider_id=p["provider_id"],
@@ -315,7 +316,7 @@ def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
         ).first()
         if existing:
             existing.provider_id = a["provider_id"]
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             existing.updated_by = "import"
         else:
             db.add(ModelRoleAssignment(

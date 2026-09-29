@@ -5,6 +5,7 @@ All functions are defensive: they return empty/None on failure so callers
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -166,7 +167,7 @@ def fetch_parsed_text(
             from core.content.artifact_summary import build_summary_from_text
 
             art.parsed_text = parsed
-            art.parsed_at = datetime.utcnow()
+            art.parsed_at = utc_now()
             art.parse_error = None
             if not art.summary:
                 try:

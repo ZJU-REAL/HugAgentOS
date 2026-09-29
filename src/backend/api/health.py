@@ -1,4 +1,5 @@
 """Health-check, readiness, and liveness endpoints."""
+from core.infra.time import utc_now
 
 from datetime import datetime
 
@@ -29,7 +30,7 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         service="hugagent",
-        timestamp=datetime.now().isoformat(),
+        timestamp=utc_now().isoformat(),
     )
 
 
@@ -90,7 +91,7 @@ async def readiness_check(db: Session = Depends(get_db)):
         content={
             "ready": all_ready,
             "checks": checks,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utc_now().isoformat(),
         },
     )
 
@@ -103,4 +104,4 @@ async def liveness_check():
     最简单的存活检查，仅返回服务存活状态。
     用于 Kubernetes liveness probe。
     """
-    return {"alive": True, "timestamp": datetime.now().isoformat()}
+    return {"alive": True, "timestamp": utc_now().isoformat()}

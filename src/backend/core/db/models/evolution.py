@@ -9,13 +9,14 @@ Note the join key: ``message_id``.  Every pre-existing log table already carries
 it and the assistant message id is pre-allocated by the run executor, so history
 can be reconstructed without back-filling a new column across the whole codebase.
 """
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -76,9 +77,9 @@ class EvolutionEpisode(Base):
     privacy_class = Column(String(16), default="tenant", nullable=False)
 
     event_count = Column(Integer, default=0, nullable=False)
-    started_at = Column(TIMESTAMP(timezone=True))
-    completed_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    started_at = Column(UTCDateTime(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         # One run yields exactly one episode; the assembler is idempotent and
@@ -121,7 +122,7 @@ class EvolutionTraceEvent(Base):
     # itself stays in whichever table already owns it.
     payload_ref = Column(String(256), default="")
 
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("message_id", "seq", name="uq_evolution_events_msg_seq"),
@@ -168,11 +169,11 @@ class EvolutionCandidate(Base):
     # output" rule can be enforced rather than merely asserted.
     proposer = Column(String(64), default="system")
     approved_by = Column(String(64))
-    approved_at = Column(TIMESTAMP(timezone=True))
+    approved_at = Column(UTCDateTime(timezone=True))
 
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     __table_args__ = (
@@ -220,16 +221,16 @@ class EvolutionRelease(Base):
     # Recorded at promotion time, not derived at rollback time: the whole point
     # is to know where to return to before anything goes wrong.
     rollback_version_id = Column(String(128))
-    rolled_back_at = Column(TIMESTAMP(timezone=True))
+    rolled_back_at = Column(UTCDateTime(timezone=True))
     rollback_reason = Column(Text)
     # Distinguishes "the guardrails worked" from "the evaluation missed it" —
     # collapsing the two hides evaluation quality problems.
     rollback_kind = Column(String(16))
 
     approved_by = Column(String(64))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     __table_args__ = (
@@ -273,7 +274,7 @@ class EvolutionEvaluation(Base):
     p_value = Column(Float)
     sample_size = Column(Integer)
 
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         Index("idx_evolution_evaluations_candidate", "candidate_id", "eval_type", "created_at"),
@@ -306,9 +307,9 @@ class EvolutionAgentProfile(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     created_by = Column(String(64), default="evolution")
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
     __table_args__ = (
@@ -334,7 +335,7 @@ class EvolutionEvidencePack(Base):
     scope = Column(JSONType, default=dict)
     pack = Column(JSONType, nullable=False)
     support = Column(JSONType, default=dict)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("pack_hash", name="uq_evolution_evidence_packs_hash"),
@@ -363,7 +364,7 @@ class EvolutionCreditDecision(Base):
     features = Column(JSONType, default=dict)
     explanation = Column(Text, default="")
     assigner_version = Column(String(32), default="")
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         Index("idx_evolution_credit_selected", "selected", "created_at"),
@@ -390,7 +391,7 @@ class EvolutionPromotionLink(Base):
     target_kind = Column(String(24), nullable=False)
     target_id = Column(String(160), nullable=False)
     candidate_id = Column(String(64), index=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         # One fact, one row — re-materialising must not duplicate the lineage.
@@ -434,8 +435,8 @@ class EvolutionMemoryOp(Base):
     reason = Column(Text, default="")
 
     status = Column(String(24), nullable=False, default="applied")
-    applied_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
-    reverted_at = Column(TIMESTAMP(timezone=True))
+    applied_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
+    reverted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         Index("idx_evolution_memory_ops_user", "user_id", "status", "applied_at"),

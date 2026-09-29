@@ -5,12 +5,14 @@ so an install transaction and its business-data side effects can share one
 transaction. On cloud deployments they exist but stay empty — the file store is
 disabled there and nothing writes to them.
 """
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime
 
 from core.db.engine import Base
 from core.db.models import JSONType
-from sqlalchemy import TIMESTAMP, Boolean, Column, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, Index, Integer, String, Text
 
 INSTALL_STATES = ("pending", "preparing", "ready", "failed", "removed")
 
@@ -48,8 +50,8 @@ class DeviceCapabilityInstallation(Base):
     generation = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
     payload = Column(JSONType, default=dict)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         Index("idx_dev_cap_inst_profile_kind", "profile_id", "kind"),
@@ -68,7 +70,7 @@ class DeviceCapabilityNamePreference(Base):
     runtime_name = Column(String(160), nullable=False)
     chosen_install_id = Column(String(255), nullable=False)
     chosen_by = Column(String(64), nullable=True)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class DeviceCapabilityTransaction(Base):
@@ -82,8 +84,8 @@ class DeviceCapabilityTransaction(Base):
     target_generation = Column(Integer, nullable=False, default=0)
     file_inventory = Column(JSONType, default=list)
     error = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (Index("idx_dev_cap_tx_install", "install_id"),)
 

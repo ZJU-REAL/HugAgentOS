@@ -19,6 +19,7 @@ This file only does config assembly + async wrapping beyond that.
 """
 
 from __future__ import annotations
+from core.infra.time import as_utc, utc_now
 
 import asyncio
 import json
@@ -933,7 +934,7 @@ async def reinforce_procedure_entry(
         "seen_count": seen,
         "strength": "strong",
         "ttl_days": int(ttl),
-        "last_reinforced_at": datetime.now().isoformat(timespec="seconds"),
+        "last_reinforced_at": utc_now().isoformat(timespec="seconds"),
     }
     if effect_id:
         receipts = list(meta.get("outbox_effect_ids") or [])
@@ -1147,7 +1148,8 @@ def _apply_time_decay(item: dict, base_score: float) -> float:
         else:
             return base_score
 
-        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+        dt = as_utc(dt)
+        now = utc_now()
         age_days = max(0, (now - dt).days)
 
         # Exponential decay: 70% base score + 30% decayed score

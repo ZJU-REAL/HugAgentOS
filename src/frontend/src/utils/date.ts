@@ -1,13 +1,30 @@
-// Change this to switch the timezone used for time display site-wide. The backend returns ISO 8601 UTC; formatting is done uniformly on the frontend.
+import dayjs, { type Dayjs } from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+// Backend timestamps are UTC; all application displays use this timezone.
 export const APP_TIMEZONE = 'Asia/Shanghai';
 
 export function pad2(value: number | string) {
   return String(value).padStart(2, '0');
 }
 
+/** Parse server instants; legacy ISO datetimes without an offset mean UTC. */
+export function parseServerTime(value?: string | number | Date | null): number {
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  if (!value?.trim()) return NaN;
+  const raw = value.trim();
+  const legacy = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw);
+  return Date.parse(legacy ? raw.replace(' ', 'T') + 'Z' : raw);
+}
+
 function toDate(value?: string | number | Date | null): Date | null {
   if (value === null || value === undefined || value === '') return null;
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value : new Date(typeof value === 'string' ? parseServerTime(value) : value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -94,4 +111,11 @@ export function formatFullDateTime(value?: string | number | Date | null, fallba
 export function formatDateKey(value?: string | number | Date | null, fallback = '') {
   const p = zonedParts(value);
   return p ? `${p.year}-${p.month}-${p.day}` : fallback;
+}
+
+
+/** A picked calendar day belongs to the same zone used by the displayed rows. */
+export function dateRangeBoundary(value: Dayjs, endOfDay = false): string {
+  const day = dayjs.tz(value.format('YYYY-MM-DD'), APP_TIMEZONE);
+  return (endOfDay ? day.endOf('day') : day.startOf('day')).toISOString();
 }

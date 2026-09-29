@@ -19,6 +19,7 @@
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import mimetypes
 import os
@@ -374,7 +375,7 @@ async def remove_project_file(
     if not subtree or art.user_id != project.owner_user_id or art.user_folder_id not in subtree:
         raise HTTPException(status_code=404, detail="文件不在本项目挂钩文件夹内")
 
-    art.deleted_at = datetime.utcnow()
+    art.deleted_at = utc_now()
     db.commit()
     return success_response(message="已删除")
 
