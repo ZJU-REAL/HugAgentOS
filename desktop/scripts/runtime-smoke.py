@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 NATIVE_PROCESS_FLAGS = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
@@ -28,6 +29,7 @@ REQUIRED_MODULES = (
     "scipy",
     "sqlalchemy",
     "uvicorn",
+    "watchdog.observers",
 )
 
 
@@ -124,12 +126,71 @@ def check_native_tools() -> dict:
     return {**bash_versions, **{name: tools[name]["version"] for name in binaries}}
 
 
+
+
+def check_file_watcher() -> None:
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    changed = threading.Event()
+
+    class Handler(FileSystemEventHandler):
+        def on_created(self, event):
+            if Path(event.src_path).name == "watchdog-probe.txt":
+                changed.set()
+
+    with tempfile.TemporaryDirectory(prefix="desktop-watcher-") as folder:
+        observer = Observer()
+        observer.schedule(Handler(), folder)
+        observer.start()
+        try:
+            (Path(folder) / "watchdog-probe.txt").write_text("probe", encoding="utf-8")
+            if not changed.wait(10):
+                raise RuntimeError("Bundled file watcher did not receive a file creation event")
+        finally:
+            observer.stop()
+            observer.join(timeout=10)
+        if observer.is_alive():
+            raise RuntimeError("Bundled file watcher failed to stop")
+
+
+def check_application(source: Path) -> None:
+    """Load all application routers without touching the builder's data or env."""
+    source = source.resolve()
+    backend = source / "src" / "backend"
+    if not (backend / "cli.py").is_file():
+        raise RuntimeError(f"Desktop source is missing cli.py: {backend}")
+    with tempfile.TemporaryDirectory(prefix="desktop-app-smoke-") as folder:
+        env = {key: value for key, value in os.environ.items()
+               if key.upper() in ("SYSTEMROOT", "WINDIR", "TMP", "TEMP", "TMPDIR", "PATH", "LANG")}
+        env.update(HOME=folder, USERPROFILE=folder,
+                   HUGAGENT_HOME=str(Path(folder) / "data"),
+                   HUGAGENT_CAPS_ROOT=str(Path(folder) / "caps"),
+                   PYTHONPATH=str(backend), PYTHONDONTWRITEBYTECODE="1",
+                   HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS="0")
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import cli; cli.apply_local_env(33291); from api.app import app; "
+             "print('DESKTOP_APPLICATION_IMPORT_OK')"],
+            cwd=source, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90, **NATIVE_PROCESS_FLAGS)
+        if result.returncode or "DESKTOP_APPLICATION_IMPORT_OK" not in result.stdout.splitlines():
+            raise RuntimeError("Desktop application import failed:\n" + result.stderr[-6000:])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path)
     parser.add_argument("--native-only", action="store_true")
     parser.add_argument("--bash-only", action="store_true")
+    parser.add_argument("--source-only", action="store_true")
     args = parser.parse_args()
+    if args.source_only:
+        if not args.source:
+            parser.error("--source-only requires --source")
+        check_application(args.source)
+        print(json.dumps({"ok": True, "modules": ["cli", "api.app"]}))
+        return 0
 
     if args.bash_only:
         root = Path(__file__).resolve().parent
@@ -147,13 +208,10 @@ def main() -> int:
         importlib.import_module(module_name)
         imported.append(module_name)
 
+    check_file_watcher()
     if args.source:
-        backend = args.source.resolve() / "src" / "backend"
-        if not (backend / "cli.py").is_file():
-            raise RuntimeError(f"CE source is missing cli.py: {backend}")
-        sys.path.insert(0, str(backend))
-        importlib.import_module("cli")
-        imported.append("cli")
+        check_application(args.source)
+        imported.extend(["cli", "api.app"])
 
     print(
         json.dumps(

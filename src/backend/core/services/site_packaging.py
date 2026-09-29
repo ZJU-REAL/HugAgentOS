@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 MAX_PACK_BYTES = (
     40 * 1024 * 1024
 )  # tar archive cap (a separate 30MB total quota applies after unpacking)
-UNPACK_MAX_FILES = 400  # unpack fuse (service layer caps at 300; slightly looser here)
+SITE_SOURCE_EXCLUDES = (".git", "node_modules", "__pycache__", ".hugagent-source-manifest.json")
+BUILD_SOURCE_EXCLUDES = ("dist", ".vite", "*.log")
 
 
 def resolve_project_context(chat_id: str, user_id: str):
@@ -97,14 +98,8 @@ async def pack_and_fetch_dir(
     options = {
         "source": src,
         "archive_name": archive_path,
-        "excludes": [
-            ".git",
-            "node_modules",
-            "__pycache__",
-            ".hugagent-source-manifest.json",
-            *extra_excludes,
-        ],
-        "max_files": UNPACK_MAX_FILES,
+        "excludes": [*SITE_SOURCE_EXCLUDES, *extra_excludes],
+        "max_files": None,
         "max_file_bytes": MAX_SITE_FILE_BYTES,
         "max_total_bytes": MAX_SITE_TOTAL_BYTES,
         "max_archive_bytes": MAX_PACK_BYTES,
@@ -181,8 +176,6 @@ def safe_extract_tar(data: bytes) -> List[Tuple[str, bytes]]:
             total += member.size
             if member.size > MAX_SITE_FILE_BYTES or total > MAX_SITE_TOTAL_BYTES:
                 raise ValueError("站点解包后大小超限")
-            if len(files) >= UNPACK_MAX_FILES:
-                raise ValueError(f"站点文件数超过 {UNPACK_MAX_FILES}，请精简目录")
             fobj = tf.extractfile(member)
             if fobj is None:
                 continue

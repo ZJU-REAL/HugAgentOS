@@ -103,7 +103,7 @@ test("release builder validates dependencies and relocatable runtime before arch
   assert.match(builder, /runtime-smoke\.py/);
   assert.match(builder, /signMacRuntime/);
   assert.match(builder, /Resuming validated/);
-  assert.match(smoke, /import_module\("cli"\)/);
+  assert.match(smoke, /from api\.app import app/);
 });
 
 test("macOS release requires configured signing credentials without ad-hoc fallback", () => {

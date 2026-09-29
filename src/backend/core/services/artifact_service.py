@@ -47,8 +47,8 @@ def store_bytes_as_artifact(
     meta: Dict[str, Any] = {"source": source}
     if extra:
         meta.update(extra)
-    if meta.get('upload_fingerprint'):
-        meta['upload_storage_key'] = storage_key
+    if meta.get("upload_fingerprint"):
+        meta["upload_storage_key"] = storage_key
     artifact = ArtifactModel(
         artifact_id=artifact_id,
         chat_id=chat_id,
@@ -143,6 +143,7 @@ def persist_artifacts(
     *,
     scope: Optional["ProjectScope"] = None,
     commit: bool = True,
+    strict: bool = False,
 ) -> None:
     """Batch-insert AI-generated artifacts into the Artifact DB table.
 
@@ -212,7 +213,12 @@ def persist_artifacts(
                     **scope_fields,
                 )
             )
+            existing_ids.add(art_id)
         except Exception as e:
+            if strict:
+                if commit:
+                    db.rollback()
+                raise
             logger.warning("artifact_db_insert_failed: %s", e)
     try:
         if commit:
@@ -220,6 +226,12 @@ def persist_artifacts(
         else:
             db.flush()
     except Exception as e:
+        from fastapi import HTTPException
+
+        if strict or isinstance(e, HTTPException):
+            if commit:
+                db.rollback()
+            raise
         logger.warning("artifact_db_commit_failed: %s", e)
         if commit:
             db.rollback()

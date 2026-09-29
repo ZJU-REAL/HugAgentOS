@@ -38,7 +38,9 @@ def register_pin_to_workspace(
     """
     from core.services.project_scope import ProjectScope  # noqa: F401 - re-import for closure
 
-    async def pin_to_workspace(file_ids: list[str] = [], file_paths: list[str] = []) -> ToolResponse:
+    async def pin_to_workspace(
+        file_ids: list[str] = [], file_paths: list[str] = []
+    ) -> ToolResponse:
         """把文件交付到对话区——**唯一**让用户看到文件的方式。
 
         凡用户要求生成/导出文件（文档、图片、PPT、Excel、PDF、CSV、压缩包、音视频、
@@ -85,31 +87,43 @@ def register_pin_to_workspace(
         elif isinstance(file_ids, list):
             raw_ids = file_ids
         else:
-            return ToolResponse(content=[TextBlock(
-                type="text",
-                text=_json.dumps(
-                    {"ok": False, "error": "file_ids 必须是字符串列表，例如 [\"fid_a\",\"fid_b\"]"},
-                    ensure_ascii=False,
-                ),
-            )])
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_json.dumps(
+                            {
+                                "ok": False,
+                                "error": 'file_ids 必须是字符串列表，例如 ["fid_a","fid_b"]',
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                ]
+            )
 
         if not raw_ids and not file_paths:
-            return ToolResponse(content=[TextBlock(
-                type="text",
-                text=_json.dumps(
-                    {"ok": False, "error": "file_ids 不能为空列表"},
-                    ensure_ascii=False,
-                ),
-            )])
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_json.dumps(
+                            {"ok": False, "error": "file_ids 不能为空列表"},
+                            ensure_ascii=False,
+                        ),
+                    )
+                ]
+            )
 
         pinned_results: list[Dict[str, Any]] = []
         failed_results: list[Dict[str, Any]] = []
         to_persist: list[Dict[str, Any]] = []
 
         if file_paths:
-            from .local_delivery import prepare_local_delivery
             from core.infra.logging import user_id_var
             from fastapi import HTTPException
+
+            from .local_delivery import prepare_local_delivery
 
             if not isinstance(file_paths, list):
                 file_paths = [file_paths]
@@ -121,12 +135,18 @@ def register_pin_to_workspace(
                 try:
                     from core.artifacts.local_project import project_file_path
                     from core.infra.logging import chat_id_var
-                    physical = project_file_path(path, scope, user_id_var.get(), sandbox_session_id or chat_id_var.get())
+
+                    physical = project_file_path(
+                        path, scope, user_id_var.get(), sandbox_session_id or chat_id_var.get()
+                    )
                     if physical in prepared_paths:
                         continue
                     import asyncio
+
                     item = await asyncio.to_thread(
-                        prepare_local_delivery, physical, scope=scope,
+                        prepare_local_delivery,
+                        physical,
+                        scope=scope,
                         user_id=user_id_var.get() or "",
                         session_id=sandbox_session_id or chat_id_var.get(),
                     )
@@ -135,12 +155,16 @@ def register_pin_to_workspace(
                 except (HTTPException, OSError, ValueError) as exc:
                     failed_results.append({"path": path, "error": str(getattr(exc, "detail", exc))})
 
+        processed_ids = set()
         for raw in raw_ids:
             fid = str(raw or "").strip() if isinstance(raw, str) else ""
             if not fid:
                 failed_results.append({"file_id": str(raw), "error": "file_id 为空或非字符串"})
                 continue
 
+            if fid in processed_ids:
+                continue
+            processed_ids.add(fid)
             try:
                 item = get_artifact(fid)
             except Exception as exc:
@@ -153,31 +177,29 @@ def register_pin_to_workspace(
 
             if (item.get("metadata") or {}).get("source") == "local_project_reference":
                 from core.infra.logging import user_id_var
+
                 if item["metadata"].get("user_id") != user_id_var.get():
                     failed_results.append({"file_id": fid, "error": "无权访问本机项目文件"})
                     continue
 
-            added = _workspace.pin(
-                file_id=fid,
-                name=item.get("name"),
-                mime_type=item.get("mime_type"),
-                size=item.get("size"),
-                url=f"/files/{fid}",
+            pinned_results.append(
+                {
+                    "file_id": fid,
+                    "name": item.get("name"),
+                    "already_pinned": fid in _workspace.get_pinned_file_ids(),
+                }
             )
-            pinned_results.append({
-                "file_id": fid,
-                "name": item.get("name"),
-                "already_pinned": not added,
-            })
-            to_persist.append({
-                "file_id": fid,
-                "name": item.get("name"),
-                "mime_type": item.get("mime_type"),
-                "size": item.get("size"),
-                "storage_key": item.get("storage_key"),
-                "url": f"/files/{fid}",
-                "tool_name": "pin_to_workspace",
-            })
+            to_persist.append(
+                {
+                    "file_id": fid,
+                    "name": item.get("name"),
+                    "mime_type": item.get("mime_type"),
+                    "size": item.get("size"),
+                    "storage_key": item.get("storage_key"),
+                    "url": f"/files/{fid}",
+                    "tool_name": "pin_to_workspace",
+                }
+            )
 
         # Persist pinned files to the DB ``artifacts`` table NOW — not only
         # at run finalization. Otherwise in-run MySpace ("我的空间") tools (Move /
@@ -185,8 +207,8 @@ def register_pin_to_workspace(
         # DB can't see a file the agent just pinned (it only exists in the
         # file-index store + in-memory workspace until the run ends).
         # The deferred _persist_artifacts at run end dedups by artifact_id,
-        # so this never double-inserts. Best-effort: failure must not break
-        # the pin.
+        # so this never double-inserts. A rejected write must not be reported
+        # as pinned or retried silently at run finalization.
         try:
             from core.infra.logging import chat_id_var, user_id_var
 
@@ -198,11 +220,27 @@ def register_pin_to_workspace(
 
                 _db = SessionLocal()
                 try:
-                    persist_artifacts(_db, _uid, _cid or None, to_persist, scope=scope)
+                    persist_artifacts(_db, _uid, _cid or None, to_persist, scope=scope, strict=True)
                 finally:
                     _db.close()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("pin_to_workspace: eager DB persist failed: %s", exc)
+            from fastapi import HTTPException
+
+            logger.warning("pin_to_workspace: eager DB persist failed (%s)", type(exc).__name__)
+            message = exc.detail if isinstance(exc, HTTPException) else "文件保存失败，请稍后重试"
+            failed_results.extend(
+                {"file_id": item["file_id"], "error": message} for item in to_persist
+            )
+            pinned_results = []
+        else:
+            for item in to_persist:
+                _workspace.pin(
+                    file_id=item["file_id"],
+                    name=item.get("name"),
+                    mime_type=item.get("mime_type"),
+                    size=item.get("size"),
+                    url=item.get("url"),
+                )
 
         result: Dict[str, Any] = {
             "ok": bool(pinned_results),
@@ -211,29 +249,44 @@ def register_pin_to_workspace(
         }
         if failed_results:
             result["failed"] = failed_results
-        return ToolResponse(content=[TextBlock(
-            type="text",
-            text=_json.dumps(result, ensure_ascii=False),
-        )])
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=_json.dumps(result, ensure_ascii=False),
+                )
+            ]
+        )
 
-    from core.llm.tool_permissions import ToolPermissionSpec, local_path_tool, READ
+    from core.llm.tool_permissions import READ, ToolPermissionSpec, local_path_tool
 
     def resolve_pin_paths(args, runtime):
         from core.artifacts.local_project import project_file_path
+
         paths = args.get("file_paths") or []
         if isinstance(paths, str):
             paths = [paths]
         intents = []
         for path in paths:
             if isinstance(path, str) and path.strip():
-                physical = project_file_path(path, scope, runtime.user_id,
-                    sandbox_session_id or runtime.sandbox_session_id or runtime.chat_id)
-                intents.extend(local_path_tool("path", READ, tool_name="pin_to_workspace").resolver(
-                    {"path": physical}, runtime))
+                physical = project_file_path(
+                    path,
+                    scope,
+                    runtime.user_id,
+                    sandbox_session_id or runtime.sandbox_session_id or runtime.chat_id,
+                )
+                intents.extend(
+                    local_path_tool("path", READ, tool_name="pin_to_workspace").resolver(
+                        {"path": physical}, runtime
+                    )
+                )
         return intents
 
-    toolkit.register_tool_function(pin_to_workspace, namesake_strategy="override",
-        permission=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths))
+    toolkit.register_tool_function(
+        pin_to_workspace,
+        namesake_strategy="override",
+        permission=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths),
+    )
     logger.info("[factory] Registered pin_to_workspace tool")
 
 

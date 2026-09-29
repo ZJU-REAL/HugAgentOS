@@ -72,7 +72,7 @@ function findPython() {
       [
         ...prefix,
         "-c",
-        "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+        "import sys, tarfile; raise SystemExit(0 if sys.version_info >= (3, 11) and hasattr(tarfile, 'data_filter') else 1)",
       ],
       {
         stdio: "ignore",
@@ -82,7 +82,7 @@ function findPython() {
     if (result.status === 0) return { command, prefix };
   }
   throw new Error(
-    "Python 3.11 or later is required to generate the bundled CE server.",
+    "Python 3.11.4 or later with tarfile extraction filters is required to generate the bundled CE server.",
   );
 }
 

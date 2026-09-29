@@ -6,9 +6,11 @@ so a failed upload cannot replace the last good source or delete its identity.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import mimetypes
 import uuid
+from pathlib import PurePosixPath
 
 from core.auth.permissions_iface import resolve_project_permission
 from core.db.models import Artifact, Project
@@ -52,19 +54,44 @@ class ProjectSourceService:
         return project
 
     def snapshot(
-        self, project_id: str, actor: str, *, lock: bool = False
+        self,
+        project_id: str,
+        actor: str,
+        *,
+        lock: bool = False,
+        relative_root: str = "",
+        exclude_patterns: frozenset[str] = frozenset(),
     ) -> list[tuple[str, bytes]]:
+        """Load a bounded source tree; paths returned are relative to that tree."""
         project = self.authorized_project(project_id, actor, write=False)
+        if relative_root and (
+            relative_root.startswith("/")
+            or "\\" in relative_root
+            or any(part in ("", ".", "..") for part in relative_root.split("/"))
+        ):
+            raise HTTPException(400, "源码目录必须是项目内相对路径")
+        prefix = relative_root + "/" if relative_root else ""
         entries = ProjectFileService(self.db).list_files(project).items
-        if len(entries) > 400:
-            raise HTTPException(413, "项目源码文件过多，无法一次载入")
+        selected = []
+        for entry in entries:
+            path = entry["name"]
+            if prefix and not path.startswith(prefix):
+                continue
+            name = path[len(prefix):]
+            if any(
+                fnmatch.fnmatchcase(part, pattern)
+                for part in PurePosixPath(name).parts
+                for pattern in exclude_patterns
+            ):
+                continue
+            selected.append((name, entry))
         result, size = [], 0
         seen = set()
-        for entry in entries:
-            if entry["name"] in seen:
+        for name, entry in selected:
+            if name in seen:
                 raise HTTPException(409, "项目中存在同名源码文件，请先消除冲突")
-            seen.add(entry["name"])
-            # Validate legacy upload paths before placing bytes in a working directory.
+            seen.add(name)
+            # Validate stored upload paths before placing bytes in a working directory.
             ProjectFileService(self.db).source_file_scope(project, actor, entry["name"])
             artifact = (
                 self.db.query(Artifact)
@@ -78,7 +105,7 @@ class ProjectSourceService:
             size += artifact.size_bytes
             if size > 30 * 1024 * 1024:
                 raise HTTPException(413, "项目源码超过工作副本大小限制")
-            result.append((entry["name"], get_storage().download_bytes(artifact.storage_key)))
+            result.append((name, get_storage().download_bytes(artifact.storage_key)))
         return result
 
     def read_bytes(self, project_id: str, actor: str, path: str) -> tuple[bytes, str]:

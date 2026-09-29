@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
+  existsSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -51,6 +53,8 @@ function generateLock(target) {
   }
 
   rmSync(temporary, { force: true });
+  // Preserve existing pins unless changed requirements require a new version.
+  if (existsSync(output)) copyFileSync(output, temporary);
   const result = spawnSync("uv", args, {
     cwd: repoRoot,
     encoding: "utf8",
