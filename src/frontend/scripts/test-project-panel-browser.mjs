@@ -38,6 +38,7 @@ createRoot(document.getElementById('root')).render(<div style={{width:'min(440px
 const browser = await chromium.launch({ headless: true });
 try {
  const page = await browser.newPage({viewport:{width:1280,height:1000}});
+ await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.route('https://project.test/**',async route=>{
    const path=new URL(route.request().url()).pathname;
