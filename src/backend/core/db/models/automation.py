@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — automation / batch / distillation."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -57,10 +58,10 @@ class ScheduledTask(Base):
 
     # Status
     status = Column(String(20), nullable=False, default="active")
-    next_run_at = Column(TIMESTAMP(timezone=True))
-    last_run_at = Column(TIMESTAMP(timezone=True))
+    next_run_at = Column(UTCDateTime(timezone=True))
+    last_run_at = Column(UTCDateTime(timezone=True))
     # 用户点「立即执行」时写入，调度器取走后清空（见 AutomationService.request_manual_trigger）。
-    manual_trigger_at = Column(TIMESTAMP(timezone=True))
+    manual_trigger_at = Column(UTCDateTime(timezone=True))
     run_count = Column(Integer, default=0)
     max_runs = Column(Integer)
 
@@ -74,8 +75,8 @@ class ScheduledTask(Base):
     description = Column(Text, default="")
     extra_data = Column("metadata", JSONType, default={})
     sidebar_activated = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("UserShadow")
@@ -123,8 +124,8 @@ class ScheduledTaskRun(Base):
     chat_id = Column(String(64))
     result_summary = Column(Text)
     error_message = Column(Text)
-    started_at = Column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
-    completed_at = Column(TIMESTAMP(timezone=True))
+    started_at = Column(UTCDateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(UTCDateTime(timezone=True))
     duration_ms = Column(Integer)
     usage = Column(JSONType, default={})
 
@@ -170,9 +171,9 @@ class PersonaDistillJob(Base):
     saved_skill_id = Column(String(100))  # AdminSkill.skill_id after confirmed persistence
     cost_usd = Column(Numeric(8, 4), default=0)
     error = Column(Text)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    started_at = Column(TIMESTAMP(timezone=True))
-    finished_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    started_at = Column(UTCDateTime(timezone=True))
+    finished_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -207,9 +208,9 @@ class BatchPlan(Base):
     max_retries = Column(Integer, nullable=False, default=2)
     status = Column(String(20), nullable=False, default="pending")
     progress = Column(JSONType, default=dict)  # {done, success, failed}
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    expires_at = Column(TIMESTAMP(timezone=True))  # +24h, cleaned up periodically
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    expires_at = Column(UTCDateTime(timezone=True))  # +24h, cleaned up periodically
 
     __table_args__ = (
         CheckConstraint(

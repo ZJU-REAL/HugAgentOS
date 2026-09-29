@@ -14,6 +14,7 @@
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import uuid
@@ -242,7 +243,7 @@ class ChatModeService:
         row = self._owned_row(mode_id, owner_user_id)
         if row.is_builtin:
             raise BadRequestError("内置模式不可删除，可以停用它")
-        row.deleted_at = datetime.utcnow()
+        row.deleted_at = utc_now()
         self.db.commit()
 
     def _owned_row(self, mode_id: str, owner_user_id: Optional[str]) -> ChatMode:
@@ -333,7 +334,7 @@ class ChatModeService:
                 # 两个都清空 = 显式取消专属提示词，退回默认装配
                 out["prompt_kind"] = None
                 out["prompt_text"] = None
-        take("updated_at", datetime.utcnow())
+        take("updated_at", utc_now())
         return out
 
     @staticmethod

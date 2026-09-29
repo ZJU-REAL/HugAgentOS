@@ -11,6 +11,7 @@ file set to v<n+1> + switch ``current_version``; the hosted URL
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import mimetypes
@@ -308,7 +309,7 @@ class SiteService(SiteManagementMixin):
             "version": version,
             "file_count": len(cleaned),
             "total_size_bytes": total_size,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utc_now().isoformat(),
         }
 
     def _validate_files(self, files: List[Tuple[str, bytes]]) -> List[Tuple[str, bytes]]:

@@ -1,6 +1,8 @@
 """Ontology harness APIs: user opt-in plus Admin/CE asset governance."""
 
 from __future__ import annotations
+from core.infra.time import as_utc
+from core.infra.time import utc_now
 
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
@@ -335,7 +337,7 @@ def get_ontology_metrics(db: Session = Depends(get_db)):
             "acceptance_rate": round(counts["approved"] / decided, 4) if decided else None,
         }
 
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = utc_now() - timedelta(days=30)
     daily: dict[str, Counter] = defaultdict(Counter)
     recent_events = (
         db.query(OntologyEnforcementEvent.decision, OntologyEnforcementEvent.created_at)
@@ -348,10 +350,10 @@ def get_ontology_metrics(db: Session = Depends(get_db)):
         .all()
     )
     for decision, created_at in recent_events:
-        if created_at and created_at.replace(tzinfo=None) >= cutoff:
+        if created_at and as_utc(created_at) >= cutoff:
             daily[created_at.date().isoformat()][f"event_{decision}"] += 1
     for verdict, created_at in recent_reviews:
-        if created_at and created_at.replace(tzinfo=None) >= cutoff:
+        if created_at and as_utc(created_at) >= cutoff:
             daily[created_at.date().isoformat()][f"review_{verdict}"] += 1
 
     return success_response(
@@ -679,8 +681,8 @@ def review_ontology_draft(
         raise BadRequestError("该演进草案已经完成审核，不能重复修改裁决")
     row.review_status = "approved" if body.approved else "rejected"
     row.reviewer_comment = body.comment
-    row.reviewed_at = datetime.utcnow()
-    row.updated_at = datetime.utcnow()
+    row.reviewed_at = utc_now()
+    row.updated_at = utc_now()
     db.commit()
     return success_response(data={"draft_id": row.draft_id, "review_status": row.review_status})
 

@@ -1,0 +1,211 @@
+/* Right rail */
+.jx-projectDetail-aside {
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-projectRail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jx-projectRail-card {
+  position: relative; /* FilesCard 拖拽上传高亮层的定位锚点 */
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* FilesCard 拖拽高亮层：复用 .jx-mySpace-dropOverlay，圆角对齐卡片 */
+.jx-projectRail-dropOverlay {
+  border-radius: var(--radius-md);
+}
+
+.jx-projectRail-dropOverlay .jx-mySpace-dropOverlay-card {
+  padding: 12px 20px;
+  font-size: 13px;
+}
+
+.jx-projectRail-cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.jx-projectRail-cardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-projectRail-cardAux {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-projectRail-cardText {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  min-height: 220px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.jx-projectRail-cardEmpty {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+}
+
+.jx-projectRail-cardHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jx-projectRail-memoryToggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.jx-projectRail-memoryPopover .ant-popover-inner-content {
+  padding: 4px 0;
+}
+
+.jx-projectRail-memoryToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-projectRail-memoryToggleLabel {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.jx-projectRail-cardSub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-projectRail-fileItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--color-fill-hover);
+  border-radius: 4px;
+}
+
+.jx-projectRail-fileItem:last-child {
+  border-bottom: 0;
+}
+
+.jx-projectRail-fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-projectRail-fileName {
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-refTag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: 3px;
+}
+
+.jx-projectRail-fileMeta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.jx-projectRail-groupHeader:hover {
+  background: var(--color-fill-hover);
+}
+
+.jx-projectRail-groupName {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-groupCount {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  padding: 0 6px;
+  background: var(--color-bg-gray);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Preview modal wrap — give FilePreviewPane real height */
+.jx-projectRail-previewWrap {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-gray);
+}
+
+.jx-projectRail-previewWrap > .jx-spaceImportPreview {
+  border: none;
+}
+
+/* Bound DOM work on desktop and mobile. */
+.jx-projectRail-fileTree { min-width: 0; }
+.jx-projectRail-fileTree .ant-tree-node-content-wrapper { min-width: 0; overflow: hidden; }
+.jx-projectRail-fileTree .ant-tree-title { display: block; }
+.jx-projectRail-fileTree .jx-projectRail-fileItem,
+.jx-projectRail-fileTree .jx-projectRail-groupHeader { height: 50px; box-sizing: border-box; }
+.jx-projectRail-filePreview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.jx-projectRail-filePreview:focus-visible { outline: 2px solid var(--color-primary); }

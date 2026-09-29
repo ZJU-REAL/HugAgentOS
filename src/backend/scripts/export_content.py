@@ -25,6 +25,7 @@ Usage:
     # Additionally export the system prompt version pool (prompt_versions: system/code_exec/distillation/plan_mode)
     python scripts/export_content.py --api-url http://localhost:3000/api --include-prompts
 """
+from core.infra.time import utc_now
 
 import argparse
 import json
@@ -130,7 +131,8 @@ def export_docs_via_db(database_url: str) -> dict:
     from core.db.models import ContentBlock
     from core.content.content_blocks import build_docs_snapshot
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     session = sessionmaker(bind=engine)()
     try:
         return build_docs_snapshot(session)
@@ -144,7 +146,8 @@ def export_prompts_via_db(database_url: str) -> dict:
     from sqlalchemy.orm import sessionmaker
     from core.content.content_blocks import build_prompt_snapshot
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     session = sessionmaker(bind=engine)()
     try:
         return build_prompt_snapshot(session)
@@ -158,7 +161,8 @@ def export_catalog_overrides_via_db(database_url: str) -> list:
     from sqlalchemy.orm import sessionmaker
     from core.db.models import CatalogOverride
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     session = sessionmaker(bind=engine)()
     try:
         rows = session.query(CatalogOverride).all()
@@ -268,7 +272,7 @@ def main() -> None:
             catalog_export["catalog_overrides"] = overrides
             print(f"     catalog_overrides: {len(overrides)} 条")
 
-        catalog_export["exported_at"] = datetime.utcnow().isoformat() + "Z"
+        catalog_export["exported_at"] = utc_now().isoformat()
 
         catalog_file = output_dir / f"catalog_snapshot_{timestamp}.json"
         _write_json(catalog_file, catalog_export)

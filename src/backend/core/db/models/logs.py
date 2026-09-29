@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — call logs / audit."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -59,8 +60,8 @@ class ToolCallLog(Base):
     source = Column(String(20), nullable=False, default="main_agent")
     subagent_log_id = Column(String(64), index=True)
     skill_log_id = Column(String(64), index=True)
-    started_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    started_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -107,7 +108,7 @@ class ToolEffectLedger(Base):
     # races from creating two different outcomes for one effect.
     terminal_effect_id = Column(String(64), unique=True)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -137,9 +138,9 @@ class ToolEffectLease(Base):
     run_id = Column(String(64), ForeignKey("chat_runs.run_id", ondelete="CASCADE"), nullable=False)
     run_owner = Column(String(160), nullable=False)
     claim_owner = Column(String(160))
-    lease_expires_at = Column(TIMESTAMP(timezone=True))
+    lease_expires_at = Column(UTCDateTime(timezone=True))
     updated_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -157,7 +158,7 @@ class ToolEffectReceipt(Base):
     user_id = Column(String(64), nullable=False, index=True)
     result_payload = Column(JSONType, nullable=False)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -176,7 +177,7 @@ class RemoteToolEffect(Base):
     args_hash = Column(String(64), nullable=False)
     gateway_url = Column(Text)
     schema_hash = Column(String(64))
-    created_at = Column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(UTCDateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class HarnessUsageCursor(Base):
@@ -214,7 +215,7 @@ class HarnessUsageAttempt(Base):
     retry_of = Column(Integer)
     attempt_metadata = Column(JSONType)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -256,7 +257,7 @@ class HarnessEventLog(Base):
     phase = Column(String(40), nullable=False)
     payload = Column(JSONType, nullable=False, default=dict)
     created_at = Column(
-        TIMESTAMP(timezone=True),
+        UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
@@ -297,9 +298,9 @@ class SubAgentCallLog(Base):
     error_message = Column(Text)
     duration_ms = Column(Integer)
     parent_subagent_log_id = Column(String(64), index=True)
-    started_at = Column(TIMESTAMP(timezone=True))
-    completed_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    started_at = Column(UTCDateTime(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -345,8 +346,8 @@ class SkillCallLog(Base):
     duration_ms = Column(Integer)
     source = Column(String(20), nullable=False, default="main_agent")
     subagent_log_id = Column(String(64), index=True)
-    started_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    started_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         CheckConstraint(

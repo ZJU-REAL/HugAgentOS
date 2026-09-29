@@ -55,7 +55,8 @@
     "test:chat-fork-browser": "node scripts/test-chat-fork-browser.mjs",
     "test:chat-fork": "esbuild scripts/test-chat-fork.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-chat-fork.mjs && node node_modules/.tmp/test-chat-fork.mjs",
     "test:fork-composer": "esbuild scripts/test-fork-composer.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-composer.mjs && node node_modules/.tmp/test-fork-composer.mjs",
-    "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs"
+    "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs",
+    "test:date-timezone": "esbuild scripts/test-date-timezone.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-date-timezone.mjs && node node_modules/.tmp/test-date-timezone.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

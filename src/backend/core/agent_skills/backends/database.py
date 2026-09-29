@@ -46,13 +46,13 @@ class DatabaseBackend:
         return self._priority
 
     def change_token(self) -> Tuple[int, str]:
-        """Return a cheap token representing enabled DB skill changes."""
+        """Return a cheap token representing loadable DB skill changes."""
         SessionLocal, AdminSkill = self._get_session_and_model()
         db = SessionLocal()
         try:
             count, max_updated = (
                 db.query(func.count(AdminSkill.skill_id), func.max(AdminSkill.updated_at))
-                .filter(AdminSkill.is_enabled == True)
+                .filter(AdminSkill.dep_status == "ready")
                 .one()
             )
             if hasattr(max_updated, "isoformat"):
@@ -73,7 +73,7 @@ class DatabaseBackend:
         return SessionLocal, AdminSkill
 
     def list_skill_files(self) -> List[SkillFileInfo]:
-        """List enabled DB skills without hydrating instructions or extra files.
+        """List installed, dependency-ready DB skills without hydrating content.
 
         Includes user-private skills (owner_user_id non-null) — the loader is a global
         singleton and must be able to resolve / materialize / register all skills by id.
@@ -100,7 +100,7 @@ class DatabaseBackend:
                     AdminSkill.allowed_tools,
                     AdminSkill.owner_user_id,
                 )
-                .filter(AdminSkill.is_enabled == True)
+                .filter(AdminSkill.dep_status == "ready")
                 .order_by(AdminSkill.skill_id)
                 .all()
             )
@@ -111,7 +111,7 @@ class DatabaseBackend:
                 for row in (
                     db.query(AdminSkill.skill_id, AdminSkill.skill_content)
                     .filter(
-                        AdminSkill.is_enabled == True,
+                        AdminSkill.dep_status == "ready",
                         or_(
                             AdminSkill.skill_content.contains("mcp_servers:"),
                             AdminSkill.skill_content.contains("mcp-server-ids:"),
@@ -149,16 +149,16 @@ class DatabaseBackend:
             db.close()
 
     def read_snapshot(self, skill_id: str) -> tuple[str, dict, str | None]:
-        """Read one current, enabled DB revision in one statement."""
+        """Read one current, dependency-ready DB revision in one statement."""
         SessionLocal, AdminSkill = self._get_session_and_model()
         with SessionLocal() as db:
             row = (
                 db.query(AdminSkill.skill_content, AdminSkill.extra_files, AdminSkill.owner_user_id)
-                .filter(AdminSkill.skill_id == skill_id, AdminSkill.is_enabled.is_(True))
+                .filter(AdminSkill.skill_id == skill_id, AdminSkill.dep_status == "ready")
                 .first()
             )
             if row is None:
-                raise FileNotFoundError(f"Active skill not found: {skill_id}")
+                raise FileNotFoundError(f"Ready skill not found: {skill_id}")
             return str(row.skill_content or ""), dict(row.extra_files or {}), row.owner_user_id or None
 
     def read_skill_file(self, skill_id: str) -> str:

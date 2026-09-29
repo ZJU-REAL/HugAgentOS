@@ -14,6 +14,7 @@ Artifacts are downloaded via ``GET /files/{file_id}``.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import json
 import logging
@@ -79,7 +80,7 @@ def _get_oss_storage():
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat()
+    return utc_now().isoformat()
 
 
 def _ensure_store() -> None:

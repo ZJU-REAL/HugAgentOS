@@ -1,4 +1,5 @@
 """Plan mode business logic — CRUD for plans and steps."""
+from core.infra.time import utc_now
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -91,7 +92,7 @@ class PlanService:
         for k, v in kwargs.items():
             if hasattr(plan, k):
                 setattr(plan, k, v)
-        plan.updated_at = datetime.utcnow()
+        plan.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(plan)
         return plan
@@ -144,7 +145,7 @@ class PlanService:
             self.db.add(step)
 
         plan.total_steps = len(steps)
-        plan.updated_at = datetime.utcnow()
+        plan.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(plan)
         return plan

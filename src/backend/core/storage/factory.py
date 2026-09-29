@@ -1,4 +1,5 @@
 """Storage backend factory and utility functions."""
+from core.infra.time import utc_now
 
 import logging
 import os
@@ -64,7 +65,7 @@ def generate_storage_key(
     Format without chat_id:
         {env}/{category}/{user_id}/{timestamp}_{filename}
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    timestamp = utc_now().strftime("%Y%m%d%H%M%S")
 
     safe_filename = secure_filename(filename)
     if not safe_filename:

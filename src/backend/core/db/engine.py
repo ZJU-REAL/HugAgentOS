@@ -5,6 +5,7 @@ import os
 from typing import Generator
 
 from core.config.settings import settings
+from core.db.connection import utc_connect_args
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.declarative import declarative_base
@@ -62,9 +63,10 @@ else:
     # 事件循环）无限期占住，另一侧又要等这条请求收尾才能释放锁，形成互相干等的死结。
     # 等锁与等连接同属「等数据库资源」，共用 DB_POOL_TIMEOUT 一个阈值。
     if make_url(DATABASE_URL).get_backend_name() == "postgresql":
-        engine_kwargs["connect_args"] = {
-            "options": f"-c lock_timeout={settings.db.pool_timeout * 1000}"
-        }
+        engine_kwargs["connect_args"] = utc_connect_args(DATABASE_URL)
+        engine_kwargs["connect_args"]["options"] += (
+            f" -c lock_timeout={settings.db.pool_timeout * 1000}"
+        )
 
 
 def apply_sqlite_concurrency_pragmas(target, busy_timeout_seconds: int) -> None:

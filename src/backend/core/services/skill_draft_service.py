@@ -8,6 +8,7 @@ preventing the two consoles from double-persisting.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import uuid
@@ -129,8 +130,8 @@ def approve_draft(
             extra_files={},
             is_enabled=bool(enable_immediately),
             owner_user_id=str(owner_user_id) if owner_user_id else None,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
             created_by=created_by,
         )
         db.add(skill)
@@ -149,7 +150,7 @@ def approve_draft(
             target.tags = list(d.tags)
         if d.allowed_tools:
             target.allowed_tools = list(d.allowed_tools)
-        target.updated_at = datetime.utcnow()
+        target.updated_at = utc_now()
         skill_id = target_id
     else:
         raise HTTPException(status_code=400, detail=f"unsupported_decision:{d.decision}")
@@ -158,8 +159,8 @@ def approve_draft(
     d.reviewer_comment = reviewer_comment
     if reviewer_id:
         d.reviewer_id = reviewer_id
-    d.reviewed_at = datetime.utcnow()
-    d.updated_at = datetime.utcnow()
+    d.reviewed_at = utc_now()
+    d.updated_at = utc_now()
 
     db.commit()
     try:
@@ -185,7 +186,7 @@ def reject_draft(
     d.rejected_reason = rejected_reason
     if reviewer_id:
         d.reviewer_id = reviewer_id
-    d.reviewed_at = datetime.utcnow()
-    d.updated_at = datetime.utcnow()
+    d.reviewed_at = utc_now()
+    d.updated_at = utc_now()
     db.commit()
     return d

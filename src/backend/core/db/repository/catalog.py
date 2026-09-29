@@ -4,6 +4,7 @@ Split out of the former monolithic ``core/db/repository.py``. The package
 ``__init__`` re-exports every repository class, so ``from core.db.repository
 import XxxRepository`` keeps working unchanged.
 """
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -52,7 +53,7 @@ class CatalogRepository:
             override.enabled = enabled
             if config is not None:
                 override.config_data = config
-            override.updated_at = datetime.utcnow()
+            override.updated_at = utc_now()
         else:
             override = CatalogOverride(
                 user_id=user_id,

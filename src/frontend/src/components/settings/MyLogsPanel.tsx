@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/date';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Button,
@@ -65,10 +66,7 @@ const INVOCATION_COLORS: Record<string, string> = {
 
 function fmtTime(value?: string | null): string {
   if (!value) return '—';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime())
-    ? value
-    : parsed.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(value, value);
 }
 
 function statusTag(status: string) {

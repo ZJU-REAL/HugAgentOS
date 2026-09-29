@@ -1,3 +1,4 @@
+import { parseServerTime } from '../../utils/date';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CloseOutlined, LoadingOutlined, StopOutlined, WarningOutlined } from '@ant-design/icons';
@@ -49,16 +50,6 @@ function ProgressRing({ settled, total }: { settled: number; total: number }) {
   );
 }
 
-/** 后端给的 ISO 串按 UTC 解释。
- *
- *  不能直接 `new Date(s)`：JS 规范里**不带时区偏移**的日期时间串按**本地时区**解析，
- *  同一个后端时刻在 UTC+8 的浏览器上会平移 8 小时。后端现在都发带偏移的串，这里做的是
- *  兜底——历史数据或别的入口漏了偏移时，按 UTC 补齐比按本地时区猜要稳。 */
-function parseServerTime(raw?: string | null): number {
-  if (!raw) return NaN;
-  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(raw.trim());
-  return new Date(hasZone ? raw : `${raw.replace(' ', 'T')}Z`).getTime();
-}
 
 function elapsedLabel(startedAt?: string | null): string {
   const ts = parseServerTime(startedAt);

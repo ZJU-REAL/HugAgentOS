@@ -1,6 +1,7 @@
 """Edition-neutral business logic for personal and administrator sub-agents."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import re
@@ -689,7 +690,7 @@ class UserAgentBaseService:
 
     @staticmethod
     def _now_iso() -> str:
-        return datetime.now().replace(microsecond=0).isoformat()
+        return utc_now().replace(microsecond=0).isoformat()
 
     @classmethod
     def _collect_changed_fields(cls, agent: UserAgent, data: Dict[str, Any]) -> List[str]:

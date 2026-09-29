@@ -26,6 +26,7 @@ READ COMMITTED 下会对并发改动过的行重算 WHERE（EvalPlanQual），SQ
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
@@ -190,7 +191,7 @@ def claim_next(db: Session, worker_id: str) -> Optional[Dict[str, Any]]:
         # （比如解析时 OOM）：那种任务不会走到失败分支，只会被僵尸回收重排，没有
         # 上限就会一直循环，永远占着一个并发位。
         meta["indexing_error"] = f"索引连续失败 {MAX_ATTEMPTS} 次，已停止重试"
-        meta["indexing_failed_at"] = datetime.utcnow().isoformat()
+        meta["indexing_failed_at"] = utc_now().isoformat()
         meta.pop(_F_CLAIMED_BY, None)
         meta.pop(_F_HEARTBEAT, None)
         _write_meta(db, doc, meta)
@@ -278,7 +279,7 @@ def give_up_or_requeue(db: Session, document_id: str, error: str) -> None:
         )
         return
     meta["indexing_error"] = error[:1000]
-    meta["indexing_failed_at"] = datetime.utcnow().isoformat()
+    meta["indexing_failed_at"] = utc_now().isoformat()
     meta.pop(_F_CLAIMED_BY, None)
     meta.pop(_F_HEARTBEAT, None)
     _write_meta(db, doc, meta)

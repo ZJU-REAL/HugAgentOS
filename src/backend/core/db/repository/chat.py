@@ -4,6 +4,7 @@ Split out of the former monolithic ``core/db/repository.py``. The package
 ``__init__`` re-exports every repository class, so ``from core.db.repository
 import XxxRepository`` keeps working unchanged.
 """
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -120,8 +121,8 @@ class ChatSessionRepository:
     def create(self, session_data: Dict[str, Any]) -> ChatSession:
         """Create a new chat session."""
         session = ChatSession(**session_data)
-        session.created_at = datetime.utcnow()
-        session.updated_at = datetime.utcnow()
+        session.created_at = utc_now()
+        session.updated_at = utc_now()
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
@@ -138,7 +139,7 @@ class ChatSessionRepository:
         for key, value in update_data.items():
             setattr(session, key, value)
 
-        session.updated_at = datetime.utcnow()
+        session.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(session)
         return session
@@ -149,7 +150,7 @@ class ChatSessionRepository:
         if not session:
             return False
 
-        session.deleted_at = datetime.utcnow()
+        session.deleted_at = utc_now()
         self.db.commit()
         return True
 
@@ -417,7 +418,7 @@ class ChatMessageRepository:
                 clean["chat_seq"] = next_seq
 
         message = ChatMessage(**clean)
-        message.created_at = datetime.utcnow()
+        message.created_at = utc_now()
         self.db.add(message)
         if commit:
             self.db.commit()

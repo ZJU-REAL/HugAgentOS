@@ -17,13 +17,14 @@
 历史包袱：极速模式原来存在 SystemConfig 的 ``turbo.*`` 键上，由
 ``alembic`` 迁移一次性搬进本表的内置行，之后 ``turbo.*`` 不再是真源。
 """
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     Boolean,
     CheckConstraint,
     Column,
@@ -98,9 +99,9 @@ class ChatMode(Base):
     #: 这个模式的专属提示词正文。非空时优先于 prompt_kind。
     prompt_text = Column(Text, nullable=True)
 
-    deleted_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         # 官方模式（owner NULL）之间 slug 唯一；私有模式在人内唯一。两条约束都带上

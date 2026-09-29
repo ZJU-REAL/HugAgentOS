@@ -8,7 +8,7 @@ import { EASE } from '../../utils/motionTokens';
 import { deleteChatShare, listChatShares, listSites, restoreChatShare, revokeChatShare, type ChatShareRecord, type SiteItem } from '../../api';
 import { useAuthStore, useCatalogStore, useChatStore } from '../../stores';
 import { userScopedKey } from '../../storage';
-import { formatDateTime } from '../../utils/date';
+import { formatDateTime, parseServerTime } from '../../utils/date';
 import { getSiteVisibilityTag } from '../../editionSiteVisibility';
 import { SitePasswordTag } from '../sites/SitePasswordField';
 import '../../styles/sites.css';
@@ -62,8 +62,8 @@ function getShareExpiryLabel(record: ChatShareRecord) {
   if (record.expiry_option === '3m') return t('有效期3个月');
   if (record.expiry_option === 'permanent' || !record.expires_at) return t('长期有效');
 
-  const createdAt = new Date(record.created_at).getTime();
-  const expiresAt = new Date(record.expires_at).getTime();
+  const createdAt = parseServerTime(record.created_at);
+  const expiresAt = parseServerTime(record.expires_at);
   if (!Number.isNaN(createdAt) && !Number.isNaN(expiresAt)) {
     const diffDays = (expiresAt - createdAt) / (24 * 60 * 60 * 1000);
     if (diffDays <= 3.5) return t('有效期3天');
@@ -166,7 +166,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
   }, []);
 
   const sortedRecords = useMemo(
-    () => [...records].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    () => [...records].sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at)),
     [records],
   );
 

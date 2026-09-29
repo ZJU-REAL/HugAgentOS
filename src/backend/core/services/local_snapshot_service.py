@@ -10,6 +10,7 @@ Edition-agnostic shared ``core`` module, active only in the desktop local backen
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import hashlib
 import os
@@ -55,7 +56,7 @@ def snapshot(real_path: str) -> Optional[str]:
             d = _dir_for(real)
             d.mkdir(parents=True, exist_ok=True)
             (d / "path.txt").write_text(real, encoding="utf-8")
-            stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
+            stamp = utc_now().strftime("%Y%m%dT%H%M%S%f")
             dest = d / f"{stamp}.bak"
             shutil.copy2(real, dest)
             _prune(d)
@@ -92,7 +93,7 @@ def rollback(real_path: str) -> bool:
         with _LOCK:
             # snapshot the current (post-edit) content first, so a rollback is undoable
             if os.path.isfile(real):
-                shutil.copy2(real, d / f"{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.bak")
+                shutil.copy2(real, d / f"{utc_now().strftime('%Y%m%dT%H%M%S%f')}.bak")
                 _prune(d)
                 backups = sorted(d.glob("*.bak"))
             shutil.copy2(backups[-2] if len(backups) >= 2 else backups[-1], real)

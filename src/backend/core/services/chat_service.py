@@ -1,4 +1,5 @@
 """Chat session and message business logic."""
+from core.infra.time import utc_now
 
 import hashlib
 import json
@@ -453,7 +454,7 @@ class ChatService:
         session = self.session_repo.get_by_id(chat_id)
         if session:
             session.message_count = (session.message_count or 0) + 1
-            now = datetime.utcnow()
+            now = utc_now()
             session.updated_at = now
             session.last_message_at = now
             if commit:
@@ -554,7 +555,7 @@ class ChatService:
             msg = self.message_repo.update(message_id, update, commit=commit)
             session = self.session_repo.get_by_id(chat_id)
             if session:
-                now = datetime.utcnow()
+                now = utc_now()
                 session.updated_at = now
                 session.last_message_at = now
                 if commit:
@@ -664,7 +665,7 @@ class ChatService:
                 .count()
             )
             session.message_count = remaining
-            session.updated_at = datetime.utcnow()
+            session.updated_at = utc_now()
 
         self.db.commit()
         return deleted

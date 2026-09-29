@@ -23,6 +23,9 @@ import {
 } from '../api';
 import { t } from '../i18n';
 
+let projectGeneration = 0;
+let pendingProject: { id: string; generation: number; promise: Promise<void> } | null = null;
+
 type SortKey = 'activity' | 'name' | 'created';
 
 const SORT_MAP: Record<SortKey, string> = {
@@ -42,6 +45,8 @@ interface ProjectStoreState {
   currentProject: ProjectDetail | null;
   detailLoading: boolean;
   projectFiles: ProjectFileItem[];
+  filesLoading: boolean;
+  filesError: string | null;
   projectChats: ProjectChatSummary[];
   capacityUsed: number;
   capacityLimit: number;
@@ -53,10 +58,11 @@ interface ProjectStoreState {
   setSort: (s: SortKey) => void;
   fetchProjects: () => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
+  reloadProject: (projectId: string) => Promise<void>;
   closeCurrentProject: () => void;
   createPersonal: (name: string, description?: string, linkedFolderId?: string) => Promise<string>;
   updateProject: (patch: { name?: string; description?: string; pinned?: boolean; icon_color?: string; memory_enabled?: boolean; memory_write_enabled?: boolean }) => Promise<void>;
-  updateInstructions: (instructions: string) => Promise<void>;
+  updateInstructions: (instructions: string, revision?: string) => Promise<void>;
   refreshInstructions: () => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   toggleFavorite: (on: boolean) => Promise<void>;
@@ -83,6 +89,8 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   currentProject: null,
   detailLoading: false,
   projectFiles: [],
+  filesLoading: false,
+  filesError: null,
   projectChats: [],
   capacityUsed: 0,
   capacityLimit: 0,
@@ -114,31 +122,69 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   },
 
   openProject: async (projectId) => {
-    set({ currentProjectId: projectId, detailLoading: true });
-    try {
-      const project = await apiGetProject(projectId);
-      set({
-        currentProject: project,
-        capacityUsed: project.capacity_used ?? 0,
-        capacityLimit: project.capacity_limit ?? 0,
-      });
-      await Promise.all([get().refreshFiles(), get().refreshChats()]);
-    } catch (error) {
-      console.warn('openProject failed', error);
-      set({ currentProject: null });
-    } finally {
-      set({ detailLoading: false });
-    }
+    const loading = get().reloadProject(projectId);
+    await loading;
   },
 
-  closeCurrentProject: () => set({
-    currentProjectId: null,
-    currentProject: null,
-    projectFiles: [],
-    projectChats: [],
-    capacityUsed: 0,
-    capacityLimit: 0,
-  }),
+  reloadProject: (projectId) => {
+    if (pendingProject?.id === projectId && pendingProject.generation === projectGeneration) {
+      return pendingProject.promise;
+    }
+    const generation = ++projectGeneration;
+    const switched = get().currentProject?.project_id !== projectId;
+    set({
+      currentProjectId: projectId, detailLoading: true,
+      ...(switched ? {
+        currentProject: null, projectFiles: [], projectChats: [],
+        capacityUsed: 0, capacityLimit: 0, filesLoading: false, filesError: null,
+      } : {}),
+    });
+    const promise = (async () => {
+      try {
+        const proj = await apiGetProject(projectId);
+        if (generation !== projectGeneration) return;
+        set({
+          currentProject: proj,
+          capacityUsed: proj.capacity_used ?? 0,
+          capacityLimit: proj.capacity_limit ?? 0,
+          detailLoading: false,
+        });
+        // A file-list failure should not hide valid project details or instructions.
+        const results = await Promise.allSettled([get().refreshFiles(), get().refreshChats()]);
+        for (const result of results) {
+          if (result.status === 'rejected') console.warn('Project resource load failed', result.reason);
+        }
+      } catch (err) {
+        if (generation !== projectGeneration) return;
+        console.warn('openProject failed', err);
+        set({ currentProject: null });
+      } finally {
+        if (generation === projectGeneration) {
+          set({ detailLoading: false });
+          pendingProject = null;
+        }
+      }
+    })();
+    pendingProject = { id: projectId, generation, promise };
+    return promise;
+  },
+
+  closeCurrentProject: () => {
+    projectGeneration += 1;
+    pendingProject = null;
+    set({
+      currentProjectId: null,
+      currentProject: null,
+      detailLoading: false,
+      projectFiles: [],
+      filesLoading: false,
+      filesError: null,
+      projectChats: [],
+      capacityUsed: 0,
+      capacityLimit: 0,
+      instructionsEditOpen: false,
+    });
+  },
 
   createPersonal: async (name, description, linkedFolderId) => {
     const project = await apiCreateProject({
@@ -158,10 +204,15 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ currentProject: { ...currentProject, ...updated } });
   },
 
-  updateInstructions: async (instructions) => {
+  updateInstructions: async (instructions, revision) => {
     const { currentProjectId } = get();
     if (!currentProjectId) return;
-    set({ currentProject: await apiUpdateProjectInstructions(currentProjectId, instructions) });
+    const updated = await apiUpdateProjectInstructions(currentProjectId, instructions, revision);
+    if (get().currentProjectId !== currentProjectId) return;
+    set({ currentProject: updated });
+    // The PATCH response already contains the saved instructions and revision.
+    // A failed file-list refresh must not report a successful save as a failure.
+    void get().refreshFiles().catch(() => {});
   },
 
   refreshInstructions: async () => {
@@ -237,12 +288,26 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   refreshFiles: async () => {
     const { currentProjectId } = get();
     if (!currentProjectId) return;
-    const result = await listProjectFiles(currentProjectId);
-    set({
-      projectFiles: result.items,
-      capacityUsed: result.capacity_used,
-      capacityLimit: result.capacity_limit,
-    });
+    const generation = projectGeneration;
+    set({ filesLoading: true, filesError: null });
+    try {
+      const { items, capacity_used, capacity_limit } = await listProjectFiles(currentProjectId);
+      if (generation !== projectGeneration || get().currentProjectId !== currentProjectId) return;
+      set({
+        projectFiles: items,
+        capacityUsed: capacity_used ?? 0,
+        capacityLimit: capacity_limit ?? 0,
+      });
+    } catch (err) {
+      if (generation === projectGeneration && get().currentProjectId === currentProjectId) {
+        set({ filesError: (err as Error).message || t('加载失败') });
+      }
+      throw err;
+    } finally {
+      if (generation === projectGeneration && get().currentProjectId === currentProjectId) {
+        set({ filesLoading: false });
+      }
+    }
   },
 
   uploadFile: async (file) => {
@@ -288,7 +353,9 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   refreshChats: async (scope) => {
     const { currentProjectId } = get();
     if (!currentProjectId) return;
+    const generation = projectGeneration;
     const { items } = await listProjectChats(currentProjectId, 1, 50, scope || 'all');
+    if (generation !== projectGeneration || get().currentProjectId !== currentProjectId) return;
     set({ projectChats: items });
   },
 

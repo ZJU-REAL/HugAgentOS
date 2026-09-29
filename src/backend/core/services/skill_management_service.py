@@ -1,6 +1,7 @@
 """Shared skill mutation helpers used by admin and self-service routes."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -190,7 +191,7 @@ def parse_and_upsert_skill_zip(
         ontology_tags=list(meta.tags or []),
     )
 
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     if existing is not None:
         if owner_user_id is not None and existing.owner_user_id != owner_user_id:

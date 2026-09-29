@@ -6,6 +6,7 @@ See internal design docs.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -101,7 +102,7 @@ class ChannelConnectionRepository:
         item = self.get_by_id(channel_id)
         if not item:
             return
-        item.last_event_at = datetime.utcnow()
+        item.last_event_at = utc_now()
         self.db.commit()
 
     def delete(self, channel_id: str) -> bool:

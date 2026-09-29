@@ -1,3 +1,4 @@
+import { parseServerTime } from '../utils/date';
 import { t } from '../i18n';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
@@ -59,7 +60,7 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
   const toolCalls = attachArtifactsToToolCalls(
     baseToolCalls,
     metadataArtifacts,
-    m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+    m.created_at ? parseServerTime(m.created_at) : Date.now(),
   );
 
   const rawContent = String(m.content || '');
@@ -221,7 +222,7 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
     isMarkdown: !!(m.metadata?.is_markdown),
     // message_id 是 chat_messages 的主键，历史消息一定带；它就是这条消息的身份。
     uid: String(m.message_id),
-    ts: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+    ts: m.created_at ? parseServerTime(m.created_at) : Date.now(),
     toolCalls,
     segments,
     ...(storedThinking?.length ? { thinking: storedThinking } : {}),

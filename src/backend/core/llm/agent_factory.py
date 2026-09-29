@@ -242,7 +242,11 @@ def _effective_mcp_server_keys(
     owned_servers: Optional[dict] = None,
     bridge_servers: Optional[dict] = None,
 ) -> list[str]:
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(
+        McpServerConfigService.get_instance().get_all_servers(
+            enabled_only=enabled_mcp_ids is None
+        )
+    )
     # Config-source precedence (later update wins on same server_id):
     #   global rows < bridge (desktop cloud gateway; cloud is the source of
     #   truth for a capability it takes over) < owned (a user's own private
@@ -298,7 +302,7 @@ def _filter_mcp_servers_by_keys(
     bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=False))
     # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
     if bridge_servers:
         all_servers.update(bridge_servers)
@@ -604,6 +608,12 @@ def _effective_main_available_skills() -> list[str]:
     enabled_ids = [sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()]
     if enabled_ids:
         return available(enabled_ids)
+
+    # On the server, an empty default catalog means no ambient skills. The
+    # loader also knows installed-but-disabled skills for explicit selection.
+    from core.capabilities.paths import capabilities_enabled
+    if not capabilities_enabled():
+        return []
 
     try:
         loader = get_skill_loader()
@@ -1126,8 +1136,8 @@ async def create_agent_executor(
 
     # A plugin explicitly selected for this turn is stronger than the default
     # catalog, a dedicated agent's saved bindings, and a restricted mode's
-    # ordinary capability set. The API already enforced ownership/admin/deps;
-    # merge only those authoritative components here so the execution guard
+    # ordinary capability set. The API already enforced installation, ownership,
+    # and dependency readiness; merge only those components so the execution guard
     # below has a real surface to require.
     if _required_plugin_id:
         base_skill_ids = (
@@ -1486,7 +1496,14 @@ async def create_agent_executor(
                 # owner's personally disabled MCPs without enabling it for the
                 # main agent. The explicit enabled_mcp_ids list below remains
                 # the final allowlist, so unrelated private MCPs are not loaded.
-                enabled_only=user_agent is None and not skill_bound_mcp_ids,
+                enabled_only=not (
+                    user_agent is not None
+                    or skill_bound_mcp_ids
+                    or _required_connector_ids
+                    or _required_plugin_mcp_ids
+                    or _sticky_direct_mcp_ids
+                    or _sticky_plugin_mcp_ids
+                ),
             )
         except Exception:
             owned_mcp_servers = {}
@@ -2060,8 +2077,12 @@ async def create_agent_executor(
         )
 
     if not disable_tools and (project_ctx or {}).get("project_id"):
-        from core.llm.tools.project_instructions_tool import register_project_instruction_tools
+        from core.llm.tools.project_instructions_tool import (
+            project_instruction_path,
+            register_project_instruction_tools,
+        )
 
+        instruction_path = project_instruction_path(project_ctx)
         register_project_instruction_tools(
             toolkit,
             project_id=project_ctx["project_id"],
@@ -2072,6 +2093,7 @@ async def create_agent_executor(
                 if project_ctx.get("project_is_local")
                 else None
             ),
+            instruction_path=instruction_path,
         )
 
     # ── 跨会话历史（list_related_chats / read_chat） ──

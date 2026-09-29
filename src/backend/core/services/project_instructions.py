@@ -4,6 +4,7 @@ Callers must authorize reads. Writes independently require project edit access.
 File content is authoritative; the database field is only a legacy fallback.
 """
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import hashlib
 import os
@@ -249,7 +250,7 @@ class ProjectInstructionsService:
         artifact.summary = None
         artifact.parsed_at = None
         artifact.parse_error = None
-        artifact.updated_at = datetime.utcnow()
+        artifact.updated_at = utc_now()
 
 
 def read_authorized_project_instructions(project_id: str, user_id: str) -> dict:

@@ -20,6 +20,7 @@ See internal design docs for details.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import base64
 import hashlib
@@ -421,7 +422,7 @@ def _apply_skill(
             tool_names=list(meta.allowed_tools or []),
             ontology_tags=list(meta.tags or []),
         )
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     fields = dict(
         skill_content=content,
@@ -480,7 +481,7 @@ def _apply_mcp(
                 if item.get("name")
             },
         )
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == server_id).first()
     fields = dict(
         display_name=mc.display_name,
@@ -628,7 +629,7 @@ def _apply_normalized(
             .delete(synchronize_session=False)
         )
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Display metadata for the installed record: UI-configured market metadata
     # (DB override → builtin seed) wins over whatever the manifest carried.
     market_meta = resolve_market_meta(db, np.slug)
@@ -945,11 +946,11 @@ def _component_keys(components: Dict[str, Any], kind: str) -> List[str]:
 def list_installed(
     db: Session, owner_user_id: Optional[str], *, include_global: bool = False
 ) -> List[Dict[str, Any]]:
-    """Installed plugins with personal ``enabled`` and hard ``callable`` flags.
+    """Installed plugins with personal ``enabled`` and availability ``callable`` flags.
 
-    ``enabled`` uses the current user's overrides; ``callable`` ignores those
-    overrides and reports whether at least one component passes the global
-    admin/dependency runtime gates for an explicit per-turn invocation.
+    ``enabled`` controls ambient use. ``callable`` reports whether an
+    installed component can be selected explicitly, ignoring enabled switches
+    while retaining dependency and marketplace suspension checks.
 
     - owner_user_id=None: global plugins only (admin view).
     - owner_user_id=<user> + include_global=False: that user's private ones only.
@@ -1003,7 +1004,6 @@ def list_installed(
             for row in db.query(AdminSkill.skill_id)
             .filter(
                 AdminSkill.skill_id.in_(all_skill_ids),
-                AdminSkill.is_enabled.is_(True),
                 AdminSkill.dep_status == "ready",
             )
             .all()
@@ -1017,13 +1017,26 @@ def list_installed(
             for row in db.query(AdminMcpServer.server_id)
             .filter(
                 AdminMcpServer.server_id.in_(all_mcp_ids),
-                AdminMcpServer.is_enabled.is_(True),
             )
             .all()
         }
         if all_mcp_ids
         else set()
     )
+
+    if all_mcp_ids:
+        from core.db.models import McpMarketInstallation
+
+        suspended = {
+            sid
+            for (sid,) in db.query(McpMarketInstallation.server_id)
+            .filter(
+                McpMarketInstallation.server_id.in_(all_mcp_ids),
+                McpMarketInstallation.status == "suspended",
+            )
+            .all()
+        }
+        callable_mcps.difference_update(suspended)
 
     # Enabled state:
     # - user view (owner_user_id non-empty): determined by the user's
@@ -1833,7 +1846,7 @@ def publish_plugin_zip_to_market(
         )  # parse/validate; invalid input raises immediately, nothing persisted
     package_b64 = base64.b64encode(raw).decode("ascii")
     has_admin_config = bool(np.admin_config and (np.admin_config.get("fields")))
-    now = datetime.utcnow()
+    now = utc_now()
     existing = _market_row(db, np.slug)
     fields = dict(
         name=np.name,
@@ -2113,7 +2126,7 @@ def set_installed_plugin_meta(
         row.category = category.strip()
     if icon is not None:
         row.icon = _validate_icon(icon) or None
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     db.commit()
     return {
         "install_id": row.install_id,
