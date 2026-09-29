@@ -176,3 +176,17 @@ shown explicitly.
 The existing 50 MB/nonempty-file limits and lazy parsing remain. This repair does not add chunked
 uploads, ZIP extraction, cross-tab throttling or background transfers after closing the page.
 Multiple users sharing an IP may still be throttled; the queue waits and retries.
+
+## Duplicate filenames in team folders (EE)
+
+Active filenames must be unique within each team folder, including the team root.
+Uploads, pinned outputs, copies, moves and renames that introduce a duplicate return
+409 with a request to choose another name. They never overwrite the existing file.
+Different teams, different folders and personal chat outputs may share a name.
+Editing by the original file ID or an existing sandbox path still updates that file,
+with the existing concurrent revision checks.
+
+On upgrade, the earliest file in each duplicate group keeps its name; other files
+receive an ID suffix, also reflected in their display names. IDs, original bytes
+and download references are retained. Copying a personal folder to a team rejects
+duplicate source names before creating destination folders; rename them first.

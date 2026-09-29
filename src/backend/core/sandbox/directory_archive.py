@@ -50,7 +50,8 @@ def pack_directory(source, target, excludes, max_files, max_file_bytes, max_tota
                         raise ValueError("site contains a special file")
                     total += metadata.st_size
                     count += 1
-                    if count > max_files or metadata.st_size > max_file_bytes or total > max_total_bytes:
+                    if ((max_files is not None and count > max_files)
+                            or metadata.st_size > max_file_bytes or total > max_total_bytes):
                         raise ValueError("site exceeds file count or size limits")
                     archive.add(entry, arcname=entry.relative_to(root).as_posix(), recursive=False)
                     if target.stat().st_size > max_archive_bytes:

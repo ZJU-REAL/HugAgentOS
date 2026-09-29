@@ -5,6 +5,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -12,6 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +43,19 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
     console.log(
       `[desktop] Reusing offline runtime ${target}/${dependencyFingerprint.slice(0, 12)}`,
     );
+    // Source can gain imports while dependency inputs stay unchanged.
+    const probeRoot = mkdtempSync(join(tmpdir(), "desktop-runtime-probe-"));
+    try {
+      run(python.command, [...python.prefix,
+        join(desktopDir, "scripts", "extract-runtime-probe.py"),
+        archive, probeRoot], { cwd: repoRoot });
+      run(join(probeRoot, ...config.executable.split("/")), [
+        join(desktopDir, "scripts", "runtime-smoke.py"),
+        "--source-only", "--source", sourceRoot,
+      ], { cwd: sourceRoot });
+    } finally {
+      rmSync(probeRoot, { recursive: true, force: true });
+    }
     return cached;
   }
 

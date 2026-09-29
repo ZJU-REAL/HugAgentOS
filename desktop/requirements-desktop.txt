@@ -5,8 +5,8 @@
 # so container-only database, cloud-storage, and remote-sandbox providers do
 # not belong in the end-user Python environment.
 #
-# Regenerate the Windows Python 3.11 lock after changing this file:
-#   npm --prefix desktop run lock:windows
+# Regenerate all platform Python 3.11 locks after changing this file:
+#   npm --prefix desktop run lock:desktop
 
 # Bootstrap tools kept in the lock so `uv pip sync` can reconcile the complete
 # environment without removing the installer that is currently running.
@@ -45,6 +45,7 @@ argon2-cffi>=23.1.0
 croniter>=2.0.0
 pytz>=2024.1
 cryptography>=42.0.0
+watchdog>=4.0.0
 
 # Model channels and inbound integrations retained by the local service.
 segno>=1.6.0
