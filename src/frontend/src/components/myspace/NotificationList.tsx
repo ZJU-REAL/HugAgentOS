@@ -1,12 +1,13 @@
-import { AnimatePresence, motion } from 'motion/react';
-import { Button, Checkbox, Tag, Empty, Modal } from 'antd';
-import { CheckOutlined, DeleteOutlined, CloseOutlined, EyeOutlined } from '@ant-design/icons';
-import { useChatStore, useCatalogStore, useMySpaceStore, useAutomationChatStore } from '../../stores';
+import { CheckOutlined,CloseOutlined,DeleteOutlined,EyeOutlined } from '@ant-design/icons';
+import { Button,Checkbox,Empty,Modal,Tag } from 'antd';
+import { AnimatePresence,motion } from 'motion/react';
+import { t } from '../../i18n';
+import { navigateTo,pathForAutomationChat } from '../../routing/navigation';
+import { useAutomationChatStore,useCatalogStore,useChatStore,useMySpaceStore } from '../../stores';
 import { formatDateTime } from '../../utils/date';
 import { LAYOUT_ANIM_MAX_ITEMS } from '../../utils/motionTokens';
 import { LIST_ITEM_EXIT } from '../../utils/motionVariants';
 import { BulkActionBar } from './BulkActionBar';
-import { t } from '../../i18n';
 
 /** The unread-dot ripple is applied only to the first N cards, to avoid a page-wide persistent animation */
 const BREATH_DOT_MAX = 3;
@@ -52,8 +53,8 @@ export function NotificationList() {
       if (useAutomationChatStore.getState().activeGroup) {
         useAutomationChatStore.getState().exitAutomationChat();
       }
-      setCurrentChatId(n.chat_id);
-      setPanel('chat');
+      if (n.task_id) navigateTo(pathForAutomationChat(n.task_id, n.chat_id));
+      else { setCurrentChatId(n.chat_id); setPanel('chat'); }
     }
   };
 

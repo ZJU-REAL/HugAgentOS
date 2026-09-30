@@ -1,4 +1,5 @@
 """Unified API response utilities."""
+from core.infra.time import utc_now
 
 from typing import Any, Optional, Dict
 import uuid
@@ -51,7 +52,7 @@ def success_response(
         "message": message,
         "data": data,
         "trace_id": trace_id or generate_trace_id(),
-        "timestamp": int(datetime.utcnow().timestamp() * 1000)
+        "timestamp": int(utc_now().timestamp() * 1000)
     }
 
 
@@ -89,7 +90,7 @@ def error_response(
         "message": message,
         "data": data or {},
         "trace_id": trace_id or generate_trace_id(),
-        "timestamp": int(datetime.utcnow().timestamp() * 1000)
+        "timestamp": int(utc_now().timestamp() * 1000)
     }
 
     return JSONResponse(

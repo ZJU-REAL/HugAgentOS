@@ -1,0 +1,44 @@
+/* Shared surface hierarchy: mist-blue rail, near-white sidebar, quiet content. */
+.jx-moduleShell .ant-layout-sider-children{display:flex;height:100%;overflow:hidden;background:var(--color-bg-container);}
+.jx-moduleRail{background-color:var(--module-rail-bg);background-image:var(--module-rail-gradient);width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 8px;border-right:1px solid var(--module-border);overflow-y:auto;}
+.jx-moduleButton,.jx-miniRailBtn{display:flex;align-items:center;justify-content:center;width:44px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:22px;}
+.jx-moduleButton img,.jx-miniRailIcon{width:24px;height:24px;object-fit:contain;}
+.jx-moduleButton,.jx-miniRailBtn{position:relative;transition:var(--motion-transition-hover);}
+.jx-moduleButton:hover,.jx-miniRailBtn:hover{background:var(--module-nav-hover);color:var(--color-text);}
+.jx-moduleButton.active{background:var(--module-rail-selected);color:var(--module-nav-selected-text);}
+.jx-moduleButton.active::before{content:"";position:absolute;left:-5px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--color-primary);}
+.jx-moduleButton:focus-visible,.jx-miniRailBtn:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;}
+.jx-moduleMenuIcon{width:18px;height:18px;}
+.jx-miniRailFooter{margin-top:auto;padding-top:16px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+.jx-miniRailAvatar{width:30px;height:30px;border-radius:50%;object-fit:cover;}
+.jx-moduleSidebar{background:var(--module-sidebar-bg);width:280px;min-width:0;display:flex;flex-direction:column;padding:16px 12px;border-right:1px solid var(--module-border);overflow:hidden;}
+.jx-moduleSidebarHeader{display:flex;align-items:center;gap:8px;min-height:42px;margin-bottom:16px;}
+.jx-moduleSidebarHeader strong{font-size:20px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text);}
+.jx-moduleSidebarHeader button{flex:none;}
+.jx-moduleSidebarHeader img{width:20px;height:20px;}
+.jx-moduleCategories{display:flex;flex-direction:column;gap:4px;overflow-y:auto;}
+.jx-moduleCategories .jx-navItem{width:100%;min-height:40px;}
+.jx-taskSidebar{display:flex;flex-direction:column;gap:14px;min-height:0;flex:1;}
+.jx-spaceNavigation{overflow-y:auto;min-height:0;}
+.jx-spaceNavigation .jx-msRail-inner{width:auto;padding:0;}
+.jx-moduleSidebar .jx-expandWrap > .jx-historyGroupList{overflow:hidden;min-height:0;}
+.jx-moduleSidebar .jx-historyGroupList{position:relative;}
+:root[data-theme='dark'] .jx-moduleCategories .jx-navItemIcon{filter:brightness(0) invert(1);}
+:root[data-theme='dark'] .jx-moduleRail img:not(.jx-miniRailAvatar){filter:brightness(0) invert(1);}
+@media(max-width:960px){
+  .jx-appShell > .jx-moduleShell.ant-layout-sider{position:fixed;inset:0 auto 0 0;z-index:1002;width:min(344px,calc(100vw - 32px))!important;max-width:min(344px,calc(100vw - 32px))!important;min-width:0!important;transform:translateX(0);}
+  .jx-appShell > .jx-moduleShell.ant-layout-sider-collapsed{transform:translateX(-100%);pointer-events:none;}
+  .jx-moduleSidebar{flex:1;min-width:0;}
+  .jx-moduleSidebar .jx-navItem,.jx-moduleSidebar .jx-newChatBtn{min-height:44px;}
+}
+
+.jx-moduleSidebar .jx-newChatBtn{width:100%;margin:0 0 16px;padding:10px 14px;}
+
+.jx-moduleSidebar :is(.jx-navItem,.jx-historyItem,.jx-projectRow,.jx-msRail-item,.jx-msRail-subItem):hover{background:var(--module-nav-hover);}
+.jx-moduleSidebar :is(.jx-navItem,.jx-historyItem,.jx-projectRow,.jx-msRail-item,.jx-msRail-subItem).active{background:var(--module-nav-selected);color:var(--module-nav-selected-text);}
+.jx-moduleSidebar :is(.jx-historyItem.active .jx-historyTitle,.jx-projectRow.active .jx-projectRowName){color:var(--module-nav-selected-text);font-weight:500;}
+.jx-moduleSidebar .jx-navItem.active{font-weight:500;}
+.jx-moduleSidebar :is(.jx-searchBtn,.jx-collapseBtn):hover{background:var(--module-nav-hover);}
+
+.jx-taskCreateButton.ant-btn{justify-content:flex-start;padding-inline:4px;}
+/* The row owns the surface so its trailing actions do not form a second patch. */

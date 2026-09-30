@@ -1229,30 +1229,6 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
 /* ══════════════════════════════════════════
    「我的空间」二级边栏（贴主侧边栏右侧的一列导航）
    ══════════════════════════════════════════ */
-.jx-msRail{
-  width:240px;
-  min-width:240px;
-  max-width:240px;
-  flex-shrink:0;
-  height:100%;
-  border-right:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
-  background:color-mix(in srgb, var(--color-bg-gray) 42%, var(--color-bg-container));
-  overflow:hidden;
-  /* 与主侧边栏收起用同一条缓动和时长，两处收放看起来是同一个动作 */
-  transition:width .3s cubic-bezier(0.4, 0, 0.2, 1),
-             min-width .3s cubic-bezier(0.4, 0, 0.2, 1),
-             max-width .3s cubic-bezier(0.4, 0, 0.2, 1),
-             border-right-color .3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.jx-msRail.is-collapsed{
-  width:0;
-  min-width:0;
-  max-width:0;
-  border-right-color:transparent;
-}
-
-/* 定宽内层：栏宽收到 0 的过程里文字不会被挤到换行变形 */
 .jx-msRail-inner{
   width:240px;
   height:100%;
@@ -1265,18 +1241,6 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
   visibility:visible;
   /* 收完再隐藏：塌缩过程中仍要看得见，收完后摘掉 tab 焦点 */
   transition:visibility 0s;
-}
-
-.jx-msRail.is-collapsed .jx-msRail-inner{
-  visibility:hidden;
-  transition:visibility 0s .3s;
-}
-
-.jx-msRail-title{
-  padding:6px 8px 10px;
-  font-size:18px;
-  font-weight:600;
-  color:var(--color-text);
 }
 
 .jx-msRail-nav{ display:flex; flex-direction:column; gap:2px; }
@@ -1370,26 +1334,6 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
   padding-bottom:16px;
 }
 
-.jx-mySpace-railToggle{
-  appearance:none;
-  border:none;
-  background:transparent;
-  padding:0;
-  width:32px;
-  height:32px;
-  /* 图标在按钮里居中，(32-22)/2 = 5px；左移这 5px 才与下方标题的文字左缘齐平 */
-  margin-left:-5px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  border-radius:6px;
-  cursor:pointer;
-  transition:background .15s, transform .12s;
-}
-.jx-mySpace-railToggle:hover{ background:var(--color-border); }
-.jx-mySpace-railToggle:active{ transform:scale(.92); transition-duration:.06s; }
-.jx-mySpace-railToggle img{ width:22px; height:22px; }
-
 .jx-mySpace-title{
   margin:0;
   font-size:26px;
@@ -1404,8 +1348,6 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
 }
 @media (max-width:768px){
   /* 窄屏没有二级栏，也就没有可收起的东西 */
-  .jx-msRail,
-  .jx-mySpace-railToggle{ display:none; }
   .jx-mySpace-title{ font-size:20px; }
 }
 

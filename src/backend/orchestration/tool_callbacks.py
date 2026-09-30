@@ -23,7 +23,7 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Office MCP prefixes: semantically overlap with bash's do-anything capability (two paths to the same thing).
+# Office MCP prefixes: semantically overlap with Bash's do-anything capability (two paths to the same thing).
 _OFFICE_PREFIXES = ("word_", "excel_", "ppt_", "pdf_")
 # /myspace write-class tools: after the merge, wrongly modifying the user's private drive is the
 # highest risk (§13 is the hard safeguard; here we only observe who writes /myspace during rollout).
@@ -59,12 +59,12 @@ def note_tool_call(
         warned: set = state.setdefault("_tc_warned", set())
         seen.add(tool_name)
 
-        has_bash = "bash" in seen
+        has_bash = "Bash" in seen
         has_office = any(n.startswith(_OFFICE_PREFIXES) for n in seen)
         if has_bash and has_office and "bash_vs_office" not in warned:
             warned.add("bash_vs_office")
             logger.warning(
-                "[tool-soft-warn] bash 与 Office MCP 同一 run 共现 "
+                "[tool-soft-warn] Bash 与 Office MCP 同一 run 共现 "
                 "(seen=%s) —— 可能语义摇摆，灰度观测",
                 sorted(seen),
             )

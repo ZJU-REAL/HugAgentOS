@@ -6,9 +6,8 @@ from core.llm.evaluation_runtime import CURRENT_EVALUATION_SCOPE
 
 
 _DESCRIPTIONS = {
-    "bash": "Execute a shell command. A running result must be continued using write_stdin; do not restart it.",
     "Bash": "Execute a shell command. A running result must be continued using write_stdin; do not restart it.",
-    "write_stdin": "Wait for a bash process handle and return only new output. Use an empty chars value to wait.",
+    "write_stdin": "Wait for a Bash process handle and return only new output. Use an empty chars value to wait.",
     "Read": "Read a file with line numbers. Use offset and limit for pagination; read fully before editing.",
     "Write": "Create a UTF-8 text file or overwrite one after Read. Concurrently changed files require another Read.",
     "Edit": "Replace text in a file after Read. Concurrently changed files require another Read.",

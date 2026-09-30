@@ -8,7 +8,7 @@
 3. 已有规则优先保留；仅依据已读资料补充缺失内容、纠正可验证的过时事实、合并重复项。不擅自删除审批、部署、保密、语言等人工约定。发现冲突时保留并说明待确认问题。重复初始化应为增量完善，不是重置。
 4. 生成简洁且可执行的 Markdown。按实际项目选择章节：目标与范围、重要目录/资料与事实来源、常用工作流程、输出语言和格式、质量与验收、操作边界。代码项目可以加入已验证的构建/测试命令；业务、研究、文档项目应描述资料核验、引用、交付格式，不强行套用代码仓库模板。空项目只写已知目标与最小规则，未知事实明确留待补充。
 5. AGENTS.md 是后续反复使用的规则，避免本轮进度日志、临时计划、完整目录清单、无依据的角色口号。尽量控制在约 1–2 页，并严格不超过 32 KiB UTF-8。
-6. 写入前再次调用 read_project_instructions，若内容更新则基于最新内容合并。调用 save_project_instructions(content, expected_revision)，传入最新 instructions_revision。该工具按当前项目的真实绑定持久化根文件；不要使用 Write/Edit/bash 绕过它，不要另建同名文件，也不要只留在临时目录。
+6. 写入前再次调用 read_project_instructions，若内容更新则基于最新内容合并。调用 save_project_instructions(content, expected_revision)，传入最新 instructions_revision。该工具按当前项目的真实绑定持久化根文件；不要使用 Write/Edit/Bash 绕过它，不要另建同名文件，也不要只留在临时目录。
 7. 写后再次调用 read_project_instructions 读回 AGENTS.md，核对内容、路径和保留的旧规则。最终简短报告创建/完善结果、主要规则及尚未核实事项。
 
 ## 操作约束

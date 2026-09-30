@@ -1,3 +1,4 @@
+import { streamResumeSeed } from '../utils/streamResume';
 import { prepareChatAttachments, type ChatAttachment } from '../utils/chatAttachments';
 import type { UploadedAttachment } from '../utils/fileParser';
 import { useEffect, useRef } from 'react';
@@ -28,7 +29,6 @@ import {
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
-import { hasUnclosedThink } from '../utils/segments';
 import { newMessageUid } from '../utils/messageIdentity';
 import type { ChatItem, ChatMessage } from '../types';
 import type { QueuedChatMessage } from '../stores/chatStore';
@@ -1470,12 +1470,12 @@ export function useStreaming(
       return;
     }
 
-    // 服务端那一行是这一轮的基态：从它记下的 event_offset 之后接着喂流。基态停在一个
-    // 没闭合的 <think> 里时剥离器接不上，只能从头重放。
+    // 非思考模式可从已保存的正文和 offset 续播；思考模式必须重放，
+    // 因为消息行没有保存内联思考解析器所处的阶段。
     await reloadChatHistory(chatId);
     const base = useChatStore.getState().store.chats[chatId]?.messages
       .find((m) => m.role === 'assistant' && m.messageId === active.message_id);
-    const seedFrom = base && !hasUnclosedThink(base.content) ? base : undefined;
+    const seedFrom = streamResumeSeed(base, !!active.enable_thinking);
     const fromOffset = seedFrom?.inFlight?.eventOffset ?? 0;
 
     addSendingChatId(chatId);

@@ -1,24 +1,25 @@
 import { useRef } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch } from '../api';
-import { newDraftChatId, registerDeletedChatId } from '../storage';
+import { newDraftChatId } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { triggerPdfDownload, toSafeFileName } from '../utils/export';
 import { SUMMARY_MAX_ROUNDS } from '../utils/constants';
-import { formatDateKey } from '../utils/date';
+import { formatDateKey, parseServerTime } from '../utils/date';
 import { useChatStore, useCatalogStore, useUIStore, useAutomationChatStore } from '../stores';
 import { usePageConfigStore } from '../stores/pageConfigStore';
 import { useProjectStore } from '../stores/projectStore';
 import type { ChatItem, ChatMessage } from '../types';
+import { confirmDeleteChat } from '../utils/conversationDeletion';
 import { ensureFullMessages } from './useChatInit';
 
 export function useChatActions(effectiveApiUrl: string) {
   const {
-    store, updateStore, currentChatId, setCurrentChatId,
+    store, updateStore, setCurrentChatId,
     setToolResultPanel,
-    backendSessionIds, removeBackendSessionId,
-    removeLoadedMsgId, addLoadedMsgId,
+    backendSessionIds,
+    addLoadedMsgId,
     clearShareSelection,
   } = useChatStore();
   const storeRef = useRef(store);
@@ -45,32 +46,7 @@ export function useChatActions(effectiveApiUrl: string) {
     inputRef.current?.focus();
   }
 
-  function deleteChat(id: string) {
-    Modal.confirm({
-      title: t('删除历史对话'),
-      content: t('确定删除该历史对话吗？该操作不可恢复。'),
-      okText: t('删除'),
-      okButtonProps: { danger: true },
-      cancelText: t('取消'),
-      onOk: () => {
-        if (effectiveApiUrl && backendSessionIds.has(id)) {
-          void authFetch(`${effectiveApiUrl}/v1/chats/${id}`, { method: 'DELETE' }).catch(() => {});
-        }
-        registerDeletedChatId(id);
-        removeBackendSessionId(id);
-        removeLoadedMsgId(id);
-        updateStore((prev) => {
-          const next = { chats: { ...prev.chats }, order: (prev.order || []).filter((x) => x !== id) };
-          delete (next.chats as any)[id];
-          if (currentChatId === id) {
-            const nextId = next.order?.[0] || newDraftChatId(useChatStore.getState().currentUserId);
-            setCurrentChatId(nextId);
-          }
-          return next;
-        });
-      },
-    });
-  }
+  const deleteChat = confirmDeleteChat;
 
   function patchChat(id: string, patch: Partial<ChatItem>) {
     // Favorite-only changes should NOT reorder or bump updatedAt
@@ -194,7 +170,7 @@ export function useChatActions(effectiveApiUrl: string) {
           role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
           content: cleanContent,
           uid: String(m.message_id),
-          ts: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+          ts: m.created_at ? parseServerTime(m.created_at) : Date.now(),
           isMarkdown: !!(m.metadata?.is_markdown),
         });
       }

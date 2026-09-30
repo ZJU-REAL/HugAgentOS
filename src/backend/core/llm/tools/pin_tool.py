@@ -56,7 +56,7 @@ def register_pin_to_workspace(
         已绑定项目时相对路径以项目目录为准，交付会话文件请传绝对路径。
         其他模式用 ``file_ids``，不要把路径放进 ID 列表。ID 来源：
         沙盒文件先 ``sandbox_get_artifact`` 登记；``generate_chart_tool`` 与
-        word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``list_myspace_files``。
+        word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``space_list_myspace_files``。
 
         Args:
             file_ids (`List[str]`):
@@ -203,7 +203,7 @@ def register_pin_to_workspace(
 
         # Persist pinned files to the DB ``artifacts`` table NOW — not only
         # at run finalization. Otherwise in-run MySpace ("我的空间") tools (Move /
-        # stage_myspace_file / list_myspace_files) which resolve against the
+        # space_stage_myspace_file / space_list_myspace_files) which resolve against the
         # DB can't see a file the agent just pinned (it only exists in the
         # file-index store + in-memory workspace until the run ends).
         # The deferred _persist_artifacts at run end dedups by artifact_id,

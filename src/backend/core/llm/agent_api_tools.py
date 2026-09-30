@@ -41,7 +41,7 @@ def register_agent_api_tools(toolkit, scope: AgentApiExecutionScope, *, read_onl
     from core.llm.agent_api_skills import ApiSkillStager
     skills = ApiSkillStager(skill_dirs)
 
-    async def bash(command: str, timeout: int | None = None, yield_time_ms: int = 60000):
+    async def Bash(command: str, timeout: int | None = None, yield_time_ms: int = 60000):
         """在当前 API 会话的独立沙箱中执行命令，不挂载个人目录或登录凭据。"""
         try:
             if not command.strip() or (timeout is not None and timeout <= 0):
@@ -194,5 +194,5 @@ def register_agent_api_tools(toolkit, scope: AgentApiExecutionScope, *, read_onl
     for tool in (read_artifact, sandbox_get_artifact, pin_to_workspace):
         toolkit.register_tool_function(tool, namesake_strategy="override")
     if not read_only:
-        for tool in (bash, write_stdin, sandbox_put_artifact):
+        for tool in (Bash, write_stdin, sandbox_put_artifact):
             toolkit.register_tool_function(tool, namesake_strategy="override")

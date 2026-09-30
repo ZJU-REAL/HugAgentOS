@@ -1,16 +1,12 @@
-import type { ChatItem, ChatStore, AutomationTask } from '../types';
-import type { HistoryTimeFilter } from '../stores/uiStore';
 import { t } from '../i18n';
+import type { HistoryTimeFilter } from '../stores/uiStore';
+import type { AutomationTask,ChatItem,ChatStore } from '../types';
+import { formatDateKey,parseServerTime } from './date';
 
 interface AutomationSidebarPref { pinned?: boolean; favorite?: boolean }
 
-/**
- * Combines regular chats + automation task virtual items into the ChatItem array shared
- * by the Sidebar / SearchModal.
- * The logic in both consumers must stay exactly in sync, otherwise you get the weird UX
- * of "the sidebar has this item but the search modal doesn't".
- */
-export function buildSidebarChatItems(
+/** Global search includes ordinary conversations and task entries; the chat sidebar is module-scoped. */
+export function buildSearchChatItems(
   store: ChatStore,
   sidebarTasks: AutomationTask[],
   sidebarPrefs: Record<string, AutomationSidebarPref>,
@@ -23,8 +19,8 @@ export function buildSidebarChatItems(
   const automationItems: ChatItem[] = sidebarTasks.map((task) => ({
     id: `automation:${task.task_id}`,
     title: task.name || task.prompt?.slice(0, 30) || t('定时任务'),
-    createdAt: new Date(task.created_at).getTime(),
-    updatedAt: task.last_run_at ? new Date(task.last_run_at).getTime() : new Date(task.updated_at).getTime(),
+    createdAt: parseServerTime(task.created_at),
+    updatedAt: task.last_run_at ? parseServerTime(task.last_run_at) : parseServerTime(task.updated_at),
     messages: [],
     pinned: !!sidebarPrefs[task.task_id]?.pinned,
     favorite: !!sidebarPrefs[task.task_id]?.favorite,
@@ -51,8 +47,7 @@ export function matchesTimeFilter(ts: number, filter: HistoryTimeFilter): boolea
   if (filter === 'all') return true;
   const now = new Date();
   if (filter === 'today') {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    return ts >= today;
+    return formatDateKey(ts) >= formatDateKey(now);
   }
   const day = 24 * 60 * 60 * 1000;
   if (filter === '7d') return now.getTime() - ts <= 7 * day;
@@ -62,9 +57,8 @@ export function matchesTimeFilter(ts: number, filter: HistoryTimeFilter): boolea
 
 export function getHistoryDayDiff(ts: number): number {
   const now = new Date();
-  const nowDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const target = new Date(ts);
-  const targetDayStart = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const nowDayStart = Date.parse(formatDateKey(now) + 'T00:00:00Z');
+  const targetDayStart = Date.parse(formatDateKey(ts) + 'T00:00:00Z');
   const dayDiff = Math.floor((nowDayStart - targetDayStart) / (24 * 60 * 60 * 1000));
   return Math.max(0, dayDiff);
 }
@@ -78,18 +72,8 @@ export function getHistoryGroupKey(ts: number): HistoryGroupKey {
   return 'older';
 }
 
-export function looksLikeAutomationTitle(title?: string): boolean {
-  if (!title) return false;
-  return title.trim().startsWith('[自动化]');
-}
-
-export function isAutomationHistoryChat(
-  item?: Pick<ChatItem, 'title' | 'automationRun' | 'automationTaskId' | 'planChat' | 'agentId'> | null,
-): boolean {
-  if (!item) return false;
-  if (item.automationRun === true || !!item.automationTaskId) return true;
-  if (item.planChat || item.agentId) return false;
-  return looksLikeAutomationTitle(item.title);
+export function isAutomationHistoryChat(item?: Pick<ChatItem, 'automationRun' | 'automationTaskId'> | null): boolean {
+  return !!item && (item.automationRun === true || !!item.automationTaskId);
 }
 
 /**

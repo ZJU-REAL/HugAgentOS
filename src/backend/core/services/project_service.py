@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from core.infra.time import utc_now
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.auth.permissions_iface import ProjectPermissionLevel, resolve_project_permission
@@ -265,7 +265,7 @@ class ProjectService:
             if not result.ok or not result.folder_id:
                 raise HTTPException(status_code=400, detail=result.message or "新建项目文件夹失败")
             linked_folder_id = result.folder_id
-        now = datetime.utcnow()
+        now = utc_now()
         project = Project(
             project_id=f"prj_{uuid.uuid4().hex[:16]}",
             name=clean,
@@ -331,7 +331,7 @@ class ProjectService:
         )
         if duplicate:
             raise HTTPException(status_code=400, detail="同名本地项目已存在")
-        now = datetime.utcnow()
+        now = utc_now()
         project_id = f"prj_{uuid.uuid4().hex[:16]}"
         # slug: stable, filesystem-safe, unique per project — used as the sandbox
         # ``local/<slug>`` mount name (ticket #04).
@@ -456,7 +456,7 @@ class ProjectService:
                 expected_revision=expected_revision,
             )
 
-        project.updated_at = datetime.utcnow()
+        project.updated_at = utc_now()
         self.db.commit()
         return self.get(project_id, user_id)
 
@@ -464,7 +464,7 @@ class ProjectService:
         project = self.get_raw(project_id)
         if project is None:
             return False
-        project.deleted_at = datetime.utcnow()
+        project.deleted_at = utc_now()
         self.db.commit()
         return True
 
@@ -487,7 +487,7 @@ class ProjectService:
     def touch_activity(self, project_id: str) -> None:
         project = self.get_raw(project_id)
         if project is not None:
-            project.last_activity_at = datetime.utcnow()
+            project.last_activity_at = utc_now()
             self.db.commit()
 
     def list_chats(

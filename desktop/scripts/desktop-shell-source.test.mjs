@@ -19,5 +19,6 @@ test("the SPA receives the current injected platform titlebar", () => {
   const proxySource = readFileSync(join(rustDir, "proxy.rs"), "utf8");
 
   assert.match(proxySource, /platform_titlebar_block/);
-  assert.match(proxySource, /TB_MENU/);
+  const chromeSource = readFileSync(join(rustDir, "window_chrome.rs"), "utf8");
+  assert.match(chromeSource, /TB_MENU/);
 });

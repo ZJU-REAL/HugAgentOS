@@ -48,3 +48,9 @@ Marketplace submission is a separate review request using a cloud skill ID. Uplo
 Official manager bundles use version 2.0.0 and declare a versioned executor contract. Local execution requires a matching installed declaration. Unknown contracts require an upgrade and never fall back to cloud mutation.
 
 Startup migrates legacy personal skills and device plugins into the device registry, retaining encrypted rollback snapshots. Official local managers receive updated creator instructions and tool declarations. Failed migration preserves original database records. Legacy plugins carrying inline credentials require secure reconfiguration before migration. In hybrid mode shared default plugins continue to come from authenticated cloud synchronization.
+
+### Troubleshooting cloud installation
+
+Cloud upgrades must apply database migrations (the standard backend entrypoint does this) and update both backend and MCP services. Migration `capids01` widens `content_blocks.id` to 128 characters while preserving existing skill revision, working-copy and installation receipt IDs and contents. If installation returns `Database field length limit exceeded (SQLSTATE 22001)`, check migration completion instead of repackaging the skill. Other database failures report SQLSTATE when available without exposing SQL or bound parameters.
+
+Downgrades stop if any IDs exceed 64 characters, preventing revision and receipt truncation. Back up the data and plan a migration for these records before downgrading; do not delete or truncate records to force a downgrade.

@@ -56,6 +56,8 @@
   align-items: stretch;
   height: 100%;
   min-height: 420px;
+  min-width: 0;
+  flex-direction: row;
   padding-top: 12px;
 }
 
@@ -204,7 +206,7 @@
   font-weight: 500;
 }
 
-/* 隐藏所有节点的折叠/展开小图标 —— 点击节点行即可切换展开状态 */
+/* 点击目录行展开或收起，不显示独立箭头。 */
 .jx-team-scopeTree-body .ant-tree-switcher {
   display: none !important;
 }
@@ -349,49 +351,66 @@
 }
 
 
-/* ─── 响应式：窄屏折叠 ────────────────────────────────────────
-   用容器查询而非视口查询——canvas 打开时面板宽度缩小，
-   视口不会变化，只有容器本身宽度变化。 */
-
-@container myspace (max-width: 860px) {
-  .jx-team-workspace {
-    flex-direction: column;
-  }
-
-  .jx-team-workspace-sidebar {
-    flex: none;
-    min-width: 0;
-    max-width: none;
-    max-height: 240px;
-    padding: 12px 0;
-    border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
-  }
-
-  .jx-team-workspace-toolbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+.jx-team-workspace-main .jx-mySpace-docTable-col--time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 视口级回退：老浏览器没有容器查询时至少还按视口收起 */
+/* 文件区按自己的可用宽度隐藏次要列；Canvas 打开后仍保持左右布局。 */
+.jx-team-workspace-main {
+  container: teamfiles / inline-size;
+}
+
+.jx-team-folder-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+@container myspace (max-width: 860px) {
+  .jx-team-workspace { gap: 12px; }
+  .jx-team-workspace-sidebar { flex-basis: 180px; min-width: 140px; max-width: 180px; padding-right: 8px; }
+  .jx-team-workspace-toolbar { flex-wrap: wrap; }
+  .jx-team-scopeTree-header { flex-wrap: wrap; gap: 4px; }
+}
+
 @media (max-width: 860px) {
-  .jx-team-workspace {
-    flex-direction: column;
-  }
+  .jx-team-workspace { gap: 12px; }
+  .jx-team-workspace-sidebar { flex-basis: 160px; min-width: 120px; max-width: 160px; padding-right: 8px; }
+  .jx-team-workspace-toolbar { flex-wrap: wrap; }
+}
 
-  .jx-team-workspace-sidebar {
-    flex: none;
-    min-width: 0;
-    max-width: none;
-    max-height: 240px;
-    padding: 12px 0;
-    border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+@container teamfiles (max-width: 720px) {
+  .jx-mySpace-docTable-header, .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 80px 112px 36px;
   }
+  .jx-mySpace-docTable-col--source { display: none; }
+}
 
-  .jx-team-workspace-toolbar {
-    flex-direction: column;
-    align-items: flex-start;
+@container teamfiles (max-width: 560px) {
+  .jx-mySpace-docTable-header, .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 100px 36px;
   }
+  .jx-mySpace-docTable-col--size { display: none; }
+  .jx-mySpace-imgGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container teamfiles (max-width: 420px) {
+  .jx-mySpace-docTable-header, .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 36px;
+  }
+  .jx-mySpace-docTable-col--time { display: none; }
+  .jx-mySpace-imgGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 团队标题与下方目录层级区分，彩色文件夹使用紧凑尺寸。 */
+.jx-team-tree-teamRoot .jx-team-tree-title {
+  font-weight: 600;
+}
+
+.jx-team-workspace .jx-mySpace-docRow--folder .jx-mySpace-docRow-icon {
+  width: 16px;
+  height: 16px;
 }

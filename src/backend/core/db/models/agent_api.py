@@ -1,8 +1,9 @@
 """API admission metadata; execution outcome remains authoritative in ChatRun."""
+from core.db.utc_datetime import UTCDateTime
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, Column, Index, Integer, String, TIMESTAMP
+from sqlalchemy import Boolean, CheckConstraint, Column, Index, Integer, String
 from core.db.engine import Base
 
 
@@ -24,9 +25,9 @@ class AgentApiCallLog(Base):
     http_status = Column(Integer)
     error_code = Column(String(64))
     created_at = Column(
-        TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        UTCDateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
-    completed_at = Column(TIMESTAMP(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(

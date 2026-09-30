@@ -116,7 +116,8 @@ def import_docs_via_db(database_url: str, snapshot: dict, overwrite: bool) -> di
     from sqlalchemy.orm import sessionmaker
     from core.content.content_blocks import import_docs_snapshot
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     session = sessionmaker(bind=engine)()
     try:
         result = import_docs_snapshot(session, snapshot, overwrite=overwrite, default_updated_by="admin_import")
@@ -160,7 +161,8 @@ def import_prompts_via_db(database_url: str, snapshot: dict, overwrite: bool) ->
     from sqlalchemy.orm import sessionmaker
     from core.content.content_blocks import import_prompt_snapshot
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     session = sessionmaker(bind=engine)()
     try:
         return import_prompt_snapshot(
@@ -176,7 +178,8 @@ def import_catalog_overrides_via_db(database_url: str, overrides: list, overwrit
     from sqlalchemy.orm import sessionmaker
     from core.db.models import CatalogOverride, Base
 
-    engine = create_engine(database_url)
+    from core.db.connection import utc_connect_args
+    engine = create_engine(database_url, connect_args=utc_connect_args(database_url))
     Base.metadata.create_all(engine, tables=[CatalogOverride.__table__], checkfirst=True)
     session = sessionmaker(bind=engine)()
 

@@ -11,7 +11,6 @@ block in ``agent_factory.py``. Read/Edit/Write share a per-chat
 
 from ._state import ReadEntry, ReadStateTracker
 from .edit_tool import register_edit
-from .fileops_tool import register_delete, register_mkdir, register_move
 from .glob_tool import register_glob
 from .grep_tool import register_grep
 from .read_image_tool import register_read_image
@@ -31,7 +30,7 @@ from .skill_tool import (
 )
 from .channel_attachment_tool import register_channel_attachment
 from .chat_history_tool import register_chat_history_tools
-from .myspace_tool import register_myspace_tools
+from .space_tools import register_space_tools
 from .pin_tool import register_pin_to_workspace
 from .read_artifact_tool import register_read_artifact
 from .data_context_tool import register_get_data_context
@@ -43,13 +42,10 @@ __all__ = [
     "register_channel_attachment",
     "register_chat_history_tools",
     "register_get_data_context",
-    "register_delete",
     "register_edit",
     "register_glob",
     "register_grep",
-    "register_mkdir",
-    "register_move",
-    "register_myspace_tools",
+    "register_space_tools",
     "register_pin_to_workspace",
     "register_read",
     "register_read_artifact",

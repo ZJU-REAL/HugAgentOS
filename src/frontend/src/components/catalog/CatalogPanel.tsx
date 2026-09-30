@@ -1,54 +1,59 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import {
-  Button, Empty, Input, Modal, Pagination, Popconfirm, Radio, Select, Switch, Tag, Typography,
-  Upload, Collapse, InputNumber, message,
-} from 'antd';
-import {
-  ArrowLeftOutlined, CloseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
-  InboxOutlined, LoadingOutlined, PlusOutlined, SafetyCertificateOutlined,
-  ReloadOutlined, SearchOutlined, StarFilled, ThunderboltOutlined, UploadOutlined,
+ArrowLeftOutlined,CloseOutlined,DeleteOutlined,EditOutlined,EyeOutlined,
+InboxOutlined,LoadingOutlined,PlusOutlined,
+ReloadOutlined,
+SafetyCertificateOutlined,
+SearchOutlined,StarFilled,ThunderboltOutlined,UploadOutlined,
 } from '@ant-design/icons';
-import { getFileIconSrc, getFolderIconSrc } from '../../utils/fileIcon';
-import { parseSeparators } from '../../utils/separators';
-import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
-import { usePanelHeader } from '../../hooks/usePageConfig';
-import { useCatalogStore, useEditionStore, useKbStore } from '../../stores';
-import { useKbTab } from '../../routing/subPages';
-import { KBChunkImages, WikiPanel } from '../kb';
-import IndexModePicker from '../kb/IndexModePicker';
-import { t } from '../../i18n';
 import {
-  createKBSpace,
-  deleteKBDocument,
-  deleteKBSpace,
-  getKBChunks,
-  getKBChunkChildren,
-  getKBDocumentDetail,
-  getKBDocuments,
-  getWikiCapability,
-  getKBWikiStatus,
-  rebuildKBWiki,
-  getWikiStats,
-  polishKBDescription,
-  previewChunks,
-  updateKBSpace,
-  updateKBChunk,
-  uploadKBDocument,
-} from '../../api';
+Button,
+Collapse,
+Empty,Input,
+InputNumber,message,
+Modal,Pagination,Popconfirm,Radio,Select,Switch,Tag,Typography,
+Upload,
+} from 'antd';
+import { AnimatePresence,motion } from 'motion/react';
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import type {
-  IndexingConfig,
-  KBChunkChild,
-  KBDocumentItem,
-  KBDocumentsResponse,
-  KBDocumentStatusCounts,
+IndexingConfig,
+KBChunkChild,
+KBDocumentItem,
+KBDocumentsResponse,
+KBDocumentStatusCounts,
 } from '../../api';
-import type { KBDocument, KBIndexMode, KBItem, WikiGranularity } from '../../types';
-import { formatDateTime } from '../../utils/date';
-import { mdToHtml } from '../../utils/markdown';
-import { EASE, staggerStyle } from '../../utils/motionTokens';
+import {
+createKBSpace,
+deleteKBDocument,
+deleteKBSpace,
+getKBChunkChildren,
+getKBChunks,
+getKBDocumentDetail,
+getKBDocuments,
+getKBWikiStatus,
+getWikiCapability,
+getWikiStats,
+polishKBDescription,
+previewChunks,
+rebuildKBWiki,
+updateKBChunk,
+updateKBSpace,
+uploadKBDocument,
+} from '../../api';
+import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { useStatusFlash } from '../../hooks/useFlash';
+import { t } from '../../i18n';
+import { useKbTab } from '../../routing/subPages';
+import { useCatalogStore,useEditionStore,useKbStore } from '../../stores';
 import { useAuthStore } from '../../stores/authStore';
+import type { KBDocument,KBIndexMode,KBItem,WikiGranularity } from '../../types';
+import { formatDateTime } from '../../utils/date';
+import { getFileIconSrc,getFolderIconSrc } from '../../utils/fileIcon';
+import { mdToHtml } from '../../utils/markdown';
+import { EASE,staggerStyle } from '../../utils/motionTokens';
+import { parseSeparators } from '../../utils/separators';
+import { KBChunkImages,WikiPanel } from '../kb';
+import IndexModePicker from '../kb/IndexModePicker';
 
 type KBTabKey = 'public' | 'private';
 
@@ -225,17 +230,8 @@ function filterDisplayTags(tags?: string[]): string[] {
   });
 }
 
-interface CatalogPanelProps {
-  /** 内嵌在「我的空间」的知识库 Tab 里渲染时为 true：外层已经有标题栏，这里不再重复渲染页头。 */
-  embedded?: boolean;
-}
-
-export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
+export function CatalogPanel() {
   const isCE = useEditionStore((s) => s.edition === 'ce');
-  const { title: kbTitle, subtitle: kbSubtitle } = usePanelHeader('kb', {
-    title: '知识库',
-    subtitle: '浏览知识库、查看文档列表，并支持文档内检索。',
-  });
   const {
     catalog, catalogLoading,
     panelEntryNonce,
@@ -323,13 +319,6 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const [kbEditorExtractionHint, setKbEditorExtractionHint] = useState('');
   const [kbEditorContentHint, setKbEditorContentHint] = useState('');
   const detailDescRef = useRef<HTMLParagraphElement | null>(null);
-  const tabsRef = useRef<HTMLDivElement | null>(null);
-  const tabButtonRefs = useRef<Partial<Record<KBTabKey, HTMLButtonElement | null>>>({});
-  const [tabIndicatorStyle, setTabIndicatorStyle] = useState<{ left: number; width: number; ready: boolean }>({
-    left: 0,
-    width: 0,
-    ready: false,
-  });
   // Set of chunk_id currently in "content editing" state (entered by clicking "edit"; the content is rendered as a TextArea)
   const [editingChunks, setEditingChunks] = useState<Set<string>>(new Set());
   const toggleChunkEditing = useCallback((chunkId: string) => {
@@ -459,24 +448,6 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     return () => window.clearInterval(timer);
   }, [wikiGenerating, selectedItem?.id, selectedItem?.source]);
 
-  useEffect(() => {
-    const updateIndicator = () => {
-      const tabsEl = tabsRef.current;
-      const activeEl = tabButtonRefs.current[activeTab];
-      if (!tabsEl || !activeEl) return;
-      const tabsRect = tabsEl.getBoundingClientRect();
-      const activeRect = activeEl.getBoundingClientRect();
-      setTabIndicatorStyle({
-        left: activeRect.left - tabsRect.left,
-        width: activeRect.width,
-        ready: true,
-      });
-    };
-
-    updateIndicator();
-    window.addEventListener('resize', updateIndicator);
-    return () => window.removeEventListener('resize', updateIndicator);
-  }, [activeTab, counts.public, counts.private]);
 
   useEffect(() => {
     setDetailDescExpanded(false);
@@ -902,48 +873,9 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
 
   return (
     <>
-      <div className={`jx-kbView${embedded ? ' jx-kbView--embedded' : ''}`}>
+      <div className="jx-kbView jx-kbView--embedded">
         {!selectedItem ? (
           <>
-            {!embedded && (
-              <div className="jx-agentPage-header">
-                <div>
-                  <div className="jx-agentPage-title">{kbTitle}</div>
-                  {kbSubtitle ? <div className="jx-agentPage-subtitle">{kbSubtitle}</div> : null}
-                </div>
-              </div>
-            )}
-            {!embedded && (
-            <section className="jx-kbTabsWrap">
-              <div className="jx-kbTabs" ref={tabsRef}>
-                {((isCE ? ['private'] : ['public', 'private']) as KBTabKey[]).map((tab) => {
-                  const tabLabel = tab === 'public' ? t('公共知识库') : t('私有知识库');
-                  return (
-                    <button
-                      key={tab}
-                      ref={(el) => {
-                        tabButtonRefs.current[tab] = el;
-                      }}
-                      className={`jx-kbTab${activeTab === tab ? ' active' : ''}`}
-                      onClick={() => {
-                        setActiveTab(tab);
-                        setManageQuery('');
-                      }}
-                    >
-                      <span>{tabLabel}</span>
-                      <span className="jx-kbTabCount">{counts[tab]}</span>
-                    </button>
-                  );
-                })}
-                <span
-                  className={`jx-kbTabIndicator${tabIndicatorStyle.ready ? ' is-ready' : ''}`}
-                  style={{ transform: `translateX(${tabIndicatorStyle.left}px)`, width: tabIndicatorStyle.width }}
-                  aria-hidden="true"
-                />
-              </div>
-            </section>
-            )}
-
             <section className="jx-kbToolbar">
               <Input
                 allowClear

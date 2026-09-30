@@ -2,7 +2,7 @@
 
 > Last updated: 2026-09-24
 
-The sandbox is the isolated environment where HugAgentOS's agents execute code: every `bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
+The sandbox is the isolated environment where HugAgentOS's agents execute code: every `Bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
 Edition split (see [editions](../editions/overview.md)): the **lightweight sandbox (script_runner) plus the sandbox tool / offload infrastructure are Community CE**; the **persistent sandboxes (opensandbox / cube — session retention, environment reuse, snapshot recovery) are Enterprise EE** — the CE derivation strips those two provider files and the factory transparently falls back to the lightweight implementation.
 
@@ -26,7 +26,7 @@ Every provider implements the same `SandboxProvider` Protocol, with an internal 
 | `health()` | Health probe |
 | `admin_*` family | Read-only views for the security console (capability declaration / instance listing / detail / pool stats); unsupported abilities raise `SandboxAdminNotSupported` and the UI greys them out |
 
-Internal business code calls await provider.run_to_completion(request) to receive a final ProcessResult (stdout, stderr, exit_code, execution_time_ms), without managing process IDs or invoking model tools. All three providers share process management and result collection; waiting stays inside the provider, with one launch and no automatic retry. The model tool surface remains bash / write_stdin. Commands have no default execution deadline; callers can explicitly set timeout. Individual waits, network request timeouts, and cloud sandbox lifetimes are separate limits.
+Internal business code calls await provider.run_to_completion(request) to receive a final ProcessResult (stdout, stderr, exit_code, execution_time_ms), without managing process IDs or invoking model tools. All three providers share process management and result collection; waiting stays inside the provider, with one launch and no automatic retry. The model tool surface remains Bash / write_stdin. Commands have no default execution deadline; callers can explicitly set timeout. Individual waits, network request timeouts, and cloud sandbox lifetimes are separate limits.
 
 Two key fields on `ProcessRequest`:
 
@@ -51,10 +51,10 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 
 | Tool | Purpose |
 |---|---|
-| `bash(command, timeout=None, yield_time_ms=60000)` | Start a command and wait 60 seconds by default; unfinished commands return a process `session_id` and keep running. Omitted timeout sets no command deadline; retains the `Bash` alias |
+| `Bash(command, timeout=None, yield_time_ms=60000)` | Start a command and wait 60 seconds by default; unfinished commands return a process `session_id` and keep running. Omitted timeout sets no command deadline; the command tool uses the name `Bash` with an uppercase B |
 | `write_stdin(session_id, chars="", yield_time_ms=60000)` | Wait for the same process and read incremental output; empty input waits, Ctrl+C (\u0003) requests interruption |
 | `sandbox_put_artifact(artifact_id, dest_path)` | Copy a platform artifact's bytes (user uploads, chart-tool outputs, …) into a sandbox path — uploads are never auto-visible in the sandbox |
-| `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — bash outputs never auto-appear in the attachment area |
+| `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — Bash outputs never auto-appear in the attachment area |
 
 
 Execution deadlines and wait windows are separate: initial waits are 250–30000 ms; follow-up waits are capped at 300000 ms. A wait expiring never terminates the command. Explicit `timeout` remains an execution deadline and is no longer clamped to 120 seconds. All commands and internal Python/JavaScript scripts use the process API. The synchronous execution endpoint and default/maximum execution timeout settings have been removed. Process IDs are bound to the initiating user and conversation. This is non-PTY execution with closed stdin: only empty input and Ctrl+C are accepted. On headless Windows, interruption terminates the process tree.
@@ -65,12 +65,12 @@ The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id,
 
 **MySpace real-time registration**: a file written under `/myspace` **is** a file in the user's My Space, and both sides must show the same state at any moment. Registration is driven by **the filesystem itself** (`core/myspace/watcher.py`): any write or delete under the mirror directory `myspace_cache/{uid}/` is registered back into the artifact ledger, **regardless of who wrote it**.
 
-The earlier design had each writing tool register its own change (write / edit / file delete-move-mkdir / a before-and-after directory snapshot around `bash`). That assumes changes can only arrive through those entry points, and they cannot: a `nohup`-ed background process writes after the command returns, sub-agents and batch runs write from another coroutine, skill CLIs write directly, and so do MCP servers. Every entry point left out shows up the same way — the file sits on the user's disk, is invisible and undeletable in the UI, and every new sandbox mounts that directory again, which is where "leftover intermediate files from the previous session" came from.
+The earlier design had each writing tool register its own change (write / edit / file delete-move-mkdir / a before-and-after directory snapshot around `Bash`). That assumes changes can only arrive through those entry points, and they cannot: a `nohup`-ed background process writes after the command returns, sub-agents and batch runs write from another coroutine, skill CLIs write directly, and so do MCP servers. Every entry point left out shows up the same way — the file sits on the user's disk, is invisible and undeletable in the UI, and every new sandbox mounts that directory again, which is where "leftover intermediate files from the previous session" came from.
 
 | When | Direction | What happens |
 |---|---|---|
 | A write or delete in the directory | Sandbox → My Space | Registered as an artifact, or the deleted file is soft-deleted from My Space |
-| Before every `bash` | My Space → sandbox | UI uploads/edits land in the mirror directory (immediately visible under the bind mount); files deleted in the UI are removed from the mirror |
+| Before every `Bash` | My Space → sandbox | UI uploads/edits land in the mirror directory (immediately visible under the bind mount); files deleted in the UI are removed from the mirror |
 
 Registration splits by the nature of the file — it is **not** a blanket push:
 
@@ -93,9 +93,9 @@ The backlog that accumulated before this shipped is a **one-off data migration**
 `sandbox_get_artifact` supports individual files up to 100 MiB (104,857,600
 bytes) by default. `SANDBOX_ARTIFACT_MAX_BYTES` is the **single switch** for
 sandbox file size, bounding all four paths: explicit `sandbox_get_artifact`
-fetches, artifacts auto-collected after a `bash` run (both per-file and
+fetches, artifacts auto-collected after a `Bash` run (both per-file and
 per-batch total), artifacts pushed into the sandbox, and the `/myspace`
-write-back sync after a `bash` run; the backend and the script-runner sidecar
+write-back sync after a `Bash` run; the backend and the script-runner sidecar
 read the same variable.
 All three providers implement `get_file_to_path`: script_runner uses a raw HTTP
 response stream, OpenSandbox uses `read_bytes_stream`, and Cube uses the E2B
@@ -118,7 +118,7 @@ formats or reduce their content before delivering each part.
             │ jupyter bucket: min_idle=2  persistent sessions (Jupyter, ~10s)│
             │ light bucket:   min_idle=2  ephemeral runs (execd only, ~3s)   │
             └──────────────┬──────────────────────────────────────────────┘
-   first bash              │ acquire
+   first Bash              │ acquire
 chat_id ──▶ _get_or_create_session ──▶ _Session (sandbox + CodeInterpreter + language ctxs)
                 │                         │  reused on later calls; fire-and-forget renew
                 │ idle > 600s (reaper)     │  repeated renew failures → stale → rebuilt next acquire
@@ -135,7 +135,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session (sandbox + CodeInter
 
 Key points (`_opensandbox_session.py` / `_opensandbox_internals.py`):
 
-- **Per-chat heavy sandboxes**: one Jupyter-equipped container per conversation; variables, pip packages and `/workspace` files persist across bash calls;
+- **Per-chat heavy sandboxes**: one Jupyter-equipped container per conversation; variables, pip packages and `/workspace` files persist across Bash calls;
 - **TTL & renewal**: the server-side sandbox TTL is `SANDBOX_IDLE_TTL_S` (default 3600 s — the same number as the idle threshold); every session activity triggers a rate-limited (60 s) background renew that never blocks the request path; renew failures distinguish lifecycle signals (immediate stale mark) from transient network errors (escalated only after 3 consecutive failures);
 - **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (`SANDBOX_IDLE_TTL_S`, default 3600 s) snapshots an idle session and then returns its sandbox — kernels scrubbed and `/workspace` wiped — to the user idle pool for reuse rather than destroying it. The wipe keeps only the `myspace` and `skills` mount points and rebuilds `scratch`: the container is reused across chats, so scripts and intermediate files left in `/workspace` would be read by the next session as its own context. If the wipe fails the sandbox is destroyed instead of reused.
 
@@ -167,7 +167,7 @@ Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through r
 `CompactingAgent` keeps a bounded excerpt of oversized tool output and uses
 `SandboxOffloader` to save the **complete text** under `.offload/` in the current
 tool workspace. Images remain image inputs and are excluded from text offloads.
-The path uses the same session as `Read` and `bash`:
+The path uses the same session as `Read` and `Bash`:
 
 - Local mode: `<local workspace>/.sessions/<session hash>/.offload/`, without a cloud upload.
 - Cloud `script_runner`: `/workspace/.sessions/<session hash>/.offload/`, or the
@@ -234,7 +234,7 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `src/backend/core/sandbox/_opensandbox_internals.py` | Volume builders, metadata, user pool (EE) |
 | `src/backend/core/sandbox/_pool.py` | Two-bucket warm pool |
 | `src/backend/core/sandbox/cube_provider.py` | Cube remote-MicroVM provider (EE) |
-| `src/backend/core/llm/tools/sandbox_tool.py` | bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
+| `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | Overflow offloading to the session workspace |
 | `src/backend/api/routes/v1/admin_sandbox.py` | Dependency-rebuild admin API (EE) |
 | `src/backend/api/routes/v1/config_security.py` | Security-console read-only sandbox views |

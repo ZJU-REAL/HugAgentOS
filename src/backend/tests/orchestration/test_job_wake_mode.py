@@ -112,9 +112,10 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
     return started
 
 
-def test_finish_wake_inherits_workflow_mode(monkeypatch, db_session):
+@pytest.mark.parametrize("status", ["completed", "interrupted"])
+def test_finish_wake_inherits_workflow_mode(monkeypatch, db_session, status):
     """工作流会话跑完作业 → 唤醒轮必须仍然是工作流模式（run_job 才注册得上）。"""
-    _seed(db_session, chat_meta={"workflow_chat": True})
+    _seed(db_session, chat_meta={"workflow_chat": True}, status=status)
     started = _capture_started_runs(monkeypatch, db_session)
 
     from orchestration import job_wakeup

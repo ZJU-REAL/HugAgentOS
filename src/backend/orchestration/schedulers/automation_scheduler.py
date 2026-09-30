@@ -8,58 +8,18 @@ Inspired by claude-code's CronScheduler:
 - Writes notifications to Redis for frontend polling
 """
 
+from core.infra.time import utc_now
+
 import asyncio
 import contextlib
-import os
 import random
-import time
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-import pytz
-from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.infra.background import spawn
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def _load_run_files(chat_id: str) -> List[Tuple[bytes, str, str]]:
-    """Load the artifact files an automation run generated under its chat_id; returns a list of (bytes, filename, mime).
-
-    Each run uses a brand-new chat_id (see _execute_*_task), and only pinned artifacts
-    land in the Artifact table, so whatever is fetched by chat_id is exactly this run's
-    deliverables. Used by channel delivery (Feishu etc.) to actually send out the
-    generated documents. Best-effort.
-    """
-    from core.db.engine import SessionLocal
-    from core.db.models import Artifact
-    from core.storage import get_storage
-
-    out: List[Tuple[bytes, str, str]] = []
-    try:
-        with SessionLocal() as db:
-            storage = get_storage()
-            rows = db.query(Artifact).filter(Artifact.chat_id == chat_id).all()
-            for row in rows:
-                if not row.storage_key:
-                    continue
-                try:
-                    content = storage.download_bytes(row.storage_key)
-                except Exception:  # noqa: BLE001
-                    logger.warning("[scheduler] 产物下载失败 %s", row.artifact_id, exc_info=True)
-                    continue
-                out.append(
-                    (
-                        content,
-                        row.filename or row.artifact_id,
-                        row.mime_type or "application/octet-stream",
-                    )
-                )
-    except Exception:  # noqa: BLE001
-        logger.warning("[scheduler] 加载 run 产物失败 chat_id=%s", chat_id, exc_info=True)
-    return out
 
 
 POLL_INTERVAL_SECONDS = 15
@@ -88,6 +48,7 @@ class AutomationScheduler:
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._manual_task: Optional[asyncio.Task] = None
+        self._executions: set[asyncio.Task] = set()
 
     async def start(self):
         self._running = True
@@ -102,6 +63,11 @@ class AutomationScheduler:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        executions = list(self._executions)
+        for execution in executions:
+            execution.cancel()
+        if executions:
+            await asyncio.gather(*executions, return_exceptions=True)
         logger.info("[scheduler] stopped")
 
     async def _poll_loop(self):
@@ -151,7 +117,7 @@ class AutomationScheduler:
         from core.db.engine import SessionLocal
         from core.services.automation_service import AutomationService
 
-        now = datetime.utcnow().replace(tzinfo=pytz.utc)
+        now = utc_now()
         with SessionLocal() as db:
             svc = AutomationService(db)
             due_tasks = svc.get_due_tasks(now)
@@ -200,736 +166,21 @@ class AutomationScheduler:
                 "[scheduler] pre-run bookkeeping failed for %s: %s — firing anyway", task_id, exc
             )
         logger.info("[scheduler] firing %s for %s", kind, task_id)
-        spawn(self.execute_task(task_id, user_id), name=f"automation.{task_id}")
+        self._launch_execution(task_id, user_id)
+
+    def _launch_execution(self, task_id: str, user_id: str) -> asyncio.Task:
+        execution = spawn(self.execute_task(task_id, user_id), name=f"automation.{task_id}")
+        self._executions.add(execution)
+        execution.add_done_callback(self._executions.discard)
+        return execution
 
     async def execute_task(self, task_id: str, user_id: str):
-        """Execute a single scheduled task."""
-        from core.db.engine import SessionLocal
-        from core.services.automation_service import AutomationService
-
-        start = time.monotonic()
-
-        with SessionLocal() as db:
-            svc = AutomationService(db)
-            task = svc.get_task_by_id(task_id)
-            if not task or task.user_id != user_id or task.status not in ("active", "paused"):
-                await self._release_lock(task_id)
-                return
-
-            run = svc.record_run_start(task_id)
-            task_type = task.task_type
-            task_name = task.name or "定时任务"
-            task_prompt = task.prompt
-            task_plan_id = task.plan_id
-            task_consecutive_failures = task.consecutive_failures or 0
-            task_max_failures = task.max_failures or 3
-            # Pass `None` (not `[]`) when the task wasn't configured with
-            # explicit IDs so that plan-mode falls back to plan-declared
-            # expected_* lists. An explicit empty list now means "strictly
-            # no tools/skills/agents".
-            enabled_mcp_ids = task.enabled_mcp_ids or None
-            enabled_skill_ids = task.enabled_skill_ids or None
-            enabled_kb_ids = task.enabled_kb_ids or None
-            enabled_agent_ids = task.enabled_agent_ids or None
-            task_metadata = dict(
-                task.extra_data or {}
-            )  # includes optional channel delivery destinations
+        from .automation_dispatch import execute_task
 
         try:
-            from core.services.automation_execution import task_execution_context
-            with SessionLocal() as db:
-                current_task = AutomationService(db).get_task(task_id, user_id)
-                if current_task is None:
-                    raise ValueError("任务已删除")
-                task_execution_context(db, current_task)
-            if task_type == "prompt":
-                chat_id, result_text, usage = await asyncio.wait_for(
-                    self._execute_prompt_task(
-                        user_id=user_id,
-                        task_name=task_name,
-                        prompt=task_prompt,
-                        task_id=task_id,
-                        enabled_mcp_ids=enabled_mcp_ids,
-                        enabled_skill_ids=enabled_skill_ids,
-                        enabled_kb_ids=enabled_kb_ids,
-                    ),
-                    timeout=TASK_EXECUTION_TIMEOUT_S,
-                )
-            elif task_type == "plan":
-                chat_id, result_text, usage = await asyncio.wait_for(
-                    self._execute_plan_task(
-                        user_id=user_id,
-                        task_name=task_name,
-                        plan_id=task_plan_id,
-                        task_id=task_id,
-                        enabled_mcp_ids=enabled_mcp_ids,
-                        enabled_skill_ids=enabled_skill_ids,
-                        enabled_kb_ids=enabled_kb_ids,
-                        enabled_agent_ids=enabled_agent_ids,
-                    ),
-                    timeout=TASK_EXECUTION_TIMEOUT_S,
-                )
-            elif task_type == "loop":
-                # Periodically advance a persistent autonomous loop (M4 scheduler integration); loop_id stored in task.extra_data
-                chat_id, result_text, usage = await asyncio.wait_for(
-                    self._execute_loop_task(
-                        user_id=user_id,
-                        task_name=task_name,
-                        loop_id=(task_metadata or {}).get("loop_id"),
-                    ),
-                    timeout=TASK_EXECUTION_TIMEOUT_S,
-                )
-            else:
-                raise ValueError(f"Unknown task type: {task_type}")
-
-            duration_ms = int((time.monotonic() - start) * 1000)
-
-            still_exists = True
-            with SessionLocal() as db:
-                svc = AutomationService(db)
-                # 任务可能在本次执行的几分钟里被用户删掉了（delete_task 是硬删）。
-                # 下面的 update_task_system / finalize 对不存在的任务本就是空操作，
-                # 但通知与渠道投递用的是开跑时抓下来的 task_name / task_metadata 快照，
-                # 不查这一下就会给一个已经删掉的任务推「执行完成」。
-                still_exists = svc.get_task_by_id(task_id) is not None
-                svc.record_run_complete(
-                    run.run_id,
-                    status="success",
-                    chat_id=chat_id,
-                    # 存全文：这一份同时是渠道投递的正文来源，截断只发生在展示侧
-                    # （run_to_dict 的 summary_limit / 通知中心）。
-                    result_summary=result_text,
-                    duration_ms=duration_ms,
-                    usage=usage,
-                )
-                svc.update_task_system(
-                    task_id,
-                    consecutive_failures=0,
-                    last_run_at=datetime.utcnow(),
-                    sidebar_activated=True,
-                )
-                # next_run_at already pre-advanced in _check_and_fire; now that
-                # the run actually finished, flip one-shot/exhausted tasks to
-                # "completed" (advance_next_run intentionally left them active so
-                # this run could pass the execute_task guard).
-                svc.finalize_after_run(task_id)
-
-            # Multi-target delivery (delivery_targets model, with backward compat for the old flat channel_id/conversation_id).
-            # In-app (notification center + sidebar + chat history) is delivered only when targets include inapp; channels and other outbound targets are delivered one by one.
-            from core.services.delivery_targets import has_inapp, resolve_delivery_targets
-
-            if not still_exists:
-                logger.info(
-                    "[scheduler] task %s was deleted while running — skip notification/delivery",
-                    task_id,
-                )
-                return
-
-            _targets = resolve_delivery_targets(task_metadata)
-            if has_inapp(_targets):
-                await self._send_notification(
-                    user_id, task_id, task_name, "success", result_text or "执行完成", chat_id
-                )
-            logger.info("[scheduler] task %s completed in %dms", task_id, duration_ms)
-
-            # Artifact files generated by this run (pinned deliverables anchored under this run's chat_id).
-            # Loaded once and reused across all channel targets — otherwise "generate a document and send it to Feishu" only sends the text and the file never goes out.
-            _gen_files = _load_run_files(chat_id) if chat_id else []
-            for _tgt in _targets:
-                if _tgt.get("type") != "channel":
-                    continue  # inapp already handled; email etc. reserved
-                _ch = _tgt.get("channel_id")
-                _conv = _tgt.get("conversation_id")
-                if not (_ch and _conv):
-                    continue
-                try:
-                    from core.channels.outbound import deliver_to_conversation
-
-                    head = f"【{task_name}】\n" if task_name else ""
-                    _ok = await deliver_to_conversation(
-                        _ch,
-                        _conv,
-                        head + (result_text or "执行完成"),
-                        files=_gen_files,
-                    )
-                    if _ok:
-                        logger.info(
-                            "[scheduler] 渠道投递成功 task=%s channel=%s conv=%s files=%d",
-                            task_id,
-                            _ch,
-                            _conv,
-                            len(_gen_files),
-                        )
-                    else:
-                        logger.warning(
-                            "[scheduler] 渠道投递失败（原因见 [channels] 日志）task=%s channel=%s conv=%s",
-                            task_id,
-                            _ch,
-                            _conv,
-                        )
-                except Exception:
-                    logger.warning("[scheduler] 渠道投递异常 task=%s", task_id, exc_info=True)
-
-        except Exception as e:
-            duration_ms = int((time.monotonic() - start) * 1000)
-            error_msg = str(e)[:2000]
-            logger.error("[scheduler] task %s failed: %s", task_id, error_msg, exc_info=True)
-
-            still_exists = True
-            with SessionLocal() as db:
-                svc = AutomationService(db)
-                still_exists = svc.get_task_by_id(task_id) is not None
-                svc.record_run_complete(
-                    run.run_id,
-                    status="failed",
-                    error_message=error_msg,
-                    duration_ms=duration_ms,
-                )
-                new_failures = task_consecutive_failures + 1
-                updates: Dict[str, Any] = {
-                    "consecutive_failures": new_failures,
-                    "last_error": error_msg,
-                    "last_run_at": datetime.utcnow(),
-                    "sidebar_activated": True,
-                }
-                if new_failures >= task_max_failures:
-                    updates["status"] = "disabled"
-                    logger.warning(
-                        "[scheduler] task %s auto-disabled after %d failures", task_id, new_failures
-                    )
-                svc.update_task_system(task_id, **updates)
-                # next_run_at already pre-advanced in _check_and_fire. Finalize
-                # one-shot tasks so a failed single run lands in a terminal state
-                # instead of dangling active (finalize_after_run skips disabled).
-                svc.finalize_after_run(task_id)
-
-            if still_exists:
-                await self._send_notification(
-                    user_id, task_id, task_name, "failed", error_msg[:200]
-                )
-            else:
-                logger.info(
-                    "[scheduler] task %s was deleted while running — skip failure notification",
-                    task_id,
-                )
-
+            await execute_task(self, task_id, user_id, timeout=TASK_EXECUTION_TIMEOUT_S)
         finally:
             await self._release_lock(task_id)
-
-    async def _execute_prompt_task(
-        self,
-        *,
-        user_id: str,
-        task_name: str,
-        prompt: str,
-        task_id: str,
-        enabled_mcp_ids: Optional[List[str]],
-        enabled_skill_ids: Optional[List[str]],
-        enabled_kb_ids: Optional[List[str]],
-    ) -> Tuple[str, str, Dict]:
-        """Execute a prompt-type task.
-
-        Mirrors the stream-consumption behaviour of the normal chat endpoint
-        (api/routes/v1/chats.py:chat_stream) so that tool_calls, artifacts,
-        citations, sources and warnings are all persisted to the chat message,
-        and generated files are written into the Artifact table. Without this,
-        automation chats show only bare text without any file attachments or
-        tool-call history.
-        """
-        from core.chat.tool_log import attach_tool_result as _attach_tool_result
-        from core.chat.tool_log import upsert_tool_call as _upsert_tool_call
-        from core.db.engine import SessionLocal
-        from core.llm import workspace as _workspace_mod
-        from core.services.artifact_service import persist_artifacts as _persist_artifacts
-        from core.services.chat_service import ChatService
-        from orchestration.workflow import astream_chat_workflow
-
-        chat_id = f"chat_{uuid.uuid4().hex[:16]}"
-        message_id = f"msg_{uuid.uuid4().hex[:16]}"
-        from core.services.user_model_selection import resolve_effective_chat_model_name
-
-        actual_model_name = resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
-
-        with SessionLocal() as db:
-            from core.services.automation_service import AutomationService
-            from core.services.automation_execution import task_execution_context
-            task = AutomationService(db).get_task(task_id, user_id)
-            if task is None:
-                raise ValueError("任务不存在或无权访问")
-            project_context = task_execution_context(db, task)
-            chat_svc = ChatService(db)
-            chat_svc.ensure_session(
-                chat_id=chat_id,
-                user_id=user_id,
-                title=f"[自动化] {task_name}",
-                project_id=project_context.get("project_id"),
-                extra_data={"automation_task_id": task_id, "automation_run": True},
-            )
-            chat_svc.add_message(
-                chat_id=chat_id,
-                role="user",
-                content=prompt,
-                model=actual_model_name,
-            )
-
-        # Align the capability set with the user: when the task has no explicit config,
-        # resolve the full set of capabilities currently available to that user
-        # (global catalog + private/plugin marketplace installs), same source as the web
-        # UI and channel inbound. Otherwise falling back to the catalog default set
-        # misses the user's installed plugin skills/MCPs (root cause of "plugin XX not found").
-        enabled_agent_ids: Optional[List[str]] = None
-        if enabled_skill_ids is None or enabled_mcp_ids is None:
-            from core.config.catalog_resolver import resolve_all_runtime_enabled
-
-            with SessionLocal() as db:
-                u_skills, u_agents, u_mcps = resolve_all_runtime_enabled(db, user_id)
-            if enabled_skill_ids is None:
-                enabled_skill_ids = u_skills
-            if enabled_mcp_ids is None:
-                enabled_mcp_ids = u_mcps
-            enabled_agent_ids = u_agents
-
-        context = {
-            **project_context,
-            "user_id": user_id,
-            "chat_id": chat_id,
-            "model_name": actual_model_name,
-            "automation_run": True,
-            "enable_thinking": False,
-            "memory_enabled": False,
-            # The keys the workflow side reads are enabled_skills / enabled_mcps / enabled_kbs
-            # (catalog_resolver's *_from_context); the old keys enabled_*_ids were never
-            # consumed, which made the task's explicitly configured capability list a no-op.
-            "enabled_mcps": enabled_mcp_ids,
-            "enabled_skills": enabled_skill_ids,
-            "enabled_kbs": enabled_kb_ids,
-            "enabled_agents": enabled_agent_ids,
-        }
-        from core.services.ontology_service import build_user_ontology_runtime
-
-        ontology_enabled, ontology_runtime = build_user_ontology_runtime(
-            user_id=user_id,
-            task=prompt,
-        )
-        context["ontology_enabled"] = ontology_enabled
-        context["ontology_runtime"] = ontology_runtime
-        session_messages = [{"role": "user", "content": prompt}]
-
-        full_response = ""
-        usage: Dict = {}
-        tool_calls_log: List[Dict[str, Any]] = []
-        meta_fields: Dict[str, Any] = {}
-        # Strict workspace gate.
-        _workspace_mod.init_state()
-
-        async def _bound_prompt_chunks():
-            from core.services.run_journal import durable_run_binding
-
-            recovery_context = {
-                **dict(context),
-                "mcp_ids": list(enabled_mcp_ids or []),
-                "skill_ids": list(enabled_skill_ids or []),
-                "kb_ids": list(enabled_kb_ids or []),
-                "model_name": actual_model_name,
-                "automation_run": True,
-            }
-            async with durable_run_binding(
-                user_id=user_id,
-                chat_id=chat_id,
-                kind="automation_prompt",
-                external_id=task_id,
-                request_payload={"task_id": task_id},
-                recovery_snapshot={"worker_args": {"context": recovery_context}},
-                session_factory=SessionLocal,
-            ) as binding:
-                bound_context = {
-                    **dict(context),
-                    "run_id": binding.run_id,
-                    "journal_owner": binding.owner,
-                }
-                async for item in astream_chat_workflow(
-                    session_messages=session_messages,
-                    user_message=prompt,
-                    context=bound_context,
-                ):
-                    yield item
-
-        async for chunk in _bound_prompt_chunks():
-            chunk_type = chunk.get("type")
-
-            if chunk_type in {"content", "ai_message"}:
-                full_response += chunk.get("delta", "")
-
-            elif chunk_type == "tool_call":
-                tc: Dict[str, Any] = {
-                    "tool_name": chunk.get("tool_name"),
-                    "tool_display_name": chunk.get("tool_display_name"),
-                    "tool_args": chunk.get("tool_args", {}),
-                    "tool_id": chunk.get("tool_id"),
-                }
-                if chunk.get("subagent_name"):
-                    tc["subagent_name"] = chunk["subagent_name"]
-                _upsert_tool_call(tool_calls_log, tc)
-
-            elif chunk_type == "tool_result":
-                _tid = chunk.get("tool_id")
-                _tn = chunk.get("tool_name")
-                _res = chunk.get("result", {})
-                _attach_tool_result(tool_calls_log, _tid, _tn, _res)
-
-            elif chunk_type == "meta":
-                usage = chunk.get("usage", {}) or {}
-                _ws_pinned = _workspace_mod.get_pinned()
-                meta_fields = {
-                    "route": chunk.get("route", "main"),
-                    "sources": chunk.get("sources", []),
-                    "artifacts": _ws_pinned,
-                    "workspace_files": _workspace_mod.get_pinned_file_ids(),
-                    "warnings": chunk.get("warnings", []),
-                    "is_markdown": chunk.get("is_markdown", True),
-                    "citations": chunk.get("citations", []),
-                }
-
-        # 推理模型会把思考链以 <think>…</think> 混在正文流里下发。网页端有一套流式
-        # 状态机把它切成独立的「思考」段，定时任务这条路径没有——于是思考过程原样落进
-        # 了自动化任务的输出正文（以及通知和渠道投递的内容）。这里在落库前统一剥掉。
-        from core.llm._distill_shared import strip_think_blocks
-
-        full_response = strip_think_blocks(full_response) if full_response else full_response
-
-        # Persist assistant message with the full run context.
-        with SessionLocal() as db:
-            chat_svc = ChatService(db)
-            chat_svc.add_message(
-                chat_id=chat_id,
-                role="assistant",
-                content=full_response,
-                model=actual_model_name,
-                message_id=message_id,
-                tool_calls=tool_calls_log if tool_calls_log else None,
-                usage=usage,
-                extra_data={
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "route": meta_fields.get("route", "main"),
-                    "is_markdown": meta_fields.get("is_markdown", True),
-                    "sources": meta_fields.get("sources", []),
-                    "artifacts": meta_fields.get("artifacts", []),
-                    "workspace_files": meta_fields.get("workspace_files", []),
-                    "warnings": meta_fields.get("warnings", []),
-                    "citations": meta_fields.get("citations", []),
-                    "message_id": message_id,
-                    "automation_task_id": task_id,
-                    "automation_run": True,
-                },
-            )
-            # Strict workspace gate: only pinned files reach My Space (我的空间).
-            # Pass scope explicitly — today automation is not attached to projects
-            # (context has no project_id), so project_scope_from_context returns None;
-            # but keep the API consistent with chat_stream, guarding against re-hitting
-            # the "forgot to pass scope" pitfall if automation gets project mode later.
-            from core.services.project_scope import project_scope_from_context
-
-            _persist_artifacts(
-                db,
-                user_id,
-                chat_id,
-                _workspace_mod.get_pinned(),
-                scope=project_scope_from_context(context),
-            )
-
-        # 返回全文——这份文本同时是渠道投递（钉钉/飞书）的正文，在这里截断会让定时消息
-        # 只发出开头一段。摘要截断统一在展示侧做（见 automation_service.truncate_summary）。
-        return chat_id, (full_response or "执行完成"), usage
-
-    async def _execute_plan_task(
-        self,
-        *,
-        user_id: str,
-        task_name: str,
-        plan_id: str,
-        task_id: str,
-        enabled_mcp_ids: Optional[List[str]],
-        enabled_skill_ids: Optional[List[str]],
-        enabled_kb_ids: Optional[List[str]],
-        enabled_agent_ids: Optional[List[str]],
-    ) -> Tuple[str, str, Dict]:
-        """Execute a plan-type task.
-
-        Produces a real chat session with a plan_snapshot assistant message so
-        "查看对话" in the run history resolves to a loadable conversation.
-        """
-        from core.db.engine import SessionLocal
-        from core.services.artifact_service import persist_artifacts as _persist_artifacts
-        from core.services.chat_service import ChatService
-        from core.services.plan_service import PlanService
-        from core.services.user_model_selection import resolve_effective_chat_model_name
-        from orchestration.subagents.plan_mode import astream_execute_plan
-
-        chat_id = f"chat_{uuid.uuid4().hex[:16]}"
-        actual_model_name = resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
-
-        with SessionLocal() as db:
-            from core.services.automation_execution import task_execution_context
-            from core.services.automation_service import AutomationService
-            task = AutomationService(db).get_task(task_id, user_id)
-            if task is None:
-                raise ValueError("任务不存在或无权访问")
-            project_context = task_execution_context(db, task)
-            plan_svc = PlanService(db)
-            plan = plan_svc.get_plan(plan_id, user_id)
-            if not plan:
-                raise ValueError(f"Plan {plan_id} not found")
-
-            plan_title = plan.title
-
-            if plan.status in ("completed", "failed", "cancelled"):
-                plan_svc.update_plan(plan_id, status="approved", completed_steps=0)
-                for step in plan.steps:
-                    plan_svc.update_step(
-                        step.step_id,
-                        status="pending",
-                        result_summary=None,
-                        ai_output=None,
-                        error_message=None,
-                    )
-            elif plan.status == "draft":
-                plan_svc.update_plan(plan_id, status="approved")
-
-            chat_svc = ChatService(db)
-            chat_svc.ensure_session(
-                chat_id=chat_id,
-                user_id=user_id,
-                title=f"[自动化] {task_name}",
-                project_id=project_context.get("project_id"),
-                extra_data={
-                    "automation_task_id": task_id,
-                    "automation_run": True,
-                    "plan_chat": True,
-                    "plan_id": plan_id,
-                },
-            )
-            chat_svc.add_message(
-                chat_id=chat_id,
-                role="user",
-                content=f"自动化执行计划：{plan_title}",
-                model=actual_model_name,
-            )
-
-        from core.llm import workspace as _workspace_mod
-
-        result_text = ""
-        usage: Dict = {}
-        completed_steps = 0
-        total_steps = 0
-        tool_calls_log: List[Dict[str, Any]] = []
-        _workspace_mod.init_state()
-
-        async def _bound_plan_events(db):  # noqa: ANN001
-            from core.llm.middlewares import CURRENT_RUN_BINDING
-            from core.services.run_journal import durable_run_binding
-
-            recovery_context = {
-                "user_id": user_id,
-                "chat_id": chat_id,
-                "mcp_ids": list(enabled_mcp_ids or []),
-                "skill_ids": list(enabled_skill_ids or []),
-                "kb_ids": list(enabled_kb_ids or []),
-                "model_name": actual_model_name,
-                "automation_run": True,
-            }
-            async with durable_run_binding(
-                user_id=user_id,
-                chat_id=chat_id,
-                kind="automation_plan",
-                external_id=f"{task_id}:{plan_id}",
-                request_payload={"task_id": task_id, "plan_id": plan_id},
-                recovery_snapshot={"worker_args": {"context": recovery_context}},
-                session_factory=SessionLocal,
-            ) as binding:
-                token = CURRENT_RUN_BINDING.set((binding.run_id, binding.owner))
-                try:
-                    async for item in astream_execute_plan(
-                        plan_id=plan_id,
-                        user_id=user_id,
-                        db=db,
-                        enabled_mcp_ids=enabled_mcp_ids,
-                        enabled_skill_ids=enabled_skill_ids,
-                        enabled_kb_ids=enabled_kb_ids,
-                        enabled_agent_ids=enabled_agent_ids,
-                        chat_id=chat_id,
-                        model_name=actual_model_name,
-                        automation_run=True,
-                    ):
-                        yield item
-                finally:
-                    CURRENT_RUN_BINDING.reset(token)
-
-        with SessionLocal() as db:
-            async for event in _bound_plan_events(db):
-                evt_type = event.get("type")
-                if evt_type == "plan_complete":
-                    # 与 prompt 任务同理：推理模型的 <think> 段会混在总结正文里。
-                    from core.llm._distill_shared import strip_think_blocks
-
-                    _raw = event.get("result_text", "")
-                    result_text = strip_think_blocks(_raw) if _raw else _raw
-                    completed_steps = event.get("completed_steps", 0)
-                    total_steps = event.get("total_steps", 0)
-                    usage = event.get("usage", {}) or {}
-                elif evt_type == "tool_call":
-                    tool_calls_log.append(
-                        {
-                            "tool_name": event.get("tool_name"),
-                            "tool_id": event.get("tool_id"),
-                            "tool_args": event.get("tool_args", {}),
-                            "step_id": event.get("step_id"),
-                        }
-                    )
-                elif evt_type == "tool_result":
-                    _tid = event.get("tool_id")
-                    _tn = event.get("tool_name")
-                    result = event.get("result")
-                    matched = False
-                    for _tc in tool_calls_log:
-                        if _tid and _tc.get("tool_id") == _tid and "result" not in _tc:
-                            _tc["result"] = result
-                            _tc["status"] = "success"
-                            matched = True
-                            break
-                    if not matched:
-                        tool_calls_log.append(
-                            {
-                                "tool_name": _tn,
-                                "tool_id": _tid,
-                                "result": result,
-                                "status": "success",
-                                "step_id": event.get("step_id"),
-                            }
-                        )
-        with SessionLocal() as db:
-            plan_svc = PlanService(db)
-            updated_plan = plan_svc.get_plan(plan_id, user_id)
-            plan_snapshot: Optional[Dict[str, Any]] = None
-            if updated_plan:
-                plan_snapshot = PlanService.build_execution_snapshot(
-                    updated_plan,
-                    completed_steps=completed_steps,
-                    total_steps=total_steps,
-                    result_text=result_text,
-                )
-
-            # Strict workspace gate: pinned-only.
-            _ws_pinned = _workspace_mod.get_pinned()
-            _ws_files = _workspace_mod.get_pinned_file_ids()
-
-            assistant_content = result_text or (
-                f"计划执行完成：共 {total_steps} 步，完成 {completed_steps} 步。"
-            )
-            chat_svc = ChatService(db)
-            chat_svc.add_message(
-                chat_id=chat_id,
-                role="assistant",
-                content=assistant_content,
-                model=actual_model_name,
-                extra_data={
-                    "is_markdown": bool(result_text),
-                    "plan_id": plan_id,
-                    "plan_snapshot": plan_snapshot,
-                    "artifacts": _ws_pinned,
-                    "workspace_files": _ws_files,
-                    "completed_steps": completed_steps,
-                    "total_steps": total_steps,
-                    "automation_task_id": task_id,
-                    "automation_run": True,
-                },
-                tool_calls=tool_calls_log if tool_calls_log else None,
-                usage=usage,
-            )
-            # Chats created by automation are not attached to projects -> scope is None;
-            # keep the explicit construction, guarding against re-hitting the "forgot to
-            # pass scope" pitfall when project mode is wired in later.
-            from core.services.project_scope import project_scope_from_chat_id
-
-            _persist_artifacts(
-                db,
-                user_id,
-                chat_id,
-                _ws_pinned,
-                scope=project_scope_from_chat_id(db, chat_id),
-            )
-
-        # 同 _execute_prompt_task：返回全文，截断交给展示侧
-        # （assistant_content 上面已是 `result_text or 兜底文案`，无需再叠一层 or）
-        return chat_id, assistant_content, usage
-
-    async def _execute_loop_task(self, *, user_id: str, task_name: str, loop_id):
-        """Periodically advance a persistent autonomous loop: start/resume a loop run and wait for it to reach a terminal state (M4 scheduler integration).
-
-        Concurrency guard: if the loop already has an active run, skip this trigger
-        (avoids duplicate advancement within the same session). The driver auto-resumes
-        from feature_list.json, so each tick = one segment of progress.
-        """
-        from core.db.engine import SessionLocal
-        from core.services.chat_service import ChatService
-        from core.services.loop_service import LoopService
-        from orchestration import chat_run_executor
-
-        if not loop_id:
-            raise ValueError("loop 任务缺少 extra_data.loop_id")
-
-        with SessionLocal() as db:
-            loop = LoopService(db).get_loop(loop_id)
-            if not loop:
-                raise ValueError(f"loop {loop_id} not found")
-            if loop.status in ("completed", "cancelled"):
-                return None, f"loop 已终态({loop.status})，跳过", {}
-            chat_id = loop.chat_id or f"loopchat_{loop_id}"
-            goal_spec = dict(loop.goal_spec or {})
-            budget = dict(loop.budget or {})
-            try:
-                ChatService(db).ensure_session(
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    title=f"[自主循环] {loop.title or task_name}",
-                    extra_data={
-                        "autonomous_loop": True,
-                        "automation_run": True,
-                        "loop_id": loop_id,
-                    },
-                )
-                if not loop.chat_id:
-                    loop.chat_id = chat_id
-                    db.commit()
-            except Exception:  # noqa: BLE001
-                pass
-
-        # Concurrency guard: active run already exists -> skip
-        if chat_run_executor.get_active_run_for_chat(chat_id, user_id):
-            return chat_id, "loop 已在推进中，跳过本次触发", {}
-
-        run = await chat_run_executor.start_autonomous_loop_run(
-            loop_id=loop_id,
-            chat_id=chat_id,
-            user_id=user_id,
-            goal_spec=goal_spec,
-            budget=budget,
-            automation_run=True,
-        )
-        # Wait for it to reach a terminal state (bounded by the outer TASK_EXECUTION_TIMEOUT_S; on timeout the run continues in the background and the next tick resumes it)
-        task = chat_run_executor._active_runs.get(run.run_id)
-        if task is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.shield(task)
-
-        with SessionLocal() as db:
-            loop = LoopService(db).get_loop(loop_id)
-            summary = (
-                f"loop status={loop.status} score={loop.final_score} iters={loop.iteration_count}"
-                if loop
-                else "loop 推进完成"
-            )
-            usage = {"total_tokens": (loop.tokens_spent if loop else 0)}
-        return chat_id, summary, usage
 
     async def _recover_stuck_running_runs(self):
         """Mark long-running 'running' runs as failed (orphaned by OOM/restart).
@@ -942,7 +193,7 @@ class AutomationScheduler:
         from datetime import datetime, timedelta, timezone
 
         from core.db.engine import SessionLocal
-        from core.db.models import ScheduledTask, ScheduledTaskRun
+        from core.db.models import ScheduledTaskRun
 
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=STUCK_RUNNING_THRESHOLD_S)
         try:
@@ -1005,7 +256,7 @@ class AutomationScheduler:
         from core.db.engine import SessionLocal
         from core.services.automation_service import AutomationService
 
-        now = datetime.utcnow().replace(tzinfo=pytz.utc)
+        now = utc_now()
         try:
             with SessionLocal() as db:
                 svc = AutomationService(db)
@@ -1014,7 +265,7 @@ class AutomationScheduler:
                 for task in missed:
                     if not task.recurring:
                         one_shot_count += 1
-                        asyncio.create_task(self.execute_task(task.task_id, task.user_id))
+                        self._launch_execution(task.task_id, task.user_id)
                 if one_shot_count:
                     logger.info("[scheduler] recovering %d missed one-shot tasks", one_shot_count)
         except Exception as e:
@@ -1064,7 +315,7 @@ class AutomationScheduler:
                 # 不带任何提示，与运行历史列表的观感不一致。
                 "summary": truncate_summary(summary, SUMMARY_LIMIT_BRIEF),
                 "chat_id": chat_id,
-                "timestamp": int(datetime.utcnow().timestamp() * 1000),
+                "timestamp": int(utc_now().timestamp() * 1000),
                 "read": False,
             }
             await notifications.push(user_id, notification)

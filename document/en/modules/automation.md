@@ -1,6 +1,6 @@
 # Automation & Batch Execution
 
-> Last updated: 2026-08-25
+> Last updated: 2026-09-30
 
 HugAgentOS ships three built-in mechanisms for turning a single instruction into repeatable or bulk productivity, all part of the **Community Edition (CE)**:
 
@@ -44,17 +44,21 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `core/db/models/au
 `orchestration/schedulers/automation_scheduler.py` is an asyncio polling scheduler started with the backend:
 
 - **Polling**: every 15 seconds (plus 0–5 s random jitter) it queries the DB for tasks whose `next_run_at` is due.
-- **Distributed lock**: before firing, it acquires the Redis lock `jx:auto:lock:{task_id}` (TTL 900 s) so multiple instances never double-fire.
+- **Distributed lock**: before firing, it acquires the Redis lock `jx:auto:lock:{task_id}` (TTL 1800 s) so multiple instances never double-fire.
 - **Advance before firing**: `next_run_at` is pushed to the next period **before** execution — the schedule moves on regardless of success, failure, or a mid-flight kill (mirroring real cron), eliminating the death spiral where a stuck `running` row leaves `next_run_at` in the past and every poll re-fires the same task.
-- **Execution timeout**: a single run is capped at 800 s wall clock, strictly below the lock TTL so the timeout fires before the lock expires.
+- **Execution timeout**: a single run is capped at 1500 s wall clock, strictly below the lock TTL so the timeout fires before the lock expires.
 - **Failure governance**: when consecutive failures reach `max_failures` (default 3), the task is automatically set to `disabled`.
-- **Startup recovery**: after a restart, runs stuck in `running` for more than 30 minutes are marked `failed` (and their parent task's schedule advanced); missed one-shot tasks are then re-fired.
+- **Startup recovery**: after a restart, runs stuck in `running` for more than 40 minutes are marked `failed` (and their parent task's schedule advanced); missed one-shot tasks are then re-fired.
 
-Each execution produces a **real chat session**: prompt tasks reuse the main chat workflow `orchestration/workflow.py::astream_chat_workflow`, fully preserving tool calls, citations, and artifact files; plan tasks go through `orchestration/subagents/plan_mode.py::astream_execute_plan` and persist a plan execution snapshot. Session titles are prefixed `[自动化]`, and the run history offers one-click "view conversation". After completion, the user is notified via Redis notifications plus sidebar activation.
+Each execution creates and immediately links a **real conversation** through the shared ChatRun executor. Prompt runs stream text, thinking and tools; plan runs stream step progress. Opening a running conversation or refreshing the page follows and replays the same event stream as ordinary chat. Users can stop execution from the conversation; prompt runs also accept additional instructions through the durable steering queue at the next safe model boundary. Stopping does not increase consecutive failures, and timeouts cancel the child run. Final messages, artifacts, citations and delivery remain owned by the shared executor and scheduler outcome handler. Conversation titles use the task name without an automation prefix. Older executions started before live-stream support cannot replay events that were never recorded.
+
+Scheduled prompts and ordinary conversations share admission, capability resolution, runtime context construction and the main agent execution loop. If a late instruction starts a successor through the main executor, the scheduled outcome waits for its final result. Timeout or scheduler shutdown cancels the current successor.
 
 ### Frontend
 
-The automation management UI lives under the Lab module: `src/frontend/src/components/lab/` contains `AutomationPanel.tsx` (list), `AutomationCreateModal.tsx` (creation, with cron configuration and capability selection), `AutomationCard.tsx`, and `AutomationDetailPage.tsx` (detail + run history). Users can either create directly in the viewport-contained, internally scrolling form or choose “Create through chat” to enter the main conversation. The chat path automatically references the installed Scheduled Task Management plugin and prefills the editable template “我要创建一个定时任务，每【时间间隔】执行【具体任务】”. `src/frontend/src/components/automation/RunTimelinePanel.tsx` renders the date-grouped run timeline on the chat side. State is held in `stores/automationStore.ts` (task management) and `stores/automationChatStore.ts` (sidebar chat groups).
+Scheduled Tasks is a dedicated module under src/frontend/src/components/automation/. Its sidebar lists real task conversations and reuses the ordinary conversation ordering and hover menus; empty setup conversations are hidden. All Tasks opens configuration, status, and run history in the content area. Creating through chat first persists a conversation owned by Scheduled Tasks, references the installed task-management plugin, and prefills an editable template. Task conversations are excluded from the ordinary chat sidebar.
+
+Execution conversations use /automation/:taskId/conversations/:chatId, with new as the task segment for setup conversations. Reloads, browser history, search hits, and notifications preserve task ownership. Search opens the exact matching conversation instead of the latest run. RunTimelinePanel groups executions by date. automationStore owns the single task list; automationChatStore owns the current run group and task pin/favorite preferences.
 
 ## Plan mode
 

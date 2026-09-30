@@ -14,7 +14,7 @@ When the xlsx base rules cover it, the text here says `→ see xlsx v2 §X`. Rea
 ## 运行环境与交付链（本系统专用，先读这一段）
 
 **`officecli` 已经预装在运行环境的 PATH 中，不要联网安装、不要 curl。**
-`bash` 工具直接调用即可，自检用 `officecli --version`。
+`Bash` 工具直接调用即可，自检用 `officecli --version`。
 
 所有命令在当前会话工作目录执行，输入输出使用相对路径或用户指定的真实路径。一次完整作业 = 3 步 + 1 步交付：
 
@@ -22,8 +22,8 @@ When the xlsx base rules cover it, the text here says `→ see xlsx v2 §X`. Rea
 # Step 1（仅当用户上传过原始文件）把 artifact 送进沙盒
 sandbox_put_artifact(artifact_id="<用户文件的 file_id>", dest_path="./in.docx")
 
-# Step 2 用 bash 跑 officecli —— 本文件下面讲的全部命令都在这一步里
-bash("officecli create ./out.docx")
+# Step 2 用 Bash 跑 officecli —— 本文件下面讲的全部命令都在这一步里
+Bash("officecli create ./out.docx")
 
 # Step 3 把成稿从沙盒取出、登记成 artifact，拿到新的 file_id
 sandbox_get_artifact(src_path="./out.docx", name="终稿.docx")

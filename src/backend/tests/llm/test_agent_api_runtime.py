@@ -74,11 +74,11 @@ async def test_api_bash_never_uses_account_identity_or_shared_process_runner(mon
         collector, parse_api_scope(scope(), owner_user_id="owner",
             chat_id="api_chat", agent_id="agent_123"),
     )
-    result = await collector.tools["bash"]("pwd")
+    result = await collector.tools["Bash"]("pwd")
     assert "隔离" in json.loads(result.content[0].text)["error"]
     assert provider.calls == []
     provider.name = "opensandbox"
-    result = await collector.tools["bash"]("pwd")
+    result = await collector.tools["Bash"]("pwd")
     assert json.loads(result.content[0].text)["stdout"] == "api_ak_123"
     assert provider.calls[0].session_id == scope()["sandbox_session_id"]
     assert "read_chat" not in collector.tools
@@ -113,7 +113,7 @@ async def test_pin_rejects_private_artifact_and_only_accepts_file_ids(monkeypatc
     collector = ToolCollector()
     tools.register_agent_api_tools(collector, parsed)
     assert all(collector.get_tool(name) is not None for name in (
-        "bash", "write_stdin", "read_artifact", "sandbox_get_artifact", "pin_to_workspace",
+        "Bash", "write_stdin", "read_artifact", "sandbox_get_artifact", "pin_to_workspace",
     ))
     pin = collector.get_tool("pin_to_workspace")._func
     assert "file_paths" not in inspect.signature(pin).parameters
@@ -127,9 +127,9 @@ def artifact_db(tmp_path, monkeypatch):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from core.db.engine import Base
-    from core.db.models import Artifact, ChatSession, UserShadow
+    from core.db.models import Artifact, ChatSession, UserShadow, UserFolder
     engine = create_engine(f"sqlite:///{tmp_path / 'runtime.db'}")
-    Base.metadata.create_all(engine, tables=[model.__table__ for model in (Artifact, ChatSession, UserShadow)])
+    Base.metadata.create_all(engine, tables=[model.__table__ for model in (Artifact, ChatSession, UserShadow, UserFolder)])
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     with factory() as db:
@@ -280,7 +280,7 @@ async def test_generated_output_is_pinned_and_downloadable_only_with_its_key(art
     parsed = parse_api_scope(scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123")
     collector = Collector()
     register_agent_api_tools(collector, parsed)
-    saved = await collector.tools["sandbox_get_artifact"]("/workspace/output.txt")
+    saved = await collector.tools["sandbox_get_artifact"]("/workspace/new-output.txt")
     assert json.loads(saved.content[0].text)["file_id"] == "new_output"
     with workspace.scope():
         pinned = await collector.tools["pin_to_workspace"](["new_output"])

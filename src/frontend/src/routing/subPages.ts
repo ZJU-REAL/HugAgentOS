@@ -1,5 +1,5 @@
 import type { AbilityTabKey, KbTabKey, MySpaceTab } from '../types';
-import { panelFromPath, pathForPanel, subsFromPath } from './navigation';
+import { pathForPanel, subsFromPath } from './navigation';
 import { useRouteSubs } from './usePanel';
 
 /**
@@ -37,19 +37,13 @@ export function mySpaceTabFromSubs(subs: string[]): MySpaceTab {
   return first && MY_SPACE_TABS.includes(first) ? first : 'assets';
 }
 
-/** 知识库的公共 / 私有分档有两个入口：独立的 `/kb/<档>`，以及
- *  「我的空间 → 知识库」下的 `/my-space/kb/<档>`。 */
+/** Knowledge-base categories belong to My Space. */
 export function kbTabFrom(pathname?: string): KbTabKey {
-  const panel = panelFromPath(pathname);
-  const subs = subsFromPath(pathname);
-  const raw = (panel === 'my_space' ? subs[1] : subs[0]) as KbTabKey | undefined;
+  const raw = subsFromPath(pathname)[1] as KbTabKey | undefined;
   return raw && KB_TABS.includes(raw) ? raw : 'public';
 }
-
-export function pathForKbTab(tab: KbTabKey, pathname?: string): string {
-  return panelFromPath(pathname) === 'my_space'
-    ? pathForPanel('my_space', 'kb', tab)
-    : pathForPanel('kb', tab);
+export function pathForKbTab(tab: KbTabKey): string {
+  return pathForPanel('my_space', 'kb', tab);
 }
 
 export function useAbilityTab(): AbilityTabKey {

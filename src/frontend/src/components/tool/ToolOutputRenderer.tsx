@@ -421,7 +421,7 @@ export function renderToolOutputBody(
     );
   }
 
-  if (toolName === 'bash') {
+  if (toolName === 'Bash' || toolName === 'bash') {
     const data = (typeof out === 'object' && out !== null ? out : {}) as any;
     const stdout = data?.stdout || '';
     const stderr = data?.stderr || '';

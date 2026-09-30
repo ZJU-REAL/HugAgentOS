@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — model / system configuration."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -50,10 +51,10 @@ class ModelProvider(Base):
     weight = Column(Integer, nullable=False, server_default="1")
     priority = Column(Integer, nullable=False, server_default="0")
     is_active = Column(Boolean, default=True, nullable=False)
-    last_tested_at = Column(TIMESTAMP(timezone=True))
+    last_tested_at = Column(UTCDateTime(timezone=True))
     last_test_status = Column(String(20))  # success / failure / null
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     role_assignments = relationship(
@@ -87,7 +88,7 @@ class SystemConfig(Base):
     description = Column(Text)
     group_key = Column(String(50), nullable=False)
     is_secret = Column(Boolean, default=False, nullable=False)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     updated_by = Column(String(64))
 
     __table_args__ = (Index("idx_system_configs_group_key", "group_key"),)
@@ -104,7 +105,7 @@ class ModelRoleAssignment(Base):
         ForeignKey("model_providers.provider_id", ondelete="CASCADE"),
         nullable=False,
     )
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     updated_by = Column(String(64))
 
     # Relationships

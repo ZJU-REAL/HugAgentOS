@@ -1,4 +1,6 @@
 """SQLAlchemy ORM models — user agents / plans."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
@@ -6,7 +8,6 @@ from core.db.engine import Base
 from core.db.model_extensions import UserAgentEditionFields, user_agent_edition_table_args
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -74,8 +75,8 @@ class UserAgent(UserAgentEditionFields, Base):
     source_market_slug = Column(String(128))
 
     # Metadata
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     created_by = Column(String(64))
 
     # Relationships
@@ -140,9 +141,9 @@ class AgentMarketSubmission(Base):
 
     status = Column(String(16), nullable=False, default="pending")
     review_note = Column(Text)  # rejection reason / review note
-    reviewed_at = Column(TIMESTAMP(timezone=True))
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    reviewed_at = Column(UTCDateTime(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint(
@@ -171,8 +172,8 @@ class Plan(Base):
     completed_steps = Column(Integer, default=0)
     result_summary = Column(Text)
     extra_data = Column("metadata", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     steps = relationship(
         "PlanStep",
@@ -209,8 +210,8 @@ class PlanStep(Base):
     tool_calls_log = Column(JSONType, default=list)
     ai_output = Column(Text)
     error_message = Column(Text)
-    started_at = Column(TIMESTAMP(timezone=True))
-    completed_at = Column(TIMESTAMP(timezone=True))
+    started_at = Column(UTCDateTime(timezone=True))
+    completed_at = Column(UTCDateTime(timezone=True))
 
     plan = relationship("Plan", back_populates="steps")
 
@@ -250,8 +251,8 @@ class AgentLoop(Base):
     final_score = Column(Numeric)
     result_summary = Column(Text)
     extra_data = Column("metadata", JSONType, default=dict)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     iterations = relationship(
         "LoopIteration",
@@ -290,7 +291,7 @@ class LoopIteration(Base):
     tool_calls = Column(Integer, default=0)
     tokens = Column(Integer, default=0)
     decided_by = Column(String(20))  # environment / llm / fallback
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
 
     loop = relationship("AgentLoop", back_populates="iterations")
 

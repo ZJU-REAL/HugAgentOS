@@ -35,6 +35,7 @@ from ._common import (
 )
 from ._paths import (
     is_myspace_physical,
+    space_metadata,
     to_physical_path,
     validate_project_scope_path,
     validate_workspace_path,
@@ -109,6 +110,7 @@ def register_edit(
 
         from .project_source_access import current_scope_error
         from core.services.edition_workspace import write_organization_text, is_organization_path
+
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
             return resp_json(scope_error)
@@ -117,13 +119,25 @@ def register_edit(
         if is_organization_path(scope, user_id, file_path):
             from fastapi import HTTPException
             import asyncio
+
             try:
                 from core.sandbox import get_sandbox_provider
+
                 await get_sandbox_provider().ensure_user_workspace(_sess, user_id)
-                return resp_json(await asyncio.to_thread(
-                    write_organization_text, scope, user_id or "", file_path, physical, state, session_id=_sess,
-                    old_string=old_string, new_string=new_string, replace_all=replace_all,
-                ))
+                return resp_json(
+                    await asyncio.to_thread(
+                        write_organization_text,
+                        scope,
+                        user_id or "",
+                        file_path,
+                        physical,
+                        state,
+                        session_id=_sess,
+                        old_string=old_string,
+                        new_string=new_string,
+                        replace_all=replace_all,
+                    )
+                )
             except HTTPException as exc:
                 return resp_json({"error": exc.detail, "status": exc.status_code})
 
@@ -155,7 +169,7 @@ def register_edit(
                     "error": (
                         f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read 返回的"
                         "是它的**解析文本**，Edit 无法直接修改原文档（会损坏文件）。"
-                        "请改用 bash 调命令行工具处理：docx 用 python-docx 重新生成或"
+                        "请改用 Bash 调命令行工具处理：docx 用 python-docx 重新生成或"
                         "修改后另存，再写回同一 /myspace 路径。"
                     ),
                 }
@@ -278,7 +292,7 @@ def register_edit(
             state.record(physical, new_entry)
 
         # 改在 /myspace 下的文件这里不做登记：内容已经落在用户自己的目录里，
-        # core.myspace.watcher 从文件事件登记它 —— 和那里发生的任何其它写入一样。
+        # core.space_sync.personal 从文件事件登记它 —— 和那里发生的任何其它写入一样。
         diff = _make_unified_diff(file_path, current_text, new_text)
         payload: dict = {
             "ok": True,
@@ -289,7 +303,7 @@ def register_edit(
             "diff": diff,
             "old_size": len(current_bytes),
             "new_size": len(new_bytes),
-            "persistent": is_myspace_physical(physical, user_id),
+            **space_metadata(physical, user_id),
         }
         return resp_json(payload)
 
@@ -311,7 +325,7 @@ def register_edit(
         "    replace_all (`bool`): 默认 false，仅替换唯一匹配；true 则替换全部。\n\n"
         "Returns:\n"
         "    JSON: ``{ok: true, file_path, physical_path, replaced, replace_all,\n"
-        "             diff, old_size, new_size, persistent}`` 成功；\n"
+        "             diff, old_size, new_size, persistent, space_type}`` 成功；\n"
         "    ``{error: '...'}`` 失败。\n"
     )
 

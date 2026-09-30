@@ -356,7 +356,7 @@ async def publish(
     if source_dir and (src_err or not src_files):
         return success_response(data={"error": f"源码打包失败，站点未发布：{src_err or '空目录'}"})
     if team_source is not None and source_dir and dict(src_files) != dict(team_source):
-        raise HTTPException(409, "工作副本与团队源码不一致，请先通过 bash 保存修改后重新构建")
+        raise HTTPException(409, "工作副本与团队源码不一致，请先通过 Bash 保存修改后重新构建")
     if err:
         return success_response(data={"error": f"站点{err}"})
     assert files is not None

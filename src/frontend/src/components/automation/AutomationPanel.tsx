@@ -1,35 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Alert, Button, Empty, Input, Select, Tooltip, message } from 'antd';
 import {
-  PlusOutlined, LeftOutlined, RightOutlined,
-  ClockCircleOutlined, SearchOutlined, ReloadOutlined, MessageOutlined,
+  ClockCircleOutlined,
+  LeftOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  RightOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
-import { useAutomationStore } from '../../stores/automationStore';
-import { useCatalogStore } from '../../stores/catalogStore';
-import { abilitySlug } from '../../routing/subPages';
-import { useRouteSubs } from '../../routing/usePanel';
-import { useChatStore } from '../../stores/chatStore';
-import { useProjectStore } from '../../stores/projectStore';
-import { usePluginStore } from '../../stores/pluginStore';
-import { usePanelHeader } from '../../hooks/usePageConfig';
-import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+import { Alert, Button, Empty, Input, Select, Tooltip } from 'antd';
+import { AnimatePresence, motion } from 'motion/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAutomationRuns } from '../../api';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+import { usePanelHeader } from '../../hooks/usePageConfig';
+import { t } from '../../i18n';
+import { useRouteSubs } from '../../routing/usePanel';
+import { useAutomationStore } from '../../stores/automationStore';
+import '../../styles/automation.css';
 import type { AutomationRun, AutomationTask } from '../../types';
-import { EASE } from '../../utils/motionTokens';
 import { formatShortDateTime } from '../../utils/date';
-import {
-  AUTOMATION_CHAT_TEMPLATE,
-  resolveAutomationPluginReference,
-} from '../../utils/automationConversation';
+import { EASE } from '../../utils/motionTokens';
+import { startAutomationCreationInChat } from '../automation/startAutomationCreation';
 import { AutomationCard } from './AutomationCard';
 import { AutomationCreateModal } from './AutomationCreateModal';
 import { AutomationDetailPage } from './AutomationDetailPage';
 import { AutomationListSkeleton } from './AutomationSkeleton';
 import { AUTOMATION_PRESETS, type AutomationPreset } from './automationPresets';
-import { cronToHumanReadable, RUN_STATUS_CLASS, RUN_STATUS_LABEL, formatRunDuration } from './automationUtils';
-import '../../styles/automation.css';
-import { t } from '../../i18n';
+import { RUN_STATUS_CLASS, RUN_STATUS_LABEL, cronToHumanReadable, formatRunDuration } from './automationUtils';
 
 type AutomationTab = 'tasks' | 'runs';
 type SortKey = 'created_desc' | 'created_asc' | 'next_run';
@@ -38,28 +35,6 @@ type SortKey = 'created_desc' | 'created_asc' | 'next_run';
 const RUNS_DISPLAY_LIMIT = 50;
 /** 每个任务取多少条最近执行记录参与合并。 */
 const RUNS_PER_TASK = 10;
-
-/** Start a normal chat with the scheduled-task plugin referenced for the first turn. */
-async function startAutomationCreationInChat() {
-  await usePluginStore.getState().fetchInstalled(true).catch(() => {});
-  const plugin = resolveAutomationPluginReference(usePluginStore.getState().installed);
-
-  if (!plugin) {
-    message.info(t('首次通过对话创建定时任务需要安装插件，请先在能力中心 → 插件里安装后再创建'));
-    useCatalogStore.getState().setPanel('ability_center', abilitySlug('plugins'));
-    return;
-  }
-
-  const chat = useChatStore.getState();
-  const project = useProjectStore.getState().currentProject;
-  chat.newChat();
-  if (project) {
-    chat.bindChatProject(useChatStore.getState().currentChatId, project.project_id, project.name);
-  }
-  chat.setInput(AUTOMATION_CHAT_TEMPLATE);
-  chat.setActivePlugin(plugin);
-  useCatalogStore.getState().setPanel('chat');
-}
 
 /** 执行记录列表项：run 本身不带任务名，聚合展示时要把所属任务带上。 */
 interface AggregatedRun extends AutomationRun {
@@ -89,9 +64,6 @@ export function AutomationPanel() {
   const [sortKey, setSortKey] = useState<SortKey>('created_desc');
   const [pendingPreset, setPendingPreset] = useState<AutomationPreset | null>(null);
 
-  useEffect(() => {
-    void fetchTasks();
-  }, [fetchTasks]);
 
   const showListSkeleton = useDelayedFlag(loading && tasks.length === 0);
 
@@ -433,7 +405,7 @@ function RunsTab({ tasks, onOpenTask }: { tasks: AutomationTask[]; onOpenTask: (
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskSig]);
 
   useEffect(() => {

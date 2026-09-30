@@ -8,11 +8,25 @@ from fastapi import HTTPException
 from core.llm.tools._common import resp_json
 
 
-def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str, local_path=None, allow_write=True):
+def project_instruction_path(project_ctx: dict) -> str:
+    """Resolve the displayed and governed root file for this project."""
+    if project_ctx.get("project_is_local"):
+        root = project_ctx.get("project_local_path")
+        return f"{root.rstrip('/')}/AGENTS.md" if root else ""
+    from core.services.edition_workspace import context_directory
+
+    directory = context_directory(project_ctx)
+    if directory:
+        return f"{directory.removeprefix('/workspace').rstrip('/')}/AGENTS.md"
+    folder = project_ctx.get("project_folder_name")
+    return f"/myspace/{folder}/AGENTS.md" if folder else ""
+
+
+def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str, local_path=None, instruction_path=None, allow_write=True):
     from core.llm.tool_permissions import READ, WRITE, local_path_tool
     from core.llm.tools._myspace_confirm import OP_EDIT
 
-    target = f"{local_path.rstrip('/')}/AGENTS.md" if local_path else "/myspace/AGENTS.md"
+    target = instruction_path or (f"{local_path.rstrip('/')}/AGENTS.md" if local_path else "/myspace/AGENTS.md")
 
     def operate(content=None, revision=None):
         from core.auth.permissions_iface import resolve_project_permission
@@ -22,7 +36,7 @@ def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str
 
         if content is None:
             from core.services.project_instructions import read_authorized_project_instructions
-            return {"ok": True, "path": "AGENTS.md", **read_authorized_project_instructions(project_id, user_id)}
+            return {"ok": True, "path": target, **read_authorized_project_instructions(project_id, user_id)}
 
         with SessionLocal() as db:
             project = db.query(Project).filter(
@@ -36,7 +50,7 @@ def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str
                     raise HTTPException(409, "先调用 read_project_instructions 获取最新 revision")
                 service.write(project, user_id, content, expected_revision=revision)
                 db.commit()
-            return {"ok": True, "path": "AGENTS.md", **service.read(project)}
+            return {"ok": True, "path": target, **service.read(project)}
 
     async def read_project_instructions():
         """读取当前项目根 AGENTS.md 的最新持久内容及 instructions_revision。

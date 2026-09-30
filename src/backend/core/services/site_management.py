@@ -1,6 +1,7 @@
 """Site management, access, KV and form operations."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import re
 from datetime import datetime
@@ -102,7 +103,7 @@ class SiteManagementMixin:
         meta["last_rollback"] = {
             "from": site.current_version,
             "to": version,
-            "at": datetime.utcnow().isoformat(),
+            "at": utc_now().isoformat(),
         }
         return self.repo.update(
             site.site_id,
@@ -240,7 +241,7 @@ class SiteManagementMixin:
         from core.artifacts.store import save_artifact_bytes
         from core.services.artifact_service import ArtifactService
 
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = utc_now().strftime("%Y%m%d_%H%M%S")
         filename = f"{site.title}_表单数据_{ts}.csv"
         item = save_artifact_bytes(
             content=content,

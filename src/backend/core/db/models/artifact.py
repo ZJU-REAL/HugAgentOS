@@ -1,4 +1,6 @@
 """SQLAlchemy ORM models — artifacts / content blocks."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
@@ -6,7 +8,6 @@ from core.db.engine import Base
 from core.db.model_extensions import ArtifactEditionFields, artifact_edition_table_args
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -52,11 +53,11 @@ class Artifact(ArtifactEditionFields, Base):
     # Lazy caches for cross-turn file reading (populated by core/content/artifact_reader.py)
     parsed_text = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
-    parsed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    parsed_at = Column(UTCDateTime(timezone=True), nullable=True)
     parse_error = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     # Relationships
     user = relationship("UserShadow", back_populates="artifacts")
@@ -86,7 +87,8 @@ class ContentBlock(Base):
 
     __tablename__ = "content_blocks"
 
-    id = Column(String(64), primary_key=True)  # e.g. 'docs_updates', 'docs_capabilities'
+    # Capability snapshots and receipts use a namespace plus a full SHA-256 digest.
+    id = Column(String(128), primary_key=True)
     payload = Column(JSONType, nullable=False, default=[])
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     updated_by = Column(String(64), nullable=True)

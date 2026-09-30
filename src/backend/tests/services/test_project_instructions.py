@@ -295,14 +295,16 @@ def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(en
 
 
 @pytest.mark.asyncio
-async def test_team_initialization_tool_and_viewer_denial(env):
+async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     # EE-only scenario; the common tests above also run in the derived CE tree.
     import core.db.models as models
     if not hasattr(models, 'Team'):
         pytest.skip("EE organization project")
     from core.db.models import Team, TeamMember
     from core.llm.tool_collector import ToolCollector
-    from core.llm.tools.project_instructions_tool import register_project_instruction_tools
+    from core.llm.tools.project_instructions_tool import project_instruction_path, register_project_instruction_tools
+    from core.llm.tool_permissions import PermissionRuntime
+    from core.services.project_scope import project_scope_from_context
 
     db, _ = env
     db.add(Team(team_id="team", name="Team", owner_user_id="alice", source="manual"))
@@ -316,12 +318,28 @@ async def test_team_initialization_tool_and_viewer_denial(env):
     with pytest.raises(HTTPException) as err:
         resolve_project_init(db, denied, "bob")
     assert err.value.status_code == 403
+    ctx = build_project_ctx(db, p.project_id)
+    target = project_instruction_path(ctx)
+    assert target.startswith("/teamspace/team/")
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     collector = ToolCollector()
-    register_project_instruction_tools(collector, project_id=p.project_id, user_id="alice")
+    register_project_instruction_tools(
+        collector, project_id=p.project_id, user_id="alice", instruction_path=target,
+    )
+    runtime = PermissionRuntime(
+        chat_id="team-chat", user_id="alice", interactive=True, approval_available=True,
+        project_scope=project_scope_from_context(ctx),
+    )
+    for tool_name in ("read_project_instructions", "save_project_instructions"):
+        intents = collector.permission_specs[tool_name].resolver({}, runtime)
+        assert intents[0].target == "/workspace" + target
+        assert all(intent.domain != "myspace" for intent in intents)
     read = collector.get_tool("read_project_instructions")._func
     save = collector.get_tool("save_project_instructions")._func
     snapshot = json.loads((await read()).content[0].text)
+    assert snapshot["path"] == target
     result = json.loads((await save("Shared project rules", snapshot["instructions_revision"])).content[0].text)
+    assert result["path"] == target
     assert result["ok"] is True
     db.expire_all()
     assert ProjectService(db).get(p.project_id, "bob")["instructions"] == "Shared project rules"

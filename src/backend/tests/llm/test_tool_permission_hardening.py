@@ -51,9 +51,9 @@ def _tool_call(name: str, arguments: dict) -> ToolCallBlock:
     [
         ("Write", "file_path"),
         ("Edit", "file_path"),
-        ("Delete", "path"),
-        ("Move", "src_path"),
-        ("CreateFolder", "path"),
+        ("space_delete", "path"),
+        ("space_move", "src_path"),
+        ("space_create_folder", "path"),
     ],
 )
 def test_physical_myspace_path_still_requires_the_myspace_confirmation(tool_name, path_arg):
@@ -193,7 +193,7 @@ async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
     exists in local mode, which is where these entry points meet host commands.
     """
     registry = ToolPermissionRegistry()
-    registry.register("bash", builtin_tool_permission("bash"), source="native")
+    registry.register("Bash", builtin_tool_permission("Bash"), source="native")
     service = ToolPermissionService(
         registry,
         _runtime(
@@ -204,7 +204,7 @@ async def test_trusted_unattended_run_issues_a_confined_builtin_bash_ticket():
     )
 
     with patch("core.config.local_mode.local_mode_enabled", return_value=True):
-        outcome = await service.authorize(_tool_call("bash", {"command": "touch /tmp/x"}))
+        outcome = await service.authorize(_tool_call("Bash", {"command": "touch /tmp/x"}))
 
     assert outcome.proceed is True
     assert outcome.ticket is not None

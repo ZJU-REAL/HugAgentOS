@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/date';
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Checkbox, Empty, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
@@ -26,7 +27,7 @@ const EXPIRY_OPTIONS: { label: string; value: number | 'never' }[] = [
 function fmtDate(s?: string | null): string {
   if (!s) return '—';
   try {
-    return new Date(s).toLocaleString('zh-CN', { hour12: false });
+    return formatDateTime(s);
   } catch {
     return s;
   }

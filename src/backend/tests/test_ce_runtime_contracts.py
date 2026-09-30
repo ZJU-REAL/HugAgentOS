@@ -49,7 +49,7 @@ def test_ce_runtime_sources_have_no_commercial_symbols():
     pattern = re.compile(
         r"\b(?:TeamMember|TeamFolder|team_id|team_folder_id|"
         r"linked_team_folder_id|share_scope|grant_team_ids|team_read|team_edit|"
-        r"list_team_files|stage_team_file|resolve_team_file_permission|"
+        r"space_list_team_files|stage_team_file|resolve_team_file_permission|"
         r"require_team_file_permission|team_cache_dir|team_folders)\b|"
         r"/v1/(?:me/teams|my-teams|teams)(?:/|\b)|\bkind=team\b"
     )

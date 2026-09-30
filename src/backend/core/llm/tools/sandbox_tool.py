@@ -1,6 +1,6 @@
-"""Sandbox-backed agent tools: ``bash`` + artifact staging.
+"""Sandbox-backed agent tools: ``Bash`` + artifact staging.
 
-- ``bash``: run a shell command inside the per-chat sandbox container.
+- ``Bash``: run a shell command inside the per-chat sandbox container.
 - ``sandbox_put_artifact``: copy an existing artifact's bytes into the sandbox.
 - ``sandbox_get_artifact``: read a sandbox file and register it as a
   downloadable artifact.
@@ -52,18 +52,19 @@ def _detect_dws_pat_authorization(exit_code: int, stdout: str, stderr: str) -> O
 
 
 async def _pull_myspace_updates(user_id: str) -> None:
-    """执行 bash 前把「我的空间」的最新状态落进镜像目录，命令看到的就是用户当下的文件。
+    """执行 Bash 前把「我的空间」的最新状态落进镜像目录，命令看到的就是用户当下的文件。
 
     界面上的上传、改名、删除只动 artifact 记录，不碰镜像目录；不补这一步，``ls /myspace``
     看到的就是过期视图 —— 用户刚传的看不见，刚删的还在。bind mount 下写进镜像即刻对沙箱
     可见，其余 provider 由各自的按需物化路径兜底。
     """
-    from core.myspace import mirror as _mm
-
+    from core.myspace.projection import pull_myspace_updates
     try:
-        await asyncio.to_thread(_mm.pull_myspace_updates, user_id=user_id)
-    except Exception as exc:  # noqa: BLE001 — 正向同步失败不该拦住命令本身
-        logger.warning("[bash.myspace-sync] 正向同步失败（不影响执行）: %s", exc)
+        report = await asyncio.to_thread(pull_myspace_updates, user_id=user_id)
+        if report.failed:
+            logger.warning("[myspace] 部分文件等待下次同步 user=%s count=%d", user_id, report.failed)
+    except Exception as exc:
+        logger.warning("[myspace] 本次同步未完成 user=%s error=%s", user_id, type(exc).__name__)
 
 
 def register_bash(
@@ -76,19 +77,19 @@ def register_bash(
     user_id: Optional[str] = None,
     scope: Any = None,
 ) -> None:
-    """Register the generic ``bash`` tool.
+    """Register the generic ``Bash`` tool.
 
     Skill files — built-in and DB/admin-imported alike — are exposed read-only at
     the one path ``/workspace/skills/<id>`` (see
     ``opensandbox_provider._make_skills_volumes`` + ``config.get_sandbox_skills_dir``):
     what is bound there is the **caller's own skill view**, holding the shared
     skills plus that user's private ones, so no one sees another user's skill
-    files. This registration just sets up the bash tool itself; ``loader`` /
+    files. This registration just sets up the Bash tool itself; ``loader`` /
     ``loaded_skill_ids`` are kept for backward compat with existing callers.
 
     The sandbox session is bound to ``chat_id`` so OpenSandbox keeps a single
     persistent container per conversation (variables, pip packages, /workspace
-    files all persist between bash calls). script_runner uses the same identity
+    files all persist between Bash calls). script_runner uses the same identity
     to select a session-scoped workspace inside its sidecar.
     """
     if os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() != "true":
@@ -99,7 +100,7 @@ def register_bash(
     from core.llm.evaluation_runtime import is_evaluation_session
     _evaluation = is_evaluation_session(_sess)
 
-    async def bash(
+    async def Bash(
         command: str, timeout: int | None = None, yield_time_ms: int = 60000,
     ) -> ToolResponse:
         from core.sandbox import ProcessRequest as _ProcessRequest
@@ -191,13 +192,12 @@ def register_bash(
             ),
         )
         # 把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件。反方向
-        # （命令写了什么、删了什么）不在这里判断：那由 core.myspace.watcher 从文件
+        # （命令写了什么、删了什么）不在这里判断：那由 core.space_sync.personal 从文件
         # 事件登记，命令返回之后才落盘的后台进程也一样收得到。
-        if user_id and not _evaluation:
-            await _pull_myspace_updates(user_id)
-
         from fastapi import HTTPException
         try:
+            if user_id and not _evaluation:
+                await _pull_myspace_updates(user_id)
             payload = await provider.start_process(req, yield_time_ms=yield_time_ms)
         except HTTPException as exc:
             return _resp_json({"error": exc.detail, "status": exc.status_code})
@@ -235,7 +235,7 @@ def register_bash(
                 payload["source_saved"] = False
 
         # 沙箱的 /myspace 不在本机时（script_runner / cube），把它的现状搬进镜像目录，
-        # 之后的判定与登记由 core.myspace.watcher 按同一套判据完成。bind mount 下这里
+        # 之后的判定与登记由 core.space_sync.personal 按同一套判据完成。bind mount 下这里
         # 直接返回 —— 沙箱写的就是镜像目录本身。
         if user_id and not _evaluation:
             from core.myspace.sandbox_sync import reflect_sandbox_myspace
@@ -267,10 +267,10 @@ def register_bash(
         rules.bash_workspace_instructions(WORKSPACE_ROOT, _sess, scope=scope)
         if rules is desktop_paths else rules.bash_workspace_instructions(WORKSPACE_ROOT, _sess)
     )
-    bash.__doc__ = instructions + (
+    Bash.__doc__ = instructions + (
         "Args:\n"
         "    command (`str`): 完整 shell 命令字符串。可以包含管道、重定向、\n"
-        "        here-doc、命令链 (&&, ;, ||) 等任意 bash 语法。\n"
+        "        here-doc、命令链 (&&, ;, ||) 等任意 Bash 语法。\n"
         "    yield_time_ms (`int`): 首次等待毫秒数，默认 60000，范围 250–60000。等待到期不会杀进程。\n"
         "    timeout (`int`, 可选): 显式命令执行期限（秒）。默认不设置；不再有 120 秒硬上限。\n\n"
         "Returns:\n"
@@ -281,12 +281,12 @@ def register_bash(
     )
 
     from core.services.edition_workspace import command_instructions
-    bash.__doc__ += command_instructions(scope)
+    Bash.__doc__ += command_instructions(scope)
 
     write_stdin.__doc__ = (
-        "继续等待 bash 返回的进程会话，读取新增输出；不会重新执行命令。\n\n"
+        "继续等待 Bash 返回的进程会话，读取新增输出；不会重新执行命令。\n\n"
         "Args:\n"
-        "    session_id (`str`): bash 返回的进程会话 ID，不是对话 ID。\n"
+        "    session_id (`str`): Bash 返回的进程会话 ID，不是对话 ID。\n"
         "    chars (`str`): 空字符串表示等待；\\u0003 表示 Ctrl+C 中断。非 PTY 模式不接受其它输入。\n"
         "    yield_time_ms (`int`): 最多等待毫秒数，默认 60000，上限 300000。等待到期不杀进程。\n\n"
         "Returns:\n"
@@ -294,35 +294,10 @@ def register_bash(
         "    running 表示继续运行；exited 时检查 exit_code 和 error。\n"
     )
     toolkit.register_tool_function(write_stdin, namesake_strategy="override")
-    toolkit.register_tool_function(bash, namesake_strategy="override")
-
-    # Lab-mode tool family is Title-cased (``Read`` / ``Edit`` / ``Write`` /
-    # ``Glob`` / ``Grep`` / ``Delete`` / ``Move`` / ``CreateFolder``). Models
-    # trained on the Claude Code convention pattern-match the rest of that
-    # family and call ``Bash`` (capital B) — we observed this in live runs
-    # (chat_5639ac31661543c7: model emitted ``Bash`` → FunctionNotFoundError,
-    # then fell back to ``excel_create_workbook`` for a PPT request). Register
-    # an alias under the upper-cased name so either form resolves to the same
-    # sandbox executor.
-    # The alias carries a one-line description rather than a copy of ``bash``'s:
-    # the full text is ~950 chars of schema that would be prefilled twice on
-    # every request against a gateway without prefix caching, and repeating the
-    # guidance under two names also invites the model to treat them as two
-    # different tools. The name is the whole point of this registration.
-    async def Bash(
-        command: str, timeout: int | None = None, yield_time_ms: int = 60000,
-    ) -> ToolResponse:  # noqa: N802
-        return await bash(command=command, timeout=timeout, yield_time_ms=yield_time_ms)
-
-    Bash.__doc__ = (
-        "Alias of `bash` — identical behaviour and arguments. Prefer `bash`.\n\n"
-        "Args:\n"
-        "    command (`str`): 完整 shell 命令字符串。\n"
-        "    timeout (`int`, 可选): 命令执行期限秒数，默认不设。\n"
-        "    yield_time_ms (`int`): 首次等待毫秒数，默认 60000。\n"
-    )
     toolkit.register_tool_function(Bash, namesake_strategy="override")
-    logger.info("[factory] Registered bash tool (chat_id=%s) [alias: Bash]", chat_id)
+
+    logger.info("[factory] Registered Bash tool (chat_id=%s)", chat_id)
+
 
 
 from .sandbox_artifact_tools import register_sandbox_put_artifact, register_sandbox_get_artifact

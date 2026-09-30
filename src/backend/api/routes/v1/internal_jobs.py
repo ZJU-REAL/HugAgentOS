@@ -19,12 +19,12 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 from core.db.engine import SessionLocal
 from core.infra.responses import success_response
 from core.services.job_service import JobService
+from fastapi import APIRouter, Header, HTTPException
+
+from .job_callback_session import callback_session
 
 logger = logging.getLogger(__name__)
 
@@ -47,44 +47,7 @@ def _gate(job_id: str, concurrency: int) -> asyncio.Semaphore:
 # ── 请求体 ────────────────────────────────────────────────────────────
 
 
-class AgentBody(BaseModel):
-    # 字段名叫 schema_ 是为了避开 BaseModel 的保留名，对外仍是 "schema"
-    model_config = ConfigDict(populate_by_name=True)
-
-    prompt: str = ""
-    schema_: Optional[Dict[str, Any]] = Field(default=None, alias="schema")
-    tools: List[str] = []
-    model: Optional[str] = None
-    max_attempts: int = 2
-    # 必须收 int：业务主键十有八九是行号/序号，脚本自然会写 item_key=it["seq"]。
-    # Pydantic v2 不做 int→str 强转，只声明 str 会让整轮作业被 422 挡在门外——
-    # 事故里 568 项全军覆没、模型一次都没被调用，就是这个类型洁癖的代价。
-    item_key: Optional[Union[str, int]] = None
-
-    @field_validator("item_key")
-    @classmethod
-    def _key_to_str(cls, v: Optional[Union[str, int]]) -> Optional[str]:
-        return None if v is None or v == "" else str(v)
-
-
-class LedgerBody(BaseModel):
-    op: str
-    items: Optional[List[Dict[str, Any]]] = None
-    # 同 AgentBody.item_key：主键常常是整数序号，别让类型把回写挡在门外
-    key: Optional[Union[str, int]] = None
-    status: Optional[str] = None
-    limit: Optional[int] = None
-    result: Optional[Any] = None
-    review: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    bump_attempts: bool = False
-
-
-class LogBody(BaseModel):
-    message: Optional[str] = None
-    lifecycle: Optional[str] = None
-    error: Optional[str] = None
-
+from .job_schemas import AgentBody, LedgerBody, LogBody
 
 # ── 鉴权 ──────────────────────────────────────────────────────────────
 
@@ -311,10 +274,10 @@ async def job_agent(
     # 覆盖它（顺序天然如此），进度条与中途唤醒因此永远有真实分母。
     if body.item_key:
         try:
-            with SessionLocal() as db:
-                JobService(db).update_item(
-                    job_id, body.item_key, status="running", bump_attempts=True
-                )
+            with callback_session(job_id, x_job_token) as svc:
+                svc.update_item(job_id, body.item_key, status="running", bump_attempts=True)
+        except HTTPException:
+            raise
         except Exception:  # noqa: BLE001 —— 落账失败绝不能挡住真正的作业
             logger.warning("[job-agent] job=%s pre-mark failed key=%s", job_id, body.item_key)
 
@@ -322,6 +285,7 @@ async def job_agent(
     infra_failed = False
     async with _GLOBAL_GATE, gate:
         for i in range(attempts):
+            _auth(job_id, x_job_token)  # Queued callbacks must recheck cancellation.
             try:
                 from core.services.run_journal import durable_run_binding
 
@@ -390,8 +354,7 @@ async def job_agent(
         if ok
         else ("工具不可用/配额/超时，本项未取得证据" if infra_failed else "结构化输出解析失败")
     )
-    with SessionLocal() as db:
-        svc = JobService(db)
+    with callback_session(job_id, x_job_token) as svc:
         svc.add_usage(job_id, calls=1)
         svc.record_call(
             job_id,
@@ -440,8 +403,8 @@ def job_ledger(
     _auth(job_id, x_job_token)
     op = (body.op or "").strip()
 
-    with SessionLocal() as db:
-        svc = JobService(db)
+    with callback_session(job_id, x_job_token) as svc:
+        db = svc.db
         if op == "seed":
             return success_response(data=svc.seed(job_id, body.items or []))
         if op == "pending":
@@ -492,8 +455,7 @@ def job_log(
     ctx = _auth(job_id, x_job_token)
 
     if body.lifecycle:
-        with SessionLocal() as db:
-            svc = JobService(db)
+        with callback_session(job_id, x_job_token) as svc:
             if body.lifecycle == "running":
                 svc.mark_running(job_id)
             elif body.lifecycle in ("completed", "failed"):
@@ -504,7 +466,7 @@ def job_log(
     if msg:
         logger.info("[job %s] %s", job_id, msg[:500])
         try:
-            from orchestration.job_runtime import _emit_progress
+            from orchestration.jobs.notifications import _emit_progress
 
             _emit_progress(ctx["chat_id"], msg[:200])
         except Exception:  # noqa: BLE001

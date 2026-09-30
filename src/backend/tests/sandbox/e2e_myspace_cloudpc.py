@@ -110,11 +110,9 @@ async def main() -> None:
     from core.db.models import Artifact, UserFolder
     from core.llm.tools import (
         ReadStateTracker,
-        register_delete,
         register_edit,
         register_glob,
         register_grep,
-        register_move,
         register_read,
         register_write,
     )
@@ -126,12 +124,13 @@ async def main() -> None:
     register_read(tk, state=st, **kw)
     register_edit(tk, state=st, **kw)
     register_write(tk, state=st, **kw)
+    from core.llm.tools.fileops_tool import register_delete, register_move
     register_delete(tk, state=st, **kw)
     register_move(tk, state=st, **kw)
     register_glob(tk, **kw)
     register_grep(tk, **kw)
     Read, Edit, Write = tk.fns["Read"], tk.fns["Edit"], tk.fns["Write"]
-    Delete, Move = tk.fns["Delete"], tk.fns["Move"]
+    Delete, Move = tk.fns["space_delete"], tk.fns["space_move"]
     Glob, Grep = tk.fns["Glob"], tk.fns["Grep"]
 
     created_storage_keys: list[str] = []

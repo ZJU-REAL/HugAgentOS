@@ -15,11 +15,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from core.db.models import Job, JobCall, JobItem
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-
-from core.db.models import Job, JobCall, JobItem
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +54,15 @@ def _same(a: str, b: str) -> bool:
 
 
 class JobService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, commit: bool = True) -> None:
         self.db = db
+        self.autocommit = commit
+
+    def _commit(self):
+        if self.autocommit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     # ── 生命周期 ──────────────────────────────────────────────────────
 
@@ -93,19 +99,22 @@ class JobService:
             extra_data={"token": mint_token(), "start_params": start_params or {}},
         )
         self.db.add(job)
-        self.db.commit()
+        self._commit()
         self.db.refresh(job)
         return job
 
-    def get(self, job_id: str) -> Optional[Job]:
-        return self.db.query(Job).filter(Job.job_id == job_id).first()
+    def get(self, job_id: str, *, lock=False) -> Optional[Job]:
+        query = self.db.query(Job).filter(Job.job_id == job_id)
+        if lock:
+            query = query.with_for_update().populate_existing()
+        return query.first()
 
-    def verify_token(self, job_id: str, token: str) -> Optional[Job]:
+    def verify_token(self, job_id: str, token: str, *, lock=False) -> Optional[Job]:
         """回调鉴权：token 匹配且 job 未进终态才放行。"""
-        job = self.get(job_id)
+        job = self.get(job_id, lock=lock)
         if job is None:
             return None
-        if job.status in ("completed", "failed", "cancelled"):
+        if job.status not in ("pending", "running"):
             return None
         stored = str((job.extra_data or {}).get("token") or "")
         if not stored or not _same(stored, token):
@@ -113,15 +122,15 @@ class JobService:
         return job
 
     def mark_running(self, job_id: str) -> None:
-        job = self.get(job_id)
+        job = self.get(job_id, lock=True)
         if job is None or job.status not in ("pending", "interrupted", "paused"):
             return
         job.status = "running"
         job.started_at = job.started_at or _utcnow()
-        self.db.commit()
+        self._commit()
 
     def finish(self, job_id: str, status: str, *, error: Optional[str] = None) -> None:
-        job = self.get(job_id)
+        job = self.get(job_id, lock=True)
         if job is None or job.status in ("completed", "failed", "cancelled"):
             return
         # 「脚本退出码 0」≠「作业成功」。台账建了却一项没结算，说明这一趟压根没干成活
@@ -151,11 +160,11 @@ class JobService:
         meta.pop("token", None)
         job.extra_data = meta
         flag_modified(job, "extra_data")
-        self.db.commit()
+        self._commit()
 
     def set_wake_on_finish(self, job_id: str, value: bool = True) -> None:
         """作业从前台等待转入后台时打开唤醒标记，让终态回来叫醒会话播报。"""
-        job = self.get(job_id)
+        job = self.get(job_id, lock=True)
         if job is None:
             return
         meta = dict(job.extra_data or {})
@@ -166,11 +175,11 @@ class JobService:
         meta["start_params"] = params
         job.extra_data = meta
         flag_modified(job, "extra_data")
-        self.db.commit()
+        self._commit()
 
     def rotate_token(self, job_id: str) -> Optional[str]:
         """resume 时换发新 token（旧 token 已在 finish 时销毁）。"""
-        job = self.get(job_id)
+        job = self.get(job_id, lock=True)
         if job is None:
             return None
         token = mint_token()
@@ -178,7 +187,7 @@ class JobService:
         meta["token"] = token
         job.extra_data = meta
         flag_modified(job, "extra_data")
-        self.db.commit()
+        self._commit()
         return token
 
     # ── 台账 ─────────────────────────────────────────────────────────
@@ -207,7 +216,7 @@ class JobService:
             )
             existing.add(key)
             created += 1
-        self.db.commit()
+        self._commit()
         return {"created": created, "skipped": len(items) - created}
 
     def pending(
@@ -263,7 +272,7 @@ class JobService:
         if bump_attempts:
             row.attempts = (row.attempts or 0) + 1
         row.updated_at = _utcnow()
-        self.db.commit()
+        self._commit()
         return True
 
     def stats(self, job_id: str) -> Dict[str, int]:
@@ -316,7 +325,7 @@ class JobService:
         }
 
     def add_usage(self, job_id: str, *, calls: int = 0, tokens: int = 0) -> None:
-        job = self.get(job_id)
+        job = self.get(job_id, lock=True)
         if job is None:
             return
         usage = dict(job.usage or {})
@@ -324,7 +333,7 @@ class JobService:
         usage["tokens"] = int(usage.get("tokens", 0)) + int(tokens)
         job.usage = usage
         flag_modified(job, "usage")
-        self.db.commit()
+        self._commit()
 
     def record_call(
         self,
@@ -356,4 +365,4 @@ class JobService:
                 error=(error or "")[:4000] or None,
             )
         )
-        self.db.commit()
+        self._commit()

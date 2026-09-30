@@ -390,7 +390,6 @@ def _write_skill_call_sync(record: Dict[str, Any]) -> None:
 # Note: Read/Grep/Glob are attributed to the "current sandbox" when there is an
 # active sandbox session; details carry the actual path/pattern for tracing.
 _SANDBOX_TOOL_NAMES = {
-    "bash",
     "Bash",
     "sandbox_put_artifact",
     "sandbox_get_artifact",
@@ -419,7 +418,6 @@ async def _resolve_sandbox_id(session_id: Optional[str]) -> Optional[str]:
 # Sandbox tool → security audit action name. Audits let the security admin
 # console trace by sandbox instance, independent of tool-call logging.
 _SANDBOX_AUDIT_ACTIONS = {
-    "bash": "sandbox.bash.exec",
     "Bash": "sandbox.bash.exec",
     "sandbox_put_artifact": "sandbox.artifact.put",
     "sandbox_get_artifact": "sandbox.artifact.get",

@@ -166,10 +166,9 @@ def resolve_explicit_runtime_capabilities(
 ) -> Tuple[List[str], List[str], List[str], List[str]]:
     """Resolve capabilities that may be summoned explicitly for one turn.
 
-    A user's catalog override controls default assembly and discovery, not an
-    explicit ``/`` or ``+`` selection. The global/admin state remains a hard
-    boundary: disabled or dependency-blocked public capabilities cannot be
-    resurrected, and private capabilities are eligible only for their owner.
+    An installed public or user-owned capability may be summoned even when its
+    global or personal enabled switch is off. Missing installations, foreign
+    private capabilities, and dependency-blocked skills remain unavailable.
 
     Returns ``(allowed_skills, allowed_mcps, unavailable_skills,
     unavailable_mcps)`` while preserving request order.
@@ -189,49 +188,59 @@ def resolve_explicit_runtime_capabilities(
     if not requested_skills and not requested_mcps:
         return [], [], [], []
 
+    # Explicit invocation is an opt-in for this turn. Installation and ownership
+    # are the grants; enabled switches only govern ambient/default assembly.
     base_catalog = get_runtime_catalog(db, include_runtime_details=False)
     allowed_skill_ids = {
         str(item.get("id") or "").strip()
         for item in (base_catalog.get("skills") or [])
-        if isinstance(item, dict) and bool(item.get("enabled", True))
+        if isinstance(item, dict)
     }
     allowed_mcp_ids = {
         str(item.get("id") or "").strip()
         for item in (base_catalog.get("mcp") or [])
-        if isinstance(item, dict) and bool(item.get("enabled", True))
+        if isinstance(item, dict)
     }
 
-    # Private capabilities are deliberately absent from the global runtime
-    # catalog. Their persisted global/readiness state is still authoritative;
-    # only the per-user override is ignored for this explicit turn.
     from core.db.models import AdminMcpServer, AdminSkill
 
-    unresolved_skills = [sid for sid in requested_skills if sid not in allowed_skill_ids]
-    if unresolved_skills:
-        owned_rows = (
-            db.query(AdminSkill.skill_id)
-            .filter(
-                AdminSkill.skill_id.in_(unresolved_skills),
-                AdminSkill.owner_user_id == user_id,
-                AdminSkill.is_enabled.is_(True),
-                AdminSkill.dep_status == "ready",
-            )
+    if requested_skills:
+        for sid, owner, dep_status in (
+            db.query(AdminSkill.skill_id, AdminSkill.owner_user_id, AdminSkill.dep_status)
+            .filter(AdminSkill.skill_id.in_(requested_skills))
             .all()
-        )
-        allowed_skill_ids.update(str(row[0]) for row in owned_rows if row[0])
+        ):
+            if owner in (None, user_id) and dep_status == "ready":
+                allowed_skill_ids.add(sid)
+            else:
+                allowed_skill_ids.discard(sid)
 
-    unresolved_mcps = [mid for mid in requested_mcps if mid not in allowed_mcp_ids]
-    if unresolved_mcps:
-        owned_rows = (
-            db.query(AdminMcpServer.server_id)
+    if requested_mcps:
+        for mid, owner in (
+            db.query(AdminMcpServer.server_id, AdminMcpServer.owner_user_id)
+            .filter(AdminMcpServer.server_id.in_(requested_mcps))
+            .all()
+        ):
+            if owner in (None, user_id):
+                allowed_mcp_ids.add(mid)
+            else:
+                allowed_mcp_ids.discard(mid)
+
+    # A suspended marketplace installation is no longer an active grant.
+    # Its admin row remains for recovery, so existence alone must not revive it.
+    if requested_mcps:
+        from core.db.models import McpMarketInstallation
+
+        suspended_ids = {
+            row[0]
+            for row in db.query(McpMarketInstallation.server_id)
             .filter(
-                AdminMcpServer.server_id.in_(unresolved_mcps),
-                AdminMcpServer.owner_user_id == user_id,
-                AdminMcpServer.is_enabled.is_(True),
+                McpMarketInstallation.server_id.in_(requested_mcps),
+                McpMarketInstallation.status == "suspended",
             )
             .all()
-        )
-        allowed_mcp_ids.update(str(row[0]) for row in owned_rows if row[0])
+        }
+        allowed_mcp_ids.difference_update(suspended_ids)
 
     from core.capabilities.paths import capabilities_enabled
     if capabilities_enabled():

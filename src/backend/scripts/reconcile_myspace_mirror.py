@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """一次性对账：把沙箱镜像目录与「我的空间」拉回一致。
 
-背景见 ``core/myspace/mirror.py``。日常登记由 ``core/myspace/watcher.py`` 按文件事件
+背景见 ``core/myspace/mirror.py``。日常登记由 ``core/space_sync/personal.py`` 按文件事件
 完成，本脚本是人工兜底，用来处理它按设计不碰的那类欠账：
 
 - **该显示没显示**：沙箱写在 ``/myspace`` 下的文件没有 artifact 记录，用户在界面上看不见，
@@ -58,10 +58,10 @@ def main() -> int:
     if not users:
         ap.error("至少要给 --user <uid> 或 --all")
 
-    from core.myspace import mirror as mm
+    from core.myspace import mirror as mm, reconciliation as rc, projection as pr
 
     for uid in users:
-        changes = mm.collect_mirror_changes(user_id=uid)
+        changes = rc.collect_mirror_changes(user_id=uid)
         print(
             f"[{uid}] 镜像 {changes.scanned} 个文件："
             f"待登记 {len(changes.new)}、改动待确认 {len(changes.modified)}、"
@@ -76,16 +76,15 @@ def main() -> int:
         if args.dry_run:
             continue
         # 先清残留（正向），再登记新文件：顺序反了会把刚清掉的又登记回去
-        mm.reset_pull_cursor(uid)
-        pull = mm.pull_myspace_updates(user_id=uid)
-        fresh = mm.collect_mirror_changes(user_id=uid)
+        pull = pr.pull_myspace_updates(user_id=uid)
+        fresh = rc.collect_mirror_changes(user_id=uid)
         refs = [
             ref
             for entry in fresh.new
             if (ref := mm.register_entry(user_id=uid, entry=entry))
         ]
         pruned = (
-            mm.prune_stale(user_id=uid, entries=changes.stale) if args.prune_stale else 0
+            rc.prune_stale(user_id=uid, entries=changes.stale) if args.prune_stale else 0
         )
         print(
             f"[{uid}] 执行完成：登记 {len(refs)}，镜像物化 {pull.materialized}，"

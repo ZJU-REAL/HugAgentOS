@@ -83,7 +83,7 @@ def test_hint_states_the_real_wait_default(hint: str):
 
 def test_hint_progress_interval_matches_runtime(hint: str):
     """提示段里的唤醒间隔必须等于 job_runtime 的真值（曾漂移成 15 分钟）。"""
-    seconds = _module_constant("orchestration/job_runtime.py", "_PROGRESS_WAKE_EVERY_S")
+    seconds = _module_constant("orchestration/jobs/supervisor.py", "PROGRESS_WAKE_SECONDS")
     stated = re.search(r"默认\s*(\d+)\s*分钟[^）]*`progress_wake_sec`", hint)
     assert stated, "提示段应说明默认唤醒间隔（写成「默认 N 分钟，`progress_wake_sec` 可调」）"
     assert int(stated.group(1)) * 60 == int(
@@ -93,6 +93,6 @@ def test_hint_progress_interval_matches_runtime(hint: str):
 
 def test_docstring_agrees_with_hint_on_default():
     """工具 docstring 与提示段不能各说各话——模型两边都看得见。"""
-    src = (_BACKEND / "core/llm/tools/job_tool.py").read_text(encoding="utf-8")
+    src = (_BACKEND / "core/llm/tools/job_description.py").read_text(encoding="utf-8")
     assert "**默认 false = 后台跑**" in src, "docstring 没写清 wait 默认后台跑"
     assert not re.search(r"``wait=True``（默认）", src), "docstring 把 wait=True 说成默认值"

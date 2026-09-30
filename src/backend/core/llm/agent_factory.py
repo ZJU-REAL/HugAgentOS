@@ -50,14 +50,11 @@ from core.llm.tools import (
     ReadStateTracker,
     register_bash,
     register_channel_attachment,
-    register_delete,
     register_edit,
     register_get_data_context,
     register_glob,
     register_grep,
-    register_mkdir,
-    register_move,
-    register_myspace_tools,
+    register_space_tools,
     register_pin_to_workspace,
     register_read,
     register_read_artifact,
@@ -158,7 +155,7 @@ _WORKFLOW_MODE_HINT = (
     "   同理：真的查无请用 `_status` 标 `not_found`，**不要**把占位串写进结果字段。\n"
     '2. `run_job(action="start", script_path=..., name=...)` 提交。\n'
     '3. 作业结束后 `run_job(action="export", job_id=...)` 把台账导成沙箱里的 JSONL，'
-    "再用 bash/python 读它写产物。\n"
+    "再用 Bash/python 读它写产物。\n"
     "\n"
     "### 两条硬规矩\n"
     "- **默认后台跑，别在前台干等**：`wait` 默认 `false`（后台跑），"
@@ -242,7 +239,11 @@ def _effective_mcp_server_keys(
     owned_servers: Optional[dict] = None,
     bridge_servers: Optional[dict] = None,
 ) -> list[str]:
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(
+        McpServerConfigService.get_instance().get_all_servers(
+            enabled_only=enabled_mcp_ids is None
+        )
+    )
     # Config-source precedence (later update wins on same server_id):
     #   global rows < bridge (desktop cloud gateway; cloud is the source of
     #   truth for a capability it takes over) < owned (a user's own private
@@ -298,7 +299,7 @@ def _filter_mcp_servers_by_keys(
     bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=False))
     # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
     if bridge_servers:
         all_servers.update(bridge_servers)
@@ -605,6 +606,12 @@ def _effective_main_available_skills() -> list[str]:
     if enabled_ids:
         return available(enabled_ids)
 
+    # On the server, an empty default catalog means no ambient skills. The
+    # loader also knows installed-but-disabled skills for explicit selection.
+    from core.capabilities.paths import capabilities_enabled
+    if not capabilities_enabled():
+        return []
+
     try:
         loader = get_skill_loader()
         discovered = sorted(loader.load_all_metadata().keys())
@@ -747,7 +754,7 @@ async def create_agent_executor(
     # read_only: read-only agent (for reviewers/auditors) — registers no
     # file-mutating tools (edit/write/delete/move/mkdir/myspace writes/
     # put_artifact), keeping only read/glob/grep/view/get_artifact. Callers may
-    # independently disable bash for a hard read-only boundary.
+    # independently disable Bash for a hard read-only boundary.
     read_only: bool = False,
     allow_bash: bool = True,
     # approval_mode: 用户自选的权限档（core.llm.tool_permissions 的 ask / auto /
@@ -1126,8 +1133,8 @@ async def create_agent_executor(
 
     # A plugin explicitly selected for this turn is stronger than the default
     # catalog, a dedicated agent's saved bindings, and a restricted mode's
-    # ordinary capability set. The API already enforced ownership/admin/deps;
-    # merge only those authoritative components here so the execution guard
+    # ordinary capability set. The API already enforced installation, ownership,
+    # and dependency readiness; merge only those components so the execution guard
     # below has a real surface to require.
     if _required_plugin_id:
         base_skill_ids = (
@@ -1486,7 +1493,14 @@ async def create_agent_executor(
                 # owner's personally disabled MCPs without enabling it for the
                 # main agent. The explicit enabled_mcp_ids list below remains
                 # the final allowlist, so unrelated private MCPs are not loaded.
-                enabled_only=user_agent is None and not skill_bound_mcp_ids,
+                enabled_only=not (
+                    user_agent is not None
+                    or skill_bound_mcp_ids
+                    or _required_connector_ids
+                    or _required_plugin_mcp_ids
+                    or _sticky_direct_mcp_ids
+                    or _sticky_plugin_mcp_ids
+                ),
             )
         except Exception:
             owned_mcp_servers = {}
@@ -1960,7 +1974,7 @@ async def create_agent_executor(
     # disable_tools=True is a "bare LLM" mode used by plan-generate and the
     # final-summary pass: caller wants pure text output, no tool access at
     # all. Skip skills AND sandbox/artifact/file tools — otherwise the agent
-    # happily calls bash/view_text_file mid-generation and corrupts JSON.
+    # happily calls Bash/view_text_file mid-generation and corrupts JSON.
     skill_ids_to_register = enabled_skill_ids
     if skill_ids_to_register is None:
         skill_ids_to_register = _effective_main_available_skills()
@@ -2060,8 +2074,12 @@ async def create_agent_executor(
         )
 
     if not disable_tools and (project_ctx or {}).get("project_id"):
-        from core.llm.tools.project_instructions_tool import register_project_instruction_tools
+        from core.llm.tools.project_instructions_tool import (
+            project_instruction_path,
+            register_project_instruction_tools,
+        )
 
+        instruction_path = project_instruction_path(project_ctx)
         register_project_instruction_tools(
             toolkit,
             project_id=project_ctx["project_id"],
@@ -2072,6 +2090,7 @@ async def create_agent_executor(
                 if project_ctx.get("project_is_local")
                 else None
             ),
+            instruction_path=instruction_path,
         )
 
     # ── 跨会话历史（list_related_chats / read_chat） ──
@@ -2091,12 +2110,12 @@ async def create_agent_executor(
     if not disable_tools and turbo_mode and not _turbo_code_exec and _api_scope is None and _eval_scope is None:
         # Turbo keeps only cross-turn attachment access (the file-context hook
         # references this tool for historical attachments); every other native
-        # tool — sandbox/bash/file ops — is out of scope for quick lookup.
+        # tool — sandbox/Bash/file ops — is out of scope for quick lookup.
         register_read_artifact(toolkit, user_id=current_user_id)
         if skill_ids_to_register:
             # An explicitly summoned skill needs its SKILL.md readable (the
             # user-message injection tells the model to view_text_file it).
-            # bash/sandbox stay off: a skill that requires code execution gets
+            # Bash/sandbox stay off: a skill that requires code execution gets
             # explained with a mode-switch suggestion, not executed (see the
             # turbo prompt).
             register_sandboxed_view_text_file(
@@ -2115,10 +2134,10 @@ async def create_agent_executor(
             loaded_skill_ids=loaded_skill_ids,
         )
 
-        # ── Phase 3.5: Register sandbox tools (bash + artifact in/out) ──
+        # ── Phase 3.5: Register sandbox tools (Bash + artifact in/out) ──
         # Skill files reach the sandbox via the unified /workspace/skills bind
         # mount (built-in synced at startup, DB skills materialized on demand —
-        # see agent_skills.config.get_sandbox_skills_dir), so bash needs no
+        # see agent_skills.config.get_sandbox_skills_dir), so Bash needs no
         # per-call sync. loader/loaded_skill_ids kept for backward compat.
         if allow_bash:
             register_bash(
@@ -2252,7 +2271,7 @@ async def create_agent_executor(
                 scope=_proj_scope,
             )
             if not read_only:
-                register_delete(
+                register_space_tools(
                     toolkit,
                     chat_id=chat_id,
                     sandbox_session_id=_sbx_sess,
@@ -2260,30 +2279,6 @@ async def create_agent_executor(
                     state=_read_state,
                     interactive=_interactive,
                     project_folder_name=_proj_folder_name,
-                    scope=_proj_scope,
-                )
-                register_move(
-                    toolkit,
-                    chat_id=chat_id,
-                    sandbox_session_id=_sbx_sess,
-                    user_id=current_user_id,
-                    state=_read_state,
-                    interactive=_interactive,
-                    project_folder_name=_proj_folder_name,
-                    scope=_proj_scope,
-                )
-                register_mkdir(
-                    toolkit,
-                    chat_id=chat_id,
-                    sandbox_session_id=_sbx_sess,
-                    user_id=current_user_id,
-                    interactive=_interactive,
-                    project_folder_name=_proj_folder_name,
-                    scope=_proj_scope,
-                )
-                register_myspace_tools(
-                    toolkit,
-                    user_id=current_user_id,
                     scope=_proj_scope,
                 )
 
@@ -3009,7 +3004,7 @@ async def create_agent_executor(
     if _eval_scope is not None:
         _eval_guidance = (
             "This is a benchmark attempt in one leased OpenSandbox container. "
-            "Native bash, Read, Write, Edit, Glob, Grep and child agents share that container. "
+            "Native Bash, Read, Write, Edit, Glob, Grep and child agents share that container. "
             "Use the task's requested paths. Relative file paths use /workspace. "
             "Account files, credentials, history, memory and external connectors are unavailable. "
             "Leave outputs at the requested task paths for the verifier; do not publish artifacts."
@@ -3024,7 +3019,7 @@ async def create_agent_executor(
         _api_guidance = (
             "当前是子智能体专属 API 会话，只能使用本智能体绑定的能力及当前会话产物。"
             "不提供账号的个人记忆、其他会话、个人空间或个人登录凭据。"
-            "bash 和文件沙箱操作需要独立容器；不可用时如实说明，不尝试主机命令或其他路径。"
+            "Bash 和文件沙箱操作需要独立容器；不可用时如实说明，不尝试主机命令或其他路径。"
             "生成文件后用 sandbox_get_artifact 登记，再用 pin_to_workspace 交付文件 ID。"
         )
         system_prompt += "\n\n" + _api_guidance
@@ -3560,9 +3555,9 @@ async def create_agent_executor(
 
     # Offloader: when compressing/truncating overlong tool results, spill the
     # complete text to the current tool workspace's .offload/ directory. The model
-    # can read it back via Read/bash. Only mounted when sandbox tools are enabled;
+    # can read it back via Read/Bash. Only mounted when sandbox tools are enabled;
     # otherwise the agent has no
-    # Read/bash and spilling is pointless. Uses the same _sbx_sess as bash/Read.
+    # Read/Bash and spilling is pointless. Uses the same _sbx_sess as Bash/Read.
     _offloader = None
     if not disable_tools and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true":
         try:

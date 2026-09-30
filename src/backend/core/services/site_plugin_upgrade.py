@@ -1,6 +1,7 @@
 """Upgrade installed builtin Sites instructions without changing user connections."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 from datetime import datetime
 from packaging.version import InvalidVersion, Version
@@ -70,9 +71,9 @@ def upgrade_builtin_sites(db) -> int:
             # Only shipped tool instructions change: URLs, credentials, runtime
             # settings and enabled states remain exactly as the user configured.
             row.tools_json = list(mc.tools or [])
-            row.updated_at = datetime.utcnow()
+            row.updated_at = utc_now()
         install.version = normalized.version
-        install.updated_at = datetime.utcnow()
+        install.updated_at = utc_now()
         _refresh_existing_projection(db, install)
         changed_owners.append(owner)
     if changed_owners:

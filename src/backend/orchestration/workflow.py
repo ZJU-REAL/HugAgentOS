@@ -1060,12 +1060,12 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not sections:
         return None
 
-    # 极速模式警示：被呼唤技能的 SKILL.md 往往指示 bash/沙箱/文件工具流程，
+    # 极速模式警示：被呼唤技能的 SKILL.md 往往指示 Bash/沙箱/文件工具流程，
     # 而极速模式不装配这些工具。若不在呼唤点明说，模型会照着技能说明发起
     # 不存在的工具调用（实测会卡死在参数流上）。
     if str(context.get("chat_mode", "") or "").lower() == "turbo" and skill_ids:
         sections.append(
-            "注意：当前为极速模式，没有 bash、沙箱、文件读写和文档生成工具。"
+            "注意：当前为极速模式，没有 Bash、沙箱、文件读写和文档生成工具。"
             "技能说明中涉及这些工具的步骤一律不可执行，也不要尝试调用——"
             "读取 SKILL.md 后，只输出你能以纯文本交付的部分（结构、正文、模板等），"
             "并在结尾建议用户切换到「快速模式」或「思考模式」完整执行该技能。"

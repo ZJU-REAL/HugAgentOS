@@ -13,6 +13,7 @@ User-created items have ``owner_user_id`` = current user, visible and usable onl
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 import uuid
@@ -106,7 +107,7 @@ async def create_my_mcp_server(
 
     # Auto-generate a globally unique server_id to avoid collisions with public MCPs / other users
     server_id = f"umcp_{uuid.uuid4().hex[:16]}"
-    now = datetime.utcnow()
+    now = utc_now()
     row = AdminMcpServer(
         server_id=server_id,
         display_name=body.display_name.strip(),
@@ -304,7 +305,7 @@ def create_my_skill(
         mcp_server_ids=mcp_server_ids,
         ontology_tags=list(body.tags),
     )
-    now = datetime.utcnow()
+    now = utc_now()
     if existing is not None:
         existing.skill_content = content
         existing.display_name = body.display_name

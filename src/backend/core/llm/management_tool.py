@@ -5,6 +5,7 @@ from agentscope.tool import ToolBase, ToolChunk
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.permission import PermissionBehavior, PermissionDecision
 from core.services.management_contract import declared, MANAGERS
+from core.services.management_errors import management_error
 
 
 class ManagementTool(ToolBase):
@@ -77,6 +78,6 @@ class ManagementTool(ToolBase):
                              state=ToolResultState.SUCCESS,
                              metadata={"origin": "local", "capabilities_changed": not self.is_read_only})
         except Exception as exc:
-            message = str(getattr(exc, "detail", exc))
+            message = management_error(exc)
             return ToolChunk(content=[TextBlock(text=json.dumps({"ok": False, "error": message}, ensure_ascii=False))],
                              state=ToolResultState.ERROR, metadata={"origin": "local"})

@@ -182,7 +182,7 @@ function tool(toolIndex: number): MessageSegment {
 
 {
   const partial = '{"command":"printf \\"first\\\\nsecond\\"';
-  assert.deepEqual(extractCodeFromStreamingArgs('bash', partial), {
+  assert.deepEqual(extractCodeFromStreamingArgs('Bash', partial), {
     code: 'printf "first\\nsecond"',
     language: 'bash',
   });
@@ -438,8 +438,8 @@ function tool(toolIndex: number): MessageSegment {
   // 管理类插件写操作 → 必须刷"持有那份列表的" store。三份列表来自三个不同接口，
   // 刷错不会报错、只会静默无效——这张表已经错过两次，故在此钉住。
   const AGENT_WRITES = ['create_agent', 'edit_agent', 'delete_agent', 'install_market_agent'];
-  const PLUGIN_WRITES = ['install_plugin', 'uninstall_plugin', 'import_plugin', 'set_plugin_enabled'];
-  const SKILL_WRITES = ['register_skill', 'install_from_marketplace', 'delete_skill', 'edit_skill'];
+  const PLUGIN_WRITES = ['install_plugin', 'uninstall_plugin', 'update_plugin', 'install_plugin_from_marketplace'];
+  const SKILL_WRITES = ['install_skill', 'install_from_marketplace', 'uninstall_skill', 'update_skill', 'upload_skill_to_cloud'];
   for (const n of AGENT_WRITES) assert.equal(refreshTargetForTool(n), 'agents', n);
   for (const n of PLUGIN_WRITES) assert.equal(refreshTargetForTool(n), 'plugins', n);
   for (const n of SKILL_WRITES) assert.equal(refreshTargetForTool(n), 'catalog', n);

@@ -1,23 +1,23 @@
 import { create } from 'zustand';
-import { isHybridDual, isLocalProject, isRegisteredLocalChat, setChatRoutingContext } from '../api';
+import { isHybridDual,isLocalProject,isRegisteredLocalChat,setChatRoutingContext } from '../api';
+import { t } from '../i18n';
+import { chatIdFromPath,isHomePath,navigateTo,pathForChat,setChatPathResolver } from '../routing/navigation';
+import { flushChatStore,isDraftChatId,isNewDraftChatId,loadChatStore,mergeChatStores,newDraftChatId,nowId,purgeLegacyUnscopedKeys,registerDeletedChatId,removeLocal,saveChatStoreDebounced,setStreamingIdsProvider,STORAGE_KEY,subscribeChatStoreChanges,userScopedKey,writeLocal } from '../storage';
 import type {
-  ChatItem,
-  ChatMessage,
-  ChatStore as ChatStoreData,
-  ContextCompactionState,
-  ContextUsageSnapshot,
-  PlanProgressState,
-  ReferencableChat,
+ChatItem,
+ChatMessage,
+ChatStore as ChatStoreData,
+ContextCompactionState,
+ContextUsageSnapshot,
+PlanProgressState,
+ReferencableChat,
 } from '../types';
-import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, newDraftChatId, isDraftChatId, isNewDraftChatId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY, writeLocal, removeLocal } from '../storage';
+import { normalizeChatInvocation,type ChatInvocationContext } from '../utils/chatInvocation';
+import { resolveModeSlug,resolvePlanModeActive } from '../utils/chatMode';
+import type { ChatCommand } from '../utils/projectCommands';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { activeProjectId } from './projectSession';
-import { chatIdFromPath, isHomePath, navigateTo, pathForChat, setChatPathResolver } from '../routing/navigation';
-import { t } from '../i18n';
-import { resolveModeSlug, resolvePlanModeActive } from '../utils/chatMode';
-import type { ChatCommand } from '../utils/projectCommands';
-import { normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
  *  capability (publish_site tool + site-builder guidance skill) is provided by it — removed from
@@ -316,6 +316,7 @@ interface ChatState {
   setCurrentChatId: (id: string) => void;
   /** 同上，但不改地址栏——供路由把「地址 → 状态」这一方向同步回来（前进 / 后退）。 */
   adoptChatFromUrl: (id: string) => void;
+  syncCurrentChatMode: () => void;
   setInput: (input: string) => void;
   /** First message pending send across panels (project-page input box → chat panel auto-send).
    *  Once set, an effect in App.tsx consumes it when currentChatId matches, then clears it. */
@@ -548,6 +549,10 @@ export const useChatStore = create<ChatState>((set, get) => {
   setCurrentChatId: (id) => {
     get().adoptChatFromUrl(id);
     syncChatUrl(id);
+  },
+  syncCurrentChatMode: () => {
+    const chat = get().store.chats[get().currentChatId];
+    set({ planMode: resolvePlanModeActive(chat), modeSlug: resolveModeSlug(chat), ...restoredEffort(chat) });
   },
   adoptChatFromUrl: (id) => {
     initializeDraftRunTarget(id);

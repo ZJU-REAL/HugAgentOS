@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { Modal, Form, Input, Radio, Select, Alert, message } from 'antd';
-import { LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import { createAutomation, listPlans, getPlanApi, listChannelConversations, type ChannelConversation } from '../../api';
-import type { AutomationScheduleType, Plan } from '../../types';
-import { PlanCard, type PlanStepData } from '../chat/PlanCard';
-import { ScheduleSelector, isOnceScheduleExpired, type ScheduleValue } from './ScheduleSelector';
-import { channelConversationLabel } from './automationUtils';
+import { ClockCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Alert, Form, Input, Modal, Radio, Select, message } from 'antd';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { createAutomation, getPlanApi, listChannelConversations, listPlans, type ChannelConversation } from '../../api';
 import { t } from '../../i18n';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { defaultExecutionLocation, executionLocationError, currentTimezone, availableTimezones, type ExecutionLocation } from './automationLocation';
+import type { AutomationScheduleType, Plan } from '../../types';
+import { PlanCard, type PlanStepData } from '../chat/PlanCard';
+import { ScheduleSelector } from './ScheduleSelector';
+import { availableTimezones, currentTimezone, defaultExecutionLocation, executionLocationError, type ExecutionLocation } from './automationLocation';
+import { channelConversationLabel } from './automationUtils';
+import { isOnceScheduleExpired, type ScheduleValue } from './scheduleTime';
 
 interface Props {
   open: boolean;
@@ -51,16 +52,18 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   const promptValue = Form.useWatch('prompt', form) || '';
   const selectedTimezone = Form.useWatch('timezone', form) || defaultTimezone;
   const locationError = executionLocationError(location, project?.kind, promptValue);
-  useEffect(() => {
-    resourceGeneration.current += 1;
-    if (!open) return;
+  const initializeForm = useEffectEvent(() => {
     setLocation(defaultExecutionLocation(deployment.provisionMode, currentProject?.kind));
     setProjectId(currentProject?.project_id);
     setPlans([]); setPlansLoaded(false); setPlanCache({}); setSelectedPlan(null);
     form.setFieldValue('plan_id', undefined);
     form.setFieldValue('timezone', defaultTimezone);
     void fetchProjects();
-  }, [open]); // Capture the project when the form opens, not on background list refresh.
+  });
+  useEffect(() => {
+    resourceGeneration.current += 1;
+    if (open) initializeForm();
+  }, [open]);
 
   const [loading, setLoading] = useState(false);
   const [taskType, setTaskType] = useState<'prompt' | 'plan'>('prompt');
@@ -240,8 +243,10 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         <Form.Item label={t('关联项目')} help={localPath}>
           <Select allowClear value={projectId} onChange={setProjectId}
             placeholder={t('选择任务需要访问的项目')}
-            options={projects.map(item => ({ value: item.project_id,
-              label: item.name + ((item.kind as string) === 'local' ? ' · ' + t('本机') : ' · ' + t('云端')) }))} />
+            options={projects.map(item => ({
+              value: item.project_id,
+              label: item.name + ((item.kind as string) === 'local' ? ' · ' + t('本机') : ' · ' + t('云端'))
+            }))} />
         </Form.Item>
         {locationError && <Alert type="error" showIcon title={t(locationError)} style={{ marginBottom: 16 }} />}
         <Form.Item label={t('任务类型')} required>

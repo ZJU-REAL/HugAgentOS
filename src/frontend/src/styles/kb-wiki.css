@@ -850,7 +850,7 @@
   color: var(--color-text-tertiary);
 }
 
-/* 已开 Wiki 但还没生成过条目页时的提示条 */
+/* 已开 Wiki 但还没生成过条目页时的提示条
    给用户一个明确的下一步动作，而不是把他们丢在一个空白 Tab 前面 */
 .jx-kbWikiPrompt {
   display: flex;

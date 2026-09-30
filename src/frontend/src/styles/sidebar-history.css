@@ -1,0 +1,335 @@
+/* ── History section ──
+   历史区标题 + 时间/类型筛选下拉、内嵌搜索行均已下沉到 SearchModal，
+   这里只保留滚动容器自身。 */
+
+/* 「新建对话」是顶部固定区的终点；主导航和历史记录在同一容器内滚动。 */
+.jx-sidebarScrollArea{
+  flex:1; min-height:0; overflow-y:auto;
+  display:flex; flex-direction:column;
+  overscroll-behavior:contain;
+}
+.jx-sidebarScrollArea::-webkit-scrollbar{ width:3px; }
+.jx-sidebarScrollArea::-webkit-scrollbar-thumb{ background:transparent; border-radius:999px; }
+.jx-sidebarScrollArea.show-scrollbar::-webkit-scrollbar-thumb{ background:var(--color-fill-hover); }
+
+/* ── History list ── */
+/* chat.css 里仍有历史列表的兼容样式；在统一滚动区内显式取消其独立滚动。 */
+
+@keyframes jxSkeletonShimmer{
+  0%{ background-position:200% 0; }
+  100%{ background-position:-200% 0; }
+}
+
+/* motion-keep: 全站骨架屏基础块，停下就是一片静止灰条，读起来像加载失败 */
+.jx-skeletonBlock{
+  border-radius:999px;
+  /* 从文字令牌派生的低透明度灰，深浅两个主题下都是「比底色深/亮一点」的微光 */
+  background:linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 10%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 10%, transparent) 100%);
+  background-size:240% 100%;
+  animation:jxSkeletonShimmer 2.2s ease-in-out infinite;
+}
+
+/* 首挂载淡入：骨架（chatsLoading）→ 真实列表交接时不再硬切（两态都是 .jx-historyGroup，
+   挂载即播一次；折叠开合不重挂、不会重播）。 */
+.jx-historyGroup{
+  display:flex; flex-direction:column; gap:2px;
+  animation:jx-kf-fadeIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+
+/* 可折叠 group 标题行：整行可点击；chevron 默认隐藏，hover/折叠时显形。
+   padding-left 4 + listWrap pad 10 → 标题文字 x=14。
+   说明：CSS 上 group 标题与 chat title 即使同 x，因为字号差（12px vs 13px）
+   和字重对 CJK 字符的视觉占位不同，会让小字号看着偏右——故在 CSS 上故意
+   再左推几像素做视觉补偿。 */
+.jx-historyGroupHeader{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 8px 4px 4px;
+  margin:6px 0 0;
+  border-radius:8px;
+  cursor:pointer;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+  text-align:left;
+  transition:color .12s;
+}
+.jx-historyGroupHeader:hover{ color:color-mix(in srgb, var(--color-text) 72%, transparent); }
+.jx-historyGroupHeader:focus-visible{ outline:2px solid var(--color-primary-bg); outline-offset:0; }
+.jx-historyGroupTitle{
+  font-size:11px;
+  font-weight:500;
+  color:inherit;
+  user-select:none;
+  letter-spacing:.02em;
+  flex-shrink:0;
+}
+/* hover 在 header 任意位置都让 chevron 浮出；折叠态下也显形，提示"点开"。 */
+/* position:relative 是 AnimatePresence popLayout 退场项绝对定位的锚点 */
+.jx-historyGroupList{ display:flex; flex-direction:column; gap:1px; position:relative; }
+/* 折叠动画：复用全局 .jx-expandWrap（grid-template-rows 0fr→1fr）——
+   旧 max-height 方案"列表长度差异巨大、动画到具体高度算不准"的顾虑已被
+   该范式解决（fr 不需要知道具体像素高）。
+   内层 min-height:0 + overflow:hidden 是 grid 行收缩生效的前提；
+   折叠完成后用 visibility 兜底摘除 tab 焦点（延迟到塌缩动画结束才隐藏）。 */
+.jx-historyGroupExpand{ --expand-dur:var(--motion-duration-normal); }
+.jx-historyGroupExpand > .jx-historyGroupList{
+  min-height:0;
+  overflow:hidden;
+  visibility:visible;
+  transition:visibility 0s;
+}
+.jx-historyGroup--collapsed .jx-historyGroupExpand > .jx-historyGroupList{
+  visibility:hidden;
+  transition-delay:var(--expand-dur, .25s);
+}
+.jx-historySkeletonList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+/* ── 项目分组：项目行（folder + 名称）+ 嵌套其下的会话列表 ── */
+.jx-projectGroup{ display:flex; flex-direction:column; }
+.jx-projectRow{
+  display:flex; align-items:center; gap:6px;
+  height:36px; min-height:36px;
+  /* 与 .jx-historyItem 同一水平基线（左 6 + margin 4 + listWrap pad 10 = x=20） */
+  padding:0 8px 0 6px;
+  margin:0 6px 0 4px;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s;
+  position:relative;
+}
+.jx-projectRow:hover{ background:var(--color-fill-hover); }
+.jx-projectRow.active{ background:var(--color-bg-container); border-color:transparent; }
+.jx-projectRow.active .jx-projectRowIcon{ color:color-mix(in srgb, var(--color-text) 80%, transparent); }
+.jx-projectRow.active .jx-projectRowName{ font-weight:400; }
+.jx-projectRowToggle{
+  appearance:none; border:0; outline:0; background:transparent;
+  flex:1; min-width:0; align-self:stretch;
+  display:flex; align-items:center; gap:7px;
+  padding:0; color:inherit; font-family:inherit; text-align:left; cursor:pointer;
+}
+.jx-projectRowIcon{
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
+  flex-shrink:0;
+  transition:color .15s;
+}
+.jx-projectRowName{
+  flex:1; min-width:0;
+  font-size:14px; font-weight:500; line-height:1.2; color:var(--color-text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  transition:color .15s;
+}
+/* 项目行右侧操作：更多菜单 + 新建项目对话。项目行本身负责展开/收起。 */
+.jx-projectRowActions{
+  display:flex; align-items:center; gap:2px; flex-shrink:0;
+  opacity:0; pointer-events:none;
+  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.jx-projectRow:hover .jx-projectRowActions,
+.jx-projectRowActions:focus-within{
+  opacity:1; pointer-events:auto;
+}
+.jx-projectRowActionBtn{
+  appearance:none; border:none; background:transparent;
+  width:24px; height:24px; flex-shrink:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px;
+  cursor:pointer;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+  font-size:13px;
+  padding:0;
+  transition:background .12s, color .12s;
+}
+.jx-projectRowActionBtn:hover{ background:var(--color-fill-hover); color:color-mix(in srgb, var(--color-text) 72%, transparent); }
+/* 嵌套会话列表：整体右缩进，形成"项目文件夹 → 会话"的层级观感 */
+.jx-projectChatList{ padding-left:16px; }
+.jx-projectChatList .jx-historyTitle{ max-width:210px; }
+
+.jx-historyItem{
+  display:flex; align-items:center; gap:6px;
+  height:36px; min-height:36px;
+  /* 左 6 + margin-left 4 + listWrap pad 10 = 内容 x=20，三端对齐 */
+  padding:0 8px 0 6px;
+  margin:0 6px 0 4px;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s;
+  position:relative;
+}
+.jx-historyItemSkeleton{
+  cursor:default;
+  height:42px;
+  min-height:42px;
+}
+.jx-historyItemSkeleton:hover{
+  background:transparent;
+}
+.jx-historyItem:hover{ background:var(--color-fill-hover); }
+.jx-historyItem.active{ background:var(--color-bg-container); border-color:transparent; }
+
+/* ── 手动拖拽排序 ── */
+/* 抓手光标只在 hover 时出现：静止态保持 pointer，避免暗示"这行只能拖不能点" */
+.jx-historyItem:hover:not(.editing){ cursor:grab; }
+.jx-historyItem:active:not(.editing){ cursor:grabbing; }
+.jx-historyItem--dragging{
+  opacity:.4;
+  background:var(--color-fill-hover);
+}
+/* 落点提示线：贴在目标行的上/下边缘，2px 主色 */
+.jx-historyItem--dropBefore::before,
+.jx-historyItem--dropAfter::after{
+  content:'';
+  position:absolute;
+  left:6px; right:6px;
+  height:2px;
+  border-radius:2px;
+  background:var(--color-primary);
+  pointer-events:none;
+}
+/* 行本身是 overflow:hidden（高度动画需要），提示线只能画在框内，不能溢出到 -1px */
+.jx-historyItem--dropBefore::before{ top:0; }
+.jx-historyItem--dropAfter::after{ bottom:0; }
+.jx-historyMain{ flex:1; min-width:0; display:flex; align-items:center; }
+.jx-historySkLine{
+  width:100%;
+  max-width:226px;
+  height:28px;
+  border-radius:3px;
+}
+.jx-historyPinIcon{
+  width:16px;
+  height:16px;
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-right:4px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+  font-size:10px;
+  opacity:.9;
+  transition:color .15s ease;
+}
+.jx-historyItem:hover .jx-historyPinIcon{ color:color-mix(in srgb, var(--color-text) 72%, transparent); }
+.jx-historyTitle{
+  font-size:12px; font-weight:500; color:var(--color-text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  flex:1;
+  min-width:0;
+  max-width:226px; display:block;
+}
+.jx-historyItem.active .jx-historyTitle{ font-weight:400; }
+
+/* ── History type icons (agent / code / plan) ── */
+.jx-historyTypeIcon{
+  flex-shrink:0;
+  font-size:12px;
+  margin-right:5px;
+  color:color-mix(in srgb, var(--color-text) 38%, transparent);
+  transition:color .15s;
+}
+.jx-historyItem:hover .jx-historyTypeIcon{ color:color-mix(in srgb, var(--color-text) 55%, transparent); }
+
+/* ── Running indicator (pulse dot) ── */
+/* motion-keep: 会话「正在运行」小圆点 */
+.jx-historyRunningDot{
+  flex-shrink:0;
+  width:7px; height:7px;
+  margin-left:6px;
+  border-radius:50%;
+  background:var(--color-primary);
+  animation: jx-pulse 1.4s ease-in-out infinite;
+}
+@keyframes jx-pulse{
+  0%,100%{ opacity:.35; transform:scale(.85); }
+  50%{ opacity:1; transform:scale(1.1); }
+}
+
+/* ── §13 待确认指示（稳定蓝点，区别于运行中的脉冲点）── */
+.jx-historyConfirmDot{
+  flex-shrink:0;
+  width:7px; height:7px;
+  margin-left:6px;
+  border-radius:50%;
+  background:var(--color-primary);
+  box-shadow:0 0 0 3px var(--color-primary-light);
+  /* 一次性挂载弹入（复用 motion.css 的 jx-kf-statusIn 原语），落定后保持静止 */
+  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+}
+
+/* Assistant question waiting state: amber and stationary, so it remains
+ * distinct from both the blue running pulse and write-confirm indicator. */
+.jx-historyQuestionDot{
+  flex-shrink:0;
+  width:8px; height:8px;
+  margin-left:6px;
+  border-radius:50%;
+  background:var(--color-warning);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--color-warning) 20%, transparent);
+  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+}
+
+.jx-visuallyHidden{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
+}
+
+.jx-historyActions{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  opacity:0; pointer-events:none; transition:opacity .15s;
+}
+.jx-historyItem:hover .jx-historyActions,
+.jx-historyItem.active .jx-historyActions{ opacity:1; pointer-events:auto; }
+.jx-historyItem.editing .jx-historyActions{ display:none; }
+.jx-historyItem:hover .jx-historyMain,
+.jx-historyItem.active .jx-historyMain{ padding-right:28px; }
+/* hover 时给操作按钮腾位的 padding 不再瞬跳 */
+.jx-historyMain{ transition:padding-right var(--motion-duration-fast) var(--motion-ease-standard); }
+.jx-historyMoreBtn{
+  appearance:none; border:none; outline:none; background:transparent;
+  width:24px; height:24px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:13px; color:color-mix(in srgb, var(--color-text) 48%, transparent); padding:0;
+}
+.jx-historyMoreBtn:hover{ background:var(--color-fill-hover); color:var(--color-text); }
+/* 重命名编辑框：挂载时轻微水平展开入场 */
+@keyframes jx-kf-renameIn{
+  from{ opacity:0; transform:scaleX(.98); }
+  to  { opacity:1; transform:none; }
+}
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-renameIn { from, to { opacity:1; transform:none } }
+}
+
+.jx-historyEditInput{
+  flex:1; min-width:0;
+  transform-origin:left center;
+  animation:jx-kf-renameIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+.jx-historyEditInput .ant-input{ border-radius:8px; }
+.jx-historyEmpty{ padding:20px 8px; font-size:11px; color:color-mix(in srgb, var(--color-text) 40%, transparent); text-align:center; }
+
+/* 关键词高亮：被 utils/highlight.ts 用于侧栏 + 搜索弹窗的高亮 span */
+.jx-searchHighlight{ color:var(--color-primary); font-weight:600; }

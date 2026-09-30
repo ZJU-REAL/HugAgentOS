@@ -59,6 +59,13 @@ def resp_json(payload: dict[str, Any]) -> ToolResponse:
     )
 
 
+def response_metadata(response: ToolResponse, metadata: dict[str, Any]) -> ToolResponse:
+    """Merge file metadata into the existing JSON block, preserving image layout."""
+    block = response.content[0]
+    block.text = json.dumps({**json.loads(block.text), **metadata}, ensure_ascii=False)
+    return response
+
+
 def resolve_sandbox_session(
     sandbox_session_id: Optional[str],
     chat_id: Optional[str],

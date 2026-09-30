@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-  FileTextOutlined, PictureOutlined, FileOutlined, StarFilled,
+  FileTextOutlined, PictureOutlined, FileOutlined,
 } from '@ant-design/icons';
 import type { ToolCall } from '../../../types';
 import { t } from '../../../i18n';
@@ -85,64 +85,14 @@ function StageFileBody({ data }: { data: unknown }) {
   );
 }
 
-function FavoritesBody({ data }: { data: { total: number; items: Array<{
-  chat_id: string; title: string; last_message_preview?: string; updated_at?: string;
-}> } }) {
-  if (!data.items?.length) {
-    return <div className="jx-ce-empty">{t('暂无收藏会话')}</div>;
-  }
-  return (
-    <div className="jx-ms-list">
-      {data.total > data.items.length && (
-        <div className="jx-ms-listMeta">{t('共 {total} 个收藏，显示前 {n} 项', { total: data.total, n: data.items.length })}</div>
-      )}
-      {data.items.map((item) => (
-        <div key={item.chat_id} className="jx-ms-listItem">
-          <span className="jx-ms-fileIcon"><StarFilled style={{ color: '#f59e0b', fontSize: 13 }} /></span>
-          <span className="jx-ms-fileName">{item.title}</span>
-          {item.last_message_preview && (
-            <span className="jx-ms-fileMeta jx-ms-preview">{item.last_message_preview}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MessagesBody({ data }: { data: { chat_id: string; messages: Array<{
-  role: string; content: string; created_at?: string;
-}> } }) {
-  if (!data.messages?.length) {
-    return <div className="jx-ce-empty">{t('会话无消息记录')}</div>;
-  }
-  return (
-    <div className="jx-ms-list">
-      <div className="jx-ms-listMeta">{t('共 {n} 条消息', { n: data.messages.length })}</div>
-      {data.messages.slice(0, 6).map((msg, idx) => (
-        <div key={idx} className={`jx-ms-msgItem jx-ms-msgItem--${msg.role}`}>
-          <span className="jx-ms-msgRole">{msg.role === 'user' ? t('用户') : 'AI'}</span>
-          <span className="jx-ms-msgContent">{(msg.content || '').slice(0, 120)}{msg.content?.length > 120 ? '…' : ''}</span>
-        </div>
-      ))}
-      {data.messages.length > 6 && (
-        <div className="jx-ms-listMeta">{t('…还有 {n} 条消息', { n: data.messages.length - 6 })}</div>
-      )}
-    </div>
-  );
-}
-
 function MySpaceBody({ toolName, data }: { toolName: string; data: unknown }) {
   if (data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)) {
     return <pre className="jx-ce-stderr">{String((data as Record<string, unknown>).error)}</pre>;
   }
-  if (toolName === 'list_myspace_files')
+  if (toolName === 'space_list_myspace_files')
     return <FilesBody data={data as Parameters<typeof FilesBody>[0]['data']} />;
-  if (toolName === 'stage_myspace_file')
+  if (toolName === 'space_stage_myspace_file')
     return <StageFileBody data={data} />;
-  if (toolName === 'list_favorite_chats')
-    return <FavoritesBody data={data as Parameters<typeof FavoritesBody>[0]['data']} />;
-  if (toolName === 'get_chat_messages')
-    return <MessagesBody data={data as Parameters<typeof MessagesBody>[0]['data']} />;
   return <pre className="jx-ce-stdout">{JSON.stringify(data, null, 2)}</pre>;
 }
 

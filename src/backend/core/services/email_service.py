@@ -22,6 +22,7 @@ encryption.type ∈ {tls, start-tls, none}; the app password goes in ``backend.a
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import base64
@@ -282,7 +283,7 @@ class EmailService:
         ok, detail = await self._reverify(user_id, record)
         if ok and record.status != "connected":
             self.repo.update(user_id, {"status": "connected", "last_error": None,
-                                       "last_verified_at": datetime.utcnow()})
+                                       "last_verified_at": utc_now()})
         elif not ok:
             self.repo.update(user_id, {"status": "error",
                                        "last_error": f"{_VERIFY_FAIL}。详情: {detail}" if detail else _VERIFY_FAIL})
@@ -373,7 +374,7 @@ class EmailService:
             "status": "connected",
             "secret_enc": encrypt_secret(secret),
             "config_bundle": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-            "last_verified_at": datetime.utcnow(),
+            "last_verified_at": utc_now(),
             "last_error": None,
         })
         return self.status_dict(self.repo.get(user_id))

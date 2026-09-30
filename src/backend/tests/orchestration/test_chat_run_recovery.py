@@ -665,7 +665,7 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
     from core.db import engine as db_engine
     from core.services import ontology_service, user_model_selection
     from orchestration import workflow
-    from orchestration.schedulers.automation_scheduler import AutomationScheduler
+    from orchestration.schedulers.automation_conversation import execute_prompt
 
     monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     monkeypatch.setattr(
@@ -686,11 +686,19 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
         yield {"type": "meta", "usage": {"total_tokens": 2}}
 
     monkeypatch.setattr(workflow, "astream_chat_workflow", bound_workflow)
-    chat_id, text, _usage = await AutomationScheduler()._execute_prompt_task(
+    monkeypatch.setattr(executor, "astream_chat_workflow", bound_workflow)
+    stream = run_event_stream.LocalRunEventStream()
+    monkeypatch.setattr(executor, "get_run_event_stream", lambda: stream)
+    from core.services.automation_service import AutomationService
+    with sessions() as db:
+        task = AutomationService(db).create_task(user_id="user-1", task_type="prompt",
+            prompt="collect evidence", cron_expression="0 18 * * *")
+        task_id = task.task_id
+    chat_id, text, _usage = await execute_prompt(
         user_id="user-1",
         task_name="nightly",
         prompt="collect evidence",
-        task_id="scheduled-1",
+        task_id=task_id,
         enabled_mcp_ids=["web-search"],
         enabled_skill_ids=["research"],
         enabled_kb_ids=[],

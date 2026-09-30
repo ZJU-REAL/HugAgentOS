@@ -95,7 +95,7 @@ def evaluation_tools(monkeypatch):
             self.files[path] = data
 
         async def start_process(self, req, yield_time_ms):
-            self.calls.append(("bash", req.session_id, req.script_content, req.user_id))
+            self.calls.append(("Bash", req.session_id, req.script_content, req.user_id))
             return {"stdout": "sandbox", "exit_code": 0, "status": "exited"}
 
         async def run_to_completion(self, req):
@@ -125,9 +125,9 @@ async def test_native_bash_skips_both_myspace_sync_directions(evaluation_tools, 
 
     monkeypatch.setattr("core.llm.tools.sandbox_tool._pull_myspace_updates", reject)
     monkeypatch.setattr("core.myspace.sandbox_sync.reflect_sandbox_myspace", reject)
-    assert payload(await tools["bash"]("pwd"))["exit_code"] == 0
-    assert provider.calls == [("bash", SESSION, "pwd", "owner")]
-    assert set(tools) == {"bash", "Bash", "write_stdin", "Read", "Write", "Edit", "Glob", "Grep"}
+    assert payload(await tools["Bash"]("pwd"))["exit_code"] == 0
+    assert provider.calls == [("Bash", SESSION, "pwd", "owner")]
+    assert set(tools) == {"Bash", "write_stdin", "Read", "Write", "Edit", "Glob", "Grep"}
 
 
 @pytest.mark.asyncio

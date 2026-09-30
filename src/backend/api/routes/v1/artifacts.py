@@ -100,7 +100,7 @@ def _run_backfill_once(user_id: str) -> None:
 
 
 # 列「我的空间」之前先催一下登记器：沙箱写文件是随时发生的，去抖窗口里刚落盘的那几个
-# 不该等到下次刷新才出现。催的是同一个登记器（core.myspace.watcher），不是另开一条对账
+# 不该等到下次刷新才出现。催的是同一个登记器（core.space_sync.personal），不是另开一条对账
 # 路径 —— 登记在哪儿发生、按什么判据发生，都还是它说了算。
 
 
@@ -446,7 +446,7 @@ async def list_user_artifacts(
         task.add_done_callback(_backfill_tasks.discard)
 
     if scope != "all":
-        from core.myspace.watcher import flush_user
+        from core.space_sync.personal_registry import flush_user
 
         await flush_user(uid)
 

@@ -5,6 +5,7 @@ Phase 2 (execute):  Steps are executed sequentially, each with its own agent.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import json
@@ -527,7 +528,7 @@ async def astream_generate_plan(
             else {}
         )
         plan_id = f"plan_{uuid.uuid4().hex[:16]}"
-        generated_at = datetime.utcnow().isoformat()
+        generated_at = utc_now().isoformat()
         steps = []
         for index, step_data in enumerate(plan_data.get("steps", [])):
             steps.append(
@@ -775,7 +776,7 @@ async def astream_execute_plan(
             # Heartbeat to keep SSE alive during agent setup (3-10s)
             yield {"type": "heartbeat"}
 
-            svc.update_step(step.step_id, status="running", started_at=datetime.utcnow())
+            svc.update_step(step.step_id, status="running", started_at=utc_now())
 
             # Build step instruction with context from previous steps
             step_instruction = _build_step_instruction(
@@ -945,7 +946,7 @@ async def astream_execute_plan(
                         svc.update_step(
                             step.step_id,
                             status="skipped",
-                            completed_at=datetime.utcnow(),
+                            completed_at=utc_now(),
                         )
                         await log_writer.finish_subagent_log(
                             _step_subagent_log_id,
@@ -1229,7 +1230,7 @@ async def astream_execute_plan(
                     result_summary=summary,
                     ai_output=step_text[:5000],
                     tool_calls_log=step_tool_calls,
-                    completed_at=datetime.utcnow(),
+                    completed_at=utc_now(),
                 )
                 completed_count += 1
 
@@ -1258,7 +1259,7 @@ async def astream_execute_plan(
                     step.step_id,
                     status="failed",
                     error_message=error_msg,
-                    completed_at=datetime.utcnow(),
+                    completed_at=utc_now(),
                 )
                 await log_writer.finish_subagent_log(
                     _step_subagent_log_id,

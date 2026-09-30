@@ -1,4 +1,5 @@
 """Select desktop or container path rules for the registered file tools."""
+
 from typing import Optional
 from core.sandbox._common import WORKSPACE as WORKSPACE_ROOT
 
@@ -8,20 +9,26 @@ MYSPACE_LOGICAL = "/myspace"
 
 def path_rules():
     from core.llm.evaluation_runtime import CURRENT_EVALUATION_SCOPE
+
     if CURRENT_EVALUATION_SCOPE.get() is not None:
         from core.llm import evaluation_paths
+
         return evaluation_paths
     from core.config.local_mode import local_mode_enabled
+
     if local_mode_enabled():
         from core.sandbox import desktop_paths
+
         return desktop_paths
     from core.sandbox import sandbox_paths
+
     return sandbox_paths
 
 
 def workspace_directory(session_id: str | None, *, scope=None) -> str:
     rules = path_rules()
     from core.sandbox import desktop_paths
+
     if rules is desktop_paths:
         return rules.workspace_directory(WORKSPACE_ROOT, session_id, scope=scope)
     return rules.workspace_directory(WORKSPACE_ROOT, session_id)
@@ -31,12 +38,16 @@ def validate_workspace_path(path: str) -> Optional[str]:
     return path_rules().validate_path(path, WORKSPACE_ROOT)
 
 
-def to_physical_path(path: str, user_id: Optional[str], *, session_id: Optional[str] = None, scope=None) -> str:
+def to_physical_path(
+    path: str, user_id: Optional[str], *, session_id: Optional[str] = None, scope=None
+) -> str:
     rules = path_rules()
     from core.sandbox import desktop_paths
+
     if rules is desktop_paths:
         return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id, scope=scope)
     from core.services.edition_workspace import resolve_project_path
+
     resolved = resolve_project_path(path, user_id, WORKSPACE_ROOT, scope)
     if resolved is not None:
         return resolved
@@ -64,3 +75,14 @@ def basename(path: str) -> str:
 
 def quote_shell_path(path: str) -> str:
     return path_rules().quote_shell_path(path)
+
+
+def space_metadata(physical_path: str, user_id: Optional[str]) -> dict:
+    """Describe durable mounted space independently of its personal/shared owner."""
+    if is_myspace_physical(physical_path, user_id):
+        kind = "personal"
+    else:
+        from core.services.edition_workspace import is_organization_path
+
+        kind = "team" if is_organization_path(None, user_id, physical_path) else "temporary"
+    return {"persistent": kind != "temporary", "space_type": kind}

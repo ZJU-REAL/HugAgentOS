@@ -1,21 +1,25 @@
-import { useMemo, useRef } from 'react';
-import { Modal, Input, Select, Tooltip } from 'antd';
-import type { InputRef } from 'antd';
-import { t } from '../../i18n';
 import {
-  SearchOutlined, CloseOutlined, EditOutlined,
+CloseOutlined,EditOutlined,
+SearchOutlined,
 } from '@ant-design/icons';
-import { useUIStore, useChatStore, useAutomationChatStore } from '../../stores';
-import { usePanel } from '../../routing/usePanel';
-import type { HistoryTimeFilter } from '../../stores/uiStore';
-import {
-  matchesTimeFilter, getHistoryGroupKey, isAutomationHistoryChat,
-  buildSidebarChatItems,
-} from '../../utils/history';
-import { highlightKeyword } from '../../utils/highlight';
-import { getAutomationRuns } from '../../api';
-import type { ChatItem } from '../../types';
+import type { InputRef } from 'antd';
+import { Input,message,Modal,Select,Tooltip } from 'antd';
+import { useMemo,useRef } from 'react';
 import type { SearchResultItem } from '../../api';
+import { getAutomationRuns } from '../../api';
+import { t } from '../../i18n';
+import { navigateTo,pathForAutomationChat } from '../../routing/navigation';
+import { usePanel } from '../../routing/usePanel';
+import { useAutomationChatStore,useChatStore,useUIStore } from '../../stores';
+import { useAutomationStore } from '../../stores/automationStore';
+import type { HistoryTimeFilter } from '../../stores/uiStore';
+import type { ChatItem } from '../../types';
+import { highlightKeyword } from '../../utils/highlight';
+import {
+buildSearchChatItems,
+getHistoryGroupKey,isAutomationHistoryChat,
+matchesTimeFilter,
+} from '../../utils/history';
 
 interface SearchModalProps {
   onNewChat: () => void;
@@ -99,17 +103,17 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
   const storeChats = useChatStore((s) => s.store.chats);
   const currentChatId = useChatStore((s) => s.currentChatId);
   const panel = usePanel();
-  const sidebarTasks = useAutomationChatStore((s) => s.sidebarTasks);
+  const tasks = useAutomationStore((s) => s.tasks);
   const sidebarPrefs = useAutomationChatStore((s) => s.sidebarPrefs);
   const activeAutoTaskId = useAutomationChatStore((s) => s.activeGroup?.taskId);
   const enterAutomationChat = useAutomationChatStore((s) => s.enterAutomationChat);
 
   const inputRef = useRef<InputRef>(null);
 
-  // Shared with Sidebar: keep order/shape exactly identical to avoid the two sides getting out of sync
+  // Search spans all modules; the ordinary chat sidebar only contains its own conversations.
   const allItems = useMemo<ChatItem[]>(
-    () => buildSidebarChatItems({ chats: storeChats, order: storeOrder }, sidebarTasks, sidebarPrefs),
-    [storeChats, storeOrder, sidebarTasks, sidebarPrefs],
+    () => buildSearchChatItems({ chats: storeChats, order: storeOrder }, tasks, sidebarPrefs),
+    [storeChats, storeOrder, tasks, sidebarPrefs],
   );
 
   const hasKeyword = !!searchKeyword.trim();
@@ -130,7 +134,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
       });
   }, [allItems, historyTimeFilter, historyTopicFilter]);
 
-  // Search results must also be filtered (the keyword comes from App.tsx's debounced fetch)
+  // Search results must also be filtered (the keyword comes from useChatSearch's debounced fetch)
   const filteredSearchResults = useMemo(() => {
     return searchResults
       .filter((item) => matchesTimeFilter(item.updatedAt || item.createdAt, historyTimeFilter))
@@ -154,11 +158,15 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
   // Unified item click: automation items need to fetch runs first, regular items go through onSelectChat
   const handlePickItem = async (item: ChatItem) => {
     closeSearchModal();
+    if (item.automationTaskId && !item.id.startsWith('automation:')) {
+      navigateTo(pathForAutomationChat(item.automationTaskId, item.id));
+      return;
+    }
     if (item.automationRun && item.automationTaskId) {
       try {
         const runs = await getAutomationRuns(item.automationTaskId, 50);
-        enterAutomationChat(item.automationTaskId, item.title, runs);
-      } catch { /* ignore */ }
+        enterAutomationChat(item.automationTaskId, item.title, runs, runs.find(run => run.chat_id === item.id)?.run_id);
+      } catch (e) { message.error(e instanceof Error ? e.message : t('加载失败')); }
     } else {
       onSelectChat(item.id);
     }
@@ -167,7 +175,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
   // Search hit: an automation hit must go through the same entry point as handlePickItem (fetch runs + enterAutomationChat),
   // otherwise it just materializes a chat shell (onSelectSearchResult).
   const handlePickSearchResult = (item: SearchResultItem) => {
-    if (item.automationRun || item.automationTaskId) {
+    if (item.automationRun && item.automationTaskId) {
       void handlePickItem(item);
       return;
     }
@@ -191,7 +199,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
     },
   ) => {
     // The "active state" of an automation virtual item is based on activeGroup.taskId, consistent with Sidebar
-    const isActive = panel === 'chat' && (
+    const isActive = (panel === 'chat' || panel === 'automation') && (
       item.automationRun
         ? !!item.automationTaskId && activeAutoTaskId === item.automationTaskId
         : item.id === currentChatId

@@ -8,13 +8,14 @@ Wiki 是知识库的**结构地图**：管线从原文分块里抽出实体页�
 与外接知识库的 Wiki 透传不同，这三张表与 ``kb_documents`` / ``kb_chunks`` 同库，
 血缘可以按 ID 直接 JOIN 取回，不需要「拉整篇文档再本地过滤」。
 """
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     CheckConstraint,
     Column,
     ForeignKey,
@@ -90,9 +91,9 @@ class KBWikiFolder(Base):
     path = Column(String(1024), nullable=False, default="")
     depth = Column(Integer, nullable=False, default=0)
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         Index("idx_kb_wiki_folders_kb_parent", "kb_id", "parent_id"),
@@ -146,9 +147,9 @@ class KBWikiPage(Base):
     last_edit_source = Column(String(16), nullable=False, default=WIKI_EDIT_SOURCE_PIPELINE)
     last_editor_id = Column(String(64), nullable=False, default="")
 
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -190,12 +191,12 @@ class KBWikiJob(Base):
     progress = Column(JSONType, default=dict)  # {"stage": ..., "done": n, "total": m}
 
     claimed_by = Column(String(64))
-    claimed_at = Column(TIMESTAMP(timezone=True))
-    heartbeat_at = Column(TIMESTAMP(timezone=True))
+    claimed_at = Column(UTCDateTime(timezone=True))
+    heartbeat_at = Column(UTCDateTime(timezone=True))
 
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    finished_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    finished_at = Column(UTCDateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(

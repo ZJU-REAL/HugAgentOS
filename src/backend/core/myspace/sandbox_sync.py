@@ -2,7 +2,7 @@
 
 opensandbox 开着 myspace bind mount 时（多用户部署与生产用的就是这套），沙箱写的
 ``/workspace/myspace/{uid}`` 就是后端的 ``myspace_cache/{uid}`` 本身，本模块什么都不做 ——
-:mod:`core.myspace.watcher` 直接从文件事件看到一切。
+:mod:`core.space_sync.personal` 直接从文件事件看到一切。
 
 script_runner 和 cube 不是这个拓扑：前者的会话工作区在共享容器内、一个会话一份，后者整个
 沙箱在远端。两种情况下本机都没有可监听的目录，唯一的办法是把沙箱里的现状取回来。
@@ -36,9 +36,6 @@ _LIST_SEPARATOR = "---jx-myspace---"
 # 路径清单用来认出删除：拿上一轮的清单和这一轮的差集就行，不必再去遍历本机整棵镜像树。
 _last_reflect: "OrderedDict[str, tuple[float, frozenset[str]]]" = OrderedDict()
 _LAST_REFLECT_MAX = 512
-# 第一次见到一个会话时 md5 的回看窗口。没有上一轮可比，又不能整树哈希，就只看最近这一段
-# —— 更早的内容要么早登记过，要么会在下一次改动时被看到。
-_FIRST_WINDOW_S = 600.0
 
 
 async def reflect_sandbox_myspace(*, session_id: Optional[str], user_id: Optional[str]) -> None:
@@ -62,7 +59,13 @@ async def reflect_sandbox_myspace(*, session_id: Optional[str], user_id: Optiona
     key = session_id or user_id
     started = time.time()
     previous = _last_reflect.get(key)
-    since = previous[0] if previous else started - _FIRST_WINDOW_S
+    from core.space_sync.index import reflection
+
+    if previous is None:
+        saved = await asyncio.to_thread(reflection, user_id, key)
+        if saved:
+            previous = (saved[0], frozenset(saved[1]))
+    since = previous[0] if previous else None
     try:
         listing = await _list_sandbox_myspace(session_id, user_id, since_ts=since)
     except Exception as exc:  # noqa: BLE001
@@ -71,6 +74,20 @@ async def reflect_sandbox_myspace(*, session_id: Optional[str], user_id: Optiona
     if listing is None:
         return
     digests, present = listing
+    from core.sandbox._common import myspace_cache_dir
+    from core.space_sync.files import source_path
+
+    def valid(rel):
+        try:
+            source_path(myspace_cache_dir(user_id), rel)
+            return True
+        except (ValueError, OSError):
+            return False
+        except Exception:
+            return False
+
+    present = {rel for rel in present if valid(rel)}
+    digests = {rel: digest for rel, digest in digests.items() if rel in present}
 
     changed = await asyncio.to_thread(_changed_rels, user_id, digests)
     # 第一次见这个会话时没有上一轮清单可比，这一轮不判删除，只把清单记下来。
@@ -82,20 +99,41 @@ async def reflect_sandbox_myspace(*, session_id: Optional[str], user_id: Optiona
 
     base = f"{WORKSPACE}/myspace/{user_id}"
     fetched = 0
+    incomplete = len(changed) > _MAX_FETCH_PER_ROUND
     for rel in changed[:_MAX_FETCH_PER_ROUND]:
         try:
             # cube provider 返回 bytearray，而 OSS put_object 会把非 bytes 当文件对象处理，
             # 统一转成 bytes。
             data = bytes(await provider.get_file(session_id, f"{base}/{rel}", user_id=user_id))
         except (SandboxError, SandboxConnectError) as exc:
+            incomplete = True
             logger.warning("[myspace-sandbox-sync] 取回 %s 失败: %s", rel, exc)
             continue
-        await asyncio.to_thread(_ms.mirror_to_cache, user_id, rel, data)
+        try:
+            from core.myspace.projection import write_projection
+
+            await asyncio.to_thread(write_projection, user_id, rel, data, None)
+        except Exception as exc:
+            incomplete = True
+            logger.warning("[myspace-sandbox-sync] 缓存写入 %s 失败: %s", rel, exc)
+            continue
         fetched += 1
+    failed_removals = set()
+    from core.space_sync.files import delete_source
+
     for rel in removed:
-        await asyncio.to_thread(_ms._remove_cache, user_id, rel)
+        try:
+            await asyncio.to_thread(delete_source, myspace_cache_dir(user_id), rel)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            failed_removals.add(rel)
+            incomplete = True
+            logger.warning("[myspace-sandbox-sync] 缓存删除 %s 失败: %s", rel, type(exc).__name__)
+    present |= failed_removals
     # 留一点余量：命令收尾那一刻正在写的文件下一轮还会被看到，不会漏。
-    _last_reflect[key] = (started - 2.0, frozenset(present))
+    _last_reflect[key] = (since if incomplete else started - 2.0, frozenset(present))
+    await asyncio.to_thread(reflection, user_id, key, [_last_reflect[key][0], sorted(present)])
     _last_reflect.move_to_end(key)
     while len(_last_reflect) > _LAST_REFLECT_MAX:
         _last_reflect.popitem(last=False)
@@ -123,10 +161,14 @@ async def _list_sandbox_myspace(
 
     base = f"{WORKSPACE}/myspace/{user_id}"
     max_bytes = settings.sandbox.artifact_max_bytes
-    newer = "" if since_ts is None else f"-newermt @{int(since_ts)} "
+    newer = (
+        ""
+        if since_ts is None
+        else f"\\( -newermt @{int(since_ts)} -o -newerct @{int(since_ts)} \\) "
+    )
     cmd = (
         f"cd {shell_quote(base)} 2>/dev/null || exit 0; "
-        f"find . -type f {newer}-size -{max_bytes}c -exec md5sum {{}} + 2>/dev/null; "
+        f"find . -type f {newer}-size -{max_bytes + 1}c -exec md5sum {{}} + 2>/dev/null; "
         f"echo {_LIST_SEPARATOR}; "
         "find . -type f 2>/dev/null"
     )
@@ -157,8 +199,15 @@ def _changed_rels(user_id: str, digests: dict[str, str]) -> list[str]:
     for rel, sandbox_md5 in digests.items():
         try:
             fp = _ms.myspace_cache_file(user_id, rel)
-            cache_md5 = hashlib.md5(fp.read_bytes()).hexdigest() if fp.is_file() else None
-        except OSError:
+            from core.space_sync.files import read_source
+            from core.sandbox._common import myspace_cache_dir
+
+            cache_md5 = (
+                hashlib.md5(read_source(myspace_cache_dir(user_id), rel)).hexdigest()
+                if fp.is_file()
+                else None
+            )
+        except Exception:
             cache_md5 = None
         if cache_md5 != sandbox_md5:
             out.append(rel)

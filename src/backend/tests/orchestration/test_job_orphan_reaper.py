@@ -17,13 +17,23 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from core.db.engine import Base
+from core.db.models import Job
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from core.db.engine import Base
-from core.db.models import Job
+
+def run_reaper():
+    async def run():
+        owner.bind()
+        return await jr.reap_orphan_jobs()
+
+    return asyncio.run(run())
+
+
 import orchestration.job_runtime as jr
+from orchestration.jobs import callback, notifications, owner, state, supervisor
 
 
 @pytest.fixture()
@@ -34,12 +44,14 @@ def db_session(monkeypatch):
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(jr, "SessionLocal", Session)
-    monkeypatch.setattr(jr, "_active_jobs", {}, raising=False)
+    monkeypatch.setattr(state, "SessionLocal", Session)
+    monkeypatch.setattr(owner, "_loop", None)
+    monkeypatch.setattr(supervisor, "_entries", {})
 
     async def _no_wake(job_row_id):
         return None
 
-    monkeypatch.setattr(jr, "_maybe_wake", _no_wake)
+    monkeypatch.setattr(notifications, "_maybe_wake", _no_wake)
     return Session
 
 
@@ -72,7 +84,7 @@ def test_pending_job_without_driver_is_reaped(db_session):
     """runner 没起来的 pending 作业：过短闸即判失联，token 一并作废。"""
     _seed(db_session, "job_dead", status="pending", quiet_min=10)
 
-    assert asyncio.run(jr.reap_orphan_jobs()) == 1
+    assert run_reaper() == 1
     assert _status(db_session, "job_dead") == "interrupted"
     with db_session() as db:
         row = db.query(Job).filter(Job.job_id == "job_dead").first()
@@ -85,35 +97,35 @@ def test_recent_pending_job_is_left_alone(db_session):
     """刚提交的作业不能被误杀 —— 沙箱冷启动本来就要花点时间。"""
     _seed(db_session, "job_young", status="pending", quiet_min=1)
 
-    assert asyncio.run(jr.reap_orphan_jobs()) == 0
+    assert run_reaper() == 0
     assert _status(db_session, "job_young") == "pending"
 
 
 def test_running_job_uses_the_longer_silence_window(db_session):
     """running 用与驱动同一把静默闸：单项耗时很长但确实在跑的作业不该被收。"""
     _seed(db_session, "job_slow", status="running", quiet_min=8)
-    assert asyncio.run(jr.reap_orphan_jobs()) == 0
+    assert run_reaper() == 0
     assert _status(db_session, "job_slow") == "running"
 
     _seed(db_session, "job_silent", status="running", quiet_min=20)
-    assert asyncio.run(jr.reap_orphan_jobs()) == 1
+    assert run_reaper() == 1
     assert _status(db_session, "job_silent") == "interrupted"
 
 
-def test_job_driven_in_this_process_is_never_reaped(db_session, monkeypatch):
-    """本进程还在驱动的作业归 drive() 管，对账绝不能插手（护栏重复 = 误杀）。"""
-    _seed(db_session, "job_live", status="pending", quiet_min=30)
-
-    async def _run():
-        task = asyncio.create_task(asyncio.sleep(5))
-        jr._active_jobs["job_live"] = task
-        try:
-            return await jr.reap_orphan_jobs()
-        finally:
-            task.cancel()
-
-    assert asyncio.run(_run()) == 0
-    assert _status(db_session, "job_live") == "pending"
+def test_another_workers_live_lease_is_not_reaped(db_session):
+    _seed(db_session, "job_live", status="running", quiet_min=30)
+    with db_session() as db:
+        row = db.query(Job).filter_by(job_id="job_live").one()
+        row.extra_data = {
+            "execution": {
+                "attempt_id": "a",
+                "owner": "other",
+                "lease_until": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
+            }
+        }
+        db.commit()
+    assert run_reaper() == 0
+    assert _status(db_session, "job_live") == "running"
 
 
 # ── 回调地址探测 ────────────────────────────────────────────────────────
@@ -123,7 +135,7 @@ def test_callback_candidates_prefer_same_network_service_name(monkeypatch):
     monkeypatch.delenv("JOB_CALLBACK_URL", raising=False)
     monkeypatch.setenv("PORT", "8011")
 
-    candidates = jr.callback_base_candidates()
+    candidates = callback.callback_base_candidates()
 
     assert candidates[0] == "http://backend:8011"
     # 宿主别名仍在表里兜底，但不再是唯一选项（写死它正是这次事故的根因）
@@ -136,9 +148,9 @@ def test_explicit_env_wins_and_skips_probing(monkeypatch):
     async def _boom(*a, **k):  # 手动指定即信任，不该再去沙箱里探
         raise AssertionError("probe must not run when JOB_CALLBACK_URL is set")
 
-    monkeypatch.setattr(jr, "_sbx_bash", _boom)
+    monkeypatch.setattr(callback, "_sbx_bash", _boom)
 
-    assert asyncio.run(jr.resolve_callback_base(session_id="s", user_id="u")) == (
+    assert asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u")) == (
         "http://custom:9000/api"
     )
 
@@ -150,9 +162,9 @@ def test_probe_picks_the_reachable_base(monkeypatch):
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "PICK http://backend:8011\n", ""
 
-    monkeypatch.setattr(jr, "_sbx_bash", fake_bash)
+    monkeypatch.setattr(callback, "_sbx_bash", fake_bash)
 
-    assert asyncio.run(jr.resolve_callback_base(session_id="s", user_id="u")) == (
+    assert asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u")) == (
         "http://backend:8011"
     )
 
@@ -168,10 +180,10 @@ def test_unreachable_callback_refuses_to_start(monkeypatch):
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "NONE\n", ""
 
-    monkeypatch.setattr(jr, "_sbx_bash", fake_bash)
+    monkeypatch.setattr(callback, "_sbx_bash", fake_bash)
 
     with pytest.raises(RuntimeError) as exc:
-        asyncio.run(jr.resolve_callback_base(session_id="s", user_id="u"))
+        asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u"))
     assert "JOB_CALLBACK_URL" in str(exc.value)  # 报错要带修法
 
 

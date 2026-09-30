@@ -76,7 +76,7 @@ def _skill_zip(skill_id: str, marker: str, body_note: str) -> bytes:
     md = (
         f"---\nname: {skill_id}\ndescription: 端到端验收技能：读取标记文件并原样回复（{body_note}）\n---\n"
         f"# {skill_id}\n\n当用户要求「读取标记」时：\n\n"
-        f"1. 用 bash 工具执行 `cat /workspace/skills/{skill_id}/marker.txt`\n"
+        f"1. 用 Bash 工具执行 `cat /workspace/skills/{skill_id}/marker.txt`\n"
         f"2. 把命令输出**原样**回复给用户，不要改写、不要加解释。\n"
     )
     buf = io.BytesIO()

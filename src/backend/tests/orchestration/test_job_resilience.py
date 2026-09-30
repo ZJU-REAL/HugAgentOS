@@ -18,16 +18,16 @@ import re
 from types import SimpleNamespace
 
 import pytest
-
 from api.routes.v1.internal_jobs import AgentBody, LedgerBody
 from core.chat.tool_log import _payload_carries_error
-from orchestration.job_runtime import SDK_SOURCE, _final_from_marker
-
+from orchestration.jobs.sdk import SDK_SOURCE
 
 # ── ② 主键类型：int 必须能进门 ──────────────────────────────────────
 
 
-@pytest.mark.parametrize("raw, expected", [(7, "7"), ("7", "7"), (0, "0"), (None, None), ("", None)])
+@pytest.mark.parametrize(
+    "raw, expected", [(7, "7"), ("7", "7"), (0, "0"), (None, None), ("", None)]
+)
 def test_item_key_accepts_int(raw, expected):
     """业务主键十有八九是行号——只收 str 等于把整轮作业挡在门外。"""
     assert AgentBody(prompt="x", item_key=raw).item_key == expected
@@ -80,9 +80,10 @@ def _sdk_ns(responses):
         return Resp()
 
     ns["urllib"] = SimpleNamespace(
-        request=SimpleNamespace(urlopen=fake_urlopen, Request=lambda *a, **k: SimpleNamespace(
-            add_header=lambda *_a, **_k: None
-        )),
+        request=SimpleNamespace(
+            urlopen=fake_urlopen,
+            Request=lambda *a, **k: SimpleNamespace(add_header=lambda *_a, **_k: None),
+        ),
         error=SimpleNamespace(HTTPError=_FakeHTTPError),
     )
     ns["_calls"] = calls
@@ -136,6 +137,8 @@ def test_map_surfaces_first_failure():
     def fake_post(path, payload, timeout=180):
         if path == "log":
             logged.append(str(payload.get("message") or ""))
+        if payload.get("op") == "pending":
+            return []
         return {"ok": True, "known_key": True}
 
     ns["_post"] = fake_post
@@ -150,15 +153,35 @@ def test_map_surfaces_first_failure():
 # ── ⑤ runner 死了要能就地判终态 ─────────────────────────────────────
 
 
-def test_final_from_marker_reads_落盘终态():
-    tail = 'noise\n{"status": "failed", "error": "boom"}\nmore noise'
-    assert _final_from_marker(tail) == ("failed", "boom")
+@pytest.mark.parametrize(
+    "script, startup_fail, status",
+    [
+        ("pass", False, "completed"),
+        ("raise ValueError('boom')", False, "failed"),
+        ("raise SystemExit('bad')", False, "failed"),
+        ("raise AssertionError('must not run')", True, "failed"),
+    ],
+)
+def test_runner_persists_receipt_even_when_callback_fails(tmp_path, script, startup_fail, status):
+    import subprocess
+    import sys
 
+    from orchestration.jobs.runner import RUNNER_SOURCE
 
-def test_final_from_marker_defaults_to_failed():
-    """捡不到标记就按 failed —— 进程没了而作业还 running，本来就不是正常收尾。"""
-    assert _final_from_marker("just a traceback")[0] == "failed"
-    assert _final_from_marker("")[0] == "failed"
+    (tmp_path / "_runner.py").write_text(RUNNER_SOURCE)
+    (tmp_path / "execution.json").write_text(json.dumps({"JOB_ATTEMPT_ID": "attempt"}))
+    (tmp_path / "user_script.py").write_text(script)
+    (tmp_path / "hugagent_job.py").write_text(
+        "def _lifecycle(status, error=None):\n"
+        f"    if status != 'running' or {startup_fail!r}: raise RuntimeError('offline')\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "_runner.py"], cwd=tmp_path, capture_output=True, timeout=5
+    )
+    receipt = json.loads((tmp_path / "lifecycle.final").read_text())
+    assert receipt["attempt_id"] == "attempt"
+    assert receipt["status"] == status
+    assert (proc.returncode == 0) == (status == "completed")
 
 
 # ── 观测面：载荷里写着 error 就不能记成 success ──────────────────────
@@ -174,7 +197,10 @@ def test_final_from_marker_defaults_to_failed():
         ("一篇讲 error 处理的网页正文", False),
         (["block"], False),
         # MCP 工具真正的返回形状：内容块里裹着 JSON 文本，必须穿透
-        ([{"type": "text", "text": '{"error": "internet_search 调用失败: 429", "result": []}'}], True),
+        (
+            [{"type": "text", "text": '{"error": "internet_search 调用失败: 429", "result": []}'}],
+            True,
+        ),
         ([{"type": "text", "text": '{"result": [{"title": "错误码 429 是什么"}]}'}], False),
         ([{"type": "text", "text": "普通正文，没有 JSON"}], False),
     ],

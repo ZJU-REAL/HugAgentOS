@@ -1,65 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppstoreAddOutlined,CloudUploadOutlined,DeleteOutlined,DownOutlined,DownloadOutlined,EditOutlined,PlusOutlined,SearchOutlined,UploadOutlined } from '@ant-design/icons';
+import { Alert,Button,Dropdown,Input,Pagination,Popconfirm,Tag,Tooltip,Typography,message } from 'antd';
 import { motion } from 'motion/react';
-import { Alert, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Pagination, Tooltip } from 'antd';
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { deleteMySkill,uploadMySkill } from '../../api';
+import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
-import { stripMarkdown } from '../../utils/markdown';
-import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
-import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
+import { useAuthStore,useCatalogStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { mergeDeviceSkills } from '../../utils/deviceSkillCatalog';
-import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
-import { SearchOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined } from '@ant-design/icons';
-import { useCatalogStore, useAuthStore } from '../../stores';
-import { usePanel } from '../../routing/usePanel';
+import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import type { PanelKey } from '../../types';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import { isCatalogKind } from '../../utils/constants';
+import { mergeDeviceSkills } from '../../utils/deviceSkillCatalog';
+import { stripMarkdown } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK } from '../../utils/motionVariants';
-import { usePanelHeader } from '../../hooks/usePageConfig';
-import { ABILITY_TAB_TITLE } from './abilityTabs';
-import { deleteMySkill, uploadMySkill } from '../../api';
-import { SkillAvatar } from './skillIcons';
 import { CardTail } from '../common/CardTail';
-import { useSkillEditor } from './useSkillEditor';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
+import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { SkillEditorDialogs } from './SkillEditorDialogs';
+import { SkillAvatar } from './skillIcons';
 import { SkillLibraryDetail } from './SkillLibraryDetail';
-import { useSkillMarketplace } from './useSkillMarketplace';
 import { SkillMarketplaceDialogs } from './SkillMarketplaceDialogs';
+import { useSkillEditor } from './useSkillEditor';
+import { useSkillMarketplace } from './useSkillMarketplace';
 
-const SKILLS_DETAIL_ID_STORAGE_KEY = 'hugagent_skills_detail_id';
-const SKILLS_DETAIL_KIND_STORAGE_KEY = 'hugagent_skills_detail_kind';
-
-// Cards per page in the grid (2-column layout, 6 rows)
 const SKILLS_PAGE_SIZE = 12;
 
-function loadSkillsDetailState(): { id: string | null; kind: 'skills' | 'agents' } {
-  if (typeof window === 'undefined') {
-    return { id: null, kind: 'skills' };
-  }
-  const id = window.localStorage.getItem(SKILLS_DETAIL_ID_STORAGE_KEY);
-  const rawKind = window.localStorage.getItem(SKILLS_DETAIL_KIND_STORAGE_KEY);
-  return {
-    id: id || null,
-    kind: rawKind === 'agents' ? 'agents' : 'skills',
-  };
-}
-
-function saveSkillsDetailState(id: string | null, kind: 'skills' | 'agents') {
-  if (typeof window === 'undefined') return;
-  if (!id) {
-    window.localStorage.removeItem(SKILLS_DETAIL_ID_STORAGE_KEY);
-    window.localStorage.removeItem(SKILLS_DETAIL_KIND_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(SKILLS_DETAIL_ID_STORAGE_KEY, id);
-  window.localStorage.setItem(SKILLS_DETAIL_KIND_STORAGE_KEY, kind);
-}
-
-export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
+export function SkillsPage() {
   const deviceSkills = useDesktopCapabilityStore((s) => s.kinds.skill.items);
   const discoveryErrors = useDesktopCapabilityStore((s) => s.kinds.skill.discoveryErrors);
   const dual = useDeploymentModeStore((s) => s.provisionMode === 'dual');
-  const panel = usePanel();
   const {
     catalog,
     panelEntryNonce,
@@ -74,15 +45,14 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const canAddSkill = useAuthStore((s) => s.authUser?.can_add_skill === true);
 
-  const initialDetailState = embedded ? { id: null, kind: 'skills' as const } : loadSkillsDetailState();
-  const [selectedId, setSelectedId] = useState<string | null>(initialDetailState.id);
-  const [selectedKind, setSelectedKind] = useState<'skills' | 'agents'>(initialDetailState.kind);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedKind, setSelectedKind] = useState<'skills' | 'agents'>('skills');
   const [searchVisible, setSearchVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [skillsPage, setSkillsPage] = useState(1);
   const [agentsPage, setAgentsPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  // Distinguish "user clicked navigation" from "localStorage restore / panel reset": only the former plays the list↔detail transition
+  // Distinguish "user clicked navigation" from "panel reset": only the former plays the list↔detail transition
   const [navDir, setNavDir] = useState<'detail' | 'list' | null>(null);
 
   const handleUploadSkill = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,10 +131,6 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
     return arr.find((x) => x.id === selectedId) || null;
   }, [selectedId, selectedKind, catalog]);
 
-  useEffect(() => {
-    if (embedded) return;
-    saveSkillsDetailState(selectedId, selectedKind);
-  }, [embedded, selectedId, selectedKind]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -173,19 +139,6 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
     setSelectedKind('skills');
   }, [selectedId, selectedItem]);
 
-  useEffect(() => {
-    if (!embedded) return;
-    setSelectedId(null);
-    setSelectedKind('skills');
-    setSearchVisible(false);
-  }, [embedded]);
-
-  useEffect(() => {
-    if (panel !== 'skills') return;
-    setSelectedId(null);
-    setSelectedKind('skills');
-    setSearchVisible(false);
-  }, [panel, panelEntryNonce]);
 
   // Return to the first page when the keyword changes
   useEffect(() => {

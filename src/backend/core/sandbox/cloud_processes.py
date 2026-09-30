@@ -7,13 +7,14 @@ All operations are routed to the same event loop as the owning provider.
 from __future__ import annotations
 
 import asyncio
-import shlex
 import json
-import uuid
+import shlex
 import time
+import uuid
 from datetime import timedelta
 
-from services.script_runner_service.process_sessions import ProcessSessions, ProcessSessionError
+from services.script_runner_service.process_sessions import ProcessSessionError, ProcessSessions
+
 from .errors import SandboxError
 
 
@@ -75,8 +76,8 @@ class CloudProcesses:
         return await self._dispatch(self.sessions.close_all)
 
     async def _spawn(self, req):
-        from ._opensandbox_internals import _dws_extra_envs, _firecrawl_extra_envs, _EXECD_BASH_ENVS
-        from ._common import SANDBOX_RUN_UID, SANDBOX_RUN_GID, WORKSPACE
+        from ._common import SANDBOX_RUN_GID, SANDBOX_RUN_UID, WORKSPACE
+        from ._opensandbox_internals import _EXECD_BASH_ENVS, _dws_extra_envs, _firecrawl_extra_envs
 
         provider = self.provider
         interpreters = {"bash": "bash", "python": "python3 -u", "javascript": "node"}
@@ -180,6 +181,7 @@ class OpenSandboxHandle(CloudHandle):
         self.commands = commands
         self.execution_id = execution_id
         self.cursor = 0
+        self.detached = False
 
     async def poll(self):
         await self.touch()
@@ -209,7 +211,7 @@ class OpenSandboxHandle(CloudHandle):
         await self.commands.interrupt(self.execution_id)
 
     async def close(self):
-        if not self.finished:
+        if not self.finished and not self.detached:
             await self.interrupt()
 
 

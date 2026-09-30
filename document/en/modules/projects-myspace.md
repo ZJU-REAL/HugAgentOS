@@ -124,6 +124,8 @@ Project frontend lives in `src/frontend/src/components/projects/`: `ProjectsPane
 
 ## Team folders and team files (Enterprise Edition, EE)
 
+Opening Team folders loads all accessible teams and shows their first-level folders. Nested folders expand on demand and are not flattened into the overview. The left tree has no expansion arrows: click a directory row to expand it and click again to collapse it. Team directories use the same colored icons as personal folders; selecting a directory opens its files. Opening Canvas on the right keeps folder navigation and files side by side, hiding secondary file metadata such as size, source, and time when space is limited.
+
 User-facing routes are in `src/backend/edition_ee/routes/team_files.py`, gated by the `multi_tenancy` feature flag (EE router table); the admin counterpart is `/v1/config/teams/*` (`edition_ee/routes/config_teams.py`).
 
 | Method | Path | Description |
@@ -200,3 +202,57 @@ Config **Team management** offers Owner, Administrator, Editor and Read-only. Re
 | Owner / Administrator | Yes | Yes | Yes |
 
 `GET/PUT /v1/projects/{id}/source` uses project-relative paths. Saving requires the revision returned by the previous read, preventing lost updates. Agent Read/Edit/Write and bash recheck current permissions on every call, including already registered tools. Team bash operates in the conversation work copy at `/workspace/projects/{id}` and saves changes with revision checks. Delete shared source through project file management; shell deletion does not automatically remove shared files.
+
+### Team sandbox dependencies and automatic synchronization (EE)
+
+Both automatic team workspace synchronization and the save after bash exclude paths named
+`node_modules`, `.git`, `__pycache__`, `.venv`, or `.vite` at any depth, including their contents.
+This also applies to symbolic links whose targets are unavailable in the backend container.
+Dependencies remain in the sandbox. Other source paths retain symlink safety and revision conflict
+checks. These are built-in exclusions; the project's `.gitignore` is not read.
+
+Successfully published site files are stored independently by the hosting service and survive sandbox
+reclamation. Later editing can restore the build environment from synchronized source, dependency
+manifests and lockfiles. Unsynchronized changes must not be treated as durably saved.
+
+
+### Browsing large project file lists
+
+The project file panel uses a fixed-height virtual list that renders only visible rows. Folder expansion, scrolling, preview and deletion remain available. Project instructions have a wider reading area and a larger, vertically resizable editor. A failed file request can be retried without hiding project details or instructions.
+
+
+### Unique personal file paths
+
+A user can have only one live file with a given name in a directory, including the
+root. Database unique indexes enforce this rule. Other users and directories can
+reuse the name. A file and a directory cannot occupy the same path.
+Uploads, generated files, copies and moves that create a duplicate return HTTP 409.
+Update the original file by ID; edits, including sandbox edits, retain that ID.
+A name can be reused after deletion.
+
+Listing files and starting sandbox commands attempt normal synchronization once.
+Incomplete synchronization does not block reading or command execution; temporary
+staleness is allowed. Failed registrations, missing files and failed downloads are
+revisited at the next normal synchronization, without continuous background retries.
+
+Before upgrading, stop writers and back up the database and myspace_cache.
+Preview with `python src/backend/scripts/clean_myspace_duplicates.py --all`.
+Apply only with `--apply --backup-dir <new-backup-directory>`.
+Cleanup deletes every live record in each duplicate group and its mirror path;
+it does not retain the newest record. Tombstones prevent historical backfill from
+resurrecting deleted identities. Original objects and recovery journals are retained.
+Then upgrade Alembic (EE: personalname01; CE: ce_0018), resume services and run
+reconciliation and end-to-end checks. Migration refuses remaining duplicates
+instead of silently deleting data in another environment.
+To restore, stop writers, downgrade the unique indexes and restore the backup;
+never restore duplicate records into the running service.
+
+### Space file tools
+
+Space file tools share the `core/llm/tools/space_tools.py` registration entry point: `space_list_myspace_files`, `space_stage_myspace_file`, `space_create_folder`, `space_move`, and `space_delete`. EE also provides `space_list_team_files`. Generic Read/Write/Edit/Glob/Grep names remain unchanged.
+Favorite-chat tools have been removed; historical chats remain accessible through `list_related_chats` and `read_chat`.
+
+
+### Unified mounted-space synchronization
+
+Personal listeners live in `core/space_sync/`; team adapters live in `edition_ee/services/space_sync/`. Callbacks enqueue in memory, workers batch a durable SQLite journal outside writable mounts, then update database metadata and object storage with authorization and version checks. Native moves retain file/folder IDs. Empty directories, deletion, restart recovery and parsed-cache invalidation share this pipeline. Committed database changes refresh registered mounts; rollback publishes nothing. Conflicts preserve local bytes and fail synchronization barriers. Network transfers and human approval are outside callback latency; measure complete synchronization in the actual deployment.

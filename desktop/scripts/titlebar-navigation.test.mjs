@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import test from "node:test";
 
-const rust = await readFile(new URL("../src-tauri/src/proxy.rs", import.meta.url), "utf8");
+const rust = await readFile(new URL("../src-tauri/src/window_chrome.rs", import.meta.url), "utf8");
 const script = rust.match(/const TB_JS: &str = r##"([\s\S]*?)"##;/)[1];
 
 function titlebar() {
@@ -18,7 +18,7 @@ function titlebar() {
   const window = { location: { href: "" }, addEventListener() {}, innerWidth: 1280 };
   const document = {
     getElementById: () => bar, querySelector: () => null,
-    documentElement: { lang: "zh-CN", style: { setProperty() {} } },
+    documentElement: { dataset: {}, lang: "zh-CN", style: { setProperty() {} } },
     addEventListener: (event, fn) => { (listeners[event] ||= []).push(fn); },
   };
   vm.runInNewContext(script, {

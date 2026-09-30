@@ -30,6 +30,7 @@ See internal design docs.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import json
@@ -399,7 +400,7 @@ async def _build_connected_update(user_id: str) -> Dict[str, Any]:
         "lark_name": ident.get("lark_name"),
         "tenant_key": ident.get("tenant_key"),
         **_CLEAR_LOGIN,
-        "last_verified_at": datetime.utcnow(),
+        "last_verified_at": utc_now(),
         "last_error": None,
     }
 
@@ -651,7 +652,7 @@ class LarkService:
             "login_verification_url_complete": dev.get("verification_url_complete"),
             "login_user_code": dev.get("user_code"),
             "login_device_code": dev.get("device_code"),
-            "login_started_at": datetime.utcnow(),
+            "login_started_at": utc_now(),
             "last_error": None,
         })
         # Start the background completion task (blocking polling until authorized/expired)

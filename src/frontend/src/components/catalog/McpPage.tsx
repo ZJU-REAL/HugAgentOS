@@ -1,28 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppstoreOutlined,CloudUploadOutlined,DeleteOutlined,DownOutlined,LeftOutlined,PlusOutlined,SearchOutlined } from '@ant-design/icons';
+import { Button,Dropdown,Form,Input,message,Modal,Pagination,Popconfirm,Select,Switch,Tag,Tooltip,Typography } from 'antd';
 import { motion } from 'motion/react';
-import { Switch, Tag, Input, Typography, Button, Modal, Form, Select, Popconfirm, message, Pagination, Tooltip, Dropdown } from 'antd';
+import { useCallback,useEffect,useMemo,useState } from 'react';
+import {
+createMyMcpServer,
+deleteMyMcpServer,
+getMyMcpMarketSubmissions,
+submitMcpToMarketplace,
+withdrawMcpMarketSubmission,
+} from '../../api';
+import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
-import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
-import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, AppstoreOutlined, CloudUploadOutlined, DownOutlined } from '@ant-design/icons';
-import { useCatalogStore, useAuthStore } from '../../stores';
-import { usePanel } from '../../routing/usePanel';
+import { useAuthStore,useCatalogStore } from '../../stores';
+import type { McpMarketSubmission } from '../../types';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
-import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
-import { usePanelHeader } from '../../hooks/usePageConfig';
-import { ABILITY_TAB_TITLE } from './abilityTabs';
-import {
-  createMyMcpServer,
-  deleteMyMcpServer,
-  getMyMcpMarketSubmissions,
-  submitMcpToMarketplace,
-  withdrawMcpMarketSubmission,
-} from '../../api';
-import type { McpMarketSubmission } from '../../types';
-import { McpMarketplaceModal } from './McpMarketplaceModal';
+import { DRILL_IN_BACK,DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { CardTail } from '../common/CardTail';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
+import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { McpIcon } from './McpIcon';
-import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
+import { McpMarketplaceModal } from './McpMarketplaceModal';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -31,8 +30,7 @@ import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 const MCP_PAGE_SIZE = 12;
 const MCP_MARKET_CATEGORIES = ['信息检索', '数据分析', '内容创作', '办公协作', '研发工具', '业务系统', '自动化', '通用工具'];
 
-export function McpPage({ embedded = false }: { embedded?: boolean }) {
-  const panel = usePanel();
+export function McpPage() {
   const {
     catalog,
     panelEntryNonce,
@@ -201,18 +199,6 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
     setSelectedId(null);
   }, []);
 
-  useEffect(() => {
-    if (embedded) return;
-    if (panel !== 'mcp') return;
-    setSelectedId(null);
-    setSearchVisible(false);
-  }, [embedded, panel, panelEntryNonce]);
-
-  useEffect(() => {
-    if (!embedded) return;
-    setSelectedId(null);
-    setSearchVisible(false);
-  }, [embedded]);
 
   // ── Detail View ──────────────────────────────────────────────
   if (selectedItem) {

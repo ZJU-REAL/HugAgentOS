@@ -2146,16 +2146,6 @@ textarea.jx-composer{
 .jx-statusDot.disconnected{background:var(--color-error)}
 
 .jx-historyFilters{display:none;}/* legacy — no longer used */
-
-.jx-historyListWrap{
-  padding:0 6px 10px;
-  overflow-y:auto;
-  min-height:0;
-  flex:1;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
 .jx-historyGroup{
   display:flex;
   flex-direction:column;

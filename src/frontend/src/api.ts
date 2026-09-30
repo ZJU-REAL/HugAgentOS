@@ -4,20 +4,21 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption, ReferencableChat } from './types';
-import type { EditionAuthUserFields } from './editionApiTypes';
-import type { EditionChatDetailFields, EditionCreateProjectFields, EditionProjectUpdateFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
-import { createApiResponseError, readErrorMessage } from './utils/apiError';
-import { newOperationId } from './utils/operationId';
-import { t } from './i18n';
+import type { EditionAuthUserFields } from './editionApiTypes';
+import type { EditionChatDetailFields,EditionCreateProjectFields,EditionProjectUpdateFields } from './editionModelTypes';
 import {
-  normalizeSiteEditionFields,
-  normalizeSiteVisibility,
-  type SiteEditionFields,
-  type SiteUpdateEditionFields,
-  type SiteVisibility,
+normalizeSiteEditionFields,
+normalizeSiteVisibility,
+type SiteEditionFields,
+type SiteUpdateEditionFields,
+type SiteVisibility,
 } from './editionSiteVisibility';
+import { t } from './i18n';
+import type { AutomationNotification,AutomationRun,AutomationTask,Catalog,ChatItem,ChatMessage,ChunkPreviewResult,DesignPickInfo,EvolutionSummary,FileConfirmDecision,FileConfirmInfo,JobBrief,KBChunk,KBIndexMode,KBWikiStatus,MemoryGraphRelation,MemoryItem,MemoryProfile,OntologyAssetKind,OntologyTagOption,PlanProgressState,ReferencableChat,ResourceItem,UserQuestionAnswer,UserQuestionRequest,WikiConfig } from './types';
+import { createApiResponseError,readErrorMessage } from './utils/apiError';
+import { conversationTitle } from './utils/conversationTitle';
+import { newOperationId } from './utils/operationId';
 
 type JsonObject = Record<string, unknown>;
 
@@ -84,6 +85,7 @@ export interface SessionListResponse {
 }
 
 export interface CreateSessionRequest {
+  metadata?: Record<string, unknown>;
   title?: string;
   business_topic?: string;
 }
@@ -366,19 +368,26 @@ function toChatItem(raw: JsonObject): ChatItem {
   const metadata = (raw.metadata ?? {}) as JsonObject;
   return {
     id: String(raw.chat_id ?? raw.id ?? ''),
-    title: String(raw.title ?? '新对话'),
+    title: conversationTitle(String(raw.title ?? '新对话')),
     createdAt: toTimestamp(raw.created_at),
     updatedAt: toTimestamp(raw.updated_at),
     messages: [],
     favorite: Boolean(raw.favorite),
     pinned: Boolean(raw.pinned),
     businessTopic: typeof raw.business_topic === 'string' ? raw.business_topic : undefined,
+    automationTaskId: typeof metadata.automation_task_id === 'string' ? metadata.automation_task_id : undefined,
+    automationRun: metadata.automation_run === true,
     agentId: typeof metadata.agent_id === 'string' ? metadata.agent_id : undefined,
     agentName: typeof metadata.agent_name === 'string' ? metadata.agent_name : undefined,
     planChat: metadata.plan_chat === true ? true : undefined,
     batchChat: metadata.batch_chat === true ? true : undefined,
     workflowChat: metadata.workflow_chat === true ? true : undefined,
     planProgress: toPlanProgress(metadata.plan_progress),
+    modeSlug: typeof metadata.mode_slug === 'string' ? metadata.mode_slug : undefined,
+    thinkingEffort: typeof metadata.thinking_effort === 'string' && ['turbo', 'fast', 'medium', 'high', 'max'].includes(metadata.thinking_effort) ? metadata.thinking_effort as ChatItem['thinkingEffort'] : undefined,
+    planModeActive: typeof metadata.plan_mode_active === 'boolean' ? metadata.plan_mode_active : undefined,
+    batchModeActive: typeof metadata.batch_mode_active === 'boolean' ? metadata.batch_mode_active : undefined,
+    workflowModeActive: typeof metadata.workflow_mode_active === 'boolean' ? metadata.workflow_mode_active : undefined,
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
 }
@@ -1899,7 +1908,7 @@ export async function deleteMyMcpServer(serverId: string): Promise<void> {
 }
 
 // ── MCP marketplace (user side) ─────────────────────────────────────────────
-import type { McpMarketItem, McpMarketListResult, McpMarketSubmission } from './types';
+import type { McpMarketItem,McpMarketListResult,McpMarketSubmission } from './types';
 
 export async function getMcpMarketItems(): Promise<McpMarketListResult> {
   const wrapped = await apiRequest<unknown>('/v1/mcp-market/items');
@@ -2121,7 +2130,7 @@ export async function exportMySkillZip(skillId: string): Promise<void> {
 }
 
 // ── Skill marketplace (user side) ───────────────────────────────────────────
-import type { MarketplaceListResult, MarketplaceSkillDetail, MarketplaceSubmission } from './types';
+import type { MarketplaceListResult,MarketplaceSkillDetail,MarketplaceSubmission } from './types';
 
 export async function getMarketplaceSkills(): Promise<MarketplaceListResult> {
   const wrapped = await apiRequest<unknown>('/v1/marketplace/skills');
@@ -2248,10 +2257,10 @@ export async function withdrawSkillSubmission(submissionId: string): Promise<voi
 
 // ── Sub-Agent Marketplace ───────────────────────────────────────────────────
 import type {
-  MarketplaceAgentListResult,
-  MarketplaceAgentDetail,
-  AgentMarketInstallResult,
-  AgentMarketSubmission,
+AgentMarketInstallResult,
+AgentMarketSubmission,
+MarketplaceAgentDetail,
+MarketplaceAgentListResult,
 } from './types';
 
 export async function getMarketplaceAgents(): Promise<MarketplaceAgentListResult> {
@@ -2303,11 +2312,11 @@ export async function withdrawAgentSubmission(submissionId: string): Promise<voi
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
 import type {
-  PluginListItem,
-  PluginDetail,
-  InstalledPluginItem,
-  InstalledPluginDetail,
-  PluginInstallResult,
+InstalledPluginDetail,
+InstalledPluginItem,
+PluginDetail,
+PluginInstallResult,
+PluginListItem,
 } from './types';
 
 export async function listPlugins(): Promise<PluginListItem[]> {
@@ -3240,14 +3249,6 @@ export async function getAutomationRuns(taskId: string, limit?: number): Promise
     return { ...run, task_id: taskId };
   });
 }
-export async function activateAutomationSidebar(taskId: string): Promise<AutomationTask> {
-  const target = automationTarget(taskId);
-  const res = await apiRequest<unknown>(automationPath(taskId, '/activate-sidebar'), { method: 'POST' }, target);
-  return locatedTask(unwrapData<AutomationTask>(res), target === 'local');
-}
-export async function listSidebarAutomations(): Promise<AutomationTask[]> {
-  return automationList('?sidebar_activated=true');
-}
 export async function getAutomationNotifications(): Promise<AutomationNotification[]> {
   const fetchSide = async (local: boolean) => {
     const res = await apiRequest<unknown>('/v1/automations/notifications/list', undefined, local ? 'local' : undefined);
@@ -3412,11 +3413,11 @@ export function openBatchStream(
 // ─── Projects (Claude-style workspaces) ───────────────────────────────────
 
 import type {
-  ProjectChatSummary,
-  ProjectDetail,
-  ProjectFileItem,
-  ProjectItem,
-  ProjectKind,
+ProjectChatSummary,
+ProjectDetail,
+ProjectFileItem,
+ProjectItem,
+ProjectKind,
 } from './types';
 
 export interface ProjectListResponse {
@@ -4076,7 +4077,7 @@ export async function disconnectYida(): Promise<YidaStatus> {
 }
 
 // ── Autonomous Loop (long-running autonomous operation) ──────────
-import type { LoopItem, LoopIterationItem, LoopGoalSpec, LoopBudget } from './types';
+import type { LoopBudget,LoopGoalSpec,LoopItem,LoopIterationItem } from './types';
 
 export async function createLoop(data: {
   title?: string;
@@ -5097,14 +5098,14 @@ export async function updateEvolutionPrefs(
 }
 
 import type {
-  WikiCapability,
-  WikiFolder,
-  WikiGraphData,
-  WikiIndexOverview,
-  WikiPageBrief,
-  WikiPageDetail,
-  WikiSourceChunk,
-  WikiStats,
+WikiCapability,
+WikiFolder,
+WikiGraphData,
+WikiIndexOverview,
+WikiPageBrief,
+WikiPageDetail,
+WikiSourceChunk,
+WikiStats,
 } from './types';
 
 // ── 知识库的 LLM Wiki / 概念图谱 ─────────────────────────────────────────────

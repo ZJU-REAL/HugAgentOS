@@ -17,10 +17,10 @@ const FILE_WRITE: ToolAction = { running: t('正在写入文件'), done: t('写�
 const KB_QUERY: ToolAction = { running: t('正在检索知识库'), done: t('检索了知识库') };
 const CAPABILITY_LIST: ToolAction = { running: t('正在获取能力列表'), done: t('获取了能力列表') };
 const SPACE_FILE: ToolAction = { running: t('正在读写空间文件'), done: t('读写了空间文件') };
-const CHAT_HISTORY: ToolAction = { running: t('正在读取会话记录'), done: t('读取了会话记录') };
 const WORD_DOC: ToolAction = { running: t('正在生成 Word 文档'), done: t('生成了 Word 文档') };
 
 const TOOL_ACTIONS: Record<string, ToolAction> = {
+  Bash: { running: t('正在执行命令'), done: t('运行了命令') },
   bash: { running: t('正在执行命令'), done: t('运行了命令') },
   Write: FILE_WRITE,
   Edit: { running: t('正在编辑文件'), done: t('编辑了文件') },
@@ -37,12 +37,13 @@ const TOOL_ACTIONS: Record<string, ToolAction> = {
   get_mcp_tools: CAPABILITY_LIST,
   get_agents: CAPABILITY_LIST,
   call_subagent: { running: t('正在调用智能体'), done: t('调用了智能体') },
-  list_myspace_files: SPACE_FILE,
-  stage_myspace_file: SPACE_FILE,
+  space_list_myspace_files: SPACE_FILE,
+  space_stage_myspace_file: SPACE_FILE,
+  space_create_folder: SPACE_FILE,
+  space_move: SPACE_FILE,
+  space_delete: SPACE_FILE,
   sandbox_put_artifact: SPACE_FILE,
   sandbox_get_artifact: SPACE_FILE,
-  list_favorite_chats: CHAT_HISTORY,
-  get_chat_messages: CHAT_HISTORY,
   generate_chart_tool: { running: t('正在生成图表'), done: t('生成了图表') },
   word_create_from_markdown: WORD_DOC,
   export_report_to_docx: WORD_DOC,

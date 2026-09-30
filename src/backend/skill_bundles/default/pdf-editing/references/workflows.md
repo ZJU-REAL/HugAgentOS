@@ -15,11 +15,11 @@
 sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="./in.pdf")
 
 # 第一眼：metadata + outline
-bash("pdf-cli read --mode overview --input ./in.pdf")
+Bash("pdf-cli read --mode overview --input ./in.pdf")
 # → 拿到页数、有没有目录、章节结构
 
 # 按章节抓正文（若 PDF 太长可只抓特定页号）
-bash("pdf-cli read --mode text --input ./in.pdf --pages 1,2,3")
+Bash("pdf-cli read --mode text --input ./in.pdf --pages 1,2,3")
 
 # 回答用户。不产新文件，不需要 pin。
 ```
@@ -36,7 +36,7 @@ for i, fid in enumerate(uploaded_fids):
     sandbox_put_artifact(artifact_id=fid, dest_path=f"./in_{i}.pdf")
 
 # 一次合并
-bash("""pdf-cli merge --output ./all.pdf \
+Bash("""pdf-cli merge --output ./all.pdf \
     --inputs ./in_0.pdf ./in_1.pdf ./in_2.pdf ./in_3.pdf ./in_4.pdf""")
 
 sandbox_get_artifact(src_path="./all.pdf", name="月报汇总.pdf")
@@ -53,11 +53,11 @@ pin_to_workspace(file_ids=["fid_new"])
 sandbox_put_artifact(artifact_id="<上传 fid>", dest_path="./in.pdf")
 
 # 先看目录确定页码
-bash("pdf-cli read --mode outline --input ./in.pdf")
+Bash("pdf-cli read --mode outline --input ./in.pdf")
 # → 假设拿到 [{"title":"投标函","page":1}, {"title":"商务部分","page":15}, ...]
 
 # 按页码切
-bash("""pdf-cli split --input ./in.pdf --output-dir ./parts \
+Bash("""pdf-cli split --input ./in.pdf --output-dir ./parts \
     --ranges 1-14,15-40,41-80,81-100 \
     --names 投标函.pdf 商务部分.pdf 技术部分.pdf 附件.pdf""")
 
@@ -81,7 +81,7 @@ pin_to_workspace(file_ids=new_fids)
 sandbox_put_artifact(artifact_id="<表单 fid>", dest_path="./form.pdf")
 
 # Step 1：摸清字段
-bash("pdf-cli read --mode form-fields --input ./form.pdf")
+Bash("pdf-cli read --mode form-fields --input ./form.pdf")
 # → fields: [{"name":"CompanyName","type":"text"},
 #            {"name":"Province","type":"dropdown","choices":["浙江","江苏",...]},
 #            {"name":"AcceptTerms","type":"checkbox"}, ...]
@@ -95,7 +95,7 @@ Write(file_path="./fields.json", content='''{
 }''')
 
 # Step 3：写入
-bash("""pdf-cli fill-form --input ./form.pdf --output ./filled.pdf \
+Bash("""pdf-cli fill-form --input ./form.pdf --output ./filled.pdf \
     --fields-file ./fields.json""")
 
 sandbox_get_artifact(src_path="./filled.pdf", name="填好的申请表.pdf")
@@ -135,7 +135,7 @@ Write(file_path="./spec.json", content='''{
   ]
 }''')
 
-bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
+Bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
 
 sandbox_get_artifact(src_path="./report.pdf", name="智能制造产业链分析 Q3.pdf")
 pin_to_workspace(file_ids=["fid_new"])
@@ -152,7 +152,7 @@ pin_to_workspace(file_ids=["fid_new"])
 Write(file_path="./draft.md", content="<markdown content here>")
 
 # 一行 reformat
-bash("""pdf-cli reformat --input ./draft.md --output ./final.pdf \
+Bash("""pdf-cli reformat --input ./draft.md --output ./final.pdf \
     --doc-type report --title "Q3 工作小结" --author "示例区工信局" --date "2026-05" --accent "#0a5" """)
 
 sandbox_get_artifact(src_path="./final.pdf", name="Q3 工作小结.pdf")
@@ -168,7 +168,7 @@ pin_to_workspace(file_ids=["fid_new"])
 ```python
 sandbox_put_artifact(artifact_id="<docx fid>", dest_path="./in.docx")
 
-bash("""pdf-cli reformat --input ./in.docx --output ./styled.pdf \
+Bash("""pdf-cli reformat --input ./in.docx --output ./styled.pdf \
     --doc-type editorial""")
 
 sandbox_get_artifact(src_path="./styled.pdf", name="样式 PDF.pdf")
