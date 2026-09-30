@@ -4,6 +4,7 @@ Split out of the former monolithic ``core/db/repository.py``. The package
 ``__init__`` re-exports every repository class, so ``from core.db.repository
 import XxxRepository`` keeps working unchanged.
 """
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -102,7 +103,7 @@ class KBRepository:
         for key, value in update_data.items():
             setattr(space, key, value)
 
-        space.updated_at = datetime.utcnow()
+        space.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(space)
         return space

@@ -5,6 +5,7 @@ building the dict that ``routing/workflow.py`` consumes.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def now_iso() -> str:
-    return datetime.now().isoformat()
+    return utc_now().isoformat()
 
 
 def normalize_external_user_id(raw_user_id: Optional[str]) -> str:

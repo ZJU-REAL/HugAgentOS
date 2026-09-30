@@ -4,6 +4,7 @@ Split out of the former monolithic ``core/db/repository.py``. The package
 ``__init__`` re-exports every repository class, so ``from core.db.repository
 import XxxRepository`` keeps working unchanged.
 """
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -80,7 +81,7 @@ class UserRepository:
         for key, value in update_data.items():
             setattr(user, key, value)
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(user)
         return user
@@ -136,7 +137,7 @@ class LocalUserRepository:
             return None
         for k, v in data.items():
             setattr(record, k, v)
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(record)
         return record
@@ -146,7 +147,7 @@ class LocalUserRepository:
         if not record:
             return False
         record.status = status
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         self.db.commit()
         return True
 
@@ -179,7 +180,7 @@ class DingTalkConnectionRepository:
             return None
         for k, v in data.items():
             setattr(record, k, v)
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(record)
         return record
@@ -212,7 +213,7 @@ class LarkConnectionRepository:
             return None
         for k, v in data.items():
             setattr(record, k, v)
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(record)
         return record
@@ -245,7 +246,7 @@ class EmailConnectionRepository:
             return None
         for k, v in data.items():
             setattr(record, k, v)
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(record)
         return record

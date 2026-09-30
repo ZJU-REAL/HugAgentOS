@@ -1,11 +1,12 @@
 """SQLAlchemy ORM models — knowledge base / capability catalog."""
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -41,9 +42,9 @@ class KBSpace(Base):
     visibility = Column(String(16), nullable=False, default="private")
     chunk_method = Column(String(32), nullable=False, default="semantic")
     extra_data = Column("metadata", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     # Relationships
     user = relationship("UserShadow", back_populates="kb_spaces")
@@ -83,8 +84,8 @@ class KBDocument(Base):
         String(20), nullable=False, default="processing"
     )  # processing | completed | failed
     extra_data = Column("metadata", JSONType, default={})
-    uploaded_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    deleted_at = Column(TIMESTAMP(timezone=True))
+    uploaded_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
 
     # Relationships
     kb_space = relationship("KBSpace", back_populates="documents")
@@ -128,8 +129,8 @@ class KBChunk(Base):
     questions = Column(JSONType, default=list)  # associated question list (array of strings)
     char_start = Column(Integer)
     char_end = Column(Integer)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     document = relationship("KBDocument", back_populates="chunks")
@@ -184,8 +185,8 @@ class KBAsset(Base):
     )  # pending | completed | skipped | failed
     vector_state = Column(JSONType, default=dict)  # {"text": "ok"} —— 路径 B 在此加键
     extra_data = Column("metadata", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         CheckConstraint("kind IN ('image', 'audio', 'video')", name="kb_assets_kind_check"),
@@ -208,8 +209,8 @@ class CatalogOverride(Base):
     item_id = Column(String(100), nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
     config_data = Column("config", JSONType, default={})
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("UserShadow", back_populates="catalog_overrides")

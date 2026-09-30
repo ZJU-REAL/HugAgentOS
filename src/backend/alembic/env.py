@@ -23,6 +23,8 @@ if config.config_file_name is not None:
 # env files and resolve the same database URL in local development.
 from core.config.settings import settings
 from core.db.engine import Base
+from core.db.connection import utc_connect_args
+from core.db.utc_datetime import render_utc_type
 from core.db import models as db_models  # noqa: F401
 
 config.set_main_option("sqlalchemy.url", settings.db.url)
@@ -52,11 +54,14 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        render_item=render_utc_type,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
 
     with context.begin_transaction():
+        if utc_connect_args(url):
+            context.execute("SET TIME ZONE 'UTC'")
         context.run_migrations()
 
 
@@ -71,11 +76,12 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=utc_connect_args(settings.db.url),
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, render_item=render_utc_type
         )
 
         with context.begin_transaction():

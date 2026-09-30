@@ -6,7 +6,7 @@ import { newDraftChatId, registerDeletedChatId } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { triggerPdfDownload, toSafeFileName } from '../utils/export';
 import { SUMMARY_MAX_ROUNDS } from '../utils/constants';
-import { formatDateKey } from '../utils/date';
+import { formatDateKey, parseServerTime } from '../utils/date';
 import { useChatStore, useCatalogStore, useUIStore, useAutomationChatStore } from '../stores';
 import { usePageConfigStore } from '../stores/pageConfigStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -194,7 +194,7 @@ export function useChatActions(effectiveApiUrl: string) {
           role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
           content: cleanContent,
           uid: String(m.message_id),
-          ts: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+          ts: m.created_at ? parseServerTime(m.created_at) : Date.now(),
           isMarkdown: !!(m.metadata?.is_markdown),
         });
       }

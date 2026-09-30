@@ -200,3 +200,15 @@ Config **Team management** offers Owner, Administrator, Editor and Read-only. Re
 | Owner / Administrator | Yes | Yes | Yes |
 
 `GET/PUT /v1/projects/{id}/source` uses project-relative paths. Saving requires the revision returned by the previous read, preventing lost updates. Agent Read/Edit/Write and bash recheck current permissions on every call, including already registered tools. Team bash operates in the conversation work copy at `/workspace/projects/{id}` and saves changes with revision checks. Delete shared source through project file management; shell deletion does not automatically remove shared files.
+
+### Team sandbox dependencies and automatic synchronization (EE)
+
+Both automatic team workspace synchronization and the save after bash exclude paths named
+`node_modules`, `.git`, `__pycache__`, `.venv`, or `.vite` at any depth, including their contents.
+This also applies to symbolic links whose targets are unavailable in the backend container.
+Dependencies remain in the sandbox. Other source paths retain symlink safety and revision conflict
+checks. These are built-in exclusions; the project's `.gitignore` is not read.
+
+Successfully published site files are stored independently by the hosting service and survive sandbox
+reclamation. Later editing can restore the build environment from synchronized source, dependency
+manifests and lockfiles. Unsynchronized changes must not be treated as durably saved.

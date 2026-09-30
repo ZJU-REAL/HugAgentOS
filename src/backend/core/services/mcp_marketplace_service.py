@@ -6,6 +6,7 @@ admin install), encrypting install-time header values before persistence.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import json
 import re
@@ -56,7 +57,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
     """Seed credential-free official templates once, without resurrecting deletions."""
     seeded: List[str] = []
     updated = False
-    now = datetime.utcnow()
+    now = utc_now()
     for definition in CURATED_MCP_MARKET_ITEMS:
         slug = str(definition["slug"])
         # Soft-deleted rows deliberately count as existing: an administrator's
@@ -520,7 +521,7 @@ async def submit_to_marketplace(
     if not tools:
         raise BadRequestError(message="MCP 未发现任何工具，不能申请上架")
     template_url, auth_schema = _credential_free_connection(row)
-    now = datetime.utcnow()
+    now = utc_now()
     submission = McpMarketSubmission(
         submission_id=f"mcpsub_{uuid.uuid4().hex}",
         slug=_source_slug(db, row, owner_user_id),
@@ -613,8 +614,8 @@ def withdraw_submission(db: Session, submission_id: str, owner_user_id: str) -> 
     if row.status != "pending":
         raise BadRequestError(message="只有待审核申请可以撤回")
     row.status = "withdrawn"
-    row.deleted_at = datetime.utcnow()
-    row.updated_at = datetime.utcnow()
+    row.deleted_at = utc_now()
+    row.updated_at = utc_now()
     db.commit()
 
 
@@ -669,7 +670,7 @@ def _publish_snapshot(
         .first()
     ):
         raise BadRequestError(message=f"市场条目 {slug} 已存在版本 {version}，请提升版本号")
-    now = datetime.utcnow()
+    now = utc_now()
     # Include a soft-deleted row so a later reviewed version can resurrect the
     # same stable marketplace slug without colliding on the primary key.
     item = db.query(McpMarketItem).filter(McpMarketItem.slug == slug).first()
@@ -831,7 +832,7 @@ def _accept_revalidated_snapshot(
             .update(
                 {
                     McpMarketInstallation.version_id: accepted.version_id,
-                    McpMarketInstallation.updated_at: datetime.utcnow(),
+                    McpMarketInstallation.updated_at: utc_now(),
                 },
                 synchronize_session=False,
             )
@@ -864,7 +865,7 @@ async def review_submission(
         not approve and row.status not in ("pending", "approved")
     ):
         raise BadRequestError(message="该申请当前状态不可审核")
-    now = datetime.utcnow()
+    now = utc_now()
     if approve:
         source = (
             db.query(AdminMcpServer)
@@ -1037,15 +1038,15 @@ async def publish_admin_server(
                     owner_user_id=None,
                     status="active",
                     installed_by="admin",
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    created_at=utc_now(),
+                    updated_at=utc_now(),
                 )
             )
         else:
             installation.slug = item.slug
             installation.version_id = item.latest_version_id
             installation.status = "active"
-            installation.updated_at = datetime.utcnow()
+            installation.updated_at = utc_now()
     else:
         for installation in (
             db.query(McpMarketInstallation)
@@ -1268,7 +1269,7 @@ async def install_market_item(
         require_https=False,
     )
 
-    now = datetime.utcnow()
+    now = utc_now()
     server_id = existing_server.server_id if existing_server else f"mmcp_{uuid.uuid4().hex[:20]}"
     candidate = AdminMcpServer(
         server_id=server_id,
@@ -1539,7 +1540,7 @@ def update_market_item(
     else:
         managed_headers = {}
 
-    item.updated_at = datetime.utcnow()
+    item.updated_at = utc_now()
 
     installation_server_ids = [
         str(row[0])
@@ -1602,8 +1603,8 @@ def delete_market_item(
         )
         if source and (source.extra_config or {}).get("market_source_only"):
             db.delete(source)
-    item.deleted_at = datetime.utcnow()
-    item.updated_at = datetime.utcnow()
+    item.deleted_at = utc_now()
+    item.updated_at = utc_now()
     db.commit()
     ml.set_listing_enabled(db, ml.KIND_MCP, slug, False, updated_by=updated_by)
     return {"slug": slug, "deleted": True}
@@ -1623,7 +1624,7 @@ def set_suspended(
     )
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
-    now = datetime.utcnow()
+    now = utc_now()
     item.status = "suspended" if suspended else "active"
     item.status_reason = (reason or "").strip() if suspended else None
     item.updated_at = now
@@ -1698,8 +1699,8 @@ async def revalidate_market_item(
         else:
             item.status = "active"
             item.status_reason = "个人端点将在安装时使用用户凭据验证"
-        item.last_verified_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
+        item.last_verified_at = utc_now()
+        item.updated_at = utc_now()
         db.commit()
         return _item_dict(db, item, version, installed=False)
     source = (
@@ -1717,8 +1718,8 @@ async def revalidate_market_item(
         ):
             item.status = "changed"
             item.status_reason = "原始 MCP 的连接地址或传输方式已变化，需发布新版本"
-            item.last_verified_at = datetime.utcnow()
-            item.updated_at = datetime.utcnow()
+            item.last_verified_at = utc_now()
+            item.updated_at = utc_now()
             db.commit()
             return _item_dict(db, item, version, installed=False)
         auth_policy = _normalize_auth_config(version.auth_config, list(version.auth_schema or []))
@@ -1727,8 +1728,8 @@ async def revalidate_market_item(
         ):
             item.status = "changed"
             item.status_reason = "原始 MCP 的认证参数已变化，需发布新版本"
-            item.last_verified_at = datetime.utcnow()
-            item.updated_at = datetime.utcnow()
+            item.last_verified_at = utc_now()
+            item.updated_at = utc_now()
             db.commit()
             return _item_dict(db, item, version, installed=False)
     try:
@@ -1765,7 +1766,7 @@ async def revalidate_market_item(
         else:
             item.status = "changed"
             item.status_reason = "远程工具或参数结构已变化，需发布新版本并重新审核"
-    item.last_verified_at = datetime.utcnow()
-    item.updated_at = datetime.utcnow()
+    item.last_verified_at = utc_now()
+    item.updated_at = utc_now()
     db.commit()
     return _item_dict(db, item, version, installed=False)

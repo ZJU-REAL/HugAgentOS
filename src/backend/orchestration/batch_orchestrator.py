@@ -25,6 +25,7 @@ next iteration boundary.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import hashlib
@@ -130,7 +131,7 @@ def _set_status(plan_id: str, status: str) -> None:
         plan = _load_plan(db, plan_id)
         if plan:
             plan.status = status
-            plan.updated_at = datetime.utcnow()
+            plan.updated_at = utc_now()
             db.commit()
 
 
@@ -200,7 +201,7 @@ def _append_result(plan_id: str, result: Dict[str, Any]) -> Dict[str, int]:
         plan.progress = prog
         # SQLAlchemy needs a hint that the JSONB column was mutated.
         flag_modified(plan, "progress")
-        plan.updated_at = datetime.utcnow()
+        plan.updated_at = utc_now()
         db.commit()
         return {
             "done": prog["done"],
@@ -625,7 +626,7 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
         # Mark running on first launch, idempotent on resume.
         if plan.status not in _TERMINAL:
             plan.status = RUNNING
-            plan.updated_at = datetime.utcnow()
+            plan.updated_at = utc_now()
             db.commit()
 
     # Resolve the same capability set the user has configured in the
@@ -978,7 +979,7 @@ class BatchOrchestrator:
 
 def cleanup_expired_plans() -> int:
     """Delete plans whose expires_at has passed. Returns count deleted."""
-    now = datetime.utcnow()
+    now = utc_now()
     with SessionLocal() as db:
         expired = (
             db.query(BatchPlan)

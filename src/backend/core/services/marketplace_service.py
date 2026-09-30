@@ -32,6 +32,7 @@ rejecting an already-approved submission delists it.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import hashlib
 import io
@@ -700,7 +701,7 @@ def install_marketplace_skill(
         ontology_tags=list(tags),
     )
 
-    now = datetime.utcnow()
+    now = utc_now()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == install_id).first()
     if existing is not None:
         # Owner conflict: cannot overwrite a public skill or another user's private skill (admin reinstalling a global one is allowed)
@@ -976,7 +977,7 @@ def _upsert_admin_submission(
     snapshot_files = dict(extra_files)
     # Credential files are never distributed with the market snapshot (same as community listing).
     snapshot_files.pop(SECRETS_FILENAME, None)
-    now = datetime.utcnow()
+    now = utc_now()
     existing = (
         db.query(MarketplaceSubmission)
         .filter(
@@ -1280,7 +1281,7 @@ def submit_to_marketplace(
                 ensure_ascii=False,
             )
 
-    now = datetime.utcnow()
+    now = utc_now()
     sub = MarketplaceSubmission(
         submission_id=f"mksub_{uuid.uuid4().hex[:16]}",
         slug=_derive_slug(db, skill_id, owner_user_id),
@@ -1390,8 +1391,8 @@ def review_submission(
     sub.review_note = (review_note or "").strip()
     if approve and (category or "").strip():
         sub.category = _validate_category(category)
-    sub.reviewed_at = datetime.utcnow()
-    sub.updated_at = datetime.utcnow()
+    sub.reviewed_at = utc_now()
+    sub.updated_at = utc_now()
     db.commit()
     logger.info(
         "marketplace_submission_reviewed: id=%s slug=%s status=%s",

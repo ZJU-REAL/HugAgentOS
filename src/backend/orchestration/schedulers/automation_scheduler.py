@@ -7,6 +7,7 @@ Inspired by claude-code's CronScheduler:
 - Auto-disables tasks after consecutive failure threshold
 - Writes notifications to Redis for frontend polling
 """
+from core.infra.time import utc_now
 
 import asyncio
 import contextlib
@@ -151,7 +152,7 @@ class AutomationScheduler:
         from core.db.engine import SessionLocal
         from core.services.automation_service import AutomationService
 
-        now = datetime.utcnow().replace(tzinfo=pytz.utc)
+        now = utc_now()
         with SessionLocal() as db:
             svc = AutomationService(db)
             due_tasks = svc.get_due_tasks(now)
@@ -305,7 +306,7 @@ class AutomationScheduler:
                 svc.update_task_system(
                     task_id,
                     consecutive_failures=0,
-                    last_run_at=datetime.utcnow(),
+                    last_run_at=utc_now(),
                     sidebar_activated=True,
                 )
                 # next_run_at already pre-advanced in _check_and_fire; now that
@@ -389,7 +390,7 @@ class AutomationScheduler:
                 updates: Dict[str, Any] = {
                     "consecutive_failures": new_failures,
                     "last_error": error_msg,
-                    "last_run_at": datetime.utcnow(),
+                    "last_run_at": utc_now(),
                     "sidebar_activated": True,
                 }
                 if new_failures >= task_max_failures:
@@ -609,7 +610,7 @@ class AutomationScheduler:
                 tool_calls=tool_calls_log if tool_calls_log else None,
                 usage=usage,
                 extra_data={
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": utc_now().isoformat(),
                     "route": meta_fields.get("route", "main"),
                     "is_markdown": meta_fields.get("is_markdown", True),
                     "sources": meta_fields.get("sources", []),
@@ -1005,7 +1006,7 @@ class AutomationScheduler:
         from core.db.engine import SessionLocal
         from core.services.automation_service import AutomationService
 
-        now = datetime.utcnow().replace(tzinfo=pytz.utc)
+        now = utc_now()
         try:
             with SessionLocal() as db:
                 svc = AutomationService(db)
@@ -1064,7 +1065,7 @@ class AutomationScheduler:
                 # 不带任何提示，与运行历史列表的观感不一致。
                 "summary": truncate_summary(summary, SUMMARY_LIMIT_BRIEF),
                 "chat_id": chat_id,
-                "timestamp": int(datetime.utcnow().timestamp() * 1000),
+                "timestamp": int(utc_now().timestamp() * 1000),
                 "read": False,
             }
             await notifications.push(user_id, notification)

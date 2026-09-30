@@ -346,3 +346,10 @@ License 细节见 [License 机制](../editions/license.md)。
 | 记忆设置 | `settings.py::MemorySettings`、`src/backend/core/memory/`（service.py / pipeline.py） |
 | 问题反馈 GitHub 配置 | `src/backend/edition_ee/services/system_config.py`、`feedback_service.py` |
 | License / 版本门面 | `settings.py::LicenseSettings / EditionSettings` |
+
+
+## 时间与时区约定
+
+数据库、业务计算和 API 事件时间统一使用 UTC；ISO 时间字符串携带时区偏移。数据库连接显式使用 UTC，不依赖宿主或容器的 `TZ`。SQLite 时间在读写边界统一为 UTC。
+
+界面显示与日期筛选使用应用展示时区（当前为北京时间），定时任务保留各自配置的时区。`TZ` 不用于改变已存储事件的真实时刻。历史无时区数据须按来源核验，不能批量加减八小时。团队文件旧版本记录的修复（商业版 EE）需要先核验云端对象和原始内容，并备份后单独执行。

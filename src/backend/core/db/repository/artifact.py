@@ -4,6 +4,7 @@ Split out of the former monolithic ``core/db/repository.py``. The package
 ``__init__`` re-exports every repository class, so ``from core.db.repository
 import XxxRepository`` keeps working unchanged.
 """
+from core.infra.time import utc_now
 
 import logging
 from datetime import datetime
@@ -59,7 +60,7 @@ class ArtifactRepository:
         )
         if not artifact:
             return False
-        artifact.deleted_at = datetime.utcnow()
+        artifact.deleted_at = utc_now()
         self.db.commit()
         return True
 
@@ -188,7 +189,7 @@ class ArtifactRepository:
         )
         if not artifact:
             return False
-        artifact.deleted_at = datetime.utcnow()
+        artifact.deleted_at = utc_now()
         self.db.commit()
         return True
 

@@ -11,6 +11,7 @@ path and a bookkeeping failure must never surface as a failed turn.
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import hashlib
 import logging
@@ -132,7 +133,7 @@ def _upsert(
         workspace_id=workspace_id,
         content_hash=content_hash,
     )
-    now = datetime.utcnow()
+    now = utc_now()
     row = db.query(MemoryRefShadow).filter(MemoryRefShadow.ref_id == ref_id).first()
     if row is None:
         db.add(

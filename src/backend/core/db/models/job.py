@@ -14,6 +14,7 @@
 台账放 DB 而不是沙箱文件：沙箱池化复用会让新 job 看见旧 job 残留的账本文件
 （autonomous_loop 踩过这个坑，靠盖 loop_id 章解决），以 job_id 为主键从结构上避免。
 """
+from core.db.utc_datetime import UTCDateTime
 
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -30,7 +31,7 @@ JSONType = JSON().with_variant(JSONB(), "postgresql")
 def _utcnow() -> datetime:
     """带时区的「现在」。
 
-    ⚠️ 这里**不能**用 `datetime.utcnow`：它给的是 naive 值，写进 `TIMESTAMP(timezone=True)`
+    ⚠️ 这里**不能**用 `datetime.utcnow`：它给的是 naive 值，写进 `UTCDateTime(timezone=True)`
     时由 PostgreSQL 按**会话时区**解释。生产/测试机容器都是 `TZ=Asia/Shanghai`，于是
     naive 的 UTC 时刻被当成 +08 存下来，落库瞬间就比真实时刻早 8 小时——状态条上一条刚
     提交的作业因此显示「已运行 8 小时」（实测于 HugAgentOS 测试机）。带 tzinfo 的值不受
@@ -68,10 +69,10 @@ class Job(Base):
     extra_data         = Column("metadata", JSONType, default=dict)
 
     error_message      = Column(Text)
-    created_at         = Column(TIMESTAMP(timezone=True), default=_utcnow)
-    started_at         = Column(TIMESTAMP(timezone=True))
-    completed_at       = Column(TIMESTAMP(timezone=True))
-    updated_at         = Column(TIMESTAMP(timezone=True), default=_utcnow, onupdate=_utcnow)
+    created_at         = Column(UTCDateTime(timezone=True), default=_utcnow)
+    started_at         = Column(UTCDateTime(timezone=True))
+    completed_at       = Column(UTCDateTime(timezone=True))
+    updated_at         = Column(UTCDateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     items = relationship("JobItem", back_populates="job", cascade="all, delete-orphan")
 
@@ -100,7 +101,7 @@ class JobItem(Base):
     review     = Column(JSONType)                 # 验收裁决（可多轮，键为规格名）
     attempts   = Column(Integer, default=0)
     error      = Column(Text)
-    updated_at = Column(TIMESTAMP(timezone=True), default=_utcnow, onupdate=_utcnow)
+    updated_at = Column(UTCDateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     job = relationship("Job", back_populates="items")
 
@@ -129,7 +130,7 @@ class JobCall(Base):
     duration_ms = Column(BigInteger, default=0)
     status      = Column(String(20), default="running")
     error       = Column(Text)
-    created_at  = Column(TIMESTAMP(timezone=True), default=_utcnow)
+    created_at  = Column(UTCDateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (
         Index("idx_job_calls_job_id", "job_id"),

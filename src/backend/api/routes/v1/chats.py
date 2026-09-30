@@ -1,4 +1,5 @@
 """Chat session management + streaming chat API routes (v1)."""
+from core.infra.time import utc_now
 
 import asyncio
 import json
@@ -2301,7 +2302,7 @@ def submit_feedback(
     if existing:
         existing.rating = body.rating
         existing.comment = body.comment
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = utc_now()
         db.commit()
         db.refresh(existing)
         record = existing

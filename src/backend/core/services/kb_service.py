@@ -1,4 +1,5 @@
 """Knowledge base business logic."""
+from core.infra.time import utc_now
 
 import logging
 import os
@@ -119,7 +120,7 @@ class KBService:
             space.description = MANAGED_SYNC_KB_DESCRIPTION
             space.visibility = "private"
             space.extra_data = merged
-            space.updated_at = datetime.utcnow()
+            space.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(space)
         return space
@@ -199,10 +200,10 @@ class KBService:
             else {}
         )
         sync_settings["enabled"] = enabled
-        sync_settings["updated_at"] = datetime.utcnow().isoformat()
+        sync_settings["updated_at"] = utc_now().isoformat()
         metadata["my_space_sync_kb"] = sync_settings
         user.extra_data = metadata
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         self.db.commit()
 
     def is_my_space_sync_enabled(self, user_id: str) -> bool:
@@ -379,7 +380,7 @@ class KBService:
             return False
 
         # Perform soft delete
-        space.deleted_at = datetime.utcnow()
+        space.deleted_at = utc_now()
         self.db.commit()
 
         # Audit log
@@ -418,7 +419,7 @@ class KBService:
             return False
 
         # Perform soft delete
-        document.deleted_at = datetime.utcnow()
+        document.deleted_at = utc_now()
 
         # Decrement document count and total size on the KB space
         space.document_count = max((space.document_count or 0) - 1, 0)

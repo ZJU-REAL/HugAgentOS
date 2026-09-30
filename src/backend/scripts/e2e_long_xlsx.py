@@ -13,6 +13,7 @@ Run inside the backend container:
 """
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import asyncio
 import os
@@ -188,7 +189,7 @@ def test_c_planner(file_id: str, user_id: str) -> Tuple[bool, str, str]:
             max_retries=0,
             status="confirmed",  # skip /confirm endpoint
             progress={"done": 0, "success": 0, "failed": 0},
-            expires_at=datetime.utcnow() + timedelta(hours=24),
+            expires_at=utc_now() + timedelta(hours=24),
         )
         db.add(plan)
         db.commit()

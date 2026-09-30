@@ -1,4 +1,5 @@
 """User-related business logic."""
+from core.infra.time import utc_now
 
 import uuid
 from datetime import datetime
@@ -53,7 +54,7 @@ class UserService:
             # Note: avatar_url is only updated when SSO returns a non-empty value——
             # the user may have set their own avatar in SettingsModal, and SSO returns
             # None in most scenarios; we must not overwrite the user's custom avatar with None.
-            update_data = {"username": username, "email": email, "last_sync_at": datetime.utcnow()}
+            update_data = {"username": username, "email": email, "last_sync_at": utc_now()}
             if avatar_url:
                 update_data["avatar_url"] = avatar_url
             return self.repo.update(user.user_id, update_data)
@@ -71,7 +72,7 @@ class UserService:
                 "username": username,
                 "email": email,
                 "avatar_url": avatar_url,
-                "last_sync_at": datetime.utcnow(),
+                "last_sync_at": utc_now(),
             }
             # 并发下会有几个请求同时走到这里，各自查不到、各自插入——复用先到的那一行
             # 而不是再建一行（见 UserRepository.create_or_reuse_by_user_center_id）。
@@ -113,7 +114,7 @@ class UserService:
         current = dict(user.extra_data) if user.extra_data else {}
         current.update(patch)
         user.extra_data = current
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         self.db.commit()
 
     def get_disabled_builtin_subagent_ids(self, user_id: str) -> Set[str]:

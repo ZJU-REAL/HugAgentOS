@@ -1,3 +1,4 @@
+import { parseServerTime } from '../utils/date';
 import { authFetch, isLocalChat, registerLocalChat, toPlanProgress, LOCAL_TARGET_HEADER } from '../api';
 import { useChatStore } from '../stores';
 import type { ChatItem } from '../types';
@@ -20,8 +21,8 @@ export function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
     id,
     title: preservedTitle,
     ...(backendManual || localManual ? { titleManuallySet: true } : {}),
-    createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
-    updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : Date.now(),
+    createdAt: s.created_at ? parseServerTime(s.created_at) : Date.now(),
+    updatedAt: s.updated_at ? parseServerTime(s.updated_at) : Date.now(),
     messages: [],
     favorite: !!s.favorite,
     pinned: !!s.pinned,

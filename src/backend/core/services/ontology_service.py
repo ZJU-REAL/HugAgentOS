@@ -1,6 +1,7 @@
 """Business service for ontology asset governance and runtime compilation."""
 
 from __future__ import annotations
+from core.infra.time import utc_now
 
 import hashlib
 import json
@@ -220,7 +221,7 @@ class OntologyService:
         if working_draft is None or working_draft.version_id != version_id:
             raise ResourceNotFoundError("ontology_working_draft", version_id)
 
-        now = datetime.utcnow()
+        now = utc_now()
         linked_candidates = (
             self.db.query(OntologyDraft).filter(OntologyDraft.pack_id == pack_id).all()
         )
@@ -662,7 +663,7 @@ def record_review_run(data: dict[str, Any]) -> None:
     try:
         payload = dict(data)
         payload.setdefault("review_id", f"ontor_{uuid.uuid4().hex[:16]}")
-        payload.setdefault("created_at", datetime.utcnow())
+        payload.setdefault("created_at", utc_now())
         OntologyRepository(db).create_review(payload)
     except Exception:
         db.rollback()
