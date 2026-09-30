@@ -946,11 +946,11 @@ def _component_keys(components: Dict[str, Any], kind: str) -> List[str]:
 def list_installed(
     db: Session, owner_user_id: Optional[str], *, include_global: bool = False
 ) -> List[Dict[str, Any]]:
-    """Installed plugins with personal ``enabled`` and hard ``callable`` flags.
+    """Installed plugins with personal ``enabled`` and availability ``callable`` flags.
 
-    ``enabled`` uses the current user's overrides; ``callable`` ignores those
-    overrides and reports whether at least one component passes the global
-    admin/dependency runtime gates for an explicit per-turn invocation.
+    ``enabled`` controls ambient use. ``callable`` reports whether an
+    installed component can be selected explicitly, ignoring enabled switches
+    while retaining dependency and marketplace suspension checks.
 
     - owner_user_id=None: global plugins only (admin view).
     - owner_user_id=<user> + include_global=False: that user's private ones only.
@@ -1004,7 +1004,6 @@ def list_installed(
             for row in db.query(AdminSkill.skill_id)
             .filter(
                 AdminSkill.skill_id.in_(all_skill_ids),
-                AdminSkill.is_enabled.is_(True),
                 AdminSkill.dep_status == "ready",
             )
             .all()
@@ -1018,13 +1017,26 @@ def list_installed(
             for row in db.query(AdminMcpServer.server_id)
             .filter(
                 AdminMcpServer.server_id.in_(all_mcp_ids),
-                AdminMcpServer.is_enabled.is_(True),
             )
             .all()
         }
         if all_mcp_ids
         else set()
     )
+
+    if all_mcp_ids:
+        from core.db.models import McpMarketInstallation
+
+        suspended = {
+            sid
+            for (sid,) in db.query(McpMarketInstallation.server_id)
+            .filter(
+                McpMarketInstallation.server_id.in_(all_mcp_ids),
+                McpMarketInstallation.status == "suspended",
+            )
+            .all()
+        }
+        callable_mcps.difference_update(suspended)
 
     # Enabled state:
     # - user view (owner_user_id non-empty): determined by the user's

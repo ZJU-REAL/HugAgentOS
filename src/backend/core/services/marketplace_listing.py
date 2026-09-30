@@ -6,7 +6,7 @@ principal grants are intentionally absent: every enabled item is public.
 
 from __future__ import annotations
 
-from datetime import datetime
+from core.infra.time import utc_now
 from typing import Any, Dict, List, Optional
 
 from core.db.models import MarketplaceListingState
@@ -50,7 +50,7 @@ def set_listing_enabled(
         row = MarketplaceListingState(kind=kind, item_id=item_id)
         db.add(row)
     row.enabled = bool(enabled)
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     row.updated_by = updated_by
     db.commit()
     return {"kind": kind, "item_id": item_id, "enabled": bool(enabled)}

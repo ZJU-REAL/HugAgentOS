@@ -105,7 +105,12 @@ pub fn dispatch(app: &AppHandle, id: &str) {
 
 pub fn dispatch_for_window(app: &AppHandle, id: &str, label: &str) {
     match id {
-        "new_window" => crate::new_desktop_window(app),
+        "new_window" => {
+            let app = app.clone();
+            // WebView2 creation must not block the menu/navigation event loop.
+            // run_on_main_thread is still synchronous when already on that thread.
+            tauri::async_runtime::spawn_blocking(move || crate::new_desktop_window(&app));
+        }
         // 新建对话：主窗口整页导航回首页（= 全新对话就绪态）。
         "new_chat" => {
             if let Some(w) = app.get_webview_window(label) {
@@ -200,3 +205,7 @@ pub fn dispatch_for_window(app: &AppHandle, id: &str, label: &str) {
         }
     }
 }
+
+#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
+#[path = "menu_native_tests.rs"]
+mod native_tests;

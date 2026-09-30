@@ -805,9 +805,9 @@ def _resolve_explicit_capability_invocation(
     """Validate and expand capabilities explicitly selected for this turn.
 
     Personal catalog switches only control default assembly. Explicit ``/``
-    and ``+`` selections may therefore use a personally-disabled capability,
-    but they still cannot cross installation, ownership, admin-disable, or
-    dependency-readiness boundaries.
+    and ``+`` selections may therefore use an installed capability even when
+    its enabled switch is off, but cannot cross ownership, missing-installation,
+    or dependency-readiness boundaries.
     """
     from core.config.catalog_resolver import resolve_explicit_runtime_capabilities
 
@@ -863,6 +863,26 @@ def _resolve_explicit_capability_invocation(
             plugin_skill_ids = _component_keys(component_ids, "skills")
             plugin_mcp_ids = _component_keys(component_ids, "mcp")
             plugin_name = str(installed.name or installed.slug or request.plugin_name or "插件")
+
+    # A market skill may be installed globally and privately under a
+    # user-suffixed ID. When an API client selects the public entry name, bind
+    # the current user's own installation first so the selected content and
+    # authorization both refer to the same package.
+    if request.skill_id:
+        from core.db.models import AdminSkill
+        from core.services.marketplace_service import compute_install_id
+
+        private_id = compute_install_id(request.skill_id, user_id)
+        private_row = (
+            db.query(AdminSkill.skill_id)
+            .filter(
+                AdminSkill.skill_id == private_id,
+                AdminSkill.owner_user_id == user_id,
+            )
+            .first()
+        )
+        if private_row is not None:
+            request = request.model_copy(update={"skill_id": private_id})
 
     # Clients submit only stable selection IDs. Plugin component lists always
     # come from the authoritative server-side installation record.

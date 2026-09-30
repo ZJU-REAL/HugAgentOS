@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 from core.services.management_contract import MANAGERS, tools
+from core.services.management_errors import management_error
 
 
 class ArtifactSource(BaseModel):
@@ -21,7 +22,7 @@ def register(mcp, manager, user_from_context):
         try:
             return await asyncio.to_thread(getattr(service, action), user_from_context(ctx), kind, **arguments)
         except Exception as exc:
-            return {"ok": False, "error": str(getattr(exc, "detail", exc))}
+            return {"ok": False, "error": management_error(exc)}
 
     async def install(source: ArtifactSource, ctx: Context | None = None):
         return await call("install", ctx, source=source.model_dump())

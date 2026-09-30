@@ -212,3 +212,8 @@ checks. These are built-in exclusions; the project's `.gitignore` is not read.
 Successfully published site files are stored independently by the hosting service and survive sandbox
 reclamation. Later editing can restore the build environment from synchronized source, dependency
 manifests and lockfiles. Unsynchronized changes must not be treated as durably saved.
+
+
+### Browsing large project file lists
+
+The project file panel uses a fixed-height virtual list that renders only visible rows. Folder expansion, scrolling, preview and deletion remain available. Project instructions have a wider reading area and a larger, vertically resizable editor. A failed file request can be retried without hiding project details or instructions.

@@ -87,7 +87,8 @@ class ContentBlock(Base):
 
     __tablename__ = "content_blocks"
 
-    id = Column(String(64), primary_key=True)  # e.g. 'docs_updates', 'docs_capabilities'
+    # Capability snapshots and receipts use a namespace plus a full SHA-256 digest.
+    id = Column(String(128), primary_key=True)
     payload = Column(JSONType, nullable=False, default=[])
     updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
     updated_by = Column(String(64), nullable=True)
