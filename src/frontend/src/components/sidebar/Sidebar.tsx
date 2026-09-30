@@ -46,7 +46,7 @@ export function Sidebar(actions: SidebarProps) {
   };
   return <Layout.Sider width={344} collapsedWidth={64} collapsed={collapsed} theme="light" className="jx-sider jx-moduleShell">
     <nav className="jx-moduleRail" aria-label={t('导航')}>
-      <Tooltip title={t('对话')} placement="right"><button className={`jx-moduleButton${chatModule ? ' active' : ''}`} aria-label={t('对话')} aria-pressed={chatModule} onClick={() => select('chat')}><img src={logo} alt="" /></button></Tooltip>
+      <Tooltip title={t('对话')} placement="right"><button className={`jx-moduleButton${chatModule ? ' active' : ''}`} aria-label={t('对话')} aria-pressed={chatModule} onClick={() => select('chat')}><img className="jx-moduleLogo" src={logo} alt="" /></button></Tooltip>
       {PRIMARY.filter(visible).map(key => { const meta = LAYOUT_ITEMS[key]; return <Tooltip key={key} title={meta.label} placement="right"><button className={`jx-moduleButton${panel === meta.targetPanel ? ' active' : ''}`} aria-label={meta.label} aria-pressed={panel === meta.targetPanel} onClick={() => select(meta.targetPanel)}>{key === 'my_space' ? <Badge count={count} size="small"><img src={meta.icon} alt="" /></Badge> : <img src={meta.icon} alt="" />}</button></Tooltip>; })}
       {more.length > 0 && <Dropdown menu={{ items: more.map(key => ({ key, label: LAYOUT_ITEMS[key].label, icon: <img className="jx-moduleMenuIcon" src={LAYOUT_ITEMS[key].icon} alt="" />, onClick: () => select(LAYOUT_ITEMS[key].targetPanel) })) }} trigger={['click']} placement="bottomLeft"><button className={`jx-moduleButton${more.some(key => LAYOUT_ITEMS[key].activePanels?.includes(panel)) ? ' active' : ''}`} aria-label={t('更多')}><EllipsisOutlined /></button></Dropdown>}
       <SidebarUtilities onSetPanel={select} />
