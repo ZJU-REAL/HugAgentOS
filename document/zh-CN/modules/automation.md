@@ -1,6 +1,6 @@
 # 自动化与批量执行
 
-> 最后更新：2026-08-25
+> 最后更新：2026-09-30
 
 HugAgentOS 内置三种「把一句话变成可重复 / 可批量的生产力」机制，三者都属**社区版（CE）**能力：
 
@@ -44,17 +44,21 @@ HugAgentOS 内置三种「把一句话变成可重复 / 可批量的生产力」
 `orchestration/schedulers/automation_scheduler.py` 是一个随后端启动的 asyncio 轮询调度器：
 
 - **轮询**：每 15 秒（外加 0–5 秒随机抖动）查询 DB 中 `next_run_at` 到期的任务。
-- **分布式锁**：触发前先抢 Redis 锁 `jx:auto:lock:{task_id}`（TTL 900 秒），防止多实例重复触发。
+- **分布式锁**：触发前先抢 Redis 锁 `jx:auto:lock:{task_id}`（TTL 1800 秒），防止多实例重复触发。
 - **先推进再执行**：触发**之前**先把 `next_run_at` 推进到下一周期——无论本次成败，调度照常前进（与真实 cron 一致），杜绝「卡死的 running 行让 next_run_at 永远停在过去、每次轮询都重新触发」的死循环。
-- **执行超时**：单次执行 wall-clock 上限 800 秒，严格小于锁 TTL，保证超时先于锁过期。
+- **执行超时**：单次执行 wall-clock 上限 1500 秒，严格小于锁 TTL，保证超时先于锁过期。
 - **失败治理**：连续失败计数 ≥ `max_failures`（默认 3）时任务自动置为 `disabled`。
-- **启动恢复**：进程重启后先把卡在 `running` 超过 30 分钟的孤儿运行记录改为 `failed` 并推进父任务调度；再补发错过的一次性（one-shot）任务。
+- **启动恢复**：进程重启后先把卡在 `running` 超过 40 分钟的孤儿运行记录改为 `failed` 并推进父任务调度；再补发错过的一次性（one-shot）任务。
 
-执行产物是**真实的聊天会话**：prompt 型任务复用主对话工作流 `orchestration/workflow.py::astream_chat_workflow`，完整保留工具调用、引用、产物文件；plan 型任务走 `orchestration/subagents/plan_mode.py::astream_execute_plan` 并写入计划执行快照。会话标题以 `[自动化]` 前缀标记，运行历史里可一键「查看对话」。执行结束后通过 Redis 通知 + 侧边栏激活提醒用户。
+每次执行通过统一的 ChatRun 会话执行器创建**真实会话**，并在开跑时立即关联执行记录。指令任务实时展示正文、思考和工具调用；计划任务展示步骤进度。点击运行中的会话或刷新页面，可以跟随和重播与普通会话相同的事件流。用户可在会话中停止执行，指令任务还可通过耐久指令队列追加要求，在下一个安全的模型执行边界生效。主动停止不计入连续失败次数；超时会取消后台会话。最终消息、文件、引用和结果投递继续由统一执行器与调度收尾模块负责。会话标题直接使用任务名称，不添加自动化前缀。更新前启动的执行无法补回未记录的实时事件。
+
+定时提示词与普通对话共用会话接收、能力解析、上下文构建和主智能体执行循环。追加要求若由主执行器接续下一轮，定时任务会等待最后一轮的结果再收尾；超时或关闭调度器会取消当前接续执行。
 
 ### 前端
 
-自动化的管理界面在实验室模块下：`src/frontend/src/components/lab/` 的 `AutomationPanel.tsx`（列表）、`AutomationCreateModal.tsx`（创建，含 cron 配置与能力勾选）、`AutomationCard.tsx`、`AutomationDetailPage.tsx`（详情 + 运行历史）。用户既可用视口内滚动的表单直接新建，也可点“通过对话创建”进入主对话；后者会自动引用已安装的“定时任务管理”插件，并预填可编辑模板“我要创建一个定时任务，每【时间间隔】执行【具体任务】”。`src/frontend/src/components/automation/RunTimelinePanel.tsx` 在会话侧呈现按日期分组的运行时间轴。状态由 `stores/automationStore.ts`（任务管理）与 `stores/automationChatStore.ts`（侧边栏会话分组）维护。
+定时任务是独立模块，相关组件位于 src/frontend/src/components/automation/。左侧展示具体任务会话，复用普通对话的排序和悬浮菜单；空白创建会话不重复显示。点击“全部任务”进入内容区管理任务配置、状态和执行记录。通过对话创建时，会先保存归属于定时任务模块的会话，引用已安装的定时任务管理插件并填入可编辑模板。普通对话列表不展示任务会话。
+
+执行会话使用 /automation/:taskId/conversations/:chatId；创建会话使用任务段 new。刷新、前进后退、搜索命中及通知入口均保留任务归属；搜索执行结果直接打开命中的会话，避免误跳到最新执行。RunTimelinePanel 提供按日期分组的执行记录。automationStore 管理唯一任务列表，automationChatStore 仅管理当前执行组和任务置顶、收藏偏好。
 
 ## 计划模式
 

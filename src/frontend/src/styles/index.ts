@@ -29,3 +29,7 @@ import './apidoc.css';
 import './share-preview.css';
 import './quickask.css';
 import './mobile.css';
+
+import './sidebar-history.css';
+import './module-navigation.css';
+import './capability-browser.css';

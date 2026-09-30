@@ -1,0 +1,10 @@
+/* Marketplace-like rows; installed and enabled controls stay in the content. */
+.jx-abilityCenter .jx-mcp-grid,.jx-abilityCenter .jx-sk-grid,.jx-abilityCenter .jx-agentPage-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 48px;}
+.jx-abilityCenter .jx-mcp-card,.jx-abilityCenter .jx-sk-card,.jx-abilityCenter .jx-agentCard{border:0;border-radius:12px;box-shadow:none;background:transparent;padding:18px 12px;min-height:100px;transition:background var(--motion-duration-fast) var(--motion-ease-standard);}
+.jx-abilityCenter .jx-mcp-card:hover,.jx-abilityCenter .jx-sk-card:hover,.jx-abilityCenter .jx-agentCard:hover{background:var(--color-fill-hover);box-shadow:none;transform:none;}
+.jx-abilityCenter .jx-mcp-cardDesc,.jx-abilityCenter .jx-sk-cardDesc{margin-left:40px;color:var(--color-text-tertiary);font-size:14px;line-height:1.6;}
+.jx-abilityCenter .jx-agentCard-body{padding:0;}
+.jx-abilityCenter .jx-agentCard-desc{margin-left:48px;color:var(--color-text-tertiary);font-size:14px;line-height:1.6;}
+.jx-abilityCenter .jx-mcp-cardName,.jx-abilityCenter .jx-sk-cardName,.jx-abilityCenter .jx-agentCard-name{font-size:16px;font-weight:600;}
+@media(max-width:1200px){.jx-abilityCenter .jx-mcp-grid,.jx-abilityCenter .jx-sk-grid,.jx-abilityCenter .jx-agentPage-grid{grid-template-columns:1fr;gap:8px;}}
+@media(max-width:960px){.jx-abilityCenter .jx-mcp-card,.jx-abilityCenter .jx-sk-card,.jx-abilityCenter .jx-agentCard{padding:14px 8px;}}

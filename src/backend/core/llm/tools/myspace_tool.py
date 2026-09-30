@@ -1,8 +1,4 @@
-"""MySpace virtual-filesystem tools (write/read/edit/ls/move/... over sandbox).
-
-Extracted from the oversized core/llm/tool.py; ``core.llm.tool`` re-exports
-``register_myspace_tools``.
-"""
+"""Personal space file discovery and staging, assembled by space_tools."""
 
 import json
 import logging
@@ -86,7 +82,7 @@ def register_myspace_tools(
             stack.extend(r[0] for r in rows)
         return out
 
-    async def list_myspace_files(
+    async def space_list_myspace_files(
         folder_id: str = "",
         file_type: str = "all",
         keyword: str = "",
@@ -126,7 +122,7 @@ def register_myspace_tools(
             from core.db.engine import SessionLocal
             from core.db.models import UserFolder
             from core.db.repository import ArtifactRepository
-            from core.myspace.watcher import flush_user
+            from core.space_sync.personal_registry import flush_user
 
             # 刚写进 /myspace 的文件还在登记器的去抖窗口里，催一下再列，免得模型写完
             # 立刻来查却查不到自己刚写的东西。
@@ -250,7 +246,7 @@ def register_myspace_tools(
                 ],
             )
 
-    async def stage_myspace_file(artifact_id: str) -> ToolResponse:
+    async def space_stage_myspace_file(artifact_id: str) -> ToolResponse:
         """将"我的空间"中的文件暂存到代码执行工作区。"""
         try:
             from core.content.artifact_refs import resolve_artifact_storage_key
@@ -319,7 +315,7 @@ def register_myspace_tools(
                     if not storage_key:
                         raise ValueError(f"文件 {artifact_id} 缺少有效的存储地址")
                     # Backfill a DB Artifact row so the file becomes visible in
-                    # "我的空间" (list_myspace_files) and movable into a folder.
+                    # "我的空间" (space_list_myspace_files) and movable into a folder.
                     # Best-effort: a backfill failure must not block staging.
                     try:
                         from core.content.artifact_refs import infer_artifact_type
@@ -347,7 +343,7 @@ def register_myspace_tools(
                                     storage_url=f"/files/{artifact_id}",
                                     extra_data={
                                         "source": "ai_generated",
-                                        "tool_name": "stage_myspace_file",
+                                        "tool_name": "space_stage_myspace_file",
                                     },
                                     **scope_fields,
                                 )
@@ -356,7 +352,7 @@ def register_myspace_tools(
                     except Exception as _bf_exc:  # noqa: BLE001
                         db.rollback()
                         logger.warning(
-                            "stage_myspace_file artifact backfill failed: %s",
+                            "space_stage_myspace_file artifact backfill failed: %s",
                             _bf_exc,
                         )
             finally:
@@ -394,141 +390,7 @@ def register_myspace_tools(
                 ],
             )
 
-    async def list_favorite_chats(
-        keyword: str = "",
-        limit: int = 20,
-    ) -> ToolResponse:
-        """列出"我的空间"中收藏的会话。"""
-        try:
-            from core.db.engine import SessionLocal
-            from core.db.models import ChatMessage
-            from core.db.repository import ChatSessionRepository
-
-            limit = min(int(limit), 50)
-            db = SessionLocal()
-            try:
-                repo = ChatSessionRepository(db)
-                sessions, total = repo.list_by_user(
-                    user_id=user_id,
-                    favorite_only=True,
-                    page=1,
-                    page_size=limit,
-                )
-
-                results = []
-                for s in sessions:
-                    if keyword and keyword.lower() not in (s.title or "").lower():
-                        continue
-                    last_msg = (
-                        db.query(ChatMessage)
-                        .filter(
-                            ChatMessage.chat_id == s.chat_id,
-                            ChatMessage.role == "assistant",
-                        )
-                        .order_by(ChatMessage.chat_seq.desc())
-                        .first()
-                    )
-                    preview = ""
-                    if last_msg:
-                        preview = (last_msg.content or "")[:200]
-
-                    results.append(
-                        {
-                            "chat_id": s.chat_id,
-                            "title": s.title or "未命名会话",
-                            "created_at": s.created_at.isoformat() if s.created_at else None,
-                            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-                            "last_message_preview": preview,
-                        }
-                    )
-            finally:
-                db.close()
-
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=json.dumps({"total": total, "items": results}, ensure_ascii=False),
-                    )
-                ],
-            )
-        except Exception as exc:
-            return ToolResponse(
-                content=[
-                    TextBlock(type="text", text=json.dumps({"error": str(exc)}, ensure_ascii=False))
-                ],
-            )
-
-    async def get_chat_messages(
-        chat_id: str,
-        limit: int = 50,
-    ) -> ToolResponse:
-        """获取指定收藏会话的完整消息记录。"""
-        try:
-            from core.db.engine import SessionLocal
-            from core.db.models import ChatMessage, ChatSession
-            from sqlalchemy import asc
-
-            limit = min(int(limit), 200)
-            db = SessionLocal()
-            try:
-                session = (
-                    db.query(ChatSession)
-                    .filter(
-                        ChatSession.chat_id == chat_id,
-                        ChatSession.user_id == user_id,
-                        ChatSession.deleted_at.is_(None),
-                    )
-                    .first()
-                )
-                if not session:
-                    raise ValueError(f"会话 {chat_id} 不存在或无权访问")
-                if not session.favorite:
-                    raise PermissionError("该会话未被收藏，无法读取（仅限收藏会话）")
-
-                messages = (
-                    db.query(ChatMessage)
-                    .filter(
-                        ChatMessage.chat_id == chat_id,
-                        ChatMessage.role.in_(["user", "assistant"]),
-                    )
-                    .order_by(asc(ChatMessage.chat_seq))
-                    .limit(limit)
-                    .all()
-                )
-
-                results = []
-                for m in messages:
-                    results.append(
-                        {
-                            "role": m.role,
-                            "content": (m.content or "")[:5000],
-                            "created_at": m.created_at.isoformat() if m.created_at else None,
-                        }
-                    )
-            finally:
-                db.close()
-
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=json.dumps(
-                            {"chat_id": chat_id, "messages": results}, ensure_ascii=False
-                        ),
-                    )
-                ],
-            )
-        except Exception as exc:
-            return ToolResponse(
-                content=[
-                    TextBlock(type="text", text=json.dumps({"error": str(exc)}, ensure_ascii=False))
-                ],
-            )
-
-    toolkit.register_tool_function(list_myspace_files, namesake_strategy="override")
-    toolkit.register_tool_function(stage_myspace_file, namesake_strategy="override")
-    toolkit.register_tool_function(list_favorite_chats, namesake_strategy="override")
-    toolkit.register_tool_function(get_chat_messages, namesake_strategy="override")
+    toolkit.register_tool_function(space_list_myspace_files, namesake_strategy="override")
+    toolkit.register_tool_function(space_stage_myspace_file, namesake_strategy="override")
     register_organization_tools(toolkit, user_id)
     logger.info("[factory] Registered MySpace tools for Lab session (user=%s)", user_id)

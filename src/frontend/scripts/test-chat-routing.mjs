@@ -40,7 +40,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { createAppRouter } from './src/routing/routes';
 import { bindRouter } from './src/routing/navigation';
-import { useChatStore, useCatalogStore } from './src/stores';
+import { useChatStore, useCatalogStore, useAuthStore } from './src/stores';
 import { panelFromPath } from './src/routing/navigation';
 import { abilitySlug, abilityTabFromSubs, kbTabFrom, mySpaceTabFromSubs } from './src/routing/subPages';
 import { useCatalogStore as catalog } from './src/stores/catalogStore';
@@ -58,6 +58,11 @@ useChatStore.setState({
 });
 
 window.__routing = {
+  authenticate: () => useAuthStore.setState({authUser: {user_id:'u1',username:'tester'},authChecking:false}),
+  title: (id) => useChatStore.getState().store.chats[id]?.title,
+  owner: (id) => useChatStore.getState().store.chats[id]?.automationTaskId,
+  mode: () => ({slug:useChatStore.getState().modeSlug,effort:useChatStore.getState().chatMode}),
+
   chatId: () => useChatStore.getState().currentChatId,
   panel: () => window.__panelFromHook,
   panelFromUrl: () => panelFromPath(),
@@ -122,12 +127,19 @@ const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIG
 try {
   const page = await browser.newPage();
   const errors = [];
+  const taskSessionRequests = [];
   page.on('pageerror', (e) => { errors.push(e.message); console.error('browser error:', e.message); });
   await page.context().route(origin + '/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/fixture.js') {
       return route.fulfill({ contentType: 'text/javascript', body: await readFile(resolve(output, 'fixture.js')) });
     }
+    if (url.pathname === '/api/v1/chats/task-chat') {
+      taskSessionRequests.push(url.pathname);
+      return route.fulfill({json:{code:10000,data:{chat_id:'task-chat',title:'Scheduled result',metadata:{automation_task_id:'task-one',automation_run:true,mode_slug:'deep-research',thinking_effort:'high'},created_at:'2026-09-30T10:00:00Z',updated_at:'2026-09-30T10:00:00Z'}}});
+    }
+    if (url.pathname === '/api/v1/automations/task-one') return route.fulfill({json:{code:10000,data:{task_id:'task-one',name:'Daily report',status:'active'}}});
+    if (url.pathname === '/api/v1/automations/task-one/runs') return route.fulfill({json:{code:10000,data:[{run_id:'run-one',task_id:'task-one',chat_id:'task-chat',status:'completed',started_at:'2026-09-30T10:00:00Z'}]}});
     if (url.pathname.startsWith('/api')) return route.fulfill({ json: { code: 10000, data: {} } });
     // nginx / 桌面端本地代理都是这个行为：静态资源没命中就回落 index.html
     return route.fulfill({ contentType: 'text/html', body: '<html><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>' });
@@ -199,13 +211,6 @@ try {
   assert.equal(await path(), '/my-space/kb/private', '我的空间下的知识库分档应落到第三层地址');
   assert.equal((await page.evaluate(() => window.__routing.subs())).kb, 'private');
 
-  await page.evaluate(() => window.__routing.setPanel('kb'));
-  await page.evaluate(() => window.__routing.setKbTab('private'));
-  assert.equal(await path(), '/kb/private', '独立知识库页的分档地址');
-
-  await page.goBack();
-  await page.waitForFunction(() => location.pathname === '/kb');
-
   // 10. 正在流式输出时切到别的页面，不许被拽回会话
   await page.evaluate(() => window.__routing.select('chat-a'));
   assert.equal(await path(), '/c/chat-a');
@@ -219,8 +224,30 @@ try {
   await page.evaluate(() => { for (let i = 0; i < 5; i += 1) window.__routing.streamTick('chat-b'); });
   assert.equal(await path(), '/c/chat-a', '后台会话输出不能把地址切到它自己');
 
+  // Task conversations wait for identity, then restore their own metadata and module.
+  taskSessionRequests.length = 0;
+  await page.goto(origin + '/automation/task-one/conversations/task-chat');
+  await page.waitForFunction(() => !!window.__routing);
+  await page.waitForTimeout(100);
+  assert.equal(taskSessionRequests.length, 0, '认证完成前不能读取任务会话');
+  await page.evaluate(() => window.__routing.authenticate());
+  await page.waitForFunction(() => window.__routing.chatId() === 'task-chat');
+  assert.equal(await panel(), 'automation');
+  assert.equal(await page.evaluate(() => window.__routing.title('task-chat')), 'Scheduled result');
+  assert.equal(await page.evaluate(() => window.__routing.owner('task-chat')), 'task-one');
+  assert.deepEqual(await page.evaluate(() => window.__routing.mode()),{slug:'deep-research',effort:'high'},'元数据恢复后同步输入模式与思考强度');
+  await page.evaluate(() => window.__routing.select('chat-a'));
+  assert.equal(await path(), '/c/chat-a');
+  await page.goBack();
+  await page.waitForFunction(() => window.__routing.chatId() === 'task-chat');
+  assert.equal(await panel(), 'automation');
+  await page.reload();
+  await page.waitForFunction(() => !!window.__routing);
+  await page.evaluate(() => window.__routing.authenticate());
+  await page.waitForFunction(() => window.__routing.chatId() === 'task-chat');
+  assert.equal(await panel(), 'automation', '刷新任务会话仍留在定时任务模块');
   assert.deepEqual(errors, [], '不应有运行时报错');
-  console.log('chat routing: 16 项断言全部通过');
+  console.log('chat routing: 普通会话、模块地址与定时任务刷新/历史导航通过');
 } finally {
   await browser.close();
 }

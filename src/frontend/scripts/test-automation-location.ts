@@ -26,7 +26,7 @@ assert(!requests.at(-1)?.url.includes('local%3A'), 'UI namespace never reaches d
 console.log('automation execution routing passed');
 
 
-const { defaultExecutionLocation, executionLocationError } = await import('../src/components/lab/automationLocation');
+const { defaultExecutionLocation, executionLocationError } = await import('../src/components/automation/automationLocation');
 assert.equal(defaultExecutionLocation('dual', 'local'), 'local');
 assert.equal(defaultExecutionLocation('dual'), 'cloud');
 assert.equal(defaultExecutionLocation('local_only'), 'local');
@@ -36,7 +36,7 @@ assert(executionLocationError('local', undefined, 'Read C:\\Users\\Aaron'));
 assert.equal(executionLocationError('local', 'local', 'Read project'), null);
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { createElement } = await import('react');
-const { AutomationCard } = await import('../src/components/lab/AutomationCard');
+const { AutomationCard } = await import('../src/components/automation/AutomationCard');
 const markup = renderToStaticMarkup(createElement(AutomationCard, { task: {
   task_id: 'local:one', task_type: 'prompt', execution_location: 'local',
   device_name: 'Laptop', project_name: 'Reports', timezone: 'Asia/Shanghai', status: 'active',

@@ -595,16 +595,12 @@
     transition:transform .24s ease, visibility .24s ease !important;
   }
 
-  .jx-appShell > .jx-sider .jx-siderInner{
-    width:100%;
-  }
 
   .jx-appShell > .jx-sider .jx-newChatBtn{
     width:calc(100% - 32px);
   }
 
-  .jx-appShell > .jx-sider.ant-layout-sider-collapsed,
-  .jx-appShell > .jx-sider.jx-sider--mini{
+  .jx-appShell > .jx-sider.ant-layout-sider-collapsed{
     width:0 !important;
     min-width:0 !important;
     max-width:0 !important;
@@ -1678,11 +1674,6 @@
   }
 
   /* 侧栏抽屉铺满整屏高，上下都要避让；左缘贴屏幕边要让开横屏刘海 */
-  .jx-appShell > .jx-sider .jx-siderInner{
-    padding-top:var(--jx-safe-t);
-    padding-bottom:var(--jx-safe-b);
-    padding-left:var(--jx-safe-l);
-  }
 }
 
 /* ── 2. iOS 聚焦自动缩放 ─────────────────────────────────────────────
@@ -1870,13 +1861,7 @@
     min-height:40px;
   }
 
-  .jx-appShell > .jx-sider .jx-brandHomeBtn{
-    min-height:44px;
-  }
 
-  .jx-appShell > .jx-sider .jx-userInfoBtn{
-    min-height:44px;
-  }
 
   /* 对话页顶栏是 flex 容器，标题一长就把汉堡键压窄（实测被压到 30px）。
      width 会被压缩，min-width 不会——两个都要写。 */
@@ -1928,8 +1913,7 @@
    抽屉里的历史列表滚到头后，手势会继续传给底下的页面（滚动链），在 iOS 上
    表现为整个抽屉跟着橡皮筋位移。contain 把滚动关在容器里。 */
 @media (max-width: 960px){
-  .jx-appShell > .jx-sider .jx-historyListWrap,
-  .jx-appShell > .jx-sider .jx-siderInner{
+  .jx-appShell > .jx-sider .jx-moduleSidebar{
     overscroll-behavior:contain;
   }
 }

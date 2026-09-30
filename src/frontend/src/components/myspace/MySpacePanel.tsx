@@ -496,7 +496,7 @@ export function MySpacePanel() {
         }}>
           <motion.div key={tab} className="jx-mySpace-bodyFade" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {tab === 'kb' ? (
-              <CatalogPanel embedded />
+              <CatalogPanel />
             ) : tab === 'notifications' ? (
               <NotificationList />
             ) : tab === 'shares' ? (

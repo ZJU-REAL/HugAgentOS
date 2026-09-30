@@ -1,8 +1,8 @@
 # 前端架构详解
 
-> 最后更新：2026-06-11
+> 最后更新：2026-09-30
 
-前端位于 `src/frontend/`，是一个 React 19 + TypeScript 单页应用：Vite 构建、Ant Design 组件库、Zustand 状态管理、无路由框架——按 URL 路径在入口处切换五个独立应用壳。生产环境构建产物由 Nginx 容器托管，所有后端调用收敛到一个类型化客户端 `api.ts`。
+前端位于 `src/frontend/`，是一个 React 19 + TypeScript 单页应用：Vite 构建、Ant Design 组件库、Zustand 状态管理、主应用使用 React Router，按 URL 路径在入口处切换五个独立应用壳。生产环境构建产物由 Nginx 容器托管，所有后端调用收敛到一个类型化客户端 `api.ts`。
 
 ## 多入口应用壳
 
@@ -18,9 +18,15 @@
 
 CE 派生树物理移除 `AdminApp.tsx` / `ConfigApp.tsx` 及 `components/admin/`、`components/config/`（由 `ce/manifest.yaml` 声明），并用 overlay 提供精简版 `main.tsx`。
 
+## 模块导航与职责拆分
+
+主界面采用模块图标栏、当前模块侧栏和内容区三层布局。对话模块只展示普通会话与项目会话；能力中心侧栏依次选择智能体、插件、技能、连接器，已安装能力及其操作位于右侧内容区；我的空间侧栏管理文件、知识库、收藏、分享和通知。定时任务的创建会话和执行会话均留在定时任务模块，搜索、通知、刷新及历史导航复用同一会话地址。
+
+App.tsx 只连接 useAppController、AppAuthGate 和 AppWorkspace。初始化、流恢复、搜索和滚动分别由 useAppBootstrap、useChatRecovery、useChatSearch、useChatViewport 管理；侧栏按模块菜单、会话行、项目分组和账号工具拆分；我的空间按控制器、文件夹动作、知识库选择、页头、内容和弹窗拆分。路由是模块位置的唯一来源，automationStore 是任务列表的唯一来源。
+
 ## api.ts — 类型化 API 客户端
 
-`src/api.ts`（约 2200 行）是唯一的后端出入口：
+`src/api.ts`是唯一的后端出入口：
 
 - **基础地址**：`getApiUrl()` 返回 `import.meta.env.VITE_API_BASE_URL || '/api'`——开发态走 Vite 代理，生产态走 Nginx 同源 `/api`；
 - **信封解包**：后端统一返回 `{ code, message, data, trace_id, timestamp }`，`isApiEnvelope` + `unwrapData<T>` 自动取出 `data`，调用方拿到的就是业务类型；
@@ -37,7 +43,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `admin/`（商业版 EE） | 内容管理台面板：技能 / 知识库 / 智能体管理器、页面配置编辑器、图标选择器等 |
 | `agent/` | 子智能体的创建页、表单、@提及弹层、面板 |
 | `apidoc/` | API 文档页面板 |
-| `automation/` | 自动化运行时间线面板 |
+| `automation/` | 定时任务列表、创建、详情、创建会话入口与执行时间线 |
 | `batch/` | 批量执行确认弹窗与进度面板 |
 | `canvas/` | 数据画布：Univer 在线表格面板 |
 | `catalog/` | 能力中心：技能 / MCP 页面、目录面板、技能市场弹窗、图标选择 |
@@ -48,7 +54,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `docs/` | 应用中心与文档面板（版本说明等） |
 | `file/` | 附件卡片、文件预览窗格、我的空间导入弹窗 |
 | `kb/` | 知识库创建与重建索引弹窗 |
-| `lab/` | 实验室：自动化卡片 / 创建 / 详情 / 面板 |
+| `lab/` | 实验室：技能蒸馏与自主循环 |
 | `memory/` | 记忆事实列表 |
 | `myspace/` | 我的空间：文档 / 收藏 / 图片 / 通知列表与主面板 |
 | `projects/` | 项目工作空间：卡片、详情面板、右栏、记忆弹窗 |

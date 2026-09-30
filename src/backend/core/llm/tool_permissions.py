@@ -491,15 +491,15 @@ def _path_summary(tool: str, action: str, logical: str, args: Mapping[str, Any])
         return f"写入 {logical}（{len(str(args.get('content') or ''))} 字符）"
     if tool == "Edit":
         return f"编辑 {logical}（替换片段）"
-    if tool == "Move":
+    if tool == "space_move":
         return f"移动/改名 {logical} → {str(args.get('dst_path') or '')}"
     labels = {
         "Read": "读取",
         "Glob": "扫描",
         "Grep": "搜索",
         "read_image": "查看图片",
-        "Delete": "删除",
-        "CreateFolder": "创建文件夹",
+        "space_delete": "删除",
+        "space_create_folder": "创建文件夹",
         "sandbox_put_artifact": "写入沙盒文件",
         "sandbox_get_artifact": "读取沙盒文件",
     }
@@ -621,18 +621,17 @@ def builtin_tool_permission(tool_name: str) -> Optional[ToolPermissionSpec]:
             tool_name="read_image",
             skip_if_arg="file_id",
         ),
-        "Delete": local_path_tool("path", WRITE, tool_name="Delete", myspace_op=OP_DELETE),
-        "Move": local_path_tool(
+        "space_delete": local_path_tool("path", WRITE, tool_name="space_delete", myspace_op=OP_DELETE),
+        "space_move": local_path_tool(
             "src_path",
             WRITE,
-            tool_name="Move",
+            tool_name="space_move",
             additional_paths=(("dst_path", WRITE),),
             myspace_op=OP_MOVE,
         ),
-        "CreateFolder": local_path_tool(
-            "path", WRITE, tool_name="CreateFolder", myspace_op=OP_MKDIR
+        "space_create_folder": local_path_tool(
+            "path", WRITE, tool_name="space_create_folder", myspace_op=OP_MKDIR
         ),
-        "bash": local_command_tool(),
         "Bash": local_command_tool(),
         "sandbox_put_artifact": local_path_tool(
             "dest_path", WRITE, tool_name="sandbox_put_artifact"

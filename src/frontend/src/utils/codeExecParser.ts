@@ -16,7 +16,7 @@ export function extractCodeFromInput(
   }
   if (!obj) return { code: '', language: 'text' };
 
-  if (toolName === 'bash') {
+  if (toolName === 'Bash' || toolName === 'bash') {
     return { code: String(obj.command ?? ''), language: 'bash' };
   }
   if (toolName === 'Write') {
@@ -109,7 +109,7 @@ export function extractCodeFromStreamingArgs(
     // directly from the incomplete JSON prefix below.
   }
 
-  if (toolName === 'bash') {
+  if (toolName === 'Bash' || toolName === 'bash') {
     const code = extractPartialJsonString(argumentsText, 'command');
     return code === null ? null : { code, language: 'bash' };
   }

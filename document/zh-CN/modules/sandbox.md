@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-24
 
-沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
+沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `Bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
 按[版本划分](../editions/overview.md)：**轻量沙箱（script_runner）+ 沙箱工具/offload 基础设施属社区版 CE**；**持久沙箱（opensandbox / cube，会话保持、环境复用、快照恢复）属商业版 EE**——社区版派生树剔除这两个 provider 文件，工厂自动回退轻量实现。
 
@@ -26,7 +26,7 @@
 | `health()` | 健康探测 |
 | `admin_*` 系列 | 安全管理台只读视图（能力声明 / 实例枚举 / 单实例详情 / 池统计），不支持的能力抛 `SandboxAdminNotSupported` 由 UI 置灰 |
 
-内部业务通过 await provider.run_to_completion(request) 一次调用取得 ProcessResult（stdout、stderr、exit_code、execution_time_ms），不管理进程 ID，也不调用模型工具。三个 provider 共用底层进程管理和结果收集；等待在服务端内部完成，只启动一次，失败不自动重跑。模型工具层继续使用 bash / write_stdin。默认无命令运行截止时间，调用者仍可显式指定 timeout；单次等待、网络请求超时和云沙箱生命周期与命令运行时限不同。
+内部业务通过 await provider.run_to_completion(request) 一次调用取得 ProcessResult（stdout、stderr、exit_code、execution_time_ms），不管理进程 ID，也不调用模型工具。三个 provider 共用底层进程管理和结果收集；等待在服务端内部完成，只启动一次，失败不自动重跑。模型工具层继续使用 Bash / write_stdin。默认无命令运行截止时间，调用者仍可显式指定 timeout；单次等待、网络请求超时和云沙箱生命周期与命令运行时限不同。
 
 `ProcessRequest` 的两个关键字段：
 
@@ -51,10 +51,10 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 | 工具 | 作用 |
 |---|---|
-| `bash(command, timeout=None, yield_time_ms=60000)` | 启动命令，默认等待 60 秒；未完成返回进程 `session_id`，命令继续运行。省略 timeout 不设命令执行期限，保留 `Bash` 别名 |
+| `Bash(command, timeout=None, yield_time_ms=60000)` | 启动命令，默认等待 60 秒；未完成返回进程 `session_id`，命令继续运行。省略 timeout 不设命令执行期限，命令工具统一使用首字母大写的 `Bash` |
 | `write_stdin(session_id, chars="", yield_time_ms=60000)` | 等待同一进程并读取新增输出；空输入等待，Ctrl+C（\u0003）请求中断 |
 | `sandbox_put_artifact(artifact_id, dest_path)` | 把平台 artifact（用户上传文件、图表工具产物等）的字节拷入沙箱路径——沙箱不会自动看到上传文件 |
-| `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——bash 产物不会自动出现在附件区 |
+| `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——Bash 产物不会自动出现在附件区 |
 
 
 命令执行期限与等待窗口分开：首次等待范围 250–30000 毫秒，后续等待上限 300000 毫秒；等待到期不会终止命令。显式 `timeout` 仍作为执行期限，但不再截成 120 秒。所有命令和内部 Python/JavaScript 脚本统一走进程接口；旧同步执行入口和默认/最大执行时限配置已删除。进程 ID 绑定启动时的用户与会话，不能跨会话读取或中断。当前为非 PTY 执行，stdin 关闭，除空输入和 Ctrl+C 外的输入会被拒绝；Windows 无控制台时中断采用终止进程树。
@@ -65,12 +65,12 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 **MySpace 实时登记**：写在 `/myspace` 下的文件**就是**用户「我的空间」里的文件，两侧任何时刻看到的都应是同一份状态。登记由**文件系统本身**驱动（`core/myspace/watcher.py`）：镜像目录 `myspace_cache/{uid}/` 里发生任何写入或删除，都被登记回 artifact 账本，**不区分是谁写的**。
 
-早先的做法是让会写文件的工具各自登记（write / edit / 文件增删改 / `bash` 前后拍目录快照）。这套写法的前提是"改动只可能从这几个口子进来"，而这个前提不成立：`nohup` 起的后台进程在命令返回之后才写文件，子智能体和批量任务在另一条协程里写，技能里的 CLI 直接写，MCP 服务端也写。每多一个入口就要多补一处登记，漏掉的那一处的表现是——文件躺在用户网盘的磁盘上，界面上看不见也删不掉，而每个新建沙箱都会把这份目录挂进来，成了"上个会话的残留中间文件"。
+早先的做法是让会写文件的工具各自登记（write / edit / 文件增删改 / `Bash` 前后拍目录快照）。这套写法的前提是"改动只可能从这几个口子进来"，而这个前提不成立：`nohup` 起的后台进程在命令返回之后才写文件，子智能体和批量任务在另一条协程里写，技能里的 CLI 直接写，MCP 服务端也写。每多一个入口就要多补一处登记，漏掉的那一处的表现是——文件躺在用户网盘的磁盘上，界面上看不见也删不掉，而每个新建沙箱都会把这份目录挂进来，成了"上个会话的残留中间文件"。
 
 | 时机 | 方向 | 做什么 |
 |---|---|---|
 | 目录里发生写入 / 删除 | 沙箱 → 我的空间 | 登记成 artifact，或把被删的文件从「我的空间」软删 |
-| 每次 `bash` 执行前 | 我的空间 → 沙箱 | 界面上的上传/改动落进镜像目录（bind mount 下即刻可见）；界面上删掉的文件同步从镜像移除 |
+| 每次 `Bash` 执行前 | 我的空间 → 沙箱 | 界面上的上传/改动落进镜像目录（bind mount 下即刻可见）；界面上删掉的文件同步从镜像移除 |
 
 登记按文件性质分三类，**不是一律推**：
 
@@ -92,8 +92,8 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 `sandbox_get_artifact` 默认支持最大 100 MiB（104,857,600 字节）的单个文件。
 `SANDBOX_ARTIFACT_MAX_BYTES` 是沙盒文件大小的**唯一开关**，同时约束三条链路：
-`sandbox_get_artifact` 显式取件、`bash` 执行后自动收集产物（单文件与单批总量）、
-artifact 送入沙盒、`bash` 执行后 `/myspace` 写回同步；backend 与 script-runner sidecar
+`sandbox_get_artifact` 显式取件、`Bash` 执行后自动收集产物（单文件与单批总量）、
+artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 script-runner sidecar
 读取同一变量。三种 provider 都实现
 `get_file_to_path`：script_runner 使用原始 HTTP 响应流，OpenSandbox 使用
 `read_bytes_stream`，Cube 使用 E2B `format="stream"`。后端按流式分块写入
@@ -113,7 +113,7 @@ artifact 送入沙盒、`bash` 执行后 `/myspace` 写回同步；backend 与 s
             │ jupyter 桶: min_idle=2  持久会话用（含 Jupyter，~10s）│
             │ light 桶:   min_idle=2  ephemeral 用（仅 execd，~3s）│
             └──────────────┬───────────────────────────────────┘
-   首次 bash               │ acquire
+   首次 Bash               │ acquire
 chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInterpreter + 语言 ctx）
                 │                         │  后续调用复用；fire-and-forget renew 续期
                 │ idle > 600s（reaper）    │  renew 连续失败 → stale 标记 → 下次重建
@@ -129,7 +129,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 
 要点（`_opensandbox_session.py` / `_opensandbox_internals.py`）：
 
-- **per-chat 重沙箱**：一个会话一个带 Jupyter 的容器，变量、pip 包、`/workspace` 文件跨 bash 调用持久；
+- **per-chat 重沙箱**：一个会话一个带 Jupyter 的容器，变量、pip 包、`/workspace` 文件跨 Bash 调用持久；
 - **TTL 与续期**：沙箱服务端 TTL 取 `SANDBOX_IDLE_TTL_S`（默认 3600s，与空闲回收同一个数）；每次会话活动触发限频（60s）的后台 renew，不阻塞请求路径；renew 失败区分 lifecycle 信号（立即标 stale）与瞬时网络错误（连续 3 次才升级）；
 - **双层暖池**：进程启动即预热通用双桶池；Plan F 开启后 user-bound 流量改走 per-user 的 `_JupyterUserPool`（避免挂了别人 myspace volume 的沙盒被串用），idle reaper（`SANDBOX_IDLE_TTL_S`，默认 3600s）把空闲会话的沙盒**洗净 kernel、清空 `/workspace` 后回 user idle 池**复用而非销毁。清空只保留 `myspace` 与 `skills` 两个挂载点并重建 `scratch`——容器跨会话复用，上一轮的脚本和中间结果留在 `/workspace` 会被下一个会话当成自己的上文；擦不干净就放弃复用、直接销毁。
 
@@ -160,7 +160,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 
 超长工具结果由 `CompactingAgent` 保留有界节选，并通过 `SandboxOffloader`
 将**完整文本**保存到当前工具工作目录的 `.offload/`。图片继续作为图片传给模型，
-不会作为文本写入落盘文件。路径与本轮 `Read`、`bash` 使用的会话一致：
+不会作为文本写入落盘文件。路径与本轮 `Read`、`Bash` 使用的会话一致：
 
 - 本机模式：`<本机工作区>/.sessions/<会话哈希>/.offload/`，不上传到云端。
 - 云端 `script_runner`：`/workspace/.sessions/<会话哈希>/.offload/`；
@@ -221,7 +221,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
 | `src/backend/core/sandbox/_pool.py` | 双桶预热池 |
 | `src/backend/core/sandbox/cube_provider.py` | Cube 远端 MicroVM provider（EE） |
-| `src/backend/core/llm/tools/sandbox_tool.py` | bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
+| `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
 | `src/backend/api/routes/v1/config_security.py` | 安全管理台沙箱只读视图 |

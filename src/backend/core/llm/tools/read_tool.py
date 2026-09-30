@@ -1,15 +1,6 @@
-"""Read tool — sandbox file reading, ported from Claude Code's FileReadTool.
+"""Read sandbox files, restoring missing artifacts through authorized recovery.
 
-Fallback: sandbox containers have a TTL and get reclaimed after idling → the next
-round's ``/workspace`` is completely empty. So the model never has to be aware of
-this layer, when ``provider.get_file`` fails ``Read`` looks up a same-named file in
-the DB artifact table (same chat, same user); on a hit it pulls the bytes back from
-storage and re-``put_file``s them into the sandbox (self-healing), then continues
-with the normal read flow.
-
-The model should prefer ``read_artifact(file_id)`` for explicit access to historical
-files; this fallback is just a safety net for the "model still thinks in sandbox
-paths" scenario.
+Prefer read_artifact(file_id) for explicit historical file access.
 """
 
 from __future__ import annotations
@@ -25,10 +16,11 @@ from core.services.project_scope import ProjectScope
 from core.vision import VisionMode
 
 from . import myspace_vfs as _ms
-from ._common import resolve_sandbox_session, resp_image, resp_json
+from ._common import response_metadata, resolve_sandbox_session, resp_image, resp_json
 from ._paths import (
     basename,
     is_myspace_physical,
+    space_metadata,
     to_physical_path,
     validate_project_scope_path,
     validate_workspace_path,
@@ -123,13 +115,7 @@ def _fallback_recover_from_artifact(
     user_id: Optional[str],
     scope: Optional[ProjectScope],
 ) -> Optional[bytes]:
-    """If the file is missing from the sandbox, try recovering it from the
-    artifact storage. Edition-specific project scopes are handled by their own
-    implementation; the shared fallback is restricted to the current user and
-    chat.
-
-    Returns the recovered bytes on hit, ``None`` otherwise.
-    """
+    """Recover a missing artifact through edition or current-user/chat authorization."""
     fname = basename(file_path)
     if not fname:
         return None
@@ -229,6 +215,7 @@ def register_read(
 
         from .project_source_access import current_scope_error
         from core.services.edition_workspace import is_organization_path
+
         scope_error = current_scope_error(scope, user_id)
         if scope_error:
             return resp_json(scope_error)
@@ -261,17 +248,25 @@ def register_read(
         # snapshot. Resolve it by the authorized project ID, even when an old
         # copy already exists in this conversation's sandbox.
         if (
-            not _local_on() and scope and not is_shared_scope(scope) and not scope.is_local and scope.folder_name
+            not _local_on()
+            and scope
+            and not is_shared_scope(scope)
+            and not scope.is_local
+            and scope.folder_name
             and _ms.myspace_rel(physical, user_id, scope) == f"{scope.folder_name}/AGENTS.md"
         ):
             from core.services.project_instructions import read_authorized_project_instructions
 
             try:
                 snapshot = await asyncio.to_thread(
-                    read_authorized_project_instructions, scope.project_id, user_id or "",
+                    read_authorized_project_instructions,
+                    scope.project_id,
+                    user_id or "",
                 )
                 if snapshot["instructions_source"] != "AGENTS.md":
-                    return resp_json({"error": "项目根 AGENTS.md 不存在，请使用项目指令读取工具检查现有规则"})
+                    return resp_json(
+                        {"error": "项目根 AGENTS.md 不存在，请使用项目指令读取工具检查现有规则"}
+                    )
                 _local_read = snapshot["instructions"].encode("utf-8")
             except HTTPException as exc:
                 return resp_json({"error": exc.detail, "status": exc.status_code})
@@ -294,6 +289,7 @@ def register_read(
             if is_organization_path(scope, user_id, file_path):
                 return resp_json({"error": f"读取项目文件失败: {exc}"})
             from core.llm.evaluation_runtime import is_evaluation_session
+
             if is_evaluation_session(_sess):
                 return resp_json({"error": f"Evaluation sandbox read failed: {exc}"})
             data: Optional[bytes] = None
@@ -342,7 +338,7 @@ def register_read(
             # "My Space" must not be a dead end — see _image_response.
             image_response = await _image_response(content_bytes, file_path, vision_mode)
             if image_response is not None:
-                return image_response
+                return response_metadata(image_response, space_metadata(physical, user_id))
             # Office documents in "My Space" (docx/pdf/xlsx/pptx) → fall back to
             # the artifact parsed text (merging the former read_artifact capability,
             # keyed by path rather than file_id)
@@ -364,13 +360,14 @@ def register_read(
                 return resp_json(
                     {
                         "type": "binary",
+                        **space_metadata(physical, user_id),
                         "file_path": file_path,
                         "physical_path": physical,
                         "size": len(content_bytes),
                         "hint": (
                             "文件是二进制（如 docx/xlsx/pdf/图片），且不在「我的空间」"
                             "或无法解析。如需让用户下载，使用 sandbox_get_artifact"
-                            "(src_path)；如需在沙盒内处理，用 bash 调用命令行工具。"
+                            "(src_path)；如需在沙盒内处理，用 Bash 调用命令行工具。"
                         ),
                     }
                 )
@@ -381,11 +378,12 @@ def register_read(
             return resp_json(
                 {
                     "type": "too_large",
+                    **space_metadata(physical, user_id),
                     "file_path": file_path,
                     "physical_path": physical,
                     "size": len(content_bytes),
                     "hint": (
-                        f"文件超过 {MAX_TEXT_BYTES} 字节，请用 bash 的 head/tail/sed"
+                        f"文件超过 {MAX_TEXT_BYTES} 字节，请用 Bash 的 head/tail/sed"
                         "切片，或用 offset/limit 参数分段读取。"
                     ),
                 }
@@ -448,7 +446,7 @@ def register_read(
             "type": "text",
             "file_path": file_path,
             "physical_path": physical,
-            "persistent": is_myspace_physical(physical, user_id),
+            **space_metadata(physical, user_id),
             "content": numbered,
             "start_line": start,
             "end_line": end,
@@ -460,7 +458,7 @@ def register_read(
             payload["note"] = (
                 "这是该二进制文档（docx/pdf/xlsx/pptx）的**解析文本**，不是原始"
                 "字节。可直接阅读理解，但不要用 Edit/Write 把它当纯文本覆盖原文件"
-                "（会损坏文档）；要改文档请用 bash 调命令行工具处理。"
+                "（会损坏文档）；要改文档请用 Bash 调命令行工具处理。"
             )
         if truncated:
             payload["hint"] = (

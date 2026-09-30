@@ -3,6 +3,16 @@
    Based on UI design spec (img/设计规范/)
    ══════════════════════════════════════════ */
 :root{
+  /* Neutral secondary navigation balances the subtly tinted outer rail. */
+  --module-rail-bg:#EDF2FA;
+  --module-rail-gradient:linear-gradient(180deg,#EAF0F9 0%,#F0F2F9 55%,#EDF2FA 100%);
+  --module-rail-selected:#FAFCFF;
+  --module-sidebar-bg:#F7F7F8;
+  --module-nav-hover:#EFEFF1;
+  --module-nav-selected:#E8E9ED;
+  --module-nav-selected-text:#245AAA;
+  --module-border:#E6EBF2;
+
   /* ── 主色 (Primary Blue) ── */
   --color-primary:#126DFF;
   --color-primary-hover:#3C87FF;
@@ -24,7 +34,7 @@
   --color-bg-container:#FFFFFF; /* 卡片、面板、输入区等容器 */
   --color-bg-elevated:#FFFFFF;  /* 弹层、下拉、tooltip 等悬浮面（antd 侧对应 appTheme 的 colorBgElevated，自研浮层引用此令牌） */
   --color-bg-layout:#F5F7FB;    /* 灰底布局区（侧边栏底、分区底） */
-  --color-bg-chat:#FDFDFC;      /* 首页与具体对话页共用的近白暖灰底 */
+  --color-bg-chat:#FBFCFE;      /* 冷调近白，输入区仍为白色 */
 
   /* ── 滚动条（深浅只换令牌值，选择器共用下方全局规则） ── */
   --scrollbar-tint:rgba(100,116,139,.14);
@@ -172,6 +182,15 @@
    只重定义颜色/阴影令牌，几何与 motion 令牌两个主题共用。
    ══════════════════════════════════════════ */
 :root[data-theme="dark"]{
+  --module-rail-bg:#15191F;
+  --module-rail-gradient:none;
+  --module-rail-selected:#2B3749;
+  --module-sidebar-bg:#202123;
+  --module-nav-hover:#2B2C2F;
+  --module-nav-selected:#293B55;
+  --module-nav-selected-text:#A9CAFF;
+  --module-border:#34363A;
+
   color-scheme:dark;
 
   /* 主色在暗底上整体提亮一档，透明蓝替代浅蓝底 */

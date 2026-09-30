@@ -1,3 +1,4 @@
+import { conversationTitle } from '../utils/conversationTitle';
 import { parseServerTime } from '../utils/date';
 import { authFetch, isLocalChat, registerLocalChat, toPlanProgress, LOCAL_TARGET_HEADER } from '../api';
 import { useChatStore } from '../stores';
@@ -19,7 +20,7 @@ export function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
     : (s.title || '新对话');
   return {
     id,
-    title: preservedTitle,
+    title: conversationTitle(preservedTitle),
     ...(backendManual || localManual ? { titleManuallySet: true } : {}),
     createdAt: s.created_at ? parseServerTime(s.created_at) : Date.now(),
     updatedAt: s.updated_at ? parseServerTime(s.updated_at) : Date.now(),
@@ -75,7 +76,7 @@ export function isLocalSidebarChat(id: string, chat: ChatItem): boolean {
  *  与 api.ts 的 listActiveChatRuns / listPendingUserQuestions 是同一套做法。
  *  拉不到就抛错交给调用方：本机执行面就绪后会再并一次。 */
 export async function mergeLocalSessions(apiUrl: string, isCancelled: () => boolean): Promise<void> {
-  const r = await authFetch(`${apiUrl}/v1/chats?page_size=100&exclude_automation=true`, {
+  const r = await authFetch(`${apiUrl}/v1/chats?page_size=100`, {
     headers: { [LOCAL_TARGET_HEADER]: 'local' },
   });
   if (!r.ok) throw new Error(`local sessions: HTTP ${r.status}`);

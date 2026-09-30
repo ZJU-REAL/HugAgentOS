@@ -80,7 +80,7 @@ def list_tool(monkeypatch, user_with_files):
     )
     toolkit = _StubToolkit()
     register_myspace_tools(toolkit, user_id=USER_ID)
-    return toolkit.functions["list_myspace_files"]
+    return toolkit.functions["space_list_myspace_files"]
 
 
 def _call(tool, **kwargs) -> dict:

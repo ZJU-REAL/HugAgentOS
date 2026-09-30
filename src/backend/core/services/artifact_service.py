@@ -38,6 +38,9 @@ def store_bytes_as_artifact(
     storage_key assembly + Artifact creation in two places. Leaving
     ``parsed_text`` empty means it will be lazily backfilled later.
     """
+    from core.db.personal_file_names import check_name
+
+    check_name(db, user_id, user_folder_id, filename)
     env = os.getenv("ENVIRONMENT", "dev")
     artifact_id = artifact_id or f"ua_{uuid.uuid4().hex[:16]}"
     storage_key = f"{env}/{user_id}/user_uploads/{artifact_id}/{filename}"

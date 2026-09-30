@@ -6,7 +6,7 @@
 于是成了跨会话互相串文件的根源。
 
 本模块只回答"某个文件相对账本是什么状态"并执行搬运，**不决定什么时候做**；触发全部交给
-:mod:`core.myspace.watcher`，由文件系统事件驱动。判定基准是 **artifact 记录**，不是镜像
+:mod:`core.space_sync.personal`，由文件系统事件驱动。判定基准是 **artifact 记录**，不是镜像
 缓存自身：两者在 bind mount 下是同一份文件，拿它和自己比恒等为真。
 
 两个方向：
@@ -36,9 +36,6 @@ from sqlalchemy import or_
 
 logger = logging.getLogger(__name__)
 
-# 同一进程内每个用户的正向同步水位（epoch 秒）。缺失表示本进程还没为该用户同步过，此时
-# 做一次全量比对，之后按 ``updated_at`` 增量。
-_pull_cursor: dict[str, float] = {}
 
 # 同一次写入里「DB 提交」和「文件落盘」总有先后差，两边时间戳留 2s 容差再比先后。
 _CLOCK_SLACK_S = 2.0
@@ -73,43 +70,6 @@ class MirrorChanges:
     scanned: int = 0
     skipped_current: int = 0
     skipped_too_large: int = 0
-
-
-@dataclass
-class PullReport:
-    materialized: int = 0
-    removed: int = 0
-    failed: int = 0
-
-
-def _mirror_root(user_id: str) -> Optional[Path]:
-    from core.sandbox._common import myspace_cache_dir
-
-    root = myspace_cache_dir(user_id)
-    return root if root.is_dir() else None
-
-
-def iter_mirror_files(user_id: str) -> Iterator[MirrorEntry]:
-    """遍历镜像目录里的文件。
-
-    单次改动由文件系统事件按路径处理（:func:`classify_claimed`），走到这里的只有"把整个目录
-    和账本对一遍"那一种场景：人工对账脚本。
-    """
-    root = _mirror_root(user_id)
-    if root is None:
-        return
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIR_NAMES]
-        for name in filenames:
-            fp = Path(dirpath) / name
-            try:
-                st = fp.stat()
-            except OSError:
-                continue
-            if not fp.is_file():
-                continue
-            rel = fp.relative_to(root).as_posix()
-            yield MirrorEntry(rel=rel, path=fp, size=st.st_size, mtime=st.st_mtime)
 
 
 @dataclass
@@ -235,14 +195,13 @@ def _artifact_is_current(art: Any, entry: MirrorEntry) -> bool:
     也不同，若据此把镜像里的旧副本推上去，就用旧内容盖掉了用户刚传的新版本。方向相反的
     差异由 :func:`pull_myspace_updates` 把新内容拉下来。
     """
-    ts = _artifact_ts(art)
-    return ts is not None and ts + _CLOCK_SLACK_S >= entry.mtime
+    from core.space_sync.content import current_snapshot
 
-
-def _artifact_is_newer(art: Any, entry: MirrorEntry) -> bool:
-    """「我的空间」里的版本是否比镜像新 —— 新才需要拉下来覆盖镜像。"""
+    current = current_snapshot(art, entry)
+    if current is not None:
+        return current
     ts = _artifact_ts(art)
-    return ts is not None and ts > entry.mtime + _CLOCK_SLACK_S
+    return ts is not None and ts + 0.000001 >= entry.mtime
 
 
 # 一个镜像文件相对账本的状态。
@@ -296,7 +255,7 @@ def _classify_entry(
     # 删除撤销（真实发生过：整个文件夹被删，里面 2000 多个文件还在镜像里）。反过来，
     # 删除之后沙箱又写了同名文件，那是新内容，按新文件处理。
     residue_ts = max((t for t in (deleted_ts, chain.deleted_ts) if t is not None), default=None)
-    if residue_ts is not None and residue_ts + _CLOCK_SLACK_S >= entry.mtime:
+    if residue_ts is not None and residue_ts + 0.000001 >= entry.mtime:
         return VERDICT_STALE
     if _artifact_is_current(art, entry):
         return VERDICT_CURRENT
@@ -365,11 +324,13 @@ class DeleteTarget:
 
     registered: Optional["RegisteredFile"] = None  # 是个还在册的文件
     folder: bool = False  # 是个还在册的文件夹
+    folder_id: Optional[str] = None
+    folder_ts: Optional[float] = None
 
     @property
     def stamp(self) -> str:
         """认领这次删除用的标记 —— 同一条记录只该被删一次。"""
-        return self.registered.artifact_id if self.registered else "folder"
+        return self.registered.artifact_id if self.registered else str(self.folder_id)
 
     @property
     def kind_label(self) -> str:
@@ -420,241 +381,37 @@ def _delete_target(
     if names:
         fr = _ms.resolve_folder_id(db, user_id, names, create=False)
         if fr.found and fr.folder_id:
-            return DeleteTarget(folder=True)
-    return None
+            from core.db.models import UserFolder
 
-
-def collect_mirror_changes(
-    *,
-    user_id: str,
-    max_bytes: Optional[int] = None,
-) -> MirrorChanges:
-    """扫描镜像目录，把待处理的文件按 :func:`_classify_entry` 的判定归类。
-
-    **只判断，不写任何东西**。给人工对账脚本用；日常的单次改动由 :func:`classify_claimed`
-    按路径判定，不必扫目录。
-    """
-    out = MirrorChanges()
-    if not user_id:
-        return out
-    if max_bytes is None:
-        from core.config.settings import settings
-
-        max_bytes = settings.sandbox.artifact_max_bytes
-    try:
-        from core.db.engine import SessionLocal
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[myspace-mirror] DB 不可用，跳过对账: %s", exc)
-        return out
-
-    db = SessionLocal()
-    chain_memo: dict[tuple[str, ...], _Chain] = {}
-    try:
-        for entry in iter_mirror_files(user_id):
-            out.scanned += 1
-            verdict = _classify_entry(
-                db, user_id, entry, max_bytes=max_bytes, chain_memo=chain_memo
+            row = db.get(UserFolder, fr.folder_id)
+            return DeleteTarget(
+                folder=True, folder_id=fr.folder_id, folder_ts=_ts(row.updated_at or row.created_at)
             )
-            if verdict == VERDICT_TOO_LARGE:
-                out.skipped_too_large += 1
-            elif verdict == VERDICT_STALE:
-                out.stale.append(entry)
-            elif verdict == VERDICT_CURRENT:
-                out.skipped_current += 1
-            elif verdict == VERDICT_NEW:
-                out.new.append(entry)
-            else:
-                out.modified.append(entry)
-    finally:
-        db.close()
-    return out
+    return None
 
 
 def register_entry(*, user_id: str, entry: MirrorEntry) -> Optional[dict]:
     """把镜像里的一个文件登记进「我的空间」（已存在则同 file_id 就地更新）。
 
-    不挂会话：文件事件里只有路径、没有会话身份，见 :mod:`core.myspace.watcher` 模块说明。
+    不挂会话：文件事件里只有路径、没有会话身份，见 :mod:`core.space_sync.personal` 模块说明。
     """
-    try:
-        content = entry.path.read_bytes()
-    except OSError as exc:
-        logger.warning("[myspace-mirror] 读取失败 %s: %s", entry.rel, exc)
-        return None
-    return _ms.sync_upsert(
-        user_id=user_id,
-        chat_id=None,
-        logical_path=f"{_ms.MYSPACE_LOGICAL}/{entry.rel}",
-        content=content,
-        # 这份内容本来就是从镜像目录里那个文件读出来的，不必再原样写回去 —— 回写会白白
-        # 多出一次文件事件，监听器还要为它再判定一轮。
-        mirror=False,
-    )
+    from core.space_sync.content import register
+
+    return register(user_id, entry)
 
 
-def delete_registered(*, user_id: str, rel: str) -> bool:
+def delete_registered(*, user_id: str, rel: str, target=None) -> bool:
     """把「我的空间」里对应的文件也删掉（软删，和界面上删除同一条路径）。"""
+    if target is not None:
+        from core.myspace.event_deletion import delete_observed
+
+        return delete_observed(user_id=user_id, rel=rel, target=target)
     res = _ms.sync_delete(user_id, f"{_ms.MYSPACE_LOGICAL}/{rel}")
     if res.get("error"):
         logger.warning("[myspace-mirror] 同步删除失败 %s: %s", rel, res["error"])
         return False
     logger.info("[myspace-mirror] 同步删除 user=%s %s", user_id, rel)
     return True
-
-
-def prune_stale(*, user_id: str, entries: list[MirrorEntry]) -> int:
-    """删掉镜像里的残留副本（用户已删的文件 / 已删文件夹里的东西）。
-
-    **只由人显式触发**（``scripts/reconcile_myspace_mirror.py --prune-stale``），不挂在
-    任何自动路径上：这些文件多半从没登记过，对象存储里没有副本，删掉就找不回来了。
-    """
-    removed = 0
-    for entry in entries:
-        try:
-            entry.path.unlink()
-            removed += 1
-        except OSError as exc:
-            logger.warning("[myspace-mirror] 清理残留失败 %s: %s", entry.rel, exc)
-    if removed:
-        logger.info("[myspace-mirror] 清理残留 user=%s 共 %d 个", user_id, removed)
-    return removed
-
-
-def _folder_rel(
-    db: Any, user_id: str, folder_id: Any, memo: dict[Any, Optional[str]]
-) -> Optional[str]:
-    """把 folder_id 还原成相对用户根目录的路径；链断了返回 None。
-
-    **包含已删除的目录**：用户删掉整个文件夹后，镜像里的副本还在那条路径下，要把路径算
-    出来才能清掉残留。这里只做路径换算，不承担鉴权。
-    """
-    if folder_id is None:
-        return ""
-    if folder_id in memo:
-        return memo[folder_id]
-    from core.db.models import UserFolder
-
-    names: list[str] = []
-    cur: Any = folder_id
-    seen: set[str] = set()
-    while cur is not None and cur not in seen:
-        seen.add(cur)
-        row = (
-            db.query(UserFolder)
-            .filter(UserFolder.folder_id == cur, UserFolder.user_id == user_id)
-            .first()
-        )
-        if row is None:
-            memo[folder_id] = None
-            return None
-        names.append(row.name)
-        cur = row.parent_folder_id
-    rel = "/".join(reversed(names))
-    memo[folder_id] = rel
-    return rel
-
-
-def pull_myspace_updates(*, user_id: str) -> PullReport:
-    """我的空间 → 镜像目录：界面侧的新增/改动/删除立刻反映到沙箱看得见的地方。
-
-    首次调用（本进程内该用户还没有水位）做一次全量比对，只对镜像里缺失或过期的文件下载；
-    之后按 ``updated_at`` 增量。
-
-    删除同样要传导：用户在界面上删掉的文件，镜像里的副本必须一起清掉，否则新会话挂上这份
-    目录还看得见它、还会当成上文接着用（真实发生过：某账号删了 2064 个文件，沙箱里全在）。
-    删除以 **artifact 记录**为线索，绝不碰"没有登记记录"的文件 —— 那些是等着登记的新文件，
-    不是被删的。删除之后沙箱又写了同名文件（镜像更新）则保留，那是新内容。
-    """
-    rep = PullReport()
-    if not user_id:
-        return rep
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import Artifact
-        from core.storage import get_storage
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[myspace-mirror] DB/存储不可用，跳过正向同步: %s", exc)
-        return rep
-
-    cursor = _pull_cursor.get(user_id)
-    first_pass = cursor is None
-    now_ts = datetime.now(timezone.utc).timestamp()
-
-    db = SessionLocal()
-    try:
-        q = db.query(Artifact).filter(
-            Artifact.user_id == user_id,
-            *personal_artifact_predicates(Artifact),
-        )
-        if cursor is not None:
-            since = datetime.fromtimestamp(cursor, tz=timezone.utc)
-            # 删除要单独看 deleted_at：软删只写 deleted_at、不碰 updated_at（见
-            # ArtifactRepository.soft_delete_owned），只按 updated_at 增量会把"用户刚在
-            # 界面上删掉的文件"整批漏掉，镜像里的副本留着，沙箱照样看得见。
-            q = q.filter(or_(Artifact.updated_at >= since, Artifact.deleted_at >= since))
-        rows = q.all()
-        memo: dict[Any, Optional[str]] = {}
-        storage = get_storage()
-        for art in rows:
-            if not art.filename:
-                continue
-            folder_rel = _folder_rel(db, user_id, art.user_folder_id, memo)
-            if folder_rel is None:
-                continue
-            filename = str(art.filename)
-            rel = f"{folder_rel}/{filename}" if folder_rel else filename
-            fp = _ms.myspace_cache_file(user_id, rel)
-            deleted_ts = _ts(art.deleted_at)
-            if deleted_ts is not None:
-                try:
-                    mtime = fp.stat().st_mtime
-                except OSError:
-                    continue
-                if mtime > deleted_ts + _CLOCK_SLACK_S:
-                    continue  # 删除之后沙箱又写过，是新内容
-                _ms._remove_cache(user_id, rel)
-                rep.removed += 1
-                continue
-            entry: Optional[MirrorEntry] = None
-            try:
-                st = fp.stat()
-                entry = MirrorEntry(rel=rel, path=fp, size=st.st_size, mtime=st.st_mtime)
-            except OSError:
-                entry = None
-            # 镜像里没有，或者界面这边确实更新（例如刚重新上传），才拉下来。镜像更新的
-            # 情况是沙箱刚写过，留给反向对账登记，别用旧内容盖回去。
-            if entry is not None and not _artifact_is_newer(art, entry):
-                continue
-            try:
-                data = storage.download_bytes(str(art.storage_key))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[myspace-mirror] 下载失败 %s: %s", rel, exc)
-                rep.failed += 1
-                continue
-            _ms.mirror_to_cache(user_id, rel, data)
-            stamp_registered(user_id, rel, _artifact_ts(art))
-            rep.materialized += 1
-    finally:
-        db.close()
-
-    _pull_cursor[user_id] = now_ts
-    if rep.materialized or rep.removed or rep.failed:
-        logger.info(
-            "[myspace-mirror] pull user=%s 物化=%d 移除=%d 失败=%d (首轮=%s)",
-            user_id,
-            rep.materialized,
-            rep.removed,
-            rep.failed,
-            first_pass,
-        )
-    return rep
-
-
-def reset_pull_cursor(user_id: Optional[str] = None) -> None:
-    """清空正向同步水位（测试与手工对账后强制重新全量比对）。"""
-    if user_id is None:
-        _pull_cursor.clear()
-    else:
-        _pull_cursor.pop(user_id, None)
 
 
 def stamp_registered(user_id: str, rel: str, ts: Optional[float]) -> None:

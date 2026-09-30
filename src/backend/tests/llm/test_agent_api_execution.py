@@ -123,10 +123,10 @@ async def run():
             assert "FinishPinGuardMiddleware" not in policies, "automatic pinning bypasses scoped artifact checks"
             schemas = {item["function"]["name"]: item["function"]
                        for item in agent._jx_compaction_tool_schemas}
-            assert {"bash", "write_stdin", "sandbox_get_artifact", "pin_to_workspace", "read_artifact"} <= schemas.keys()
+            assert {"Bash", "write_stdin", "sandbox_get_artifact", "pin_to_workspace", "read_artifact"} <= schemas.keys()
             assert not {"read_chat", "list_related_chats", "load_plugin", "call_subagent"} & schemas.keys()
             assert not any("myspace" in name.lower() for name in schemas)
-            assert "API" in schemas["bash"]["description"]
+            assert "API" in schemas["Bash"]["description"]
             assert "file_paths" not in schemas["pin_to_workspace"]["parameters"]["properties"]
             assert "file_ids" in schemas["pin_to_workspace"]["parameters"]["properties"]
 

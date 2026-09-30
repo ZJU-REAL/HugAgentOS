@@ -90,20 +90,26 @@ def test_local_task_captures_project_and_revalidates_binding(local_project, monk
 @pytest.mark.asyncio
 async def test_scheduler_restores_project_into_real_run_context(local_project, monkeypatch):
     factory, path = local_project
-    from orchestration.schedulers.automation_scheduler import AutomationScheduler
+    from orchestration.schedulers.automation_conversation import execute_prompt
     monkeypatch.setattr("core.services.user_model_selection.resolve_effective_chat_model_name", lambda: "test")
     monkeypatch.setattr("core.services.ontology_service.build_user_ontology_runtime", lambda **kw: (False, {}))
     captured = []
     async def workflow(**kwargs):
         captured.append(kwargs["context"])
         yield {"type": "content", "delta": "report complete"}
+        yield {"type": "meta", "usage": {}}
     monkeypatch.setattr("orchestration.workflow.astream_chat_workflow", workflow)
+    from orchestration import chat_run_executor, run_event_stream
+    monkeypatch.setattr(chat_run_executor, "SessionLocal", factory)
+    monkeypatch.setattr(chat_run_executor, "astream_chat_workflow", workflow)
+    stream = run_event_stream.LocalRunEventStream()
+    monkeypatch.setattr(chat_run_executor, "get_run_event_stream", lambda: stream)
     with factory() as db:
         task = AutomationService(db).create_task(
             user_id="owner", task_type="prompt", prompt="summarize project",
             cron_expression="0 18 * * *", execution_location="local", project_id="local-project")
         task_id = task.task_id
-    chat_id, result, _ = await AutomationScheduler()._execute_prompt_task(
+    chat_id, result, _ = await execute_prompt(
         user_id="owner", task_name="report", prompt="summarize project", task_id=task_id,
         enabled_mcp_ids=[], enabled_skill_ids=[], enabled_kb_ids=[])
     assert result == "report complete"
@@ -282,3 +288,34 @@ async def test_local_task_rejects_account_switch_before_queued_dispatch(local_ch
             {"cron_expression": "0 * * * *", "prompt": "report"},
             {"x-chat-id": "local-chat"}, authorize=authorize)
     assert impl.list_tasks(user_id="owner")["count"] == 0
+
+@pytest.mark.asyncio
+async def test_scheduled_loop_passes_authorized_local_project_to_executor(local_project, monkeypatch):
+    from core.services.loop_service import LoopService
+    from orchestration import chat_run_executor, run_event_stream
+    from orchestration.schedulers.automation_conversation import execute_loop
+    factory, _ = local_project
+    monkeypatch.setattr(chat_run_executor, "SessionLocal", factory)
+    monkeypatch.setattr(chat_run_executor, "get_run_event_stream", lambda: run_event_stream.LocalRunEventStream())
+    async def workflow(**kwargs):
+        yield {"type": "content", "delta": "Loop report"}
+        yield {"type": "meta", "usage": {}}
+    monkeypatch.setattr(chat_run_executor, "astream_chat_workflow", workflow)
+    captured = {}
+    async def start_loop(**kwargs):
+        captured.update(kwargs)
+        return await chat_run_executor.start_run(chat_id=kwargs["chat_id"], user_id=kwargs["user_id"],
+            session_messages=[], effective_user_message="Research", raw_user_message="Research",
+            context={"user_id": kwargs["user_id"]}, model_name="test")
+    monkeypatch.setattr(chat_run_executor, "start_autonomous_loop_run", start_loop)
+    with factory() as db:
+        loop = LoopService(db).create_loop(user_id="owner", title="Research",
+            goal_spec={"objective": "Research"}, budget={}, project_id="local-project")
+        task = AutomationService(db).create_task(user_id="owner", task_type="loop",
+            cron_expression="0 18 * * *", execution_location="local", project_id="local-project",
+            metadata={"loop_id": loop.loop_id})
+        loop_id, task_id = loop.loop_id, task.task_id
+    _, result, _ = await execute_loop(user_id="owner", task_name="Research", loop_id=loop_id, task_id=task_id)
+    assert result == "Loop report"
+    assert captured["project_id"] == "local-project"
+    assert captured["automation_run"] is True

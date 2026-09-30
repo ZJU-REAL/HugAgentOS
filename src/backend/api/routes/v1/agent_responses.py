@@ -85,8 +85,6 @@ async def _start_response_run(
         begin_agent_api_call(db, scope, request.stream, trace_id=trace_id_var.get())
         if scope else None
     )
-    accepted = None
-    started = False
     try:
         chats._ensure_main_model_configured()
         user_id = chats.resolve_db_user_id(db, chats._authenticated_user_id(user))
@@ -151,33 +149,28 @@ async def _start_response_run(
             payload["agent_api_scope"] = dict(scope)
 
         try:
-            accepted = ChatSequencer(db).accept_main_run(
+            with ChatSequencer(db).launching_main_run(
                 chat_id=request.chat_id, user_id=user_id, user_content=request.message,
                 model=model_name,
                 user_extra_data=chats._build_user_extra_data(request, provider_id),
                 request_payload=payload,
-            )
+            ) as accepted:
+                # No history or attachment mutation before writer admission.
+                messages = chats._load_session_messages(service, request.chat_id, user_id)
+                from core.chat.plan_progress import clear_plan_progress
+                clear_plan_progress(request.chat_id)
+                _link_attachments(db, request, user_id)
+                if call_id:
+                    bind_agent_api_run(db, call_id, accepted.run.run_id)
+                run = await chat_run_executor.start_run(
+                    accepted_run=accepted.run, chat_id=request.chat_id, user_id=user_id,
+                    session_messages=messages, effective_user_message=message,
+                    raw_user_message=request.message, context=context, model_name=model_name,
+                )
         except ChatBusyError as exc:
             raise chats.chat_busy_http_exception(exc) from exc
-
-        # No history or attachment mutation is allowed before writer admission.
-        messages = chats._load_session_messages(service, request.chat_id, user_id)
-        from core.chat.plan_progress import clear_plan_progress
-        clear_plan_progress(request.chat_id)
-        _link_attachments(db, request, user_id)
-        if call_id:
-            bind_agent_api_run(db, call_id, accepted.run.run_id)
-        run = await chat_run_executor.start_run(
-            accepted_run=accepted.run, chat_id=request.chat_id, user_id=user_id,
-            session_messages=messages, effective_user_message=message,
-            raw_user_message=request.message, context=context, model_name=model_name,
-        )
-        result = StartedResponse(run.run_id, run.message_id, request.chat_id)
-        started = True
-        return result
+        return StartedResponse(run.run_id, run.message_id, request.chat_id)
     except Exception as exc:
-        if accepted is not None and not started:
-            ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
         if call_id:
             status = exc.status_code if isinstance(exc, HTTPException) else 500
             # Logs carry a bounded machine code, never raw model/tool errors or secrets.

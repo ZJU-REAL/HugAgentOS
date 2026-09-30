@@ -32,9 +32,7 @@
 import asyncio
 
 import pytest
-
-from orchestration.job_runtime import SDK_SOURCE
-
+from orchestration.jobs.sdk import SDK_SOURCE
 
 # ── ① job.map 预检：脚本级 bug 必须当场中止 ──────────────────────────
 
@@ -48,6 +46,8 @@ def sdk():
 
     def fake_post(path, payload, timeout=180):
         calls.append((path, payload))
+        if payload.get("op") == "pending":
+            return []
         if path == "ledger" and payload.get("op") == "seed":
             return {"created": len(payload.get("items") or []), "skipped": 0}
         return {"ok": True, "known_key": True}
@@ -181,13 +181,13 @@ def _mk_items(db, job_id, statuses):
 @pytest.mark.parametrize(
     "statuses, expected",
     [
-        (["pending"] * 5, "failed"),                  # 事故原型：一项都没回写
-        (["failed"] * 5, "failed"),                   # 每项都抛，同样是白跑
+        (["pending"] * 5, "failed"),  # 事故原型：一项都没回写
+        (["failed"] * 5, "failed"),  # 每项都抛，同样是白跑
         (["pending", "failed", "pending"], "failed"),
         (["done", "pending", "pending"], "completed"),  # 有产出就不判失败，剩余量另有提示
-        (["not_found"] * 3, "completed"),             # 查无是合法结论
-        (["needs_review"] * 3, "completed"),          # 有意送审也是合法结论
-        ([], "completed"),                            # 压根没建台账的脚本不归这条管
+        (["not_found"] * 3, "completed"),  # 查无是合法结论
+        (["needs_review"] * 3, "completed"),  # 有意送审也是合法结论
+        ([], "completed"),  # 压根没建台账的脚本不归这条管
     ],
 )
 def test_finish_downgrades_completed_when_nothing_was_produced(db_session, statuses, expected):
@@ -239,7 +239,12 @@ def test_set_wake_on_finish_flips_start_params(db_session):
 @pytest.mark.asyncio
 async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
     """wait=True 撞上长作业时，等够上限就把对话还给用户，作业继续在后台跑。"""
+    from types import SimpleNamespace
+
     from orchestration import job_runtime
+    from orchestration.jobs import owner, supervisor
+
+    owner.bind()
 
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -253,7 +258,8 @@ async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
             raise
         return {"status": "completed"}
 
-    monkeypatch.setattr(job_runtime, "drive", fake_drive)
+    task = asyncio.create_task(fake_drive("job_d", chat_id="c1"))
+    monkeypatch.setattr(supervisor, "_entries", {"job_d": SimpleNamespace(task=task)})
 
     res = await job_runtime.run_and_wait("job_d", chat_id="c1", detach_after=0.05)
 
@@ -261,24 +267,31 @@ async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
     assert started.is_set()
     await asyncio.sleep(0.05)
     assert not cancelled.is_set(), "转后台 ≠ 取消作业，它必须继续跑"
-    assert "job_d" in job_runtime._active_jobs, "还在跑就得留在活跃表里，否则重复提交拦不住"
+    assert "job_d" in supervisor._entries, "还在跑就得留在活跃表里，否则重复提交拦不住"
 
-    job_runtime._active_jobs["job_d"].cancel()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
 async def test_run_and_wait_returns_result_when_job_finishes_in_time(monkeypatch):
     """作业按时收工时行为不变 —— 封顶不能把正常的前台等待也改坏。"""
+    from types import SimpleNamespace
+
     from orchestration import job_runtime
+    from orchestration.jobs import owner, supervisor
+
+    owner.bind()
 
     async def fake_drive(job_row_id, *, chat_id):
         return {"status": "completed", "stats": {"done": 3}}
 
-    monkeypatch.setattr(job_runtime, "drive", fake_drive)
+    task = asyncio.create_task(fake_drive("job_e", chat_id="c1"))
+    monkeypatch.setattr(supervisor, "_entries", {"job_e": SimpleNamespace(task=task)})
 
     res = await job_runtime.run_and_wait("job_e", chat_id="c1", detach_after=5)
     assert res["status"] == "completed"
-    assert "job_e" not in job_runtime._active_jobs, "收工后要从活跃表摘掉"
+    assert task.done()
 
 
 def test_tool_caps_foreground_wait():

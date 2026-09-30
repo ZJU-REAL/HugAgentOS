@@ -1524,7 +1524,7 @@ def chat_active_run(
     # the right phase. The model emits reasoning with the opening <think> tag
     # frequently absent, so a wrong initial phase flattens it into the answer.
     resolved_mode = payload.get("chat_mode") or (
-        "medium" if payload.get("enable_thinking") else "fast"
+        "medium" if payload.get("enable_thinking", True) else "fast"
     )
     # This endpoint is a fresh-client probe: the server does not persist how
     # much of the stream this particular browser consumed.  ``run.last_event_offset``

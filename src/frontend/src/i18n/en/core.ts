@@ -1,5 +1,7 @@
 /** 英文字典（core 域）：key 为中文原文，value 为英文译文。 */
 export const CORE_DICT: Record<string, string> = {
+  '导航': 'Navigation',
+  '更多': 'More',
   // ── 语境消歧条目（tCtx 专用，key 形如 `中文#ctx`） ──
   '关闭#switch': 'Off',
   '退出#leave': 'Leave',

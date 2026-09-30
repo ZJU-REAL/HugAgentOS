@@ -64,7 +64,7 @@ def register_glob(
             return resp_json({"error": scope_err})
 
         # "My Space" → query the DB folder tree directly (faithful, cheap, does not depend on
-        # whether the sandbox has been materialized); same data source as list_myspace_files /
+        # whether the sandbox has been materialized); same data source as space_list_myspace_files /
         # Read lazy loading, fully eliminating the "list and read don't match" inconsistency.
         # Non-myspace paths still go through the sandbox find.
         if user_id and not is_shared_scope(scope) and _ms.myspace_rel(path, user_id, scope) is not None:

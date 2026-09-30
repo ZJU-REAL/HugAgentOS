@@ -803,7 +803,7 @@ def _get_tools_desc(agent_info: Dict[str, Any]) -> str:
             capabilities.append("Bash")
     if code_enabled:
         capabilities.append(
-            "Read/Glob/Grep" if read_only else "Read/Edit/Write/Glob/Grep/Delete/Move/CreateFolder"
+            "Read/Glob/Grep" if read_only else "Read/Edit/Write/Glob/Grep/space_delete/space_move/space_create_folder"
         )
     if skill_ids:
         capabilities.append("技能：" + _collapse_ids(skill_ids))

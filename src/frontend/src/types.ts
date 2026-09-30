@@ -1,18 +1,18 @@
 import type {
-  EditionChatShareScope,
-  EditionProjectChatFields,
-  EditionProjectFields,
-  EditionProjectKind,
-  EditionResourceFields,
-} from './editionModelTypes';
-import type {
-  EditionMarketplaceFetcherFields,
-  EditionMarketplaceItemFields,
+EditionMarketplaceFetcherFields,
+EditionMarketplaceItemFields,
 } from './editionMarketplaceTypes';
+import type {
+EditionChatShareScope,
+EditionProjectChatFields,
+EditionProjectFields,
+EditionProjectKind,
+EditionResourceFields,
+} from './editionModelTypes';
 
 export type { MarketVisibilityValue } from './editionMarketplaceTypes';
 
-export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'share_records' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail' | 'automation' | 'sites';
+export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail' | 'automation' | 'sites';
 
 /** 能力中心的四类能力。选中项由侧边栏的二级导航驱动，所以状态放在 catalogStore 而非页面内部。 */
 export type AbilityTabKey = 'agents' | 'skills' | 'mcp' | 'plugins';
@@ -1390,8 +1390,6 @@ export interface AutomationChatGroup {
   taskId: string;
   taskName: string;
   runs: AutomationRun[];
-  latestCompletedChatId: string | null;
-  latestRunAt: number;
 }
 
 export interface AutomationRun {

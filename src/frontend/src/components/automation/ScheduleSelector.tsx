@@ -1,3 +1,4 @@
+import { wallNow, type ScheduleValue } from './scheduleTime';
 /**
  * ScheduleSelector — unified UI for automation task scheduling configuration.
  * Used by both AutomationCreateModal and the AutomationDetailPage edit state.
@@ -11,24 +12,14 @@
  * No longer exposes a custom cron input box — users do not need to understand cron syntax.
  */
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Radio, Select, TimePicker, DatePicker } from 'antd';
+import { DatePicker, Radio, Select, TimePicker } from 'antd';
 import dayjs, { Dayjs } from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezonePlugin from 'dayjs/plugin/timezone';
-import { currentTimezone } from './automationLocation';
-dayjs.extend(utc);
-dayjs.extend(timezonePlugin);
-
-// Picker values are wall-clock fields in the task's zone, not the browser's.
-function wallNow(zone = currentTimezone()): Dayjs {
-  return dayjs(dayjs().tz(zone).format('YYYY-MM-DDTHH:mm:ss'));
-}
+import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { t } from '../../i18n';
 import type { AutomationScheduleType } from '../../types';
 import { EASE } from '../../utils/motionTokens';
-import { t } from '../../i18n';
-
+import { currentTimezone } from './automationLocation';
 /* Shared motion config for height-auto collapse/expand blocks (recurring / once / weekday, three places) */
 const COLLAPSE_MOTION = {
   style: { overflow: 'hidden' } as CSSProperties,
@@ -59,11 +50,6 @@ const WEEKDAY_OPTIONS: { value: number; label: string }[] = [
   { value: 6, label: t('周六') },
   { value: 0, label: t('周日') },
 ];
-
-export interface ScheduleValue {
-  schedule_type: AutomationScheduleType;
-  cron_expression: string;
-}
 
 interface Props {
   value: ScheduleValue;
@@ -120,23 +106,6 @@ function range(start: number, end: number): number[] {
   const out: number[] = [];
   for (let i = start; i < end; i += 1) out.push(i);
   return out;
-}
-
-/**
- * 单次执行时间是否落在过去——提交前校验用，导出给创建 / 编辑两处复用。
- *
- * 注意不能拿 parseOnceCron 的结果去比：它已经把过期日期顺延到明年，永远是未来。
- * 这里要判断的恰恰是「本年度的那个时刻已经过去了」，因为此时 cron 要等一年才会再匹配，
- * 用户以为是马上执行、实际却是明年的今天。
- */
-export function isOnceScheduleExpired(value: ScheduleValue, zone?: string): boolean {
-  if (value.schedule_type !== 'once') return false;
-  const parts = value.cron_expression.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  const [m, h, d, mo] = parts.map((p) => parseInt(p, 10));
-  if ([m, h, d, mo].some((n) => Number.isNaN(n))) return false;
-  const thisYear = wallNow(zone).month(mo - 1).date(d).hour(h).minute(m).second(0);
-  return thisYear.isBefore(wallNow(zone));
 }
 
 // ─── Parse cron back into UI state (best-effort) ─────────────
@@ -306,91 +275,91 @@ export function ScheduleSelector({ value, onChange, disabled, timezone = current
       {/* recurring / once config block switch: mode=wait + height-auto;
           initial=false to avoid overlapping with the antd Modal entrance animation */}
       <AnimatePresence mode="wait" initial={false}>
-      {value.schedule_type === 'recurring' && (
-        <motion.div key="recurring" {...COLLAPSE_MOTION}>
-        <div className="jx-schedule-selector-body">
-          <div className="jx-schedule-selector-row">
-            <label className="jx-schedule-selector-label">{t('频率')}</label>
-            <Select
-              value={freq}
-              onChange={handleFreqChange}
-              options={FREQ_OPTIONS}
-              disabled={disabled}
-              style={{ width: 220 }}
-            />
-          </div>
+        {value.schedule_type === 'recurring' && (
+          <motion.div key="recurring" {...COLLAPSE_MOTION}>
+            <div className="jx-schedule-selector-body">
+              <div className="jx-schedule-selector-row">
+                <label className="jx-schedule-selector-label">{t('频率')}</label>
+                <Select
+                  value={freq}
+                  onChange={handleFreqChange}
+                  options={FREQ_OPTIONS}
+                  disabled={disabled}
+                  style={{ width: 220 }}
+                />
+              </div>
 
-          <AnimatePresence initial={false}>
-          {freq === 'weekly' && (
-            <motion.div key="weekday" {...COLLAPSE_MOTION} transition={SWAP_TRANSITION}>
-            <div className="jx-schedule-selector-row">
-              <label className="jx-schedule-selector-label">{t('星期')}</label>
-              <Select
-                value={weekday}
-                onChange={handleWeekdayChange}
-                options={WEEKDAY_OPTIONS}
-                disabled={disabled}
-                style={{ width: 160 }}
-              />
+              <AnimatePresence initial={false}>
+                {freq === 'weekly' && (
+                  <motion.div key="weekday" {...COLLAPSE_MOTION} transition={SWAP_TRANSITION}>
+                    <div className="jx-schedule-selector-row">
+                      <label className="jx-schedule-selector-label">{t('星期')}</label>
+                      <Select
+                        value={weekday}
+                        onChange={handleWeekdayChange}
+                        options={WEEKDAY_OPTIONS}
+                        disabled={disabled}
+                        style={{ width: 160 }}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {freq !== 'hourly' && (
+                <div className="jx-schedule-selector-row">
+                  <label className="jx-schedule-selector-label">{t('时间')}</label>
+                  <TimePicker
+                    value={time}
+                    onChange={handleTimeChange}
+                    format="HH:mm"
+                    minuteStep={5}
+                    allowClear={false}
+                    disabled={disabled}
+                    style={{ width: 140 }}
+                  />
+                </div>
+              )}
+
+              {freq === 'hourly' && (
+                <div className="jx-schedule-selector-row">
+                  <label className="jx-schedule-selector-label">{t('起始分钟')}</label>
+                  <Select
+                    value={time.minute()}
+                    onChange={(m) => handleTimeChange(time.minute(m))}
+                    options={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => ({
+                      value: m,
+                      label: t('第 {m} 分', { m }),
+                    }))}
+                    disabled={disabled}
+                    style={{ width: 140 }}
+                  />
+                </div>
+              )}
             </div>
-            </motion.div>
-          )}
-          </AnimatePresence>
+          </motion.div>
+        )}
 
-          {freq !== 'hourly' && (
-            <div className="jx-schedule-selector-row">
-              <label className="jx-schedule-selector-label">{t('时间')}</label>
-              <TimePicker
-                value={time}
-                onChange={handleTimeChange}
-                format="HH:mm"
-                minuteStep={5}
-                allowClear={false}
-                disabled={disabled}
-                style={{ width: 140 }}
-              />
+        {value.schedule_type === 'once' && (
+          <motion.div key="once" {...COLLAPSE_MOTION}>
+            <div className="jx-schedule-selector-body">
+              <div className="jx-schedule-selector-row">
+                <label className="jx-schedule-selector-label">{t('执行时间')}</label>
+                <DatePicker
+                  value={onceAt}
+                  onChange={handleOnceChange}
+                  showTime={{ format: 'HH:mm', minuteStep: 5 }}
+                  format="YYYY-MM-DD HH:mm"
+                  allowClear={false}
+                  disabled={disabled}
+                  disabledDate={current => disabledOnceDate(current, timezone)}
+                  disabledTime={current => disabledOnceTime(current, timezone)}
+                  style={{ width: 220 }}
+                />
+              </div>
             </div>
-          )}
-
-          {freq === 'hourly' && (
-            <div className="jx-schedule-selector-row">
-              <label className="jx-schedule-selector-label">{t('起始分钟')}</label>
-              <Select
-                value={time.minute()}
-                onChange={(m) => handleTimeChange(time.minute(m))}
-                options={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => ({
-                  value: m,
-                  label: t('第 {m} 分', { m }),
-                }))}
-                disabled={disabled}
-                style={{ width: 140 }}
-              />
-            </div>
-          )}
-        </div>
-        </motion.div>
-      )}
-
-      {value.schedule_type === 'once' && (
-        <motion.div key="once" {...COLLAPSE_MOTION}>
-        <div className="jx-schedule-selector-body">
-          <div className="jx-schedule-selector-row">
-            <label className="jx-schedule-selector-label">{t('执行时间')}</label>
-            <DatePicker
-              value={onceAt}
-              onChange={handleOnceChange}
-              showTime={{ format: 'HH:mm', minuteStep: 5 }}
-              format="YYYY-MM-DD HH:mm"
-              allowClear={false}
-              disabled={disabled}
-              disabledDate={current => disabledOnceDate(current, timezone)}
-              disabledTime={current => disabledOnceTime(current, timezone)}
-              style={{ width: 220 }}
-            />
-          </div>
-        </div>
-        </motion.div>
-      )}
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <div className="jx-schedule-selector-preview">

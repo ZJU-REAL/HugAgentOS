@@ -673,7 +673,7 @@ def _build_requirement_prompt(
         )
     else:
         parts.append(
-            "\n## 收尾\n完成后自行用 bash 快速自检，确认本需求确已扎实落地。只做这一条能扎实完成的部分。"
+            "\n## 收尾\n完成后自行用 Bash 快速自检，确认本需求确已扎实落地。只做这一条能扎实完成的部分。"
         )
     return "\n".join(parts)
 

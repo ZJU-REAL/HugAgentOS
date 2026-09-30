@@ -91,8 +91,7 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Workspace file visibility
     "pin_to_workspace": "固定到工作区",
     # Code-execution Lab tools
-    "bash": "执行 Shell 命令",
-    "Bash": "执行 Shell 命令",  # Title-cased alias for models that follow the Read/Edit/Write naming family
+    "Bash": "执行 Shell 命令",
     "Read": "读取文件",
     "Edit": "编辑文件",
     "Write": "写入文件",
@@ -106,9 +105,10 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Deprecated (kept for fallback display)
     "use_skill": "加载技能（已废弃）",
     # My Space access tools (code-execution mode)
-    "list_myspace_files": "浏览我的空间",
-    "stage_myspace_file": "导入文件到工作区",
-    "list_favorite_chats": "浏览收藏会话",
-    "get_chat_messages": "读取会话记录",
+    "space_list_myspace_files": "浏览我的空间",
+    "space_stage_myspace_file": "导入文件到工作区",
+    "space_create_folder": "创建空间文件夹",
+    "space_move": "移动空间文件",
+    "space_delete": "删除空间文件",
     **edition_tool_display_names(),
 }

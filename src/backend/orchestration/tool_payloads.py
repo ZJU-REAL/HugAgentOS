@@ -199,7 +199,7 @@ def _build_skill_load_payload(skill_id: str) -> Dict[str, Any]:
 # otherwise the UI shows only the generic typing placeholder until the tool
 # result finally arrives.
 _FAST_EMIT_TOOLS = frozenset({
-    "bash",
+    "Bash",
     "write_stdin",
     "Read",
     "Edit",

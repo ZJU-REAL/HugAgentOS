@@ -573,7 +573,7 @@ def _ai_source() -> str:
 
 # Pattern picks up top-level `"file_id": "<id>"` keys in tool result JSON.
 # We deliberately match the JSON key form so we ignore `artifact_id`-style
-# echoes from `list_myspace_files` / `sandbox_put_artifact` etc., which
+# echoes from `space_list_myspace_files` / `sandbox_put_artifact` etc., which
 # operate on already-existing artifacts and don't need pinning.
 _FILE_ID_RE = re.compile(r'"file_id"\s*:\s*"([A-Za-z0-9_\-]+)"')
 

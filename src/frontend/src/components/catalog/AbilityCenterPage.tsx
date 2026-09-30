@@ -1,30 +1,30 @@
-import { DesktopAvailableCapabilities } from '../desktop/DesktopAvailableCapabilities';
-import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { useEffect, useState, type ReactNode } from 'react';
-import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
+import { useEffect,useState,type ReactNode } from 'react';
 import type { DeviceCapabilityKind } from '../../api';
+import { useAbilityTab } from '../../routing/subPages';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import type { AbilityTabKey } from '../../types';
 import { AgentPanel } from '../agent/AgentPanel';
+import { DesktopAvailableCapabilities } from '../desktop/DesktopAvailableCapabilities';
 import { ABILITY_TABS } from './abilityTabs';
-import { useAbilityTab } from '../../routing/subPages';
-import { SkillsPage } from './SkillsPage';
 import { McpPage } from './McpPage';
 import { PluginsPage } from './PluginsPage';
+import { SkillsPage } from './SkillsPage';
 
 /** 每个类别对应的 pane。写成 Record 而非数组，是为了拿到对 AbilityTabKey 的穷尽性检查——
  *  往 ABILITY_TABS 里加一个类别却忘了加 pane，会在编译期报错而不是渲染出一片空白。 */
 const PANES: Record<AbilityTabKey, () => ReactNode> = {
-  agents: () => <AgentPanel embedded />,
-  skills: () => <SkillsPage embedded />,
-  mcp: () => <McpPage embedded />,
+  agents: () => <AgentPanel />,
+  skills: () => <SkillsPage />,
+  mcp: () => <McpPage />,
   plugins: () => <PluginsPage />,
 };
 
 /**
  * 能力中心：智能体 / 技能 / 连接器 / 插件。
  *
- * 类别切换在**左侧边栏的二级导航**上（`LAYOUT_ITEMS.ability_center.children`，与这里共用
- * `ABILITY_TABS` 这张表），选中项存在 `catalogStore.abilityTab`，所以本页不画 Tab 栏。
+ * 类别切换在**左侧边栏的二级导航**上（与这里共用
+ * `ABILITY_TABS` 这张表），选中项从路由读取，所以本页不画 Tab 栏。
  *
  * pane 采取「首次访问才挂载、之后常驻」：四个 pane 各自会在挂载时拉自己的列表（智能体、技能、
  * MCP、插件），一上来全挂等于把四份请求都打出去；只开过一个类别的用户不该为另外三个买单。

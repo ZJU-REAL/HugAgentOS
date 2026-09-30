@@ -37,6 +37,7 @@ from ._common import (
 from ._paths import (
     basename,
     is_myspace_physical,
+    space_metadata,
     WORKSPACE_ROOT,
     parent_dir,
     to_physical_path,
@@ -114,7 +115,7 @@ def register_write(
                 {
                     "error": (
                         f"Write 只能写 UTF-8 纯文本，不能直接生成 .{_ext} 二进制文档"
-                        "（产物会是无法打开的假文档）。请用 bash 调命令行工具生成"
+                        "（产物会是无法打开的假文档）。请用 Bash 调命令行工具生成"
                         "（docx 用 python-docx，xlsx 用 openpyxl，pdf 用 reportlab "
                         "等），生成后写到同一路径即可自动同步。"
                     ),
@@ -124,6 +125,7 @@ def register_write(
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
         from .project_source_access import current_scope_error
         from core.services.edition_workspace import write_organization_text, is_organization_path
+
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
             return resp_json(scope_error)
@@ -133,13 +135,23 @@ def register_write(
         if is_organization_path(scope, user_id, file_path):
             from fastapi import HTTPException
             import asyncio
+
             try:
                 from core.sandbox import get_sandbox_provider
+
                 await get_sandbox_provider().ensure_user_workspace(_sess, user_id)
-                return resp_json(await asyncio.to_thread(
-                    write_organization_text, scope, user_id or "", file_path, physical, state, session_id=_sess,
-                    content=content,
-                ))
+                return resp_json(
+                    await asyncio.to_thread(
+                        write_organization_text,
+                        scope,
+                        user_id or "",
+                        file_path,
+                        physical,
+                        state,
+                        session_id=_sess,
+                        content=content,
+                    )
+                )
             except HTTPException as exc:
                 return resp_json({"error": exc.detail, "status": exc.status_code})
 
@@ -215,7 +227,7 @@ def register_write(
                         "error": (
                             f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read "
                             "返回的是它的**解析文本**，用 Write 覆盖会损坏文档。"
-                            "请用 bash 调命令行工具（python-docx 等）重新生成。"
+                            "请用 Bash 调命令行工具（python-docx 等）重新生成。"
                         ),
                     }
                 )
@@ -322,10 +334,11 @@ def register_write(
 
         # ── Artifact registration for non-myspace paths ──────────────────
         # A write under /myspace needs nothing here: the file has landed in the user's
-        # own directory, and core.myspace.watcher registers it from the filesystem
+        # own directory, and core.space_sync.personal registers it from the filesystem
         # event — the same way it registers everything else written there, tool or not.
         artifact_ref: Optional[dict] = None
         from core.artifacts.local_project import is_project_file_path
+
         needs_registration = bool(register_as_artifact and user_id and not is_persistent)
         if needs_registration and (
             is_project_file_path(file_path, scope) or is_project_file_path(physical, scope)
@@ -335,11 +348,18 @@ def register_write(
 
             try:
                 artifact_ref = reference_project_file(physical, scope=scope, user_id=user_id)
-                artifact_ref = {k: artifact_ref[k] for k in ("file_id", "name", "mime_type", "size")}
+                artifact_ref = {
+                    k: artifact_ref[k] for k in ("file_id", "name", "mime_type", "size")
+                }
                 artifact_ref["url"] = f"/files/{artifact_ref['file_id']}"
             except (HTTPException, OSError, ValueError) as exc:
-                return resp_json({"error": str(getattr(exc, "detail", exc)), "file_path": file_path,
-                                  "note": "文件已写入，但未交付。请将最终文件保存在当前项目内后再 pin。"})
+                return resp_json(
+                    {
+                        "error": str(getattr(exc, "detail", exc)),
+                        "file_path": file_path,
+                        "note": "文件已写入，但未交付。请将最终文件保存在当前项目内后再 pin。",
+                    }
+                )
         elif needs_registration:
             artifact_ref = upsert_myspace_artifact(
                 user_id=user_id,
@@ -360,7 +380,7 @@ def register_write(
             "file_path": file_path,  # hand back the path the model originally passed in
             "physical_path": physical,
             "size": len(new_bytes),
-            "persistent": is_persistent,
+            **space_metadata(physical, user_id),
         }
         if is_update and original_text is not None:
             payload["diff"] = _make_unified_diff(file_path, original_text, content)
@@ -391,7 +411,7 @@ def register_write(
         "    JSON: ``{ok: true, type: 'create'|'update', file_path, physical_path,\n"
         "             size, persistent, diff?, artifact?, file_id?, note?}``\n"
         "    成功；``{error: '...'}`` 失败。\n"
-        "    ``persistent=true`` 表示文件已进入「我的空间」并跨会话保留。\n"
+        "    ``persistent=true`` 表示文件保存于个人或团队空间；``space_type`` 为 personal/team/temporary。\n"
     )
 
     toolkit.register_tool_function(Write, namesake_strategy="override")

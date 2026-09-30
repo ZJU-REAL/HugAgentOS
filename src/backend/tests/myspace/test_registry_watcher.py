@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 from core.llm import workspace
-from core.myspace import mirror, watcher
+from core.myspace import mirror
+from core.space_sync import personal as watcher
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def registry(monkeypatch):
     """一个不启观察者线程的登记器：直接驱动它的处理逻辑，不依赖真实文件事件的时序。"""
     reg = watcher.MySpaceRegistry()
     reg._root = Path("/tmp/jx-myspace-test")
-    reg._budget = watcher._Budget(watcher._INFLIGHT_BUDGET_BYTES)
+    reg._budget = watcher.Budget(watcher._INFLIGHT_BUDGET_BYTES)
     monkeypatch.setattr(watcher, "_claim", _always_claim)
     monkeypatch.setattr(watcher, "_HANDOFF_GRACE_S", 0)
     _stub_preset(monkeypatch)  # 默认：权限档没有替用户答，该问还是要问
@@ -117,7 +118,7 @@ async def test_a_new_file_is_registered_without_asking(registry, monkeypatch):
     """新文件直接登记 —— 内容已经落在用户自己的目录里，此时打断用户没有意义。"""
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
 
     async def _must_not_ask(**kwargs):
         raise AssertionError("新文件不该弹确认")
@@ -141,7 +142,7 @@ async def test_the_registry_never_pins_a_card(registry, monkeypatch):
     """
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-A")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-A")
     workspace.init_state()
 
     await registry._process("u1", ["test_data.csv"])
@@ -154,7 +155,7 @@ async def test_a_file_written_by_a_background_process_is_still_registered(regist
     """没有活跃会话（nohup 起的进程在命令返回之后才写完）照样登记。"""
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
 
     await registry._process("u1", ["run/结果.json"])
     assert seen == [("u1", "run/结果.json")]
@@ -165,7 +166,7 @@ async def test_an_already_registered_file_is_not_registered_again(registry, monk
     """账本已经反映了这份内容 —— 后端自己刚写下去的（正向同步）就是这一类。"""
     _stub_present(monkeypatch, mirror.VERDICT_CURRENT)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
 
     await registry._process("u1", ["报告.docx"])
     assert seen == []
@@ -175,7 +176,7 @@ async def test_an_already_registered_file_is_not_registered_again(registry, monk
 async def test_a_file_the_user_deleted_is_never_resurrected(registry, monkeypatch):
     _stub_present(monkeypatch, mirror.VERDICT_STALE)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
 
     await registry._process("u1", ["旧稿.docx"])
     assert seen == []
@@ -186,7 +187,7 @@ async def test_one_change_is_handled_once_across_workers(registry, monkeypatch):
     """每个 worker 都监听同一份目录，没抢到认领的那个不该重复登记。"""
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     monkeypatch.setattr(watcher, "_claim", _never_claim)
 
     await registry._process("u1", ["报告.docx"])
@@ -200,7 +201,7 @@ async def test_one_change_is_handled_once_across_workers(registry, monkeypatch):
 async def test_overwriting_a_user_file_goes_through_the_confirmation(registry, monkeypatch):
     _stub_present(monkeypatch, mirror.VERDICT_MODIFIED)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
     asked: list = []
 
     async def _gate(**kwargs):
@@ -219,7 +220,7 @@ async def test_a_refused_overwrite_restores_the_registered_version(registry, mon
     """文件在磁盘上早改完了，拒绝只能是把账本里那一版还原回去。"""
     _stub_present(monkeypatch, mirror.VERDICT_MODIFIED)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
     _stub_gate(monkeypatch, allow=False)
     restored: list = []
     monkeypatch.setattr(
@@ -238,7 +239,7 @@ async def test_a_subagent_overwrite_takes_effect_without_asking(registry, monkey
     """问不到人时直接生效 —— 拒绝拦不住已经发生的改动，只会让两边不一致。"""
     _stub_present(monkeypatch, mirror.VERDICT_MODIFIED)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
 
     async def _must_not_ask(**kwargs):
         raise AssertionError("没有活跃会话时不该弹确认")
@@ -255,11 +256,11 @@ async def test_a_subagent_overwrite_takes_effect_without_asking(registry, monkey
 @pytest.mark.asyncio
 async def test_rm_in_the_sandbox_removes_the_file_from_myspace(registry, monkeypatch):
     _stub_gone(monkeypatch, mirror.DeleteTarget(registered=_REG))
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
     _stub_gate(monkeypatch, allow=True)
     deleted: list = []
     monkeypatch.setattr(
-        mirror, "delete_registered", lambda *, user_id, rel: deleted.append(rel) or True
+        mirror, "delete_registered", lambda *, user_id, rel, target=None: deleted.append(rel) or True
     )
 
     await registry._process("u1", ["草稿.docx"])
@@ -269,7 +270,7 @@ async def test_rm_in_the_sandbox_removes_the_file_from_myspace(registry, monkeyp
 @pytest.mark.asyncio
 async def test_a_refused_deletion_restores_the_file(registry, monkeypatch):
     _stub_gone(monkeypatch, mirror.DeleteTarget(registered=_REG))
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
     _stub_gate(monkeypatch, allow=False)
     restored: list = []
     monkeypatch.setattr(
@@ -280,7 +281,7 @@ async def test_a_refused_deletion_restores_the_file(registry, monkeypatch):
     monkeypatch.setattr(
         mirror,
         "delete_registered",
-        lambda *, user_id, rel: (_ for _ in ()).throw(AssertionError("拒绝后不该删")),
+        lambda *, user_id, rel, target=None: (_ for _ in ()).throw(AssertionError("拒绝后不该删")),
     )
 
     await registry._process("u1", ["草稿.docx"])
@@ -291,11 +292,11 @@ async def test_a_refused_deletion_restores_the_file(registry, monkeypatch):
 async def test_an_unregistered_file_vanishing_is_a_no_op(registry, monkeypatch):
     """从没登记过的文件消失了，本来就不在用户空间里，不必也无从同步。"""
     _stub_gone(monkeypatch, None)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     monkeypatch.setattr(
         mirror,
         "delete_registered",
-        lambda *, user_id, rel: (_ for _ in ()).throw(AssertionError("不该删")),
+        lambda *, user_id, rel, target=None: (_ for _ in ()).throw(AssertionError("不该删")),
     )
 
     await registry._process("u1", ["临时.tmp"])
@@ -305,10 +306,10 @@ async def test_an_unregistered_file_vanishing_is_a_no_op(registry, monkeypatch):
 async def test_removing_a_folder_soft_deletes_what_is_inside(registry, monkeypatch):
     """``rm -rf /myspace/<目录>`` 只让路径消失，得认出删的是个还在册的文件夹。"""
     _stub_gone(monkeypatch, mirror.DeleteTarget(folder=True))
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     deleted: list = []
     monkeypatch.setattr(
-        mirror, "delete_registered", lambda *, user_id, rel: deleted.append(rel) or True
+        mirror, "delete_registered", lambda *, user_id, rel, target=None: deleted.append(rel) or True
     )
 
     await registry._process("u1", ["大优强_run"])
@@ -330,7 +331,7 @@ async def test_a_burst_is_judged_in_one_pass(registry, monkeypatch):
     monkeypatch.setattr(watcher, "_stat_all", lambda uid, rels: {rel: _entry(rel) for rel in rels})
     monkeypatch.setattr(mirror, "classify_claimed", _classify)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
 
     rels = [f"分片/{i}.tsv" for i in range(200)]
     await registry._process("u1", rels)
@@ -342,7 +343,7 @@ async def test_a_burst_is_judged_in_one_pass(registry, monkeypatch):
 @pytest.mark.asyncio
 async def test_big_files_do_not_stack_up_in_memory():
     """限流按字节算：上限大小的文件只能一个一个来，小文件照旧并行。"""
-    budget = watcher._Budget(watcher._INFLIGHT_BUDGET_BYTES)
+    budget = watcher.Budget(watcher._INFLIGHT_BUDGET_BYTES)
     huge = watcher._INFLIGHT_BUDGET_BYTES  # 单个就吃满额度
     assert budget.cost(huge) == watcher._INFLIGHT_BUDGET_BYTES
     small = budget.cost(1024)
@@ -375,7 +376,7 @@ async def test_flush_processes_this_user_without_waiting_for_the_settle_window(
 ):
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     registry._mark(("u1", "刚写的.docx"))
     registry._mark(("u2", "别人的.docx"))
 
@@ -400,10 +401,11 @@ async def test_a_real_write_reaches_the_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(watcher, "_SETTLE_S", 0.2)
     monkeypatch.setattr(watcher, "_HANDOFF_GRACE_S", 0)
     monkeypatch.setattr(watcher, "_claim", _always_claim)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: None)
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     _stub_present(monkeypatch, mirror.VERDICT_NEW)
     seen = _capture_registrations(monkeypatch)
 
+    monkeypatch.setattr("core.space_sync.personal_database.projection_owners", lambda: set())
     reg = watcher.MySpaceRegistry()
     await reg.start()
     try:

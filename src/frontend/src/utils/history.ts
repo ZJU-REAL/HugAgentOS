@@ -1,17 +1,12 @@
-import { formatDateKey, parseServerTime } from './date';
-import type { ChatItem, ChatStore, AutomationTask } from '../types';
-import type { HistoryTimeFilter } from '../stores/uiStore';
 import { t } from '../i18n';
+import type { HistoryTimeFilter } from '../stores/uiStore';
+import type { AutomationTask,ChatItem,ChatStore } from '../types';
+import { formatDateKey,parseServerTime } from './date';
 
 interface AutomationSidebarPref { pinned?: boolean; favorite?: boolean }
 
-/**
- * Combines regular chats + automation task virtual items into the ChatItem array shared
- * by the Sidebar / SearchModal.
- * The logic in both consumers must stay exactly in sync, otherwise you get the weird UX
- * of "the sidebar has this item but the search modal doesn't".
- */
-export function buildSidebarChatItems(
+/** Global search includes ordinary conversations and task entries; the chat sidebar is module-scoped. */
+export function buildSearchChatItems(
   store: ChatStore,
   sidebarTasks: AutomationTask[],
   sidebarPrefs: Record<string, AutomationSidebarPref>,
@@ -77,18 +72,8 @@ export function getHistoryGroupKey(ts: number): HistoryGroupKey {
   return 'older';
 }
 
-export function looksLikeAutomationTitle(title?: string): boolean {
-  if (!title) return false;
-  return title.trim().startsWith('[自动化]');
-}
-
-export function isAutomationHistoryChat(
-  item?: Pick<ChatItem, 'title' | 'automationRun' | 'automationTaskId' | 'planChat' | 'agentId'> | null,
-): boolean {
-  if (!item) return false;
-  if (item.automationRun === true || !!item.automationTaskId) return true;
-  if (item.planChat || item.agentId) return false;
-  return looksLikeAutomationTitle(item.title);
+export function isAutomationHistoryChat(item?: Pick<ChatItem, 'automationRun' | 'automationTaskId'> | null): boolean {
+  return !!item && (item.automationRun === true || !!item.automationTaskId);
 }
 
 /**

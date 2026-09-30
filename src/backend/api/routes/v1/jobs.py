@@ -88,7 +88,10 @@ async def cancel_job(job_id: str, user: UserContext = Depends(get_current_user))
     """状态条上的取消按钮 —— 跑歪了的作业不该只能等它烧完预算。"""
     from orchestration import job_runtime
 
-    ok = await job_runtime.cancel_job(job_id, user_id=user.user_id)
+    try:
+        ok = await job_runtime.cancel_job(job_id, user_id=user.user_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="job not found or not cancellable")
     return success_response(data={"job_id": job_id, "status": "cancelled"})

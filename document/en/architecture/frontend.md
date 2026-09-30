@@ -1,8 +1,8 @@
 # Frontend Architecture
 
-> Last updated: 2026-06-11
+> Last updated: 2026-09-30
 
-The frontend lives in `src/frontend/` and is a React 19 + TypeScript single-page application: built with Vite, styled with Ant Design, state-managed with Zustand, and deliberately router-framework-free — the entry module switches between five independent app shells by URL path. Production builds are served by the Nginx container, and every backend call funnels through one typed client, `api.ts`.
+The frontend lives in `src/frontend/` and is a React 19 + TypeScript single-page application: built with Vite, styled with Ant Design, state-managed with Zustand, and uses React Router in the main workspace — the entry module switches between five independent app shells by URL path. Production builds are served by the Nginx container, and every backend call funnels through one typed client, `api.ts`.
 
 ## Multiple App Shells
 
@@ -18,9 +18,15 @@ The frontend lives in `src/frontend/` and is a React 19 + TypeScript single-page
 
 The CE derived tree physically removes `AdminApp.tsx` / `ConfigApp.tsx` together with `components/admin/` and `components/config/` (declared in `ce/manifest.yaml`) and ships a slimmed-down `main.tsx` via overlay.
 
+## Module navigation and responsibilities
+
+The main workspace uses a module icon rail, a contextual sidebar, and a content area. Chat lists ordinary and project conversations. The capability sidebar selects agents, plugins, skills, and connectors; installed capabilities and their actions stay in the content area. My Space navigation covers files, knowledge bases, favorites, shares, and notifications. Scheduled-task setup and execution conversations remain in Scheduled Tasks, with consistent URLs across search, notifications, reloads, and browser history.
+
+App.tsx connects useAppController, AppAuthGate, and AppWorkspace. useAppBootstrap, useChatRecovery, useChatSearch, and useChatViewport own initialization, stream recovery, search, and scrolling. Sidebar components separate module menus, conversation rows, project groups, and account tools. My Space separates its controller, folder actions, knowledge picker, header, content, and dialogs. Routes own module location; automationStore owns the task list.
+
 ## api.ts — the typed API client
 
-`src/api.ts` (~2,200 lines) is the single gateway to the backend:
+`src/api.ts` is the single gateway to the backend:
 
 - **Base URL**: `getApiUrl()` returns `import.meta.env.VITE_API_BASE_URL || '/api'` — the Vite proxy in development, same-origin `/api` behind Nginx in production;
 - **Envelope unwrapping**: the backend uniformly returns `{ code, message, data, trace_id, timestamp }`; `isApiEnvelope` + `unwrapData<T>` extract `data` automatically, so callers receive plain business types;
@@ -37,7 +43,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `admin/` (Enterprise Edition, EE) | Content-console panels: skill / KB / agent managers, page-config editor, icon picker |
 | `agent/` | Sub-agent creation page, forms, @-mention popup, panel |
 | `apidoc/` | API documentation panel |
-| `automation/` | Automation run-timeline panel |
+| `automation/` | Scheduled-task list, creation, details, setup conversations, and run timeline |
 | `batch/` | Batch-execution confirmation modal and progress panel |
 | `canvas/` | Data canvas: Univer online-spreadsheet panel |
 | `catalog/` | Capability center: skills / MCP pages, catalog panel, skill-marketplace modal, icon picker |

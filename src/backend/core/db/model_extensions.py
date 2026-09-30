@@ -1,6 +1,7 @@
 """Community ORM extensions: personal-resource schema only."""
 
 from sqlalchemy import CheckConstraint
+from core.db.personal_file_names import personal_file_indexes
 
 
 class ProjectEditionFields:
@@ -21,7 +22,7 @@ class ArtifactEditionFields:
 
 
 def artifact_edition_table_args() -> tuple:
-    return ()
+    return personal_file_indexes()
 
 
 class UserAgentEditionFields:

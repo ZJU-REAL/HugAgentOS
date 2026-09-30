@@ -38,8 +38,8 @@ def _service(mode: str) -> ToolPermissionService:
         source="native",
     )
     registry.register(
-        "Delete",
-        local_path_tool("path", WRITE, tool_name="Delete", myspace_op=OP_DELETE),
+        "space_delete",
+        local_path_tool("path", WRITE, tool_name="space_delete", myspace_op=OP_DELETE),
         source="native",
     )
     registry.register(
@@ -95,7 +95,7 @@ async def test_approve_for_me_passes_writes_but_still_asks_before_deleting():
         written = await service.authorize(
             _tool_call("Write", {"file_path": "/myspace/a.txt", "content": "x"})
         )
-        deleted = await service.authorize(_tool_call("Delete", {"path": "/myspace/a.txt"}))
+        deleted = await service.authorize(_tool_call("space_delete", {"path": "/myspace/a.txt"}))
 
     assert written.proceed is True
     assert written.ticket is not None
@@ -110,7 +110,7 @@ async def test_full_access_never_asks_even_to_delete():
     gate = AsyncMock()
     with patch("core.llm.tools._myspace_confirm.gate", gate):
         outcome = await _service(APPROVAL_FULL).authorize(
-            _tool_call("Delete", {"path": "/myspace/a.txt"})
+            _tool_call("space_delete", {"path": "/myspace/a.txt"})
         )
 
     gate.assert_not_awaited()
@@ -122,8 +122,8 @@ async def test_trusted_unattended_runs_ignore_the_chat_preset():
     """渠道 / 定时这类无人值守入口不受聊天界面档位影响，行为与改造前一致。"""
     registry = ToolPermissionRegistry()
     registry.register(
-        "Delete",
-        local_path_tool("path", WRITE, tool_name="Delete", myspace_op=OP_DELETE),
+        "space_delete",
+        local_path_tool("path", WRITE, tool_name="space_delete", myspace_op=OP_DELETE),
         source="native",
     )
     service = ToolPermissionService(
@@ -137,7 +137,7 @@ async def test_trusted_unattended_runs_ignore_the_chat_preset():
             approval_mode=APPROVAL_ASK,
         ),
     )
-    outcome = await service.authorize(_tool_call("Delete", {"path": "/myspace/a.txt"}))
+    outcome = await service.authorize(_tool_call("space_delete", {"path": "/myspace/a.txt"}))
     assert outcome.proceed is True
 
 
@@ -153,7 +153,8 @@ async def test_myspace_writeback_follows_the_preset(mode, asks, monkeypatch):
     「完全放开」，跑个 bash 照样被逐个文件拦下来。发起方现在是文件系统登记器，它跑在
     自己的任务里读不到 ContextVar，所以按用户设置里的档位判。
     """
-    from core.myspace import mirror, watcher
+    from core.myspace import mirror
+    from core.space_sync import personal as watcher
 
     monkeypatch.setattr(
         "core.llm.tool_permissions.resolve_approval_mode",
@@ -165,7 +166,7 @@ async def test_myspace_writeback_follows_the_preset(mode, asks, monkeypatch):
         return True
 
     monkeypatch.setattr(watcher, "_claim", _claim)
-    monkeypatch.setattr(watcher, "_confirm_chat", lambda uid: "chat-1")
+    monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: "chat-1")
     monkeypatch.setattr(
         watcher,
         "_stat_all",
@@ -184,7 +185,7 @@ async def test_myspace_writeback_follows_the_preset(mode, asks, monkeypatch):
     )
 
     reg = watcher.MySpaceRegistry()
-    reg._budget = watcher._Budget(watcher._INFLIGHT_BUDGET_BYTES)
+    reg._budget = watcher.Budget(watcher._INFLIGHT_BUDGET_BYTES)
     with patch(
         "core.llm.tools._myspace_confirm.gate", new=AsyncMock(return_value=None)
     ) as gate:

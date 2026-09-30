@@ -47,11 +47,11 @@ def _build_skill_bash_hint(
     skill_id: str,
     skill_dir: str,
 ) -> str | None:
-    """Tell the model the skill is ready and can be invoked via the bash tool.
+    """Tell the model the skill is ready and can be invoked via the Bash tool.
 
     Difference from the old ``_build_skill_script_runtime_hint``:
-    - No longer enumerates ``executable_scripts`` —— script invocation all goes through bash + relative paths
-    - No longer requires the two parameters ``skill_id``/``script_name`` —— bash assembles the command directly
+    - No longer enumerates ``executable_scripts`` —— script invocation all goes through Bash + relative paths
+    - No longer requires the two parameters ``skill_id``/``script_name`` —— Bash assembles the command directly
     - Adds a getting-started hint for ``sandbox_put_artifact`` / ``sandbox_get_artifact``
     """
     spec = loader.load_skill_full(skill_id)
@@ -79,8 +79,8 @@ def _build_skill_bash_hint(
         "----- Runtime Hint -----",
         f"当前已加载技能：{name}",
         f"技能目录：{sandbox_dir}/。脚本使用绝对路径启动，输入输出相对当前工作目录。",
-        "调用方式：使用 `bash` 工具，按 SKILL.md 给出的命令拼接，例如：",
-        f"  bash(command={json.dumps(example_cmd, ensure_ascii=False)})",
+        "调用方式：使用 `Bash` 工具，按 SKILL.md 给出的命令拼接，例如：",
+        f"  Bash(command={json.dumps(example_cmd, ensure_ascii=False)})",
         "若用户上传的文件需要传给脚本：",
         '  sandbox_put_artifact(artifact_id="ua_xxx", dest_path="input.docx")',
     ]

@@ -48,7 +48,7 @@ async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypat
     toolkit = Toolkit()
     register_bash(toolkit, loader=None, loaded_skill_ids=set(), chat_id="chat-a")
     assert "write_stdin" in toolkit.functions
-    first = payload(await toolkit.functions["bash"]("long-command", yield_time_ms=250))
+    first = payload(await toolkit.functions["Bash"]("long-command", yield_time_ms=250))
     assert first["session_id"] == "p1"
     req = provider.start_process.call_args.args[0]
     assert req.timeout is None
@@ -71,10 +71,10 @@ async def test_registered_schemas_expose_two_tool_contract(monkeypatch):
         s["function"]["name"]: s["function"]
         for s in await AgentToolkit(tools=collector.function_tools).get_tool_schemas()
     }
-    assert {"bash", "write_stdin", "Bash"} <= schemas.keys()
+    assert set(schemas) == {"Bash", "write_stdin"}
     assert "run_to_completion" not in schemas
     assert "execute" not in schemas
-    assert schemas["bash"]["parameters"]["properties"]["yield_time_ms"]["default"] == 60000
-    assert "timeout" not in schemas["bash"]["parameters"]["required"]
+    assert schemas["Bash"]["parameters"]["properties"]["yield_time_ms"]["default"] == 60000
+    assert "timeout" not in schemas["Bash"]["parameters"]["required"]
     assert schemas["write_stdin"]["parameters"]["properties"]["chars"]["default"] == ""
     assert schemas["write_stdin"]["parameters"]["required"] == ["session_id"]

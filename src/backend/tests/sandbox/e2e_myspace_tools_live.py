@@ -1,6 +1,6 @@
 """真实端到端：把各类工具挨个对「我的空间」跑一遍（真 DB + 真对象存储 + 真 opensandbox）。
 
-覆盖 CreateFolder / Write / Read / Edit / Glob / Grep / list_myspace_files / bash /
+覆盖 CreateFolder / Write / Read / Edit / Glob / Grep / space_list_myspace_files / bash /
 Move / Delete / sandbox_get_artifact，并回查数据库真值。所有对象用 __tt__ 前缀、结尾硬清理。
 
 pytest 不收集（文件名以 e2e_ 开头），在 backend 容器里手动跑：
@@ -130,7 +130,7 @@ async def main():
     note = f"笔记_{TAG}.txt"
 
     # 1. CreateFolder
-    r = js(await F["CreateFolder"](p(FOLDER)))
+    r = js(await F["space_create_folder"](p(FOLDER)))
     check("CreateFolder 建目录", not r.get("error") and not r.get("blocked"), str(r)[:160])
 
     # 2. Write
@@ -138,10 +138,10 @@ async def main():
     r = js(await F["Write"](p(FOLDER, note), body))
     check("Write 写入我的空间", not r.get("error") and not r.get("blocked"), str(r)[:200])
 
-    # 3. list_myspace_files
-    r = js(await F["list_myspace_files"](limit=100))
+    # 3. space_list_myspace_files
+    r = js(await F["space_list_myspace_files"](limit=100))
     subs = [f.get("name") for f in (r.get("sub_folders") or [])]
-    check("list_myspace_files 看到新建目录", FOLDER in subs, f"共 {len(subs)} 个子目录")
+    check("space_list_myspace_files 看到新建目录", FOLDER in subs, f"共 {len(subs)} 个子目录")
 
     # 4. Read
     r = js(await F["Read"](p(FOLDER, note)))
@@ -179,14 +179,14 @@ async def main():
 
     # 10. Move
     renamed = f"改名后_{TAG}.txt"
-    r = js(await F["Move"](p(FOLDER, fn), p(FOLDER, renamed)))
+    r = js(await F["space_move"](p(FOLDER, fn), p(FOLDER, renamed)))
     check("Move 改名", not r.get("error") and not r.get("blocked"), str(r)[:160])
     r = js(await F["Read"](p(FOLDER, renamed)))
     c = r.get("content") or r.get("text") or str(r)
     check("Move 后仍可读", "from-bash" in c, c[:100])
 
     # 11. Delete
-    r = js(await F["Delete"](p(FOLDER, renamed)))
+    r = js(await F["space_delete"](p(FOLDER, renamed)))
     check("Delete 删除文件", not r.get("error") and not r.get("blocked"), str(r)[:160])
     r = js(await F["Read"](p(FOLDER, renamed)))
     gone = bool(r.get("error")) or "不存在" in str(r) or "not found" in str(r).lower()
@@ -231,7 +231,7 @@ async def main():
 
     # ── 清理 ──
     try:
-        await F["Delete"](p(FOLDER))
+        await F["space_delete"](p(FOLDER))
     except Exception as exc:
         print("清理 Delete 失败:", exc)
     db = SessionLocal()

@@ -1,6 +1,6 @@
 import { generatePath, matchPath } from 'react-router';
-import type { PanelKey } from '../types';
 import { activeProjectId } from '../stores/projectSession';
+import type { PanelKey } from '../types';
 
 interface RouterLike {
   navigate: (to: string, opts?: { replace?: boolean }) => unknown;
@@ -10,17 +10,24 @@ interface RouterLike {
 /** 路由形状的单一真源：routes.tsx 按它声明路由，这里按它解析 / 生成地址，
  *  转义与末尾斜杠都交给 react-router，不再手写正则。 */
 export const CHAT_PATTERN = '/c/:chatId';
+export const AUTOMATION_CHAT_PATTERN = '/automation/:taskId/conversations/:chatId';
+let conversationOwner: (id: string) => string | undefined = () => undefined;
+export function setConversationOwnerResolver(resolve: typeof conversationOwner) { conversationOwner = resolve; }
+export function pathForAutomationChat(taskId: string, chatId: string): string {
+  return generatePath(AUTOMATION_CHAT_PATTERN, { taskId, chatId });
+}
+export function isConversationPath(pathname: string = currentPath()): boolean {
+  return panelFromPath(pathname) === 'chat' || !!matchPath(AUTOMATION_CHAT_PATTERN, pathname);
+}
 export const PROJECT_PATTERN = '/projects/:projectId';
 
 /** 这些 slug 不能和服务端自己占着的路径撞车（nginx 把 `/docs`、`/login`、`/register`、
  *  `/redoc`、`/site/`、`/mock-sso/` 直接转给后端，前端根本收不到），所以文档面板用
  *  `/help` 而不是 `/docs`。 */
 const PANEL_SLUGS: Partial<Record<PanelKey, string>> = {
-  kb: 'kb',
   docs: 'help',
   app_center: 'app-center',
   settings: 'settings',
-  share_records: 'share-records',
   my_space: 'my-space',
   ability_center: 'ability-center',
   lab: 'lab',
@@ -65,7 +72,9 @@ export function isHomePath(): boolean {
 }
 
 export function pathForChat(chatId: string | null): string {
-  return chatId ? generatePath(CHAT_PATTERN, { chatId }) : '/';
+  if (!chatId) return '/';
+  const owner = conversationOwner(chatId);
+  return owner ? pathForAutomationChat(owner, chatId) : generatePath(CHAT_PATTERN, { chatId });
 }
 
 /** `subs` 是面板内部的下级页（能力中心的类别、我的空间的模块、设置的子菜单、
@@ -88,7 +97,7 @@ export function pathForPanel(panel: PanelKey, ...subs: Array<string | null | und
 }
 
 export function chatIdFromPath(pathname: string = currentPath()): string | null {
-  return matchPath(CHAT_PATTERN, pathname)?.params.chatId ?? null;
+  return (matchPath(CHAT_PATTERN, pathname) ?? matchPath(AUTOMATION_CHAT_PATTERN, pathname))?.params.chatId ?? null;
 }
 
 export function projectIdFromPath(pathname: string = currentPath()): string | null {

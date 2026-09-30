@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.db import models as _models  # noqa: F401 — 让 db_session 建表时认得 artifacts
-from core.myspace import mirror as mm
+from core.myspace import projection as pr, reconciliation as rc, mirror as mm
 
 
 class _FakeDB:
@@ -58,7 +58,7 @@ def test_iter_mirror_files_returns_relative_paths(mirror):
     (mirror / "大优强全部" / "分片" / "a.tsv").write_text("x")
     (mirror / "top.txt").write_text("y")
 
-    rels = sorted(e.rel for e in mm.iter_mirror_files("u1"))
+    rels = sorted(e.rel for e in rc.iter_mirror_files("u1"))
     assert rels == ["top.txt", "大优强全部/分片/a.tsv"]
 
 
@@ -71,7 +71,7 @@ def test_new_file_is_classified_as_new(mirror, monkeypatch):
     (mirror / "分片" / "确认结果.tsv").write_text("a\tb\n")
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: None)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert [e.logical_path for e in changes.new] == ["/myspace/分片/确认结果.tsv"]
     assert changes.modified == []
@@ -84,7 +84,7 @@ def test_touching_an_existing_user_file_is_classified_as_modified(mirror, monkey
     art = _artifact(3, datetime.now(timezone.utc) - timedelta(minutes=10))
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: art)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert changes.new == []
     assert [e.rel for e in changes.modified] == ["报告.docx"]
@@ -96,7 +96,7 @@ def test_already_registered_file_is_skipped(mirror, monkeypatch):
     art = _artifact(fp.stat().st_size, datetime.now(timezone.utc) + timedelta(seconds=5))
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: art)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert (changes.new, changes.modified, changes.skipped_current) == ([], [], 1)
 
@@ -109,7 +109,7 @@ def test_file_deleted_by_the_user_is_never_resurrected(mirror, monkeypatch):
         mm, "_artifact_in", lambda db, uid, fid, name: _artifact(1, now, deleted_at=now)
     )
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert (changes.new, changes.modified, len(changes.stale)) == ([], [], 1)
 
@@ -123,7 +123,7 @@ def test_file_rewritten_after_the_deletion_counts_as_new(mirror, monkeypatch):
         lambda db, uid, fid, name: _artifact(1, long_ago, deleted_at=long_ago),
     )
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert [e.rel for e in changes.new] == ["又写了.tsv"]
 
@@ -145,7 +145,7 @@ def test_file_under_a_folder_the_user_deleted_is_never_registered(mirror, monkey
     )
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: None)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert (changes.new, changes.modified) == ([], [])
     assert [e.rel for e in changes.stale] == ["大优强全部/分片/a.tsv"]
@@ -164,7 +164,7 @@ def test_file_written_after_the_folder_was_deleted_is_new(mirror, monkeypatch):
     )
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: None)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert [e.rel for e in changes.new] == ["大优强全部/new.tsv"]
 
@@ -176,7 +176,7 @@ def test_recency_not_size_decides_the_direction(mirror, monkeypatch):
     art = _artifact(999, datetime.now(timezone.utc) + timedelta(minutes=5))
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: art)
 
-    changes = mm.collect_mirror_changes(user_id="u1")
+    changes = rc.collect_mirror_changes(user_id="u1")
 
     assert (changes.new, changes.modified, changes.skipped_current) == ([], [], 1)
 
@@ -185,7 +185,7 @@ def test_oversized_file_is_skipped(mirror, monkeypatch):
     (mirror / "big.bin").write_bytes(b"0" * 100)
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: None)
 
-    changes = mm.collect_mirror_changes(user_id="u1", max_bytes=10)
+    changes = rc.collect_mirror_changes(user_id="u1", max_bytes=10)
 
     assert (changes.skipped_too_large, changes.new) == (1, [])
 
@@ -196,7 +196,7 @@ def test_collect_writes_nothing(mirror, monkeypatch):
     monkeypatch.setattr(mm, "_artifact_in", lambda db, uid, fid, name: None)
     monkeypatch.setattr(mm._ms, "sync_upsert", lambda **kw: pytest.fail("分类阶段不得写库"))
 
-    assert len(mm.collect_mirror_changes(user_id="u1").new) == 1
+    assert len(rc.collect_mirror_changes(user_id="u1").new) == 1
 
 
 # ── 正向：我的空间 → 镜像 ─────────────────────────────────────────────────
@@ -209,6 +209,9 @@ class _FakeQuery:
     def filter(self, *_a):
         return self
 
+    def filter_by(self, **kwargs):
+        return self
+
     def all(self):
         return self.rows
 
@@ -216,7 +219,8 @@ class _FakeQuery:
 def _pull_db(rows, monkeypatch, downloads=b"new"):
     class _DB:
         def query(self, _model):
-            return _FakeQuery(rows)
+            from core.db.models import UserFolder
+            return _FakeQuery([] if _model is UserFolder else rows)
 
         def close(self):
             pass
@@ -226,7 +230,6 @@ def _pull_db(rows, monkeypatch, downloads=b"new"):
         "core.storage.get_storage",
         lambda: SimpleNamespace(download_bytes=lambda key: downloads),
     )
-    mm.reset_pull_cursor("u1")
 
 
 def _row(filename, *, size, updated, deleted_at=None):
@@ -245,7 +248,7 @@ def test_pull_materializes_a_file_missing_from_the_mirror(mirror, monkeypatch):
     """用户刚在界面上传的文件，沙箱要立刻看得到。"""
     _pull_db([_row("上传.xlsx", size=3, updated=datetime.now(timezone.utc))], monkeypatch)
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.materialized == 1
     assert (mirror / "上传.xlsx").read_bytes() == b"new"
@@ -260,7 +263,7 @@ def test_a_materialized_file_does_not_look_like_a_sandbox_write(mirror, monkeypa
     """
     updated = datetime.now(timezone.utc) - timedelta(hours=1)
     _pull_db([_row("上传.xlsx", size=3, updated=updated)], monkeypatch)
-    mm.pull_myspace_updates(user_id="u1")
+    pr.pull_myspace_updates(user_id="u1")
 
     entry = mm.mirror_entry("u1", "上传.xlsx")
     assert mm._artifact_is_current(_artifact(3, updated), entry)
@@ -273,7 +276,7 @@ def test_pull_leaves_a_newer_mirror_file_alone(mirror, monkeypatch):
     old = datetime.now(timezone.utc) - timedelta(minutes=10)
     _pull_db([_row("分片.tsv", size=2, updated=old)], monkeypatch)
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.materialized == 0
     assert fp.read_bytes() == b"sandbox-wrote-this"
@@ -286,7 +289,7 @@ def test_pull_propagates_deletions_to_the_mirror(mirror, monkeypatch):
     now = datetime.now(timezone.utc)
     _pull_db([_row("已删.tsv", size=1, updated=now, deleted_at=now)], monkeypatch)
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.removed == 1
     assert not gone.exists()
@@ -298,7 +301,7 @@ def test_pull_never_touches_files_without_an_artifact_row(mirror, monkeypatch):
     stray.write_bytes(b"x")
     _pull_db([], monkeypatch)
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.removed == 0
     assert stray.exists()
@@ -312,7 +315,7 @@ def test_pull_keeps_a_file_rewritten_after_the_deletion(mirror, monkeypatch):
         [_row("又写了.tsv", size=1, updated=long_ago, deleted_at=long_ago)], monkeypatch
     )
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.removed == 0
     assert fresh.exists()
@@ -354,9 +357,8 @@ def test_pull_catches_a_deletion_that_did_not_touch_updated_at(mirror, monkeypat
         lambda: SimpleNamespace(download_bytes=lambda key: b""),
     )
     # 直接置成增量水位：首轮是全量扫描，捞得到删除是理所当然的；要验的是增量这条路
-    mm._pull_cursor["u1"] = _dt.now(timezone.utc).timestamp() - 60
 
-    rep = mm.pull_myspace_updates(user_id="u1")
+    rep = pr.pull_myspace_updates(user_id="u1")
 
     assert rep.removed == 1
     assert not gone.exists()

@@ -27,7 +27,7 @@ PDF 内容时，才进入这份 SKILL。下面几件事看上去能"完成任务
 2. **不要塞 markdown 回 chat 让用户"自己另存为 PDF"**。这是 hard fail。
    markdown 草稿写完 → `pdf-cli reformat --input draft.md --output out.pdf`
    生成正式 PDF，再 `sandbox_get_artifact` + `pin_to_workspace` 交付。
-3. **不要拿 `list_myspace_files` 返回的旧 artifact 当作"新生成的 PDF"再 pin
+3. **不要拿 `space_list_myspace_files` 返回的旧 artifact 当作"新生成的 PDF"再 pin
    一遍**。`sandbox_put_artifact` 是把"用户**这一轮上传的**原始 PDF"送进沙盒；
    它不是 artifact 复制器、不是"我把以前生成过的同名文件再用一次"的捷径。
 4. **`pdf_create` 老 MCP 名已下线**。如果模型记忆里还有 `pdf_*` 工具名，那是
@@ -67,7 +67,7 @@ sandbox_put_artifact(artifact_id="<原始 pdf 的 file_id>",
   → {"ok": true, "artifact_id": "...", "dest_path": "./in.pdf"}
 
 # Step 2：bash 跑 pdf-cli
-bash("pdf-cli <subcmd> --input ./in.pdf \
+Bash("pdf-cli <subcmd> --input ./in.pdf \
                         --output ./out.pdf \
                         <子命令特定参数>")
   → stdout 返回 JSON 结果（{"ok": bool, "meta": ...}）
@@ -130,7 +130,7 @@ list too long` 就直接报错。
 
 ```bash
 Write(file_path="./spec.json", content="<json>")
-bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
+Bash("pdf-cli create --output ./report.pdf --spec-file ./spec.json")
 ```
 
 `fill-form` 的 `--fields-file` 是同理兜底。

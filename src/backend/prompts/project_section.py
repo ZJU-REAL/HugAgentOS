@@ -69,7 +69,7 @@ def _render_file_list_block(files: list, total: int) -> str:
     if total > PROJECT_FILE_LIST_CAP:
         lines.append(
             f"...还有 {total - PROJECT_FILE_LIST_CAP} 个未列出，"
-            "用 list_myspace_files 工具查看完整列表。"
+            "用 space_list_myspace_files 工具查看完整列表。"
         )
     lines.append(
         "用户提到的文件名默认指上面这些文件——直接用 Read/Edit/Glob/Grep 等工具操作即可。"

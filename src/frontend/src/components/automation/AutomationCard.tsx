@@ -1,9 +1,9 @@
-import { Button, Tag, Popconfirm, message } from 'antd';
-import { PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import type { AutomationTask } from '../../types';
-import { useAutomationStore } from '../../stores/automationStore';
-import { cronToHumanReadable, formatRelativeTime } from './automationUtils';
+import { DeleteOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Button, Popconfirm, Tag, message } from 'antd';
 import { t } from '../../i18n';
+import { useAutomationStore } from '../../stores/automationStore';
+import type { AutomationTask } from '../../types';
+import { cronToHumanReadable, formatRelativeTime } from './automationUtils';
 
 interface Props {
   task: AutomationTask;

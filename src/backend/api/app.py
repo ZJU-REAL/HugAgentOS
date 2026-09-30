@@ -810,17 +810,17 @@ async def _startup_myspace_registry():
     Registration is deliberately not wired into the tools that write: background
     processes, sub-agents, skill CLIs and MCP servers all write there too, and every
     entry point left out shows up as a file the user can see in the sandbox but not
-    in "My Space". See ``core.myspace.watcher``.
+    in "My Space". See ``core.space_sync.personal``.
     """
     from core.infra import runtime_state
-    from core.myspace.watcher import get_registry, start_registry
+    from core.space_sync.personal_registry import get_registry, start_registry
 
     await start_registry()
     runtime_state.register("myspace_registry", get_registry())
 
 
 async def _shutdown_myspace_registry():
-    from core.myspace.watcher import stop_registry
+    from core.space_sync.personal_registry import stop_registry
 
     await stop_registry()
 

@@ -19,8 +19,7 @@ SDK 是以字符串形式注入沙箱的（``SDK_SOURCE``），测试直接 exec
 import re
 
 import pytest
-
-from orchestration.job_runtime import SDK_SOURCE
+from orchestration.jobs.sdk import SDK_SOURCE
 
 
 @pytest.fixture()
@@ -56,8 +55,8 @@ def _logs(ns):
 @pytest.mark.parametrize(
     "item, expected_key",
     [
-        ({"key": "r2", "v": 1}, "r2"),          # 文档里的标准形状
-        ({"seq": 7, "v": 1}, "7"),              # 事故现场的形状：seq 当主键
+        ({"key": "r2", "v": 1}, "r2"),  # 文档里的标准形状
+        ({"seq": 7, "v": 1}, "7"),  # 事故现场的形状：seq 当主键
         ({"id": "ent-9", "v": 1}, "ent-9"),
         ({"item_key": 42, "v": 1}, "42"),
     ],
@@ -142,3 +141,33 @@ def test_sdk_docstring_warns_about_key_shape():
     m = re.search(r"def map\(self.*?\"\"\"(.*?)\"\"\"", SDK_SOURCE, re.S)
     assert m, "job.map 的 docstring 不该消失，它是模型唯一的使用说明"
     assert "key" in m.group(1)
+
+
+def test_resume_skips_settled_items_and_preserves_order(sdk):
+    original = sdk["_post"]
+
+    def post(path, body, **kwargs):
+        if body.get("op") == "pending":
+            return [{"key": "0", "result": {"value": "saved"}}] if body["status"] == "done" else []
+        return original(path, body, **kwargs)
+
+    sdk["_post"] = post
+    seen = []
+
+    def process(item):
+        seen.append(item["key"])
+        return {"value": "new"}
+
+    result = sdk["job"].map([{"key": "0"}, {"key": "1"}], process)
+    assert seen == ["1"]
+    assert result == [{"value": "saved"}, {"value": "new"}]
+
+
+def test_single_worker_probe_does_not_treat_one_bad_row_as_systematic(sdk):
+    def handle(item):
+        if item["key"] == "bad":
+            raise KeyError("one malformed row")
+        return {"ok": True}
+
+    result = sdk["job"].map([{"key": "bad"}, {"key": "good"}], handle, concurrency=1)
+    assert result == [None, {"ok": True}]

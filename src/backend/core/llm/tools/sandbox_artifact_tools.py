@@ -1,6 +1,6 @@
-"""Sandbox-backed agent tools: ``bash`` + artifact staging.
+"""Sandbox-backed agent tools: ``Bash`` + artifact staging.
 
-- ``bash``: run a shell command inside the per-chat sandbox container.
+- ``Bash``: run a shell command inside the per-chat sandbox container.
 - ``sandbox_put_artifact``: copy an existing artifact's bytes into the sandbox.
 - ``sandbox_get_artifact``: read a sandbox file and register it as a
   downloadable artifact.
@@ -91,7 +91,7 @@ def register_sandbox_put_artifact(
 
     sandbox_put_artifact.__doc__ = (
         "把已存在的 artifact（用户上传的、或之前产出的文件）拷贝到沙盒路径，\n"
-        "供 bash/脚本读取处理。\n\n"
+        "供 Bash/脚本读取处理。\n\n"
         "Args:\n"
         "    artifact_id (`str`): artifact 的 file_id（如 ua_xxx）。必须属于当前用户。\n"
         "    dest_path (`str`): 当前工作目录内的绝对路径或相对路径，\n"

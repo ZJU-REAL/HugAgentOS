@@ -1,17 +1,17 @@
-import { useEffect, useRef } from 'react';
-import { authFetch, checkSession, chatTargetHeaders, isHybridDual } from '../api';
-import { newDraftChatId } from '../storage';
+import { useEffect,useRef } from 'react';
+import { authFetch,chatTargetHeaders,checkSession,isHybridDual } from '../api';
 import { usePanel } from '../routing/usePanel';
-import { preservedChatsOnRebuild } from '../utils/sessionRebuild';
-import { isLocalDraftChat, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useSidebarOrderStore } from '../stores';
+import { newDraftChatId } from '../storage';
+import { isLocalDraftChat,useAuthStore,useAutomationChatStore,useCatalogStore,useChatStore,useSettingsStore,useSidebarOrderStore,useUIStore } from '../stores';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
-import type { ChatItem, UpdateEntry } from '../types';
-import { sessionToChatItem, isLocalSidebarChat, mergeLocalSessions } from './chatSessionMapping';
-import { reloadChatHistory, inflightMsgLoads, msgLoadRetryCounts, MSG_LOAD_MAX_RETRIES } from './chatHistoryLoader';
+import type { ChatItem,UpdateEntry } from '../types';
+import { preservedChatsOnRebuild } from '../utils/sessionRebuild';
+import { inflightMsgLoads,MSG_LOAD_MAX_RETRIES,msgLoadRetryCounts,reloadChatHistory } from './chatHistoryLoader';
+import { isLocalSidebarChat,mergeLocalSessions,sessionToChatItem } from './chatSessionMapping';
 import { useChatBatchHydration } from './useChatBatchHydration';
 
+export { ensureFullMessages,loadOlderMessages,MESSAGE_PAGE_SIZE,reloadChatHistory } from './chatHistoryLoader';
 export { parseHistoryMessage } from './chatHistoryMessage';
-export { MESSAGE_PAGE_SIZE, loadOlderMessages, reloadChatHistory, ensureFullMessages } from './chatHistoryLoader';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 export function useChatInit() {
@@ -130,7 +130,7 @@ export function useChatInit() {
     const fetchSessions = async () => {
       setChatsLoading(true);
       try {
-        const r = await authFetch(`${effectiveApiUrl}/v1/chats?page_size=100&exclude_automation=true`);
+        const r = await authFetch(`${effectiveApiUrl}/v1/chats?page_size=100`);
         if (!r.ok || cancelled) return;
         const payload = await r.json();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -243,17 +243,6 @@ export function useChatInit() {
         .catch(() => { /* 本机执行面暂不可达：就绪效应会重来 */ });
     }
 
-    // Load sidebar-activated automation tasks (non-blocking)
-    const fetchSidebarAutomations = async () => {
-      try {
-        const { listSidebarAutomations } = await import('../api');
-        const tasks = await listSidebarAutomations();
-        if (cancelled) return;
-        useAutomationChatStore.getState().setSidebarTasks(tasks);
-      } catch { /* ignore — sidebar automation entries are optional */ }
-    };
-    fetchSidebarAutomations();
-
     // 侧边栏「运行中」小圆点：本标签页只知道自己挂着的流，换设备 / 换浏览器登录时
     // 得问一次服务端才知道哪些会话还在跑（非阻塞，失败留给下一次刷新）。
     useChatStore.getState().refreshRemoteRunningChats()
@@ -287,9 +276,6 @@ export function useChatInit() {
   useEffect(() => {
     if (authChecking || !authUserId || !isHybridDual() || !localReady) return;
     let cancelled = false;
-    import('../api').then(({ listSidebarAutomations }) => listSidebarAutomations())
-      .then(tasks => { if (!cancelled) useAutomationChatStore.getState().setSidebarTasks(tasks); })
-      .catch(() => { /* Next sidebar refresh retries both execution planes. */ });
     mergeLocalSessions(effectiveApiUrl, () => cancelled)
       .catch(() => { /* 下一次侧边栏加载还会两面都问 */ });
     return () => { cancelled = true; };

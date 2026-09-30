@@ -83,7 +83,7 @@ Use **File → Set server address…** to switch to a team server. Use
 > not currently available on native Windows. Multi-user, production,
 > high-availability, and full container sandbox use still require Docker Compose.
 
-The Windows title bar matches the sidebar background across its full width and follows the light or dark theme. File, Edit, View, and Help use compact text aligned to the left, without back or forward arrows. The empty title area remains draggable, with minimize, maximize, and close controls on the right.
+The Windows/Linux title bar and the outer module rail share the current frontend colors and a gradient painted in window coordinates. The secondary sidebar and main content retain their existing backgrounds. The whole workspace starts below the title bar, including expanded, collapsed, and narrow layouts, and follows the light or dark theme. File, Edit, View, and Help use compact text aligned to the left, without back or forward arrows. The empty title area remains draggable, with minimize, maximize, and close controls on the right.
 
 ## Team deployment with Docker Desktop and WSL2
 
@@ -305,7 +305,7 @@ Rebuilding the desktop alone does not replace installed skills in the cloud data
 Verify that a real site conversation has `list_sites` and loads the explicit-update instructions.
 
 
-On macOS, the main interface extends to the top of the window without a separate blank title row above the content. The sidebar background continues behind the traffic lights. The native window buttons sit lower for more space from the top edge, while the brand area stays in place. The collapsed sidebar is 88px wide to keep native window controls clear of content. Drag the sidebar top or empty space in the content header to move the window; double-click to toggle maximization. Standalone setup and login pages retain a top inset.
+On macOS, the system menu and native traffic lights remain. A 28px draggable top region shares the frontend background and continuous gradient with the outer module rail. The workspace begins below it. The rail stays 88px wide when expanded, alongside a 280px secondary sidebar; collapsed navigation keeps the 88px rail. Rounded top corners separate the inner workspace from the window surface. Drag empty top or content-header space to move the window; double-click to toggle maximization. Narrow navigation and the loading screen also respect the top safe area. Standalone setup and login pages retain their existing inset. These changes require a rebuilt desktop installer; updating the website alone does not update installed clients.
 
 
 During capability synchronization, local change capture snapshots account identity when a database transaction starts, before executing SQL, so it never waits for the account lock while holding a database write lock. Repeated desktop bridge authentication leaves unchanged user profiles untouched and runs in a worker thread to keep database waits off the service event loop. After upgrading, retry previously failed synchronization without deleting the local database. The macOS capability synchronization page uses the same layout background for its top inset in both light and dark themes.

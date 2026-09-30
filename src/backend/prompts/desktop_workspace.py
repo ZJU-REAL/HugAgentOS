@@ -20,7 +20,7 @@ def build_environment_context(ctx: dict, *, current_date: str) -> str:
     SubElement(root, "cwd").text = cwd
     SubElement(root, "session_scratch").text = workspace_directory(WORKSPACE, session)
     SubElement(root, "os").text = platform.system()
-    # The public bash tool invokes Bash on all platforms, including bundled Git Bash on Windows.
+    # The public Bash tool invokes Bash on all platforms, including bundled Git Bash on Windows.
     from services.script_runner_service.runtime_tools import resolve_bash_executable
     import os
     executable = resolve_bash_executable()

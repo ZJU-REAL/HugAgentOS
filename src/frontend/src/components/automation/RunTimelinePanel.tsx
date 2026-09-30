@@ -1,22 +1,22 @@
-import { useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Tooltip } from 'antd';
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  CloseOutlined,
-  MessageOutlined,
-  LoadingOutlined,
-  RightOutlined,
+CheckCircleOutlined,
+CloseCircleOutlined,
+CloseOutlined,
+LoadingOutlined,
+MessageOutlined,
+RightOutlined,
 } from '@ant-design/icons';
-import { useAutomationChatStore, useCatalogStore } from '../../stores';
-import type { AutomationChatGroup, AutomationRun, AutomationRunStatus } from '../../types';
-import { DUR, EASE, staggerStyle } from '../../utils/motionTokens';
+import { Tooltip } from 'antd';
+import { AnimatePresence,motion } from 'motion/react';
+import { useMemo,useState } from 'react';
 import { useStatusFlash } from '../../hooks/useFlash';
-import { formatMonthDay, formatMonthDayTime, formatFullDateTime, formatDateKey } from '../../utils/date';
-import { RUN_STATUS_LABEL, formatRunDuration } from '../lab/automationUtils';
-import '../../styles/automation-timeline.css';
 import { t } from '../../i18n';
+import { useAutomationChatStore,useCatalogStore } from '../../stores';
+import '../../styles/automation-timeline.css';
+import type { AutomationChatGroup,AutomationRun,AutomationRunStatus } from '../../types';
+import { formatDateKey,formatFullDateTime,formatMonthDay,formatMonthDayTime } from '../../utils/date';
+import { DUR,EASE,staggerStyle } from '../../utils/motionTokens';
+import { RUN_STATUS_LABEL,formatRunDuration } from '../automation/automationUtils';
 
 /* Stat number y6→0 crossfade (shared config between top stats and mini stats) */
 const STAT_NUM_MOTION = {

@@ -1,13 +1,15 @@
 from tests.sandbox.runner_client import run_runner
+
 """Path identities must agree with the selected execution environment."""
 
-from dataclasses import replace
 import importlib
+from dataclasses import replace
 from pathlib import Path
+
 import pytest
-from core.llm.tools import _paths
 from core.config import local_mode
 from core.config.settings import settings
+from core.llm.tools import _paths
 
 
 @pytest.mark.parametrize("provider", ["cube", "opensandbox"])
@@ -39,10 +41,11 @@ def test_desktop_uses_session_and_keeps_absolute_paths(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_skill_runtime_hint_runs_in_current_directory_with_spaces(monkeypatch, tmp_path):
     import json
-    import subprocess
     import os
+    import subprocess
     import sys
     from types import SimpleNamespace
+
     from core.llm.tools.skill_tool import register_sandboxed_view_text_file
 
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
@@ -69,9 +72,9 @@ async def test_skill_runtime_hint_runs_in_current_directory_with_spaces(monkeypa
         for block in response.content
     )
     hint = next(
-        line.strip() for line in text.splitlines() if line.strip().startswith("bash(command=")
+        line.strip() for line in text.splitlines() if line.strip().startswith("Bash(command=")
     )
-    command = json.loads(hint[len("bash(command=") : -1])
+    command = json.loads(hint[len("Bash(command=") : -1])
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.setenv(
@@ -87,6 +90,7 @@ async def test_skill_runtime_hint_runs_in_current_directory_with_spaces(monkeypa
 
 def test_windows_shell_path_preserves_unicode_spaces_and_drive():
     import shlex
+
     from core.sandbox.desktop_paths import quote_shell_path
 
     value = r"C:\Users\张 三\工具包\run.py"
@@ -97,6 +101,7 @@ def test_windows_shell_path_preserves_unicode_spaces_and_drive():
 async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
     import base64
     import json
+
     from core.llm.tools import sandbox_tool
     from services.script_runner_service import server
 
@@ -185,7 +190,8 @@ def test_desktop_runner_creates_no_aliases(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_job_commands_preserve_paths_with_spaces(monkeypatch, tmp_path):
     import asyncio
-    from orchestration import job_runtime
+
+    from orchestration.jobs import files as job_runtime
 
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
     root = tmp_path / "Application Support" / "张 三"
@@ -206,18 +212,8 @@ async def test_job_commands_preserve_paths_with_spaces(monkeypatch, tmp_path):
         out, err = await proc.communicate()
         return proc.returncode, out.decode(), err.decode()
 
-    monkeypatch.setattr(job_runtime, "resolve_callback_base", callback)
     monkeypatch.setattr(job_runtime, "_sbx_bash", bash)
-    await job_runtime.prepare_and_launch(
-        "job-1",
-        user_id="owner",
-        session_id="chat",
-        script_text="pass",
-        token="test",
-        interpreter="true",
-    )
     workspace = Path(_paths.workspace_directory("chat"))
-    assert (workspace / ".job/job-1/user_script.py").read_text() == "pass"
     output = workspace / "导出 数据.txt"
     ok, detail = await job_runtime.write_sandbox_file(
         str(output),

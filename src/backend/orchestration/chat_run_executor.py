@@ -966,6 +966,28 @@ async def _write_queued_run_started_projection(
         )
 
 
+def get_successor_run(run_id: str, *, user_id: str) -> Optional[ChatRun]:
+    """Read the successor committed by the durable steering handoff."""
+    from core.db.models import ChatSteerQueueItem
+
+    with SessionLocal() as db:
+        source = db.get(ChatRun, run_id)
+        if source is None or source.user_id != user_id:
+            raise ChatRunPermissionDenied("run does not belong to user")
+        successor_id = (
+            db.query(ChatSteerQueueItem.applied_run_id)
+            .filter(
+                ChatSteerQueueItem.applied_source_run_id == run_id,
+                ChatSteerQueueItem.applied_run_id != run_id,
+                ChatSteerQueueItem.status == "applied",
+                ChatSteerQueueItem.chat_id == source.chat_id,
+                ChatSteerQueueItem.user_id == user_id,
+            )
+            .scalar()
+        )
+    return get_run(successor_id) if successor_id else None
+
+
 async def wait_run(run_id: str) -> ChatRun:
     """Wait for a locally launched run and return its durable terminal row.
 
@@ -1448,8 +1470,8 @@ async def _run_workflow(
         # Evidence-plane join keys (GCE ticket 04). Injected here rather than at
         # every context construction site: this is the one place that owns both
         # the run and its pre-allocated assistant message id.
-        context.setdefault("run_id", run_id)
-        context.setdefault("message_id", message_id)
+        context["run_id"] = run_id
+        context["message_id"] = message_id
         context["journal_owner"] = owner
 
         # Stamp the message id onto tool logging for this run. The plumbing
@@ -2674,6 +2696,12 @@ async def _run_plan_execute_workflow(
         binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
         try:
             with SessionLocal() as stream_db:
+                from core.db.models import ChatSession
+
+                session = stream_db.get(ChatSession, chat_id)
+                automation_run = bool(
+                    session and (session.extra_data or {}).get("automation_run")
+                )
                 async for event in astream_execute_plan(
                     plan_id=plan_id,
                     user_id=user_id,
@@ -2686,6 +2714,7 @@ async def _run_plan_execute_workflow(
                     session_messages=session_messages,
                     chat_id=chat_id,
                     run_id=run_id,
+                    automation_run=automation_run,
                 ):
                     evt_type = event.get("type")
                     if evt_type == "plan_complete":

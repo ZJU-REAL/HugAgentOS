@@ -17,7 +17,6 @@ import {
   getAutomationNotifications,
   getFavoriteChats,
   listPersonalFolderTree,
-  listSidebarAutomations,
   markNotificationsRead,
   moveArtifactToPersonalFolder,
   renamePersonalFolder,
@@ -30,6 +29,7 @@ import { mySpaceTabFromSubs } from '../routing/subPages';
 import { ROOT_FOLDER_SENTINEL } from '../utils/constants';
 import { childrenOfFolder, findFolderById } from '../utils/folderTree';
 import { useAutomationChatStore } from './automationChatStore';
+import { useAutomationStore } from './automationStore';
 
 export type AssetFilter = 'document' | 'image';
 type SourceFilter = 'all' | 'user_upload' | 'ai_generated';
@@ -108,12 +108,12 @@ async function loadAutomationFavorites(keyword?: string): Promise<ResourceItem[]
   if (favoriteIds.length === 0) return [];
 
   let tasksById = new Map(
-    automationStore.sidebarTasks.map((task) => [task.task_id, task] as const),
+    useAutomationStore.getState().tasks.map((task) => [task.task_id, task] as const),
   );
   if (favoriteIds.some((taskId) => !tasksById.has(taskId))) {
     try {
-      const remoteTasks = await listSidebarAutomations();
-      automationStore.setSidebarTasks(remoteTasks);
+      await useAutomationStore.getState().fetchTasks();
+      const remoteTasks = useAutomationStore.getState().tasks;
       tasksById = new Map(remoteTasks.map((task) => [task.task_id, task] as const));
     } catch (error) {
       console.error('Failed to load automation sidebar tasks for favorites:', error);

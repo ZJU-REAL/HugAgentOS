@@ -119,15 +119,14 @@ function getRowLabel(
         const an = tool.displayName?.split('：')[1]?.trim() || '';
         return { prefix: t('调用智能体：'), value: an };
       }
-      case 'list_myspace_files': return { prefix: t('读取我的空间'), value: '' };
-      case 'stage_myspace_file': {
+      case 'space_list_myspace_files': return { prefix: t('读取我的空间'), value: '' };
+      case 'space_stage_myspace_file': {
         const fn = (tool.input as Record<string, string> | undefined)?.file_path?.split('/').pop() || '';
         return { prefix: t('导入文件：'), value: fn };
       }
-      case 'list_favorite_chats': return { prefix: t('获取收藏会话'), value: '' };
-      case 'get_chat_messages': return { prefix: t('读取会话记录'), value: '' };
       case 'query_database': return { prefix: t('数据库查询'), value: '' };
-      case 'bash': {
+      case 'Bash':
+    case 'bash': {
         const cmd = (tool.input as Record<string, string> | undefined)?.command || '';
         // Truncate long commands so the chip doesn't blow out the row
         const display = cmd.length > 80 ? cmd.slice(0, 77) + '…' : cmd;
@@ -158,7 +157,7 @@ function getRowLabel(
  * sync with the tool branches in `utils/codeExecParser.ts`.
  */
 const STREAM_CODE_TOOLS = new Set([
-  'bash', 'Write', 'Edit',
+  'Bash', 'bash', 'Write', 'Edit',
 ]);
 
 /** Header label for a code tool while it is running. */
@@ -166,6 +165,7 @@ function getRunningCodeLabel(tool: ToolCall): { prefix: string; value: string } 
   const input = (tool.input ?? {}) as Record<string, unknown>;
   const basename = (p: unknown) => String(p ?? '').split('/').pop() || '';
   switch (tool.name) {
+    case 'Bash':
     case 'bash':
       return { prefix: t('执行命令'), value: '' };
     case 'Write':
@@ -189,6 +189,7 @@ const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   view_text_file: FileTextOutlined,
   Write: EditOutlined,
   Edit: EditOutlined,
+  Bash: CodeOutlined,
   bash: CodeOutlined,
   retrieve_dataset_content: DatabaseOutlined,
   retrieve_local_kb: DatabaseOutlined,
@@ -200,13 +201,14 @@ const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   get_mcp_tools: ThunderboltOutlined,
   call_subagent: RobotOutlined,
   get_agents: RobotOutlined,
-  list_myspace_files: FolderOutlined,
-  stage_myspace_file: FolderOutlined,
+  space_list_myspace_files: FolderOutlined,
+  space_stage_myspace_file: FolderOutlined,
+  space_create_folder: FolderOutlined,
+  space_move: FolderOutlined,
+  space_delete: FolderOutlined,
   ...EDITION_STEP_ICONS,
   sandbox_put_artifact: FolderOutlined,
   sandbox_get_artifact: FolderOutlined,
-  list_favorite_chats: FolderOutlined,
-  get_chat_messages: FolderOutlined,
   generate_chart_tool: BarChartOutlined,
   word_create_from_markdown: FileWordOutlined,
   export_report_to_docx: FileWordOutlined,
@@ -328,10 +330,8 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   const renderBody = () => {
     if (!tool.output) return null;
     switch (tool.name) {
-      case 'list_myspace_files':
-      case 'stage_myspace_file':
-      case 'list_favorite_chats':
-      case 'get_chat_messages':
+      case 'space_list_myspace_files':
+      case 'space_stage_myspace_file':
         return <MySpaceBodyContent tool={tool} />;
       case 'internet_search':
         return renderInternetSearchInline(parsed);

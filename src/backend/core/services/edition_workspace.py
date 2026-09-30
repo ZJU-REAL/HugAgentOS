@@ -1,4 +1,5 @@
 """Community Edition has no additional workspace volumes."""
+
 from fastapi import HTTPException
 
 
@@ -60,3 +61,7 @@ def command_instructions(scope):
 
 def refresh_artifact(item, file_id, db, actor=None):
     return None
+
+
+def delete_organization_path(*args, **kwargs):
+    raise HTTPException(400, "Unsupported workspace kind")

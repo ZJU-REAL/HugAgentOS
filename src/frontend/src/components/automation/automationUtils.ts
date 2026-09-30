@@ -1,6 +1,6 @@
-import type { AutomationRunStatus } from '../../types';
 import type { ChannelConversation } from '../../api';
 import { t } from '../../i18n';
+import type { AutomationRunStatus } from '../../types';
 
 /** A distinguishable label for a channel conversation: bot name · group/direct chat · the real Feishu conversation ID.
  *  Don't use the first message content (title, e.g. "hello") -- it can collide and can't tell conversations apart. */
@@ -125,3 +125,5 @@ export const CRON_PRESETS = [
   { label: t('每 6 小时'), value: '0 */6 * * *' },
   { label: t('自定义'), value: '' },
 ];
+
+export const SCHEDULE_TYPE_LABEL = { recurring: t('周期执行'), once: t('单次执行'), manual: t('手动执行') };

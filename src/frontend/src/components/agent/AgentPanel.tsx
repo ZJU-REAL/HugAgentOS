@@ -1,15 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppstoreAddOutlined,DeleteOutlined,DownOutlined,EditOutlined,ImportOutlined,PlusOutlined,RightOutlined,SearchOutlined,UploadOutlined } from '@ant-design/icons';
+import { Button,Dropdown,Empty,Form,Input,List,Modal,Pagination,Select,Tag,Tooltip,message } from 'antd';
 import { motion } from 'motion/react';
-import { Button, Input, Modal, Pagination, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
-import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, RightOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined, ImportOutlined } from '@ant-design/icons';
-import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
-import { AgentMarketplaceModal } from './AgentMarketplaceModal';
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { EditionAgentBadge,useEditionAgentPolicy } from '../../agentEdition';
 import {
-  getMarketplaceAgents, getMarketplaceAgentDetail, installMarketplaceAgent,
-  submitAgentToMarketplace, getMyAgentSubmissions, withdrawAgentSubmission,
+getMarketplaceAgentDetail,
+getMarketplaceAgents,
+getMyAgentSubmissions,
+installMarketplaceAgent,
+submitAgentToMarketplace,
+withdrawAgentSubmission,
 } from '../../api';
+import { usePanelHeader } from '../../hooks/usePageConfig';
+import { t } from '../../i18n';
+import { usePanel } from '../../routing/usePanel';
+import { nowId } from '../../storage';
+import { useAgentStore,type UserAgentItem } from '../../stores/agentStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useCatalogStore } from '../../stores/catalogStore';
+import { useChatStore } from '../../stores/chatStore';
+import type { AgentMarketSubmission,AgentMarketplaceFetchers } from '../../types';
+import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
 import { AGENT_MARKETPLACE_CATEGORIES } from '../../utils/constants';
-import type { AgentMarketSubmission, AgentMarketplaceFetchers } from '../../types';
+import { staggerStyle } from '../../utils/motionTokens';
+import { DRILL_IN_BACK } from '../../utils/motionVariants';
+import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
+import { DeviceCapabilityBadge } from '../catalog/DeviceCapabilityBadge';
+import { CardTail } from '../common/CardTail';
+import { AgentCreatePage } from './AgentCreatePage';
+import { AgentDetailView } from './AgentDetailView';
+import { AgentIcon } from './AgentIcon';
+import { AgentMarketplaceModal } from './AgentMarketplaceModal';
+import { AgentDetailSkeleton,AgentListSkeleton } from './AgentPanelSkeletons';
 
 // User-side market transport: directly reuse api.ts's stable function references; a module-level constant suffices (no need for a per-render memo).
 /** 每页卡片数——与技能页 / MCP 页 / 插件页保持一致。 */
@@ -20,42 +42,8 @@ const USER_MARKET_FETCHERS: AgentMarketplaceFetchers = {
   loadDetail: getMarketplaceAgentDetail,
   install: installMarketplaceAgent,
 };
-import { useCatalogStore } from '../../stores/catalogStore';
-import { usePanel } from '../../routing/usePanel';
-import { useChatStore } from '../../stores/chatStore';
-import { useAuthStore } from '../../stores/authStore';
-import { EditionAgentBadge, useEditionAgentPolicy } from '../../agentEdition';
-import { nowId } from '../../storage';
-import { staggerStyle } from '../../utils/motionTokens';
-import { CardTail } from '../common/CardTail';
-import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
-import { DRILL_IN_BACK } from '../../utils/motionVariants';
-import { AgentCreatePage } from './AgentCreatePage';
-import { usePanelHeader } from '../../hooks/usePageConfig';
-import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
-import { t } from '../../i18n';
-import { DeviceCapabilityBadge } from '../catalog/DeviceCapabilityBadge';
-import { AgentIcon } from './AgentIcon';
-import { AgentDetailView } from './AgentDetailView';
-import { AgentListSkeleton, AgentDetailSkeleton } from './AgentPanelSkeletons';
 
-const AGENT_DETAIL_ID_KEY = 'hugagent_agent_detail_id';
-
-function loadDetailId() {
-  return typeof window !== 'undefined' ? window.localStorage.getItem(AGENT_DETAIL_ID_KEY) : null;
-}
-function saveDetailId(id: string | null) {
-  if (typeof window === 'undefined') return;
-  if (id) window.localStorage.setItem(AGENT_DETAIL_ID_KEY, id);
-  else window.localStorage.removeItem(AGENT_DETAIL_ID_KEY);
-}
-
-interface AgentPanelProps {
-  /** 作为「能力中心」的一个 pane 内嵌渲染时为 true：不做 localStorage 详情恢复，进入能力中心一律回到列表。 */
-  embedded?: boolean;
-}
-
-export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
+export function AgentPanel() {
   const {
     agents, loading, fetchAgents, deleteAgent, updateAgent, toggleBuiltinAgent, setCurrentAgent,
     fetchAvailableResources, availableResources, importAgents, exportAgent,
@@ -75,14 +63,10 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
 
   const [search, setSearch] = useState('');
   const [agentsPage, setAgentsPage] = useState(1);
-  // 内嵌进能力中心时不做 localStorage 详情恢复：那份记忆属于独立的智能体面板
-  const persistDetail = !embedded;
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    persistDetail ? loadDetailId : null,
-  );
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   // undefined = list/detail, null = create page, UserAgentItem = edit page
   const [formPageAgent, setFormPageAgent] = useState<UserAgentItem | null | undefined>(undefined);
-  // Distinguish "user clicks navigation" from "localStorage restore / panel reset": only the former plays the list↔detail transition
+  // Distinguish "user clicks navigation" from "panel reset": only the former plays the list↔detail transition
   const [navDir, setNavDir] = useState<'detail' | 'list' | null>(null);
 
   const editionAgentPolicy = useEditionAgentPolicy();
@@ -132,10 +116,6 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     void fetchAgents();
     void fetchAvailableResources();
   }, [fetchAgents, fetchAvailableResources]);
-  useEffect(() => {
-    if (!persistDetail) return;
-    saveDetailId(selectedAgentId);
-  }, [persistDetail, selectedAgentId]);
 
   const canEditAgent = (a: UserAgentItem): boolean =>
     a.owner_type === 'user' || editionAgentPolicy.canManage(a);
@@ -172,14 +152,13 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     if (selectedAgentId && !selectedAgent) setSelectedAgentId(null);
   }, [selectedAgentId, selectedAgent]);
 
-  // 重新进入宿主面板时回到列表；内嵌时宿主是能力中心，独立挂载时宿主是智能体面板。
-  const homePanel = embedded ? 'ability_center' : 'agents';
+  // 重新进入能力中心时回到列表。
   useEffect(() => {
-    if (panel !== homePanel) return;
+    if (panel !== 'ability_center') return;
     setSelectedAgentId(null);
     setFormPageAgent(undefined);
     setSearch('');
-  }, [homePanel, panel, panelEntryNonce]);
+  }, [panel, panelEntryNonce]);
 
   const importInputRef = useRef<HTMLInputElement>(null);
 

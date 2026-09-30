@@ -131,7 +131,7 @@ def purge_credential_dir(root: Path) -> None:
 def myspace_cache_root() -> Path:
     """All users' myspace mirror directories live under here, one subdirectory per user.
 
-    The filesystem watcher (:mod:`core.myspace.watcher`) watches this single root
+    The filesystem watcher (:mod:`core.space_sync.personal`) watches this single root
     rather than one watch per user: users appear and disappear at runtime, and a
     recursive watch on the root sees the new ones without anyone re-registering.
     """

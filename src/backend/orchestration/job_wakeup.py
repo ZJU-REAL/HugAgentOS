@@ -27,13 +27,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from sqlalchemy.orm.attributes import flag_modified
-
-from core.chat.plan_progress import (
-    load_plan_progress,
-    plan_is_unfinished,
-    render_plan_checklist,
-)
+from core.chat.plan_progress import load_plan_progress, plan_is_unfinished, render_plan_checklist
 from core.db.engine import SessionLocal
 from core.db.models import Job
 from core.llm.context_ir import (
@@ -43,6 +37,7 @@ from core.llm.context_ir import (
     make_text_context_item,
     session_context_metadata,
 )
+from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
 
@@ -194,10 +189,10 @@ async def wake_on_job_progress(
 async def wake_on_job_finish(job_id: str) -> bool:
     """作业终态后叫醒会话。返回是否真的发起了唤醒。"""
     with SessionLocal() as db:
-        job = db.query(Job).filter(Job.job_id == job_id).first()
+        job = db.query(Job).filter(Job.job_id == job_id).with_for_update().first()
         if job is None or not job.chat_id:
             return False
-        if job.status not in ("completed", "failed", "cancelled"):
+        if job.status not in ("completed", "failed", "cancelled", "interrupted"):
             return False
         meta = dict(job.extra_data or {})
         if meta.get("woken_at"):
