@@ -32,11 +32,10 @@
   .jx-moduleSidebar .jx-navItem,.jx-moduleSidebar .jx-newChatBtn{min-height:44px;}
 }
 
-.jx-moduleSidebar .jx-newChatBtn{width:100%;margin:0 0 16px;padding:10px 14px;}
 
 .jx-moduleSidebar :is(.jx-navItem,.jx-historyItem,.jx-projectRow,.jx-msRail-item,.jx-msRail-subItem):hover{background:var(--module-nav-hover);}
 .jx-moduleSidebar :is(.jx-navItem,.jx-historyItem,.jx-projectRow,.jx-msRail-item,.jx-msRail-subItem).active{background:var(--module-nav-selected);color:var(--module-nav-selected-text);}
-.jx-moduleSidebar :is(.jx-historyItem.active .jx-historyTitle,.jx-projectRow.active .jx-projectRowName){color:var(--module-nav-selected-text);font-weight:500;}
+.jx-moduleSidebar :is(.jx-historyItem.active .jx-historyTitle,.jx-projectRow.active .jx-projectRowName){color:var(--module-nav-selected-text);}
 .jx-moduleSidebar .jx-navItem.active{font-weight:500;}
 .jx-moduleSidebar :is(.jx-searchBtn,.jx-collapseBtn):hover{background:var(--module-nav-hover);}
 

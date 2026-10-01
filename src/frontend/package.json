@@ -60,7 +60,9 @@
     "test:date-timezone": "esbuild scripts/test-date-timezone.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-date-timezone.mjs && node node_modules/.tmp/test-date-timezone.mjs",
     "test:stream-resume": "esbuild scripts/test-stream-resume.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-stream-resume.mjs && node node_modules/.tmp/test-stream-resume.mjs",
     "test:desktop-chrome": "node scripts/test-desktop-chrome-browser.mjs",
-    "test:markdown-composer-browser": "node scripts/test-markdown-composer-browser.mjs"
+    "test:markdown-composer-browser": "node scripts/test-markdown-composer-browser.mjs",
+    "test:project-bootstrap-browser": "node scripts/test-project-bootstrap-browser.mjs",
+    "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

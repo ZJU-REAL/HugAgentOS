@@ -196,7 +196,7 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
     # chat_mode is the single source of truth for the thinking level; the
     # enable_thinking bool is only a legacy-client fallback.
     chat_mode = (req.chat_mode or "").strip().lower() or None
-    if chat_mode not in (None, "turbo", "fast", "medium", "high", "max"):
+    if chat_mode not in (None, "turbo", "fast", "low", "medium", "high", "xhigh", "max"):
         chat_mode = None
     if chat_mode is None and is_resume:
         chat_mode = (saved.get("chat_mode") or "").strip().lower() or None

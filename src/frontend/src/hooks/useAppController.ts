@@ -7,6 +7,7 @@ import { listenForFolderProjects } from '../desktop/folderMenu';
 import { t } from '../i18n';
 import { isConversationPath, panelFromPath } from '../routing/navigation';
 import { usePanel, useRouteProjectId } from '../routing/usePanel';
+import { useProjectListBootstrap } from './useProjectListBootstrap';
 import { useAppBootstrap } from './useAppBootstrap';
 import { useChatRecovery } from './useChatRecovery';
 import { useChatSearch } from './useChatSearch';
@@ -147,14 +148,7 @@ export function useAppController() {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [abort]);
 
-  // ── Fetch the project list once after login: used to resolve names for the chat-header
-  //    "project name / title" breadcrumb (sessions from the backend only carry projectId;
-  //    the project list is needed to look up the name) ──
-  useEffect(() => {
-    if (!authUser) return;
-    void useProjectStore.getState().fetchProjects();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authUser?.user_id]);
+  useProjectListBootstrap(authUser?.user_id);
 
   useChatRecovery(currentChatId, resumeRunIfAny);
 

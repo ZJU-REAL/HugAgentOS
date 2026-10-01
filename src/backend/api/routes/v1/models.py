@@ -53,6 +53,8 @@ from core.services.user_model_selection import list_user_selectable_models, user
 
 router = APIRouter(prefix="/v1/models", tags=["Models"])
 logger = logging.getLogger(__name__)
+from api.routes.v1.model_reasoning import router as reasoning_router
+router.include_router(reasoning_router)
 
 
 # ── Request / response schemas ────────────────────────────────────────────────
@@ -533,7 +535,8 @@ def get_main_capabilities(
 ):
     """供前端展示模型相关入口；只暴露非敏感信息，不泄露 base_url/api_key。"""
     cfg = ModelConfigService.get_instance().resolve("main_agent")
-    supports = bool((cfg.extra if cfg else {}).get("supports_reasoning_effort"))
+    from core.llm.reasoning_effort import reasoning_capabilities
+    effort_caps = reasoning_capabilities(cfg.extra if cfg else {})
     switch_enabled = bool(user and user_can_switch_model(db, user.user_id))
     # Real context window (tokens) of the main chat model, so the frontend
     # context-usage gauge reflects the model's true window instead of a guess.
@@ -551,7 +554,7 @@ def get_main_capabilities(
     return success_response(
         data={
             "main_agent": {
-                "supports_reasoning_effort": supports,
+                **effort_caps,
                 "supports_vision": main_native_vision,
                 "context_length": main_context_length,
                 "attachment_preview_chars": ATTACHMENT_PREVIEW_MAX_CHARS,

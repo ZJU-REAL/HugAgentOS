@@ -24,6 +24,7 @@ import {
 import { t } from '../i18n';
 
 let projectGeneration = 0;
+let projectListGeneration = 0;
 let pendingProject: { id: string; generation: number; promise: Promise<void> } | null = null;
 
 type SortKey = 'activity' | 'name' | 'created';
@@ -57,6 +58,7 @@ interface ProjectStoreState {
   setSearchKeyword: (q: string) => void;
   setSort: (s: SortKey) => void;
   fetchProjects: () => Promise<void>;
+  resetProjectList: () => void;
   openProject: (projectId: string) => Promise<void>;
   reloadProject: (projectId: string) => Promise<void>;
   closeCurrentProject: () => void;
@@ -102,7 +104,13 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   setSearchKeyword: (q) => set({ searchKeyword: q }),
   setSort: (sort) => set({ sort }),
 
+  resetProjectList: () => {
+    projectListGeneration += 1;
+    set({ list: [], total: 0, listLoading: false, listError: null, searchKeyword: '' });
+  },
+
   fetchProjects: async () => {
+    const generation = ++projectListGeneration;
     const { searchKeyword, sort } = get();
     set({ listLoading: true, listError: null });
     try {
@@ -110,14 +118,16 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
         q: searchKeyword.trim() || undefined,
         sort: SORT_MAP[sort],
       });
+      if (generation !== projectListGeneration) return;
       set({
         list: result.items,
         total: result.pagination?.total_items || result.items.length,
       });
     } catch (error) {
+      if (generation !== projectListGeneration) return;
       set({ listError: (error as Error).message || t('加载失败') });
     } finally {
-      set({ listLoading: false });
+      if (generation === projectListGeneration) set({ listLoading: false });
     }
   },
 

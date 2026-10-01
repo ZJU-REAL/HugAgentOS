@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client'
 import 'antd/dist/reset.css'
 import './index.css'
 import './styles'
-import App from './App.tsx'
+import { RouterProvider } from 'react-router'
+import { createAppRouter } from './routing/routes'
+import { bindRouter } from './routing/navigation'
 import PromptConfigPage from './components/prompts/PromptConfigPage'
 import ApiDocApp from './ApiDocApp.tsx'
 import SharePreviewApp from './SharePreviewApp.tsx'
@@ -16,12 +18,15 @@ installPreloadErrorReload()
 
 const isApiDocs = window.location.pathname.startsWith('/api-docs')
 const isSharePreview = new URLSearchParams(window.location.search).has('share')
+const isPromptConfig = window.location.pathname.replace(/\/$/, '') === '/config'
+const router = !isSharePreview && !isApiDocs && !isPromptConfig ? createAppRouter() : null
+if (router) bindRouter(router)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {/* 分享预览是对外页面，锁定浅色（与 index.html 防闪烁脚本的 share 判断保持一致） */}
     <AppThemeProvider forceLight={isSharePreview}>
-      {isSharePreview ? <SharePreviewApp /> : isApiDocs ? <ApiDocApp /> : window.location.pathname.replace(/\/$/, '') === '/config' ? <PromptConfigPage /> : <App />}
+      {isSharePreview ? <SharePreviewApp /> : isApiDocs ? <ApiDocApp /> : isPromptConfig ? <PromptConfigPage /> : <RouterProvider router={router!} />}
     </AppThemeProvider>
   </StrictMode>,
 )

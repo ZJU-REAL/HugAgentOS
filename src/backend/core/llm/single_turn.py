@@ -158,6 +158,7 @@ def _responses_item(message: Mapping[str, Any]) -> dict[str, Any]:
     # 助手说过的话在 Responses 线是模型的输出，块类型与输入侧不同。
     block = _TEXT_ITEM if role == "assistant" else "input_text"
     return {
+        "type": "message",
         "role": role,
         "content": [{"type": block, "text": str(message.get("content") or "")}],
     }

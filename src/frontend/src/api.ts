@@ -384,7 +384,7 @@ function toChatItem(raw: JsonObject): ChatItem {
     workflowChat: metadata.workflow_chat === true ? true : undefined,
     planProgress: toPlanProgress(metadata.plan_progress),
     modeSlug: typeof metadata.mode_slug === 'string' ? metadata.mode_slug : undefined,
-    thinkingEffort: typeof metadata.thinking_effort === 'string' && ['turbo', 'fast', 'medium', 'high', 'max'].includes(metadata.thinking_effort) ? metadata.thinking_effort as ChatItem['thinkingEffort'] : undefined,
+    thinkingEffort: typeof metadata.thinking_effort === 'string' && ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'].includes(metadata.thinking_effort) ? metadata.thinking_effort as ChatItem['thinkingEffort'] : undefined,
     planModeActive: typeof metadata.plan_mode_active === 'boolean' ? metadata.plan_mode_active : undefined,
     batchModeActive: typeof metadata.batch_mode_active === 'boolean' ? metadata.batch_mode_active : undefined,
     workflowModeActive: typeof metadata.workflow_mode_active === 'boolean' ? metadata.workflow_mode_active : undefined,
@@ -471,9 +471,14 @@ export async function apiRequest<T>(
   return payload as T;
 }
 
+import type { ReasoningLevel, ReasoningKey } from './utils/reasoningEffort';
+
 export interface ModelCapabilities {
   /** Whether the main model supports multiple reasoning_effort levels (high/max). When false the frontend hides the "Thinking: high/max" options. */
   supports_reasoning_effort: boolean;
+  reasoning_effort_levels?: ReasoningLevel[];
+  default_reasoning_effort?: ReasoningKey;
+  reasoning_effort_configured?: boolean;
   /** Whether the admin backend allows end users to switch the chat model. */
   user_model_switch_enabled: boolean;
   /** Active chat models selectable on the user side; excludes sensitive info like URL / API Key. */
@@ -495,6 +500,9 @@ export interface UserSelectableModel {
   provider: string;
   is_default: boolean;
   supports_reasoning_effort: boolean;
+  reasoning_effort_levels?: ReasoningLevel[];
+  default_reasoning_effort?: ReasoningKey;
+  reasoning_effort_configured?: boolean;
   /** Real context window (tokens) for this model; 0/undefined when the admin hasn't configured it. */
   context_length?: number;
 }
@@ -584,12 +592,18 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
         provider: typeof row.provider === 'string' ? row.provider : 'openai_compatible',
         is_default: !!row.is_default,
         supports_reasoning_effort: !!row.supports_reasoning_effort,
+        reasoning_effort_levels: Array.isArray(row.reasoning_effort_levels) ? row.reasoning_effort_levels as unknown as ReasoningLevel[] : undefined,
+        default_reasoning_effort: row.default_reasoning_effort as ReasoningKey | undefined,
+        reasoning_effort_configured: !!row.reasoning_effort_configured,
         context_length: typeof row.context_length === 'number' ? row.context_length : 0,
       };
     })
     .filter((item): item is UserSelectableModel => item !== null);
   return {
     supports_reasoning_effort: !!main.supports_reasoning_effort,
+    reasoning_effort_levels: Array.isArray(main.reasoning_effort_levels) ? main.reasoning_effort_levels as unknown as ReasoningLevel[] : undefined,
+    default_reasoning_effort: main.default_reasoning_effort as ReasoningKey | undefined,
+    reasoning_effort_configured: !!main.reasoning_effort_configured,
     user_model_switch_enabled: !!switchInfo.enabled,
     user_selectable_models: models,
     main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
-ChatMode = Literal["turbo", "fast", "medium", "high", "max"]
+ChatMode = Literal["turbo", "fast", "low", "medium", "high", "xhigh", "max"]
 
 
 class AttachmentItem(BaseModel):
@@ -75,9 +75,9 @@ class ChatRequest(BaseModel):
         default=None,
         description=(
             "对话模式：turbo=极速（政策速查，最小工具集）、fast=快速、medium=思考·中、"
-            "high=思考·高、max=思考·超高。"
+            "low=思考·低、high=思考·高、xhigh=思考·超高、max=思考·最高。"
             "为 None 时按 enable_thinking 兜底（true→medium、false→fast）。"
-            "high/max 仅对 supports_reasoning_effort=true 的模型有效，否则后端自动回落到 medium。"
+            "可用档位及上游参数由模型配置决定；未启用的档位采用该模型的默认档位。"
         ),
     )
     attachments: List[AttachmentItem] = Field(
