@@ -24,7 +24,7 @@
 .jx-moduleSidebar .jx-expandWrap > .jx-historyGroupList{overflow:hidden;min-height:0;}
 .jx-moduleSidebar .jx-historyGroupList{position:relative;}
 :root[data-theme='dark'] .jx-moduleCategories .jx-navItemIcon{filter:brightness(0) invert(1);}
-:root[data-theme='dark'] .jx-moduleRail img:not(.jx-miniRailAvatar){filter:brightness(0) invert(1);}
+:root[data-theme='dark'] .jx-moduleRail img:not(.jx-miniRailAvatar):not(.jx-moduleLogo){filter:brightness(0) invert(1);}
 @media(max-width:960px){
   .jx-appShell > .jx-moduleShell.ant-layout-sider{position:fixed;inset:0 auto 0 0;z-index:1002;width:min(344px,calc(100vw - 32px))!important;max-width:min(344px,calc(100vw - 32px))!important;min-width:0!important;transform:translateX(0);}
   .jx-appShell > .jx-moduleShell.ant-layout-sider-collapsed{transform:translateX(-100%);pointer-events:none;}

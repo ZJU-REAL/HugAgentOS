@@ -149,6 +149,11 @@ def init_db():
 
             # 本机库的数据修复都在这里，且都排在下面的 schema 调和之前。
             _merge_duplicate_identities()
+            from core.db.local_personal_file_upgrade import reconcile_local_personal_filenames
+
+            file_report = reconcile_local_personal_filenames(engine)
+            if file_report['renamed']:
+                logger.info('Local historical personal filenames repaired: %s', file_report)
             local_report = reconcile_local_chat_sequences(engine)
             if any(local_report.values()):
                 logger.info("Local database compatibility schema reconciled: %s", local_report)

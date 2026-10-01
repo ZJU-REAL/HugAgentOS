@@ -34,7 +34,7 @@
   --color-bg-container:#FFFFFF; /* 卡片、面板、输入区等容器 */
   --color-bg-elevated:#FFFFFF;  /* 弹层、下拉、tooltip 等悬浮面（antd 侧对应 appTheme 的 colorBgElevated，自研浮层引用此令牌） */
   --color-bg-layout:#F5F7FB;    /* 灰底布局区（侧边栏底、分区底） */
-  --color-bg-chat:#FBFCFE;      /* 冷调近白，输入区仍为白色 */
+  --color-bg-chat:#FDFDFC;      /* 首页与具体对话页共用的近白暖灰底 */
 
   /* ── 滚动条（深浅只换令牌值，选择器共用下方全局规则） ── */
   --scrollbar-tint:rgba(100,116,139,.14);
@@ -182,10 +182,11 @@
    只重定义颜色/阴影令牌，几何与 motion 令牌两个主题共用。
    ══════════════════════════════════════════ */
 :root[data-theme="dark"]{
-  --module-rail-bg:#15191F;
+  --module-rail-bg:var(--color-bg-base);
   --module-rail-gradient:none;
   --module-rail-selected:#2B3749;
-  --module-sidebar-bg:#202123;
+  /* Match the sidebar surface used before modular navigation. */
+  --module-sidebar-bg:var(--color-bg-layout);
   --module-nav-hover:#2B2C2F;
   --module-nav-selected:#293B55;
   --module-nav-selected-text:#A9CAFF;
