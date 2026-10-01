@@ -15,6 +15,8 @@ export interface SidebarProjectGroup {
   canDelete: boolean;
   /** Project is known in the project list (false = only reconstructed as a fallback from leftover chat.projectId) */
   known: boolean;
+  isLocal: boolean;
+  isTeam: boolean;
   items: ChatItem[];
   lastActivity: number;
 }
@@ -72,6 +74,8 @@ export function useSidebarHistory() {
         canAdmin: p.permission === 'admin',
         canDelete: !!p.is_owner,
         known: true,
+        isLocal: (p.kind as string) === "local",
+        isTeam: false,
         items,
         lastActivity: Math.max(
           p.last_activity_at ? new Date(p.last_activity_at).getTime() : 0,
@@ -88,6 +92,8 @@ export function useSidebarHistory() {
         canAdmin: false,
         canDelete: false,
         known: false,
+        isLocal: false,
+        isTeam: false,
         items,
         lastActivity: Math.max(...items.map((i) => i.updatedAt || 0)),
       });

@@ -9,6 +9,10 @@ import { authFetch } from '../../api';
 import { useChatStore } from '../../stores';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
+import { RichTextField } from './RichTextField';
+import { userMarkdownHtml } from '../../utils/userMarkdown';
+import { copyHtmlToClipboard } from '../../utils/clipboard';
+import { message } from 'antd';
 import { ForkChatButton } from './ForkChatButton';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -99,35 +103,30 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
   const isEditing = editingMessageUid === m.uid;
   const isDisliking = dislikingUid === m.uid;
 
-  const editInputRef = useRef<TextAreaRef>(null);
   const dislikeInputRef = useRef<TextAreaRef>(null);
 
   // Edit box / dislike form: lazy-keep-mounted (only mount on first open + jx-expandWrap class-toggle for the height animation),
   // autoFocus is not triggered by mounting — focus is delayed until after expanding.
   const editExpand = useLazyExpand(isEditing);
   const dislikeExpand = useLazyExpand(isDisliking);
-  useExpandFocus(isEditing, editInputRef);
   useExpandFocus(isDisliking, dislikeInputRef);
   const messagePlainText = m.segments
     ? m.segments.filter(s => s.type === 'text').map(s => s.content || '').join('\n\n') || m.content
     : m.content;
-  /** Copy message text */
-  const doCopy = (str: string) => {
-    const copyFallback = (s: string) => {
-      const ta = document.createElement('textarea');
-      ta.value = s; document.body.appendChild(ta); ta.select();
-      document.execCommand('copy'); document.body.removeChild(ta);
-      setCopiedMsg(m.uid);
-      setTimeout(() => { if (useChatStore.getState().copiedMsg === m.uid) setCopiedMsg(null); }, 2000);
-    };
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(str).then(() => {
-        setCopiedMsg(m.uid);
-        setTimeout(() => { if (useChatStore.getState().copiedMsg === m.uid) setCopiedMsg(null); }, 2000);
-      }).catch(() => copyFallback(str));
-    } else {
-      copyFallback(str);
+  /** Clipboard carries canonical Markdown and a formatted HTML representation. */
+  const doCopy = async (str: string) => {
+    const host = document.createElement('div');
+    if (m.role === 'user' || m.isMarkdown) host.innerHTML = userMarkdownHtml(str);
+    else host.textContent = str;
+    host.querySelectorAll('button').forEach(node => node.remove());
+    if (!await copyHtmlToClipboard(host.innerHTML, str)) {
+      void message.error(t('复制失败'));
+      return;
     }
+    setCopiedMsg(m.uid);
+    setTimeout(() => {
+      if (useChatStore.getState().copiedMsg === m.uid) setCopiedMsg(null);
+    }, 2000);
   };
 
   return <>
@@ -135,20 +134,16 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
         {m.role === 'user' && !!editAndResend && editExpand.mounted && (
           <div className={`jx-expandWrap jx-msgExpand${editExpand.openClass ? ' jx-expandWrap--open' : ''}`}>
             <div className="jx-editMessage">
-              <Input.TextArea
-                ref={editInputRef}
-                rows={3}
+              <RichTextField
                 value={editText}
-                onChange={e => setEditText(e.target.value)}
+                onChange={setEditText}
+                active={isEditing}
+                label={t('编辑消息')}
                 className="jx-editMessage-input"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (editText.trim() && editAndResend) {
-                      editAndResend(messageIndex, editText.trim());
-                    }
-                  }
+                onSubmit={() => {
+                  if (editText.trim()) editAndResend?.(messageIndex, editText.trim());
                 }}
+                onCancel={() => setEditingMessageUid(null)}
               />
               <div className="jx-editMessage-btns">
                 <Button size="small" onClick={() => setEditingMessageUid(null)}>{t('取消')}</Button>
@@ -168,7 +163,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
           <div className={`jx-msgActions ${m.role === 'user' ? 'user' : ''}`}>
             <button className={`jx-msgActionBtn${copiedMsg === m.uid ? ' copied' : ''}`}
               title={copiedMsg === m.uid ? t('已复制') : t('复制内容')}
-              onClick={() => doCopy(messagePlainText)}>
+              onClick={() => { void doCopy(messagePlainText); }}>
               {copiedMsg === m.uid ? <CheckOutlined /> : <CopyOutlined />}
             </button>
             {m.role === 'user' && editAndResend && (

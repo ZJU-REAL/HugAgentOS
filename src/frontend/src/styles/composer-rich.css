@@ -1,0 +1,27 @@
+.jx-richComposer { outline:none; }
+.jx-richComposer p { margin:0; min-height:1.5em; }
+.jx-richComposer p + p { margin-top:0.5em; }
+.jx-richComposer strong { font-weight:700; }
+.jx-richComposer h1,.jx-richComposer h2,.jx-richComposer h3,
+.jx-richComposer h4,.jx-richComposer h5,.jx-richComposer h6 { margin:0.5em 0; line-height:1.4; }
+.jx-richComposer h1 { font-size:22px; }
+.jx-richComposer h2 { font-size:18px; }
+.jx-richComposer h3,.jx-richComposer h4,.jx-richComposer h5,.jx-richComposer h6 { font-size:16px; }
+.jx-richComposer ul,.jx-richComposer ol { margin:0.5em 0; padding-left:1.5em; }
+.jx-richComposer blockquote { margin:0.5em 0; padding-left:12px; border-left:3px solid var(--color-border); }
+.jx-richComposer code { font-family:monospace; background:var(--color-fill-hover); border-radius:var(--radius-xs); }
+.jx-richComposer pre { margin:0.5em 0; padding:12px; background:var(--color-fill-hover); border-radius:var(--radius-xs); white-space:pre-wrap; }
+.jx-richComposer pre code { background:transparent; }
+.jx-richComposer a { color:var(--color-primary); }
+.jx-richComposer table { border-collapse:collapse; width:100%; margin:0.5em 0; }
+.jx-richComposer td,.jx-richComposer th { border:1px solid var(--color-border); padding:4px 8px; }
+.jx-richComposer .ProseMirror-selectednode { outline:2px solid var(--color-primary); }
+
+.jx-editMessage-input .jx-richComposer,.jx-queuedMessage-editor .jx-richComposer { padding:8px; border:1px solid var(--color-border); border-radius:var(--radius-sm); min-height:80px; max-height:300px; overflow:auto; }
+
+.jx-richComposer ul[data-type="taskList"] { list-style:none; padding-left:0; }
+.jx-richComposer ul[data-type="taskList"] li { display:flex; gap:8px; align-items:flex-start; }
+.jx-richComposer ul[data-type="taskList"] li > div { flex:1; min-width:0; }
+.jx-richComposer ul[data-type="taskList"] label { flex:none; margin-top:2px; }
+.jx-richComposer ul[data-type="taskList"] input { accent-color:var(--color-primary); }
+.jx-richComposer ul[data-type="taskList"] ul { padding-left:1.5em; }

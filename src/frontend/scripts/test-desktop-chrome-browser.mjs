@@ -28,12 +28,13 @@ const router=createBrowserRouter([{path:'*',element:<Workspace/>}]);bindRouter(r
 const root=createRoot(document.getElementById('root'));
 window.__fixture={theme:mode=>useUIStore.getState().setThemeMode(mode),collapse:v=>useUIStore.getState().setSiderCollapsed(v),loading:()=>root.render(<AppThemeProvider><AppLoadingSkeleton/></AppThemeProvider>)};
 root.render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
-`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
-const browser=await chromium.launch({headless:true});
+`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN"}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
+const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM});
 try{
  for(const platform of ['windows','macos']){
   const mac=platform==='macos',height=mac?28:34;
   const page=await browser.newPage({viewport:{width:1440,height:900},locale:'zh-CN'});
+  await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const markup=mac?'<header id="hugagent-mac-titlebar"></header>':'<header id="hugagent-titlebar"><div class="tb-sidebarZone">'+raw('TB_MENU')+'</div><div class="tb-mainChrome"><div class="tb-spacer"></div>'+raw('TB_CONTROLS')+'</div></header>';
   const css=raw(mac?'MAC_TB_CSS':'TB_CSS')+offset(mac?'MAC_OFFSET_SPA':'TB_OFFSET_SPA')+raw('SPA_CSS');
@@ -62,7 +63,11 @@ try{
     assert.equal(surfaces.rail.y,height,platform+' navigation clears window controls');
     assert.equal(surfaces.main.y,height,platform+' content clears window controls');
     for(const key of ['color','image','size','attachment'])assert.equal(surfaces.bar[key],surfaces.rail[key],'chrome and rail share '+key);
-    assert.equal(surfaces.rail.width,mac?88:64,'native controls fit rail');
+    assert.equal(surfaces.rail.width,64,'compact navigation rail');
+    assert.equal(surfaces.main.x,collapsed?64:344,'content follows the compact rail and secondary sidebar');
+    const button=await page.locator('.jx-moduleButton').first().boundingBox();
+    assert.equal(button.width,44,'navigation retains its click target');
+    assert.ok(button.x>=surfaces.rail.x && button.x+button.width<=surfaces.rail.x+surfaces.rail.width,'navigation button fits inside rail');
     if(!collapsed){assert.notEqual(surfaces.sidebar.color,surfaces.rail.color);assert.notEqual(surfaces.sidebar.color,surfaces.pane.color);}
     assert.ok(surfaces.scroll<=surfaces.viewport,'no horizontal overflow');
     await page.screenshot({path:resolve(output,platform+'-'+theme+'-'+(collapsed?'collapsed':'expanded')+'.png'),animations:'disabled'});
@@ -87,7 +92,7 @@ try{
    const shell=document.querySelector('.jx-appLoading'),main=document.querySelector('.jx-appLoading-main'),sidebar=document.querySelector('.jx-appLoading-sidebar');
    return {main:getComputedStyle(main).backgroundColor,rail:getComputedStyle(shell,'::before').width,sidebar:sidebar.getBoundingClientRect().width};
   });
-  assert.equal(loading.rail,mac?'88px':'64px','loading reserves the same outer rail');
+  assert.equal(loading.rail,'64px','loading reserves the same outer rail');
   assert.equal(loading.sidebar,280,'loading secondary navigation aligns with workspace');
   assert.equal(loading.main,contentColor,'loading preserves content surface');
   await page.screenshot({path:resolve(output,platform+'-loading.png'),animations:'disabled'});

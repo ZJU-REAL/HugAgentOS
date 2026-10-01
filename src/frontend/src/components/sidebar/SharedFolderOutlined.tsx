@@ -1,0 +1,16 @@
+import Icon from '@ant-design/icons';
+
+// Tabler folder-share (MIT): public/licenses/tabler-icons.txt.
+function SharedFolderSvg() {
+  return (
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13 19h-8a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v4" />
+      <path d="M16 22l5 -5" />
+      <path d="M21 21.5v-4.5h-4.5" />
+    </svg>
+  );
+}
+
+export function SharedFolderOutlined({ className }: { className?: string }) {
+  return <Icon component={SharedFolderSvg} className={className} aria-hidden="true" />;
+}

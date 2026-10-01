@@ -1,5 +1,7 @@
 import type React from 'react';
-import { getEditorText } from './composerEditorDom';
+import { handleComposerNewline } from './composerEditingKeys';
+import { richEditor } from './composerRichText';
+import { getEditorText, removeChipsOfType } from './composerEditorDom';
 import type { ComposerState } from './useComposerState';
 import type { ComposerSuggestions } from './useComposerSuggestions';
 import type { ComposerEditor } from './useComposerEditor';
@@ -23,6 +25,13 @@ export function createComposerKeyHandler(
     // Let the IME own every key while it is composing. In particular, Enter and
     // Tab may confirm a candidate instead of sending or selecting a popup item.
     if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+
+    const rich = editorRef.current ? richEditor(editorRef.current) : undefined;
+    if (e.key === 'Enter' && e.shiftKey && rich) {
+      e.preventDefault();
+      handleComposerNewline(rich);
+      return;
+    }
 
     // Slash popup: Enter/Tab → select skill
     if (slashVisible && slashEntries.length > 0 && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
@@ -67,8 +76,7 @@ export function createComposerKeyHandler(
             const last = chips[chips.length - 1] as HTMLElement;
             const type = last.dataset.chip;
             // Remove the chip and the space after it
-            if (last.nextSibling?.nodeType === Node.TEXT_NODE) last.nextSibling.remove();
-            last.remove();
+            if (type) removeChipsOfType(ed, type);
             if (type === 'mention') setActiveMention(null);
             if (type === 'skill') setActiveSkill(null);
             if (type === 'plugin') setActivePlugin(null);

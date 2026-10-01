@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 
 /** Scroll only the editor: its overlaid toolbar is not part of the browser's caret viewport. */
-export function useComposerCaretScroll(editorRef: RefObject<HTMLDivElement | null>) {
+export function useComposerCaretScroll(editorRef: RefObject<HTMLDivElement | null>, contextKey = '') {
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -47,7 +47,7 @@ export function useComposerCaretScroll(editorRef: RefObject<HTMLDivElement | nul
       if (!caret.height) return;
 
       const box = editor.getBoundingClientRect();
-      const toolbar = editor.parentElement?.querySelector<HTMLElement>('.jx-composerBar');
+      const toolbar = editor.closest('.jx-composerWrap')?.querySelector<HTMLElement>('.jx-composerBar');
       const top = box.top + editor.clientTop + 4;
       // Include the toolbar's fade so the active line stays fully readable.
       const bottom = Math.min(box.top + editor.clientTop + editor.clientHeight,
@@ -77,5 +77,5 @@ export function useComposerCaretScroll(editorRef: RefObject<HTMLDivElement | nul
       editor.removeEventListener('keyup', onKeyUp);
       events.forEach(event => editor.removeEventListener(event, schedule));
     };
-  }, [editorRef]);
+  }, [editorRef, contextKey]);
 }

@@ -553,3 +553,13 @@ Once a normal chat workflow starts, it has 600 seconds to produce visible text, 
 User questions, file and automation confirmations, host/tool permission approvals, and design choices store requests and decisions in a shared TTL store. Any worker can validate and accept the answer; the original tool call resumes on its owning worker, without starting another model task or replaying the tool. The first valid decision wins. Session approvals remain scoped to the original permission domain and path/command. Refresh recovery reads the same shared state. Pending records stop being advertised after a lost owner's lease expires; a server restart does not automatically replay interrupted operations. Redis-free desktop deployments use the single-process memory backend.
 
 Yida QR login and organization selection also use shared TTL state, allowing the same login flow to continue after a worker switch or page refresh.
+
+## Markdown chat input
+
+Chat keeps one input box without an additional formatting toolbar. Completed Markdown markers such as **bold**, *italic* and inline code turn into editable formatting. Headings, lists, quotes and code fences are also supported. Enter sends in text and all structured blocks, including code; Shift+Enter adds a newline. The send button is unchanged. IME confirmation and @ / slash menu selection keep their existing behavior.
+
+Shortcuts include Ctrl+B for bold, Ctrl+I for italic, Ctrl+E for inline code, Ctrl+Shift+S for strike-through, Ctrl+Shift+7/8 for ordered/bullet lists, Ctrl+Alt+C for code blocks, Ctrl+Z for undo, and Ctrl+Shift+Z or Ctrl+Y for redo. Use the corresponding Command shortcuts on macOS.
+
+Pasting Markdown or formatted HTML preserves common structures; Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
+
+Shift+Enter continues list/task items; an empty item exits the list. Headings continue as paragraphs and blockquotes continue or exit. Tab/Shift+Tab indent/outdent list items. Tab in the last table cell adds a row. Type pipe table header and delimiter lines followed by Shift+Enter to create a table. Task markers [ ] / [x] followed by a space and Markdown links [text](URL) convert while typing. Standard task-list Markdown also works when pasted or edited.

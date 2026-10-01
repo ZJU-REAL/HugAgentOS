@@ -9,6 +9,8 @@ import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useChatFork } from '../../hooks/useChatFork';
 import { classifyForkCommand } from '../../utils/chatForkCommands';
 import { composeCommandMessage, isProjectInitCommand, type ChatCommand } from '../../utils/projectCommands';
+import { createRichEditor, disposeRichEditor, richEditor } from './composerRichText';
+import '../../styles/composer-rich.css';
 import { t } from '../../i18n';
 import {
   getEditorText, setEditorPlainText, moveCaretToEnd, removeChipsOfType, insertChipAtStart,
@@ -31,8 +33,11 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
     mentionInputChange, slashInputChange, setMentionVisible, showMentionAgentPicker, setSlashVisible,
   } = suggestions;
   const { forkChat, pending: forkPending } = useChatFork(currentChatId);
+  const editorHostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  useComposerCaretScroll(editorRef);
+  const currentUserId = useChatStore(s => s.currentUserId);
+  const contextKey = currentUserId + ':' + currentChatId;
+  useComposerCaretScroll(editorRef, contextKey);
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
   const prevTextRef = useRef('');
@@ -42,25 +47,63 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   useLayoutEffect(() => {
     syncTextRef.current = () => {
       if (!editorRef.current) return;
+      const rich = richEditor(editorRef.current);
+      if (rich) {
+        const store = useChatStore.getState();
+        const values = new Map<string, { id: string; name: string }>();
+        const chats: ReferencableChat[] = [];
+        const commands: ChatCommand[] = [];
+        rich.state.doc.descendants(node => {
+          if (node.type.name !== 'invocationChip' || !node.attrs.value) return;
+          const value = JSON.parse(node.attrs.value);
+          if (node.attrs.chip === 'chat') chats.push(value);
+          else if (node.attrs.chip === 'command') commands.push(value);
+          else if (value.id) values.set(node.attrs.chip, value);
+        });
+        for (const [type, current, setter] of [
+          ['mention', store.activeMention, store.setActiveMention],
+          ['skill', store.activeSkill, store.setActiveSkill],
+          ['plugin', store.activePlugin, store.setActivePlugin],
+          ['connector', store.activeConnector, store.setActiveConnector],
+        ] as const) {
+          const next = values.get(type) ?? null;
+          if (next?.id !== current?.id) setter(next);
+        }
+        const command = commands[0] ?? null;
+        if (command?.id !== store.activeCommand?.id) store.setActiveCommand(command);
+        for (const chat of store.referencedChats) {
+          if (!chats.some(next => next.chat_id === chat.chat_id)) store.removeReferencedChat(chat.chat_id);
+        }
+        for (const chat of chats) {
+          if (!store.referencedChats.some(current => current.chat_id === chat.chat_id)) store.addReferencedChat(chat);
+        }
+        if (rich.isActive('codeBlock') || rich.isActive('code')) {
+          setMentionVisible(false);
+          setSlashVisible(false);
+        }
+      }
       const text = getEditorText(editorRef.current);
       const prev = prevTextRef.current;
       if (text === prev) return; // no change
       prevTextRef.current = text;
       setInput(text);
-      mentionInputChange(text, prev);
-      slashInputChange(text, prev);
+      if (!rich?.isActive('codeBlock') && !rich?.isActive('code')) {
+        mentionInputChange(text, prev);
+        slashInputChange(text, prev);
+      }
     };
   });
   function syncText() { syncTextRef.current(); }
 
-  // ── Native input event listener (more reliable than React onInput for contentEditable) ──
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const handler = () => { if (!composingRef.current) syncTextRef.current(); };
-    el.addEventListener('input', handler);
-    return () => el.removeEventListener('input', handler);
-  }, []);
+  useLayoutEffect(() => {
+    if (!editorHostRef.current) return;
+    prevTextRef.current = '';
+    const rich = createRichEditor(editorHostRef.current, () => {
+      if (!composingRef.current) syncTextRef.current();
+    });
+    editorRef.current = rich.view.dom as HTMLDivElement;
+    return () => { editorRef.current = null; disposeRichEditor(rich); };
+  }, [contextKey]);
 
   // ── Sync external store updates back into the contentEditable editor ──
   useEffect(() => {
@@ -88,7 +131,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
       moveCaretToEnd(editor);
     }
   }, [
-    activeMention, activeSkill, activePlugin, activeConnector, activeCommand, input,
+    activeMention, activeSkill, activePlugin, activeConnector, activeCommand, input, contextKey,
     setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector, setActiveCommand,
     referencedChats, clearReferencedChats,
   ]);
@@ -135,13 +178,13 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
     if (!activePlugin) {
       const stale = editor.querySelectorAll('[data-chip="plugin"]');
       if (stale.length) {
-        stale.forEach((el) => el.remove());
+        removeChipsOfType(editor, 'plugin');
         syncText();
       }
       return;
     }
     if (!editor.querySelector('[data-chip="plugin"]')) {
-      insertChipAtStart(editor, '/', activePlugin.name, 'jx-editorChip--plugin', 'plugin');
+      insertChipAtStart(editor, '/', activePlugin.name, 'jx-editorChip--plugin', 'plugin', activePlugin);
       syncText();
     }
   }, [isSiteChat, activePlugin, _currentChat?.id, input]);
@@ -151,14 +194,14 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   useEffect(() => {
     externalEditorRef.current = editorRef.current;
     return () => { externalEditorRef.current = null; };
-  }, [externalEditorRef]);
+  }, [externalEditorRef, contextKey]);
 
   // ── Chip insertion handlers ──
   /** Insert a sub-agent mention chip and set it as the currently active one (shared by the @ popup and the "+" menu). */
   function applyMention(agent: UserAgentItem) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '@', agent.name, 'jx-editorChip--mention');
+    insertChipAtCursor(ed, '@', agent.name, 'jx-editorChip--mention', 'mention', agent.agent_id, undefined, { id: agent.agent_id, name: agent.name });
     setActiveMention({ id: agent.agent_id, name: agent.name });
     setMentionVisible(false);
     syncText();
@@ -222,7 +265,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   function applySkill(skillId: string, skillName: string) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '/', skillName, 'jx-editorChip--skill');
+    insertChipAtCursor(ed, '/', skillName, 'jx-editorChip--skill', 'skill', skillId, undefined, { id: skillId, name: skillName });
     setActiveSkill({ id: skillId, name: skillName });
     setSlashVisible(false);
     syncText();
@@ -249,7 +292,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   function applyPlugin(p: InstalledPluginItem) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '/', p.name, 'jx-editorChip--plugin', 'plugin');
+    insertChipAtCursor(ed, '/', p.name, 'jx-editorChip--plugin', 'plugin', p.install_id, undefined, { id: p.install_id, name: p.name });
     setActivePlugin({
       id: p.install_id,
       name: p.name,
@@ -281,7 +324,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
     // One direct connector can be selected at a time. Replace an existing connector chip
     // instead of leaving the DOM with two chips backed by one store value.
     removeChipsOfType(ed, 'connector');
-    insertChipAtCursor(ed, 'MCP', connectorName, 'jx-editorChip--connector', 'connector');
+    insertChipAtCursor(ed, 'MCP', connectorName, 'jx-editorChip--connector', 'connector', connectorId, undefined, { id: connectorId, name: connectorName });
     setActiveConnector({ id: connectorId, name: connectorName });
     syncText();
     ed.focus();
@@ -292,7 +335,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   function applyCommand(command: ChatCommand) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '/', command.label, 'jx-editorChip--command', 'command');
+    insertChipAtCursor(ed, '/', command.label, 'jx-editorChip--command', 'command', command.id, undefined, command);
     setActiveCommand(command);
     setSlashVisible(false);
     syncText();
@@ -346,7 +389,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   function applyChatReference(chat: ReferencableChat) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '', chat.title, 'jx-editorChip--chat', 'chat', chat.chat_id, CHAT_CHIP_ICON);
+    insertChipAtCursor(ed, '', chat.title, 'jx-editorChip--chat', 'chat', chat.chat_id, CHAT_CHIP_ICON, chat);
     addReferencedChat(chat);
     syncText();
   }
@@ -383,7 +426,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
 
 
   return {
-    editorRef, composingRef, isComposing, setIsComposing, syncText,
+    editorHostRef, editorRef, composingRef, isComposing, setIsComposing, syncText,
     onMentionCandidateSelect, onPickAgentFromMenu, onPickSkillFromMenu,
     onPickPluginFromMenu, onPickConnectorFromMenu, sendFromComposer,
     applyChatReference, onSlashEntrySelect, forkPending,

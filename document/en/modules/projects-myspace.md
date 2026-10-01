@@ -74,6 +74,8 @@ shortcuts on the project row:
   deletes the project, and existing conversations return to the regular chat
   history.
 
+Local folder projects use a laptop icon, cloud personal projects use a folder icon, and team projects use a folder icon with a sharing arrow so their location and ownership are clear in the sidebar.
+
 ### Desktop project-creation entry points
 
 Desktop creation controls strictly follow the provision mode selected during

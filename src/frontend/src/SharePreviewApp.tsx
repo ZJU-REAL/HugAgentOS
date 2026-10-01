@@ -1,3 +1,4 @@
+import { UserMarkdownBlock } from './components/chat/UserMarkdownBlock';
 import { useEffect, useMemo, useState } from 'react';
 import CitationMarkdownBlock from './components/citation/CitationMarkdownBlock';
 import { PlanCard } from './components/chat/PlanCard';
@@ -186,7 +187,7 @@ export default function SharePreviewApp() {
                   />
                 )}
                 {item.content && (
-                  <CitationMarkdownBlock
+                  item.role === 'user' ? <UserMarkdownBlock text={item.content} /> : <CitationMarkdownBlock
                     text={item.content}
                     isMarkdown={Boolean(item.is_markdown)}
                     citations={[]}

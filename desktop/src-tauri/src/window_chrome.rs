@@ -392,7 +392,6 @@ const SPA_CSS: &str = r##"
   background-size:100vw 100vh;
   background-attachment:fixed;
 }
-:root[data-desktop-platform=macos] .jx-appLoading::before{width:88px;flex-basis:88px;}
 :root[data-desktop-platform] .jx-appLoading-main{
   background:var(--color-bg-chat);
   border-top-right-radius:var(--radius-md);
@@ -403,15 +402,6 @@ const SPA_CSS: &str = r##"
   flex-basis:280px;
   background:var(--module-sidebar-bg);
   border-top-left-radius:var(--radius-md);
-}
-:root[data-desktop-platform=macos] .jx-moduleRail{width:88px;}
-@media(min-width:961px){
-  :root[data-desktop-platform=macos] .jx-moduleShell.ant-layout-sider{
-    width:368px!important;min-width:368px!important;max-width:368px!important;flex:0 0 368px!important;
-  }
-  :root[data-desktop-platform=macos] .jx-moduleShell.ant-layout-sider-collapsed{
-    width:88px!important;min-width:88px!important;max-width:88px!important;flex:0 0 88px!important;
-  }
 }
 @media(max-width:960px){
   :root[data-desktop-platform] .jx-appLoading::before{display:none;}

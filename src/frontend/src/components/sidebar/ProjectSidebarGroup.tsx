@@ -1,10 +1,11 @@
-import { DeleteOutlined, EditOutlined, EllipsisOutlined, FolderOpenOutlined, FolderOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, EllipsisOutlined, FolderOpenOutlined, FolderOutlined, LaptopOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons';
 import { Dropdown, Modal, Tooltip, message } from 'antd';
 import { AnimatePresence } from 'motion/react';
 import { useRef, useState } from 'react';
 import { t } from '../../i18n';
 import { usePanel } from '../../routing/usePanel';
 import { useProjectStore } from '../../stores/projectStore';
+import { SharedFolderOutlined } from './SharedFolderOutlined';
 import { ChatSidebarItem } from './ChatSidebarItem';
 import type { SidebarProps } from './sidebarTypes';
 import type { SidebarProjectGroup } from './useSidebarHistory';
@@ -12,6 +13,7 @@ export function ProjectSidebarGroup({ pg, actions, dragScopeRef }: { pg: Sidebar
   const [projCollapsed, setCollapsed] = useState(false);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
   const panel = usePanel();
+  const ProjectIcon = pg.isLocal ? LaptopOutlined : pg.isTeam ? SharedFolderOutlined : FolderOutlined;
   const projActive = panel === 'project_detail' && currentProjectId === pg.projectId;
   const openProjectPanel = (projectId: string) => {
     void useProjectStore.getState().openProject(projectId);
@@ -60,7 +62,7 @@ export function ProjectSidebarGroup({ pg, actions, dragScopeRef }: { pg: Sidebar
           aria-label={projCollapsed ? t('展开项目会话') : t('收起项目会话')}
           aria-expanded={!projCollapsed}
         >
-          <FolderOutlined className="jx-projectRowIcon" />
+          <ProjectIcon className="jx-projectRowIcon" />
           <span className="jx-projectRowName">{pg.name}</span>
           {pg.pinned && (
             <Tooltip title={t('已置顶')}>
