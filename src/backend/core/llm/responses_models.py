@@ -279,6 +279,10 @@ class ResponsesReplayFormatter(
 
     async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
         items = await super().format(msgs)
+        # Some Responses gateways only dispatch typed message items, not role/content shorthand.
+        for item in items:
+            if "role" in item and "content" in item:
+                item.setdefault("type", "message")
         return _restore_reasoning_items(msgs, _repair_tool_output_call_ids(msgs, items))
 
 
@@ -314,7 +318,8 @@ class OpenAICompatResponsesModel(
         context_size: int,
         provider_id: str = "openai_compatible",
         extra_body: dict | None = None,
-        reasoning_effort: Optional[str] = None,
+        reasoning_effort: str | int | None = None,
+        reasoning_effort_is_wire: bool = False,
     ) -> None:
         super().__init__(
             credential=credential,
@@ -334,7 +339,10 @@ class OpenAICompatResponsesModel(
         self._http_client = http_client
         self.provider_id = provider_id
         self._extra_body = extra_body or {}
-        self._reasoning_effort = native_reasoning_effort(reasoning_effort)
+        self._reasoning_effort = (
+            reasoning_effort if reasoning_effort_is_wire
+            else native_reasoning_effort(reasoning_effort)
+        )
         self._context_rewrite_listener = None
 
     def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001

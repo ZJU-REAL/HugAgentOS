@@ -29,6 +29,7 @@ def test_responses_endpoint_is_called_on_the_responses_path():
     url, _, body = _body(RESPONSES, max_tokens=512)
 
     assert url.endswith("/responses")
+    assert body["input"][0]["type"] == "message"
     assert body["input"][0]["content"][0]["type"] == "input_text"
     assert body["max_output_tokens"] == 512
     assert "messages" not in body and "max_tokens" not in body

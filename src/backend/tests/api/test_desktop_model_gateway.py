@@ -4,16 +4,20 @@ import asyncio
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from api.routes.v1 import desktop_capability as routes
 from core.services import desktop_capability as service
+from core.services import desktop_capability_models as models
+from core.services import desktop_capability_security as security
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
 def _fake_connection_secrets(monkeypatch):
-    monkeypatch.setattr(service, "_known_cloud_secrets", lambda uid, **_: set())
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid, **_: set())
+    monkeypatch.setattr(
+        security, "_model_credentials_and_public_identifiers", lambda **_: (set(), set())
+    )
 
 
 def test_model_gateway_replaces_model_and_credentials(monkeypatch):
@@ -98,7 +102,7 @@ def test_model_gateway_rejects_wrong_protocol_path(monkeypatch):
 
 def test_manifest_endpoint_supports_revision_revalidation(monkeypatch):
     manifest = {"version": 2, "revision": "a" * 64, "servers": []}
-    monkeypatch.setattr(service, "build_user_capability_manifest", lambda _uid: manifest)
+    monkeypatch.setattr(service, "build_user_capability_manifest", lambda _uid, **_kwargs: manifest)
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes._require_capability_user] = lambda: "user-1"
@@ -242,13 +246,11 @@ def test_gateway_forwards_each_model_on_the_protocol_it_actually_speaks():
     on to whichever model does speak chat completions, so every local turn paid
     a wasted upstream round trip and then ran on a model nobody selected.
     """
-    resolve = service._upstream_model_path
+    resolve = models._upstream_model_path
 
     assert resolve(_provider("chat", "openai_compatible", "responses")) == "responses"
     assert resolve(_provider("chat", "deepseek", "responses")) == "responses"
-    assert (
-        resolve(_provider("chat", "openai_compatible", "chat_completions")) == "chat/completions"
-    )
+    assert resolve(_provider("chat", "openai_compatible", "chat_completions")) == "chat/completions"
     assert resolve(_provider("chat", "zhipu", "chat_completions")) == "chat/completions"
     # Never probed: same default the model client itself applies.
     assert resolve(_provider("chat", "openai_compatible", None)) == "responses"
@@ -313,8 +315,8 @@ def test_a_responses_model_reaches_the_gateway_instead_of_404(monkeypatch):
             200, headers={"content-type": "text/event-stream"}, stream=EventStream()
         )
 
-    monkeypatch.setattr(service, "SessionLocal", lambda: _StubSession(provider))
-    monkeypatch.setattr(service, "_model_provider_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(models, "SessionLocal", lambda: _StubSession(provider))
+    monkeypatch.setattr(models, "_model_provider_allowed", lambda *_a, **_k: True)
     # 出口脱敏集合与本用例无关；品牌分支在这里还会查凭据策略，测试环境没有。
     monkeypatch.setattr(service, "gateway_stream_secrets", lambda *_a, **_k: set())
     monkeypatch.setattr(
@@ -349,8 +351,8 @@ def test_a_chat_completions_model_still_rejects_a_responses_request(monkeypatch)
         is_active=True,
         extra_config={"api_protocol": "chat_completions"},
     )
-    monkeypatch.setattr(service, "SessionLocal", lambda: _StubSession(provider))
-    monkeypatch.setattr(service, "_model_provider_allowed", lambda *_a, **_k: True)
+    monkeypatch.setattr(models, "SessionLocal", lambda: _StubSession(provider))
+    monkeypatch.setattr(models, "_model_provider_allowed", lambda *_a, **_k: True)
 
     app = FastAPI()
     app.include_router(routes.router)

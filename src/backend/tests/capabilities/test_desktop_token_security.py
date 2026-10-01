@@ -9,14 +9,15 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
+from api.deps import require_config
+from api.routes.v1 import desktop_capability as routes
 from core.auth import session
 from core.config.settings import settings
 from core.services import desktop_capability as cap
-from api.routes.v1 import desktop_capability as routes
-from api.deps import require_config
+from core.services import desktop_capability_credentials as credentials
+from core.services import desktop_capability_security as security
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 ISSUER = "https://cloud.example"
 DEVICE = "synthetic-device-a"
@@ -27,7 +28,7 @@ def isolated_sessions(monkeypatch):
     monkeypatch.setattr(session, "_MEMORY_SESSIONS", {})
     monkeypatch.setattr(session, "_use_memory_store", lambda: True)
     monkeypatch.setattr(cap, "_secret_cache", "ab" * 32)
-    monkeypatch.setattr(cap, "_known_cloud_secrets", lambda uid: set())
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: set())
 
 
 def _session(uid="user-a"):
@@ -369,7 +370,7 @@ def test_next_dispatch_checkpoint_stops_after_logout(monkeypatch):
     token = _issue(cookie)["token"]
     resolved = []
 
-    def manifest(uid):
+    def manifest(uid, **kwargs):
         resolved.append(uid)
         return {"revision": "a" * 64, "servers": []}
 

@@ -156,3 +156,9 @@ Caveats:
 | Entry (CE divergence point) | `src/frontend/src/main.tsx`, `ce/overlay/src/frontend/src/main.tsx` |
 
 See also: [Backend Development Guide](backend.md) · [Frontend Architecture](../architecture/frontend.md) · [License Mechanism](../editions/license.md)
+
+### Interface typography
+
+The interface, chat text and component library share `--font-family`. Before the first render, the entry sets `data-font-platform`: Apple platforms prefer PingFang SC, Windows prefers Microsoft YaHei UI / Microsoft YaHei, and other platforms use available Noto, Source Han and system fonts. Code retains monospace fonts; numeric typography uses the shared UI font as its fallback.
+
+Sidebar project and conversation titles use 14px text, 20px line height and weight 400, with weight 500 for the selection. New conversation uses 14px / 500. History layout, titles and actions belong in `sidebar-history.css`; do not duplicate title weights in chat or module navigation styles.

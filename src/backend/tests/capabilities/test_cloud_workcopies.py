@@ -1,8 +1,8 @@
 import pytest
-from fastapi import HTTPException
 from core.capabilities.change_merge import revision
-from core.db.models import AdminSkill, AdminMcpServer, InstalledPlugin, ContentBlock
+from core.db.models import AdminMcpServer, AdminSkill, ContentBlock, InstalledPlugin
 from core.services import capability_workcopies as copies
+from fastapi import HTTPException
 
 
 @pytest.fixture
@@ -121,13 +121,13 @@ def test_secret_ack_required_and_idempotency_payload_fixed(cloud):
 
 
 def test_cloud_routes_keep_known_credentials_on_cloud(cloud, monkeypatch):
+    from api.routes.v1 import desktop_capability as routes
+    from core.services import desktop_capability_security as security
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from api.routes.v1 import desktop_capability as routes
-    from core.services import desktop_capability as service
 
     secret = "server-secret-value-123"
-    monkeypatch.setattr(service, "_known_cloud_secrets", lambda *a, **k: {secret})
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda *a, **k: {secret})
     with cloud() as db:
         db.add(
             AdminSkill(
@@ -160,8 +160,8 @@ def test_cloud_routes_keep_known_credentials_on_cloud(cloud, monkeypatch):
 
 
 def test_skill_submission_preserves_all_files_and_checks_model_changes(cloud, monkeypatch):
-    from core.ontology import build_validator
     from core.agent_skills import cache_refresh
+    from core.ontology import build_validator
 
     validations = []
     monkeypatch.setattr(
@@ -201,6 +201,7 @@ def test_skill_submission_preserves_all_files_and_checks_model_changes(cloud, mo
 
 def test_plugin_execution_declarations_are_saved_but_not_activated(cloud, monkeypatch):
     import json
+
     from core.agent_skills import cache_refresh
 
     monkeypatch.setattr(cache_refresh, "refresh_skill_caches", lambda: None)
@@ -233,8 +234,9 @@ def test_plugin_execution_declarations_are_saved_but_not_activated(cloud, monkey
 
 def test_pending_plugin_update_preserves_previous_active_package(cloud, monkeypatch):
     import json
+
     from core.agent_skills import cache_refresh
-    from core.services.desktop_capability import _plugin_files
+    from core.services.desktop_capability_entities import _plugin_files
 
     monkeypatch.setattr(cache_refresh, "refresh_skill_caches", lambda: None)
     with cloud() as db:

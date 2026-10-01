@@ -150,7 +150,7 @@ def _get_main_model(mode: str = "medium"):
         return cached
     if mode in ("fast", "turbo"):
         instance = get_default_model(disable_thinking=True, stream=True)
-    elif mode in ("high", "max"):
+    elif mode in ("low", "high", "xhigh", "max"):
         instance = get_default_model(reasoning_effort=mode, stream=True)
     else:  # medium or unknown
         # medium uses the "thinking model", but picks chat_template_kwargs based on
@@ -193,7 +193,7 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
 def _resolve_chat_mode(ctx) -> str:
     """Resolve the final chat_mode (turbo/fast/medium/high/max) from agent.state (AgentRuntimeState)."""
     raw = getattr(ctx, "chat_mode", None)
-    if raw in ("turbo", "fast", "medium", "high", "max"):
+    if raw in ("turbo", "fast", "low", "medium", "high", "xhigh", "max"):
         return raw
     # Fallback for legacy clients
     return "medium" if getattr(ctx, "enable_thinking", True) else "fast"

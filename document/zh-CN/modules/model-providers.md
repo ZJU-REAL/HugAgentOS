@@ -109,7 +109,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 | `POST /v1/models/providers/{id}/test`、`POST /v1/models/providers/test` | 已保存 / 未保存配置的连通性测试 |
 | `GET /v1/models/roles`、`PUT/DELETE /v1/models/roles/{role_key}` | 角色分配（校验供应商类型与角色匹配；被引用的供应商禁删） |
 | `GET /v1/models/export`、`POST /v1/models/import` | 模型配置跨环境迁移 |
-| `GET /v1/models/capabilities` | **公开端点**：仅暴露 `main_agent.supports_reasoning_effort` 布尔，前端据此显示「思考·中/高/超高」档位 |
+| `GET /v1/models/capabilities` | **公开端点**：暴露主模型与可选模型的非敏感能力，包括思考档位、默认档位和上下文窗口 |
 
 所有模型配置写操作与数据库版本号在同一事务提交。各进程下一次解析时检查版本，重新装载同一快照中的角色、供应商与故障切换候选；无需等待 TTL 或重启。模型实例按事件循环隔离，已运行任务继续使用启动时的模型。
 
@@ -183,3 +183,13 @@ token 用量在流式收尾的 `meta.usage` 中统计（`orchestration/streaming
 | 用量日志 / 计费 | `src/backend/api/routes/v1/admin_usage_logs.py`，`api/routes/v1/admin_billing.py` |
 | 路由策略 | `src/backend/orchestration/strategy.py` |
 | 主模型缺失快速失败 | `src/backend/api/routes/v1/chats.py::_ensure_main_model_configured` |
+
+## 模型专属思考档位
+
+在 Config 或「设置 → 模型服务」开启多档思考后，选择模型支持的低、中、高、超高、最高档位，逐档填写上游参数，并从启用档位中选择默认值。参数接受非空字符串或正整数；整数按 JSON 数值发送。名称与上游参数独立：例如「最高」可以映射到 `max` 或 `100`。新表单提供中、高、超高模板，但须按供应商支持情况核对。当前自定义映射适用于 OpenAI 兼容引擎。
+
+配置保存在 `extra_config.reasoning_effort_levels`（`[{key, value}]`）和 `default_reasoning_effort`。聊天只展示所选模型启用的档位；切换模型后不再支持原档位时使用新模型的默认档位。后端也执行该检查，保护旧客户端、子智能体与故障切换。快速和极速仍关闭思考。未编辑的历史模型保留原来的中、高、超高行为及 Responses 的历史 `max → xhigh` 映射；显式配置的参数原样发送。
+
+点击「自动探测思考档位」先读取上游模型声明，没有声明再发送最多五个小请求（每个请求最多 32 个输出 token、12 秒超时），可能产生少量模型用量。明确的参数错误可直接给出完整档位列表及整数范围。结果只回填表单，核对后保存；认证、限流、网络失败等不代表某档不支持，也不会清空现有设置。HTTP 成功只说明参数被接受，上游可能忽略它，不能据此保证真实推理强度。
+
+`POST /v1/models/providers/detect-reasoning` 仅供有模型管理权限的管理员使用，不落库；返回 `levels`、`default`、`source`、`notes` 和可选 `numeric_range`。检测结果来源区分模型元数据、参数校验声明与测试请求接受。

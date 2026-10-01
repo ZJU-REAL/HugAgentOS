@@ -1,3 +1,4 @@
+import MODEL_REASONING_DICT from './modelReasoning';
 /** Community-edition English dictionaries only. */
 import { CORE_DICT } from './core';
 import { CHAT_DICT } from './chat';
@@ -18,6 +19,7 @@ import { CE_SHARED_DICT } from './ceShared';
 
 export const EN_DICT: Record<string, string> = {
   ...CORE_DICT,
+  ...MODEL_REASONING_DICT,
   ...CHAT_DICT,
   ...CHAT_FORK_DICT,
   ...HOOKS_DICT,

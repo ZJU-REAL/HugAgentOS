@@ -115,13 +115,11 @@
   --space-xl:40px;
 
   /* ── 字体 ── */
-  --font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
-  /* 等宽栈里放一个中文字体：Consolas / SF Mono 没有汉字，不写的话 Windows 会按字回落到宋体 */
-  --font-family-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Mono","Liberation Mono","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",monospace;
-  --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
-  --font-family-homepage:"Alibaba PuHuiTi 3.0","MiSans","HarmonyOS Sans SC","PingFang SC","Microsoft YaHei UI",sans-serif;
-
-  /* ── 字号 ── */
+  /* The platform is set before React mounts; keep all UI text on this token. */
+  --font-family-cjk:"Noto Sans CJK SC","Noto Sans SC","Source Han Sans SC";
+  --font-family:var(--font-family-cjk),system-ui,sans-serif;
+  --font-family-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Mono","Liberation Mono",var(--font-family-cjk),monospace;
+  --font-family-number:"DingTalk Sans",var(--font-family);
   --font-size-xs:12px;
   --font-size-sm:14px;
   --font-size-md:16px;
@@ -360,3 +358,12 @@ code::-webkit-scrollbar,
 
 /* AntD tweaks */
 .ant-layout{background:transparent}
+
+
+/* Explicit platform priorities also work when fonts from another OS are installed. */
+:root[data-font-platform="apple"]{
+  --font-family-cjk:"PingFang SC","Hiragino Sans GB";
+}
+:root[data-font-platform="windows"]{
+  --font-family-cjk:"Microsoft YaHei UI","Microsoft YaHei";
+}

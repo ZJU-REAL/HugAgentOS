@@ -24,7 +24,7 @@ async function getMermaid() {
           startOnLoad: false,
           theme: 'default',
           securityLevel: 'loose',
-          fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+          fontFamily: getComputedStyle(document.documentElement).fontFamily,
         });
         mermaidInitialized = true;
       }

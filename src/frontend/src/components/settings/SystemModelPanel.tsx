@@ -20,6 +20,8 @@ import {
   type ProviderSchema,
 } from '../../api';
 import { t } from '../../i18n';
+import { ReasoningEffortFields } from '../common/ReasoningEffortFields';
+import { reasoningFormValues, collectReasoningFields } from '../../utils/reasoningEffort';
 import { useModelCapabilitiesStore } from '../../stores';
 import { describeContextProbe } from '../../utils/contextUsage';
 
@@ -89,6 +91,7 @@ export function SystemModelPanel() {
     setEditing(null);
     setProbeHint('');
     form.resetFields();
+    form.setFieldsValue(reasoningFormValues());
     form.setFieldsValue({ provider: 'openai_compatible', provider_type: 'chat', is_active: true });
     setEditorOpen(true);
   };
@@ -110,6 +113,7 @@ export function SystemModelPanel() {
       is_active: p.is_active,
       context_length: (p.extra_config?.context_length as number | undefined) ?? undefined,
       supports_reasoning_effort: Boolean(p.extra_config?.supports_reasoning_effort),
+      ...reasoningFormValues(p.extra_config),
       supports_vision: Boolean(p.extra_config?.supports_vision),
     });
     setEditorOpen(true);
@@ -167,6 +171,7 @@ export function SystemModelPanel() {
     } else {
       delete extra.supports_vision;
     }
+    collectReasoningFields({ ...values, reasoning_effort_detected: form.getFieldValue('reasoning_effort_detected') }, extra, editing?.extra_config);
     const payload: Partial<ModelProviderInput> = {
       display_name: values.display_name,
       provider: values.provider,
@@ -445,14 +450,17 @@ export function SystemModelPanel() {
           </Space.Compact>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
             {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
+              <>
               <Form.Item
                 label={t('支持多档思考强度（reasoning_effort）')}
                 name="supports_reasoning_effort"
                 valuePropName="checked"
-                tooltip={t('开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。')}
+                tooltip={t('开启后配置模型支持的档位、上游参数与默认档位。')}
               >
                 <Switch />
               </Form.Item>
+              <ReasoningEffortFields providerId={editing?.provider_id} />
+              </>
             )}
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
