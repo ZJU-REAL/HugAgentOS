@@ -13,6 +13,7 @@ import { TurnStatusIndicator } from './TurnStatusIndicator';
 import { InvocationBadges } from './InvocationBadges';
 import { PlanCard } from './PlanCard';
 import { MessageInheritedPlan } from './MessageInheritedPlan';
+import { UserMarkdownBlock } from './UserMarkdownBlock';
 import { CitationMarkdownBlock } from '../citation';
 import { useChatStore, useUIStore } from '../../stores';
 import { updatePlanApi } from '../../api';
@@ -308,17 +309,17 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                   const showInlineWait = !dispatchProcessVisible && m.isStreaming && isLastSeg;
                   return (
                     <React.Fragment key={segKey}>
-                      <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
+                      <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.role === 'user' || m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
                         {segIdx === 0 && renderUserQuote()}
                         {segIdx === 0 && renderChipBadges()}
-                        <CitationMarkdownBlock
+                        {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={textContent} /> : <CitationMarkdownBlock
                           className="jx-msgText"
                           text={textContent}
                           isMarkdown={m.isMarkdown ?? false}
                           citations={effectiveCitations}
                           messageIsStreaming={m.isStreaming}
                           onCitationAction={handleCitationAction}
-                        />
+                        />}
                       </div>
                       {showInlineWait && (
                         <StreamWaitIndicator
@@ -380,17 +381,17 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 <ThinkingInline content="" isActive={true} />
               )
             ) : (
-            <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming ? 'streaming' : ''}`}>
+            <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.role === 'user' || m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming ? 'streaming' : ''}`}>
               {renderUserQuote()}
               {renderChipBadges()}
-              <CitationMarkdownBlock
+              {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={m.content} /> : <CitationMarkdownBlock
                 className="jx-msgText"
                 text={m.content}
                 isMarkdown={m.isMarkdown ?? false}
                 citations={resolveConversationCitations(m.content, m.citations ?? [], chatMessages, m.uid)}
                 messageIsStreaming={m.isStreaming}
                 onCitationAction={handleCitationAction}
-              />
+              />}
               {m.isStreaming && (
                 <span className="jx-streamingIndicator" aria-hidden="true">
                   <span className="jx-streamingDot" /><span className="jx-streamingDot" /><span className="jx-streamingDot" />

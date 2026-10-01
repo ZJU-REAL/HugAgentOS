@@ -96,10 +96,9 @@ fn mac_titlebar_is_a_compact_drag_region_without_duplicate_actions() {
     // The sidebar supplies the background; only its controls need an inset.
     assert!(!block.contains("linear-gradient(90deg"));
     assert!(block.contains("padding-top:0!important"));
-    assert!(block.contains(".jx-moduleRail{width:88px;}"));
-    assert!(
-        block.contains("width:88px!important;min-width:88px!important;max-width:88px!important")
-    );
+    assert!(!block.contains("width:88px"));
+    assert!(!block.contains("width:368px"));
+    assert!(block.contains("flex:0 0 64px"));
     assert!(block.contains("dataset.desktopPlatform='macos'"));
     assert!(block.contains("if(event.button!==0||!isDragSurface(event))return"));
     assert!(!block.contains("ResizeObserver"));

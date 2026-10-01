@@ -15,6 +15,7 @@ import { QueuedMessageCard } from './QueuedMessageCard';
 import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { hasChatInvocation } from '../../utils/chatInvocation';
 import { t } from '../../i18n';
+import { richEditor, pastePlainText, insertClipboardContent } from './composerRichText';
 import { moveCaretToEnd } from './composerEditorDom';
 import { createComposerKeyHandler } from './composerKeyboard';
 import { ComposerAttachments } from './ComposerAttachments';
@@ -53,7 +54,7 @@ export function InputArea({
     setSlashVisible, setSIdx,
   } = suggestions;
   const {
-    composingRef, onSlashEntrySelect, onMentionCandidateSelect, editorRef, syncText,
+    composingRef, onSlashEntrySelect, onMentionCandidateSelect, editorHostRef, editorRef, syncText,
     isComposing, applyChatReference, setIsComposing,
   } = editor;
   const onKeyDown = createComposerKeyHandler(state, suggestions, editor);
@@ -215,26 +216,38 @@ export function InputArea({
 
         {/* ContentEditable editor — chips and text live on the same layer */}
         <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          className="jx-composer jx-composerEditor"
-          onInput={() => { if (!composingRef.current) syncText(); }}
+          ref={editorHostRef}
           onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
-          onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); syncText(); }}
-          onKeyDown={onKeyDown}
-          onPaste={(e) => {
-            e.preventDefault();
-            const pastedImages = extractClipboardImageFiles(e.clipboardData);
-            if (pastedImages.length > 0) {
-              handleFileSelect(
-                { target: { files: pastedImages } } as unknown as React.ChangeEvent<HTMLInputElement>,
-                imageInputRef,
-              );
+          onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); queueMicrotask(syncText); }}
+          onKeyDownCapture={(e) => {
+            onKeyDown(e);
+            if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+              editorHostRef.current?.setAttribute('data-plain-paste', 'true');
+              window.setTimeout(() => editorHostRef.current?.removeAttribute('data-plain-paste'), 1000);
+            }
+          }}
+          onPasteCapture={(e) => {
+            const host = editorHostRef.current;
+            const plain = host?.getAttribute('data-plain-paste') === 'true';
+            host?.removeAttribute('data-plain-paste');
+            const rich = editorRef.current && richEditor(editorRef.current);
+            if (!rich) return;
+            if (plain) {
+              e.preventDefault();
+              e.stopPropagation();
+              pastePlainText(rich, e.clipboardData.getData('text/plain'));
               return;
             }
-            const text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
+            const images = extractClipboardImageFiles(e.clipboardData);
+            if (images.length) {
+              e.preventDefault();
+              e.stopPropagation();
+              handleFileSelect(
+                { target: { files: images } } as unknown as React.ChangeEvent<HTMLInputElement>,
+                imageInputRef,
+              );
+              insertClipboardContent(rich, e.clipboardData);
+            }
           }}
           onBlur={() => { setTimeout(() => { setMentionVisible(false); setSlashVisible(false); }, 200); }}
         />

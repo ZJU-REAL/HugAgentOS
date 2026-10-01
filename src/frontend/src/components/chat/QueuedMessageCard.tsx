@@ -11,6 +11,8 @@ import { Dropdown } from 'antd';
 import type { QueuedChatMessage } from '../../stores/chatStore';
 import { t } from '../../i18n';
 import { chatInvocationMessageProps, hasChatInvocation } from '../../utils/chatInvocation';
+import { UserMarkdownBlock } from './UserMarkdownBlock';
+import { RichTextField } from './RichTextField';
 import { InvocationBadges } from './InvocationBadges';
 
 interface QueuedMessageCardProps {
@@ -57,31 +59,17 @@ export function QueuedMessageCard({
       <div className="jx-queuedMessage-main">
         <span className="jx-queuedMessage-indicator" aria-hidden="true">↳</span>
         {editing ? (
-          <textarea
-            className="jx-queuedMessage-editor"
-            value={draft}
-            autoFocus
-            rows={2}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                saveEdit();
-              }
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                setDraft(queued.content);
-                setEditing(false);
-              }
-            }}
-          />
+          <RichTextField className="jx-queuedMessage-editor" label={t('编辑消息')}
+            value={draft} onChange={setDraft} onSubmit={saveEdit}
+            onCancel={() => { setDraft(queued.content); setEditing(false); }} />
+
         ) : (
           <div className="jx-queuedMessage-body">
             <InvocationBadges
               {...chatInvocationMessageProps(invocation ?? {})}
               className="jx-queuedMessage-badges"
             />
-            <div className="jx-queuedMessage-content" title={queued.content}>{queued.content}</div>
+            <UserMarkdownBlock className="jx-queuedMessage-content jx-md" text={queued.content} />
           </div>
         )}
       </div>

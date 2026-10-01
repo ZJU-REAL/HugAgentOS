@@ -64,14 +64,14 @@ export async function copyHtmlToClipboard(html: string, plainText: string): Prom
   try {
     const host = document.createElement('div');
     host.innerHTML = html;
-    return execCommandCopyNode(host);
+    return execCommandCopyNode(host, { html, plainText });
   } catch {
     return false;
   }
 }
 
 /** Mount `node` off-screen, select its contents with a Range and run execCommand('copy'). */
-function execCommandCopyNode(node: HTMLElement): boolean {
+function execCommandCopyNode(node: HTMLElement, content?: { html: string; plainText: string }): boolean {
   node.style.position = 'fixed';
   node.style.top = '0';
   node.style.left = '0';
@@ -85,10 +85,18 @@ function execCommandCopyNode(node: HTMLElement): boolean {
   selection?.removeAllRanges();
   selection?.addRange(range);
 
+  const overrideCopy = (event: ClipboardEvent) => {
+    if (!content || !event.clipboardData) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/html', content.html);
+    event.clipboardData.setData('text/plain', content.plainText);
+  };
+  if (content) document.addEventListener('copy', overrideCopy);
   let ok = false;
   try {
     ok = document.execCommand('copy');
   } finally {
+    document.removeEventListener('copy', overrideCopy);
     selection?.removeAllRanges();
     document.body.removeChild(node);
   }
