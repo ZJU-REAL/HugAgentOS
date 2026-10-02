@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from api.routes.v1.chats import _resolve_chat_agent_targets, _strip_direct_mention_prefix
+from api.routes.v1.chats.agent_targets import _resolve_chat_agent_targets, _strip_direct_mention_prefix
 from api.schemas import ChatRequest
 from core.llm.subagent_tool import _shared_ontology_runtime, build_explicit_subagent_command_hint
 from core.services.subagent_routing_service import parse_explicit_subagent_command
@@ -303,7 +303,9 @@ def test_dedicated_builtin_chat_preserves_role_write_boundaries():
 @pytest.mark.asyncio
 async def test_mention_keeps_normal_main_model_stream(monkeypatch):
     async def _fake_memory_retrieval(*_args, **_kwargs):
-        return SessionMemory(chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False)
+        return SessionMemory(
+            chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
+        )
 
     async def _unexpected_direct(**_kwargs):
         raise AssertionError("@mention must not bypass the main model")
@@ -347,7 +349,9 @@ def test_explicit_command_hint_guides_subagent_usage():
 @pytest.mark.asyncio
 async def test_natural_language_command_keeps_normal_main_model_stream(monkeypatch):
     async def _fake_memory_retrieval(*_args, **_kwargs):
-        return SessionMemory(chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False)
+        return SessionMemory(
+            chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
+        )
 
     monkeypatch.setattr(workflow, "open_session_memory", _fake_memory_retrieval)
     stream = workflow.astream_chat_workflow(

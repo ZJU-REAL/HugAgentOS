@@ -1,12 +1,11 @@
 """The desktop sends file bytes; the cloud owns hosted sites."""
 
-
-from core.sandbox.process_completion import CompletionMixin
 import io
 import json
 import tarfile
 
 from api.routes.v1 import desktop_capability as route
+from core.sandbox.process_completion import CompletionMixin
 from core.services.desktop_gateway_uploads import UPLOAD_OPTIONS_HEADER, UPLOAD_SCHEMA_HEADER
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -54,7 +53,11 @@ def test_uploaded_bytes_are_hosted_and_versioned_for_cloud_user(tmp_path, monkey
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr("core.db.engine.SessionLocal", factory)
-    monkeypatch.setattr(desktop_capability, "SessionLocal", factory)
+    from core.services import desktop_capability_security as security
+
+    monkeypatch.setattr(security, "SessionLocal", factory)
+    monkeypatch.setattr(security, "_user_capability_configs", lambda *a, **k: ([], [], {}))
+    monkeypatch.setattr("core.services.model_config.SessionLocal", factory)
     monkeypatch.setenv("STORAGE_TYPE", "local")
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "cloud-storage"))
     with factory() as db:
@@ -143,7 +146,14 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     class Sandbox(CompletionMixin):
         async def start_process(self, request, yield_time_ms=10000):
             assert request.language == "python"
-            return dict(status="exited", session_id=None, stdout="", stderr="", exit_code=0, execution_time_ms=1)
+            return dict(
+                status="exited",
+                session_id=None,
+                stdout="",
+                stderr="",
+                exit_code=0,
+                execution_time_ms=1,
+            )
 
         async def get_file(self, *args, **kwargs):
             return archive

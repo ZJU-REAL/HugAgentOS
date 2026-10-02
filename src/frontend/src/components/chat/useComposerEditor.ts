@@ -98,17 +98,40 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   useLayoutEffect(() => {
     if (!editorHostRef.current) return;
     prevTextRef.current = '';
+    let frame = 0;
     const rich = createRichEditor(editorHostRef.current, () => {
-      if (!composingRef.current) syncTextRef.current();
+      if (frame || composingRef.current) return;
+      // Native input may deliver many transactions before the next paint.
+      // Publish one final draft per frame rather than nesting store renders
+      // inside the editor's DOM observer. Sending flushes the draft below.
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!rich.isDestroyed && !composingRef.current) syncTextRef.current();
+      });
     });
-    editorRef.current = rich.view.dom as HTMLDivElement;
-    return () => { editorRef.current = null; disposeRichEditor(rich); };
+    const element = rich.view.dom as HTMLDivElement;
+    editorRef.current = element;
+    // Pointer navigation blurs the editor before changing the shared draft.
+    // Flush here, never during cleanup where a new chat may already be cleared.
+    const flushDraft = () => {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      if (!composingRef.current) syncTextRef.current();
+    };
+    element.addEventListener('blur', flushDraft);
+    return () => {
+      cancelAnimationFrame(frame);
+      element.removeEventListener('blur', flushDraft);
+      editorRef.current = null;
+      disposeRichEditor(rich);
+    };
   }, [contextKey]);
 
   // ── Sync external store updates back into the contentEditable editor ──
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || composingRef.current || input === prevTextRef.current) return;
+    if (input !== useChatStore.getState().input) return; // A draft flush superseded this render.
 
     const hadMentionChip = !!editor.querySelector('[data-chip="mention"]');
     const hadSkillChip = !!editor.querySelector('[data-chip="skill"]');
@@ -366,6 +389,7 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   }
 
   function sendFromComposer() {
+    syncText();
     const { input: composerText, activeCommand: pendingCommand } = useChatStore.getState();
     const forkCommand = classifyForkCommand(composerText);
     if (forkCommand) {

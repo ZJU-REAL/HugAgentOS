@@ -65,3 +65,14 @@ async def test_history_replay_pairs_on_the_item_id() -> None:
     pairs = await _pairs(None)
     assert pairs["function_call"] == ITEM_ID
     assert pairs["function_call_output"] == ITEM_ID
+
+@pytest.mark.asyncio
+async def test_message_items_have_explicit_type_without_changing_tool_items() -> None:
+    items = await _formatter().format(_turn(CALL_ID))
+    messages = [item for item in items if "role" in item and "content" in item]
+    assert messages
+    assert all(item.get("type") == "message" for item in messages)
+    assert [item["content"][0]["type"] for item in messages] == ["input_text", "input_text"]
+    assert [item["type"] for item in items if item.get("type", "").startswith("function_call")] == [
+        "function_call", "function_call_output",
+    ]

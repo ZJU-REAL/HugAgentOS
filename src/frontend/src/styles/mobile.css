@@ -596,9 +596,6 @@
   }
 
 
-  .jx-appShell > .jx-sider .jx-newChatBtn{
-    width:calc(100% - 32px);
-  }
 
   .jx-appShell > .jx-sider.ant-layout-sider-collapsed{
     width:0 !important;
@@ -1838,17 +1835,12 @@
     border-radius:14px;
   }
 
-  .jx-appShell > .jx-sider .jx-navSubItem{
-    height:44px;
-    border-radius:14px;
-  }
 
   .jx-appShell > .jx-sider .jx-newChatBtn{
     height:44px;
   }
 
-  /* 历史项在 sidebar.css 与 chat.css 里各写了一份 height/min-height:36px，
-     只覆盖 min-height 压不住那条 height——两个都要写。 */
+  /* 触屏历史行同时放大固定高度与最小高度，覆盖 sidebar-history.css 的 36px。 */
   .jx-appShell > .jx-sider .jx-historyItem{
     height:44px;
     min-height:44px;
@@ -1894,7 +1886,6 @@
   button,
   [role="button"],
   .jx-navItem,
-  .jx-navSubItem,
   .jx-historyItem,
   .jx-msgActionBtn{
     -webkit-tap-highlight-color:transparent;

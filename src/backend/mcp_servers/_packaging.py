@@ -129,7 +129,7 @@ def is_plugin_root(root: Path) -> bool:
     却能从后台上传导入——同一个包两条通路结论不同。所以直接问导入器。
     """
     try:
-        from core.services.plugin_importer import detect_manifest
+        from core.plugins.packaging.importer import detect_manifest
 
         detect_manifest(root)
         return True

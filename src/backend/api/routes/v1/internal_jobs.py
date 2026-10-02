@@ -163,7 +163,7 @@ async def _run_light_agent(
     这正是「去掉共享上下文 / 流式回灌 / 历史累积」后的执行路径：每次调用的上下文只有
     这一条 prompt，成本与工作项总数无关。
     """
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 

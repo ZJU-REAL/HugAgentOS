@@ -326,7 +326,7 @@ def test_yida_plugin_declares_connection():
     → the frontend plugin detail page renders the YidaConnect panel."""
     import pathlib
 
-    from core.services.plugin_importer import normalize_plugin_dir
+    from core.plugins.packaging.importer import normalize_plugin_dir
 
     p = pathlib.Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace" / "yida"
     assert normalize_plugin_dir(p).connection == "yida"
@@ -338,7 +338,7 @@ def test_yida_plugin_installable(db):
     panel on the plugin detail page, in-conversation scan as fallback), contains a single skill,
     the full references/subskills set travels with the package → install lands
     AdminSkill(source_plugin=yida)."""
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     items = ps.list_plugins(db, owner_user_id="u1")
     yd = next((it for it in items if it["slug"] == "yida"), None)

@@ -18,8 +18,8 @@ core/config/catalog_resolver.py     合并层：catalog.json 默认 ∩ 用户 D
         │  resolve_explicit_runtime_capabilities(...) → 本轮显式调用（忽略个人开关，保留硬门控）
         ▼
 请求链路消费：
-  api/routes/v1/chats.py → core/chat/context.py   写入 workflow context
-  core/llm/agent_factory.py                       决定连接哪些 MCP、注册哪些技能
+  api/routes/v1/chats/__init__.py → core/chat/context.py   写入 workflow context
+  core/llm/factory/build.py                       决定连接哪些 MCP、注册哪些技能
   api/routes/v1/catalog.py                        /v1/catalog 给前端能力中心
 ```
 
@@ -66,7 +66,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 - **显式插件使用引导**：选择插件后加载其技能和 MCP 工具，提示模型优先按需使用；不限制首个工具调用，也不要求必须调用才能完成回答。
 - **会话级能力恢复**：后续回合在个人开关筛选前恢复已激活的技能、连接器及插件组件，使技能清单与工具名/前缀在该会话中稳定；恢复时仍重新校验安装、管理员全局状态、依赖与归属，硬门控变化会立即生效。
 
-每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把默认合并结果写入 workflow context；`api/routes/v1/chats.py::_resolve_explicit_capability_invocation()` 再校验插件安装实例与能力归属，从服务端安装记录解析组件，并把通过硬门控的显式选择并入当前回合。`core/llm/session_capabilities.py` 和 `core/llm/plugin_loader.py::resolve_sticky_plugin_capabilities()` 在后续回合恢复会话已激活能力。
+每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把默认合并结果写入 workflow context；`api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` 再校验插件安装实例与能力归属，从服务端安装记录解析组件，并把通过硬门控的显式选择并入当前回合。`core/llm/session_capabilities.py` 和 `core/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` 在后续回合恢复会话已激活能力。
 
 ## /v1/catalog 路由与 KB 注入
 
@@ -132,4 +132,4 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 | 技能管理 | `src/backend/api/routes/v1/admin_skills.py`，`core/agent_skills/` |
 | Dify KB 注入（EE） | `src/backend/edition_ee/kb/dify.py`，经共享接缝 `core/kb/external_provider.py` 调用 |
 | 前端能力中心 | `src/frontend/src/components/catalog/`，`stores/catalogStore.ts` |
-| 工厂消费侧 | `src/backend/core/llm/agent_factory.py::_effective_mcp_server_keys` |
+| 工厂消费侧 | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

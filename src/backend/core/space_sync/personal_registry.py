@@ -29,7 +29,7 @@ def get_registry() -> Optional[MySpaceRegistry]:
     return _registry
 
 
-async def flush_user(user_id: str) -> None:
+async def flush_user(user_id: str, *, metadata_only: bool = False) -> None:
     "催一下这个用户待登记的改动 —— 读「我的空间」之前调，看到的就是当下状态。"
     if _registry is None or not user_id:
         return
@@ -37,6 +37,9 @@ async def flush_user(user_id: str) -> None:
     from fastapi import HTTPException
 
     try:
+        if metadata_only:
+            await _registry.flush(user_id, metadata_only=True)
+            return
         await _registry.flush(user_id)
         report = await asyncio.to_thread(pull_myspace_updates, user_id=user_id)
         if report.failed or report.conflicted:

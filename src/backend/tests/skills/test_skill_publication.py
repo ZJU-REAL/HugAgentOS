@@ -545,7 +545,7 @@ def test_cube_current_archive_rechecks_owner_and_freezes_bytes(cloud):
 async def test_cube_prepush_uses_users_private_override(cloud, monkeypatch):
     import tarfile
     from unittest.mock import AsyncMock
-    from core.sandbox.cube_provider import CubeSandboxProvider
+    from core.sandbox.cube.provider import CubeSandboxProvider
 
     package = cloud.builtin / "sample"
     package.mkdir()

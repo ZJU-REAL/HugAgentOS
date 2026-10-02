@@ -43,7 +43,10 @@ def test_plan_tool_segment_prefers_the_active_db_version(monkeypatch):
     assert build_plan_update_prompt_section() == "管理员改过的正文"
 
 
-def test_plan_tool_is_a_builtin_kind_with_a_label():
+def test_plan_tool_is_a_builtin_kind_with_a_label(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    monkeypatch.setattr(pvs, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
     assert "plan_tool" in pvs.BUILTIN_KINDS
     assert any(k["key"] == "plan_tool" and k["builtin"] for k in pvs.all_kinds())
 

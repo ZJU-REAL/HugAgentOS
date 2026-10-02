@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 from core.memory import graph as G
-from core.memory import service as S
+from core.memory import queries as S
+from core.memory import backend as memory_backend
 from core.memory.context import MemoryContext
 from core.memory.extractors import writers as W
 from core.memory.extractors.router import ExtractorType
@@ -195,7 +196,7 @@ async def test_graph_writer_reports_an_addressable_l3_relation(monkeypatch):
 async def test_retrieved_relations_carry_identity_from_the_graph_store(monkeypatch):
     """Retrieval must not discard the id/confidence the store already returns."""
     monkeypatch.setattr(
-        S,
+        memory_backend,
         "settings",
         SimpleNamespace(memory=SimpleNamespace(enabled=True, graph_enabled=True)),
     )
@@ -225,11 +226,11 @@ async def test_retrieved_relations_carry_identity_from_the_graph_store(monkeypat
 @pytest.mark.asyncio
 async def test_graph_relations_survive_a_vector_store_outage(monkeypatch):
     monkeypatch.setattr(
-        S,
+        memory_backend,
         "settings",
         SimpleNamespace(memory=SimpleNamespace(enabled=True, graph_enabled=True)),
     )
-    monkeypatch.setattr(S, "_get_memory", lambda: None)
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: None)
 
     async def fake_graph(**_kwargs):
         return (

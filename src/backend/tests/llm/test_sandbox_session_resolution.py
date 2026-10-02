@@ -69,7 +69,7 @@ def test_custom_subagent_reuses_parent_session(monkeypatch, local_project):
     )
     monkeypatch.setattr("core.llm.builtin_subagents.get_builtin_subagent", lambda _id: None)
     monkeypatch.setattr(
-        "core.llm.agent_factory.create_agent_executor",
+        "core.llm.factory.create_agent_executor",
         fake_create_agent_executor,
     )
     monkeypatch.setattr("core.llm.mcp_manager.close_clients", no_op)

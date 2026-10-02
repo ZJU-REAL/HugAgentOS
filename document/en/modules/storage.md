@@ -112,7 +112,7 @@ A backend mirror cache sits between MySpace files and the code sandbox (details 
 
 - Cache directory: `{STORAGE_PATH}/myspace_cache/{user_id}/...` (`core/sandbox/_common.py::myspace_cache_dir`); team files have a shared `team_cache_dir(team_id)`;
 - **Seed**: when a persistent sandbox session is first created, cache files are seeded into the sandbox at `/workspace/myspace/{user_id}/`, then incrementally synced by mtime;
-- **Lazy loading**: when sandbox-side Read/Glob/Grep miss a file, the path is resolved to an artifact, downloaded on demand from object storage, and materialized into the sandbox (`core/llm/tools/myspace_vfs.py::materialize_into_sandbox`);
+- **Lazy loading**: when sandbox-side Read/Glob/Grep miss a file, the path is resolved to an artifact, downloaded on demand from object storage, and materialized into the sandbox (`core/llm/tools/myspace_vfs/__init__.py::materialize_into_sandbox`);
 - **space_delete / space_move / space_create_folder**: these three are commands issued *against* My Space (the same class as the UI's buttons), so the tools update the `artifacts` table and the myspace_cache mirror directly;
 - **Real-time registration**: any write or delete under the mirror directory is registered back into the `artifacts` ledger by `core/myspace/watcher.py` — **regardless of who wrote it** (tools, `bash`, background processes, sub-agents and skill CLIs alike). New files are registered and shown directly; edits to or deletions of the user's existing files go through the confirmation gate (a decline restores that version from object storage); files the user deleted are never resurrected. See [Sandbox](./sandbox.md).
 
@@ -143,7 +143,7 @@ Object storage is therefore the **single source of truth**; myspace_cache is jus
 | `src/backend/api/routes/files.py` | `/files/{file_id}` download / preview |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM (storage_key and ownership fields) |
 | `src/backend/core/sandbox/_common.py` | `myspace_cache_dir` / `team_cache_dir` |
-| `src/backend/core/llm/tools/myspace_vfs.py` | MySpace ↔ sandbox bidirectional sync layer |
+| `src/backend/core/llm/tools/myspace_vfs/__init__.py` | MySpace ↔ sandbox bidirectional sync layer |
 
 Related docs: [Sandbox](./sandbox.md) · [Projects & MySpace](./projects-myspace.md) · [Environment Variables](../deployment/environment-variables.md) · [Edition Comparison](../editions/overview.md)
 

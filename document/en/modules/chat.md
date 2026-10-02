@@ -48,7 +48,7 @@ orchestration/chat_run_executor.py::start_run()
 orchestration/workflow.py::astream_chat_workflow()
    │   ├─ orchestration/memory_integration.py  non-blocking memory retrieval (bg task + budget)
    │   ├─ core/config/catalog_resolver.py      resolve enabled skills/mcp/kb for this request
-   │   ├─ core/llm/agent_factory.py::create_agent_executor()
+   │   ├─ core/llm/factory/build.py::create_agent_executor()
    │   │     MCP pool + skill registration + file tools + system prompt + middlewares → Agent
    │   ├─ core/llm/context_manager.py          trim history to the token budget
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
@@ -126,7 +126,7 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 
 **The desktop client uses this same preset and no longer stores one of its own.** The former host permission preset (strict / standard / full, persisted in `local_grants.json` and exposed at `/v1/local/approval-mode`) has been removed entirely. The local execution policy is now derived from this preset by `core/services/local_grant_service.policy_for_gate(approval_mode)`: `full` allows everything, while `ask` / `auto` follow the user's per-category dispositions and the built-in defaults. The OS file-sandbox contract is declared per preset the same way (`LOCAL_CONFINEMENT_BY_MODE`): `ask` / `auto` prefer confinement and degrade with a warning when no runner exists, `full` explicitly opts out, and an unreadable local security configuration falls back to the `FAIL_CLOSED_MODE` sentinel, which demands confinement. What the desktop still keeps — authorized folders and per-category danger dispositions (`/v1/local/grants`, `/v1/local/policy`) — governs *which folders may be touched*, a separate concern, still reachable from the bottom of the chip's menu.
 
-### Agent construction highlights (core/llm/agent_factory.py)
+### Agent construction highlights (core/llm/factory/build.py)
 
 `create_agent_executor()` is the shared factory for every mode (main chat, plan, batch, sub-agents, automation):
 
@@ -464,12 +464,12 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 
 | Topic | Path |
 |---|---|
-| Chat routes / SSE egress | `src/backend/api/routes/v1/chats.py` |
+| Chat routes / SSE egress | `src/backend/api/routes/v1/chats/__init__.py` |
 | Run decoupling / Redis Stream / resume | `src/backend/orchestration/chat_run_executor.py`, `api/routes/v1/chat_runs.py` |
 | Streaming orchestration | `src/backend/orchestration/workflow.py` |
 | Event mapping (reply_stream → SSE) | `src/backend/orchestration/streaming.py` |
 | Runtime context assembly | `src/backend/core/chat/context.py` |
-| Agent factory | `src/backend/core/llm/agent_factory.py` |
+| Agent factory | `src/backend/core/llm/factory/build.py` |
 | Middlewares | `src/backend/core/llm/middlewares.py` (pure-function helpers in `core/llm/hooks.py`) |
 | Citation extraction | `src/backend/orchestration/citations.py` |
 | Cross-chat references (cards / digests / paging) | `src/backend/core/services/chat_reference_service.py` |

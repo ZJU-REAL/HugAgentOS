@@ -17,6 +17,7 @@
 
 import asyncio
 
+import api.routes.v1.chats.session_context as chat_session_context
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base
@@ -84,12 +85,11 @@ def _stub_run_dependencies(monkeypatch, db_session) -> None:
     async def fake_start_run(**kw):
         return "run_1"
 
-    import api.routes.v1.chats as chats_mod
     import core.config.catalog_resolver as resolver_mod
     import core.services.chat_service as chat_service_mod
     from orchestration import chat_run_executor
 
-    monkeypatch.setattr(chats_mod, "_load_session_messages", lambda *a, **k: [])
+    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *a, **k: [])
     monkeypatch.setattr(
         resolver_mod, "resolve_all_runtime_enabled", lambda *a, **k: (None, None, None)
     )
@@ -155,7 +155,7 @@ class _Msg:
 
 def test_message_list_filters_wake_messages():
     """消息列表接口的过滤谓词：带标记的、以及标记上线前落库的老消息，都不进聊天记录。"""
-    from api.routes.v1.chats import _is_internal_message
+    from api.routes.v1.chats.history import _is_internal_message
 
     assert _is_internal_message(_Msg("user", "转述一下", {"hidden_in_chat": True}))
     # 老消息（没有标记，只有开头那句）

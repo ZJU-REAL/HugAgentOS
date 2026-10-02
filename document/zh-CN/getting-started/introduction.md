@@ -32,7 +32,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
 | 层 | 技术 | 备注 |
 |---|---|---|
 | 后端 | FastAPI + Uvicorn（Python 3.11） | `src/backend/api/app.py`，统一响应 envelope |
-| 智能体框架 | AgentScope 2.0（`agentscope==2.0.0`） | ReActAgent + 工具注册，`core/llm/agent_factory.py` |
+| 智能体框架 | AgentScope 2.0（`agentscope==2.0.0`） | ReActAgent + 工具注册，`core/llm/factory/build.py` |
 | 前端 | React 19 + Vite 7 + Zustand 5 + Ant Design 6 | `src/frontend/`，nginx 容器托管并反代 `/api` |
 | 数据库 | PostgreSQL 15（生产）/ SQLite（本地调试兜底） | SQLAlchemy 2 + Alembic 迁移 |
 | 缓存 / 会话 | Redis 7 | 会话存储、流式 follower（Redis Streams） |
@@ -69,7 +69,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
        └──► PostgreSQL · Redis · 存储 (local / S3 / OSS)
 ```
 
-请求主链路：浏览器 → frontend 容器内 nginx（`/api` 反代）→ FastAPI → `orchestration/workflow.py` 编排流式输出 → `core/llm/agent_factory.py` 构建 ReActAgent → MCP 工具 / 沙箱 / 记忆 → SSE 事件（`text` / `tool_call` / `tool_result` / `meta` / `done`）回推前端。
+请求主链路：浏览器 → frontend 容器内 nginx（`/api` 反代）→ FastAPI → `orchestration/workflow.py` 编排流式输出 → `core/llm/factory/build.py` 构建 ReActAgent → MCP 工具 / 沙箱 / 记忆 → SSE 事件（`text` / `tool_call` / `tool_result` / `meta` / `done`）回推前端。
 
 ## 下一步
 
@@ -84,7 +84,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
 |---|---|
 | FastAPI 应用与路由注册 | `src/backend/api/app.py`、`src/backend/api/routes/v1/` |
 | 流式编排（SSE） | `src/backend/orchestration/workflow.py`、`orchestration/streaming.py` |
-| 智能体构建 | `src/backend/core/llm/agent_factory.py` |
+| 智能体构建 | `src/backend/core/llm/factory/build.py` |
 | MCP server 与端口映射 | `src/backend/mcp_servers/`、`src/backend/mcp_servers/_ports.py`、`src/backend/core/config/mcp_config.py` |
 | 能力注册表 | `src/backend/core/config/catalog.json`、`core/config/catalog.py` |
 | 沙箱 provider | `src/backend/core/sandbox/`、`src/backend/core/config/settings.py::SandboxSettings` |

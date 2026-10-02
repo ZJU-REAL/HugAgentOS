@@ -11,34 +11,49 @@
    MCP 网关和模型网关。
    ⚠️ 云端 session cookie / 内部 token / 第三方密钥都**不**下发桌面——
    本机只拿到这一枚 HMAC 签名的桌面运行时令牌。
-2. **manifest 构建**：复用 catalog resolver + McpServerConfigService 的既有
-   授权链路（管理员开关、用户 override、插件安装状态、用户私有 MCP），
-   输出 server 级清单（含组件基名，供本机做 logical 去重）。
+2. **稳定的能力入口**：清单、网关、技能与声明导出按职责放在独立模块；
+   此处重导出公开服务函数，路由调用接口保持不变。
 
 设计文档：internal design docs
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import hmac
 import json
 import logging
-import secrets
-import copy
-import threading
-import time
 import os
 import re
+import secrets
+import threading
+import time
 from datetime import datetime, timezone
-from urllib.parse import urlsplit, urlunsplit, unquote, unquote_plus
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from core.db.engine import SessionLocal
-from core.db.models import AdminMcpServer, ContentBlock, ModelProvider, ModelRoleAssignment
+from core.db.models import ContentBlock
+from core.services.desktop_capability_credentials import CapabilityContentRejected
+from core.services.desktop_capability_entities import (
+    build_user_agent_manifest,
+    build_user_plugin_manifest,
+    resolve_agent_bundle,
+    resolve_plugin_bundle,
+)
+
+# Public entry points remain stable for route consumers; implementations own their state.
+from core.services.desktop_capability_mcp import (
+    build_user_capability_manifest,
+    invoke_gateway_tool,
+    resolve_gateway_target,
+    resolve_gateway_tool,
+)
+from core.services.desktop_capability_models import (
+    build_user_model_manifest,
+    resolve_model_gateway_target,
+)
 from core.services.desktop_capability_protocol import (
     CapabilityManifestStaleError,
     build_manifest,
@@ -48,6 +63,14 @@ from core.services.desktop_capability_protocol import (
     public_tool_schemas,
     skill_content_hash,
 )
+from core.services.desktop_capability_security import (
+    gateway_stream_secrets,
+    guard_capability_bundle,
+    guard_capability_content,
+    guard_capability_stream,
+    invalidate_model_gateway_cache,
+)
+from core.services.desktop_capability_skills import build_user_skill_manifest, resolve_skill_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +142,9 @@ def is_desktop_shell_control(authorization: str, origin: Optional[str]) -> bool:
     secret = os.getenv(BRIDGE_SECRET_ENV, "").strip()
     if not secret or origin is not None:
         return False
-    return hmac.compare_digest((authorization or "").encode("utf-8"), f"Bearer {secret}".encode("utf-8"))
+    return hmac.compare_digest(
+        (authorization or "").encode("utf-8"), f"Bearer {secret}".encode("utf-8")
+    )
 
 
 def capability_issuer(request_base_url: str) -> str:
@@ -180,22 +205,36 @@ def issue_capability_token(
     ttl = max(60, min(CAPABILITY_TOKEN_TTL_S, int(ttl_s)))
     now = int(time.time())
     payload = json.dumps(
-        {"u": user_id, "c": user_center_id, "e": now + ttl, "iat": now, "n": secrets.token_hex(8),
-         "s": CAPABILITY_SCOPE, "aud": CAPABILITY_AUDIENCE,
-         "iss": capability_issuer(issuer), "d": device_id,
-         "h": session_hash, "a": authorization_epoch},
+        {
+            "u": user_id,
+            "c": user_center_id,
+            "e": now + ttl,
+            "iat": now,
+            "n": secrets.token_hex(8),
+            "s": CAPABILITY_SCOPE,
+            "aud": CAPABILITY_AUDIENCE,
+            "iss": capability_issuer(issuer),
+            "d": device_id,
+            "h": session_hash,
+            "a": authorization_epoch,
+        },
         separators=(",", ":"),
     ).encode("utf-8")
     body = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
     return {
         "token": f"{_TOKEN_PREFIX}.{body}.{_sign(body.encode('ascii'))}",
-        "expires_in": ttl, "scope": CAPABILITY_SCOPE,
-        "device_id": device_id, "authorization_epoch": authorization_epoch,
+        "expires_in": ttl,
+        "scope": CAPABILITY_SCOPE,
+        "device_id": device_id,
+        "authorization_epoch": authorization_epoch,
     }
 
 
 async def verify_capability_token(
-    token: str, *, device_id: str = "", issuer: str = "",
+    token: str,
+    *,
+    device_id: str = "",
+    issuer: str = "",
 ) -> Optional[str]:
     """Validate every claim and the live session; failures never expose details."""
     try:
@@ -219,8 +258,12 @@ async def verify_capability_token(
             return None
         if not 0 < expires - issued <= CAPABILITY_TOKEN_TTL_S or epoch <= 0:
             return None
-        if (payload.get("s") != CAPABILITY_SCOPE or payload.get("aud") != CAPABILITY_AUDIENCE
-                or payload.get("iss") != capability_issuer(issuer) or payload.get("d") != device_id):
+        if (
+            payload.get("s") != CAPABILITY_SCOPE
+            or payload.get("aud") != CAPABILITY_AUDIENCE
+            or payload.get("iss") != capability_issuer(issuer)
+            or payload.get("d") != device_id
+        ):
             return None
         digest, user_id = payload.get("h"), payload.get("u")
         if not isinstance(digest, str) or not _HASH_PATTERN.fullmatch(digest):
@@ -236,7 +279,11 @@ async def verify_capability_token(
         if not current or str(current.get("user_id") or "") != user_id:
             return None
         center_id = payload.get("c")
-        if not isinstance(center_id, str) or not center_id.strip() or current.get("user_center_id") != center_id:
+        if (
+            not isinstance(center_id, str)
+            or not center_id.strip()
+            or current.get("user_center_id") != center_id
+        ):
             return None
         if session_authorization_epoch(current) != epoch:
             return None
@@ -245,1003 +292,3 @@ async def verify_capability_token(
         # Session-store failure is an authorization failure, never an offline
         # bypass. Do not log the token, claims, session digest, or credentials.
         return None
-
-
-class CapabilityContentRejected(ValueError):
-    """A fixed diagnostic; never include the matching credential or content."""
-
-    def __init__(self):
-        super().__init__("capability content contains configured credentials or credential policy is unavailable")
-
-
-# Match credential-bearing field names by whole segment, not substring: a field
-# named ``MAX_OUTPUT_TOKENS`` (a numeric limit) must not be treated as a token
-# credential just because "TOKENS" contains "token" — otherwise its numeric value
-# is scanned as a secret and coincidentally matches bytes in unrelated skill/agent
-# bundles, blocking every download with a false "integrity_failed".
-_SECRET_FIELD = re.compile(
-    r"(?<![A-Za-z0-9])(?:secret|token|password|credential|api[_-]?key|access[_-]?key"
-    r"|private[_-]?key|authorization|cookie|key)(?![A-Za-z0-9])",
-    re.I,
-)
-_URL_FIELDS = frozenset({"url", "base_url", "baseurl", "endpoint", "server_url", "api_url", "uri"})
-
-
-def _secrets_from_config(config: Dict[str, Any]) -> set[str]:
-    found: set[str] = set()
-
-    def add(value):
-        if isinstance(value, str) and value.strip():
-            found.add(value)
-            if value.lower().startswith(("bearer ", "basic ")):
-                found.add(value.split(" ", 1)[1].strip())
-        elif isinstance(value, dict):
-            for nested in value.values():
-                add(nested)
-        elif isinstance(value, (list, tuple)):
-            for nested in value:
-                add(nested)
-
-    def url_credentials(value):
-        if not isinstance(value, str):
-            return
-        try:
-            parsed = urlsplit(value)
-            if parsed.password is not None:
-                add(parsed.password)
-                add(unquote(parsed.password))
-                userinfo = parsed.netloc.rsplit("@", 1)[0]
-                add(userinfo)
-                add(unquote(userinfo))
-            elif parsed.username is not None:
-                add(parsed.username)
-                add(unquote(parsed.username))
-            for pair in parsed.query.split("&"):
-                raw_key, separator, raw_value = pair.partition("=")
-                key = unquote_plus(raw_key)
-                if separator and (_SECRET_FIELD.search(key) or key.lower() in ("sig", "signature")):
-                    add(raw_value)
-                    add(unquote_plus(raw_value))
-        except (ValueError, UnicodeError):
-            raise CapabilityContentRejected() from None
-
-    def walk(value):
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if _SECRET_FIELD.search(str(key)):
-                    add(item)
-                elif str(key).lower() in _URL_FIELDS:
-                    url_credentials(item)
-                elif isinstance(item, (dict, list, tuple)):
-                    walk(item)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                walk(item)
-
-    walk(config)
-    return {value for value in found if value}
-
-
-def _without_public_identifiers(secrets: set[str], public_identifiers: set[str]) -> set[str]:
-    """与模型的公开标识（provider_id / display_name / model_name，模型选择器里所有登录
-    用户都看得到）完全相同的值不是机密：把它当机密只会让清单和模型输出因为自己的
-    模型名被拒。"""
-    return {value for value in secrets if value.strip() not in public_identifiers}
-
-
-# Keyed on ModelConfigService.version: every model-row write path bumps it.
-_model_secret_cache: Optional[Tuple[int, set[str], set[str]]] = None
-
-
-def _model_credentials_and_public_identifiers(*, fresh: bool = True) -> Tuple[set[str], set[str]]:
-    global _model_secret_cache
-    from core.services.model_config import ModelConfigService
-
-    version = ModelConfigService.get_instance().version
-    if not fresh:
-        with _effective_lock:
-            hit = _model_secret_cache
-        if hit is not None and hit[0] == version:
-            return hit[1], hit[2]
-    found: set[str] = set()
-    public_identifiers: set[str] = set()
-    with SessionLocal() as db:
-        for provider_id, display_name, model_name, api_key, base_url, extra_config in db.query(
-            ModelProvider.provider_id, ModelProvider.display_name, ModelProvider.model_name,
-            ModelProvider.api_key, ModelProvider.base_url, ModelProvider.extra_config,
-        ).all():
-            public_identifiers.update(str(v).strip() for v in (provider_id, display_name, model_name) if v)
-            found.update(_secrets_from_config({"api_key": api_key, "base_url": base_url, "extra_config": extra_config}))
-    with _effective_lock:
-        _model_secret_cache = (version, found, public_identifiers)
-    return found, public_identifiers
-
-
-def _known_cloud_secrets(user_id: str, *, fresh: bool = True) -> set[str]:
-    """Read actual authorized connection credentials into this request only.
-
-    Published content (manifests, bundles) is checked against a fresh read.
-    Gateway streams reuse the same 30s authorization snapshot the gateway itself
-    resolved the target from.
-    """
-    try:
-        keys, _enabled, configs = _user_capability_configs(user_id, use_cache=not fresh)
-        found: set[str] = set()
-        for key in keys:
-            found.update(_secrets_from_config(configs.get(key) or {}))
-        model_secrets, public_identifiers = _model_credentials_and_public_identifiers(fresh=fresh)
-        return _without_public_identifiers(found | model_secrets, public_identifiers)
-    except Exception:
-        raise CapabilityContentRejected() from None
-
-
-def gateway_stream_secrets(user_id: str, target: Dict[str, Any]) -> set[str]:
-    """网关转发上游模型/MCP 输出时要屏蔽的凭据：已授权连接的凭据 + 本次目标自身的凭据，
-    同样排除与模型公开标识相同的值（否则每个流式分片里的 model 字段都会命中）。"""
-    try:
-        _, public_identifiers = _model_credentials_and_public_identifiers(fresh=False)
-        return _without_public_identifiers(
-            _known_cloud_secrets(user_id, fresh=False) | _secrets_from_config(target),
-            public_identifiers,
-        )
-    except CapabilityContentRejected:
-        raise
-    except Exception:
-        raise CapabilityContentRejected() from None
-
-
-def _secret_bytes(secrets: set[str]) -> set[bytes]:
-    values = set()
-    for secret in secrets:
-        if secret:
-            values.add(secret.encode("utf-8"))
-            values.add(json.dumps(secret, ensure_ascii=True)[1:-1].encode("ascii"))
-    return values
-
-
-def _guard_value(value: Any, secrets: set[str]) -> None:
-    if isinstance(value, str):
-        if any(secret in value for secret in secrets):
-            raise CapabilityContentRejected()
-    elif isinstance(value, bytes):
-        if any(secret in value for secret in _secret_bytes(secrets)):
-            raise CapabilityContentRejected()
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            _guard_value(key, secrets)
-            _guard_value(item, secrets)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            _guard_value(item, secrets)
-
-
-def guard_capability_content(user_id: str, value: Any, *, extra_secrets: Optional[set[str]] = None):
-    _guard_value(value, _known_cloud_secrets(user_id) | (extra_secrets or set()))
-    return value
-
-
-def guard_capability_bundle(user_id: str, resolved):
-    """Inspect the final ZIP bytes, so a file changed during packing is caught."""
-    if resolved is None:
-        return None
-    import io
-    import zipfile
-
-    data, _revision = resolved
-    secrets = _known_cloud_secrets(user_id)
-    needles = _secret_bytes(secrets)
-    keep = max((len(value) for value in needles), default=1) - 1
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        for info in archive.infolist():
-            _guard_value(info.filename, secrets)
-            with archive.open(info) as file:
-                tail = b""
-                while chunk := file.read(64 * 1024):
-                    combined = tail + chunk
-                    if any(value in combined for value in needles):
-                        raise CapabilityContentRejected()
-                    tail = combined[-keep:] if keep else b""
-    return resolved
-
-
-async def guard_capability_stream(chunks, secrets: set[str]):
-    """Keep enough bytes to detect a credential split at any transport boundary.
-
-    A needle never contains a newline, so nothing can straddle one: every
-    complete line is released the moment it was checked. SSE frames end in a
-    newline, which keeps token streaming at zero added delay.
-    """
-    needles = _secret_bytes(secrets)
-    keep = max((len(value) for value in needles), default=1) - 1
-    line_safe = all(b"\n" not in value for value in needles)
-    tail = b""
-    async for chunk in chunks:
-        combined = tail + chunk
-        if any(value in combined for value in needles):
-            raise CapabilityContentRejected()
-        cut = len(combined) - keep
-        if line_safe:
-            cut = max(cut, combined.rfind(b"\n") + 1)
-        if cut > 0:
-            yield combined[:cut]
-            tail = combined[cut:]
-        else:
-            tail = combined
-    if tail:
-        yield tail
-
-
-# ── 用户有效能力解析（manifest 与网关共用，30s per-user 缓存） ──────────
-
-
-# 网关每次工具调用都要做归属校验；底层 get_owned_servers 不带缓存（防跨用户
-# 泄漏的设计），这里按用户加同节奏的 30s TTL，命中后校验退化为纯内存查找。
-_EFFECTIVE_TTL_S = 30.0
-_effective_cache: Dict[str, Tuple[float, List[str], List[str], Dict[str, dict]]] = {}
-_effective_lock = threading.Lock()
-
-
-def _user_capability_configs(
-    user_id: str, *, use_cache: bool = True
-) -> Tuple[List[str], List[str], Dict[str, dict]]:
-    """(账号拥有的 server_id, 云端此刻启用的 server_id, {server_id: 已物化连接配置})。
-
-    两个集合的分工，就是「装了什么」与「开着什么」的分工：
-
-    - **拥有集**是管理员放行的全局连接器加上这个用户自己的私有连接器（含他在云端
-      关掉的）。清单下发和网关授权都按它来——插件带来的连接器在云端常是关着的，
-      按启用集下发会让插件在桌面端只剩个空壳，打开开关也调不通。
-    - **启用集**是云端此刻的有效启停，只用来给本机首次落地一个初值。之后开关归
-      本机，云端再改也不回头覆盖。
-
-    管理员停用的连接器不在拥有集里，本机也就打不开——这条边界没有放宽。
-    配置含云端侧凭据，仅进程内使用。
-    """
-    uid = str(user_id)
-    now = time.monotonic()
-    if use_cache:
-        with _effective_lock:
-            hit = _effective_cache.get(uid)
-            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-                return list(hit[1]), list(hit[2]), dict(hit[3])
-
-    from core.config.catalog_resolver import resolve_all_runtime_enabled
-    from core.llm.agent_factory import _effective_mcp_server_keys
-    from core.services.mcp_service import McpServerConfigService
-
-    svc = McpServerConfigService.get_instance()
-    owned = svc.get_owned_servers(uid, enabled_only=False, strict=not use_cache)
-    with SessionLocal() as db:
-        _skills, _agents, mcps = resolve_all_runtime_enabled(db, uid)
-    all_cfgs = dict(svc.get_all_servers(enabled_only=True, use_cache=use_cache))
-    all_cfgs.update(owned)
-    available = list(all_cfgs.keys())
-    enabled = _effective_mcp_server_keys(
-        None, None, enabled_mcp_ids=list(mcps or []), owned_servers=owned
-    )
-
-    with _effective_lock:
-        _effective_cache[uid] = (now, list(available), list(enabled), dict(all_cfgs))
-    return available, enabled, all_cfgs
-
-
-def build_user_capability_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
-    """构建当前用户的云端能力 manifest（server 级 + 完整脱敏 schema）。
-
-    清单是账号**拥有**的连接器，云端关着的也在里面（带 ``enabled=false``）：装了
-    什么由云端定，开不开由本机定。只收 ``streamable_http`` 传输的 server——网关按
-    MCP streamable-http 协议透明反代；stdio / sse 传输的（本就极少）不进桌面清单。
-    凭据（URL 内嵌密钥、headers、OAuth）一律留在云端连接层，manifest 不携带任何密钥。
-    """
-    from core.config.catalog_runtime import _DEFAULT_MCP_ICONS
-
-    keys, enabled_keys, all_cfgs = _user_capability_configs(user_id, use_cache=use_cache)
-    enabled = set(enabled_keys)
-
-    meta: Dict[str, AdminMcpServer] = {}
-    if keys:
-        with SessionLocal() as db:
-            rows = db.query(AdminMcpServer).filter(AdminMcpServer.server_id.in_(keys)).all()
-            meta = {r.server_id: r for r in rows}
-            db.expunge_all()
-
-    servers: List[Dict[str, Any]] = []
-    for sid in keys:
-        cfg = all_cfgs.get(sid) or {}
-        if cfg.get("transport") != "streamable_http":
-            continue
-        row = meta.get(sid)
-        source_plugin = row.source_plugin if row else None
-        raw_tools = row.tools_json if row else None
-        tools = public_tool_schemas(raw_tools)
-        servers.append(
-            {
-                "server_id": sid,
-                "display_name": (row.display_name if row else None) or sid,
-                "description": (row.description if row else None) or "",
-                "created_at": row.created_at.isoformat() if row and row.created_at else None,
-                "source_plugin": source_plugin,
-                "origin": "cloud",
-                "execution_scope": "cloud",
-                "tools": tools,
-                "schema_hash": canonical_hash(tools),
-                # 云端此刻的启停，只作本机首次落地的初值。
-                "enabled": sid in enabled,
-                # 图标随条目走：本机没有云端那张内置图标表，也读不到库里的自定义图标，
-                # 不带下去就是网页端有图、桌面端一片空白。
-                "icon": (row.icon if row else "") or _DEFAULT_MCP_ICONS.get(sid, ""),
-            }
-        )
-    # The revision intentionally excludes credentials, URLs and timestamps.
-    return build_manifest(servers)
-
-
-def resolve_gateway_target(
-    user_id: str, server_id: str, *, fresh: bool = False
-) -> Optional[dict]:
-    """网关调用前的授权解析：server 必须是该用户拥有的。
-
-    按拥有集而不是云端启用集裁决：启停已经交给本机，用户在桌面端打开的连接器
-    必须真的调得通。管理员停用的连接器不在拥有集里，这条边界没有放宽。
-
-    命中返回**已物化**（含云端侧凭据/headers、URL 已去尾斜杠）的连接配置——
-    只在云端进程内使用，绝不回传桌面。未命中 / 非 streamable_http / 无 URL
-    一律返回 None（调用方 404，不区分“不存在/无权”）。
-    """
-    keys, _enabled, all_cfgs = _user_capability_configs(user_id, use_cache=not fresh)
-    if server_id not in keys:
-        return None
-    target = all_cfgs.get(server_id)
-    if not isinstance(target, dict) or target.get("transport") != "streamable_http":
-        return None
-    url = (target.get("url") or "").rstrip("/")
-    if not url:
-        return None
-    target = dict(target)
-    target["url"] = url
-    return target
-
-
-def resolve_gateway_tool(
-    user_id: str,
-    server_id: str,
-    tool_name: str,
-    *,
-    schema_hash: str,
-) -> Optional[dict]:
-    """Resolve one currently-authorized tool and its private cloud target.
-
-    The desktop's cached schema is discovery data, never an authorization
-    grant. Every invocation rechecks both server visibility and the current
-    DB tool allowlist before any upstream connection is opened.
-    """
-    target = resolve_gateway_target(user_id, server_id, fresh=True)
-    wanted = str(tool_name or "").strip()
-    if target is None or not wanted:
-        return None
-    with SessionLocal() as db:
-        row = db.get(AdminMcpServer, server_id)
-        raw_tools = row.tools_json if row is not None else None
-    tools = public_tool_schemas(raw_tools)
-    if canonical_hash(tools) != str(schema_hash or ""):
-        raise CapabilityManifestStaleError("capability manifest changed")
-    for tool in tools:
-        if tool["name"] == wanted:
-            return {
-                "user_id": str(user_id),
-                "server_id": str(server_id),
-                "target": target,
-                "tool": tool,
-            }
-    return None
-
-
-async def invoke_gateway_tool(
-    resolved: Dict[str, Any],
-    arguments: Dict[str, Any],
-    runtime_headers: Dict[str, str],
-) -> Dict[str, Any]:
-    """Execute one MCP tool inside the cloud network and return a ToolChunk.
-
-    This deliberately terminates the desktop-facing hop as ordinary JSON. The
-    cloud process still uses the native MCP client directly against the private
-    target, preserving OAuth, upstream credentials and MCP result conversion
-    without extending an MCP SSE session across the public gateway.
-    """
-    import mcp.types
-
-    from core.llm.mcp_pool import make_client
-
-    arguments = dict(arguments or {})
-    from core.services.automation_remote_effect import RECEIPT_TOOLS, bind_remote_effect
-    tool_name = str(resolved["tool"]["name"])
-    if tool_name in RECEIPT_TOOLS and arguments.get("tool_effect_id"):
-        operation_id = arguments.pop("tool_effect_id")
-        arguments["tool_effect_id"] = await asyncio.to_thread(
-            bind_remote_effect, str(resolved["user_id"]), str(resolved["server_id"]),
-            tool_name, operation_id, arguments,
-        )
-
-    target = dict(resolved["target"])
-    upstream_headers = {
-        str(k).lower(): str(v)
-        for k, v in (runtime_headers or {}).items()
-        if isinstance(k, str) and isinstance(v, str)
-    }
-    # Cloud-owned credentials override every desktop-supplied header. Identity
-    # is bound to the verified capability token, never to a client header.
-    for key, value in dict(target.get("headers") or {}).items():
-        if isinstance(key, str) and isinstance(value, str):
-            upstream_headers[key.lower()] = value
-    upstream_headers["x-current-user-id"] = str(resolved["user_id"])
-    upstream_headers["accept-encoding"] = "identity"
-    target["headers"] = upstream_headers
-
-    client = make_client(str(resolved["server_id"]), target, is_stateful=False)
-    raw_tool = mcp.types.Tool.model_validate(resolved["tool"])
-    # Skip a second tools/list call in the cloud: the allowlisted schema was read
-    # from the same DB row immediately above. get_tool then performs only the
-    # real initialize + tools/call lifecycle against the private MCP target.
-    client._cached_tools = [raw_tool]  # noqa: SLF001 - AgentScope has no public preload API
-    tool = await client.get_tool(raw_tool.name)
-    timeout = max(1.0, float(client.execution_timeout or 120.0)) + 10.0
-    chunk = await asyncio.wait_for(tool(**dict(arguments or {})), timeout=timeout)
-    chunk.metadata.setdefault("origin", "cloud")
-    chunk.metadata.setdefault("mcp_server_id", str(resolved["server_id"]))
-    return guard_capability_content(str(resolved["user_id"]), chunk.model_dump(mode="json"),
-        extra_secrets=_secrets_from_config(target))
-
-
-# ── 技能清单 / 技能包（云端为真源，本机只缓存文件快照） ───────────────────
-
-_SKILL_SKIP_PARTS = {"__pycache__", ".git", ".svn", ".hg", "__MACOSX"}
-_skill_manifest_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-
-
-def _skill_info(skill_id: str):
-    from core.agent_skills.loader import get_skill_loader
-
-    return get_skill_loader()._backend.get_skill_info(skill_id)
-
-
-def _skill_snapshot(
-    skill_id: str, info=None
-) -> Optional[Tuple[str, Dict[str, str], Optional[Path]]]:
-    """(SKILL.md 正文, {相对路径: 内容}, 文件系统技能目录或 None)。
-
-    ``info`` 给已经取过的调用方复用，省一次后端查询。
-    """
-    from core.agent_skills.binary_files import pack_directory
-    from core.agent_skills.loader import get_skill_loader
-
-    loader = get_skill_loader()
-    info = _skill_info(skill_id) if info is None else info
-    if info is None:
-        return None
-    if not info.is_database and info.content is None and info.file_path is not None:
-        skill_dir = Path(info.file_path).parent
-        files = {
-            rel: body
-            for rel, body in pack_directory(skill_dir).items()
-            if not _SKILL_SKIP_PARTS.intersection(rel.split("/")) and not rel.endswith(".pyc")
-        }
-        return files.pop("SKILL.md", ""), files, skill_dir
-    content = loader._backend.read_skill_file(skill_id) if info.is_database else info.content
-    return str(content or ""), dict(loader.get_extra_files(skill_id) or {}), None
-
-
-def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
-    """这个账号拥有的技能清单（含内容哈希与云端当前启停）。
-
-    清单回答的是「装了什么」，不是「开着什么」：库里的技能不论启停一律下发，本机才
-    装得齐——插件的子技能和智能体依赖的技能在云端常是关着的，只发启用的会让它们在
-    本机整片缺失，插件下方空无一物、智能体调用时找不到工具。``enabled`` 只作本机
-    首次落地的初值，之后启停由本机自己控制。
-
-    内置技能随本机后端一起分发，本机目录里本来就有，仍按启用集下发。
-    """
-    uid = str(user_id)
-    now = time.monotonic()
-    if use_cache:
-        with _effective_lock:
-            hit = _skill_manifest_cache.get(uid)
-            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-                return copy.deepcopy(hit[1])
-
-    from core.agent_skills.loader import get_skill_loader
-    from core.config.catalog_resolver import resolve_all_runtime_enabled
-    from core.llm.agent_factory import _filter_skill_ids_for_user
-
-    with SessionLocal() as db:
-        enabled, _agents, _mcps = resolve_all_runtime_enabled(db, uid)
-    enabled_ids = set(_filter_skill_ids_for_user(list(enabled or []), uid))
-    loader = get_skill_loader()
-    metadata = loader.load_all_metadata()
-    visible = sorted(sid for sid in metadata if loader.get_skill_owner(sid) in (None, uid))
-
-    skills: List[Dict[str, Any]] = []
-    for sid in visible:
-        meta = metadata.get(sid)
-        info = _skill_info(sid) if meta is not None else None
-        if info is None:
-            continue
-        if sid not in enabled_ids and not info.is_database:
-            continue
-        snapshot = _skill_snapshot(sid, info)
-        if snapshot is None:
-            continue
-        content, files, _dir = snapshot
-        skills.append(
-            {
-                "skill_id": sid,
-                "display_name": meta.name,
-                "description": meta.description,
-                "version": meta.version,
-                "scope": "private" if loader.get_skill_owner(sid) else "shared",
-                "content_hash": skill_content_hash(content, files),
-                "mcp_server_ids": list(meta.mcp_server_ids or []),
-                "enabled": sid in enabled_ids,
-                "source_plugin": str(getattr(info, "source_plugin", "") or ""),
-            }
-        )
-    manifest = build_skill_manifest(skills)
-    with _effective_lock:
-        _skill_manifest_cache[uid] = (now, copy.deepcopy(manifest))
-    return manifest
-
-
-def resolve_skill_bundle(user_id: str, skill_id: str) -> Optional[Tuple[bytes, str]]:
-    """打包一个当前授权技能为 zip，返回 (bytes, content_hash)；未授权返回 None。"""
-    from core.services.marketplace_service import build_skill_zip, build_skill_zip_from_dir
-
-    manifest = build_user_skill_manifest(user_id, use_cache=False)
-    if not any(s["skill_id"] == skill_id for s in manifest["skills"]):
-        return None
-    snapshot = _skill_snapshot(skill_id)
-    if snapshot is None:
-        return None
-    content, files, skill_dir = snapshot
-    if skill_dir is not None:
-        data = build_skill_zip_from_dir(skill_id, skill_dir)
-    else:
-        data = build_skill_zip(skill_id, content, files)
-    return data, skill_content_hash(content, files)
-
-
-# ── 智能体 / 插件清单与定义包（云端侧） ──────────────────────────────────
-#
-# 两类都是纯定义（没有脚本、没有二进制），定义体随清单哈希发布，正文按
-# bundle 下发；本机侧按同一哈希核对后落到 R/agents、R/plugins 的 profile 目录。
-# 模型服务密钥、企业上游地址永远不进这些文件。
-
-_AGENT_PUBLIC_KEYS = (
-    "agent_id",
-    "owner_type",
-    "name",
-    "avatar",
-    "description",
-    "welcome_message",
-    "suggested_questions",
-    "mcp_server_ids",
-    "skill_ids",
-    "plugin_ids",
-    "kb_ids",
-    "model_provider_id",
-    "temperature",
-    "max_tokens",
-    "max_iters",
-    "timeout",
-    "is_enabled",
-    "sort_order",
-    "source_market_slug",
-    "ontology_tags",
-    "version",
-)
-_entity_manifest_cache: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
-
-
-def _zip_files(root: str, files: Dict[str, str]) -> bytes:
-    import io
-    import zipfile
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for rel, body in sorted(files.items()):
-            zf.writestr(f"{root}/{rel}", body)
-    return buf.getvalue()
-
-
-_DECLARATION_ENTRY_KEYS = frozenset({
-    "kind", "id", "key", "skill_id", "agent_id", "server_id", "required",
-    "version_constraint", "version", "platforms", "platform", "execution_plane",
-    "architecture", "python_version", "node_version",
-})
-_RUNTIME_CONSTRAINT_KEYS = ("platforms", "platform", "execution_plane", "architecture", "python_version", "node_version")
-
-
-def _declaration_atom(value: Any, depth: int = 0) -> Any:
-    """Declarations contain scalar metadata, never arbitrary connection objects."""
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return value
-    if isinstance(value, list) and depth < 4:
-        return [_declaration_atom(item, depth + 1) for item in value]
-    raise CapabilityContentRejected()
-
-
-def _declaration_entry(value: Any) -> Any:
-    if isinstance(value, str):
-        return value  # Legacy component ID / runtime package requirement.
-    if not isinstance(value, dict):
-        raise CapabilityContentRejected()
-    return {key: _declaration_atom(item) for key, item in value.items() if key in _DECLARATION_ENTRY_KEYS}
-
-
-def _declaration_entries(values: Any) -> List[Any]:
-    if values is None:
-        return []
-    return [_declaration_entry(value) for value in (values if isinstance(values, list) else [values])]
-
-
-def _declaration_groups(value: Any) -> Dict[str, Any]:
-    if not isinstance(value, dict):
-        raise CapabilityContentRejected()
-    # Unknown groups retain their identities and required flags so the resolver
-    # reports unsupported required components instead of making them disappear.
-    return {str(group): _declaration_entries(entries) for group, entries in value.items() if group != "warnings"}
-
-
-def _public_declarations(value: Dict[str, Any]) -> Dict[str, Any]:
-    public: Dict[str, Any] = {}
-    for key in _RUNTIME_CONSTRAINT_KEYS:
-        if key in value:
-            public[key] = _declaration_atom(value[key])
-    if "dependencies" in value:
-        deps = value["dependencies"]
-        public["dependencies"] = _declaration_groups(deps) if isinstance(deps, dict) else _declaration_entries(deps)
-    if "components" in value:
-        public["components"] = _declaration_groups(value["components"])
-    if "extensions" in value:
-        extensions = value["extensions"]
-        if isinstance(extensions, dict):
-            public["extensions"] = {
-                key: _declaration_atom(item) if key in _RUNTIME_CONSTRAINT_KEYS else (
-                    _declaration_entry(item) if isinstance(item, dict) else {"required": True}
-                )
-                for key, item in extensions.items()
-            }
-        else:
-            public["extensions"] = _declaration_entries(extensions)
-    for key in ("hooks", "rules", "commands"):
-        if key in value:
-            public[key] = _declaration_entries(value[key])
-    return public
-
-
-def _public_agent_extra(value: Any) -> Dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    public = {key: _declaration_atom(value[key]) for key in ("version", "ontology_tags") if key in value}
-    if "capability_requirements" in value:
-        requirements = value["capability_requirements"]
-        public["capability_requirements"] = (
-            _public_declarations(requirements) if isinstance(requirements, dict) else _declaration_entries(requirements)
-        )
-    return public
-
-
-def _agent_files(serialized: Dict[str, Any]) -> Dict[str, str]:
-    definition = {k: serialized.get(k) for k in _AGENT_PUBLIC_KEYS}
-    definition.update(_public_declarations(serialized))
-    definition["extra_config"] = _public_agent_extra(serialized.get("extra_config"))
-    return {
-        "agent.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2),
-        "instructions.md": str(serialized.get("system_prompt") or ""),
-    }
-
-
-def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
-    if installed.get("_uploaded_files") is not None:
-        return dict(installed["_uploaded_files"])
-    definition = {
-        "install_id": installed["install_id"],
-        "slug": installed["slug"],
-        "name": installed["name"],
-        "version": installed.get("version") or "",
-        "description": installed.get("description") or "",
-        "category": installed.get("category") or "",
-        "icon": installed.get("icon"),
-        "components": _declaration_groups(installed.get("components") or {
-            key: installed.get(key) or [] for key in ("skills", "agents", "mcp", "plugins")
-        }),
-        "ui_contributions": installed.get("ui_contributions"),
-        "import_report": installed.get("import_report") or {},
-    }
-    definition.update(_public_declarations(installed))
-    return {"plugin.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2)}
-
-
-def _user_agents(user_id: str) -> List[Dict[str, Any]]:
-    from core.services.user_agent_service import UserAgentService
-
-    with SessionLocal() as db:
-        return list(UserAgentService(db).list_for_user(user_id) or [])
-
-
-def _user_plugins(user_id: str) -> List[Dict[str, Any]]:
-    from core.db.models import InstalledPlugin
-    from core.services import plugin_service
-
-    with SessionLocal() as db:
-        from core.services.capability_workcopies import active_plugin_files
-        rows = plugin_service.list_installed(db, user_id, include_global=True)
-        metadata = {
-            r.install_id: {"ui_contributions": r.ui_contributions, "components": r.component_ids or {},
-                           "_uploaded_files": active_plugin_files(db, user_id, r)}
-            for r in db.query(InstalledPlugin).filter(
-                InstalledPlugin.install_id.in_([r["install_id"] for r in rows] or [""])
-            )
-        }
-    for r in rows:
-        r.update(metadata.get(r["install_id"], {}))
-    return rows
-
-
-def build_user_agent_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
-    from core.services.desktop_capability_protocol import build_entity_manifest, entity_content_hash
-
-    uid = str(user_id)
-    now = time.monotonic()
-    if use_cache:
-        with _effective_lock:
-            hit = _entity_manifest_cache.get(("agent", uid))
-            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-                return copy.deepcopy(hit[1])
-    entries = [
-        {
-            "agent_id": a["agent_id"],
-            "name": a["name"],
-            "description": a.get("description") or "",
-            "version": str(a.get("version") or ""),
-            "content_hash": entity_content_hash(_agent_files(a)),
-            "is_enabled": bool(a.get("is_enabled", True)),
-        }
-        for a in _user_agents(uid)
-    ]
-    manifest = build_entity_manifest("agent", entries)
-    with _effective_lock:
-        _entity_manifest_cache[("agent", uid)] = (now, copy.deepcopy(manifest))
-    return manifest
-
-
-def resolve_agent_bundle(user_id: str, agent_id: str) -> Optional[Tuple[bytes, str]]:
-    from core.services.desktop_capability_protocol import entity_content_hash
-
-    for a in _user_agents(str(user_id)):
-        if a["agent_id"] == agent_id:
-            files = _agent_files(a)
-            return _zip_files(agent_id, files), entity_content_hash(files)
-    return None
-
-
-def build_user_plugin_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
-    from core.services.desktop_capability_protocol import build_entity_manifest, entity_content_hash
-
-    uid = str(user_id)
-    now = time.monotonic()
-    if use_cache:
-        with _effective_lock:
-            hit = _entity_manifest_cache.get(("plugin", uid))
-            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-                return copy.deepcopy(hit[1])
-    entries = [
-        {
-            "install_id": p["install_id"],
-            "slug": p["slug"],
-            "name": p["name"],
-            "version": str(p.get("version") or ""),
-            "description": p.get("description") or "",
-            "category": p.get("category") or "",
-            "content_hash": entity_content_hash(_plugin_files(p)),
-            "enabled": bool(p.get("enabled", True)),
-            "skills": list(p.get("skills") or []),
-            "mcp": list(p.get("mcp") or []),
-        }
-        for p in _user_plugins(uid)
-    ]
-    manifest = build_entity_manifest("plugin", entries)
-    with _effective_lock:
-        _entity_manifest_cache[("plugin", uid)] = (now, copy.deepcopy(manifest))
-    return manifest
-
-
-def resolve_plugin_bundle(user_id: str, install_id: str) -> Optional[Tuple[bytes, str]]:
-    from core.services.desktop_capability_protocol import entity_content_hash
-
-    for p in _user_plugins(str(user_id)):
-        if p["install_id"] == install_id:
-            files = _plugin_files(p)
-            return _zip_files(p["slug"], files), entity_content_hash(files)
-    return None
-
-
-# ── 模型清单 / 网关目标（云端真实凭据永不离开本进程） ─────────────────────
-
-_MODEL_PATHS = {
-    "chat": "chat/completions",
-    "embedding": "embeddings",
-    "reranker": "rerank",
-}
-
-
-def _upstream_model_path(provider: ModelProvider) -> Optional[str]:
-    """上游该走哪个路径。
-
-    聊天模型有两种线上协议，走哪一种是 ``protocol_probe`` 在配置时探明、写进
-    ``extra_config.api_protocol`` 的事实。网关必须照同一份事实转发：本机端按该事实
-    调用 ``/responses``，网关却一律改投 ``/chat/completions``，上游就会 404，本机端
-    每一轮都先失败一次再回退到别的模型——用户看到的是"本机比云端慢一截"。
-    """
-    provider_type = str(provider.provider_type or "")
-    if provider_type != "chat":
-        return _MODEL_PATHS.get(provider_type)
-    from core.llm.chat_models import wants_responses
-    from core.llm.providers.protocol_probe import PROTOCOL_RESPONSES
-    from core.llm.providers.registry import get_spec
-
-    spec = get_spec(getattr(provider, "provider", None) or "openai_compatible")
-    protocol = (provider.extra_config or {}).get("api_protocol")
-    if wants_responses(spec, protocol):
-        return PROTOCOL_RESPONSES
-    return _MODEL_PATHS["chat"]
-_SENSITIVE_EXTRA_KEY_PARTS = (
-    "api_key",
-    "access_key",
-    "private_key",
-    "secret",
-    "password",
-    "credential",
-    "token",
-)
-
-
-def _model_is_gateway_compatible(provider: ModelProvider) -> bool:
-    """桌面模型网关当前承载 OpenAI-compatible 三类协议。
-
-    Azure 会由 SDK 重写 deployment 路径与鉴权头，原生 Anthropic /
-    Gemini / Bedrock 也不是同一线上协议；在专用适配器完成前不把它们
-    伪装成可用，更不会为了兼容而下发真实凭据。
-    """
-    from core.llm.providers.registry import get_spec
-
-    provider_id = getattr(provider, "provider", None) or "openai_compatible"
-    spec = get_spec(provider_id)
-    return spec.engine == "openai" and spec.id != "azure_openai"
-
-
-def _sanitize_model_extra(value: Any) -> Any:
-    """递归剔除 extra_config 里可能的凭据，保留上下文长度等运行参数。"""
-    if isinstance(value, dict):
-        cleaned: Dict[str, Any] = {}
-        for key, item in value.items():
-            normalized = str(key).strip().lower()
-            if any(part in normalized for part in _SENSITIVE_EXTRA_KEY_PARTS):
-                continue
-            cleaned[str(key)] = _sanitize_model_extra(item)
-        return cleaned
-    if isinstance(value, list):
-        return [_sanitize_model_extra(item) for item in value]
-    return value
-
-
-def build_user_model_manifest(user_id: str) -> Dict[str, Any]:
-    """返回可安全下发桌面的模型拓扑，不含上游 URL 或任何密钥。
-
-    清单包含全部模型行，使本机旧数据库里曾同步过的明文凭据也会被
-    网关占位值覆盖。当前网关不兼容的厂商会下发为 inactive，防止本机
-    误调或回落到旧凭据。
-    """
-    # 用户身份已由 capability token 验证；模型拓扑是全局配置。凭据集合按用户读取，
-    # 与出口守卫使用同一来源。
-    secrets = _known_cloud_secrets(user_id)
-    with SessionLocal() as db:
-        providers = db.query(ModelProvider).order_by(ModelProvider.created_at.desc()).all()
-        assignments = db.query(ModelRoleAssignment).all()
-        rows = []
-        withheld = []
-        for p in providers:
-            row = {
-                "provider_id": p.provider_id,
-                "display_name": p.display_name,
-                "provider_type": p.provider_type,
-                "provider": getattr(p, "provider", None) or "openai_compatible",
-                "model_name": p.model_name,
-                "gateway_group": getattr(p, "gateway_group", None),
-                "weight": getattr(p, "weight", 1),
-                "priority": getattr(p, "priority", 0),
-                "extra_config": _sanitize_model_extra(p.extra_config or {}),
-                "is_active": bool(p.is_active and _model_is_gateway_compatible(p)),
-            }
-            collisions = _credential_collisions(row, secrets)
-            if collisions:
-                # 某个公开字段（如 model_name）与一条已配置的凭据字面相同：下发它就等于
-                # 泄漏凭据。只扣留这一条并点名字段，其余模型照常下发；管理员据此改配置。
-                withheld.append({"provider_id": p.provider_id, "fields": collisions})
-                logger.warning(
-                    "[desktop-capability] model provider withheld from manifest: "
-                    "provider_id=%s fields=%s collide with a configured credential",
-                    p.provider_id, collisions,
-                )
-                continue
-            rows.append(row)
-        provider_ids = {row["provider_id"] for row in rows}
-        role_rows = [
-            {"role_key": a.role_key, "provider_id": a.provider_id}
-            for a in assignments
-            if a.provider_id in provider_ids
-        ]
-    manifest = {"version": 1, "providers": rows, "role_assignments": role_rows}
-    if withheld:
-        manifest["withheld"] = withheld
-    manifest["revision"] = canonical_hash(manifest)
-    return manifest
-
-
-def _credential_collisions(row: Dict[str, Any], secrets: set[str]) -> List[str]:
-    """返回模型行里与已配置凭据字面相撞的字段名（不含值）。"""
-    fields: List[str] = []
-    for field, value in row.items():
-        try:
-            _guard_value(value, secrets)
-        except CapabilityContentRejected:
-            fields.append(field)
-    return fields
-
-
-def _model_provider_allowed(db, user_id: str, provider: ModelProvider) -> bool:  # noqa: ANN001
-    """角色模型对所有用户可用；额外对话模型受用户切换能力控制。"""
-    assigned = db.query(ModelRoleAssignment).filter(
-        ModelRoleAssignment.provider_id == provider.provider_id
-    ).first()
-    if assigned is not None:
-        return True
-    if provider.provider_type != "chat":
-        return False
-    from core.services.user_model_selection import user_can_switch_model
-
-    return user_can_switch_model(db, str(user_id))
-
-
-def invalidate_model_gateway_cache() -> None:
-    """Forget the process-level credential snapshot (a different database was bound)."""
-    global _model_secret_cache
-    with _effective_lock:
-        _model_secret_cache = None
-
-
-def resolve_model_gateway_target(user_id: str, provider_id: str) -> Optional[dict]:
-    """解析并授权一个模型上游目标；未授权/不兼容统一返回 None。
-
-    每次现查：用户的模型切换权限没有变更信号，缓存会让撤权延迟生效。
-    调用方必须在线程池里执行，不得占住事件循环。
-    """
-    pid = str(provider_id or "").strip()
-    if not pid:
-        return None
-    with SessionLocal() as db:
-        provider = db.query(ModelProvider).filter(
-            ModelProvider.provider_id == pid,
-            ModelProvider.is_active == True,  # noqa: E712
-        ).first()
-        if provider is None or not _model_is_gateway_compatible(provider):
-            return None
-        path = _upstream_model_path(provider)
-        base_url = str(provider.base_url or "").strip().rstrip("/")
-        if not path or not base_url or not _model_provider_allowed(db, user_id, provider):
-            return None
-        return {
-            "url": f"{base_url}/{path}",
-            "api_key": str(provider.api_key or ""),
-            "model_name": str(provider.model_name or ""),
-            "provider_type": str(provider.provider_type),
-            "path": path,
-        }

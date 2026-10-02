@@ -948,7 +948,7 @@ def get_compaction_context_state(chat_service: Any, chat_id: str) -> Optional[Di
     # exposing the checkpoint boundary, but attach its token projection only
     # while it still covers the newest measured assistant row.
     if isinstance(replacement_context_usage, dict):
-        recent = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50)
+        recent = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50, metadata_only=True)
         latest_usage_seq = 0
         for row in reversed(recent):
             row_extra = getattr(row, "extra_data", None)

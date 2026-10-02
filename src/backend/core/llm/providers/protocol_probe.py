@@ -166,6 +166,7 @@ async def _check_tool_result_round_trip(
     """
     history = [
         {
+            "type": "message",
             "role": "user",
             "content": [
                 {

@@ -763,8 +763,10 @@ class ChatService:
         """Find the newest checkpoint without timestamps (legacy-state fallback)."""
         from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
 
+        from sqlalchemy.orm import defer
+
         rows = (
-            self.db.query(ChatMessage)
+            self.db.query(ChatMessage).options(defer(ChatMessage.model_steps), defer(ChatMessage.tool_calls))
             .filter(ChatMessage.chat_id == chat_id, ChatMessage.role == "system")
             .order_by(ChatMessage.chat_seq.desc(), ChatMessage.message_id.desc())
             .limit(20)
@@ -1147,7 +1149,9 @@ class ChatService:
         if state is not None:
             if not state.active_checkpoint_id:
                 return None
-            checkpoint = self.db.get(ChatMessage, state.active_checkpoint_id)
+            from sqlalchemy.orm import defer
+            checkpoint = self.db.get(ChatMessage, state.active_checkpoint_id,
+                options=[defer(ChatMessage.model_steps), defer(ChatMessage.tool_calls)])
             if (
                 checkpoint is not None
                 and (checkpoint.extra_data or {}).get("covered_seq") is not None

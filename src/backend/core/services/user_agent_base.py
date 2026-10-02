@@ -374,7 +374,7 @@ class UserAgentBaseService:
         # a source_plugin DB row.  They still belong under the plugin selector,
         # not the loose MCP selector.
         try:
-            from core.services.plugin_service import builtin_plugin_component_ids
+            from core.plugins.management import builtin_plugin_component_ids
 
             _, builtin_plugin_mcp_ids = builtin_plugin_component_ids()
             plugin_mcp_ids.update(builtin_plugin_mcp_ids)

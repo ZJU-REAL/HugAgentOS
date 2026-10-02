@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ /* dark-ok-begin: 独立更新进度页沿用系统深浅外观，无需主界面加载完成。 */
+ html,body{margin:0;height:100%}
+ body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:#f7f8fa;color:#1f2329;display:flex;align-items:center;justify-content:center}
+ @media (prefers-color-scheme:dark){body{background:#1f2023;color:#e6e6e6}.track{background:#3a3c40 !important}}
+ .card{width:100%;box-sizing:border-box;padding:22px 26px}
+ .title{font-size:14px;font-weight:600;margin-bottom:16px;line-height:1.4}
+ .track{height:10px;border-radius:6px;background:#e6e8eb;overflow:hidden}
+ .fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#2f6bff,#5b8dff);transition:width .15s ease}
+ .fill.indet{width:40% !important;animation:slide 1.1s ease-in-out infinite}
+ @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
+ .meta{display:flex;justify-content:space-between;font-size:12px;color:#8a9099;margin-top:12px}
+ /* dark-ok-end */
+</style></head><body><div class="card">
+ <div class="title" id="t">正在准备更新…</div>
+ <div class="track"><div class="fill" id="f"></div></div>
+ <div class="meta"><span id="p">0%</span><span id="s"></span></div>
+</div><script>
+ var f=document.getElementById('f'),p=document.getElementById('p'),s=document.getElementById('s'),t=document.getElementById('t');
+ window.__set=function(pct,d,tt){
+   if(pct<0){f.className='fill indet';p.textContent='';}
+   else{f.className='fill';f.style.width=pct+'%';p.textContent=pct+'%';}
+   t.textContent='正在下载新版本…';
+   s.textContent=tt>0?(d.toFixed(1)+' / '+tt.toFixed(1)+' MB'):(d.toFixed(1)+' MB');
+ };
+ window.__done=function(msg){f.className='fill';f.style.width='100%';p.textContent='100%';t.textContent=msg||'下载完成，正在安装…';};
+ window.__fail=function(msg){f.className='fill';f.style.background='#f5222d';t.textContent=msg||'更新失败';};
+</script></body></html>

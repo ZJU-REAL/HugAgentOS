@@ -45,7 +45,7 @@ def cloud_plugin(monkeypatch, index_db):
 def test_factory_expands_cloud_plugin_without_local_installed_plugin_row(
     durable_index, caps_root, monkeypatch
 ):
-    from core.llm.agent_factory import _expand_plugin_bindings
+    from core.llm.factory.selection.capabilities import _expand_plugin_bindings
 
     st, plugin, comp, skill = cloud_plugin(monkeypatch, durable_index)
     skill_ids, mcp_ids = _expand_plugin_bindings(["pack@cloud-owner"], user_id="local-owner")
@@ -68,9 +68,7 @@ def test_factory_expands_cloud_plugin_without_local_installed_plugin_row(
     run = runtime.prepare(
         "explicitly-prepared", "local-owner", skill_ids=skill_ids, plugin_ids=["pack@cloud-owner"]
     )
-    ready = runtime.preflight(
-        run, plugin_ids=["pack@cloud-owner"], available_mcp=mcp_ids
-    )
+    ready = runtime.preflight(run, plugin_ids=["pack@cloud-owner"], available_mcp=mcp_ids)
     assert ready.dependency_report["ready"]
 
 

@@ -11,6 +11,8 @@ path and a bookkeeping failure must never surface as a failed turn.
 """
 
 from __future__ import annotations
+
+from core.memory.preview import sanitized_preview
 from core.infra.time import utc_now
 
 import hashlib
@@ -37,26 +39,6 @@ def build_ref_id(*, layer: str, user_id: str, workspace_id: str, content_hash: s
     return "mref_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-def _preview(text: str) -> str:
-    """Short, sanitized excerpt.
-
-    Classified content is dropped entirely rather than truncated — a preview is
-    a convenience for the console, never a reason to let restricted material
-    leak into a second table.
-    """
-    collapsed = " ".join((text or "").split())
-    if not collapsed:
-        return ""
-    try:
-        from core.memory.sanitizer import sanitize
-
-        result = sanitize(collapsed)
-        if result.reject:
-            return "[REDACTED]"
-        collapsed = result.text or collapsed
-    except Exception:  # pragma: no cover - sanitizer is optional at this layer
-        pass
-    return collapsed[:_PREVIEW_MAX]
 
 
 def record_retrieved_refs(
@@ -85,7 +67,7 @@ def record_retrieved_refs(
                     workspace_id=item.workspace_id or workspace_id,
                     content_hash=item.content_hash,
                     external_id=item.memory_id,
-                    preview=_preview(item.content),
+                    preview=sanitized_preview(item.content, max_chars=_PREVIEW_MAX),
                     episode_id=episode_id,
                 )
                 refs.append(ref_id)
@@ -103,9 +85,7 @@ def record_retrieved_refs(
                     # an L3 evidence ref cannot be resolved back to the Neo4j
                     # edge it came from, which makes graph evidence unauditable.
                     external_id=relation.relation_id or None,
-                    preview=_preview(
-                        f"{relation.source} → {relation.relationship} → {relation.target}"
-                    ),
+                    preview=sanitized_preview(f"{relation.source} → {relation.relationship} → {relation.target}", max_chars=_PREVIEW_MAX),
                     episode_id=episode_id,
                 )
                 refs.append(ref_id)

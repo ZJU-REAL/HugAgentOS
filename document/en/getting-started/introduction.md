@@ -32,7 +32,7 @@ In one sentence: **the Community Edition lets one person push the platform to it
 | Layer | Technology | Notes |
 |---|---|---|
 | Backend | FastAPI + Uvicorn (Python 3.11) | `src/backend/api/app.py`, unified response envelope |
-| Agent framework | AgentScope 2.0 (`agentscope==2.0.0`) | ReActAgent + tool registration, `core/llm/agent_factory.py` |
+| Agent framework | AgentScope 2.0 (`agentscope==2.0.0`) | ReActAgent + tool registration, `core/llm/factory/build.py` |
 | Frontend | React 19 + Vite 7 + Zustand 5 + Ant Design 6 | `src/frontend/`, served by nginx with an `/api` reverse proxy |
 | Database | PostgreSQL 15 (production) / SQLite (local-debug fallback) | SQLAlchemy 2 + Alembic migrations |
 | Cache / sessions | Redis 7 | Session store, streaming follower (Redis Streams) |
@@ -69,7 +69,7 @@ In one sentence: **the Community Edition lets one person push the platform to it
        └──► PostgreSQL · Redis · storage (local / S3 / OSS)
 ```
 
-Main request path: browser → nginx inside the frontend container (`/api` proxy) → FastAPI → `orchestration/workflow.py` orchestrates streaming → `core/llm/agent_factory.py` builds the ReActAgent → MCP tools / sandbox / memory → SSE events (`text` / `tool_call` / `tool_result` / `meta` / `done`) stream back to the frontend.
+Main request path: browser → nginx inside the frontend container (`/api` proxy) → FastAPI → `orchestration/workflow.py` orchestrates streaming → `core/llm/factory/build.py` builds the ReActAgent → MCP tools / sandbox / memory → SSE events (`text` / `tool_call` / `tool_result` / `meta` / `done`) stream back to the frontend.
 
 ## Next steps
 
@@ -84,7 +84,7 @@ Main request path: browser → nginx inside the frontend container (`/api` proxy
 |---|---|
 | FastAPI app & router registration | `src/backend/api/app.py`, `src/backend/api/routes/v1/` |
 | Streaming orchestration (SSE) | `src/backend/orchestration/workflow.py`, `orchestration/streaming.py` |
-| Agent construction | `src/backend/core/llm/agent_factory.py` |
+| Agent construction | `src/backend/core/llm/factory/build.py` |
 | MCP servers & port mapping | `src/backend/mcp_servers/`, `src/backend/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
 | Capability catalog | `src/backend/core/config/catalog.json`, `core/config/catalog.py` |
 | Sandbox providers | `src/backend/core/sandbox/`, `src/backend/core/config/settings.py::SandboxSettings` |

@@ -15,7 +15,7 @@ from agentscope.mcp import HttpMCPConfig
 
 from core.llm.mcp_manager import ManifestMCPClient, has_usable_schema
 from core.llm.mcp_pool import uses_manifest_schema
-from core.services.plugin_service import _merge_tool_metadata
+from core.plugins.management.components import _merge_tool_metadata
 
 REAL_SCHEMA = {
     "type": "object",
@@ -46,9 +46,7 @@ def test_argument_less_tool_is_still_a_captured_schema():
     """A server may describe an argument-less tool tersely; that is not a gap."""
     assert has_usable_schema({"name": "list_sites", "inputSchema": ARGLESS_SCHEMA})
     assert has_usable_schema({"name": "list_sites", "inputSchema": {"type": "object"}})
-    assert uses_manifest_schema(
-        _cfg([{"name": "list_sites", "inputSchema": {"type": "object"}}])
-    )
+    assert uses_manifest_schema(_cfg([{"name": "list_sites", "inputSchema": {"type": "object"}}]))
 
 
 def test_manifest_without_any_schema_is_rejected():

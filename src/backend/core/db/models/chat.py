@@ -150,6 +150,12 @@ class ChatMessage(Base):
     # 展示顺序不在这里——它记在 ``metadata.segments``（见下）。
     thinking = Column(JSONType)
     tool_calls = Column(JSONType)
+    # Nullable derived preview; NULL safely falls back to the canonical result.
+    from core.db.history_projection import display_default
+    tool_calls_display = deferred(Column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        default=display_default, onupdate=display_default,
+    ))
     # 模型回放用的规范记录：按发生顺序的每一步（模型响应块 / 工具结果），见
     # ``core/llm/model_steps.py``。上面三列是给界面看的投影，模型上下文从这一列恢复。
     # NULL = 该行写入时还没有这份记录，回放退回 segments / 历史摘要。

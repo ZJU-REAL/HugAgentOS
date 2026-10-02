@@ -179,7 +179,14 @@ def pull_myspace_updates(*, user_id: str) -> PullReport:
                     report.conflicted += 1
                     continue
                 before = signature(path) if path.exists() else None
-                data = storage.download_bytes(str(art.storage_key))
+                try:
+                    data = storage.download_bytes(str(art.storage_key))
+                except Exception:
+                    from core.content.artifact_key_repair import repair_legacy_key
+
+                    if not repair_legacy_key(db, art, storage):
+                        raise
+                    data = storage.download_bytes(str(art.storage_key))
                 after = signature(path) if path.exists() else None
                 if after != before:
                     report.conflicted += 1

@@ -683,39 +683,43 @@ async def start_run(
     called.  Keeping launch separate makes a process crash between the two
     recoverable by the Run Journal in #64 instead of losing the request.
     """
-    recovery_snapshot = _json_safe(
-        {
-            "kind": "chat",
-            "worker_args": {
-                "session_messages": session_messages,
-                "effective_user_message": effective_user_message,
-                "raw_user_message": raw_user_message,
-                "context": context,
-                "model_name": model_name,
-            },
-        }
-    )
-    if accepted_run is None:
-        run = _create_run_record(
-            chat_id=chat_id,
-            user_id=user_id,
-            request_payload=dict(request_payload or {}),
-            recovery_snapshot=recovery_snapshot,
+    def persist_launch():
+        recovery_snapshot = _json_safe(
+            {
+                "kind": "chat",
+                "worker_args": {
+                    "session_messages": session_messages,
+                    "effective_user_message": effective_user_message,
+                    "raw_user_message": raw_user_message,
+                    "context": context,
+                    "model_name": model_name,
+                },
+            }
         )
-    else:
-        run = accepted_run
-        if run.chat_id != chat_id or run.user_id != user_id or run.status != "pending":
-            raise ValueError("accepted_run does not match the launch request")
-        with SessionLocal() as db:
-            durable_run = db.get(ChatRun, run.run_id)
-            if durable_run is None or durable_run.status != "pending":
-                raise ValueError("accepted_run is no longer pending")
-            durable_run.recovery_snapshot = recovery_snapshot
-            durable_run.snapshot_version = max(int(durable_run.snapshot_version or 0), 1)
-            durable_run.run_phase = durable_run.run_phase or "accepted"
-            durable_run.last_operation_safety = durable_run.last_operation_safety or "replayable"
-            durable_run.updated_at = _utcnow()
-            db.commit()
+        if accepted_run is None:
+            run = _create_run_record(
+                chat_id=chat_id,
+                user_id=user_id,
+                request_payload=dict(request_payload or {}),
+                recovery_snapshot=recovery_snapshot,
+            )
+        else:
+            run = accepted_run
+            if run.chat_id != chat_id or run.user_id != user_id or run.status != "pending":
+                raise ValueError("accepted_run does not match the launch request")
+            with SessionLocal() as db:
+                durable_run = db.get(ChatRun, run.run_id)
+                if durable_run is None or durable_run.status != "pending":
+                    raise ValueError("accepted_run is no longer pending")
+                durable_run.recovery_snapshot = recovery_snapshot
+                durable_run.snapshot_version = max(int(durable_run.snapshot_version or 0), 1)
+                durable_run.run_phase = durable_run.run_phase or "accepted"
+                durable_run.last_operation_safety = durable_run.last_operation_safety or "replayable"
+                durable_run.updated_at = _utcnow()
+                db.commit()
+        return run
+
+    run = await asyncio.to_thread(persist_launch)
     journal_owner = _new_worker_owner(run.run_id)
     _register_run_task(
         run.run_id,

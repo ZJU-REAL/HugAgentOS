@@ -111,7 +111,7 @@ def _resolve_frontend_dist() -> Optional[str]:
 
 
 def _site_template_home() -> Path:
-    from core.services.plugin_device_assets import site_template_home
+    from core.plugins.local.assets import site_template_home
 
     return site_template_home()
 
@@ -380,13 +380,13 @@ _DEFAULT_PLUGIN_BOOTSTRAP_ENV = "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"
 
 def _default_plugins() -> list:
     """推荐的默认插件集合，与库里的引导保持同一份来源。"""
-    from core.services.plugin_service import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS
+    from core.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS
 
     return list(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS)
 
 
 def _default_plugins_marker() -> Path:
-    from core.services.plugin_service import LOCAL_BOOTSTRAP_MARKER_NAME
+    from core.plugins.management import LOCAL_BOOTSTRAP_MARKER_NAME
 
     return data_dir() / LOCAL_BOOTSTRAP_MARKER_NAME
 
@@ -394,7 +394,7 @@ def _default_plugins_marker() -> Path:
 def list_installable_plugins() -> list:
     """Local-filesystem plugin bundles (default + marketplace) with install state."""
     from core.db.engine import SessionLocal
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     db = SessionLocal()
     try:
@@ -409,7 +409,7 @@ def list_installable_plugins() -> list:
 def install_plugins(slugs: list) -> list:
     """Install the given plugin slugs globally (owner_user_id=None). Best-effort."""
     from core.db.engine import SessionLocal
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     done = []
     db = SessionLocal()
@@ -545,7 +545,7 @@ def configure_search_engine(engine: str, api_key: str) -> None:
 
 def report_site_template(verbose: bool = True) -> bool:
     """向导里报一句建站模板的状态；铺设本身在安装站点插件时就做了。"""
-    from core.services.plugin_device_assets import site_template_home
+    from core.plugins.local.assets import site_template_home
 
     home = site_template_home()
     ready = (home / "init-react-site.sh").is_file()

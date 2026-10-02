@@ -251,11 +251,7 @@ async def edit_profile_field(
         actor=str(user.user_id),
         message_id=body.message_id,
     )
-    from core.memory.outbox import (
-        consume_outbox_job,
-        enqueue_profile_edit_job,
-        kick_outbox_drain,
-    )
+    from core.memory.outbox import consume_outbox_job, enqueue_profile_edit_job, kick_outbox_drain
 
     job_id = enqueue_profile_edit_job(ctx, body.key, body.text, operation_id=body.operation_id)
     outcome = await consume_outbox_job(job_id)
@@ -331,11 +327,7 @@ async def edit_memory(
         actor=str(user.user_id),
         message_id=body.message_id,
     )
-    from core.memory.outbox import (
-        consume_outbox_job,
-        enqueue_memory_edit_job,
-        kick_outbox_drain,
-    )
+    from core.memory.outbox import consume_outbox_job, enqueue_memory_edit_job, kick_outbox_drain
 
     job_id = enqueue_memory_edit_job(ctx, memory_id, body.text, operation_id=body.operation_id)
     outcome = await consume_outbox_job(job_id)

@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from types import SimpleNamespace
-from threading import Barrier
 
+import api.routes.v1.chats.agent_targets as chat_agent_targets
+import api.routes.v1.chats.invocation as chat_invocation
+import api.routes.v1.chats.models as chat_models
+import api.routes.v1.chats.request_context as chat_request_context
+import api.routes.v1.chats.reruns as chat_reruns
+import api.routes.v1.chats.session_context as chat_session_context
+import core.chat.context as chat_context
+import core.db.engine as db_engine
+import core.infra.responses as responses
+import core.services as chat_services
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from api.schemas import ChatRequest
-from api.routes.v1.agent_responses import agent_response
 from core.auth.backend import UserContext
 from core.db.engine import Base
 from core.db.models import BatchPlan, ChatMessage, ChatRun, ChatSession
 from core.services.chat_sequencer import ChatSequencer
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 def _route_database(tmp_path, name="route.db"):
@@ -40,7 +44,7 @@ def _user():
     return UserContext(user_id="user-1", user_center_id="center-1", username="test")
 
 
-def _patch_common_chat_route(monkeypatch, chats):
+def _patch_common_chat_route(monkeypatch):
     class FakeUserService:
         def __init__(self, _db):
             pass
@@ -48,25 +52,32 @@ def _patch_common_chat_route(monkeypatch, chats):
         def get_user_settings(self, _user_id):
             return {}
 
-    monkeypatch.setattr(chats, "UserService", FakeUserService)
-    monkeypatch.setattr(chats, "_ensure_main_model_configured", lambda: None)
+    monkeypatch.setattr(chat_services, "UserService", FakeUserService)
+    monkeypatch.setattr(chat_session_context, "_ensure_main_model_configured", lambda: None)
     monkeypatch.setattr(
-        chats,
+        chat_agent_targets,
         "_resolve_chat_agent_targets",
         lambda _db, request, _user_id: (request, None, request.message, None),
     )
-    monkeypatch.setattr(chats, "_resolve_selected_model_provider_id", lambda *_args: None)
     monkeypatch.setattr(
-        chats, "_resolve_actual_chat_model_name", lambda request, _: request.model_name
+        chat_session_context, "_resolve_selected_model_provider_id", lambda *_args: None
     )
-    monkeypatch.setattr(chats, "resolve_enabled_capabilities", lambda *_args: (None, None, None))
-    monkeypatch.setattr(chats, "_ensure_chat_session", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(chats, "_build_ctx", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(chats, "_build_user_extra_data", lambda *_args: {})
+    monkeypatch.setattr(
+        chat_session_context,
+        "_resolve_actual_chat_model_name",
+        lambda request, _: request.model_name,
+    )
+    monkeypatch.setattr(
+        chat_context, "resolve_enabled_capabilities", lambda *_args: (None, None, None)
+    )
+    monkeypatch.setattr(
+        chat_session_context, "_ensure_chat_session", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(chat_request_context, "_build_ctx", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(chat_request_context, "_build_user_extra_data", lambda *_args: {})
 
 
 def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
-    import api.routes.v1.chats as chats
     from core.services.chat_service import ChatService
 
     engine, Session = _route_database(tmp_path, "regenerate.db")
@@ -81,13 +92,13 @@ def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path)
             request_payload={"kind": "stream"},
         )
 
-    _patch_common_chat_route(monkeypatch, chats)
-    monkeypatch.setattr(chats, "SessionLocal", Session)
+    _patch_common_chat_route(monkeypatch)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     with Session() as db:
         with pytest.raises(HTTPException) as raised:
             asyncio.run(
-                chats.regenerate_message(
-                    "chat-1", chats.RegenerateRequest(message_index=1), user=_user(), db=db
+                chat_reruns.regenerate_message(
+                    "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user(), db=db
                 )
             )
 
@@ -104,7 +115,6 @@ def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path)
 
 
 def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypatch, tmp_path):
-    import api.routes.v1.chats as chats
     from core.services.chat_service import ChatService
     from orchestration import chat_run_executor
 
@@ -115,8 +125,8 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
         service.add_message(chat_id="chat-1", role="assistant", content="old answer")
         service.add_message(chat_id="chat-1", role="user", content="later")
 
-    _patch_common_chat_route(monkeypatch, chats)
-    monkeypatch.setattr(chats, "SessionLocal", Session)
+    _patch_common_chat_route(monkeypatch)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     launched = {}
 
     def load_after_admission(service, _chat_id, _user_id):
@@ -134,14 +144,14 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
         if False:  # pragma: no cover
             yield chat_id
 
-    monkeypatch.setattr(chats, "_load_session_messages", load_after_admission)
+    monkeypatch.setattr(chat_session_context, "_load_session_messages", load_after_admission)
     monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
     monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", empty_follow)
 
     with Session() as db:
         asyncio.run(
-            chats.regenerate_message(
-                "chat-1", chats.RegenerateRequest(message_index=1), user=_user(), db=db
+            chat_reruns.regenerate_message(
+                "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user(), db=db
             )
         )
 
@@ -159,7 +169,6 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
 
 
 def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
-    import api.routes.v1.chats as chats
     from core.services.chat_service import ChatService
 
     engine, Session = _route_database(tmp_path, "edit.db")
@@ -176,14 +185,14 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
             request_payload={"kind": "stream"},
         )
 
-    _patch_common_chat_route(monkeypatch, chats)
-    monkeypatch.setattr(chats, "SessionLocal", Session)
+    _patch_common_chat_route(monkeypatch)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     with Session() as db:
         with pytest.raises(HTTPException) as raised:
             asyncio.run(
-                chats.edit_and_resend(
+                chat_reruns.edit_and_resend(
                     "chat-1",
-                    chats.EditAndResendRequest(message_index=2, new_content="new wording"),
+                    chat_models.EditAndResendRequest(message_index=2, new_content="new wording"),
                     user=_user(),
                     db=db,
                 )
@@ -204,7 +213,6 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
 
 
 def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
-    import api.routes.v1.chats as chats
     from core.services.chat_service import ChatService
     from orchestration import chat_run_executor
 
@@ -228,24 +236,26 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
         )
         service.add_message(chat_id="chat-1", role="assistant", content="old reply")
 
-    _patch_common_chat_route(monkeypatch, chats)
-    monkeypatch.setattr(chats, "SessionLocal", Session)
+    _patch_common_chat_route(monkeypatch)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     captured = {}
 
     def resolve_invocation(_db, request, _user_id):
         request._resolved_mcp_ids = [request.connector_id] if request.connector_id else []
         return request
 
-    monkeypatch.setattr(chats, "_resolve_explicit_capability_invocation", resolve_invocation)
+    monkeypatch.setattr(
+        chat_invocation, "_resolve_explicit_capability_invocation", resolve_invocation
+    )
 
     def capture_ctx(request, *_args, **_kwargs):
         captured["request"] = request
         return {}
 
-    monkeypatch.setattr(chats, "_build_ctx", capture_ctx)
-    monkeypatch.setattr(chats, "_load_session_messages", lambda *_args: [])
-    monkeypatch.setattr(chats, "_release_request_session", lambda _db: None)
-    monkeypatch.setattr(chats, "sse_response", lambda stream: stream)
+    monkeypatch.setattr(chat_request_context, "_build_ctx", capture_ctx)
+    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *_args: [])
+    monkeypatch.setattr(chat_session_context, "_release_request_session", lambda _db: None)
+    monkeypatch.setattr(responses, "sse_response", lambda stream: stream)
     monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", lambda *_a, **_k: None)
 
     async def fake_start_run(**kwargs):
@@ -256,9 +266,9 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
 
     with Session() as db:
         asyncio.run(
-            chats.edit_and_resend(
+            chat_reruns.edit_and_resend(
                 "chat-1",
-                chats.EditAndResendRequest(message_index=0, new_content="new wording"),
+                chat_models.EditAndResendRequest(message_index=0, new_content="new wording"),
                 user=_user(),
                 db=db,
             )
@@ -292,7 +302,6 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
 
 def test_batch_resume_busy_does_not_delete_triggering_turn(monkeypatch, tmp_path):
     import api.routes.v1.batch as batch
-    import api.routes.v1.chats as chats
     import core.chat.context as chat_context
     import core.services as services
     from core.services.chat_service import ChatService
@@ -327,12 +336,12 @@ def test_batch_resume_busy_does_not_delete_triggering_turn(monkeypatch, tmp_path
             request_payload={"kind": "stream"},
         )
 
-    _patch_common_chat_route(monkeypatch, chats)
-    monkeypatch.setattr(chats, "SessionLocal", Session)
+    _patch_common_chat_route(monkeypatch)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     monkeypatch.setattr(
         chat_context, "resolve_enabled_capabilities", lambda *_args: (None, None, None)
     )
-    monkeypatch.setattr(services, "UserService", chats.UserService)
+    monkeypatch.setattr(services, "UserService", chat_services.UserService)
 
     with Session() as db:
         with pytest.raises(HTTPException) as raised:

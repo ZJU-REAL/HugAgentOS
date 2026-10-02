@@ -132,7 +132,7 @@ async def _run_text_agent(
     runtime: dict[str, Any],
     capability_scope: str = "",
 ) -> str:
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 

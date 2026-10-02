@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import api.routes.v1.chats.request_context as chat_request_context
+import core.auth.backend as auth_backend
+import core.chat.context as chat_context
+import core.db.engine as db_engine
 import httpx
 import pytest
 from core.auth.backend import UserContext
@@ -93,7 +97,7 @@ def _app(Session, *, user_id="u1"):
 
     app = FastAPI()
     app.include_router(chats.router)
-    app.dependency_overrides[chats.get_current_user] = lambda: UserContext(
+    app.dependency_overrides[auth_backend.get_current_user] = lambda: UserContext(
         user_id=user_id, user_center_id=user_id, username=user_id
     )
 
@@ -104,15 +108,14 @@ def _app(Session, *, user_id="u1"):
         finally:
             db.close()
 
-    app.dependency_overrides[chats.get_db] = _db
+    app.dependency_overrides[db_engine.get_db] = _db
     return app
 
 
 @pytest.mark.asyncio
 async def test_referencable_endpoint_scopes_to_project_and_owner(db_factory, monkeypatch):
-    import api.routes.v1.chats as chats
 
-    monkeypatch.setattr(chats, "resolve_db_user_id", lambda _db, user_id: user_id)
+    monkeypatch.setattr(chat_context, "resolve_db_user_id", lambda _db, user_id: user_id)
     _seed(db_factory)
 
     transport = httpx.ASGITransport(app=_app(db_factory))
@@ -129,9 +132,8 @@ async def test_referencable_endpoint_scopes_to_project_and_owner(db_factory, mon
 
 @pytest.mark.asyncio
 async def test_referencable_endpoint_search_matches_message_text(db_factory, monkeypatch):
-    import api.routes.v1.chats as chats
 
-    monkeypatch.setattr(chats, "resolve_db_user_id", lambda _db, user_id: user_id)
+    monkeypatch.setattr(chat_context, "resolve_db_user_id", lambda _db, user_id: user_id)
     _seed(db_factory)
 
     transport = httpx.ASGITransport(app=_app(db_factory))
@@ -145,9 +147,8 @@ async def test_referencable_endpoint_search_matches_message_text(db_factory, mon
 
 @pytest.mark.asyncio
 async def test_another_user_sees_none_of_it(db_factory, monkeypatch):
-    import api.routes.v1.chats as chats
 
-    monkeypatch.setattr(chats, "resolve_db_user_id", lambda _db, user_id: user_id)
+    monkeypatch.setattr(chat_context, "resolve_db_user_id", lambda _db, user_id: user_id)
     _seed(db_factory)
 
     transport = httpx.ASGITransport(app=_app(db_factory, user_id="u3"))
@@ -159,7 +160,6 @@ async def test_another_user_sees_none_of_it(db_factory, monkeypatch):
 
 def test_send_time_and_replay_render_the_same_reference_block(db_factory):
     """引用名片在发送时落库，重放时按落库的快照渲染——两边必须完全一致。"""
-    import api.routes.v1.chats as chats
     from api.schemas import ChatRequest
     from core.chat.context import build_effective_user_message
     from core.services.compaction_service import _normalize_rows
@@ -173,8 +173,8 @@ def test_send_time_and_replay_render_the_same_reference_block(db_factory):
     )
 
     with db_factory() as db:
-        block = chats._resolve_reference_block(db, request, "u1")
-        extra = chats._build_user_extra_data(request)
+        block = chat_request_context._resolve_reference_block(db, request, "u1")
+        extra = chat_request_context._build_user_extra_data(request)
 
     assert "项目内旧会话" in block
     assert "chat_id=p-old" in block
@@ -197,7 +197,6 @@ def test_send_time_and_replay_render_the_same_reference_block(db_factory):
 
 
 def test_unreadable_reference_is_dropped_instead_of_leaking(db_factory):
-    import api.routes.v1.chats as chats
     from api.schemas import ChatRequest
 
     _seed(db_factory)
@@ -209,8 +208,8 @@ def test_unreadable_reference_is_dropped_instead_of_leaking(db_factory):
     )
 
     with db_factory() as db:
-        block = chats._resolve_reference_block(db, request, "u1")
-        extra = chats._build_user_extra_data(request)
+        block = chat_request_context._resolve_reference_block(db, request, "u1")
+        extra = chat_request_context._build_user_extra_data(request)
 
     assert block == ""
     assert "referenced_chats" not in extra

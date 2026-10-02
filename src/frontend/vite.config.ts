@@ -78,7 +78,6 @@ export default defineConfig(({ mode }) => {
             if (!id.includes('node_modules')) return
             if (REACT_RUNTIME.test(id)) return 'vendor-react'
             if (ANT_DESIGN.test(id)) return 'vendor-antd'
-            if (id.includes('node_modules/highlight.js/')) return 'vendor-highlight'
             if (id.includes('node_modules/marked/')) return 'vendor-marked'
             if (id.includes('node_modules/motion')) return 'vendor-motion'
           },

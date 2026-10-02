@@ -1,5 +1,5 @@
-import { marked } from 'marked';
-import hljs from 'highlight.js';
+import { marked, type Tokens } from 'marked';
+import { highlightSyntax, lazyHighlightedHtml } from './syntaxHighlight';
 import { wrapTablesWithCopy } from './tableCopy';
 import { wrapCodeWithCopy } from './codeCopy';
 
@@ -42,18 +42,9 @@ marked.use({
         const encoded = btoa(encodeURIComponent(text));
         return `<div class="jx-mermaid" data-chart="${encoded}"></div>`;
       }
-      // Default code block with highlight.js
-      let highlighted = escapeCodeHtml(text);
-      if (lang && hljs.getLanguage(lang)) {
-        try {
-          highlighted = hljs.highlight(text, { language: lang }).value;
-        } catch {
-          // fallback to raw text
-        }
-      }
-      return wrapCodeWithCopy(
-        `<pre><code class="hljs${lang ? ` language-${escapeCodeHtml(lang)}` : ''}">${highlighted}</code></pre>`,
-      );
+      return lazyHighlightedHtml(wrapCodeWithCopy(
+        `<pre><code class="hljs${lang ? ` language-${escapeCodeHtml(lang)}` : ''}">${highlightSyntax(text, lang)}</code></pre>`,
+      ), lang);
     },
   },
 });
@@ -110,7 +101,7 @@ const blockLatexExtension = {
     }
     return undefined;
   },
-  renderer(token: any) {
+  renderer(token: Tokens.Generic) {
     const html = renderKatexSync(token.text, true);
     if (html) return `<div class="katex-display">${html}</div>`;
     // Fallback: show code until KaTeX loads
@@ -125,13 +116,13 @@ const inlineLatexExtension = {
   start(src: string) { return src.indexOf('$'); },
   tokenizer(src: string) {
     // Match $...$ but not $$...$$ and not escaped \$
-    const match = src.match(/^\$([^\$\n]+?)\$/);
+    const match = src.match(/^\$([^$\n]+?)\$/);
     if (match) {
       return { type: 'inlineLatex', raw: match[0], text: match[1].trim() };
     }
     return undefined;
   },
-  renderer(token: any) {
+  renderer(token: Tokens.Generic) {
     const html = renderKatexSync(token.text, false);
     if (html) return html;
     return `<code>${token.text}</code>`;
@@ -149,7 +140,7 @@ marked.use({
     },
   },
   async: false,
-} as any);
+});
 
 /** 把简介里的 Markdown 标记剥成纯文本：卡片一行只放得下一句话，不该把 ** 和反引号原样露出来。 */
 export function stripMarkdown(md: string | null | undefined): string {
@@ -186,7 +177,7 @@ export async function ensureKatexLoaded(): Promise<boolean> {
 
 /** Check if text contains LaTeX markers */
 export function hasLatex(text: string): boolean {
-  return /\$[^\$\n]+?\$/.test(text) || /\$\$[\s\S]+?\$\$/.test(text);
+  return /\$[^$\n]+?\$/.test(text) || /\$\$[\s\S]+?\$\$/.test(text);
 }
 
 /** Check if text contains mermaid code blocks */

@@ -128,7 +128,7 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ## 一次对话请求的完整生命周期
 
-入口为 `POST /v1/agents/responses`（`src/backend/api/routes/v1/chats.py`），返回 `text/event-stream`。
+入口为 `POST /v1/agents/responses`（`src/backend/api/routes/v1/chats/__init__.py`），返回 `text/event-stream`。
 
 ### 1. 接入与校验
 
@@ -150,7 +150,7 @@ RAG 则提供支撑决策所需的文档与证据。
 
 1. **记忆检索**——`orchestration/memory_integration.py` 读取 L1 画像 / L2 向量记忆（开启时），注入系统消息；
 2. **路由决策**——`orchestration/strategy.py`，`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；
-3. **构建智能体**——`core/llm/agent_factory.py::create_agent_executor`：装配提示词（`prompts/prompt_runtime.py`，DB 版本池优先）、按 catalog 与用户能力位筛选 MCP 服务器、注册自研工具（Read/Write/Edit/Glob/Grep/bash/技能加载等，见 `core/llm/tools/`）、最终一次性构造 AgentScope Toolkit；
+3. **构建智能体**——`core/llm/factory/build.py::create_agent_executor`：装配提示词（`prompts/prompt_runtime.py`，DB 版本池优先）、按 catalog 与用户能力位筛选 MCP 服务器、注册自研工具（Read/Write/Edit/Glob/Grep/bash/技能加载等，见 `core/llm/tools/`）、最终一次性构造 AgentScope Toolkit；
 4. **流式执行**——`orchestration/streaming.py::StreamingAgent` 包装 ReActAgent，把推理增量、工具调用、工具结果逐条产出；
 5. **引用提取**——`orchestration/citations.py` 从工具结果中解析 `[ref:tool_name-N]` 标记生成引用项；
 6. **收尾**——落库助手消息与工具调用日志，`core/memory/pipeline.py` 在后台异步抽取记忆（不阻塞 SSE 主链路），独立接口生成追问问题（`orchestration/followups.py`）。
@@ -223,10 +223,10 @@ RAG 则提供支撑决策所需的文档与证据。
 | 主题 | 路径 |
 |---|---|
 | FastAPI 应用与启动钩子 | `src/backend/api/app.py` |
-| 流式对话入口 | `src/backend/api/routes/v1/chats.py` |
+| 流式对话入口 | `src/backend/api/routes/v1/chats/__init__.py` |
 | Run 执行器 | `src/backend/orchestration/chat_run_executor.py` |
 | 流式编排 | `src/backend/orchestration/workflow.py` |
-| 智能体工厂 | `src/backend/core/llm/agent_factory.py` |
+| 智能体工厂 | `src/backend/core/llm/factory/build.py` |
 | MCP 配置与端口 | `src/backend/core/config/mcp_config.py`、`src/backend/mcp_servers/_ports.py` |
 | 能力目录 | `src/backend/core/config/catalog.json`、`catalog.py` |
 | 响应信封 | `src/backend/core/infra/responses.py` |

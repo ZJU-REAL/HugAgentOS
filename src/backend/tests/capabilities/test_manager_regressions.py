@@ -7,7 +7,8 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 import pytest
 from core.capabilities import registry, store
-from core.services import local_skill_service as skills, local_plugin_service as plugins
+from core.services import local_skill_service as skills
+from core.plugins.local import service as plugins
 
 
 def skill(root, body="First"):

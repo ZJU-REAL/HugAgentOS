@@ -592,7 +592,7 @@ export interface ChatItem {
   modeSlug?: string;
   /** 这段对话选中的思考强度档（chatMode）。undefined = 没显式选过，恢复时沿用当前
    *  会话档位（刷新则回管理端默认）。与 modeSlug 同一套持久化机制。 */
-  thinkingEffort?: 'turbo' | 'fast' | 'medium' | 'high' | 'max';
+  thinkingEffort?: 'turbo' | 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** 输入区待发送的引用追问块（还没随消息发出去的那个）。随对话记录持久化，
    *  刷新/切对话时恢复；发送即清。消息上已发出的引用在 ChatMessage.quotedFollowUp。 */
   pendingQuote?: { text: string; ts: number };

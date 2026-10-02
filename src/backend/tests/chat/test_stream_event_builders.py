@@ -2,7 +2,7 @@
 background run executor (core.chat.tool_log).
 
 These builders are shared by the two near-identical SSE loops in
-``api/routes/v1/chats.py`` and ``orchestration/chat_run_executor.py``. The
+``api/routes/v1/chats/__init__.py`` and ``orchestration/chat_run_executor.py``. The
 tests pin the exact event dicts + log side-effects so the two call sites stay
 byte-identical and a future change can't silently diverge them.
 """

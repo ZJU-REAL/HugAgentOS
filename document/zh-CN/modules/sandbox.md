@@ -220,7 +220,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `src/backend/core/sandbox/_opensandbox_exec.py` | 执行路径 + idle reaper（EE） |
 | `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
 | `src/backend/core/sandbox/_pool.py` | 双桶预热池 |
-| `src/backend/core/sandbox/cube_provider.py` | Cube 远端 MicroVM provider（EE） |
+| `src/backend/core/sandbox/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |

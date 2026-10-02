@@ -6,7 +6,7 @@ System prompts in HugAgentOS are not hardcoded strings — they form a **DB-firs
 
 ## Assembly (prompts/prompt_runtime.py)
 
-`build_system_prompt(config, ctx)` is the single entry point for the main agent's system prompt, called by `core/llm/agent_factory.py` on every agent build. Resolution priority:
+`build_system_prompt(config, ctx)` is the single entry point for the main agent's system prompt, called by `core/llm/factory/build.py` on every agent build. Resolution priority:
 
 ```
 1. Active pool version       the active kind="system" version inside ContentBlock(id="prompt_versions")

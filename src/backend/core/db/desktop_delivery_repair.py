@@ -22,11 +22,11 @@ def upgrade_desktop_delivery_prompts(conn):
 CWD_REPLACEMENTS = {
     "guidance": (
         "project_root 是绑定的项目目录，不代表工具已经切换 cwd。操作项目文件使用真实绝对路径；执行项目命令时在同一次 Bash 调用中先 cd 到带引号的项目路径。",
-        "绑定本地项目时 cwd 与 project_root 相同；bash、文件工具及 pin 的相对路径均以该项目目录为基准。未绑定项目时 cwd 为当前会话的持久工作目录。",
+        "绑定本地项目时 cwd 与 project_root 相同；Bash、文件工具及 pin 的相对路径均以该项目目录为基准。未绑定项目时 cwd 为当前会话的持久工作目录。",
     ),
     "project": (
         "项目文件使用真实绝对路径操作，不需要上传到「我的空间」。",
-        "该目录也是 bash 的默认 cwd，以及文件工具和 pin 的相对路径基准。项目文件直接保存在这里，不需要上传到「我的空间」。",
+        "该目录也是 Bash 的默认 cwd，以及文件工具和 pin 的相对路径基准。项目文件直接保存在这里，不需要上传到「我的空间」。",
     ),
 }
 

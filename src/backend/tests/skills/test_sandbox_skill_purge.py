@@ -5,6 +5,7 @@ skills plus that user's private ones — so a market skill installed with
 credentials (its secrets.json) is never readable from another user's sandbox.
 Deleting a skill must take its files with it; nothing used to remove them.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,6 +30,7 @@ def _a_builtin_skill_id() -> str:
 
 @pytest.fixture()
 def skills_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "sandbox_skills"))
     return get_sandbox_skills_dir()
 

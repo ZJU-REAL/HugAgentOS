@@ -233,7 +233,7 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `src/backend/core/sandbox/_opensandbox_exec.py` | Execution path + idle reaper (EE) |
 | `src/backend/core/sandbox/_opensandbox_internals.py` | Volume builders, metadata, user pool (EE) |
 | `src/backend/core/sandbox/_pool.py` | Two-bucket warm pool |
-| `src/backend/core/sandbox/cube_provider.py` | Cube remote-MicroVM provider (EE) |
+| `src/backend/core/sandbox/cube/provider.py` | Cube remote-MicroVM provider (EE) |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | Overflow offloading to the session workspace |
 | `src/backend/api/routes/v1/admin_sandbox.py` | Dependency-rebuild admin API (EE) |

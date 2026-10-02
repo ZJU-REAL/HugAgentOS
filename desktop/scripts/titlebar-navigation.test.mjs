@@ -3,8 +3,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import test from "node:test";
 
-const rust = await readFile(new URL("../src-tauri/src/window_chrome.rs", import.meta.url), "utf8");
-const script = rust.match(/const TB_JS: &str = r##"([\s\S]*?)"##;/)[1];
+const script = await readFile(new URL("../shared/chrome/menu.js", import.meta.url), "utf8");
 
 function titlebar() {
   const listeners = {};

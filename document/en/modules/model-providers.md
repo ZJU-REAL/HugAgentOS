@@ -109,7 +109,7 @@ Resolution order:
 | `POST /v1/models/providers/{id}/test`, `POST /v1/models/providers/test` | Connectivity test for saved / unsaved configs |
 | `GET /v1/models/roles`, `PUT/DELETE /v1/models/roles/{role_key}` | Role assignment (validates provider type matches the role; referenced providers cannot be deleted) |
 | `GET /v1/models/export`, `POST /v1/models/import` | Cross-environment migration of model config |
-| `GET /v1/models/capabilities` | **Public endpoint**: exposes only the `main_agent.supports_reasoning_effort` boolean, which drives the frontend "thinking: medium/high/max" switch |
+| `GET /v1/models/capabilities` | **Public endpoint**: exposes non-secret capabilities for the main and selectable models, including thinking levels, defaults, and context windows |
 
 Every model configuration write commits a database revision in the same transaction. Each worker checks that revision on its next lookup and reloads roles, providers, and failover candidates from one SQL snapshot. No TTL wait or restart is required. Model instances are isolated per event loop; running tasks retain their starting model.
 
@@ -182,8 +182,18 @@ Community Edition users can see their own token usage; organization-level billin
 | Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/services/api_key_service.py`, `core/auth/backend.py` |
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
 | Routing strategy | `src/backend/orchestration/strategy.py` |
-| Fail-fast on missing main model | `src/backend/api/routes/v1/chats.py::_ensure_main_model_configured` |
+| Fail-fast on missing main model | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ### Child cancellation and parameter overrides
 
 Individual temperature, output-length, and timeout overrides also apply to failover candidates. Cancelling the parent withdraws queued child calls and cancels running child coroutines. Cleanup completes before the cancellation log and terminal event are emitted, including for repeated cancellation and direct agent conversations.
+
+## Model-specific thinking levels
+
+Enable multi-level reasoning in Config or Settings → Model Services, select Low, Medium, High, Extra High, or Maximum, then set an upstream value for each enabled level and choose an enabled default. Values accept nonblank strings or positive integers; integers are sent as JSON numbers. Labels and values are independent: Maximum may map to `max` or `100`. The new-form template is Medium/High/Extra High and must be checked against the provider. Custom mappings currently apply to the OpenAI-compatible engine.
+
+Settings live in `extra_config.reasoning_effort_levels` (`[{key, value}]`) and `default_reasoning_effort`. Chat shows the selected model's enabled levels. Switching to a model that lacks the current level selects its default. The backend applies the same rule for older clients, subagents, and failover. Fast and Turbo still disable thinking. Unedited legacy models retain their existing three levels and historical Responses `max → xhigh` mapping; explicitly configured values are sent unchanged.
+
+Detect thinking levels first reads upstream model declarations, then sends at most five small parameter probes (32 output tokens and a 12-second timeout per request). Probes may incur a small amount of model usage. Explicit validation errors can reveal the complete vocabulary and integer range. Results only fill the form for review and saving. Authentication, rate limiting, and transport failures do not prove lack of support and do not erase existing settings. HTTP success only proves acceptance; a gateway may ignore the parameter, so actual reasoning strength is not verified.
+
+`POST /v1/models/providers/detect-reasoning` requires model-management authorization and does not persist settings. It returns `levels`, `default`, `source`, `notes`, and optional `numeric_range`. Sources distinguish model metadata, validation declarations, and accepted probe requests.

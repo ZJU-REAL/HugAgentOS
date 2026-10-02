@@ -1,7 +1,5 @@
 """Declared dependency closure fails closed without installing anything."""
 
-import json
-import pytest
 from core.capabilities import dependency, plugins, agents, registry, skills
 from core.services.desktop_capability_protocol import skill_content_hash
 from tests.capabilities.test_runtime_recovery import durable_index
@@ -216,7 +214,7 @@ def test_extra_requirements_list_and_extension_constraints_survive_projection(in
 
 
 def test_legacy_plugin_catalog_projects_declarative_component_ids_without_mutation():
-    from core.services.plugin_service import _component_keys
+    from core.plugins.packaging.sources import _component_keys
 
     declaration = {
         "skills": [

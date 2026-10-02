@@ -16,13 +16,8 @@ from typing import Any, Dict, List, Optional
 
 from core.config.catalog import get_catalog
 from core.config.catalog_common import _item
-from core.config.catalog_loader import (
-    DB_HIDDEN_SERVERS,
-    DB_UMBRELLA_ICON,
-    DB_UMBRELLA_ID,
-    _database_query_capability_available,
-    resolve_skill_detail,
-)
+from core.config.catalog_details import resolve_skill_detail
+from core.config.catalog_loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ICON, DB_UMBRELLA_ID, _database_query_capability_available
 from core.config.edition_display_names import edition_mcp_icons
 from sqlalchemy.orm import Session
 
@@ -181,10 +176,6 @@ def _config_bool(db: Session, key: str, default: bool) -> bool:
         return default
 
 
-def _apply_database_query_state(catalog: Dict[str, Any], db: Session) -> None:
-    """Apply DB-managed state for the static database-query umbrella item."""
-    enabled = _config_bool(db, _DATABASE_QUERY_ENABLED_CONFIG, True)
-    _set_database_query_state(catalog, enabled)
 
 
 def _set_database_query_state(catalog: Dict[str, Any], enabled: bool) -> None:

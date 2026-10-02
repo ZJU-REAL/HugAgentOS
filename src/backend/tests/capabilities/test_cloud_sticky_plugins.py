@@ -2,11 +2,11 @@
 
 import json
 import pytest
-from core.capabilities import dependency, plugins, registry, runtime, skills, store
+from core.capabilities import plugins, registry, runtime, store
 from core.capabilities.errors import PermissionDenied
 from core.capabilities.paths import revision_for_hash
 from core.db.models import ChatSession, InstalledPlugin, UserShadow
-from core.llm import plugin_loader
+from core.plugins import runtime as plugin_loader
 from core.services.desktop_capability_protocol import entity_content_hash
 from tests.capabilities.test_cloud_plugin_binding_runtime import cloud_plugin
 from tests.capabilities.test_runtime_recovery import durable_index, state
@@ -48,10 +48,7 @@ def test_real_persisted_selection_restores_cloud_plugin_and_full_preflight(selec
     run = runtime.prepare(
         "sticky-turn", "local-owner", skill_ids=restored.skill_ids, plugin_ids=restored.install_ids
     )
-    run = runtime.preflight(
-        run,
-        plugin_ids=restored.install_ids,
-        available_mcp=restored.mcp_ids)
+    run = runtime.preflight(run, plugin_ids=restored.install_ids, available_mcp=restored.mcp_ids)
     assert any(node["install_id"] == plugin.install_id for node in run.dependency_report["nodes"])
 
 
@@ -160,7 +157,11 @@ async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflig
 ):
     from types import SimpleNamespace
     from core.db.engine import Base
-    from core.llm import agent_factory
+    from core.llm import factory as agent_factory
+    from core.llm.factory.tools import mcp_config as factory_mcp_config
+    from core.llm.factory.selection import capabilities as factory_capabilities
+    import core.config.catalog as catalog
+    import core.agent_skills.loader as skill_loader
     from core.services import desktop_cloud_bridge as bridge
     from core.services.mcp_service import McpServerConfigService
 
@@ -177,12 +178,12 @@ async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflig
         mcp_server_ids=[],
     )
     monkeypatch.setattr("core.llm.tool_permissions.resolve_approval_mode", lambda *a, **kw: "auto")
-    monkeypatch.setattr(agent_factory, "get_enabled_ids", lambda *a: [])
-    monkeypatch.setattr(agent_factory, "_effective_main_available_skills", lambda: [])
-    monkeypatch.setattr(agent_factory, "_filter_skill_ids_for_user", lambda ids, uid: ids)
-    monkeypatch.setattr(agent_factory, "_mcp_ids_bound_to_skills", lambda *a: [])
+    monkeypatch.setattr(catalog, "get_enabled_ids", lambda *a: [])
+    monkeypatch.setattr(factory_capabilities, "_effective_main_available_skills", lambda: [])
+    monkeypatch.setattr(factory_capabilities, "_filter_skill_ids_for_user", lambda ids, uid: ids)
+    monkeypatch.setattr(factory_capabilities, "_mcp_ids_bound_to_skills", lambda *a: [])
     monkeypatch.setattr(
-        agent_factory, "get_skill_loader", lambda: SimpleNamespace(get_skill_dir=lambda sid: None)
+        skill_loader, "get_skill_loader", lambda: SimpleNamespace(get_skill_dir=lambda sid: None)
     )
     monkeypatch.setattr(
         McpServerConfigService,
@@ -195,10 +196,10 @@ async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflig
     )
     monkeypatch.setattr(bridge, "cloud_gateway_mcp_configs", lambda *a, **kw: {})
     monkeypatch.setattr(
-        agent_factory, "_effective_mcp_server_keys", lambda *a, **kw: ["pack-search"]
+        factory_mcp_config, "_effective_mcp_server_keys", lambda *a, **kw: ["pack-search"]
     )
     monkeypatch.setattr(
-        agent_factory,
+        factory_mcp_config,
         "_filter_mcp_servers_by_keys",
         lambda *a, **kw: {
             "pack-search": {"transport": "stdio", "command": "synthetic-never-executed"}
@@ -247,9 +248,7 @@ def test_saved_plugin_replay_uses_frozen_definition_after_manifest_update(select
     restored = activate(plugin)
     kwargs = dict(skill_ids=restored.skill_ids, plugin_ids=restored.install_ids)
     run = runtime.prepare("sticky-replay", "local-owner", **kwargs)
-    first = runtime.preflight(
-        run, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids
-    )
+    first = runtime.preflight(run, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids)
     definition = json.loads(comp.entry_file.read_text())
     definition["components"]["agents"] = [{"id": "new-unavailable-agent", "required": True}]
     files = plugins.plugin_manifest_files(definition)
@@ -269,9 +268,8 @@ def test_saved_plugin_replay_uses_frozen_definition_after_manifest_update(select
         plugin_ids=restored.install_ids,
     )
     replay = runtime.preflight(
-        replay,
-        available_mcp=restored.mcp_ids,
-        plugin_ids=restored.install_ids)
+        replay, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids
+    )
     assert replay.dependency_report == first.dependency_report
     assert any(
         node["revision"] == comp.revision

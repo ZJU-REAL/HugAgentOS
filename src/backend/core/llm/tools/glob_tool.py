@@ -15,7 +15,7 @@ from agentscope.tool import Toolkit
 from core.db.paging import normalize_page, normalize_page_size, paging_meta
 from core.services.project_scope import ProjectScope
 
-from . import myspace_vfs as _ms
+from core.llm.tools import myspace_vfs as _ms
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
 from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
 

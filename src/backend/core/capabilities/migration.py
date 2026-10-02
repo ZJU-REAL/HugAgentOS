@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import shutil
 import time
 from dataclasses import asdict, dataclass, field
@@ -29,7 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from . import junction, skills, store
-from .paths import KIND_SKILL, LOCAL_PROFILE, capabilities_enabled, migrations_root, safe_segment
+from .paths import KIND_SKILL, capabilities_enabled, migrations_root, safe_segment
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +238,7 @@ def _drop_run_copies(report: MigrationReport) -> None:
 
     from . import registry
     from .paths import require_root
-    from .runtime import _PREFIX, PreparedRun
+    from core.capabilities.runtime.state import _PREFIX, PreparedRun
 
     known = set(PreparedRun.__dataclass_fields__)
     with registry._session() as db:

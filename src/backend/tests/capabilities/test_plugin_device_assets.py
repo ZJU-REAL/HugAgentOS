@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 from core.capabilities import device_catalog
-from core.services import plugin_device_assets
-from core.services.plugin_device_assets import provision_for, provision_present_plugins
+from core.plugins.local import assets as plugin_device_assets
+from core.plugins.local.assets import provision_for, provision_present_plugins
 
 
 @pytest.fixture()

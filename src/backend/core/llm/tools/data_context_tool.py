@@ -9,7 +9,7 @@ return value; the model sees it only by calling the tool.
 
 agent_factory registers this tool only when there exists a data source that is
 "direct-connect (not external_nl2sql) + enabled + annotated" (see the mounting
-gate in core/llm/agent_factory.py).
+gate in core/llm/factory/build.py).
 """
 
 import logging

@@ -29,7 +29,7 @@ class _Loader:
 
 @pytest.fixture()
 def provider(monkeypatch, tmp_path):
-    from core.sandbox.cube_provider import CubeSandboxProvider
+    from core.sandbox.cube.provider import CubeSandboxProvider
 
     p = CubeSandboxProvider.__new__(CubeSandboxProvider)
     p._materialized_skills = {}

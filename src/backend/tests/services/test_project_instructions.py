@@ -1,56 +1,21 @@
-"""AGENTS.md acceptance tests against isolated SQLAlchemy and real disk storage."""
+"""Project-instruction storage and authorization contracts."""
+
 from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from api.schemas import ChatRequest
 from core.chat.context import generate_smart_title
-from core.db.engine import Base
 from core.db.models import Artifact, Project, UserFolder, UserShadow
 from core.services.project_file_service import ProjectFileService
 from core.services.project_init import resolve_project_init
 from core.services.project_instructions import ProjectInstructionsService
 from core.services.project_scope import build_project_ctx
 from core.services.project_service import ProjectService
-
-
-@pytest.fixture
-def env(tmp_path, monkeypatch):
-    # No application DB, object store, model, or sandbox process is used.
-    engine = create_engine(f"sqlite:///{tmp_path / 'acceptance.db'}", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, autoflush=False)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
-    monkeypatch.setenv("STORAGE_TYPE", "local")
-    monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
-    monkeypatch.setattr("core.storage.factory._storage_instance", None)
-    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
-    with factory() as db:
-        db.add_all([UserShadow(user_id=u, username=u, email=f"{u}@example.com") for u in ("alice", "bob")])
-        db.commit()
-        yield db, tmp_path
-    engine.dispose()
-
-
-def local(env):
-    db, root = env
-    folder = root / "project"
-    folder.mkdir()
-    p = ProjectService(db).create_local("alice", "Local", str(folder))
-    return p, folder / "AGENTS.md"
-
-
-def update(db, p, text, revision=None):
-    return ProjectService(db).update(p.project_id, "alice", {
-        "instructions": text, "instructions_revision": revision,
-    }, level="admin")
+from fastapi import HTTPException
+from tests.services.project_instructions_support import env, local, update
 
 
 def test_local_file_and_editor_and_next_turn_share_one_source(env):
@@ -67,7 +32,9 @@ def test_local_file_and_editor_and_next_turn_share_one_source(env):
     p.extra_data = {**p.extra_data, "local": {"path": str(path.parent)}}
     db.commit()
     assert build_project_ctx(db, p.project_id)["project_instructions"] == path.read_text()
-    updated = update(db, p, snapshot["instructions"] + "\nRun pytest.\n", snapshot["instructions_revision"])
+    updated = update(
+        db, p, snapshot["instructions"] + "\nRun pytest.\n", snapshot["instructions_revision"]
+    )
     assert updated["instructions"] == path.read_text()
     path.write_text("External editor change\n")
     assert build_project_ctx(db, p.project_id)["project_instructions"] == "External editor change\n"
@@ -119,7 +86,10 @@ def test_symlink_cannot_read_or_overwrite_outside_project(env, broken):
     if not broken:
         outside.write_text("Do not overwrite")
     path.symlink_to(outside)
-    for operation in (lambda: ProjectInstructionsService(db).read(p), lambda: update(db, p, "unsafe")):
+    for operation in (
+        lambda: ProjectInstructionsService(db).read(p),
+        lambda: update(db, p, "unsafe"),
+    ):
         with pytest.raises(HTTPException) as err:
             operation()
         assert err.value.status_code == 409
@@ -156,15 +126,16 @@ def test_cloud_root_scope_and_artifact_identity(env):
     assert svc.get(p.project_id, "alice")["instructions"] == ""
 
 
-def test_duplicate_cloud_roots_fail_instead_of_selecting_arbitrarily(env):
+def test_duplicate_cloud_root_upload_is_rejected_without_replacing_rules(env):
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Duplicates")
     f = ProjectFileService(db)
     f.upload(p, "alice", b"A", "AGENTS.md", "text/markdown")
-    f.upload(p, "alice", b"B", "AGENTS.md", "text/markdown")
     with pytest.raises(HTTPException) as err:
-        ProjectInstructionsService(db).read(p)
+        f.upload(p, "alice", b"B", "AGENTS.md", "text/markdown")
     assert err.value.status_code == 409
+    db.rollback()
+    assert ProjectInstructionsService(db).read(p)["instructions"] == "A"
 
 
 @pytest.mark.parametrize("message", ["/init", "/初始化指令", "  /init  "])
@@ -205,15 +176,34 @@ def test_default_and_unauthorized_projects_reject_init(env):
     assert err.value.status_code == 400
     p = ProjectService(db).create_personal("alice", "Private")
     with pytest.raises(HTTPException) as err:
-        resolve_project_init(db, ChatRequest(chat_id="new", message="/init", project_id=p.project_id), "bob")
+        resolve_project_init(
+            db, ChatRequest(chat_id="new", message="/init", project_id=p.project_id), "bob"
+        )
     assert err.value.status_code == 404
 
 
-@pytest.mark.parametrize("mode", ["plan_chat", "batch_chat", "workflow_chat", "skill_id", "plugin_id", "agent_id", "mention_agent_id", "connector_id"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "plan_chat",
+        "batch_chat",
+        "workflow_chat",
+        "skill_id",
+        "plugin_id",
+        "agent_id",
+        "mention_agent_id",
+        "connector_id",
+    ],
+)
 def test_init_requires_unadorned_project_chat(env, mode):
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Modes")
-    req = ChatRequest(chat_id="new", message="/init", project_id=p.project_id, **{mode: True if mode.endswith("_chat") else "selected"})
+    req = ChatRequest(
+        chat_id="new",
+        message="/init",
+        project_id=p.project_id,
+        **{mode: True if mode.endswith("_chat") else "selected"},
+    )
     with pytest.raises(HTTPException) as err:
         resolve_project_init(db, req, "alice")
     assert err.value.status_code == 400
@@ -230,13 +220,17 @@ async def test_registered_tools_save_real_cloud_content_with_revision_and_permis
     collector = ToolCollector()
     register_project_instruction_tools(collector, project_id=p.project_id, user_id="alice")
     schemas = await Toolkit(tools=collector.function_tools).get_tool_schemas()
-    schema = next(s["function"] for s in schemas if s["function"]["name"] == "save_project_instructions")
+    schema = next(
+        s["function"] for s in schemas if s["function"]["name"] == "save_project_instructions"
+    )
     assert set(schema["parameters"]["required"]) == {"content", "expected_revision"}
     # ToolCollector's documented get_tool exposes the registered function for direct execution.
     read = collector.get_tool("read_project_instructions")._func
     save = collector.get_tool("save_project_instructions")._func
     before = json.loads((await read()).content[0].text)
-    result = json.loads((await save("# Rules\nTest first.", before["instructions_revision"])).content[0].text)
+    result = json.loads(
+        (await save("# Rules\nTest first.", before["instructions_revision"])).content[0].text
+    )
     assert result["ok"] is True
     assert result["instructions"] == "# Rules\nTest first."
     stale = json.loads((await save("overwrite", before["instructions_revision"])).content[0].text)
@@ -261,16 +255,20 @@ def test_saved_chat_binding_controls_initialization(env):
     assert '"project_name": "Bound"' in resolve_project_init(db, req, "alice")
     assert req.project_id == p.project_id
     with pytest.raises(HTTPException) as err:
-        resolve_project_init(db, ChatRequest(chat_id=chat.chat_id, message="/init", project_id=other.project_id), "alice")
+        resolve_project_init(
+            db,
+            ChatRequest(chat_id=chat.chat_id, message="/init", project_id=other.project_id),
+            "alice",
+        )
     assert err.value.status_code == 409
 
 
 def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(env):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
     from api.routes.v1.projects import router
     from core.auth.backend import UserContext, get_current_user
     from core.db.engine import get_db
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
     db, _ = env
     p, path = local(env)
@@ -278,19 +276,34 @@ def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(en
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     actor = ["alice"]
-    app.dependency_overrides[get_current_user] = lambda: UserContext(user_id=actor[0], user_center_id="test", username=actor[0])
+    app.dependency_overrides[get_current_user] = lambda: UserContext(
+        user_id=actor[0], user_center_id="test", username=actor[0]
+    )
     with TestClient(app) as client:
         url = f"/v1/projects/{p.project_id}"
         first = client.get(url)
         assert first.status_code == 200, first.text
         rev = first.json()["data"]["instructions_revision"]
-        saved = client.patch(url + "/instructions", json={"instructions": "# Rules\n保留", "instructions_revision": rev})
+        saved = client.patch(
+            url + "/instructions",
+            json={"instructions": "# Rules\n保留", "instructions_revision": rev},
+        )
         assert saved.status_code == 200, saved.text
         assert path.read_text() == "# Rules\n保留"
-        assert client.patch(url + "/instructions", json={"instructions": "stale", "instructions_revision": rev}).status_code == 409
-        assert client.patch(url + "/instructions", json={"instructions": "中" * 11000}).status_code == 413
+        assert (
+            client.patch(
+                url + "/instructions", json={"instructions": "stale", "instructions_revision": rev}
+            ).status_code
+            == 409
+        )
+        assert (
+            client.patch(url + "/instructions", json={"instructions": "中" * 11000}).status_code
+            == 413
+        )
         actor[0] = "bob"
-        assert client.patch(url + "/instructions", json={"instructions": "intrusion"}).status_code in (403, 404)
+        assert client.patch(
+            url + "/instructions", json={"instructions": "intrusion"}
+        ).status_code in (403, 404)
         assert path.read_text() == "# Rules\n保留"
 
 
@@ -298,20 +311,26 @@ def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(en
 async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     # EE-only scenario; the common tests above also run in the derived CE tree.
     import core.db.models as models
-    if not hasattr(models, 'Team'):
+
+    if not hasattr(models, "Team"):
         pytest.skip("EE organization project")
     from core.db.models import Team, TeamMember
     from core.llm.tool_collector import ToolCollector
-    from core.llm.tools.project_instructions_tool import project_instruction_path, register_project_instruction_tools
     from core.llm.tool_permissions import PermissionRuntime
+    from core.llm.tools.project_instructions_tool import (
+        project_instruction_path,
+        register_project_instruction_tools,
+    )
     from core.services.project_scope import project_scope_from_context
 
     db, _ = env
     db.add(Team(team_id="team", name="Team", owner_user_id="alice", source="manual"))
-    db.add_all([
-        TeamMember(team_id="team", user_id="alice", role="owner", file_permission="editor"),
-        TeamMember(team_id="team", user_id="bob", role="member", file_permission="viewer"),
-    ])
+    db.add_all(
+        [
+            TeamMember(team_id="team", user_id="alice", role="owner", file_permission="editor"),
+            TeamMember(team_id="team", user_id="bob", role="member", file_permission="viewer"),
+        ]
+    )
     db.commit()
     p = ProjectService(db).create_team("alice", "team", "Shared")
     denied = ChatRequest(chat_id="new", message="/init", project_id=p.project_id)
@@ -324,10 +343,16 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     collector = ToolCollector()
     register_project_instruction_tools(
-        collector, project_id=p.project_id, user_id="alice", instruction_path=target,
+        collector,
+        project_id=p.project_id,
+        user_id="alice",
+        instruction_path=target,
     )
     runtime = PermissionRuntime(
-        chat_id="team-chat", user_id="alice", interactive=True, approval_available=True,
+        chat_id="team-chat",
+        user_id="alice",
+        interactive=True,
+        approval_available=True,
         project_scope=project_scope_from_context(ctx),
     )
     for tool_name in ("read_project_instructions", "save_project_instructions"):
@@ -338,7 +363,9 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     save = collector.get_tool("save_project_instructions")._func
     snapshot = json.loads((await read()).content[0].text)
     assert snapshot["path"] == target
-    result = json.loads((await save("Shared project rules", snapshot["instructions_revision"])).content[0].text)
+    result = json.loads(
+        (await save("Shared project rules", snapshot["instructions_revision"])).content[0].text
+    )
     assert result["path"] == target
     assert result["ok"] is True
     db.expire_all()
@@ -350,6 +377,7 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
 
 def test_file_adoption_does_not_commit_unrelated_changes_or_restore_stale_metadata(env):
     from sqlalchemy.orm import Session
+
     db, _ = env
     p, path = local(env)
     p.instructions = "Legacy"
@@ -376,6 +404,7 @@ def test_file_adoption_does_not_commit_unrelated_changes_or_restore_stale_metada
 def test_simultaneous_local_saves_have_exactly_one_winner(env):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
+
     from sqlalchemy.orm import Session
 
     db, _ = env
@@ -390,7 +419,9 @@ def test_simultaneous_local_saves_have_exactly_one_winner(env):
             project = session.get(Project, project_id)
             start.wait(timeout=10)
             try:
-                ProjectInstructionsService(session).write(project, "alice", text, expected_revision=revision)
+                ProjectInstructionsService(session).write(
+                    project, "alice", text, expected_revision=revision
+                )
                 session.commit()
                 return 200, text
             except HTTPException as err:
@@ -401,98 +432,3 @@ def test_simultaneous_local_saves_have_exactly_one_winner(env):
         results = list(executor.map(worker, ("First", "Second")))
     assert sorted(status for status, _ in results) == [200, 409]
     assert path.read_text() == next(text for status, text in results if status == 200)
-
-def test_chat_dispatch_expands_command_and_loads_fresh_rules(env):
-    from api.routes.v1.chats import _resolve_chat_agent_targets, _build_ctx
-
-    db, _ = env
-    p = ProjectService(db).create_personal("alice", "Dispatch")
-    req = ChatRequest(chat_id="new", message="/初始化指令", project_id=p.project_id, mode_slug="turbo", chat_mode="turbo")
-    routed, agent, execution, subcommand = _resolve_chat_agent_targets(db, req, "alice")
-    assert execution != req.message and "save_project_instructions" in execution
-    assert routed.message == "/初始化指令"
-    assert agent is None and subcommand is None
-    assert routed.mode_slug == "standard" and routed.chat_mode != "turbo"
-    ctx = _build_ctx(routed, "alice", [], [], [])
-    assert ctx["project_init"] is True and ctx["project_id"] == p.project_id
-    update(db, p, "Latest rules after initialization")
-    normal = ChatRequest(chat_id="new", message="Continue work", project_id=p.project_id)
-    ctx = _build_ctx(normal, "alice", [], [], [])
-    assert ctx["project_instructions"] == "Latest rules after initialization"
-    assert ctx["project_init"] is False
-
-
-def test_combined_project_patch_preserves_metadata_with_production_session_settings(env):
-    db, _ = env
-    assert db.autoflush is False
-    p, path = local(env)
-    rev = ProjectInstructionsService(db).read(p)["instructions_revision"]
-    result = ProjectService(db).update(p.project_id, "alice", {
-        "instructions": "New instructions", "instructions_revision": rev,
-        "name": "Renamed", "description": "New description", "memory_enabled": False,
-    }, level="admin")
-    assert result["name"] == "Renamed"
-    assert result["description"] == "New description"
-    assert result["memory_enabled"] is False
-    assert path.read_text() == "New instructions"
-
-
-@pytest.mark.asyncio
-async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(env):
-    from core.llm.tool_collector import ToolCollector
-    from core.llm.tools.project_instructions_tool import register_project_instruction_tools
-
-    db, _ = env
-    p = ProjectService(db).create_personal("alice", "Normal")
-    update(db, p, "Current rules")
-    collector = ToolCollector()
-    register_project_instruction_tools(
-        collector, project_id=p.project_id, user_id="alice", allow_write=False,
-    )
-    assert collector.get_tool("save_project_instructions") is None
-    read = collector.get_tool("read_project_instructions")._func
-    assert json.loads((await read()).content[0].text)["instructions"] == "Current rules"
-    # Permission is checked at execution time, not only at registration.
-    p.owner_user_id = "bob"
-    db.commit()
-    assert json.loads((await read()).content[0].text)["status"] == 403
-
-
-@pytest.mark.asyncio
-async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(env, monkeypatch):
-    from core.llm.tool_collector import ToolCollector
-    from core.llm.tools.read_tool import register_read
-    from core.llm.tools._state import ReadStateTracker
-    from core.services.project_scope import project_scope_from_context
-
-    db, _ = env
-    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
-    p = ProjectService(db).create_personal("alice", "ReadRoot")
-    update(db, p, "FRESH-628")
-    scope = project_scope_from_context(build_project_ctx(db, p.project_id))
-    cache = {}
-    class Provider:
-        async def get_file(self, session, path, **kwargs):
-            return cache.get(path, b"STALE-314")
-        async def put_file(self, session, path, data, **kwargs):
-            cache[path] = data
-    monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
-    collector = ToolCollector()
-    register_read(collector, chat_id="read-init-test", user_id="alice",
-                  state=ReadStateTracker(), project_folder_name=scope.folder_name, scope=scope)
-    read = collector.get_tool("Read")._func
-    root = f"/myspace/{scope.folder_name}/AGENTS.md"
-    result = json.loads((await read(root)).content[0].text)
-    assert "FRESH-628" in result["content"] and "STALE" not in result["content"]
-    assert list(cache.values()) == [b"FRESH-628"]
-    nested = json.loads((await read(f"/myspace/{scope.folder_name}/child/AGENTS.md")).content[0].text)
-    assert "STALE-314" in nested["content"]
-    # Removing the canonical file must not revive the disposable sandbox copy.
-    art = ProjectInstructionsService(db)._artifact(p)
-    art.deleted_at = datetime.utcnow()
-    db.commit()
-    deleted = json.loads((await read(root)).content[0].text)
-    assert "不存在" in deleted["error"]
-    p.owner_user_id = "bob"
-    db.commit()
-    assert json.loads((await read(root)).content[0].text)["status"] == 403

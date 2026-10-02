@@ -14,7 +14,7 @@ from core.config.catalog_resolver import (
     enabled_skill_ids_from_context,
 )
 from core.config.display_names import TOOL_DISPLAY_NAMES
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 from core.llm.compacting_agent import frozen_prompt_surface
 from core.llm.context_adapter import append_context_text, next_request_sequence, render_context_item
 from core.llm.context_ir import (

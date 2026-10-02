@@ -25,7 +25,7 @@ from core.db.engine import Base, engine, SessionLocal
 from core.db.models import UserAgent, UserShadow, ProfileMemory
 from core.db.model_repository import create_provider, assign_role
 from core.evolution import runtime_binding
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 
 Base.metadata.create_all(engine)
 requests = []

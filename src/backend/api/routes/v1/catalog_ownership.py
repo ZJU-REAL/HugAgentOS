@@ -10,7 +10,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
     injected only into that user's /v1/catalog response; the frontend shows the "mine"
     badge and delete button based on ``owner == 'self'``.
     """
-    from core.config.catalog_loader import resolve_skill_detail
+    from core.config.catalog_details import resolve_skill_detail
     from core.db.models import AdminMcpServer, AdminSkill, McpMarketInstallation
     from core.services.skill_icon_service import get_skill_icons
 
@@ -128,7 +128,7 @@ def _plugin_component_ids(db) -> tuple:
     except Exception as exc:  # noqa: BLE001
         logger.warning("plugin component id load failed: %s", exc)
     try:
-        from core.services.plugin_service import builtin_plugin_component_ids
+        from core.plugins.management import builtin_plugin_component_ids
 
         fs_skill_ids, fs_mcp_ids = builtin_plugin_component_ids()
         skill_ids |= fs_skill_ids

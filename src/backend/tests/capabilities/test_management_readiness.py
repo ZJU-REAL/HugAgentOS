@@ -2,13 +2,12 @@
 
 import json
 from types import SimpleNamespace
-import pytest
-from api.routes.v1 import desktop_capabilities as api
 from core.capabilities import registry, store
 from core.capabilities.ref import cloud_ref
 from core.services import desktop_cloud_bridge as bridge
 from core.services.desktop_capability_protocol import entity_content_hash
-from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE, _Cloud
+from tests.capabilities.test_desktop_capabilities_api import cloud as cloud
+from tests.capabilities.test_desktop_capabilities_api import client, PROFILE, _Cloud
 
 
 def _cloud_skill(client, monkeypatch, metadata, key="requires-runtime", sync=True):

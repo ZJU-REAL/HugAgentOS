@@ -1,3 +1,4 @@
+import '../platformTypography';
 import './variables.css';
 import './motion.css';
 import './sidebar.css';

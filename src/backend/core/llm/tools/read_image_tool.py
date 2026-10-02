@@ -20,7 +20,7 @@ from agentscope.tool import Toolkit
 from core.services.project_scope import ProjectScope
 from core.vision import VisionMode
 
-from . import myspace_vfs as _ms
+from core.llm.tools import myspace_vfs as _ms
 from ._common import ToolResponse, resolve_sandbox_session, resp_image, resp_json
 from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
 

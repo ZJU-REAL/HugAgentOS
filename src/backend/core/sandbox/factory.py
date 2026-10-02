@@ -40,7 +40,7 @@ def _ordinary_provider() -> SandboxProvider:
             _provider = ScriptRunnerProvider()
     elif kind == "cube":
         try:
-            from .cube_provider import CubeSandboxProvider
+            from core.sandbox.cube.provider import CubeSandboxProvider
             _provider = CubeSandboxProvider()
         except ModuleNotFoundError:
             logger.warning(

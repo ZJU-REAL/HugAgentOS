@@ -53,7 +53,9 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
         )
 
     async def no_memory(*_args, **_kwargs):
-        return SessionMemory(chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False)
+        return SessionMemory(
+            chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
+        )
 
     async def no_identity(_user_id):
         return ""
@@ -119,7 +121,9 @@ async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkey
         raise StopAtFactory
 
     async def _no_memory(*_args, **_kwargs):
-        return SessionMemory(chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False)
+        return SessionMemory(
+            chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
+        )
 
     monkeypatch.setattr(workflow, "create_agent_executor", _fake_create_agent_executor)
     monkeypatch.setattr(workflow, "open_session_memory", _no_memory)
@@ -128,9 +132,7 @@ async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkey
     monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
     monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
     monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
-    monkeypatch.setattr(
-        builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: []
-    )
+    monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
 
     stream = workflow.astream_chat_workflow(
         session_messages=[{"role": "user", "content": "hello"}],
@@ -162,7 +164,8 @@ import json
 import core.db.models  # register the complete metadata before create_all
 from core.db.engine import Base, engine
 from core.evolution.runtime_binding import reset_for_tests, resolve_bundle_for_run
-from core.llm import agent_factory, builtin_subagents
+from core.llm import factory as agent_factory, builtin_subagents
+import core.agent_skills.loader as skill_loader
 from orchestration import workflow
 from orchestration.memory_integration import SessionMemory
 
@@ -176,7 +179,7 @@ class EmptySkillLoader:
     def get_skill_dir(self, *_args, **_kwargs):
         return None
 
-agent_factory.get_skill_loader = lambda: EmptySkillLoader()
+skill_loader.get_skill_loader = lambda: EmptySkillLoader()
 real_factory = workflow.create_agent_executor
 
 class BoundAfterFactory(Exception):
@@ -266,7 +269,8 @@ from core.db.engine import Base, engine, SessionLocal
 from core.db.models.evolution import EvolutionEpisode
 from core.evolution import runtime_binding as rb
 from core.evolution import trace_assembler
-from core.llm import agent_factory
+from core.llm import factory as agent_factory
+import core.agent_skills.loader as skill_loader
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 
 Base.metadata.create_all(engine)
@@ -294,7 +298,7 @@ class CaptureModel:
     async def count_tokens(self, messages, tools=None):
         return 1
 
-agent_factory.get_skill_loader = lambda: EmptySkillLoader()
+skill_loader.get_skill_loader = lambda: EmptySkillLoader()
 
 async def build(run_id, project_ctx=None):
     agent, clients = await agent_factory.create_agent_executor(

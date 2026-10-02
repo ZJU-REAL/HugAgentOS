@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>初始化 · HugAgentOS</title>
+<style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源 */
+  :root{color-scheme:light;--accent:#126DFF;--accent-hover:#3C87FF;--accent-active:#0862F3;--accent2:#32ADE6;--text:#1D1D1F;
+    --secondary:#6E6E73;--line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);
+    --page:#F5F5F7;--danger:#D70015;--glow:rgba(18,109,255,.20)}
+  :root[data-theme="dark"]{color-scheme:dark;--accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;--accent2:#42C8FF;
+    --text:#E8ECF4;--secondary:#B3BDCD;--line:#2B3442;--surface:rgba(28,35,48,.72);
+    --page:#0F141B;--danger:#FF6B6B;--glow:rgba(62,139,255,.24)}
+  /* dark-ok-end */
+  *{box-sizing:border-box}html,body{height:100%;margin:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
+    min-height:100%;padding:24px;overflow:hidden;-webkit-user-select:none;user-select:none}
+  .setup{position:relative;width:min(600px,100%);text-align:center;padding:34px 30px 38px;z-index:1}
+  .visual{position:relative;width:174px;height:174px;margin:0 auto 26px;display:grid;place-items:center}
+  .halo{position:absolute;inset:25px;border-radius:50%;background:var(--glow);filter:blur(22px);animation:halo 3.2s ease-in-out infinite}
+  .orbit{position:absolute;inset:7px;border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);border-radius:50%;animation:spin 8s linear infinite}
+  .orbit.two{inset:22px;border-style:dashed;animation-duration:11s;animation-direction:reverse;opacity:.7}
+  .orbit::before,.orbit::after{content:"";position:absolute;width:9px;height:9px;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 6px color-mix(in srgb,var(--accent2) 12%,transparent),0 0 18px var(--glow)}
+  .orbit::before{left:14px;top:15px}.orbit::after{right:5px;bottom:34px;width:6px;height:6px}
+  .core{position:relative;width:108px;height:108px;border-radius:31px;display:grid;place-items:center;
+    background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 18%,transparent);
+    box-shadow:0 22px 60px var(--glow),0 2px 10px rgba(0,0,0,.08);backdrop-filter:blur(18px); /* dark-ok: 中性投影两档都是黑 */
+    -webkit-backdrop-filter:blur(18px);animation:float 3.4s ease-in-out infinite}
+  .logo{display:block;width:88px;height:88px;border-radius:24px;object-fit:cover}
+  .brand{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    font-size:48px;line-height:1.08;font-weight:700;letter-spacing:-.03em;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .tagline{margin:12px 0 0;color:var(--accent);font-size:15px;font-weight:600;letter-spacing:.1em}
+  .lead{max-width:430px;margin:16px auto 0;color:var(--secondary);font-size:14.5px;line-height:1.7}
+  .button{width:min(340px,100%);height:44px;margin-top:30px;border:0;border-radius:10px;padding:0 22px;
+    font:600 14px/1 inherit;cursor:pointer;background:var(--accent);color:#fff; /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb,var(--accent) 16%,transparent);transition:background .12s ease,transform .1s ease,opacity .12s ease}
+  @media(hover:hover){.button:hover{background:var(--accent-hover)}}
+  .button:active{background:var(--accent-active);transform:scale(.98)}.button:disabled{opacity:.62;cursor:default;transform:none}
+  .button:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 32%,transparent);outline-offset:4px}
+  .err{min-height:20px;margin:12px auto -8px;color:var(--danger);font-size:12.5px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.015)}}
+  @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
+  body.platform-macos .setup{margin-top:-8px}
+  @media(max-width:620px){body{padding:16px}.setup{padding:22px 8px}.visual{transform:scale(.9);margin-bottom:15px}.brand{font-size:38px}}
+  @media(prefers-reduced-motion:reduce){.halo,.orbit,.core{animation:none}.button{transition:none}}
+  @media(prefers-reduced-transparency:reduce){.core{background:var(--page);backdrop-filter:none;-webkit-backdrop-filter:none}}
+</style>
+</head>
+<body class="platform-__PLATFORM__">
+  <main class="setup">
+    <div class="visual" aria-hidden="true">
+      <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
+      <div class="core"><img class="logo" src="/icon.png" alt="" onerror="this.style.visibility='hidden'" /></div>
+    </div>
+    <h1 class="brand">HugAgentOS</h1>
+    <p class="tagline">__TAGLINE__</p>
+    <p class="lead">首次启动需要配置本机运行环境，并连接云端服务。</p>
+    <div class="err" id="err" role="alert"></div>
+    <button class="button" id="go" type="button" onclick="start()">开始初始化</button>
+  </main>
+<script>
+  var localSupported = __LOCAL_SUPPORTED__;
+  var button = document.getElementById('go');
+  var err = document.getElementById('err');
+  if(!localSupported){button.disabled=true;err.textContent='当前安装包缺少本机运行资源，请重新下载安装包。';}
+  function start(){
+    if(!localSupported)return;
+    button.disabled=true;button.textContent='正在启动…';
+    // 整页导航到哨兵路径，由 Rust 导航守卫落盘并在同一窗口切到进度页（不重启应用）。
+    window.location.href='/__desktop/provision';
+  }
+</script>
+</body>
+</html>

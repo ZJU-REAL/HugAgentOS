@@ -8,7 +8,7 @@ const desktopDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const rustDir = join(desktopDir, "src-tauri", "src");
 
 test("desktop webviews keep zoom handling consistent across the shell", () => {
-  const libSource = readFileSync(join(rustDir, "lib.rs"), "utf8");
+  const libSource = readFileSync(join(rustDir, "display.rs"), "utf8");
 
   assert.match(libSource, /ZOOM_STEPS/);
   assert.match(libSource, /apply_user_zoom/);

@@ -25,6 +25,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
     const scroller = list?.closest<HTMLElement>('.jx-content');
     if (!list || !scroller || !anchors) return;
     const anchorUids = anchors.split(',');
+    const elements = anchorUids.map(uid => list.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`));
     const footer = list.parentElement?.querySelector<HTMLElement>('.jx-chatFooter');
     let frame = 0;
     const update = () => {
@@ -44,12 +45,14 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
       // Last question above the reading line owns the following answer, even a very long one.
       const readingLine = rect.top + Math.min(96, height * 0.25);
       let current = anchorUids[0];
-      for (const uid of anchorUids) {
-        const element = list.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`);
-        if (!element) continue;
-        if (element.getBoundingClientRect().top > readingLine) break;
-        current = uid;
+      let low = 0, high = elements.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        const element = elements[middle];
+        if (element && element.getBoundingClientRect().top <= readingLine) low = middle + 1;
+        else high = middle;
       }
+      current = anchorUids[Math.max(0, low - 1)];
       // At the bottom the last turn may be too short to reach the reading line.
       if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 8) {
         current = anchorUids[anchorUids.length - 1];

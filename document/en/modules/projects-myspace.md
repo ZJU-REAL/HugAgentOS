@@ -52,12 +52,12 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 
 ### How project context enters a conversation
 
-When a conversation is started inside a project (the request carries `project_id`), `api/routes/v1/chats.py` assembles the workflow context:
+When a conversation is started inside a project (the request carries `project_id`), `api/routes/v1/chats/__init__.py` assembles the workflow context:
 
 1. Project metadata is loaded — `project_name`, `project_instructions`, the linked folder name and file inventory;
-2. `core/llm/agent_factory.py` injects these into the system prompt via `_build_project_section` (`build_system_prompt(cfg, ctx=...)`);
+2. `core/llm/factory/build.py` injects these into the system prompt via `_build_project_section` (`build_system_prompt(cfg, ctx=...)`);
 3. The project-level memory scope takes effect: the workspace becomes `project:<project_id>`; team projects use the mem0 bucket `team:<team_id>` (members share memories), and the project's own `metadata.memory_enabled` / `memory_write_enabled` override the user-level toggles (defaulting to on inside projects) — see [Memory System](./memory.md);
-4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/llm/tools/myspace_vfs.py`).
+4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/llm/tools/myspace_vfs/__init__.py`).
 
 Team project permissions follow team roles: owner/admin always have admin rights; members are governed by `file_permission` (editor/viewer) (`core/auth/permissions_iface.py::require_project_access`).
 
@@ -166,8 +166,8 @@ Three complementary paths:
 | `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM (EE only) |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
 | `src/backend/core/llm/hooks.py` | Attachment context injection (`_build_file_context`, etc.) |
-| `src/backend/core/llm/agent_factory.py` | Project section injection into the system prompt |
-| `src/backend/core/llm/tools/myspace_vfs.py` | MySpace ↔ sandbox mapping layer |
+| `src/backend/core/llm/factory/build.py` | Project section injection into the system prompt |
+| `src/backend/core/llm/tools/myspace_vfs/__init__.py` | MySpace ↔ sandbox mapping layer |
 | `src/frontend/src/components/projects/` | Project frontend components |
 | `src/frontend/src/components/sidebar/Sidebar.tsx` | Sidebar project groups, quick chat creation, and project actions |
 | `src/frontend/src/components/myspace/` | MySpace frontend components |

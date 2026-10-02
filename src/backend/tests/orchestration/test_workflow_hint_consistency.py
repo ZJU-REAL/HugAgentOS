@@ -54,7 +54,7 @@ def _run_job_arg_default(arg_name: str):
 
 @pytest.fixture(scope="module")
 def hint() -> str:
-    return _module_constant("core/llm/agent_factory.py", "_WORKFLOW_MODE_HINT")
+    return _module_constant("core/llm/factory/defaults.py", "_WORKFLOW_MODE_HINT")
 
 
 def test_wait_default_is_background():

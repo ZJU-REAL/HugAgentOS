@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import json
 import pytest
+from orchestration.citation_anchor import AnchorAllocator, annotate_tool_result
 from orchestration.workflow import (
     _astream_subagent_direct,
     _capture_nested_ontology_evidence,
@@ -55,7 +57,7 @@ def test_review_failure_preserves_original_and_escalates_instead_of_aborting():
 def test_nested_subagent_tool_results_join_outer_trace_and_citations():
     trace = []
     citations = []
-    offsets = {}
+    allocator = AnchorAllocator()
     tools = [
         (
             "search_company",
@@ -73,6 +75,10 @@ def test_nested_subagent_tool_results_join_outer_trace_and_citations():
     ]
 
     for index, (tool_name, output) in enumerate(tools, 1):
+        _, items = annotate_tool_result(
+            tool_name, f"child-tool-{index}", json.dumps(output), allocator
+        )
+        allocator.register(f"child-tool-{index}", items)
         extracted = _capture_nested_ontology_evidence(
             {
                 "sub_type": "tool_result",
@@ -86,7 +92,7 @@ def test_nested_subagent_tool_results_join_outer_trace_and_citations():
             },
             trace,
             citations,
-            offsets,
+            allocator,
         )
         assert extracted
 
@@ -111,6 +117,7 @@ def test_nested_subagent_tool_results_join_outer_trace_and_citations():
 @pytest.mark.asyncio
 async def test_repair_round_continues_agent_and_streams_candidate_after_draft():
     runtime = {"enabled": True, "runtime_events": []}
+    allocator = AnchorAllocator()
 
     class FakeStreamingAgent:
         def __init__(self):
@@ -125,6 +132,13 @@ async def test_repair_round_continues_agent_and_streams_candidate_after_draft():
                 "id": "repair-tool-1",
                 "args": {"company_id": "company-1"},
             }
+            _, items = annotate_tool_result(
+                "get_company_risk_warning",
+                "repair-tool-1",
+                json.dumps({"经营司法风险": {"风险总数": 0}}),
+                allocator,
+            )
+            allocator.register("repair-tool-1", items)
             yield "tool_result", {
                 "name": "get_company_risk_warning",
                 "id": "repair-tool-1",
@@ -155,7 +169,7 @@ async def test_repair_round_continues_agent_and_streams_candidate_after_draft():
         runtime=runtime,
         trace=trace,
         citations=citations,
-        citation_offsets={},
+        allocator=allocator,
         event_cursor=0,
         event_sink=_capture_event,
     )
@@ -168,7 +182,7 @@ async def test_repair_round_continues_agent_and_streams_candidate_after_draft():
     assert "请生成 Word 格式的企业风险分析报告" in streaming_agent.messages[0]["content"]
     assert "不得降级为纯文字替代" in streaming_agent.messages[0]["content"]
     assert any(item.get("tool_name") == "get_company_risk_warning" for item in trace)
-    assert citations[0]["id"] == "get_company_risk_warning-1"
+    assert citations[0]["id"] == "e1"
     assert any(item.get("type") == "ontology_revision_thinking" for item in streamed_events)
     pending_event = next(item for item in streamed_events if item.get("type") == "tool_pending")
     assert pending_event["reason"] == "tool_args_streaming"
@@ -194,6 +208,7 @@ async def test_repair_round_continues_agent_and_streams_candidate_after_draft():
 @pytest.mark.asyncio
 async def test_repair_round_ignores_inline_wrapper_example_before_real_revision():
     runtime = {"enabled": True, "runtime_events": []}
+    allocator = AnchorAllocator()
 
     class FakeStreamingAgent:
         def __init__(self):
@@ -217,7 +232,7 @@ async def test_repair_round_ignores_inline_wrapper_example_before_real_revision(
         runtime=runtime,
         trace=[],
         citations=[],
-        citation_offsets={},
+        allocator=allocator,
         event_cursor=0,
         event_sink=_capture_event,
     )
@@ -238,6 +253,7 @@ async def test_repair_round_ignores_inline_wrapper_example_before_real_revision(
 @pytest.mark.asyncio
 async def test_repair_round_streams_revision_adjacent_to_reasoning_close_tag():
     runtime = {"enabled": True, "runtime_events": []}
+    allocator = AnchorAllocator()
 
     class FakeStreamingAgent:
         def __init__(self):
@@ -261,14 +277,12 @@ async def test_repair_round_streams_revision_adjacent_to_reasoning_close_tag():
         runtime=runtime,
         trace=[],
         citations=[],
-        citation_offsets={},
+        allocator=allocator,
         event_cursor=0,
         event_sink=_capture_event,
     )
 
-    content_events = [
-        item for item in streamed_events if item.get("type") == "ontology_revision"
-    ]
+    content_events = [item for item in streamed_events if item.get("type") == "ontology_revision"]
     thinking = "".join(
         item.get("delta", "")
         for item in streamed_events
@@ -276,8 +290,7 @@ async def test_repair_round_streams_revision_adjacent_to_reasoning_close_tag():
     )
 
     assert answer == (
-        "第一段修订正文包含充分事实依据和明确结论，"
-        "第二段继续说明证据边界并给出审慎判断。"
+        "第一段修订正文包含充分事实依据和明确结论，" "第二段继续说明证据边界并给出审慎判断。"
     )
     assert len(content_events) >= 2
     assert "".join(item["delta"] for item in content_events) == answer

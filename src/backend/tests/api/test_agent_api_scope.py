@@ -3,14 +3,9 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from starlette.requests import Request
-
 from api.schemas import ChatRequest
-from core.auth.backend import UserContext
 from core.auth.agent_api_scope import enforce_agent_api_route
+from core.auth.backend import UserContext
 from core.db.engine import Base
 from core.db.models import (
     AgentApiCallLog,
@@ -26,6 +21,10 @@ from core.db.models import (
 )
 from core.services.agent_api_service import prepare_agent_api_request
 from core.services.api_key_service import ApiKeyService, resolve_api_key_identity
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
 
 @pytest.fixture()
@@ -131,7 +130,7 @@ def test_disabled_agent_can_create_and_use_scoped_key(db):
 
 
 def test_personal_key_can_target_disabled_owned_agent(db):
-    from api.routes.v1.chats import _resolve_chat_agent_targets
+    from api.routes.v1.chats.agent_targets import _resolve_chat_agent_targets
 
     db.get(UserAgent, "ua_one").is_enabled = False
     db.commit()
@@ -181,7 +180,9 @@ def test_prepare_rejects_privilege_expansion_and_records_no_body(db, payload):
     key, _ = _key(db)
     with pytest.raises(HTTPException):
         prepare_agent_api_request(
-            db, _user(key), ChatRequest(chat_id="new", message="secret body", **({"agent_id": "ua_one"} | payload))
+            db,
+            _user(key),
+            ChatRequest(chat_id="new", message="secret body", **({"agent_id": "ua_one"} | payload)),
         )
     record = db.query(AgentApiCallLog).one()
     assert record.status == "failed"
@@ -194,17 +195,25 @@ def test_key_cannot_reuse_owner_chat_or_another_keys_chat(db):
     db.add(ChatSession(chat_id="private", user_id="owner", title="Private"))
     db.commit()
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="private", message="Hi", agent_id="ua_one"))
-    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+        prepare_agent_api_request(
+            db, _user(key), ChatRequest(chat_id="private", message="Hi", agent_id="ua_one")
+        )
+    prepare_agent_api_request(
+        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+    )
     other, _ = _key(db)
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, _user(other), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+        prepare_agent_api_request(
+            db, _user(other), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+        )
 
 
 def test_global_route_gate_allows_only_own_api_runs(db):
     key, _ = _key(db)
     user = _user(key)
-    _, scope = prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+    _, scope = prepare_agent_api_request(
+        db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+    )
     db.add(
         ChatRun(
             run_id="own",
@@ -265,7 +274,9 @@ def test_team_manager_can_publish_but_member_cannot_and_lost_role_revokes_access
 def test_only_persisted_own_api_artifact_can_be_downloaded(db):
     key, _ = _key(db)
     user = _user(key)
-    prepare_agent_api_request(db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+    prepare_agent_api_request(
+        db, user, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+    )
     for artifact_id, chat_id, key_id in [
         ("owned", "api-chat", key.id),
         ("private", None, None),
@@ -324,18 +335,23 @@ async def test_explicit_key_precedes_session_in_required_and_optional_auth(db, m
 
 def test_owner_session_cannot_silently_widen_an_api_chat(db):
     key, _ = _key(db)
-    prepare_agent_api_request(db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+    prepare_agent_api_request(
+        db, _user(key), ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+    )
     owner = UserContext(user_id="owner", user_center_id="owner", username="Owner")
     with pytest.raises(HTTPException):
-        prepare_agent_api_request(db, owner, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one"))
+        prepare_agent_api_request(
+            db, owner, ChatRequest(chat_id="api-chat", message="Hi", agent_id="ua_one")
+        )
 
 
 @pytest.mark.parametrize("same_key", [True, False])
 def test_concurrent_first_use_arbitrates_session_provenance(db, same_key):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
-    from sqlalchemy.orm import Session
+
     from core.services.agent_api_service import _bind_api_session, make_agent_api_scope
+    from sqlalchemy.orm import Session
 
     first, _ = _key(db)
     second = first if same_key else _key(db)[0]

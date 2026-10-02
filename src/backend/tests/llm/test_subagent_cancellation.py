@@ -17,7 +17,7 @@ class CapturingToolkit:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["factory", "reply"])
 async def test_cancel_stops_child_and_finishes_log_once(monkeypatch, stage):
-    from core.llm import agent_factory
+    from core.llm import factory as agent_factory
 
     started, stopped = threading.Event(), threading.Event()
     events = []

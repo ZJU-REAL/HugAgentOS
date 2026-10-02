@@ -22,7 +22,7 @@ from core.db import models
 from core.capabilities import registry
 from core.auth.backend import UserContext, get_current_user
 from api.routes.v1 import catalog, plugins, me_capabilities
-from core.services import local_plugin_service
+from core.plugins.local import service as local_plugin_service
 from core.capabilities.local_plugin_runtime import configs
 from core.llm.mcp_pool import make_client
 

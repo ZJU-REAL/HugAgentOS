@@ -11,7 +11,6 @@ from __future__ import annotations
 # prompt_runtime <-> project_section have a (pre-existing) import cycle that only
 # resolves when prompt_runtime is imported first, as the app does. Do that before
 # pulling the section helper so this test collects standalone.
-import prompts.prompt_runtime  # noqa: F401
 from prompts.project_section import _build_local_project_section
 
 
@@ -41,8 +40,12 @@ def test_local_section_carries_safety_boundary():
     s = _build_local_project_section(
         project_name="P", project_instructions="", local_path="/tmp/p", local_slug="p-1"
     )
-    assert "危险命令" in s or "越出授权目录" in s
-    assert "快照" in s and "回滚" in s
+    from prompts.desktop_templates import render_desktop_part
+
+    guidance = render_desktop_part("guidance")
+    assert "permission_profile" in guidance and "granted_roots" in guidance
+    assert "绑定项目本身不授予额外权限" in guidance
+    assert "快照" not in s and "回滚" not in s
 
 
 def test_local_section_includes_project_instructions():
@@ -83,7 +86,7 @@ def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
             functions[fn.__name__] = fn
 
     register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), **ctx)
-    description = functions["bash"].__doc__
+    description = functions["Bash"].__doc__
     expected = session_root(root, "effective-session")
     assert expected in prompt and expected in description
     assert session_root(root, "display-chat") not in prompt + description
@@ -105,7 +108,7 @@ def test_cloud_bash_description_keeps_container_paths(monkeypatch):
             functions[fn.__name__] = fn
 
     register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), chat_id="cloud-chat")
-    doc = functions["bash"].__doc__
+    doc = functions["Bash"].__doc__
     assert "工作目录默认 /workspace" in doc
     assert "/workspace/skills" in doc
     assert ".sessions" not in doc

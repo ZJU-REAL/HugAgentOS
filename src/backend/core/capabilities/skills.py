@@ -543,7 +543,7 @@ def publish_local_skill(
 
 
 def remove_local_skill(skill_id: str) -> bool:
-    from .runtime import references
+    from core.capabilities.runtime import references
 
     if references("skill", LOCAL_PROFILE, skill_id):
         # Source deletion revokes use; history still needs its exact bytes.

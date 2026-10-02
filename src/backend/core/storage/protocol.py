@@ -38,5 +38,5 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def exists(self, storage_key: str) -> bool:
-        """Check if a file exists in storage."""
+        """Return False only for confirmed absence; raise StorageError on service failure."""
         ...

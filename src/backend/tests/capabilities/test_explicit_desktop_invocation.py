@@ -1,24 +1,23 @@
 """The actual /skill, /connector and /plugin API resolves desktop-only sources."""
 
 import pytest
-from fastapi import HTTPException
-
-from api.routes.v1.chats import _resolve_explicit_capability_invocation
+from api.routes.v1.chats.invocation import _resolve_explicit_capability_invocation
 from api.schemas import ChatRequest
 from core.capabilities import registry, skills, store
 from core.capabilities.paths import revision_for_hash
 from core.config import catalog_resolver
 from core.services import desktop_cloud_bridge as bridge
+from fastapi import HTTPException
 from tests.capabilities.test_cloud_plugin_binding_runtime import cloud_plugin
 
 
 @pytest.fixture
 def explicit_cloud(index_db, caps_root, monkeypatch):
     state, plugin, component, skill = cloud_plugin(monkeypatch, index_db)
-    from core.db.models import AdminSkill, AdminMcpServer, InstalledPlugin
+    from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, McpMarketInstallation
 
     with index_db() as db:
-        for model in (AdminSkill, AdminMcpServer, InstalledPlugin):
+        for model in (AdminSkill, AdminMcpServer, InstalledPlugin, McpMarketInstallation):
             model.__table__.create(db.get_bind(), checkfirst=True)
     prepared = store.write_from_files(
         "skill",

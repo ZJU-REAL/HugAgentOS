@@ -17,6 +17,7 @@ context，没带 `workflow_chat`，而 `workflow_mode` 正是 run_job 注册与�
 import asyncio
 from typing import Any, Dict, List
 
+import api.routes.v1.chats.session_context as chat_session_context
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base
@@ -98,12 +99,11 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
         started.append(kw)
         return "run_1"
 
-    import api.routes.v1.chats as chats_mod
     import core.config.catalog_resolver as resolver_mod
     import core.services.chat_service as chat_service_mod
     from orchestration import chat_run_executor
 
-    monkeypatch.setattr(chats_mod, "_load_session_messages", fake_load_session_messages)
+    monkeypatch.setattr(chat_session_context, "_load_session_messages", fake_load_session_messages)
     monkeypatch.setattr(resolver_mod, "resolve_all_runtime_enabled", fake_resolve_all)
     monkeypatch.setattr(chat_service_mod, "ChatService", _FakeChatService)
     monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)

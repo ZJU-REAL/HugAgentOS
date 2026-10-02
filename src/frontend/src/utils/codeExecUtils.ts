@@ -3,7 +3,7 @@
  * Used by CodeView and file-size displays (myspace / config).
  */
 
-import hljs from 'highlight.js';
+import { highlightSyntax } from './syntaxHighlight';
 
 export const LANG_LABELS: Record<string, string> = {
   python: 'Python',
@@ -22,10 +22,5 @@ export function formatFileSize(bytes: number): string {
 export function highlightCode(code: string, language: string): string {
   if (!code) return '';
   const lang = language === 'sh' ? 'bash' : language;
-  if (hljs.getLanguage(lang)) {
-    try {
-      return hljs.highlight(code, { language: lang }).value;
-    } catch { /* fallback */ }
-  }
-  return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return highlightSyntax(code, lang);
 }

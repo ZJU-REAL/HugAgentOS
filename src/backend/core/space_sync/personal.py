@@ -71,6 +71,7 @@ class MySpaceRegistry:
         self._user_locks = {}
         self._failures = {}
         self._task_users = {}
+        self._task_paths = {}
 
     async def start(self) -> None:
         root = myspace_cache_root()
@@ -235,14 +236,19 @@ class MySpaceRegistry:
             self._inflight.add(key)
             by_user.setdefault(key[0], []).append(key[1])
         started: list[asyncio.Task] = []
-        for user_id, rels in by_user.items():
+        batches = ((uid, batch) for uid, paths in by_user.items()
+                   for batch in ([p for p in paths if p], [""] if "" in paths else [])
+                   if batch)
+        for user_id, rels in batches:
             task = asyncio.create_task(self._guarded(user_id, rels, force=force))
             self._tasks.add(task)
             self._task_users[task] = user_id
+            self._task_paths[task] = tuple(rels)
 
             def completed(done):
                 self._tasks.discard(done)
                 self._task_users.pop(done, None)
+                self._task_paths.pop(done, None)
 
             task.add_done_callback(completed)
             started.append(task)
@@ -482,8 +488,8 @@ class MySpaceRegistry:
         )
         return res is None
 
-    async def flush(self, user_id: str, *, timeout: float = 5.0) -> None:
+    async def flush(self, user_id: str, *, timeout: float = 5.0, metadata_only: bool = False) -> None:
         "Wait for this owner's complete queue, including parent/child dependencies."
         from core.space_sync.personal_barrier import flush
 
-        await flush(self, user_id, timeout)
+        await flush(self, user_id, timeout, metadata_only=metadata_only)

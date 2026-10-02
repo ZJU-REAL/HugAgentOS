@@ -24,7 +24,7 @@ from typing import Optional
 from agentscope.tool import Toolkit
 from core.services.project_scope import ProjectScope
 
-from . import myspace_vfs as _ms
+from core.llm.tools import myspace_vfs as _ms
 from ._common import (
     pin_artifact_to_workspace,
     resolve_sandbox_session,

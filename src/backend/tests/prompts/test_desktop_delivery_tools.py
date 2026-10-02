@@ -12,13 +12,14 @@ import asyncio
 from core.db.engine import Base, engine
 import core.db.models
 from core.llm import agent_factory
+import core.agent_skills.loader as skill_loader
 from core.config import local_mode
 Base.metadata.create_all(engine)
 class EmptyLoader:
     def load_all_metadata(self): return {}
     def get_skill_dir(self, *args): return None
     def register_skills_to_toolkit(self, *args, **kwargs): return 0
-agent_factory.get_skill_loader = lambda: EmptyLoader()
+skill_loader.get_skill_loader = lambda: EmptyLoader()
 async def main():
     for local in (True, False):
         local_mode.local_mode_enabled = lambda: local

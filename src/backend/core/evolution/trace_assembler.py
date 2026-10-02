@@ -17,6 +17,8 @@ Two properties this must hold:
 
 from __future__ import annotations
 
+from core.memory.preview import sanitized_preview
+
 import hashlib
 import logging
 import re
@@ -39,21 +41,6 @@ def _objective_hash(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
 
 
-def _preview(text: str) -> str:
-    """Short, sanitized excerpt of the user's objective."""
-    collapsed = " ".join((text or "").split())
-    if not collapsed:
-        return ""
-    try:
-        from core.memory.sanitizer import sanitize
-
-        result = sanitize(collapsed)
-        if result.reject:
-            return "[REDACTED]"
-        collapsed = result.text or collapsed
-    except Exception:
-        pass
-    return collapsed[:_PREVIEW_MAX]
 
 
 def _count_existing_logs(db, message_id: str) -> Dict[str, int]:
@@ -296,7 +283,7 @@ def assemble_episode(
                 tenant_id=tenant_id or "default",
                 task_type=task_type or "chat",
                 objective_hash=_objective_hash(objective),
-                objective_preview=_preview(objective),
+                objective_preview=sanitized_preview(objective, max_chars=_PREVIEW_MAX),
                 asset_bundle_id=bundle.bundle_id if bundle is not None else None,
                 asset_bundle=bundle_dict,
                 # No bundle at all is the strongest form of "partial": we know

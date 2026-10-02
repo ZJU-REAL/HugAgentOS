@@ -114,7 +114,7 @@ def _skill_body(inst) -> Optional[Tuple[str, Tuple[str, ...]]]:
 
 
 def _skill_item(inst) -> Dict[str, Any]:
-    from core.config.catalog_loader import skill_body_from_raw
+    from core.config.catalog_details import skill_body_from_raw
 
     description = inst.description or ""
     item = {
@@ -343,7 +343,7 @@ def set_plugin_enabled(install_id_or_slug: str, enabled: bool, user_id=None) -> 
     if inst is None:
         return False
     if inst.profile_id == "local":
-        from core.services.local_plugin_service import set_enabled_for_user
+        from core.plugins.local.service import set_enabled_for_user
         set_enabled_for_user(user_id, inst.install_id, enabled)
     else:
         registry.set_enabled(inst.install_id, bool(enabled))

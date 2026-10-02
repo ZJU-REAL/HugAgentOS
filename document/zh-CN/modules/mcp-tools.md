@@ -62,7 +62,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 - **`list_datasets()`**：列出当前用户可用的全部知识库（公有 + 私有），含名称、简介与文档列表，供模型先探查再检索；
 - **`retrieve_local_kb(kb_id, query, top_k)`**：检索平台自建私有知识库。
 
-它是唯一的 **per-request** Server：每次对话请求按当前用户把允许访问的知识库 ID、用户 ID、重排序开关通过 **HTTP 请求头**（`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`）注入（见 `core/llm/agent_factory.py::_apply_runtime_kb_constraints`），Server 端用 `ctx.request_context` 读头实现多用户隔离。详见[知识库模块](knowledge-base.md)。
+它是唯一的 **per-request** Server：每次对话请求按当前用户把允许访问的知识库 ID、用户 ID、重排序开关通过 **HTTP 请求头**（`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`）注入（见 `core/llm/factory/build.py::_apply_runtime_kb_constraints`），Server 端用 `ctx.request_context` 读头实现多用户隔离。详见[知识库模块](knowledge-base.md)。
 
 ### query_database — 数据仓库查询（商业版 EE）
 
@@ -214,7 +214,7 @@ Server 同样适用（返回 JSON 即可）。回注发生在结果进模型上�
   - per-request Server（知识库检索带用户头）每次现连，请求结束 `close_transient()` 关闭。
 - **`core/llm/mcp_manager.py` — `BareNameMCPClient`**：AgentScope 2.0 默认把工具名改写为 `mcp__<server>__<tool>`，该子类还原为服务器侧裸名（`internet_search` 而非 `mcp__internet_search__internet_search`），保证展示名映射（`core/config/display_names.py`）、[引用溯源](chat.md)的按工具名分发、前端图标渲染等 1.x 约定继续成立。
 
-`Toolkit` 在 2.0 是一次性构造，由 `core/llm/agent_factory.py` 统一执行 `Toolkit(tools=[...], mcps=clients)`。
+`Toolkit` 在 2.0 是一次性构造，由 `core/llm/factory/build.py` 统一执行 `Toolkit(tools=[...], mcps=clients)`。
 
 ## 统一工具权限网关
 

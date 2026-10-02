@@ -156,3 +156,9 @@ const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenan
 | 入口（CE 差异点） | `src/frontend/src/main.tsx`、`ce/overlay/src/frontend/src/main.tsx` |
 
 相关阅读：[后端开发指南](backend.md) · [前端架构](../architecture/frontend.md) · [License 机制](../editions/license.md)
+
+### 界面字体
+
+全站界面、聊天正文及组件库共用 `--font-family`。入口在首次渲染前设置 `data-font-platform`：Apple 平台优先苹方 SC，Windows 优先 Microsoft YaHei UI / Microsoft YaHei，其他平台使用可用的思源、Noto 和系统字体。代码保留等宽字体，数字字体的中文回退复用全站字体。
+
+侧边栏项目和会话标题统一为 14px、20px 行高、常规字重 400，选中项为 500；新建对话为 14px / 500。历史列表的布局、标题及操作样式仅由 `sidebar-history.css` 管理；不要在聊天正文或模块导航样式中重复定义标题字重。

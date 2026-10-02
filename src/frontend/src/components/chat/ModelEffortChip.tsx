@@ -4,6 +4,7 @@ import { useChatStore, useChatModeStore, useModelCapabilitiesStore } from '../..
 import type { ThinkingEffort } from '../../stores/chatStore';
 import { ChipChevron } from '../common/ChipChevron';
 import { t } from '../../i18n';
+import { selectedReasoningPolicy, thinkingLevels, normalizeThinkingEffort, effortLabels } from '../../utils/reasoningEffort';
 
 interface EffortMeta {
   key: ThinkingEffort;
@@ -29,7 +30,7 @@ export default function ModelEffortChip() {
   const setChatMode = useChatStore((s) => s.setChatMode);
   const modeSlug = useChatStore((s) => s.modeSlug);
   const modeOf = useChatModeStore((s) => s.modeOf);
-  const supportsReasoningEffort = useModelCapabilitiesStore((s) => s.capabilities.supports_reasoning_effort);
+  const capabilities = useModelCapabilitiesStore((s) => s.capabilities);
   const userModelSwitchEnabled = useModelCapabilitiesStore((s) => s.capabilities.user_model_switch_enabled);
   const selectableModels = useModelCapabilitiesStore((s) => s.capabilities.user_selectable_models);
   const selectedModelProviderId = useModelCapabilitiesStore((s) => s.selectedModelProviderId);
@@ -59,6 +60,9 @@ export default function ModelEffortChip() {
   const turbo = activeMode.effort_locked || chatMode === 'turbo';
   const modelPickable = userModelSwitchEnabled && selectableModels.length > 0;
 
+  const policy = selectedReasoningPolicy(capabilities, selectedModelProviderId);
+  const supportsReasoningEffort = policy.supports_reasoning_effort;
+
   const efforts = useMemo<EffortMeta[]>(() => {
     const fast: EffortMeta = {
       key: 'fast',
@@ -74,20 +78,22 @@ export default function ModelEffortChip() {
         short: t('思考'),
       }];
     }
-    return [
-      fast,
-      { key: 'medium', title: t('思考·中'),   desc: t('默认思考强度，兼顾速度与质量'), short: t('思考·中') },
-      { key: 'high',   title: t('思考·高'),   desc: t('更深入推理，处理复杂分析'),     short: t('思考·高') },
-      { key: 'max',    title: t('思考·超高'), desc: t('研究级别的专家智能体'),         short: t('思考·超高') },
-    ];
-  }, [supportsReasoningEffort]);
+    return [fast, ...thinkingLevels(policy).map(({ key }) => {
+      const label = key === 'max' && !policy.reasoning_effort_configured
+        ? t('思考·超高') : t(effortLabels[key]);
+      return { key, title: label, short: label,
+        desc: key === policy.default_reasoning_effort ? t('默认思考档位') : t('作答前先推理，处理需要拆解的问题') };
+    })];
+  }, [policy, supportsReasoningEffort]);
 
   // 模型不支持多档时，high/max 一律按「思考」显示，避免报出一个后端并不会照做的档位
   const effectiveEffort: ThinkingEffort = turbo
     ? 'fast'
-    : supportsReasoningEffort
-      ? (chatMode as ThinkingEffort)
-      : (chatMode === 'fast' ? 'fast' : 'medium');
+    : normalizeThinkingEffort(chatMode, policy) as ThinkingEffort;
+  useEffect(() => {
+    if (!turbo && effectiveEffort !== chatMode) setChatMode(effectiveEffort);
+  }, [turbo, effectiveEffort, chatMode, setChatMode]);
+
   const currentEffort = efforts.find((e) => e.key === effectiveEffort) ?? efforts[0];
 
   const currentModel = modelPickable

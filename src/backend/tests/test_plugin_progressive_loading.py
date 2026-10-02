@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import core.db.engine as dbe
 import pytest
 from core.db.models import ChatSession, InstalledPlugin, UserShadow
-from core.llm import plugin_loader
+from core.plugins import runtime as plugin_loader
 from core.llm.tool_collector import ToolCollector
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -220,7 +220,7 @@ class _FakeMCPClient:
 @pytest.mark.asyncio
 async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
     import core.llm.mcp_pool as mcp_pool
-    from core.llm.agent_factory import cache_compaction_execution_surface
+    from core.llm.factory.runtime.evidence import cache_compaction_execution_surface
     from core.ontology.toolkit import OntologyFilteredToolkit
     from core.services import compaction_service as compaction
     from core.services.chat_service import ChatService
@@ -303,6 +303,9 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
 
     monkeypatch.setattr(compaction, "_summarize", fake_summary)
     with ppl_env.Session() as db:
+        # Keep a real older turn beyond the protected verbatim tail.
+        ChatService(db).add_message(CHAT, "user", "earlier context " * 20000)
+        ChatService(db).add_message(CHAT, "assistant", "Earlier response.")
         ChatService(db).add_message(CHAT, "user", "compact after plugin load")
     inputs = _compaction_budget_inputs(budget_agent, 4096)
     assert await compaction.run_post_turn_compaction(CHAT, budget_inputs=inputs)

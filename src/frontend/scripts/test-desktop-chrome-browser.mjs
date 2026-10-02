@@ -2,12 +2,20 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+// The CE tree ships Tauri only; cover UOS when its separate release line is present.
+const proxyHarness=existsSync(resolve('../../desktop-uos/test/fixtures/desktop.mjs'))
+  ? (await import('../../../desktop-uos/test/fixtures/desktop.mjs')).proxyHarness : null;
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const output = resolve('node_modules/.tmp/desktop-chrome');
 await mkdir(output, { recursive: true });
 const rust = await readFile(resolve('../../desktop/src-tauri/src/window_chrome.rs'), 'utf8');
-const raw = name => rust.match(new RegExp('const '+name+': &str = r##"([\\s\\S]*?)"##;'))?.[1] || '';
-const offset = name => rust.match(new RegExp('const '+name+': &str =\\s*"([^"]*)";'))?.[1] || raw(name);
+const assets = {};
+for (const [name, file] of Object.entries({TB_CSS:'menu.css',TB_MENU:'menu.html',TB_CONTROLS:'controls.html',TB_JS:'menu.js',MAC_TB_CSS:'mac.css',MAC_TB_JS:'mac.js',SPA_CSS:'workspace.css'})) {
+  assets[name] = await readFile(resolve('../../desktop/shared/chrome', file), 'utf8');
+}
+const raw = name => assets[name] || '';
+const offset = name => rust.match(new RegExp('const '+name+': &str =\\s*"([^"]*)";'))?.[1] || '';
 await build({stdin:{contents:`
 import { createRoot } from 'react-dom/client';
 import { Layout } from 'antd';
@@ -29,15 +37,21 @@ const root=createRoot(document.getElementById('root'));
 window.__fixture={theme:mode=>useUIStore.getState().setThemeMode(mode),collapse:v=>useUIStore.getState().setSiderCollapsed(v),loading:()=>root.render(<AppThemeProvider><AppLoadingSkeleton/></AppThemeProvider>)};
 root.render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
 `,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN"}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
+const kits=[];
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM});
 try{
- for(const platform of ['windows','macos']){
-  const mac=platform==='macos',height=mac?28:34;
+ for(const platform of ['windows','macos',...(proxyHarness?['uos']:[])]){
+  const mac=platform==='macos',uos=platform==='uos',height=uos?0:mac?28:34;
   const page=await browser.newPage({viewport:{width:1440,height:900},locale:'zh-CN'});
   await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  const markup=mac?'<header id="hugagent-mac-titlebar"></header>':'<header id="hugagent-titlebar"><div class="tb-sidebarZone">'+raw('TB_MENU')+'</div><div class="tb-mainChrome"><div class="tb-spacer"></div>'+raw('TB_CONTROLS')+'</div></header>';
+  const markup=uos?'':mac?'<header id="hugagent-mac-titlebar"></header>':'<header id="hugagent-titlebar"><div class="tb-sidebarZone">'+raw('TB_MENU')+'</div><div class="tb-mainChrome"><div class="tb-spacer"></div>'+raw('TB_CONTROLS')+'</div></header>';
   const css=raw(mac?'MAC_TB_CSS':'TB_CSS')+offset(mac?'MAC_OFFSET_SPA':'TB_OFFSET_SPA')+raw('SPA_CSS');
+  const script=raw(mac?'MAC_TB_JS':'TB_JS');
+  const index='<html><head><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css">'+(uos?'':'<style>'+css+'</style>')+'</head><body>'+markup+(uos?'':'<script>'+script+'</script>')+'<div id="root"></div><script type="module" src="/fixture.js"></script></body></html>';
+  const kit=uos?await proxyHarness({indexHtml:index}):null;
+  if(kit)kits.push(kit);
+  const documentHtml=kit?await (await fetch(kit.proxy.origin+'/')).text():index;
   await page.route('http://desktop.test/**',async route=>{
    const path=new URL(route.request().url()).pathname;
    if(path==='/fixture.js'||path==='/fixture.css')return route.fulfill({contentType:path.endsWith('.css')?'text/css':'text/javascript',body:await readFile(resolve(output,path.slice(1)))});
@@ -46,7 +60,7 @@ try{
     const body=await readFile(resolve('public',path.slice(1))).catch(()=>null);
     return body?route.fulfill({contentType:path.endsWith('.svg')?'image/svg+xml':'image/png',body}):route.fulfill({status:404});
    }
-   return route.fulfill({contentType:'text/html',body:'<html><head><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css"><style>'+css+'</style></head><body>'+markup+'<script>'+raw(mac?'MAC_TB_JS':'TB_JS')+'</script><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>'});
+   return route.fulfill({contentType:'text/html',body:documentHtml});
   });
   await page.goto('http://desktop.test/');
   await page.locator('.jx-moduleRail').waitFor();
@@ -62,7 +76,7 @@ try{
     },mac);
     assert.equal(surfaces.rail.y,height,platform+' navigation clears window controls');
     assert.equal(surfaces.main.y,height,platform+' content clears window controls');
-    for(const key of ['color','image','size','attachment'])assert.equal(surfaces.bar[key],surfaces.rail[key],'chrome and rail share '+key);
+    for(const key of uos?[]:['color','image','size','attachment'])assert.equal(surfaces.bar[key],surfaces.rail[key],'chrome and rail share '+key);
     assert.equal(surfaces.rail.width,64,'compact navigation rail');
     assert.equal(surfaces.main.x,collapsed?64:344,'content follows the compact rail and secondary sidebar');
     const button=await page.locator('.jx-moduleButton').first().boundingBox();
@@ -76,7 +90,7 @@ try{
   await page.evaluate(()=>{window.__fixture.collapse(false);window.__fixture.theme('light');});
   await page.getByRole('button',{name:'新建对话',exact:true}).click();
   assert.equal(await page.locator('html').getAttribute('data-chat-clicked'),'yes');
-  if(!mac){await page.getByRole('button',{name:'文件',exact:true}).click();await page.locator('#hugagent-file-menu').waitFor({state:'visible'});await page.keyboard.press('Escape');await page.locator('#hugagent-file-menu').waitFor({state:'hidden'});}
+  if(!mac&&!uos){await page.getByRole('button',{name:'文件',exact:true}).click();await page.locator('#hugagent-file-menu').waitFor({state:'visible'});await page.keyboard.press('Escape');await page.locator('#hugagent-file-menu').waitFor({state:'hidden'});}
   await page.setViewportSize({width:760,height:800});
   await page.evaluate(()=>window.__fixture.collapse(false));await page.waitForTimeout(250);
   assert.equal((await page.locator('.jx-moduleRail').boundingBox()).y,height,'narrow navigation clears chrome');
@@ -99,4 +113,4 @@ try{
   assert.deepEqual(errors,[]);await page.close();
  }
  console.log('Desktop chrome: shared colors/gradient, themes, collapse, safe areas, menus, narrow layout and loading passed');
-}finally{await browser.close();}
+}finally{await browser.close();for(const kit of kits)await kit.close();}

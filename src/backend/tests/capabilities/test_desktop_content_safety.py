@@ -1,23 +1,27 @@
 """Configured-secret canaries; no real configuration, credentials, or network."""
 
 from __future__ import annotations
+
 import asyncio
 import io
 import json
 import zipfile
+
 import pytest
+from api.routes.v1 import desktop_capability as routes
+from core.services import desktop_capability as cap
+from core.services import desktop_capability_credentials as credentials
+from core.services import desktop_capability_security as security
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from core.services import desktop_capability as cap
-from api.routes.v1 import desktop_capability as routes
 
 CANARY = "synthetic-upstream-secret-20260905"
-_REAL_COLLECTOR = cap._known_cloud_secrets
+_REAL_COLLECTOR = security._known_cloud_secrets
 
 
 @pytest.fixture(autouse=True)
 def synthetic_secrets(monkeypatch):
-    monkeypatch.setattr(cap, "_known_cloud_secrets", lambda uid: {CANARY}, raising=False)
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: {CANARY}, raising=False)
 
 
 @pytest.mark.parametrize(
@@ -55,7 +59,7 @@ def test_zip_scripts_blocked_after_final_archive_is_built():
 
 
 def test_collector_finds_credentials_but_ignores_public_settings():
-    values = cap._secrets_from_config(
+    values = credentials._secrets_from_config(
         {
             "headers": {"Authorization": "Bearer " + CANARY, "Accept": "application/json"},
             "env": {"UPSTREAM_API_KEY": CANARY, "REGION": "china-east-1", "PATH": "/usr/bin"},
@@ -106,7 +110,9 @@ def test_safe_stream_keeps_exact_bytes():
     ],
 )
 def test_manifest_boundaries_return_fixed_integrity_diagnostic(monkeypatch, path, fn):
-    monkeypatch.setattr(cap, fn, lambda uid, **kwargs: {"revision": "a" * 64, "description": CANARY})
+    monkeypatch.setattr(
+        cap, fn, lambda uid, **kwargs: {"revision": "a" * 64, "description": CANARY}
+    )
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes._require_capability_user] = lambda: "user"
@@ -203,7 +209,7 @@ def test_both_streaming_gateways_block_cross_chunk_canary(monkeypatch, model):
 
 def test_collector_reads_only_authorized_mcp_and_model_credentials(monkeypatch):
     monkeypatch.setattr(
-        cap,
+        security,
         "_user_capability_configs",
         lambda *a, **k: (
             ["allowed"],
@@ -242,7 +248,12 @@ def test_collector_reads_only_authorized_mcp_and_model_credentials(monkeypatch):
         def query(self, *args):
             return Query()
 
-    monkeypatch.setattr(cap, "SessionLocal", Database)
+    monkeypatch.setattr(security, "SessionLocal", Database)
+    from types import SimpleNamespace
+
+    from core.services.model_config import ModelConfigService
+
+    monkeypatch.setattr(ModelConfigService, "_instance", SimpleNamespace(version=0))
     secrets = _REAL_COLLECTOR("user")
     assert (
         CANARY in secrets
@@ -257,7 +268,7 @@ def test_collector_unavailability_fails_closed_without_raw_error(monkeypatch):
     def unavailable(*args, **kwargs):
         raise ValueError(CANARY)
 
-    monkeypatch.setattr(cap, "_user_capability_configs", unavailable)
+    monkeypatch.setattr(security, "_user_capability_configs", unavailable)
     with pytest.raises(cap.CapabilityContentRejected) as caught:
         _REAL_COLLECTOR("user")
     assert CANARY not in str(caught.value)
@@ -265,6 +276,7 @@ def test_collector_unavailability_fails_closed_without_raw_error(monkeypatch):
 
 async def test_actual_invocation_checks_successful_result(monkeypatch):
     from types import SimpleNamespace
+
     from core.llm import mcp_pool
 
     async def fake_tool(**kwargs):
@@ -295,7 +307,7 @@ async def test_actual_invocation_checks_successful_result(monkeypatch):
 def test_numeric_limit_fields_named_like_tokens_are_not_secrets():
     """字段名里含 "TOKENS"（数量上限）不是凭据：它的数字值若被当成密钥，会在无关的
     技能 / 智能体 zip 里子串误命中，把每次下载都拦成 integrity_failed。"""
-    values = cap._secrets_from_config(
+    values = credentials._secrets_from_config(
         {
             "env": {
                 "QUERY_DATABASE_MAX_OUTPUT_TOKENS": "45000",
@@ -310,7 +322,7 @@ def test_numeric_limit_fields_named_like_tokens_are_not_secrets():
 
 
 def test_custom_key_headers_are_credentials_but_public_headers_are_not():
-    values = cap._secrets_from_config(
+    values = credentials._secrets_from_config(
         {
             "headers": {
                 "X-Fixture-Key": CANARY,
@@ -325,7 +337,7 @@ def test_custom_key_headers_are_credentials_but_public_headers_are_not():
 
 
 def test_url_query_and_userinfo_credentials_include_encoded_and_decoded_forms():
-    values = cap._secrets_from_config(
+    values = credentials._secrets_from_config(
         {
             "url": "https://apiuser:synthetic%2Fpassword@upstream.example/mcp?X-Fixture-Key=synthetic%2Fquery&region=china&signature=synthetic-signature"
         }
@@ -341,7 +353,7 @@ def test_url_query_and_userinfo_credentials_include_encoded_and_decoded_forms():
 
 
 def test_userinfo_token_without_password_is_guarded():
-    values = cap._secrets_from_config(
+    values = credentials._secrets_from_config(
         {"base_url": "https://synthetic-userinfo-token@upstream.example/v1"}
     )
     assert "synthetic-userinfo-token" in values
@@ -349,9 +361,10 @@ def test_userinfo_token_without_password_is_guarded():
 
 async def test_actual_invocation_checks_custom_header_echo(monkeypatch):
     from types import SimpleNamespace
+
     from core.llm import mcp_pool
 
-    monkeypatch.setattr(cap, "_known_cloud_secrets", lambda uid: set())
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: set())
 
     async def fake_tool(**kwargs):
         return SimpleNamespace(
@@ -378,23 +391,32 @@ async def test_actual_invocation_checks_custom_header_echo(monkeypatch):
         )
 
 
-@pytest.mark.parametrize("path,fn", [
-    ("/manifest", "build_user_capability_manifest"),
-    ("/skills/manifest", "build_user_skill_manifest"),
-    ("/agents/manifest", "build_user_agent_manifest"),
-    ("/plugins/manifest", "build_user_plugin_manifest"),
-])
+@pytest.mark.parametrize(
+    "path,fn",
+    [
+        ("/manifest", "build_user_capability_manifest"),
+        ("/skills/manifest", "build_user_skill_manifest"),
+        ("/agents/manifest", "build_user_agent_manifest"),
+        ("/plugins/manifest", "build_user_plugin_manifest"),
+    ],
+)
 def test_manifest_fresh_read_request_reaches_builder(monkeypatch, path, fn):
     calls = []
+
     def build(uid, *, use_cache=True):
         calls.append((uid, use_cache))
         return {"revision": "a" * 64}
+
     monkeypatch.setattr(cap, fn, build)
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[routes._require_capability_user] = lambda: "current-user"
     with TestClient(app) as client:
         assert client.get("/v1/desktop/capability" + path).status_code == 200
-        assert client.get("/v1/desktop/capability" + path,
-                          headers={"Cache-Control": "no-cache"}).status_code == 200
+        assert (
+            client.get(
+                "/v1/desktop/capability" + path, headers={"Cache-Control": "no-cache"}
+            ).status_code
+            == 200
+        )
     assert calls == [("current-user", True), ("current-user", False)]

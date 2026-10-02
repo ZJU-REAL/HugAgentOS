@@ -53,6 +53,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
     <ToolMessageContext.Provider value={toolMessageIdentity}>
     <div
       className={`jx-msg ${m.role === 'user' ? 'user' : 'assistant'}${isFresh ? ' jx-msg--fresh' : ''}`}
+      style={!m.isStreaming ? { contentVisibility: 'auto', containIntrinsicSize: 'auto 240px' } : undefined}
       data-message-ts={m.ts}
       data-message-uid={m.uid}
     >

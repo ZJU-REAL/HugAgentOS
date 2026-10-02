@@ -8,7 +8,7 @@ def refresh(db):
     from core.capabilities.paths import capabilities_enabled
     if capabilities_enabled():
         return 0  # Device legacy packages are handled by local_legacy_plugin_migration.
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
     root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace"
     count = 0
     for row in db.query(InstalledPlugin).filter(InstalledPlugin.slug.in_(list(MANAGERS))).all():

@@ -46,7 +46,7 @@ def client(db_session):
 
 
 def _install(db_session):
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     return ps.install_plugin(db_session, SLUG, owner_user_id=OWNER)
 
@@ -158,7 +158,7 @@ def test_startup_refresh_backfills_pre_upgrade_installs(client, db_session):
     auto-opened. The startup refresh must backfill such rows from the bundle.
     """
     from core.db.models import InstalledPlugin
-    from core.services.plugin_service import refresh_builtin_ui_contributions
+    from core.plugins.ui.contributions import refresh_builtin_ui_contributions
 
     install_id = _install(db_session)["install_id"]
     # Simulate the pre-upgrade row.

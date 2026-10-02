@@ -176,22 +176,6 @@ class ArtifactRepository:
             )
         return items, total
 
-    def soft_delete(self, artifact_id: str, user_id: str) -> bool:
-        """Soft delete a personal MySpace artifact (set deleted_at)."""
-        artifact = (
-            self.db.query(Artifact)
-            .filter(
-                Artifact.artifact_id == artifact_id,
-                Artifact.user_id == user_id,
-                Artifact.deleted_at.is_(None),
-            )
-            .first()
-        )
-        if not artifact:
-            return False
-        artifact.deleted_at = utc_now()
-        self.db.commit()
-        return True
 
     def create(self, artifact_data: Dict[str, Any]) -> Artifact:
         """Create a new artifact."""

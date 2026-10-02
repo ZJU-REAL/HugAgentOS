@@ -200,7 +200,7 @@ def publish_local_agent(serialized: Dict[str, Any]) -> store.StoredComponent:
 
 
 def remove_local_agent(agent_id: str) -> bool:
-    from .runtime import references
+    from core.capabilities.runtime import references
 
     if references("agent", LOCAL_PROFILE, agent_id):
         # Source deletion revokes use; history still needs its exact bytes.

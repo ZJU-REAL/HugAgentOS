@@ -40,7 +40,7 @@ def _plain_replay_args(intent: ToolIntent) -> dict[str, Any]:
 async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
     """Rebuild the frozen chat tool surface and invoke one adapter, without an LLM call."""
 
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
 
     with SessionLocal() as db:

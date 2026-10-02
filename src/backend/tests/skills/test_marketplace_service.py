@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from core.config.catalog_loader import resolve_skill_detail
+from core.config.catalog_details import resolve_skill_detail
 from core.db.engine import Base
 from core.db.models import AdminSkill
 from core.services import marketplace_service as mk

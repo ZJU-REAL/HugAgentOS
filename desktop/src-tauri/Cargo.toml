@@ -41,6 +41,10 @@ flate2 = { version = "1", features = ["rust_backend"] }
 tar = "0.4"
 sha2 = "0.10"
 fs2 = "0.4"
+tempfile = "3"
+minisign-verify = "0.2"
+base64 = "0.22"
+memmap2 = "0.9"
 
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "process", "io-util", "time"] }
 axum = "0.7"

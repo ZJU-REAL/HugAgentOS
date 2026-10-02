@@ -9,7 +9,7 @@ from core.capabilities import registry, skills, store
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import AdminSkill
-from api.routes.v1 import me_capabilities, desktop_capabilities, admin_skills
+from api.routes.v1 import me_capabilities, desktop_capabilities, admin_skills, catalog
 
 
 @pytest.fixture
@@ -28,7 +28,12 @@ def local_client(index_db, caps_root, tmp_path, monkeypatch):
     )
     monkeypatch.setattr("core.config.catalog_loader.load_catalog", lambda **kwargs: {})
     app = FastAPI()
-    for router in (me_capabilities.router, desktop_capabilities.router, admin_skills.router):
+    for router in (
+        me_capabilities.router,
+        desktop_capabilities.router,
+        admin_skills.router,
+        catalog.router,
+    ):
         app.include_router(router)
 
     def database():
@@ -58,30 +63,28 @@ def test_upload_edit_disable_delete_reaches_real_installation_list(local_client)
         "/v1/me/skills/upload", files={"file": ("skill.zip", buffer.getvalue(), "application/zip")}
     )
     assert response.status_code == 201, response.text
-    iid = "skill:local:uploaded-local"
+    iid = response.json()["data"]["install_id"]
+    sid = response.json()["data"]["skill_id"]
     first = registry.get(iid)
-    assert first is not None and first.ready and first.payload["from_db"]
+    assert first is not None and first.ready and first.payload["from_db"] is False
     listing = local_client.get("/v1/desktop/capabilities/installations?kind=skill")
     assert listing.status_code == 200, listing.text
     assert iid in {item["install_id"] for item in listing.json()["data"]["items"]}
-    old = store.get("skill", "local", "uploaded-local", first.resolved_revision)
-    edit = local_client.put(
-        "/v1/me/skills/uploaded-local/files/scripts/value.txt", json={"content": "v2"}
-    )
+    old = store.get("skill", "local", sid, first.resolved_revision)
+    edit = local_client.put(f"/v1/me/skills/{sid}/files/scripts/value.txt", json={"content": "v2"})
     assert edit.status_code == 200, edit.text
     updated = registry.get(iid)
     assert updated.resolved_revision != first.resolved_revision
     assert (old.path / "scripts/value.txt").read_text() == "v1"
     assert (
-        store.get("skill", "local", "uploaded-local", updated.resolved_revision).path
-        / "scripts/value.txt"
+        store.get("skill", "local", sid, updated.resolved_revision).path / "scripts/value.txt"
     ).read_text() == "v2"
-    toggle = local_client.put("/v1/admin/skills/uploaded-local/toggle", json={"is_enabled": False})
+    toggle = local_client.patch(f"/v1/catalog/skill/{sid}", json={"enabled": False})
     assert toggle.status_code == 200, toggle.text
     assert not registry.get(iid).enabled
-    assert "uploaded-local" not in skills.resolve_for_user("owner").chosen
-    deleted = local_client.delete("/v1/me/skills/uploaded-local")
+    assert sid not in skills.resolve_for_user("owner").chosen
+    deleted = local_client.delete(f"/v1/me/skills/{sid}")
     assert deleted.status_code == 200, deleted.text
     assert registry.get(iid).state == "removed"
-    assert "uploaded-local" not in skills.resolve_for_user("owner").chosen
+    assert sid not in skills.resolve_for_user("owner").chosen
     assert old.path.is_dir()

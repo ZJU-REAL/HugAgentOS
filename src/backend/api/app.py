@@ -1036,7 +1036,7 @@ async def _startup_upgrade_sites_plugin():
     import asyncio
 
     from core.db.engine import SessionLocal
-    from core.services.site_plugin_upgrade import upgrade_builtin_sites
+    from core.plugins.local.site_upgrade import upgrade_builtin_sites
 
     def upgrade():
         with SessionLocal() as db:
@@ -1061,7 +1061,7 @@ async def _startup_plugin_device_assets():
         return
 
     from core.db.engine import SessionLocal
-    from core.services.plugin_device_assets import provision_present_plugins
+    from core.plugins.local.assets import provision_present_plugins
 
     def provision():
         with SessionLocal() as db:
@@ -1107,11 +1107,8 @@ async def _startup_seed_default_plugins():
 
     from core.db.engine import SessionLocal
     from core.services.edition_startup import bootstrap_edition_plugins
-    from core.services.plugin_service import (
-        DEFAULT_BOOTSTRAP_PLUGIN_SLUGS,
-        ensure_default_plugins_bootstrapped,
-        refresh_builtin_ui_contributions,
-    )
+    from core.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS, ensure_default_plugins_bootstrapped
+    from core.plugins.ui.contributions import refresh_builtin_ui_contributions
 
     db = SessionLocal()
     try:
@@ -1279,7 +1276,7 @@ async def _startup_preload():
         # 4. Initialize MCP connection pool (the big one — 1-7s savings)
         if _mcp_warmup_enabled():
             try:
-                from core.llm.agent_factory import warmup_mcp_tools
+                from core.llm.factory import warmup_mcp_tools
 
                 await warmup_mcp_tools()
             except Exception as exc:

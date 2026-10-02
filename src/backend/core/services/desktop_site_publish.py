@@ -188,7 +188,7 @@ def publish_uploaded_site(user_id, data, options):
 
 async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
     """Sites are cloud-hosted: a local site MCP's call goes to the cloud gateway plugin."""
-    from core.llm.agent_factory import _inject_runtime_headers
+    from core.llm.factory.tools.mcp_config import _inject_runtime_headers
     from core.llm.mcp_pool import make_client
     from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
     from core.services.desktop_gateway_uploads import endpoint_plugin

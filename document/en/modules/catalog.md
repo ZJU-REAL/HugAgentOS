@@ -18,8 +18,8 @@ core/config/catalog_resolver.py     merge layer: catalog.json defaults ∩ per-u
         │  resolve_explicit_runtime_capabilities(...) → per-turn invocation (ignores personal switches, keeps hard gates)
         ▼
 Consumed along the request path:
-  api/routes/v1/chats.py → core/chat/context.py   written into the workflow context
-  core/llm/agent_factory.py                       decides which MCP servers to connect / skills to register
+  api/routes/v1/chats/__init__.py → core/chat/context.py   written into the workflow context
+  core/llm/factory/build.py                       decides which MCP servers to connect / skills to register
   api/routes/v1/catalog.py                        /v1/catalog for the frontend Capability Center
 ```
 
@@ -66,7 +66,7 @@ When a user toggles a capability in the Capability Center, the change is written
 - **Explicit plugin guidance**: selecting a plugin loads its skills and MCP tools and recommends using them when relevant, without restricting the first tool call or requiring a call before the answer.
 - **Chat-sticky capability restoration**: later turns restore activated skills, connectors, and plugin components before personal-switch filtering, keeping the skill list and tool names/prefixes stable in that chat. Installation, global admin state, dependency readiness, and ownership are revalidated each turn, so hard-gate changes take effect immediately.
 
-On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the default merged result into the workflow context. `api/routes/v1/chats.py::_resolve_explicit_capability_invocation()` then verifies plugin installations and capability ownership, resolves components from the server-side installation record, and merges hard-gate-approved explicit selections into that turn. On later turns, `core/llm/session_capabilities.py` and `core/llm/plugin_loader.py::resolve_sticky_plugin_capabilities()` restore chat-activated capabilities.
+On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the default merged result into the workflow context. `api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` then verifies plugin installations and capability ownership, resolves components from the server-side installation record, and merges hard-gate-approved explicit selections into that turn. On later turns, `core/llm/session_capabilities.py` and `core/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` restore chat-activated capabilities.
 
 ## The /v1/catalog route and KB injection
 
@@ -132,4 +132,4 @@ State is centralized in `src/frontend/src/stores/catalogStore.ts`; local default
 | Skill management | `src/backend/api/routes/v1/admin_skills.py`, `core/agent_skills/` |
 | Dify KB injection (EE) | `src/backend/edition_ee/kb/dify.py`, via the shared `core/kb/external_provider.py` seam |
 | Frontend Capability Center | `src/frontend/src/components/catalog/`, `stores/catalogStore.ts` |
-| Factory consumption | `src/backend/core/llm/agent_factory.py::_effective_mcp_server_keys` |
+| Factory consumption | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

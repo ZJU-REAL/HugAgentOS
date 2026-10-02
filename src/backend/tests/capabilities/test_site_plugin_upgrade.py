@@ -1,9 +1,20 @@
 """Installed builtin site instructions must reach the cloud download snapshot."""
 
+from core.plugins.management import projection as plugin_projection
+
 import io
+import json
+from pathlib import Path
 import zipfile
 import pytest
 from tests.capabilities.test_local_project_site_publish import local_project
+
+
+BUNDLE_VERSION = json.loads(
+    (
+        Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/sites/plugin.json"
+    ).read_text()
+)["version"]
 
 
 @pytest.mark.parametrize("owner", [None, "owner"])
@@ -11,14 +22,14 @@ def test_installed_sites_upgrade_preserves_settings_and_exports_new_skill(
     local_project, monkeypatch, owner
 ):
     _, factory = local_project
-    from core.services import plugin_service
-    from core.services.site_plugin_upgrade import upgrade_builtin_sites
+    from core.plugins import management as plugin_service
+    from core.plugins.local.site_upgrade import upgrade_builtin_sites
     from core.db.models import InstalledPlugin, AdminSkill, AdminMcpServer
     from core.services.desktop_capability_protocol import skill_content_hash
     from core.services.marketplace_service import build_skill_zip
 
-    monkeypatch.setattr(plugin_service, "_refresh_after_change", lambda *_: None)
-    monkeypatch.setattr(plugin_service, "_project_plugin_to_store", lambda *a, **k: None)
+    monkeypatch.setattr(plugin_projection, "_refresh_after_change", lambda *_: None)
+    monkeypatch.setattr(plugin_projection, "_project_plugin_to_store", lambda *a, **k: None)
     with factory() as db:
         plugin_service.install_plugin(db, "sites", owner_user_id=owner)
         row = db.query(InstalledPlugin).filter(InstalledPlugin.owner_user_id == owner).one()
@@ -31,15 +42,19 @@ def test_installed_sites_upgrade_preserves_settings_and_exports_new_skill(
         mcp.is_enabled = False
         mcp.url = "http://configured.example/mcp"
         mcp.headers = {"X-Test-Config": "preserved"}
+        tool_name = mcp.tools_json[0]["name"]
+        schema = {"type": "object", "properties": {"site_id": {"type": "string"}}}
+        mcp.tools_json = [{**mcp.tools_json[0], "inputSchema": schema}]
         db.commit()
         ids = dict(row.component_ids)
         assert upgrade_builtin_sites(db) == 1
-        assert row.version == "1.4.0"
+        assert row.version == BUNDLE_VERSION
         assert row.component_ids == ids
         assert skill.is_enabled is False
         assert mcp.is_enabled is False
         assert mcp.url == "http://configured.example/mcp"
         assert mcp.headers == {"X-Test-Config": "preserved"}
+        assert next(t for t in mcp.tools_json if t["name"] == tool_name)["inputSchema"] == schema
         assert "list_sites" in skill.skill_content
         assert "编辑必须显式传原 site_id" in skill.skill_content
         assert "均无需 site_id" not in str(mcp.tools_json)
@@ -58,12 +73,12 @@ def test_installed_sites_upgrade_preserves_settings_and_exports_new_skill(
 @pytest.mark.parametrize("source,version", [("imported_codex", "1.0.0"), ("builtin", "9.0.0")])
 def test_sites_upgrade_skips_custom_and_newer_installs(local_project, monkeypatch, source, version):
     _, factory = local_project
-    from core.services.site_plugin_upgrade import upgrade_builtin_sites
-    from core.services import plugin_service
+    from core.plugins.local.site_upgrade import upgrade_builtin_sites
+    from core.plugins import management as plugin_service
     from core.db.models import InstalledPlugin
 
-    monkeypatch.setattr(plugin_service, "_refresh_after_change", lambda *_: None)
-    monkeypatch.setattr(plugin_service, "_project_plugin_to_store", lambda *a, **k: None)
+    monkeypatch.setattr(plugin_projection, "_refresh_after_change", lambda *_: None)
+    monkeypatch.setattr(plugin_projection, "_project_plugin_to_store", lambda *a, **k: None)
     with factory() as db:
         plugin_service.install_plugin(db, "sites", owner_user_id=None)
         row = db.query(InstalledPlugin).one()
@@ -76,12 +91,12 @@ def test_sites_upgrade_skips_custom_and_newer_installs(local_project, monkeypatc
 def test_site_upgrade_is_an_all_role_startup_step(local_project, monkeypatch):
     import asyncio
     import importlib
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
     from core.db.models import InstalledPlugin
 
     _, factory = local_project
-    monkeypatch.setattr(plugin_service, "_refresh_after_change", lambda *_: None)
-    monkeypatch.setattr(plugin_service, "_project_plugin_to_store", lambda *a, **k: None)
+    monkeypatch.setattr(plugin_projection, "_refresh_after_change", lambda *_: None)
+    monkeypatch.setattr(plugin_projection, "_project_plugin_to_store", lambda *a, **k: None)
     with factory() as db:
         plugin_service.install_plugin(db, "sites", owner_user_id=None)
         row = db.query(InstalledPlugin).one()
@@ -94,19 +109,19 @@ def test_site_upgrade_is_an_all_role_startup_step(local_project, monkeypatch):
     assert gate is True and roles == frozenset({app.SERVICE, app.EXECUTION_PLANE})
     asyncio.run(app._startup_upgrade_sites_plugin())
     with factory() as db:
-        assert db.query(InstalledPlugin).one().version == "1.4.0"
+        assert db.query(InstalledPlugin).one().version == BUNDLE_VERSION
 
 
 def test_site_upgrade_refreshes_only_matching_local_projection(local_project, monkeypatch):
-    from core.services import plugin_service
-    from core.services.site_plugin_upgrade import upgrade_builtin_sites
+    from core.plugins import management as plugin_service
+    from core.plugins.local.site_upgrade import upgrade_builtin_sites
     from core.capabilities import registry, plugins, store
     from core.db.models import InstalledPlugin
 
     root, factory = local_project
     monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(root.parent / "caps"))
     monkeypatch.setattr(registry, "SessionLocal", factory)
-    monkeypatch.setattr(plugin_service, "_refresh_after_change", lambda *_: None)
+    monkeypatch.setattr(plugin_projection, "_refresh_after_change", lambda *_: None)
     with factory() as db:
         plugin_service.install_plugin(db, "sites", owner_user_id=None)
         row = db.query(InstalledPlugin).one()
@@ -123,7 +138,7 @@ def test_site_upgrade_refreshes_only_matching_local_projection(local_project, mo
         edges = registry.components_of(before.install_id)
         assert upgrade_builtin_sites(db) == 1
         after = registry.get(before.install_id)
-        assert after.version == "1.4.0"
+        assert after.version == BUNDLE_VERSION
         assert after.enabled is False
         assert registry.components_of(after.install_id) == edges
         assert after.payload["db_install_id"] == row.install_id
@@ -131,9 +146,9 @@ def test_site_upgrade_refreshes_only_matching_local_projection(local_project, mo
         manifest = plugins.load_manifest(
             store.get("plugin", "local", "sites", after.resolved_revision)
         )
-        assert manifest["version"] == "1.4.0"
+        assert manifest["version"] == BUNDLE_VERSION
         # A same-slug private row must not overwrite the global projection.
-        monkeypatch.setattr(plugin_service, "_project_plugin_to_store", lambda *a, **k: None)
+        monkeypatch.setattr(plugin_projection, "_project_plugin_to_store", lambda *a, **k: None)
         plugin_service.install_plugin(db, "sites", owner_user_id="owner")
         private = db.query(InstalledPlugin).filter(InstalledPlugin.owner_user_id == "owner").one()
         private.version = "1.0.0"

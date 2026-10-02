@@ -1,3 +1,4 @@
+import { useSyntaxHighlighting } from '../../utils/syntaxHighlighting';
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import CitationHtmlBlock, { type CitationMarker } from './CitationHtmlBlock';
@@ -80,9 +81,10 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   onCitationAction?: (citation: CitationItem) => void;
   className?: string;
 }) {
+  const highlightRevision = useSyntaxHighlighting();
   const containerRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
   const [mermaidCharts, setMermaidCharts] = useState(EMPTY_MERMAID);
-  const [, setLatexReady] = useState(false);
+  const [latexReady, setLatexReady] = useState(false);
 
   // Strip streaming-truncated tails, then resolve unmatched markers:
   // 命中 citations 的保留原样；未命中的旧格式/裸标整体剥掉，未命中的
@@ -101,10 +103,28 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     [citations, normalizedText],
   );
 
-  const renderedHtml = useMemo(
-    () => isMarkdown ? mdToHtml(normalizedText) : '',
-    [normalizedText, isMarkdown],
-  );
+  // Select the citation representation before parsing: a streamed frame only
+  // pays for Markdown/highlighting once. Reparse when lazy KaTeX becomes ready.
+  const { html: renderedHtml, markers } = useMemo(() => {
+    if (!hasCit) return { html: isMarkdown ? mdToHtml(normalizedText) : '', markers: [] as CitationMarker[] };
+    const markers: CitationMarker[] = [];
+    const tokenPrefix = 'JXCITTOKEN';
+    const tokenSuffix = 'JXCITEND';
+    const withTokens = normalizedText.replace(markerRe(), (match, ...groups) => {
+      markers.push(markerParts([match, groups[0], groups[1], groups[2], groups[3]] as unknown as RegExpMatchArray));
+      return `${tokenPrefix}${markers.length - 1}${tokenSuffix}`;
+    });
+    const htmlBase = isMarkdown ? mdToHtml(withTokens) : withTokens;
+    const html = htmlBase.replace(
+      new RegExp(`${tokenPrefix}(\\d+)${tokenSuffix}`, 'g'),
+      (_m: string, idx: string) =>
+        `<span data-jxcit="${idx}" style="display:inline;vertical-align:baseline;line-height:1"></span>`
+    );
+
+    return { html, markers };
+  // These readiness signals invalidate HTML after asynchronous renderer loading.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedText, isMarkdown, hasCit, latexReady, highlightRevision]);
   const shouldRenderMermaid = !messageIsStreaming
     && isMarkdown
     && hasMermaid(normalizedText);
@@ -153,25 +173,12 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     );
   }
 
-  const markers: CitationMarker[] = [];
-  const tokenPrefix = 'JXCITTOKEN';
-  const tokenSuffix = 'JXCITEND';
-  const withTokens = normalizedText.replace(markerRe(), (match, ...groups) => {
-    markers.push(markerParts([match, groups[0], groups[1], groups[2], groups[3]] as unknown as RegExpMatchArray));
-    return `${tokenPrefix}${markers.length - 1}${tokenSuffix}`;
-  });
-  const htmlBase = isMarkdown ? mdToHtml(withTokens) : withTokens;
-  const html = htmlBase.replace(
-    new RegExp(`${tokenPrefix}(\\d+)${tokenSuffix}`, 'g'),
-    (_m: string, idx: string) =>
-      `<span data-jxcit="${idx}" style="display:inline;vertical-align:baseline;line-height:1"></span>`
-  );
 
   if (isMarkdown) {
     return (
       <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
         <CitationHtmlBlock
-          html={html}
+          html={renderedHtml}
           markers={markers}
           citations={citations}
           onCitationAction={onCitationAction}
@@ -186,7 +193,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   return (
     <span className={className} ref={containerRef as RefObject<HTMLSpanElement>}>
       <CitationHtmlBlock
-        html={html}
+        html={renderedHtml}
         markers={markers}
         citations={citations}
         onCitationAction={onCitationAction}

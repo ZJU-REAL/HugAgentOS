@@ -3,6 +3,10 @@
 import asyncio
 from types import SimpleNamespace
 
+import api.routes.v1.chats.session_context as chat_session_context
+import core.auth.backend as auth_backend
+import core.db.engine as db_engine
+import core.services as chat_services
 import httpx
 import pytest
 from api.routes.v1 import chats
@@ -30,13 +34,14 @@ def api_app(monkeypatch):
                 return object()
             return None
 
-    monkeypatch.setattr(chats, "ChatService", FakeChatService)
+    monkeypatch.setattr(chat_services, "ChatService", FakeChatService)
+    monkeypatch.setattr(chat_session_context, "_release_request_session", lambda db: None)
     app = FastAPI()
     app.include_router(chats.router)
-    app.dependency_overrides[chats.get_current_user] = lambda: SimpleNamespace(
+    app.dependency_overrides[auth_backend.get_current_user] = lambda: SimpleNamespace(
         user_id="owner",
     )
-    app.dependency_overrides[chats.get_db] = lambda: object()
+    app.dependency_overrides[db_engine.get_db] = lambda: object()
     return app
 
 
@@ -122,6 +127,7 @@ async def test_cancel_endpoint_resolves_wait_authoritatively(api_app):
 
     assert (await waiting) == {"status": "cancelled", "answers": []}
 
+
 @pytest.mark.asyncio
 async def test_four_question_round_is_answerable(api_app):
     # The answer body used to carry its own ``max_length=3`` while the tool
@@ -148,17 +154,13 @@ async def test_four_question_round_is_answerable(api_app):
         answered = await client.post(
             f"/v1/chats/owned-chat/user-questions/{request_id}/answer",
             json={
-                "answers": [
-                    {"id": item["id"], "selected": ["option_1"]} for item in questions
-                ],
+                "answers": [{"id": item["id"], "selected": ["option_1"]} for item in questions],
             },
         )
         assert answered.status_code == 200
 
     result = await asyncio.wait_for(waiting, timeout=1)
-    assert [answer["id"] for answer in result["answers"]] == [
-        item["id"] for item in questions
-    ]
+    assert [answer["id"] for answer in result["answers"]] == [item["id"] for item in questions]
 
 
 @pytest.mark.asyncio

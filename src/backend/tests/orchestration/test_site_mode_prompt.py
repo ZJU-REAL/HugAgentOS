@@ -3,15 +3,16 @@
 import inspect
 from pathlib import Path
 
-from api.routes.v1 import chats as chats_route
+import api.routes.v1.chats.request_context as chat_request_context
+import core.chat.context as chat_context
 from api.schemas import ChatRequest
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 
 
 def test_site_flag_is_metadata_not_an_agent_prompt_switch(monkeypatch) -> None:
-    monkeypatch.setattr(chats_route, "_collect_historical_attachments", lambda **_kwargs: [])
+    monkeypatch.setattr(chat_context, "collect_historical_attachments", lambda **_kwargs: [])
     request = ChatRequest(chat_id="chat-1", message="做个公司官网", site_chat=True)
-    ctx = chats_route._build_ctx(request, "user-1", None, None, None)
+    ctx = chat_request_context._build_ctx(request, "user-1", None, None, None)
 
     assert ctx["site_chat"] is True
     assert "site_mode" not in inspect.signature(create_agent_executor).parameters
@@ -23,7 +24,7 @@ def test_site_flag_is_metadata_not_an_agent_prompt_switch(monkeypatch) -> None:
 def test_user_message_carries_no_site_rules() -> None:
     """用户消息按原样落库、原样回放——组装用户消息的那一层不许往里塞规则。"""
     typed = "做个公司官网"
-    assert chats_route._build_effective_user_message(typed, None) == typed
+    assert chat_context.build_effective_user_message(typed, None) == typed
 
 
 def test_history_repair_keeps_only_what_the_user_typed() -> None:

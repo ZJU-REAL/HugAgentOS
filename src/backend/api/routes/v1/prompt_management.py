@@ -172,7 +172,7 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
     """
     clients: List[Any] = []
     try:
-        from core.llm.agent_factory import create_agent_executor
+        from core.llm.factory import create_agent_executor
 
         agent, clients = await create_agent_executor(
             current_user_id="admin_preview",

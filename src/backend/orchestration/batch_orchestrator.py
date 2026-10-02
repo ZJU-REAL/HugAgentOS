@@ -41,7 +41,7 @@ from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.config.catalog_resolver import resolve_all_runtime_enabled
 from core.db.engine import SessionLocal
 from core.db.models import BatchPlan, ChatRun
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 from core.llm.context_adapter import append_context_text
 from core.llm.context_ir import KIND_REMINDER
 

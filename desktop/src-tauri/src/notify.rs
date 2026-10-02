@@ -14,7 +14,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
-use tokio::sync::RwLock;
 
 use crate::brand;
 
@@ -28,7 +27,7 @@ const SEEN_CAP: usize = 400;
 pub fn start(
     app: AppHandle,
     port: u16,
-    token: Arc<RwLock<Option<String>>>,
+    session: Arc<crate::session_state::SessionState>,
     http: reqwest::Client,
     hybrid_local: bool,
 ) {
@@ -52,21 +51,17 @@ pub fn start(
             tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
 
             // 未登录时反代不注入 cookie、接口必失败——直接跳过省一次请求。
-            let poll_token = token.read().await.clone();
+            let poll_token = session.token().await;
             if poll_token.is_none() {
                 continue;
             }
 
             for (source, url) in &sources {
-                let resp = match http.get(url).timeout(Duration::from_secs(10)).send().await {
-                    Ok(r) if r.status().is_success() => r,
-                    _ => continue,
-                };
-                let body: serde_json::Value = match resp.json().await {
-                    Ok(v) => v,
+                let body = match notification_body(&http, url).await {
+                    Ok(body) => body,
                     Err(_) => continue,
                 };
-                if *token.read().await != poll_token {
+                if session.token().await != poll_token {
                     seen.clear();
                     break;
                 }
@@ -128,4 +123,68 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Notifications traverse the same credential-injecting loopback proxy as the UI.
+async fn notification_body(
+    http: &reqwest::Client,
+    url: &str,
+) -> Result<serde_json::Value, reqwest::Error> {
+    let origin = url::Url::parse(url)
+        .expect("internally constructed loopback URL")
+        .origin()
+        .ascii_serialization();
+    http.get(url)
+        .header(reqwest::header::ORIGIN, origin)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn native_poll_passes_origin_guard_for_both_execution_planes() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let expected = origin.clone();
+        let router = axum::Router::new().route(
+            "/api/v1/automations/notifications/list",
+            axum::routing::get(move |headers: axum::http::HeaderMap| {
+                let expected = expected.clone();
+                async move {
+                    if headers.get("origin").and_then(|v| v.to_str().ok())
+                        == Some(expected.as_str())
+                    {
+                        (
+                            axum::http::StatusCode::OK,
+                            axum::Json(serde_json::json!({"data":[]})),
+                        )
+                    } else {
+                        (
+                            axum::http::StatusCode::FORBIDDEN,
+                            axum::Json(serde_json::json!({})),
+                        )
+                    }
+                }
+            }),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for suffix in ["", "?hg_target=local"] {
+            let result = notification_body(
+                &client,
+                &format!("{origin}/api/v1/automations/notifications/list{suffix}"),
+            )
+            .await;
+            assert!(result.is_ok(), "native request rejected: {result:?}");
+        }
+        server.abort();
+    }
 }

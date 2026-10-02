@@ -5,7 +5,6 @@ import { resolve } from 'node:path';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = resolve('node_modules/.tmp/desktop-menu-browser');
 await mkdir(out, { recursive: true });
-const proxy = await readFile('../../desktop/src-tauri/src/proxy.rs', 'utf8');
 const update = await readFile('../../desktop/src-tauri/src/update.rs', 'utf8');
 const constant = (source, name, hashes = '##') => {
   const start = source.indexOf('const ' + name + ': &str = r' + hashes + '"');
@@ -13,9 +12,10 @@ const constant = (source, name, hashes = '##') => {
   const valueStart = source.indexOf('"', start) + 1;
   return source.slice(valueStart, source.indexOf('"' + hashes + ';', valueStart));
 };
-const menu = constant(proxy, 'TB_MENU');
-const js = constant(proxy, 'TB_JS');
-const css = constant(proxy, 'TB_CSS');
+const chrome = '../../desktop/shared/chrome/';
+const menu = await readFile(chrome + 'menu.html', 'utf8');
+const js = await readFile(chrome + 'menu.js', 'utf8');
+const css = await readFile(chrome + 'menu.css', 'utf8');
 const progress = constant(update, 'PROGRESS_HTML', '#');
 await build({ stdin: { contents: `
 import React from 'react';
@@ -33,7 +33,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);
 `, resolveDir: process.cwd(), loader: 'tsx' },
  outfile: resolve(out, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
  define: { 'import.meta.env': '{}' } });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM });
 try {
  const page = await browser.newPage();
  const errors = [], actions = [], requests = [];
@@ -68,7 +68,7 @@ try {
  await page.locator('#root').getByRole('button', {name:'帮助', exact:true}).waitFor();
  await page.locator('[data-menu="file"] > button').click();
  const file = page.locator('#hugagent-file-menu');
- assert.deepEqual(await file.getByRole('menuitem').allTextContents(), ['新建对话Ctrl+N', '打开文件夹…', '退出']);
+ assert.deepEqual(await file.getByRole('menuitem').allTextContents(), ['新建窗口Ctrl+Shift+N', '新建对话Ctrl+N', '打开文件夹…', '退出']);
  await file.getByRole('menuitem', {name:'打开文件夹…'}).click();
  await page.waitForTimeout(100);
  assert.deepEqual(actions, ['open_folder']);

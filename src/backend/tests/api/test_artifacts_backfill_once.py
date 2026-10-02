@@ -41,6 +41,7 @@ def user_with_history(db_session):
                 "attachments": [
                     {
                         "file_id": "hist-file-1",
+                        "storage_key": "uploads/hist-file-1/document.docx",
                         "name": "旧附件.docx",
                         "mime_type": (
                             "application/vnd.openxmlformats-officedocument"
@@ -138,3 +139,16 @@ def test_listing_never_runs_the_scan_on_the_request(user_with_history, monkeypat
             task.cancel()
 
     asyncio.run(_call())
+
+
+def test_unresolved_history_does_not_claim_durable_completion(user_with_history, monkeypatch):
+    db = user_with_history
+    message = db.query(ChatMessage).filter_by(message_id="msg-1").one()
+    extra = dict(message.extra_data)
+    extra["attachments"] = [dict(extra["attachments"][0], storage_key=None)]
+    message.extra_data = extra
+    db.commit()
+    monkeypatch.setattr(route, "SessionLocal", lambda: db)
+    route._run_backfill_once(USER_ID)
+    shadow = db.query(UserShadow).filter_by(user_id=USER_ID).one()
+    assert not shadow.extra_data.get(route._BACKFILL_MARKER)

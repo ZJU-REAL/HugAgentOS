@@ -43,7 +43,8 @@ export async function loadOlderMessages(chatId: string): Promise<number> {
   try {
     const r = await authFetch(
       `${effectiveApiUrl}/v1/chats/${chatId}/messages`
-      + `?page=${paging.nextPage}&page_size=${MESSAGE_PAGE_SIZE}&order=desc`,
+      + `?page=${paging.nextPage}&page_size=${MESSAGE_PAGE_SIZE}&order=desc`
+      + (paging.beforeSeq ? `&cursor=true&before_seq=${paging.beforeSeq}` : ''),
       { headers: { ...chatTargetHeaders(chatId) } },
     );
     if (!r.ok) throw new Error(`older messages: HTTP ${r.status}`);
@@ -71,6 +72,7 @@ export async function loadOlderMessages(chatId: string): Promise<number> {
     });
     useChatStore.getState().setMessagePaging(chatId, {
       nextPage: paging.nextPage + 1,
+      beforeSeq: payload?.data?.next_before_seq,
       hasOlder: !!payload?.data?.pagination?.has_next,
       loading: false,
     });
@@ -103,7 +105,7 @@ export function reloadChatHistory(chatId: string): Promise<boolean> {
 
 async function fetchAndMergeHistoryPage(chatId: string, userId: string | undefined): Promise<boolean> {
   const r = await authFetch(
-    `${effectiveApiUrl}/v1/chats/${chatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc`,
+    `${effectiveApiUrl}/v1/chats/${chatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc&cursor=true`,
     { headers: { ...chatTargetHeaders(chatId) } },
   );
   if (!r.ok) return false;
@@ -120,10 +122,15 @@ async function fetchAndMergeHistoryPage(chatId: string, userId: string | undefin
   if (Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
     st.setContextCompaction(chatId, parseContextCompactionState(payload.data.context_compaction));
   }
-  // 更早的页可能已经滚上去加载过了，游标只能前进不能回拨。
+  // Retain older pagination only when the refreshed page overlaps the loaded
+  // transcript. A remote burst can replace it with a disjoint recent page.
+  const knownIds = new Set((st.store.chats[chatId]?.messages ?? []).map(m => m.messageId).filter(Boolean));
+  const retainCursor = page.some(m => !!m.messageId && knownIds.has(m.messageId)) && !!st.messagePaging[chatId]?.beforeSeq;
   st.setMessagePaging(chatId, {
     nextPage: Math.max(2, st.messagePaging[chatId]?.nextPage ?? 0),
-    hasOlder: !!payload?.data?.pagination?.has_next,
+    beforeSeq: retainCursor ? st.messagePaging[chatId].beforeSeq : payload?.data?.next_before_seq,
+    hasOlder: retainCursor
+      ? st.messagePaging[chatId].hasOlder : !!payload?.data?.pagination?.has_next,
     loading: false,
   });
   st.updateStore((prev) => {
@@ -166,7 +173,10 @@ export async function ensureFullMessages(chatId: string, maxPages = 100): Promis
     const paging = useChatStore.getState().messagePaging[chatId];
     if (!paging?.hasOlder) return;
     const added = await loadOlderMessages(chatId);
-    // 拉不动了（请求失败 / 整页都是重复）就停，避免空转。
-    if (added === 0 && !useChatStore.getState().messagePaging[chatId]?.loading) return;
+    // Empty visible pages can contain hidden internal messages. Continue when
+    // the server cursor advanced; stop only when the request made no progress.
+    const latest = useChatStore.getState().messagePaging[chatId];
+    if (added === 0 && !latest?.loading && latest?.nextPage === paging.nextPage
+      && latest?.beforeSeq === paging.beforeSeq) return;
   }
 }
