@@ -2,18 +2,19 @@
 
 import hashlib
 import json
-import threading
 import logging
+import threading
+from datetime import datetime, timezone
+
+from core.capabilities.change_merge import revision, sensitive_paths, validate_files
+from core.capabilities.errors import CapabilityError
+from core.capabilities.paths import safe_segment
+from core.db.engine import SessionLocal
+from core.db.models import AdminMcpServer, AdminSkill, ContentBlock, InstalledPlugin
+from core.infra.crypto import decrypt_secret, encrypt_secret
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timezone
-from fastapi import HTTPException
-from core.db.engine import SessionLocal
-from core.db.models import AdminSkill, AdminMcpServer, InstalledPlugin, ContentBlock
-from core.infra.crypto import encrypt_secret, decrypt_secret
-from core.capabilities.change_merge import revision, validate_files, sensitive_paths
-from core.capabilities.paths import safe_segment
-from core.capabilities.errors import CapabilityError
 
 _lock = threading.RLock()
 
@@ -47,7 +48,7 @@ def _files(row, kind):
         data["components"] = row.component_ids or {}
         data["ui_contributions"] = row.ui_contributions
         data["import_report"] = row.import_report or {}
-        from core.services.desktop_capability import _plugin_files
+        from core.services.desktop_capability_entities import _plugin_files
 
         return _plugin_files(data)
     # Existing cloud credentials are never exported to a device.
@@ -138,8 +139,8 @@ def _activate(db, user, kind, key, files, row):
 
         content = files.get("SKILL.md", "")
         metadata = _load_skill_metadata_from_str(content, key)
-        from core.ontology.build_validator import ensure_ontology_build_valid
         from api.routes.v1.me_capabilities import extract_mcp_server_ids, resolve_mcp_bindings
+        from core.ontology.build_validator import ensure_ontology_build_valid
 
         mcp_ids = extract_mcp_server_ids(content)
         resolve_mcp_bindings(db, mcp_ids, owner_user_id=str(user), strict=True)
@@ -167,8 +168,8 @@ def _activate(db, user, kind, key, files, row):
             metadata.allowed_tools,
         )
         row.extra_files = {name: value for name, value in files.items() if name != "SKILL.md"}
-        from core.agent_skills.deps_detector import detect_dependencies
         from core.agent_skills.binary_files import is_binary_value
+        from core.agent_skills.deps_detector import detect_dependencies
 
         row.dependencies = detect_dependencies(
             {name: value for name, value in row.extra_files.items() if not is_binary_value(value)}
@@ -205,8 +206,9 @@ def _activate(db, user, kind, key, files, row):
     ):
         return row, False
     import asyncio
+
     from core.config.settings import settings
-    from core.services.mcp_management_service import validate_remote_mcp_url, encrypt_mcp_headers
+    from core.services.mcp_management_service import encrypt_mcp_headers, validate_remote_mcp_url
 
     asyncio.run(
         validate_remote_mcp_url(

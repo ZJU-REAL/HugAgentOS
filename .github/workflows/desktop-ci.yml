@@ -36,6 +36,16 @@ jobs:
         working-directory: desktop
         run: npm run test:scripts
 
+      - name: Setup Python installer tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test native download failures and archive safety
+        run: |
+          python3 desktop/scripts/test-native-download.py
+          python3 desktop/scripts/test-native-tools.py
+
   platform-tests:
     name: ${{ matrix.name }}
     env:

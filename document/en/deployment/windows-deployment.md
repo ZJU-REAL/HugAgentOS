@@ -499,3 +499,16 @@ frontend Nginx configuration does so.
 [Local project working directory](local-project-workspace.md)
 
 In hybrid mode, available projects load after login and local projects refresh automatically when the local identity is ready. They appear in the sidebar without opening the projects panel. Late responses cannot overwrite a newer list; switching accounts or signing out clears the list and discards earlier responses.
+
+### Cloud model manifest synchronization failures
+
+Hybrid model manifests come from the cloud /v1/desktop/capability/models endpoint.
+Credential checks distinguish public model reasoning level identifiers from authentication
+secrets: standard labels such as low and high in reasoning_effort_levels are public
+configuration. This distinction applies only to the designated model field. Authentication
+headers, custom keys, and actual short credentials remain guarded; reasoning parameters
+containing a real credential are still withheld.
+
+For 422 / integrity_failed, inspect the cloud response and configuration checks.
+The fix takes effect in the cloud backend; changing reasoning levels, clearing desktop
+data, or reinstalling the client is unnecessary.

@@ -16,9 +16,25 @@ import pytest
 from core.db.model_repository import assign_role, create_provider
 from core.db.models import AdminMcpServer
 from core.services import desktop_capability as cap
+from core.services import desktop_capability_configs as configs
+from core.services import desktop_capability_credentials as credentials
+from core.services import desktop_capability_mcp as mcp_cap
+from core.services import desktop_capability_security as security
 from core.services import desktop_cloud_bridge as bridge
 from core.services.desktop_capability_protocol import build_manifest, canonical_hash
 from sqlalchemy.orm import sessionmaker
+
+
+def _use_test_database(monkeypatch, db_session):
+    factory = sessionmaker(bind=db_session.get_bind())
+    monkeypatch.setattr(security, "SessionLocal", factory)
+    monkeypatch.setattr(mcp_cap, "SessionLocal", factory)
+    monkeypatch.setattr(configs, "SessionLocal", factory)
+    # A different database: drop the process-level authorization snapshots.
+    cap.invalidate_model_gateway_cache()
+    with configs._effective_lock:
+        configs._effective_cache.clear()
+
 
 # ── capability token ────────────────────────────────────────────────────
 
@@ -80,233 +96,6 @@ def test_token_expiry(monkeypatch):
     real_time = time.time
     monkeypatch.setattr(time, "time", lambda: real_time() + 7200)
     assert _verify_test_token(token) is None
-
-
-# ── 模型能力清单 / 网关授权 ───────────────────────────────────────
-
-
-def _use_test_database(monkeypatch, db_session):
-    monkeypatch.setattr(cap, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    # A different database: drop the process-level authorization snapshots.
-    cap.invalidate_model_gateway_cache()
-    with cap._effective_lock:
-        cap._effective_cache.clear()
-
-
-def test_model_manifest_contains_no_upstream_credentials(monkeypatch, db_session):
-    _use_test_database(monkeypatch, db_session)
-    from core.services import user_model_selection
-
-    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
-    assigned = create_provider(
-        db_session,
-        display_name="Private DeepSeek",
-        provider_type="chat",
-        provider="openai_compatible",
-        base_url="http://192.0.2.10:1029/v1",
-        api_key="never-send-this-key",
-        model_name="deepseek-private",
-        extra_config={"context_length": 131072, "custom_secret": "also-private"},
-    )
-    unassigned = create_provider(
-        db_session,
-        display_name="Unassigned",
-        provider_type="chat",
-        provider="openai",
-        base_url="https://model.example/v1",
-        api_key="another-secret",
-        model_name="unassigned-model",
-    )
-    assert assign_role(db_session, "main_agent", assigned.provider_id)
-
-    manifest = cap.build_user_model_manifest("user-1")
-
-    assert manifest["version"] == 1
-    assert {p["provider_id"] for p in manifest["providers"]} == {
-        assigned.provider_id,
-        unassigned.provider_id,
-    }
-    provider = next(p for p in manifest["providers"] if p["provider_id"] == assigned.provider_id)
-    assert "base_url" not in provider
-    assert "api_key" not in provider
-    assert "custom_secret" not in provider["extra_config"]
-    assert provider["extra_config"]["context_length"] == 131072
-    assert manifest["role_assignments"] == [
-        {"role_key": "main_agent", "provider_id": assigned.provider_id}
-    ]
-    for item in manifest["providers"]:
-        assert "base_url" not in item
-        assert "api_key" not in item
-
-
-def test_credential_equal_to_a_public_model_identifier_is_not_a_secret(monkeypatch, db_session):
-    """api_key 与 model_name 字面相同：模型名对所有登录用户可见，不是机密。
-    这样的模型照常下发（生产上 main_agent 就绑在这种配置上），清单仍通过出口守卫。"""
-    _use_test_database(monkeypatch, db_session)
-    from core.services import user_model_selection
-
-    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
-    keyless = create_provider(
-        db_session,
-        display_name="Keyless Vision",
-        provider_type="chat",
-        provider="openai_compatible",
-        base_url="http://192.0.2.10:1029/v1",
-        api_key="deepseekv4-flash",
-        model_name="deepseekv4-flash",
-    )
-    assert assign_role(db_session, "main_agent", keyless.provider_id)
-
-    manifest = cap.build_user_model_manifest("user-1")
-
-    assert [p["provider_id"] for p in manifest["providers"]] == [keyless.provider_id]
-    assert "withheld" not in manifest
-    assert manifest["role_assignments"] == [
-        {"role_key": "main_agent", "provider_id": keyless.provider_id}
-    ]
-    assert cap.guard_capability_content("user-1", manifest) is manifest
-    assert "deepseekv4-flash" not in cap._known_cloud_secrets("user-1")
-
-
-def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys(
-    monkeypatch, db_session
-):
-    """网关转发这条模型的输出时，每个流式分片都带 model 字段；模型名不是机密，
-    不能因此把整段回复拦成 upstream content blocked。真实密钥仍被屏蔽。"""
-    _use_test_database(monkeypatch, db_session)
-    keyless = create_provider(
-        db_session,
-        display_name="Keyless Vision",
-        provider_type="chat",
-        provider="openai_compatible",
-        base_url="http://192.0.2.10:1029/v1",
-        api_key="deepseekv4-flash",
-        model_name="deepseekv4-flash",
-    )
-    create_provider(
-        db_session,
-        display_name="Other",
-        provider_type="chat",
-        provider="openai",
-        base_url="https://model.example/v1",
-        api_key="sk-other-real-key-7d2c",
-        model_name="other-model",
-    )
-    target = {
-        "url": "http://192.0.2.10:1029/v1/chat/completions",
-        "api_key": keyless.api_key,
-        "model_name": keyless.model_name,
-    }
-
-    secrets = cap.gateway_stream_secrets("user-1", target)
-
-    assert "deepseekv4-flash" not in secrets
-    assert "sk-other-real-key-7d2c" in secrets
-    chunks = [b'data: {"model":"deepseekv4-flash","choices":[{"delta":{"content":"hi"}}]}\n\n']
-
-    async def upstream():
-        for chunk in chunks:
-            yield chunk
-
-    import asyncio
-
-    async def collect():
-        return [c async for c in cap.guard_capability_stream(upstream(), secrets)]
-
-    assert b"".join(asyncio.run(collect())) == b"".join(chunks)
-
-
-def test_model_manifest_withholds_only_the_provider_that_would_leak_a_real_credential(
-    monkeypatch, db_session
-):
-    """另一条模型的真实密钥出现在某模型的展示名里：只扣留这一条并点名字段，其余照常下发。"""
-    _use_test_database(monkeypatch, db_session)
-    from core.services import user_model_selection
-
-    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
-    healthy = create_provider(
-        db_session,
-        display_name="Healthy",
-        provider_type="chat",
-        provider="openai",
-        base_url="https://model.example/v1",
-        api_key="sk-real-secret-value-9f3a",
-        model_name="healthy-model",
-    )
-    leaking = create_provider(
-        db_session,
-        display_name="Notes sk-real-secret-value-9f3a",
-        provider_type="chat",
-        provider="openai",
-        base_url="https://other.example/v1",
-        api_key="sk-other-secret",
-        model_name="leaky-model",
-    )
-    assert assign_role(db_session, "main_agent", healthy.provider_id)
-    assert assign_role(db_session, "vision", leaking.provider_id)
-
-    manifest = cap.build_user_model_manifest("user-1")
-
-    assert [p["provider_id"] for p in manifest["providers"]] == [healthy.provider_id]
-    assert manifest["withheld"] == [
-        {"provider_id": leaking.provider_id, "fields": ["display_name"]}
-    ]
-    assert manifest["role_assignments"] == [
-        {"role_key": "main_agent", "provider_id": healthy.provider_id}
-    ]
-    assert cap.guard_capability_content("user-1", manifest) is manifest
-
-
-def test_model_gateway_target_is_role_or_user_switch_allowlisted(monkeypatch, db_session):
-    _use_test_database(monkeypatch, db_session)
-    from core.services import user_model_selection
-
-    assigned = create_provider(
-        db_session,
-        display_name="Assigned chat",
-        provider_type="chat",
-        base_url="http://192.0.2.10:1029/v1/",
-        api_key="cloud-only-key",
-        model_name="assigned-model",
-    )
-    selectable = create_provider(
-        db_session,
-        display_name="Selectable chat",
-        provider_type="chat",
-        base_url="https://models.example/v1",
-        api_key="selectable-key",
-        model_name="selectable-model",
-    )
-    embedding = create_provider(
-        db_session,
-        display_name="Unassigned embedding",
-        provider_type="embedding",
-        base_url="https://models.example/v1",
-        api_key="embedding-key",
-        model_name="embed-model",
-    )
-    assert assign_role(db_session, "main_agent", assigned.provider_id)
-
-    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
-    target = cap.resolve_model_gateway_target("user-1", assigned.provider_id)
-    assert target == {
-        "url": "http://192.0.2.10:1029/v1/chat/completions",
-        "api_key": "cloud-only-key",
-        "model_name": "assigned-model",
-        "provider_type": "chat",
-        "path": "chat/completions",
-    }
-    assert cap.resolve_model_gateway_target("user-1", selectable.provider_id) is None
-    assert cap.resolve_model_gateway_target("user-1", embedding.provider_id) is None
-
-    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: True)
-    assert (
-        cap.resolve_model_gateway_target("user-1", selectable.provider_id)["path"]
-        == "chat/completions"
-    )
-
-
-# ── 混合能力解析 ────────────────────────────────────────────────────────
 
 
 def _activate_bridge(monkeypatch, servers):
@@ -504,7 +293,7 @@ def test_capability_manifest_contains_current_sanitized_schemas(monkeypatch, db_
     db_session.add(row)
     db_session.commit()
     monkeypatch.setattr(
-        cap,
+        mcp_cap,
         "_user_capability_configs",
         lambda _uid, **_kwargs: (
             ["private-search"],
@@ -558,7 +347,7 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
     )
     db_session.commit()
     monkeypatch.setattr(
-        cap,
+        mcp_cap,
         "resolve_gateway_target",
         lambda uid, sid, **kwargs: (
             {"transport": "streamable_http", "url": "https://mcp.example/mcp"}
@@ -629,8 +418,14 @@ def test_fresh_manifests_bypass_worker_mcp_caches(monkeypatch, db_session):
     _use_test_database(monkeypatch, db_session)
     monkeypatch.setattr(mcp_service, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
     workers = [mcp_service.McpServerConfigService(), mcp_service.McpServerConfigService()]
-    row = AdminMcpServer(server_id="shared-new", display_name="Shared", transport="streamable_http",
-                         url="https://mcp.example/mcp", is_enabled=True, tools_json=[])
+    row = AdminMcpServer(
+        server_id="shared-new",
+        display_name="Shared",
+        transport="streamable_http",
+        url="https://mcp.example/mcp",
+        is_enabled=True,
+        tools_json=[],
+    )
     db_session.add(row)
     db_session.commit()
     for worker in workers:
@@ -647,11 +442,21 @@ def test_other_users_private_connector_does_not_change_manifest(monkeypatch, db_
 
     _use_test_database(monkeypatch, db_session)
     monkeypatch.setattr(mcp_service, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    monkeypatch.setattr(mcp_service.McpServerConfigService, "_instance", mcp_service.McpServerConfigService())
+    monkeypatch.setattr(
+        mcp_service.McpServerConfigService, "_instance", mcp_service.McpServerConfigService()
+    )
     before = cap.build_user_capability_manifest("user-1", use_cache=False)
-    db_session.add(AdminMcpServer(server_id="other-private", owner_user_id="user-2",
-        display_name="Other", transport="streamable_http", url="https://mcp.example/mcp",
-        is_enabled=True, tools_json=[]))
+    db_session.add(
+        AdminMcpServer(
+            server_id="other-private",
+            owner_user_id="user-2",
+            display_name="Other",
+            transport="streamable_http",
+            url="https://mcp.example/mcp",
+            is_enabled=True,
+            tools_json=[],
+        )
+    )
     db_session.commit()
     assert cap.build_user_capability_manifest("user-1", use_cache=False) == before
     assert len(cap.build_user_capability_manifest("user-2", use_cache=False)["servers"]) == 1

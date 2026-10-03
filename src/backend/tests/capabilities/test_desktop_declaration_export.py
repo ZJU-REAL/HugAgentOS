@@ -1,19 +1,23 @@
 """Synthetic declaration export checks; no user configuration or credentials."""
 
 import json
+
 import pytest
 from core.services import desktop_capability as cap
+from core.services import desktop_capability_credentials as credentials
+from core.services import desktop_capability_entities as entities
+from core.services import desktop_capability_security as security
 
 
 def agent(data):
     return json.loads(
-        cap._agent_files({"agent_id": "writer", "name": "Writer", **data})["agent.json"]
+        entities._agent_files({"agent_id": "writer", "name": "Writer", **data})["agent.json"]
     )
 
 
 def plugin(data):
     return json.loads(
-        cap._plugin_files({"install_id": "pack@user", "slug": "pack", "name": "Pack", **data})[
+        entities._plugin_files({"install_id": "pack@user", "slug": "pack", "name": "Pack", **data})[
             "plugin.json"
         ]
     )
@@ -101,7 +105,7 @@ def test_declaration_arbitrary_connection_payload_is_not_exported():
 
 
 def test_exported_declaration_canary_still_hits_content_guard(monkeypatch):
-    monkeypatch.setattr(cap, "_known_cloud_secrets", lambda uid: {"synthetic-declared-secret"})
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: {"synthetic-declared-secret"})
     result = agent(
         {"dependencies": [{"kind": "skill", "id": "synthetic-declared-secret", "required": True}]}
     )
@@ -128,7 +132,7 @@ def test_optional_unknown_extension_remains_optional_without_executable_payload(
 
 def test_declaration_edits_change_manifest_content_hash(monkeypatch):
     definition = {"agent_id": "writer", "name": "Writer", "dependencies": [dict(DECLARATION)]}
-    monkeypatch.setattr(cap, "_user_agents", lambda uid: [definition])
+    monkeypatch.setattr(entities, "_user_agents", lambda uid: [definition])
     before = cap.build_user_agent_manifest("user", use_cache=False)
     definition["dependencies"][0]["version_constraint"] = ">=3"
     after = cap.build_user_agent_manifest("user", use_cache=False)
@@ -142,6 +146,7 @@ from tests.capabilities.test_agents_plugins import cloud_db
 def test_database_component_metadata_reaches_plugin_bundle(cloud_db):
     import io
     import zipfile
+
     from core.db.models import InstalledPlugin
 
     components = {
@@ -154,7 +159,7 @@ def test_database_component_metadata_reaches_plugin_bundle(cloud_db):
         row = db.query(InstalledPlugin).filter_by(install_id="sites@cloud-u").one()
         row.component_ids = components
         db.commit()
-    rows = cap._user_plugins("cloud-u")
+    rows = entities._user_plugins("cloud-u")
     assert rows[0]["components"] == components
     data, _ = cap.resolve_plugin_bundle("cloud-u", "sites@cloud-u")
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -163,13 +168,13 @@ def test_database_component_metadata_reaches_plugin_bundle(cloud_db):
 
 
 def test_invalid_declaration_returns_fixed_http_error(monkeypatch):
+    from api.routes.v1 import desktop_capability as routes
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from api.routes.v1 import desktop_capability as routes
 
-    monkeypatch.setattr(cap, "_known_cloud_secrets", lambda uid: set())
+    monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: set())
     monkeypatch.setattr(
-        cap,
+        entities,
         "_user_agents",
         lambda uid: [
             {

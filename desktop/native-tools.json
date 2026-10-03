@@ -75,34 +75,49 @@
     "source": "https://www.libreoffice.org/download/download-libreoffice/",
     "targets": {
       "windows-x86_64": {
-        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi",
+        "url": "https://mirror.kumi.systems/tdf/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi",
         "size": 373252096,
         "sha256": "f9877032fd908beb9c0ddf06df4af5c2e85f419c42e14876c4cce5aae5fb2660",
-        "format": "msi"
+        "format": "msi",
+        "fallback_urls": [
+          "https://download.documentfoundation.org/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi"
+        ]
       },
       "darwin-aarch64": {
-        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/aarch64/LibreOffice_26.2.6_MacOS_aarch64.dmg",
+        "url": "https://mirror.kumi.systems/tdf/libreoffice/stable/26.2.6/mac/aarch64/LibreOffice_26.2.6_MacOS_aarch64.dmg",
         "size": 297798926,
         "sha256": "94bb3248df074c225490a8a6d1d9dc87c7d6783dbb7a8e9f0d0c3d94348552af",
-        "format": "dmg"
+        "format": "dmg",
+        "fallback_urls": [
+          "https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/aarch64/LibreOffice_26.2.6_MacOS_aarch64.dmg"
+        ]
       },
       "darwin-x86_64": {
-        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/x86_64/LibreOffice_26.2.6_MacOS_x86-64.dmg",
+        "url": "https://mirror.kumi.systems/tdf/libreoffice/stable/26.2.6/mac/x86_64/LibreOffice_26.2.6_MacOS_x86-64.dmg",
         "size": 308308875,
         "sha256": "135b8a95b8133396d54bf8e726dbc0066145efa0d785963fc3d4592acbfcfe5b",
-        "format": "dmg"
+        "format": "dmg",
+        "fallback_urls": [
+          "https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/x86_64/LibreOffice_26.2.6_MacOS_x86-64.dmg"
+        ]
       },
       "linux-x86_64": {
-        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/deb/x86_64/LibreOffice_26.2.6_Linux_x86-64_deb.tar.gz",
+        "url": "https://mirror.kumi.systems/tdf/libreoffice/stable/26.2.6/deb/x86_64/LibreOffice_26.2.6_Linux_x86-64_deb.tar.gz",
         "size": 217285735,
         "sha256": "fd0e8f8f2408dd2e5b90286e60f3f97cf566ba441cd48cfc5bcc68067303e0bc",
-        "format": "deb-tar"
+        "format": "deb-tar",
+        "fallback_urls": [
+          "https://download.documentfoundation.org/libreoffice/stable/26.2.6/deb/x86_64/LibreOffice_26.2.6_Linux_x86-64_deb.tar.gz"
+        ]
       },
       "linux-aarch64": {
-        "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/deb/aarch64/LibreOffice_26.2.6_Linux_aarch64_deb.tar.gz",
+        "url": "https://mirror.kumi.systems/tdf/libreoffice/stable/26.2.6/deb/aarch64/LibreOffice_26.2.6_Linux_aarch64_deb.tar.gz",
         "size": 207165540,
         "sha256": "f8e8b1d30abde0d530d727ce1b26909ccbedc3d76bcf75d93b3dd5fcd5b8d278",
-        "format": "deb-tar"
+        "format": "deb-tar",
+        "fallback_urls": [
+          "https://download.documentfoundation.org/libreoffice/stable/26.2.6/deb/aarch64/LibreOffice_26.2.6_Linux_aarch64_deb.tar.gz"
+        ]
       }
     }
   },

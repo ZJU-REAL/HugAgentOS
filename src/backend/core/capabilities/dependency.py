@@ -8,16 +8,16 @@ reported as unverified rather than installed or assumed available.
 
 from __future__ import annotations
 
-import importlib.metadata
 import copy
-import os
-from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
-from functools import lru_cache
+import importlib.metadata
 import json
 import logging
+import os
 import platform
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -69,10 +69,10 @@ def component_hash(comp, *, fresh: bool = False):
     """A component's content digest. ``fresh`` reads every byte; see ``dir_digest``."""
     if comp.kind == "skill":
         return skills.skill_dir_hash(comp.path, fresh=fresh)
+    from core.agent_skills.binary_files import encode_upload
     from core.services.desktop_capability_protocol import entity_content_hash
 
     from .archive import iter_files
-    from core.agent_skills.binary_files import encode_upload
 
     def read_all():
         return entity_content_hash(
@@ -471,7 +471,7 @@ def require_report(report):
 def allowed_model_ids(user_id):
     """Reuse the live model gateway's role/user-switch authorization policy."""
     from core.db.models import ModelProvider
-    from core.services.desktop_capability import _model_provider_allowed
+    from core.services.desktop_capability_models import _model_provider_allowed
 
     with registry._session() as db:
         return {

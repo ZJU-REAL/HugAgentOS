@@ -2,14 +2,18 @@
 """Stage checksum-pinned native tools on release builders, without system installation."""
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -23,24 +27,45 @@ def safe_relative(value):
 
 
 def download(asset, destination):
-    for attempt in range(3):
-        try:
-            digest, size = hashlib.sha256(), 0
-            req = urllib.request.Request(asset["url"], headers={"User-Agent": "desktop-runtime-builder"})
-            with urllib.request.urlopen(req, timeout=120) as response, destination.open("wb") as output:
-                while chunk := response.read(1024 * 1024):
-                    size += len(chunk)
-                    if size > asset["size"]:
-                        raise ValueError("Native tool download exceeds pinned size")
-                    digest.update(chunk)
-                    output.write(chunk)
-            break
-        except (OSError, TimeoutError):
-            if attempt == 2:
+    """Try pinned sources with bounded retries; publish only verified bytes."""
+    urls = [asset["url"], *asset.get("fallback_urls", [])]
+    last_error = None
+    for url in urls:
+        parsed = urllib.parse.urlsplit(url)
+        label = f"{parsed.hostname or parsed.scheme}/{PurePosixPath(parsed.path).name}"
+        for attempt in range(3):
+            print(f"[native-tools] Downloading {label} (attempt {attempt + 1}/3)", flush=True)
+            try:
+                digest, size = hashlib.sha256(), 0
+                req = urllib.request.Request(url, headers={"User-Agent": "desktop-runtime-builder"})
+                with urllib.request.urlopen(req, timeout=120) as response, destination.open("wb") as output:
+                    while chunk := response.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > asset["size"]:
+                            raise ValueError("Native tool download exceeds pinned size")
+                        digest.update(chunk)
+                        output.write(chunk)
+                if size < asset["size"]:
+                    raise http.client.IncompleteRead(b"", asset["size"] - size)
+                if digest.hexdigest() != asset["sha256"]:
+                    raise ValueError("Native tool SHA-256 verification failed")
+                return
+            except (OSError, http.client.HTTPException) as error:
+                destination.unlink(missing_ok=True)
+                reason = getattr(error, "reason", error)
+                if isinstance(reason, ssl.SSLCertVerificationError):
+                    raise
+                last_error = error
+                failure = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(reason).__name__
+                print(f"[native-tools] {label}: {failure}", flush=True)
+                if isinstance(error, urllib.error.HTTPError) and error.code not in (408, 429, 500, 502, 503, 504):
+                    break
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+            except Exception:
+                destination.unlink(missing_ok=True)
                 raise
-            time.sleep(attempt + 1)
-    if size != asset["size"] or digest.hexdigest() != asset["sha256"]:
-        raise ValueError("Native tool SHA-256/size verification failed")
+    raise RuntimeError(f"Native tool download failed after trying {len(urls)} pinned source(s)") from last_error
 
 
 def unpack(archive, destination, kind):

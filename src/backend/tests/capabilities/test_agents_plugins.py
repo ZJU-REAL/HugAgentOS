@@ -18,6 +18,7 @@ from core.capabilities.ref import profile_id
 from core.db.engine import Base
 from core.db.models import InstalledPlugin, UserAgent, UserShadow
 from core.services import desktop_capability as cloud
+from core.services import desktop_capability_entities as entities
 from core.services import desktop_cloud_bridge as bridge
 from core.services import desktop_cloud_bundles as bundles
 from core.services.desktop_capability_protocol import (
@@ -78,7 +79,7 @@ def cloud_db(tmp_path, monkeypatch):
     )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    monkeypatch.setattr(cloud, "SessionLocal", factory)
+    monkeypatch.setattr(entities, "SessionLocal", factory)
     monkeypatch.setattr(
         "core.services.plugin_service._has_admin_config_for_slug", lambda slug: False
     )
@@ -114,7 +115,7 @@ def cloud_db(tmp_path, monkeypatch):
             )
         )
         db.commit()
-    cloud._entity_manifest_cache.clear()
+    entities._entity_manifest_cache.clear()
     return factory
 
 
