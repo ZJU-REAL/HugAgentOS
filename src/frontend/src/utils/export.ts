@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types';
 import { formatDateKey, formatTime } from './date';
 import { mdToHtml } from './markdown';
+import { ensureHighlighter } from './syntaxHighlight';
 import { t } from '../i18n';
 
 function createPdfHeaderImage(text: string): string {
@@ -101,6 +102,7 @@ function buildChatExportHtml(chatTitle: string, messages: ChatMessage[]): string
 // the module is on the wire.
 export async function triggerPdfDownload(filename: string, chatTitle: string, messages: ChatMessage[], chatTimestamp?: number): Promise<void> {
   const loading = import('html2pdf.js');
+  await ensureHighlighter().catch(() => {});
   const htmlContent = buildChatExportHtml(chatTitle, messages);
   const { default: html2pdf } = await loading;
   const container = document.createElement('div');

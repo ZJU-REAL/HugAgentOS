@@ -44,6 +44,31 @@ def resolve_artifact_storage_key(file_id: str, storage_key: Optional[str] = None
     return storage_key
 
 
+def require_artifact_storage_key(
+    file_id: str, storage_key: Optional[str] = None, *, filename: str = "", size: int = 0
+) -> str:
+    # Return an authoritative key; never fabricate a key for a new DB record.
+    key = resolve_artifact_storage_key(file_id, storage_key)
+    if (not key or key == f"artifacts/{file_id}") and filename and size:
+        from types import SimpleNamespace
+        from core.content.artifact_key_repair import verified_legacy_key
+        from core.storage import get_storage
+
+        repaired = verified_legacy_key(SimpleNamespace(
+            artifact_id=file_id, storage_key=f"artifacts/{file_id}",
+            filename=filename, size_bytes=size,
+        ), get_storage())
+        key = repaired or key
+    if not key:
+        raise ValueError(f"Artifact {file_id} has no authoritative storage key")
+    if key == f"artifacts/{file_id}":
+        from core.storage import get_storage
+
+        if not get_storage().exists(key):
+            raise ValueError(f"Artifact {file_id} has an unverified placeholder storage key")
+    return key
+
+
 def _normalize_file_ref(result: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(result, dict) or not result.get("file_id"):
         return None

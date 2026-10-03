@@ -14,6 +14,7 @@ import pytest
 from types import SimpleNamespace
 
 from core.memory import service as S
+from core.memory import backend as memory_backend
 from core.memory.context import MemoryContext
 from core.memory.extractors import writers as W
 from core.memory.extractors.router import ExtractorType
@@ -146,8 +147,8 @@ async def test_effect_receipt_lookup_uses_external_metadata(ctx, monkeypatch):
                 }
             return {"results": []}
 
-    monkeypatch.setattr(S, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
-    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+    monkeypatch.setattr(memory_backend, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: Memory())
 
     found = await S.find_procedure_by_effect_id(ctx, "effect-1", strict=True)
 
@@ -178,8 +179,8 @@ async def test_effect_receipt_uses_exact_strong_milvus_query_beyond_list_cap(ctx
         def get_all(self, **_kwargs):
             raise AssertionError("bounded top_k scan must not be used for a real Milvus store")
 
-    monkeypatch.setattr(S, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
-    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+    monkeypatch.setattr(memory_backend, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: Memory())
 
     found = await S.find_procedure_by_effect_id(ctx, "job-1:hash-a", strict=True)
 
@@ -199,11 +200,11 @@ async def test_reinforcement_retains_every_receipt_from_current_candidate(ctx, m
             updates.append((memory_id, metadata, expiration_date))
 
     monkeypatch.setattr(
-        S,
+        memory_backend,
         "settings",
         SimpleNamespace(memory=SimpleNamespace(enabled=True, procedure_ttl_days=365)),
     )
-    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: Memory())
     similar = {
         "id": "mem-1",
         "metadata": {

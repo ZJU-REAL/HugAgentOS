@@ -3,7 +3,6 @@
 import io
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import cli
 import pytest
@@ -102,18 +101,18 @@ def test_ce_one_command_installer_bootstraps_default_plugins():
 
 def test_desktop_local_server_bootstraps_default_plugins():
     repo_root = Path(__file__).resolve().parents[3]
-    launcher = (repo_root / "desktop" / "src-tauri" / "src" / "local_server.rs").read_text(
-        encoding="utf-8"
-    )
+    launcher = (
+        repo_root / "desktop" / "src-tauri" / "src" / "local_server" / "supervisor.rs"
+    ).read_text(encoding="utf-8")
 
     assert '.env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")' in launcher
 
 
 def test_desktop_local_server_forces_utf8_python_stdio():
     repo_root = Path(__file__).resolve().parents[3]
-    launcher = (repo_root / "desktop" / "src-tauri" / "src" / "local_server.rs").read_text(
-        encoding="utf-8"
-    )
+    launcher = (
+        repo_root / "desktop" / "src-tauri" / "src" / "local_server" / "supervisor.rs"
+    ).read_text(encoding="utf-8")
 
     assert '.env("PYTHONUTF8", "1")' in launcher
     assert '.env("PYTHONIOENCODING", "utf-8")' in launcher

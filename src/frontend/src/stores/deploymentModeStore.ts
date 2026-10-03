@@ -28,7 +28,7 @@ export interface DesktopUpdateStatus {
   busy: boolean;
 }
 
-interface DesktopEvent {
+interface DesktopEvent extends Partial<LocalServiceState> {
   update?: DesktopUpdateStatus;
   bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null; retrying?: boolean };
   service?: { phase?: string; message?: string; progress?: number; ready?: boolean };
@@ -140,6 +140,7 @@ export const useDeploymentModeStore = create<DeploymentModeState>(() => initial)
 if (initial.isDesktop && typeof EventSource !== 'undefined') {
   // EventSource 自带断线重连；每帧都是完整状态，丢帧无害。
   const events = new EventSource('/__desktop/events');
+  import.meta.hot?.dispose(() => events.close());
   events.onmessage = (message) => {
     try {
       const status = JSON.parse(message.data) as DesktopEvent;
@@ -156,11 +157,13 @@ if (initial.isDesktop && typeof EventSource !== 'undefined') {
       const modelsReady = !!status.bridge?.models_ready;
       const capabilitySyncError = status.bridge?.error || null;
       const capabilitySyncRetrying = !!status.bridge?.retrying;
+      // Tauri's published protocol flattens the service; Electron nests it.
+      const service = status.service ?? status;
       const localService: LocalServiceState = {
-        phase: status.service?.phase || '',
-        message: status.service?.message || '',
-        progress: status.service?.progress ?? 0,
-        ready: !!status.service?.ready,
+        phase: service.phase || '',
+        message: service.message || '',
+        progress: service.progress ?? 0,
+        ready: !!service.ready,
       };
       const previous = useDeploymentModeStore.getState();
       const serviceChanged = localService.phase !== previous.localService?.phase

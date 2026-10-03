@@ -52,12 +52,12 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 ### 项目上下文如何进入对话
 
-在项目内发起对话时（请求携带 `project_id`），`api/routes/v1/chats.py` 组装 workflow context：
+在项目内发起对话时（请求携带 `project_id`），`api/routes/v1/chats/__init__.py` 组装 workflow context：
 
 1. 读取项目元信息——`project_name`、`project_instructions`、挂钩文件夹名与文件清单；
-2. `core/llm/agent_factory.py` 把这些经 `_build_project_section` 注入 system prompt（`build_system_prompt(cfg, ctx=...)`）；
+2. `core/llm/factory/build.py` 把这些经 `_build_project_section` 注入 system prompt（`build_system_prompt(cfg, ctx=...)`）；
 3. 项目级记忆作用域随之生效：workspace 为 `project:<project_id>`，团队项目的 mem0 桶为 `team:<team_id>`（成员共享记忆），项目自身的 `metadata.memory_enabled` / `memory_write_enabled` 覆盖用户级开关（项目内缺省开启）——详见 [记忆系统](./memory.md)；
-4. 沙箱侧路径作用域：项目对话中 agent 的 `/myspace/...` 文件操作被重定向到挂钩文件夹之下（`core/llm/tools/myspace_vfs.py` 的 `ProjectScope` 显式传参机制）。
+4. 沙箱侧路径作用域：项目对话中 agent 的 `/myspace/...` 文件操作被重定向到挂钩文件夹之下（`core/llm/tools/myspace_vfs/__init__.py` 的 `ProjectScope` 显式传参机制）。
 
 团队项目权限沿用团队角色：owner/admin 恒为管理权限，member 按 `file_permission`（editor/viewer）二级控制（`core/auth/permissions_iface.py::require_project_access`）。
 
@@ -157,8 +157,8 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM（仅 EE） |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
 | `src/backend/core/llm/hooks.py` | 附件上下文注入（`_build_file_context` 等） |
-| `src/backend/core/llm/agent_factory.py` | 项目 section 注入 system prompt |
-| `src/backend/core/llm/tools/myspace_vfs.py` | 我的空间 ↔ 沙箱映射层 |
+| `src/backend/core/llm/factory/build.py` | 项目 section 注入 system prompt |
+| `src/backend/core/llm/tools/myspace_vfs/__init__.py` | 我的空间 ↔ 沙箱映射层 |
 | `src/frontend/src/components/projects/` | 项目前端组件 |
 | `src/frontend/src/components/sidebar/Sidebar.tsx` | 侧栏项目分组、快捷新建与项目菜单 |
 | `src/frontend/src/components/myspace/` | 我的空间前端组件 |

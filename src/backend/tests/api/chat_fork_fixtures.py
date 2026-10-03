@@ -1,7 +1,5 @@
 """Fork contract through HTTP and the normal history replay boundary."""
 
-from uuid import uuid4
-
 import pytest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db

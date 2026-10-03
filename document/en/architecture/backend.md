@@ -208,7 +208,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 |---|---|
 | App entry and startup hooks | `src/backend/api/app.py` |
 | Router registry | `src/backend/api/routes/v1/__init__.py` |
-| Agent factory | `src/backend/core/llm/agent_factory.py` |
+| Agent factory | `src/backend/core/llm/factory/build.py` |
 | Run executor / workflow | `src/backend/orchestration/chat_run_executor.py`, `workflow.py` |
 | Capability catalog | `src/backend/core/config/catalog.py` |
 | Sandbox protocol | `src/backend/core/sandbox/protocol.py` |

@@ -115,7 +115,9 @@ class LocalStorageBackend(StorageBackend):
 
     def exists(self, storage_key: str) -> bool:
         try:
-            return self._get_full_path(storage_key).exists()
-        except Exception as e:
-            logger.error(f"Failed to check file existence: {e}")
+            self._get_full_path(storage_key).stat()
+            return True
+        except FileNotFoundError:
             return False
+        except Exception as exc:
+            raise StorageError(operation="exists", error=type(exc).__name__) from exc

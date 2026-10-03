@@ -182,7 +182,7 @@ Community Edition users can see their own token usage; organization-level billin
 | Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/services/api_key_service.py`, `core/auth/backend.py` |
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
 | Routing strategy | `src/backend/orchestration/strategy.py` |
-| Fail-fast on missing main model | `src/backend/api/routes/v1/chats.py::_ensure_main_model_configured` |
+| Fail-fast on missing main model | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ### Child cancellation and parameter overrides
 

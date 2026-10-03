@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.llm.test_local_project_pin import local_project, pin_tool
+from tests.llm.local_project_test_support import local_project, pin_tool
 from core.llm.tool_collector import ToolCollector
 
 
@@ -191,7 +191,7 @@ with ZipFile(p/'delivery.zip', 'w') as z:
     z.write(p/'report.html', 'report.html'); z.write(p/'nodes.xlsx', 'nodes.xlsx')
 """
     result = await invoke(
-        "bash", command=shlex.quote(sys.executable) + " -c " + shlex.quote(script)
+        "Bash", command=shlex.quote(sys.executable) + " -c " + shlex.quote(script)
     )
     assert result.get("exit_code") == 0, result
     assert result["stdout"].strip() == str(root)
@@ -288,7 +288,7 @@ async def test_project_changed_during_run_blocks_tools_without_fallback(
         db_session.commit()
     for name, args in (
         ("Write", dict(file_path="unexpected.txt", content="bad")),
-        ("bash", dict(command="printf bad > unexpected.txt")),
+        ("Bash", dict(command="printf bad > unexpected.txt")),
     ):
         result = await invoke(name, **args)
         assert result.get("blocked"), result
@@ -309,7 +309,7 @@ async def test_relative_permissions_use_project_without_implicitly_granting_it(
 
     source, scope = local_project
     registry = ToolPermissionRegistry()
-    for name in ("Write", "Read", "bash"):
+    for name in ("Write", "Read", "Bash"):
         registry.register(name, builtin_tool_permission(name), source="integration")
     service = ToolPermissionService(
         registry,
@@ -330,7 +330,7 @@ async def test_relative_permissions_use_project_without_implicitly_granting_it(
     allowed = await check("Write", file_path="result.txt", content="x")
     assert allowed.proceed, allowed.payload
     assert {i.target for i in allowed.ticket.intents} == {str(source.parent / "result.txt")}
-    command = await check("bash", command=f"printf x > {output_name}")
+    command = await check("Bash", command=f"printf x > {output_name}")
     assert command.proceed, command.payload
     assert command.ticket.local_command.cwd == str(source.parent)
     outside = source.parent.parent / "outside.txt"
@@ -341,7 +341,7 @@ async def test_relative_permissions_use_project_without_implicitly_granting_it(
     for name, args in (
         ("Read", {"file_path": "report.txt"}),
         ("Write", {"file_path": "result.txt", "content": "x"}),
-        ("bash", {"command": f"printf x > {output_name}"}),
+        ("Bash", {"command": f"printf x > {output_name}"}),
     ):
         denied = await check(name, **args)
         assert not denied.proceed, (name, denied)
@@ -353,7 +353,7 @@ async def test_confined_bash_uses_project_cwd(local_tools):
 
     invoke, root, scope, provider = local_tools
     invoke.service.runtime = replace(invoke.service.runtime, approval_mode="ask")
-    result = await invoke("bash", command="pwd; printf confined > confined.txt")
+    result = await invoke("Bash", command="pwd; printf confined > confined.txt")
     assert result.get("exit_code") == 0, result
     assert result["stdout"].strip() == str(root)
     assert (root / "confined.txt").read_text() == "confined"
@@ -362,7 +362,8 @@ async def test_confined_bash_uses_project_cwd(local_tools):
 async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_tools, monkeypatch):
     from agentscope.message import UserMsg, TextBlock, ToolCallBlock
     from agentscope.model import ChatResponse
-    from core.llm import agent_factory
+    from core.llm import factory as agent_factory
+    import core.agent_skills.loader as skill_loader
 
     invoke, root, scope, provider = local_tools
 
@@ -400,7 +401,7 @@ async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_too
                 content = [
                     ToolCallBlock(
                         id="factory-bash",
-                        name="bash",
+                        name="Bash",
                         input=json.dumps({"command": "printf factory-bash > factory-bash.txt"}),
                     )
                 ]
@@ -408,10 +409,15 @@ async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_too
                 content = [TextBlock(type="text", text="done")]
             return ChatResponse(content=content, is_last=True)
 
-    monkeypatch.setattr(agent_factory, "get_skill_loader", lambda: EmptyLoader())
+    monkeypatch.setattr(skill_loader, "get_skill_loader", lambda: EmptyLoader())
     from core.db.engine import SessionLocal
     from core.services.run_journal import RunJournal
 
+    monkeypatch.setattr("core.services.chat_steer_service.SessionLocal", SessionLocal)
+    from core.services import system_config
+
+    monkeypatch.setattr(system_config, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(system_config.SystemConfigService, "_instance", None)
     journal = RunJournal(SessionLocal)
     journal.accept(
         run_id="cwd-factory-run",

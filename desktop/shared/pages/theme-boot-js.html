@@ -1,0 +1,7 @@
+<script>
+;(function(){try{
+var mode=localStorage.getItem('__THEME_STORAGE_KEY__');
+var dark=mode==='dark'||(mode!=='light'&&typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: dark)').matches);
+if(dark){document.documentElement.setAttribute('data-theme','dark');document.documentElement.style.colorScheme='dark';}
+}catch(e){}})()
+</script>

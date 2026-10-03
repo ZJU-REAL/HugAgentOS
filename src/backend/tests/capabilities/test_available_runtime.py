@@ -17,7 +17,8 @@ from agentscope.message import TextBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 import core.db.models
 from core.db.engine import Base, engine
-from core.llm import agent_factory
+from core.llm import factory as agent_factory
+import core.agent_skills.loader as skill_loader
 Base.metadata.create_all(engine)
 
 class EmptyLoader:
@@ -34,7 +35,7 @@ class Model:
             is_last=True, usage=ChatUsage(input_tokens=1, output_tokens=1, time=0.01))
     async def count_tokens(self, *args, **kwargs): return 1
 
-agent_factory.get_skill_loader = lambda: EmptyLoader()
+skill_loader.get_skill_loader = lambda: EmptyLoader()
 async def main():
     agent, clients = await agent_factory.create_agent_executor(
         disable_tools=True, run_id="empty-plugin-answer", max_iters=1,
@@ -136,9 +137,7 @@ def test_disabled_skill_disappears_without_blocking_other_skills(local_skill):
 
     local_skill("good")
     local_skill("disabled")
-    run = runtime.prepare(
-        "disabled", "owner", skill_ids=["good", "disabled"]
-    )
+    run = runtime.prepare("disabled", "owner", skill_ids=["good", "disabled"])
     registry.set_enabled("skill:local:disabled", False)
     runtime.view_for_execution(run.run_id, "owner")
     assert (run.view_dir / "good" / "SKILL.md").is_file()

@@ -22,7 +22,7 @@ HugAgentOS 内置一套**分层持久记忆系统**：L2 向量层使用 [mem0](
 用户发送消息
   │
   ▼
-api/routes/v1/chats.py
+api/routes/v1/chats/__init__.py
   · 从 users_shadow.metadata 读 memory_enabled / memory_write_enabled
   · 项目对话则改读 projects.metadata（团队项目 scope = "team:<team_id>"）
   │
@@ -220,7 +220,7 @@ RERANKER_API_KEY=...
 | `src/backend/core/memory/graph.py` | L3 Neo4j 图谱关系的写入、强化、查询与删除 |
 | `src/backend/core/memory/profile.py` | L1 档案：get / patch / compact / delete |
 | `src/backend/core/memory/profile_store.py` | L1 revision CAS 与 effect receipt 存储 |
-| `src/backend/core/memory/outbox.py` | 持久接纳、租约、重试/隔离、抽取检查点与原子结算 |
+| `src/backend/core/memory/outbox/__init__.py` | 持久接纳、租约、重试/隔离、抽取检查点与原子结算 |
 | `src/backend/core/memory/effect_lane.py` | PostgreSQL advisory lock / SQLite 本地锁驱动的 L2 顺序写 lane |
 | `src/backend/core/memory/executor.py` | 等待真实线程 effect 完成后再传播取消，避免提前释放租约 |
 | `src/backend/core/memory/pipeline.py` | Outbox 接纳入口、信号量、Milvus 熔断器 |

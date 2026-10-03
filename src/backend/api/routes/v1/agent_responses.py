@@ -3,17 +3,23 @@
 import asyncio
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-
-from api.routes.v1 import chats
+import api.routes.v1.chat_admission as chat_admission
+import api.routes.v1.chats.agent_targets as chat_agent_targets
+import api.routes.v1.chats.invocation as chat_invocation
+import api.routes.v1.chats.request_context as chat_request_context
+import api.routes.v1.chats.session_context as chat_session_context
+import core.chat.context as chat_context
+import core.db.engine as db_engine
+import core.services as chat_services
 from api.schemas import ChatRequest, ChatResponse
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.logging import get_logger, trace_id_var
 from core.infra.responses import sse_response
 from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+from fastapi import APIRouter, Depends, HTTPException
 from orchestration import chat_run_executor
+from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/agents", tags=["AgentResponses"])
@@ -29,18 +35,16 @@ class StartedResponse:
 async def _read_preferences(request: ChatRequest, user_id: str):
     # Sessions cannot cross threads; each bounded read owns its connection.
     def capabilities():
-        with chats.SessionLocal() as db:
-            return chats.resolve_enabled_capabilities(
+        with db_engine.SessionLocal() as db:
+            return chat_context.resolve_enabled_capabilities(
                 db, user_id, request.enabled_skills, request.enabled_agents, request.enabled_mcps
             )
 
     def preferences():
-        with chats.SessionLocal() as db:
-            return chats.UserService(db).get_user_settings(user_id)
+        with db_engine.SessionLocal() as db:
+            return chat_services.UserService(db).get_user_settings(user_id)
 
-    return await asyncio.gather(
-        asyncio.to_thread(capabilities), asyncio.to_thread(preferences)
-    )
+    return await asyncio.gather(asyncio.to_thread(capabilities), asyncio.to_thread(preferences))
 
 
 def _check_project(db: Session, request: ChatRequest, user_id: str) -> None:
@@ -49,9 +53,11 @@ def _check_project(db: Session, request: ChatRequest, user_id: str) -> None:
     from core.auth.permissions_iface import resolve_project_permission
     from core.db.models import Project
 
-    project = db.query(Project).filter(
-        Project.project_id == request.project_id, Project.deleted_at.is_(None)
-    ).first()
+    project = (
+        db.query(Project)
+        .filter(Project.project_id == request.project_id, Project.deleted_at.is_(None))
+        .first()
+    )
     if project is None or resolve_project_permission(db, user_id, project) == "none":
         raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
 
@@ -74,7 +80,9 @@ async def _start_response_run(
     request: ChatRequest, user: UserContext, db: Session
 ) -> StartedResponse:
     from core.services.agent_api_service import (
-        begin_agent_api_call, bind_agent_api_run, fail_agent_api_call,
+        begin_agent_api_call,
+        bind_agent_api_run,
+        fail_agent_api_call,
         prepare_agent_api_request,
     )
 
@@ -83,12 +91,16 @@ async def _start_response_run(
     request, scope = prepare_agent_api_request(db, user, request)
     call_id = (
         begin_agent_api_call(db, scope, request.stream, trace_id=trace_id_var.get())
-        if scope else None
+        if scope
+        else None
     )
     try:
-        chats._ensure_main_model_configured()
-        user_id = chats.resolve_db_user_id(db, chats._authenticated_user_id(user))
+        chat_session_context._ensure_main_model_configured()
+        user_id = chat_context.resolve_db_user_id(
+            db, chat_session_context._authenticated_user_id(user)
+        )
         from core.services.evaluation_admission import authorize
+
         await authorize(request, user_id, agent_scoped=bool(scope))
         if scope:
             # Admission already verified this exact DB-backed agent. Never
@@ -102,32 +114,44 @@ async def _start_response_run(
             request._resolved_agent_profile = "local"
             execution_message, command = request.message, None
         else:
-            request, agent_name, execution_message, command = chats._resolve_chat_agent_targets(
-                db, request, user_id
+            request, agent_name, execution_message, command = (
+                chat_agent_targets._resolve_chat_agent_targets(db, request, user_id)
             )
-        request = chats._resolve_explicit_capability_invocation(db, request, user_id)
-        message = chats._build_effective_user_message(
-            execution_message, request.quoted_follow_up,
-            chats._resolve_reference_block(db, request, user_id),
+        request = chat_invocation._resolve_explicit_capability_invocation(db, request, user_id)
+        message = chat_context.build_effective_user_message(
+            execution_message,
+            request.quoted_follow_up,
+            chat_request_context._resolve_reference_block(db, request, user_id),
         )
-        provider_id = chats._resolve_selected_model_provider_id(db, request, user_id)
-        model_name = chats._resolve_actual_chat_model_name(request, provider_id)
+        provider_id = chat_session_context._resolve_selected_model_provider_id(db, request, user_id)
+        model_name = chat_session_context._resolve_actual_chat_model_name(request, provider_id)
         (skills, agents, mcps), settings = await _read_preferences(request, user_id)
         _check_project(db, request, user_id)
-        service = chats.ChatService(db)
-        chats._ensure_chat_session(
-            service, request.chat_id, user_id, request.message,
-            agent_id=request.agent_id, agent_name=agent_name,
-            plan_chat=request.plan_chat, batch_chat=request.batch_chat,
-            workflow_chat=request.workflow_chat, site_chat=request.site_chat,
+        service = chat_services.ChatService(db)
+        chat_session_context._ensure_chat_session(
+            service,
+            request.chat_id,
+            user_id,
+            request.message,
+            agent_id=request.agent_id,
+            agent_name=agent_name,
+            plan_chat=request.plan_chat,
+            batch_chat=request.batch_chat,
+            workflow_chat=request.workflow_chat,
+            site_chat=request.site_chat,
             project_id=request.project_id,
         )
-        context = chats._build_ctx(
-            request, user_id, skills, agents, mcps,
+        context = chat_request_context._build_ctx(
+            request,
+            user_id,
+            skills,
+            agents,
+            mcps,
             memory_enabled=bool(settings.get("memory_enabled", False)) and not scope,
             memory_write_enabled=bool(settings.get("memory_write_enabled", False)) and not scope,
             reranker_enabled=bool(settings.get("reranker_enabled", False)),
-            model_provider_id=provider_id, actual_model_name=model_name,
+            model_provider_id=provider_id,
+            actual_model_name=model_name,
             ontology_enabled=bool(settings.get("ontology_enabled", False)) and not scope,
             ontology_pack_ids=settings.get("ontology_pack_ids") or None,
             approval_mode=settings.get("tool_approval_mode"),
@@ -135,7 +159,8 @@ async def _start_response_run(
         payload = request.model_dump(exclude_none=True)
         if command:
             explicit_command = {
-                "agent_id": command.agent_id, "agent_name": command.agent_name,
+                "agent_id": command.agent_id,
+                "agent_name": command.agent_name,
                 "task": command.task,
             }
             context["explicit_subagent_command"] = explicit_command
@@ -150,25 +175,35 @@ async def _start_response_run(
 
         try:
             with ChatSequencer(db).launching_main_run(
-                chat_id=request.chat_id, user_id=user_id, user_content=request.message,
+                chat_id=request.chat_id,
+                user_id=user_id,
+                user_content=request.message,
                 model=model_name,
-                user_extra_data=chats._build_user_extra_data(request, provider_id),
+                user_extra_data=chat_request_context._build_user_extra_data(request, provider_id),
                 request_payload=payload,
             ) as accepted:
                 # No history or attachment mutation before writer admission.
-                messages = chats._load_session_messages(service, request.chat_id, user_id)
+                messages = chat_session_context._load_session_messages(
+                    service, request.chat_id, user_id
+                )
                 from core.chat.plan_progress import clear_plan_progress
+
                 clear_plan_progress(request.chat_id)
                 _link_attachments(db, request, user_id)
                 if call_id:
                     bind_agent_api_run(db, call_id, accepted.run.run_id)
                 run = await chat_run_executor.start_run(
-                    accepted_run=accepted.run, chat_id=request.chat_id, user_id=user_id,
-                    session_messages=messages, effective_user_message=message,
-                    raw_user_message=request.message, context=context, model_name=model_name,
+                    accepted_run=accepted.run,
+                    chat_id=request.chat_id,
+                    user_id=user_id,
+                    session_messages=messages,
+                    effective_user_message=message,
+                    raw_user_message=request.message,
+                    context=context,
+                    model_name=model_name,
                 )
         except ChatBusyError as exc:
-            raise chats.chat_busy_http_exception(exc) from exc
+            raise chat_admission.chat_busy_http_exception(exc) from exc
         return StartedResponse(run.run_id, run.message_id, request.chat_id)
     except Exception as exc:
         if call_id:
@@ -180,11 +215,13 @@ async def _start_response_run(
         if isinstance(exc, HTTPException):
             raise
         logger.exception("agent_response_start_failed", chat_id=request.chat_id)
-        raise HTTPException(status_code=500, detail=chats.resolve_user_facing_error(exc)) from exc
+        raise HTTPException(
+            status_code=500, detail=chat_context.resolve_user_facing_error(exc)
+        ) from exc
     finally:
         # Both HTTP transports must release the request transaction before
         # waiting on a worker that writes the same chat rows.
-        chats._release_request_session(db)
+        chat_session_context._release_request_session(db)
 
 
 async def _wait_response(run_id: str, *, chat_id: str, message_id: str) -> ChatResponse:
@@ -198,20 +235,24 @@ async def _wait_response(run_id: str, *, chat_id: str, message_id: str) -> ChatR
     if terminal.status != "completed":
         raise HTTPException(
             status_code=500,
-            detail=chats.resolve_user_facing_error(
+            detail=chat_context.resolve_user_facing_error(
                 RuntimeError(terminal.error_message or "chat run failed")
             ),
         )
-    with chats.SessionLocal() as db:
-        assistant = chats.ChatService(db).get_message_by_id(message_id)
+    with db_engine.SessionLocal() as db:
+        assistant = chat_services.ChatService(db).get_message_by_id(message_id)
         if assistant is None:
             raise HTTPException(status_code=500, detail="已完成的任务缺少回复")
         meta = assistant.extra_data or {}
         return ChatResponse(
-            chat_id=chat_id, response=assistant.content, timestamp=chats.now_iso(),
+            chat_id=chat_id,
+            response=assistant.content,
+            timestamp=chat_context.now_iso(),
             is_markdown=bool(meta.get("is_markdown", False)),
-            route=meta.get("route", "main"), sources=meta.get("sources", []),
-            artifacts=meta.get("artifacts", []), warnings=meta.get("warnings", []),
+            route=meta.get("route", "main"),
+            sources=meta.get("sources", []),
+            artifacts=meta.get("artifacts", []),
+            warnings=meta.get("warnings", []),
         )
 
 

@@ -22,7 +22,7 @@ The whole system honors one core promise: **no memory I/O ever blocks the SSE ho
 User sends a message
   │
   ▼
-api/routes/v1/chats.py
+api/routes/v1/chats/__init__.py
   · reads memory_enabled / memory_write_enabled from users_shadow.metadata
   · project chats read projects.metadata instead (team projects scope = "team:<team_id>")
   │
@@ -224,7 +224,7 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/memory/graph.py` | L3 Neo4j relation persistence, reinforcement, retrieval, and deletion |
 | `src/backend/core/memory/profile.py` | L1 profile: get / patch / compact / delete |
 | `src/backend/core/memory/profile_store.py` | L1 revision CAS and effect-receipt store |
-| `src/backend/core/memory/outbox.py` | Durable admission, leases, retry/quarantine, extraction checkpoints, atomic settlement |
+| `src/backend/core/memory/outbox/__init__.py` | Durable admission, leases, retry/quarantine, extraction checkpoints, atomic settlement |
 | `src/backend/core/memory/effect_lane.py` | Per-scope L2 ordering via PostgreSQL advisory locks / SQLite local locks |
 | `src/backend/core/memory/executor.py` | Cancellation-safe bridge that waits for real threaded effects before lease release |
 | `src/backend/core/memory/pipeline.py` | Outbox admission seam, semaphore, Milvus circuit breaker |

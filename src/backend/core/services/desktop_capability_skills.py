@@ -69,7 +69,7 @@ def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[s
 
     from core.agent_skills.loader import get_skill_loader
     from core.config.catalog_resolver import resolve_all_runtime_enabled
-    from core.llm.agent_factory import _filter_skill_ids_for_user
+    from core.llm.factory.selection.capabilities import _filter_skill_ids_for_user
 
     with SessionLocal() as db:
         enabled, _agents, _mcps = resolve_all_runtime_enabled(db, uid)

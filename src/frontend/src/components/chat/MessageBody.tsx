@@ -1,8 +1,7 @@
 import React, { useCallback, type ReactNode } from 'react';
 import { BulbOutlined, BulbFilled, DownOutlined, CheckCircleFilled } from '@ant-design/icons';
-import { useShallow } from 'zustand/react/shallow';
+import { useConversationCitations } from '../../hooks/useConversationCitations';
 import { groupExecutionRuns } from '../../utils/executionRuns';
-import { resolveConversationCitations } from '../../utils/citations';
 import { isForkedHistory } from '../../utils/forkHistory';
 import { ToolRunShell } from '../tool/ToolRunShell';
 import { ToolProgressInline } from '../tool/ToolProgressInline';
@@ -34,9 +33,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
   const toggleThinking = useChatStore((s) => s.toggleThinking);
   const chatMode = useChatStore((s) => s.chatMode);
   const dispatchProcessVisible = useUIStore((s) => s.dispatchProcessVisible);
-  const chatMessages = useChatStore(
-    useShallow((state) => (state.store.chats[currentChatId]?.messages ?? []).slice(0, messageIndex + 1)),
-  );
+  const conversationCitations = useConversationCitations(currentChatId, m, messageIndex);
   // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
   // 像模型在发呆。识图结束由 chatStream 清空。
   const visionReadingCount = useChatStore(state => state.visionReading[currentChatId] ?? 0);
@@ -302,7 +299,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 if (seg.type === 'text') {
                   const textContent = seg.content || '';
                   if (!textContent && !m.isStreaming) return null;
-                  const effectiveCitations = resolveConversationCitations(textContent, m.citations ?? [], chatMessages, m.uid);
+                  const effectiveCitations = conversationCitations;
                   // OFF mode keeps the inline StreamWaitIndicator under the
                   // text bubble; ON mode handles waits inside the shell so
                   // we suppress the indicator entirely.
@@ -388,7 +385,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 className="jx-msgText"
                 text={m.content}
                 isMarkdown={m.isMarkdown ?? false}
-                citations={resolveConversationCitations(m.content, m.citations ?? [], chatMessages, m.uid)}
+                citations={conversationCitations}
                 messageIsStreaming={m.isStreaming}
                 onCitationAction={handleCitationAction}
               />}

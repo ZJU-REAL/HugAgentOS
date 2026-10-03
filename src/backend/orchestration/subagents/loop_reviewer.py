@@ -167,7 +167,7 @@ async def review_requirement(
 
     Returns ``{verdict, criteria_hit, evidence, feedback}``; on any exception/parse failure conservatively continue (never misjudge as done).
     """
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from core.services import log_service as log_writer
     from orchestration.streaming import StreamingAgent

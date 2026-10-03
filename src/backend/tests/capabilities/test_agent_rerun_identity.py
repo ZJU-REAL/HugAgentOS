@@ -1,18 +1,26 @@
 """Actual rerun routes keep dedicated-agent identity and reject revoked sources."""
 
-import hashlib
 from types import SimpleNamespace
+
+import api.routes.v1.chats.agent_targets as chat_agent_targets
+import api.routes.v1.chats.models as chat_models
+import api.routes.v1.chats.request_context as chat_request_context
+import api.routes.v1.chats.reruns as chat_reruns
+import api.routes.v1.chats.session_context as chat_session_context
+import core.chat.context as chat_context
+import core.db.engine as db_engine
+import core.infra.responses as responses
+import core.services as chat_services
 import pytest
-from fastapi import HTTPException
-from api.routes.v1 import chats
 from api.schemas import ChatRequest
 from core.auth.backend import UserContext
 from core.capabilities import agents, registry, runtime, skills, store
-from core.capabilities.ref import cloud_ref, profile_id
 from core.capabilities.paths import revision_for_hash
-from core.db.models import ChatSession, ChatMessage, ChatRun
+from core.capabilities.ref import cloud_ref, profile_id
+from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.services import desktop_cloud_bridge as bridge
 from core.services.chat_service import ChatService
+from fastapi import HTTPException
 from tests.capabilities.test_runtime_recovery import state
 
 
@@ -25,7 +33,7 @@ def rerun(index_db, caps_root, monkeypatch):
     monkeypatch.setattr(bridge, "ensure_current_authorization", lambda: None)
     monkeypatch.setattr(skills, "current_local_user_id", lambda: "owner")
     monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
-    monkeypatch.setattr(chats, "SessionLocal", index_db)
+    monkeypatch.setattr(db_engine, "SessionLocal", index_db)
 
     def publish(profile, cloud_base=st["cloud_base"]):
         definition = agents.AgentDefinition(
@@ -89,15 +97,19 @@ def rerun(index_db, caps_root, monkeypatch):
             return next(row for row in self.list_for_user(user_id) if row["agent_id"] == agent_id)
 
     monkeypatch.setattr("core.services.user_service.UserService", UserService)
-    monkeypatch.setattr(chats, "UserService", UserService)
+    monkeypatch.setattr(chat_services, "UserService", UserService)
     monkeypatch.setattr("core.services.user_agent_service.UserAgentService", AgentService)
-    monkeypatch.setattr(chats, "_ensure_main_model_configured", lambda: None)
-    monkeypatch.setattr(chats, "_resolve_selected_model_provider_id", lambda *a: None)
-    monkeypatch.setattr(chats, "_resolve_actual_chat_model_name", lambda *a: "synthetic-model")
-    monkeypatch.setattr(chats, "resolve_enabled_capabilities", lambda *a: ([], [], []))
-    monkeypatch.setattr(chats, "_load_session_messages", lambda *a: [])
-    monkeypatch.setattr(chats, "_release_request_session", lambda *a: None)
-    monkeypatch.setattr(chats, "sse_response", lambda value: value)
+    monkeypatch.setattr(chat_session_context, "_ensure_main_model_configured", lambda: None)
+    monkeypatch.setattr(
+        chat_session_context, "_resolve_selected_model_provider_id", lambda *a: None
+    )
+    monkeypatch.setattr(
+        chat_session_context, "_resolve_actual_chat_model_name", lambda *a: "synthetic-model"
+    )
+    monkeypatch.setattr(chat_context, "resolve_enabled_capabilities", lambda *a: ([], [], []))
+    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *a: [])
+    monkeypatch.setattr(chat_session_context, "_release_request_session", lambda *a: None)
+    monkeypatch.setattr(responses, "sse_response", lambda value: value)
     from orchestration import chat_run_executor
 
     monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", lambda *a, **kw: None)
@@ -107,7 +119,7 @@ def rerun(index_db, caps_root, monkeypatch):
         captured["request"] = request
         return {"agent_id": request.agent_id, "mention_agent_id": request.mention_agent_id}
 
-    monkeypatch.setattr(chats, "_build_ctx", context)
+    monkeypatch.setattr(chat_request_context, "_build_ctx", context)
 
     async def start(**kw):
         captured.update(kw)
@@ -144,12 +156,12 @@ def rerun(index_db, caps_root, monkeypatch):
                 user_id="owner", username="synthetic", user_center_id="center-cloud-a"
             )
             if operation == "regenerate":
-                return await chats.regenerate_message(
-                    "rerun", chats.RegenerateRequest(message_index=1), user=user, db=db
+                return await chat_reruns.regenerate_message(
+                    "rerun", chat_models.RegenerateRequest(message_index=1), user=user, db=db
                 )
-            return await chats.edit_and_resend(
+            return await chat_reruns.edit_and_resend(
                 "rerun",
-                chats.EditAndResendRequest(message_index=0, new_content="edited task"),
+                chat_models.EditAndResendRequest(message_index=0, new_content="edited task"),
                 user=user,
                 db=db,
             )
@@ -234,9 +246,9 @@ async def test_rerun_rejects_unproven_or_changed_cloud_identity_before_history_m
 
 def test_new_user_message_saves_server_resolved_agent_profile(rerun):
     with rerun.Session() as db:
-        request, _, _, _ = chats._resolve_chat_agent_targets(
+        request, _, _, _ = chat_agent_targets._resolve_chat_agent_targets(
             db, ChatRequest(chat_id="rerun", message="task", agent_id="saved-agent"), "owner"
         )
-    extra = chats._build_user_extra_data(request)
+    extra = chat_request_context._build_user_extra_data(request)
     assert extra["agent_id"] == "saved-agent"
     assert extra["agent_profile"] == rerun.profile

@@ -187,7 +187,7 @@ def _json_candidates(text: str):
 # ── LLM side: standalone fast agent, disable_tools, pure-text decomposition only (no verdicts, no sandbox) ──
 async def _make_judge_agent(model_name: Optional[str], user_id: str, capability_scope: str = ""):
     """One-shot pure-text agent (following the disable_tools mode of astream_generate_plan)."""
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
 
     agent, clients = await create_agent_executor(
         disable_tools=True,

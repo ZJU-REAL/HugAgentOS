@@ -31,7 +31,7 @@ def test_install_update_uninstall_visible_to_device_api(client, tmp_path):
 
 def test_plugin_install_has_components_and_appears_in_installed_page(client, tmp_path):
     import json
-    from core.services import local_plugin_service as plugins
+    from core.plugins.local import service as plugins
     folder = tmp_path / "graph-plugin"
     child = folder / "skills" / "graph-builder"
     child.mkdir(parents=True)

@@ -389,7 +389,7 @@ class ChatModeService:
             for prow in pq.all():
                 cids = prow.component_ids or {}
                 plugin_component_skill_ids.update(str(x) for x in (cids.get("skills") or []))
-            from core.services.plugin_service import builtin_plugin_component_ids
+            from core.plugins.management import builtin_plugin_component_ids
 
             _builtin_skill_ids, _ = builtin_plugin_component_ids()
             plugin_component_skill_ids.update(str(x) for x in _builtin_skill_ids)
@@ -527,7 +527,7 @@ class ChatModeService:
         except Exception:  # noqa: BLE001
             logger.debug("[chat_mode] 子智能体市场清单读取失败", exc_info=True)
         try:
-            from core.services.plugin_service import list_plugins
+            from core.plugins.management import list_plugins
 
             for item in list_plugins(self.db, None) or []:
                 slug = str(item.get("slug") or "")
@@ -580,7 +580,7 @@ class ChatModeService:
                         )
                         new_id = str(res.get("skill_id") or res.get("id") or "")
                     elif installer == "plugin":
-                        from core.services.plugin_service import install_plugin
+                        from core.plugins.management import install_plugin
 
                         res = install_plugin(self.db, slug, owner_user_id=owner_user_id)
                         new_id = str(res.get("install_id") or "")

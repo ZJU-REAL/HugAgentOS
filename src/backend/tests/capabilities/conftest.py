@@ -61,9 +61,15 @@ def hybrid_catalog_client(tmp_path, index_db, caps_root, monkeypatch):
     engine.dispose()
     invalidate_runtime_catalog_cache()
 
+
 @pytest.fixture
 def client(tmp_path, index_db, caps_root, monkeypatch):
-    """Isolated local desktop API for manager lifecycle tests."""
+    """Isolated local desktop API, including the catalog tables refreshed by installs."""
+    from core.db.engine import Base
+
+    Base.metadata.create_all(index_db.kw["bind"])
+    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    monkeypatch.setattr("core.services.mcp_service.SessionLocal", index_db)
     from api.routes.v1.desktop_capabilities import router as desktop_router
     from core.capabilities import skills
     from core.services import desktop_cloud_bridge as bridge

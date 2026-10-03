@@ -37,7 +37,7 @@ async def test_declared_local_install_updates_page_projection(client, tmp_path, 
 @pytest.mark.asyncio
 async def test_offline_plugin_package_supplies_manager_without_remote_discovery(client, monkeypatch):
     monkeypatch.setattr("core.capabilities.skills.account_authorized_for", lambda _: False)
-    from core.services import local_plugin_service
+    from core.plugins.local import service as local_plugin_service
     from core.capabilities.local_plugin_runtime import configs
     root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/skill-manager"
     installed = local_plugin_service.install("local-u1", str(root))
@@ -62,7 +62,7 @@ def test_unrelated_or_future_contract_never_uses_local_executor():
 
 @pytest.mark.asyncio
 async def test_installed_local_manager_exposes_upload_only_to_bound_cloud_user(client, monkeypatch):
-    from core.services import local_plugin_service
+    from core.plugins.local import service as local_plugin_service
     from core.capabilities.local_plugin_runtime import configs
     monkeypatch.setattr("core.capabilities.skills.account_authorized_for", lambda uid: uid == "local-u1")
     root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/skill-manager"

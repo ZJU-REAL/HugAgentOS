@@ -81,7 +81,7 @@ def cloud_db(tmp_path, monkeypatch):
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(entities, "SessionLocal", factory)
     monkeypatch.setattr(
-        "core.services.plugin_service._has_admin_config_for_slug", lambda slug: False
+        "core.plugins.management.admin_config._has_admin_config_for_slug", lambda slug: False
     )
     with factory() as db:
         db.add(UserShadow(user_id="cloud-u", username="c"))

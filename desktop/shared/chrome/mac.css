@@ -1,0 +1,3 @@
+
+#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:28px;z-index:2147483647;background-color:var(--module-rail-bg,var(--color-bg-layout));background-image:var(--module-rail-gradient,none);background-size:100vw 100vh;background-attachment:fixed;border:0;box-shadow:none;-webkit-user-select:none;user-select:none}
+#hugagent-mac-titlebar *{box-sizing:border-box}

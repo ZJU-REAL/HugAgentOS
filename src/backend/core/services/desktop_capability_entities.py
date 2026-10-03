@@ -214,7 +214,7 @@ def _user_agents(user_id: str) -> List[Dict[str, Any]]:
 
 def _user_plugins(user_id: str) -> List[Dict[str, Any]]:
     from core.db.models import InstalledPlugin
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     with SessionLocal() as db:
         from core.services.capability_workcopies import active_plugin_files

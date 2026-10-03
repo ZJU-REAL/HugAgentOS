@@ -8,9 +8,6 @@ from typing import Any, Dict, List
 from core.llm.context_adapter import AgentScopeContextAdapter
 
 
-def _wrap_content(content: Any) -> list:
-    """In 2.0, Msg.content must be a list of blocks (bare str not accepted). Wrap str as [TextBlock]."""
-    return AgentScopeContextAdapter.wrap_content(content)
 
 
 def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
@@ -49,12 +46,6 @@ def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
     )
 
 
-def msg_to_dict(msg: Any) -> Dict[str, Any]:
-    """Convert an AgentScope Msg to a dict message (OpenAI format)."""
-    return {
-        "role": msg.role,
-        "content": msg.get_text_content(),
-    }
 
 
 def session_to_msgs(session_messages: List[Dict[str, Any]]) -> List[Any]:

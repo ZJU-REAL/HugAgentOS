@@ -1690,12 +1690,15 @@ name = "hugagent-desktop"
 version = "1.0.2"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "flate2",
  "fs2",
  "futures-util",
  "getrandom 0.2.17",
  "libc",
+ "memmap2",
+ "minisign-verify",
  "percent-encoding",
  "reqwest 0.12.28",
  "serde",
@@ -1711,6 +1714,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "tower-http",
  "url",
@@ -2252,6 +2256,15 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "memoffset"

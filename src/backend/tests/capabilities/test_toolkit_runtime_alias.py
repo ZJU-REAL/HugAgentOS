@@ -1,32 +1,21 @@
 """Real AgentScope rendering and loading must use resolved runtime names."""
 
-import ast
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from agentscope.tool import Toolkit
 from agentscope.state import AgentState
-from core.agent_skills.loader import MultiSourceSkillLoader
-from core.capabilities import registry, runtime, skills, store
-from core.llm.agent_factory import create_agent_executor
+from core.capabilities import registry, runtime, skills
 from core.llm.tool_collector import ToolCollector
 from core.llm.tools.skill_tool import register_sandboxed_view_text_file
 from core.services.desktop_capability_protocol import skill_content_hash
 
 
 def factory_template():
-    # Render the exact factory template with the real AgentScope Toolkit.
-    tree = ast.parse(inspect.getsource(create_agent_executor))
-    return next(
-        ast.literal_eval(n.value)
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Assign)
-        and any(
-            isinstance(t, ast.Name) and t.id == "_SKILL_INSTRUCTION_TEMPLATE" for t in n.targets
-        )
-    )
+    from core.llm.factory.defaults import _SKILL_INSTRUCTION_TEMPLATE
+
+    return _SKILL_INSTRUCTION_TEMPLATE
 
 
 @pytest.fixture
@@ -79,7 +68,9 @@ async def test_real_factory_prompt_and_native_registry_preserve_two_custom_alias
     for alias, marker in (("mine-one", "MARKER_ONE"), ("mine-two", "MARKER_TWO")):
         assert "- `" + alias + "`" in prompt
         assert str(Path(loader.get_skill_dir(alias)).resolve()) in prompt
-        assert native[alias].name == alias and native[alias].dir == str(Path(loader.get_skill_dir(alias)).resolve())
+        assert native[alias].name == alias and native[alias].dir == str(
+            Path(loader.get_skill_dir(alias)).resolve()
+        )
         assert native[alias].markdown == marker
         loaded = await toolkit.builtin_skill_viewer.tool(alias, AgentState())
         assert "\n".join(block.text for block in loaded.content) == marker
@@ -185,7 +176,6 @@ async def test_parallel_runtime_loader_order_bounds_and_failure():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation", ["revoke", "corrupt"])
 async def test_desktop_batched_loader_matches_native_and_rechecks(frozen, monkeypatch, mutation):
-    from dataclasses import replace
     from core.llm import tool_collector
 
     prepared, loader, collector = frozen({"alias": "BODY"})

@@ -204,3 +204,5 @@ A qualifying release build must pass all of:
 See also: [Community vs. Enterprise Edition](overview.md) · [License Mechanism](license.md)
 
 CE upgrade migration `ce_0013` adds durable tool media storage. Tool images are stored by content hash while history retains references; later turns and restarted workers restore the bytes from the database. Repeated reconciliation preserves existing media.
+
+CE migration `ce_0019` adds the nullable `tool_calls_display` history projection. Existing messages retain canonical tool results and use read-through fallback until a projection exists. Repeated upgrades are safe; downgrade removes only the derived column and preserves original messages.

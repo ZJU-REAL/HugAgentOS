@@ -11,6 +11,7 @@ from typing import Any, Optional
 from core.artifacts.store import get_artifact
 from core.auth.backend import UserContext, require_auth
 from core.content.office import find_libreoffice_binary
+from core.content.office_preview_cache import cached_office_pdf
 from core.config.local_mode import local_mode_enabled
 from core.storage.local import LocalStorageBackend
 from core.db.engine import get_db
@@ -22,7 +23,6 @@ from core.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["files"])
@@ -486,7 +486,7 @@ def render_office_file(
     if not _is_office_previewable({"name": name, "mime_type": mime_type}):
         raise HTTPException(status_code=400, detail="仅支持 Office 文件预览")
     try:
-        pdf_path, temp_dir = _convert_office_to_pdf(source_path, file_id)
+        pdf_path, temp_dir = cached_office_pdf(source_path, file_id, _convert_office_to_pdf)
     except RuntimeError as exc:
         logger.error("Failed to render Office preview for %s: %s", file_id, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

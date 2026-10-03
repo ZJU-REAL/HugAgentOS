@@ -73,7 +73,7 @@ async def scout_workspace(
         logger.info("[loop-plan] empty workspace, skip scouting")
         return ""
 
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 
@@ -151,7 +151,7 @@ async def _plan_llm_once(
     prompt: str, *, model_name: Optional[str], user_id: str, capability_scope: str = ""
 ) -> str:
     """规划专用的一次性纯文本调用：loop_reviewer 角色 + medium 档（规划值得比 fast 更强的模型）。"""
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 

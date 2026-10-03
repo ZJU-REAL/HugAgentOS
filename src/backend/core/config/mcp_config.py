@@ -2,7 +2,7 @@
 
 Every MCP server runs as a long-running streamable-http process inside the
 dedicated ``mcp`` Docker container. ``backend`` connects via
-``HttpStatefulClient`` (see ``core/llm/agent_factory.py``).
+``HttpStatefulClient`` (see ``core/llm/factory/build.py``).
 
 Server IDs are also keys in ``configs/display_names.py`` and consumed by
 ``configs/catalog_loader.py``; renaming requires updating those.

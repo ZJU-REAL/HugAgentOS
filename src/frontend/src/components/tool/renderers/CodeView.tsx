@@ -1,3 +1,4 @@
+import { useSyntaxHighlighting } from '../../../utils/syntaxHighlighting';
 import { useMemo, type ReactNode } from 'react';
 import { LANG_LABELS, highlightCode } from '../../../utils/codeExecUtils';
 import { t } from '../../../i18n';
@@ -18,7 +19,8 @@ interface CodeViewProps {
  * card so the markup/highlight logic lives in one place.
  */
 export function CodeView({ code, language, actions, className }: CodeViewProps) {
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
+  const highlightRevision = useSyntaxHighlighting();
+  const highlighted = useMemo(() => ({ html: highlightCode(code, language), revision: highlightRevision }), [code, language, highlightRevision]).html;
   const lineCount = useMemo(() => code.split('\n').length, [code]);
 
   if (!code) return null;

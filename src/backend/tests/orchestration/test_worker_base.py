@@ -12,8 +12,13 @@ import pytest
 from orchestration.schedulers import _worker_base as wb
 
 
+@pytest.fixture(autouse=True)
+def redis_backend(monkeypatch):
+    monkeypatch.setattr("core.infra.ephemeral.redis_configured", lambda: True)
+
+
 def _run(coro):
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── drain: concurrency, exhaustion, isolation ────────────────────────────────
@@ -29,9 +34,7 @@ def test_drain_processes_every_claimed_item_exactly_once():
     async def process(item_id):
         seen.append(item_id)
 
-    total = _run(
-        wb.drain_queue(claim=claim, process=process, concurrency=4, log_tag="test")
-    )
+    total = _run(wb.drain_queue(claim=claim, process=process, concurrency=4, log_tag="test"))
     assert total == 12
     assert sorted(seen) == sorted(f"item-{i}" for i in range(12))
     # Exactly once — a duplicate here would mean duplicate candidate generation.
@@ -63,9 +66,7 @@ def test_poisoned_item_does_not_abort_the_drain():
         processed.append(item_id)
 
     # Single worker so ordering is deterministic and the poison sits in the middle.
-    total = _run(
-        wb.drain_queue(claim=claim, process=process, concurrency=1, log_tag="test")
-    )
+    total = _run(wb.drain_queue(claim=claim, process=process, concurrency=1, log_tag="test"))
     assert processed == ["good-1", "good-2"]
     assert total == 3  # the failed item still counts as attempted
 

@@ -21,7 +21,7 @@ The old implementation had three "bare read" paths that were blind to
 3. ``_fetch_image_base64`` → ``_download_artifact_bytes(...)`` — same as above.
 
 Meanwhile the ``uploaded_files`` field in
-``api/routes/v1/chats.py::_build_ctx`` is a **direct copy** of
+``api/routes/v1/chats/__init__.py::_build_ctx`` is a **direct copy** of
 ``request.attachments`` (client-supplied); the HTTP boundary does **not**
 verify per item whether ``file_id`` belongs to the current user. Combined
 with the three bare-read paths above, an attacker only needs to stuff

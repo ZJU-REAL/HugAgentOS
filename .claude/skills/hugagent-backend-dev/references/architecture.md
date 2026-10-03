@@ -45,12 +45,12 @@ Browser → Nginx (:3000 /api/ proxy) → FastAPI (api/app.py)
 
 ```
 POST /v1/agents/responses
-  → api/routes/v1/chats.py
+  → api/routes/v1/chats/__init__.py
   → orchestration/chat_run_executor.py     # ChatRun + Redis Stream（后台 run，SSE 跟随，断线续播）
   → orchestration/workflow.py              # 流式编排主入口
     → core/services/chat_mode_service.py   # 解析对话模式 ChatModeSpec（standard/turbo/市场模式；装配契约）
     → orchestration/memory_integration.py  # 检索分层记忆并注入（user-role 冻结块，600ms 预算）
-    → core/llm/agent_factory.py            # 构建 AgentScope 2.0 ReActAgent（按 ChatModeSpec 收窄工具面）
+    → core/llm/factory/build.py            # 构建 AgentScope 2.0 ReActAgent（按 ChatModeSpec 收窄工具面）
       → core/llm/mcp_manager.py            # MCP 客户端池（streamable-http → mcp 容器）
       → core/config/mcp_config.py          # MCP server 定义（端口真源 mcp_servers/_ports.py）
       → core/llm/middlewares.py            # AS2 中间件（动态模型、文件上下文、CitationAnchorMiddleware、OntologyGateMiddleware）

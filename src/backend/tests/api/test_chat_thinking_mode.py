@@ -2,9 +2,10 @@
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-import pytest
 
-from api.routes.v1 import chats
+import api.routes.v1.chats.run_views as chat_run_views
+import core.chat.context as chat_context
+import pytest
 from orchestration import chat_run_executor as executor
 
 
@@ -26,8 +27,8 @@ def test_active_run_probe_preserves_the_agent_mode(monkeypatch, payload, expecte
         request_payload=payload,
     )
     monkeypatch.setattr(executor, "get_active_run_for_chat", lambda *args: run)
-    monkeypatch.setattr(chats, "resolve_db_user_id", lambda db, user_id: user_id)
-    response = chats.chat_active_run(
+    monkeypatch.setattr(chat_context, "resolve_db_user_id", lambda db, user_id: user_id)
+    response = chat_run_views.chat_active_run(
         "chat-test", user=SimpleNamespace(user_id="owner"), db=object()
     )
     assert response["data"]["enable_thinking"] is expected

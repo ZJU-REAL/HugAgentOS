@@ -1,7 +1,8 @@
 """Unavailable installed skills cannot win implicit runtime selection."""
 
 from core.capabilities import registry, skills
-from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE
+from tests.capabilities.test_desktop_capabilities_api import cloud as cloud
+from tests.capabilities.test_desktop_capabilities_api import client, USER
 from tests.capabilities.test_management_readiness import _cloud_skill, _item
 
 

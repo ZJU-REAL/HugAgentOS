@@ -5,7 +5,7 @@ import os
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from core.content.artifact_refs import infer_artifact_type, resolve_artifact_storage_key
+from core.content.artifact_refs import infer_artifact_type, require_artifact_storage_key
 from core.db.models import Artifact as ArtifactModel
 from core.db.repository import ArtifactRepository
 from core.services.artifact_edition import artifact_scope_fields
@@ -134,7 +134,7 @@ class ArtifactService:
 
 
 # ── AI-generated artifact persistence (used by chat route + routing) ──────────
-# Relocated from ``api/routes/v1/chats.py`` so lower layers (``core.llm.tool``,
+# Relocated from ``api/routes/v1/chats/__init__.py`` so lower layers (``core.llm.tool``,
 # ``routing.*``) can persist artifacts without importing an API route module.
 
 
@@ -197,8 +197,7 @@ def persist_artifacts(
         mime = art.get("mime_type", "application/octet-stream")
         try:
             storage_key = (
-                resolve_artifact_storage_key(art_id, art.get("storage_key"))
-                or f"artifacts/{art_id}"
+                require_artifact_storage_key(art_id, art.get("storage_key"))
             )
             db.add(
                 ArtifactModel(

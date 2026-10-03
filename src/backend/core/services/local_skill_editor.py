@@ -152,7 +152,7 @@ def icon(user_id, key, value):
 def install_archive(user_id, raw, kind="skill"):
     if len(raw) > 50 * 1024 * 1024:
         raise ValueError("package exceeds 50MB limit")
-    from core.services import local_plugin_service
+    from core.plugins.local import service as local_plugin_service
     with tempfile.TemporaryDirectory(prefix="manager-upload-") as tmp:
         path = Path(tmp) / "package.zip"
         path.write_bytes(raw)

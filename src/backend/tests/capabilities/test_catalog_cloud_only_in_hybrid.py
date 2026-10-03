@@ -87,7 +87,7 @@ def test_local_profile_plugins_only_resolve_off_hybrid(index_db, caps_root, monk
     云端那份同名插件互相顶替。单机安装没有云端账号，本机 profile 仍是唯一来源。
     """
     from core.capabilities import device_catalog, plugins
-    from core.llm import plugin_loader
+    from core.plugins import runtime as plugin_loader
     from core.services.desktop_capability_protocol import skill_content_hash
 
     monkeypatch.setattr(device_catalog, "active", lambda: hybrid)

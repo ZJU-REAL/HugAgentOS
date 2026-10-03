@@ -216,7 +216,7 @@ def build_compaction_context_usage(
 
 def latest_persisted_context_usage(chat_service: Any, chat_id: str) -> Optional[Dict[str, Any]]:
     """Return the newest assistant snapshot without loading the whole chat."""
-    rows = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50)
+    rows = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50, metadata_only=True)
     for row in reversed(rows):
         extra = getattr(row, "extra_data", None)
         raw = extra.get("context_usage") if isinstance(extra, Mapping) else None

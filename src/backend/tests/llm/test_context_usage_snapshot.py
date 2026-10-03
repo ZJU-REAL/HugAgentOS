@@ -186,7 +186,7 @@ def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
     )
     rows = [SimpleNamespace(chat_seq=10, extra_data={"context_usage": compacted})]
     repo = SimpleNamespace(
-        list_recent_by_chat=lambda chat_id, limit: rows,
+        list_recent_by_chat=lambda chat_id, limit, metadata_only: rows,
         count_visible_through_seq=lambda chat_id, seq: 10,
     )
     service = SimpleNamespace(
@@ -226,7 +226,7 @@ def test_latest_persisted_snapshot_uses_newest_assistant_measurement():
     ]
     service = SimpleNamespace(
         message_repo=SimpleNamespace(
-            list_recent_by_chat=lambda chat_id, limit: rows,
+            list_recent_by_chat=lambda chat_id, limit, metadata_only: rows,
         )
     )
 

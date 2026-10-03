@@ -20,15 +20,9 @@ from pathlib import Path
 import pytest
 
 from core.infra.exceptions import BadRequestError
-from core.services import plugin_data_proxy as proxy
-from core.services.plugin_ui_contract import (
-    SUPPORTED_UI_VERSION,
-    VIEW_KINDS,
-    find_data_source,
-    find_module,
-    normalize_ui,
-    public_contributions,
-)
+from core.plugins.ui import data_proxy as proxy
+from core.plugins.ui.primitives import VIEW_KINDS
+from core.plugins.ui.contract import SUPPORTED_UI_VERSION, find_data_source, find_module, normalize_ui, public_contributions
 
 IKC_MANIFEST = (
     Path(__file__).resolve().parents[1]

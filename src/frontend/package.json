@@ -29,6 +29,7 @@
     "test:knowledge-provider-config": "esbuild scripts/test-knowledge-provider-config.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-knowledge-provider-config.mjs && node node_modules/.tmp/test-knowledge-provider-config.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:desktop-status": "esbuild scripts/test-desktop-status.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-desktop-status.mjs && node node_modules/.tmp/test-desktop-status.mjs",
     "test:desktop-capabilities": "esbuild scripts/test-desktop-capabilities.ts --bundle --platform=node --format=esm --jsx=automatic --external:react --external:react-dom/* --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-desktop-capabilities.mjs && node node_modules/.tmp/test-desktop-capabilities.mjs",
     "test:project-instructions": "node scripts/run-project-instructions-test.mjs",
     "test:tool-approval": "esbuild scripts/test-tool-approval.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-tool-approval.mjs && node node_modules/.tmp/test-tool-approval.mjs",
@@ -59,10 +60,15 @@
     "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs",
     "test:date-timezone": "esbuild scripts/test-date-timezone.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-date-timezone.mjs && node node_modules/.tmp/test-date-timezone.mjs",
     "test:stream-resume": "esbuild scripts/test-stream-resume.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-stream-resume.mjs && node node_modules/.tmp/test-stream-resume.mjs",
+    "test:desktop-login-browser": "node scripts/test-desktop-login-browser.mjs",
+    "test:desktop-menu-browser": "node scripts/test-desktop-menu-browser.mjs",
+    "test:desktop-proxy-browser": "node scripts/test-desktop-proxy-browser.mjs",
     "test:desktop-chrome": "node scripts/test-desktop-chrome-browser.mjs",
     "test:markdown-composer-browser": "node scripts/test-markdown-composer-browser.mjs",
     "test:project-bootstrap-browser": "node scripts/test-project-bootstrap-browser.mjs",
-    "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs"
+    "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs",
+    "lint:desktop": "node scripts/check-desktop-lint.mjs",
+    "test:desktop-highlight-browser": "node scripts/test-desktop-highlight-browser.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

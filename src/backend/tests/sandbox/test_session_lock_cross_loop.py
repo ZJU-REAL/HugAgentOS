@@ -136,7 +136,7 @@ def test_same_loop_still_serializes():
 
 @pytest.mark.parametrize(
     "module_name",
-    ["core.sandbox.opensandbox_provider", "core.sandbox.cube_provider"],
+    ["core.sandbox.opensandbox_provider", "core.sandbox.cube.provider"],
 )
 def test_providers_use_thread_lock_for_registry(module_name):
     """两个 provider 都必须用线程锁守注册表 —— 换回 asyncio.Lock 就会重现事故。"""
@@ -147,5 +147,7 @@ def test_providers_use_thread_lock_for_registry(module_name):
     src = inspect.getsource(mod)
     assert "self._registry_lock = threading.Lock()" in src, module_name
     assert "self._registry_lock = asyncio.Lock()" not in src, module_name
-    # 分桶键必须带上 loop
-    assert "id(asyncio.get_running_loop())" in src, module_name
+    # Session locking may be implemented by a focused lifecycle mixin.
+    provider = getattr(mod, "CubeSandboxProvider", None) or mod.OpenSandboxProvider
+    lock_source = inspect.getsource(provider._get_session_lock)
+    assert "id(asyncio.get_running_loop())" in lock_source, module_name

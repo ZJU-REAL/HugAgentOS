@@ -1,11 +1,12 @@
 """Exercise the real assembly without reading the developer's database."""
+
 import os
 import subprocess
 import sys
 
 
 def test_evaluation_factory_and_child_share_one_native_surface(tmp_path):
-    script = r'''
+    script = r"""
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,7 +16,7 @@ import core.sandbox.factory
 from core.db.engine import Base, engine, SessionLocal
 from core.db.models import UserShadow
 from core.db.model_repository import create_provider, assign_role
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
 
 Base.metadata.create_all(engine)
@@ -52,11 +53,11 @@ async def run():
             )
             assert clients == []
             schemas = {item["function"]["name"]: item["function"] for item in agent._jx_compaction_tool_schemas}
-            assert {"bash", "Read", "Write", "Edit", "Glob", "Grep"} <= schemas.keys(), schemas.keys()
+            assert {"Bash", "Read", "Write", "Edit", "Glob", "Grep"} <= schemas.keys(), schemas.keys()
             assert not {"read_chat", "list_related_chats", "load_plugin", "read_artifact",
                         "pin_to_workspace", "sandbox_put_artifact", "ask_user_question"} & schemas.keys()
             assert not any("myspace" in name.lower() for name in schemas)
-            assert "evaluation" in schemas["bash"]["description"]
+            assert "evaluation" in schemas["Bash"]["description"]
             assert "OWNER_PRIVATE_PROJECT_SENTINEL" not in str(agent._system_prompt)
             assert "OWNER_OTHER_AGENT_SENTINEL" not in str(agent._system_prompt)
             policies = {type(policy).__name__ for adapter in agent._reply_middlewares
@@ -68,10 +69,17 @@ async def run():
             assert sandbox.writes[-1][3] == "owner"
 asyncio.run(run())
 engine.dispose()
-'''
-    env = dict(os.environ, DATABASE_URL=f"sqlite:///{tmp_path / 'eval.db'}", REDIS_URL="",
-               SANDBOX_TOOLS_ENABLED="true", CODE_CAPABILITY_ENABLED="true",
-               JX_CAPABILITIES_ENABLED="false", LOCAL_MODE="false")
-    result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True,
-                            text=True, timeout=60)
+"""
+    env = dict(
+        os.environ,
+        DATABASE_URL=f"sqlite:///{tmp_path / 'eval.db'}",
+        REDIS_URL="",
+        SANDBOX_TOOLS_ENABLED="true",
+        CODE_CAPABILITY_ENABLED="true",
+        JX_CAPABILITIES_ENABLED="false",
+        LOCAL_MODE="false",
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=60
+    )
     assert result.returncode == 0, (result.stdout + result.stderr)[-6000:]

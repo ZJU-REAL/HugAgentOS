@@ -75,4 +75,3 @@ try {
   }
   console.log('PASS: platform priority, shared fonts, sidebar hierarchy, themes and responsive widths (20 combinations)');
 } finally {await browser.close();}
-

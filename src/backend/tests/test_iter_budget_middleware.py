@@ -149,7 +149,7 @@ def test_force_text_kill_switch(monkeypatch):
 
 
 def test_turn_budget_hint_states_the_actual_number():
-    from core.llm.agent_factory import _render_turn_budget_hint
+    from core.llm.factory.prompts.policy import _render_turn_budget_hint
 
     hint = _render_turn_budget_hint(12)
     assert "12 轮" in hint
@@ -161,7 +161,7 @@ def test_turn_budget_hint_states_the_actual_number():
 
 def test_turn_budget_hint_is_byte_stable():
     """Prefix-cache safety: same budget → same bytes, every request."""
-    from core.llm.agent_factory import _render_turn_budget_hint
+    from core.llm.factory.prompts.policy import _render_turn_budget_hint
 
     assert _render_turn_budget_hint(30) == _render_turn_budget_hint(30)
 

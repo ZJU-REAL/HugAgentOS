@@ -110,7 +110,7 @@ def _prepare(kind: str, state: Dict[str, Any], inst: registry.Installation) -> N
             )
             # 云端同步下来的插件同样要在本机铺它自己的资产：站点插件的建站流程要在
             # 本机跑 init-react-site.sh，插件从云端来不代表这一步可以省。
-            from core.services.plugin_device_assets import provision_for
+            from core.plugins.local.assets import provision_for
 
             provision_for(inst.key)
 

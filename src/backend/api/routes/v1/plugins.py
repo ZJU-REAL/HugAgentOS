@@ -38,10 +38,10 @@ from api.deps import require_system_settings
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
-from core.infra.exceptions import AccessDeniedError, BadRequestError
+from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
 from core.services import marketplace_listing as ml
-from core.services import plugin_service as ps
+from core.plugins import management as ps
 from core.capabilities.paths import capabilities_enabled
 
 router = APIRouter(prefix="/v1/plugins", tags=["Plugin"])
@@ -62,7 +62,9 @@ def _parse_secrets(secrets: Optional[str]) -> Dict[str, str]:
 def _require_can_import_plugin(user_id: str, db: Session) -> None:
     """Plugin install/import permission: personal explicit (user management) -> team default (team management) -> off by default."""
     if not resolve_user_capabilities(db, user_id)["can_import_plugin"]:
-        raise AccessDeniedError(message="管理员未开放插件安装/导入功能", reason="can_import_plugin_disabled")
+        raise AccessDeniedError(
+            message="管理员未开放插件安装/导入功能", reason="can_import_plugin_disabled"
+        )
 
 
 @router.get("", summary="内置插件包列表")
@@ -84,7 +86,9 @@ def list_installed(
     items = ps.list_installed(db, owner_user_id=str(user.user_id), include_global=True)
     # 云端账号装的插件登记在本机登记表里、业务库没有行，要投影进来才看得到。按 slug
     # 合并：install_id 两边天生对不上（见 merge_items_by_id），云端那份的信息为准。
-    items = device_catalog.merge_items(items, device_catalog.plugin_entries(user_id=str(user.user_id)), key="slug")
+    items = device_catalog.merge_items(
+        items, device_catalog.plugin_entries(user_id=str(user.user_id)), key="slug"
+    )
     return success_response(data={"items": items})
 
 
@@ -101,9 +105,9 @@ def get_installed_detail(
     projected = device_catalog.plugin_detail(install_id, user_id=str(user.user_id))
     if projected is not None:
         return success_response(data=projected)
-    return success_response(data=ps.get_installed_detail(
-        db, install_id, owner_user_id=str(user.user_id)
-    ))
+    return success_response(
+        data=ps.get_installed_detail(db, install_id, owner_user_id=str(user.user_id))
+    )
 
 
 @router.get("/feishu-cli/app/status", summary="查询飞书插件共享应用初始化状态")
@@ -143,7 +147,9 @@ def get_plugin(
 
 
 class InstallRequest(BaseModel):
-    secrets: Dict[str, str] = Field(default_factory=dict, description="凭据键值（按 required_secrets 提供）")
+    secrets: Dict[str, str] = Field(
+        default_factory=dict, description="凭据键值（按 required_secrets 提供）"
+    )
 
 
 @router.post("/{slug}/install", status_code=201, summary="从插件市场安装（私有）")
@@ -158,12 +164,16 @@ def install_plugin(
     # "User Management -> Permission Config". Admin global install goes through admin_plugins.
     if capabilities_enabled():
         from core.services.local_market_install import install_plugin as install_local
+
         return created_response(data=install_local(db, str(user.user_id), slug, body.secrets))
     _require_can_import_plugin(str(user.user_id), db)
     ml.ensure_item_visible(db, ml.KIND_PLUGIN, slug, str(user.user_id), resource="plugin")
     result = ps.install_plugin(
-        db, slug, owner_user_id=str(user.user_id),
-        secrets=body.secrets, created_by=str(user.user_id),
+        db,
+        slug,
+        owner_user_id=str(user.user_id),
+        secrets=body.secrets,
+        created_by=str(user.user_id),
     )
     return created_response(data=result)
 
@@ -178,15 +188,21 @@ async def import_plugin(
     """上传插件 zip 并导入（私有）。返回 import_report（imported / adapted / dropped）。"""
     if capabilities_enabled():
         from core.services.local_skill_editor import install_archive
+
         if _parse_secrets(secrets):
             raise BadRequestError(message="本机插件凭据请通过连接配置设置，不写入插件包")
-        return created_response(data=install_archive(str(user.user_id), await file.read(), "plugin"))
+        return created_response(
+            data=install_archive(str(user.user_id), await file.read(), "plugin")
+        )
     _require_can_import_plugin(str(user.user_id), db)
     raw = await file.read()
     secret_map = _parse_secrets(secrets)
     result = ps.import_plugin_from_zip(
-        db, raw, owner_user_id=str(user.user_id),
-        secrets=secret_map, created_by=str(user.user_id),
+        db,
+        raw,
+        owner_user_id=str(user.user_id),
+        secrets=secret_map,
+        created_by=str(user.user_id),
     )
     return created_response(data=result)
 
@@ -198,9 +214,14 @@ def uninstall_plugin(
     db: Session = Depends(get_db),
 ):
     if install_id.startswith("plugin:local:"):
-        from core.services import local_plugin_service as local
-        current = local.get(str(user.user_id), install_id)
-        return success_response(data=local.uninstall(str(user.user_id), install_id, current["revision"]))
+        from core.plugins.local import service as local
+
+        try:
+            current = local.get(str(user.user_id), install_id)
+            result = local.uninstall(str(user.user_id), install_id, current["revision"])
+        except PermissionError as exc:
+            raise ResourceNotFoundError("plugin", install_id) from exc
+        return success_response(data=result)
     result = ps.uninstall_plugin(db, install_id, owner_user_id=str(user.user_id))
     return success_response(data=result)
 
@@ -221,8 +242,11 @@ def set_installed_meta(
     """展示信息（名称/分类/图标）是界面配置：用户自己导入/安装的私有插件由用户在此
     配置；管理员全局插件走 admin 接口，普通用户不可改。"""
     if capabilities_enabled() and install_id.startswith("plugin:local:"):
-        from core.services.local_plugin_service import set_presentation
-        return success_response(data=set_presentation(str(user.user_id), install_id, body.model_dump(exclude_none=True)))
+        from core.plugins.local.service import set_presentation
+
+        return success_response(
+            data=set_presentation(str(user.user_id), install_id, body.model_dump(exclude_none=True))
+        )
     return success_response(
         data=ps.set_installed_plugin_meta(
             db,

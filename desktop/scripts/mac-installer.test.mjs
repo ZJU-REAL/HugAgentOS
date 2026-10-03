@@ -51,7 +51,7 @@ test("Windows macOS and Linux packages embed both source and runtime payloads", 
 });
 
 test("minimize-to-tray destroys the close confirmation window", () => {
-  const source = readFileSync(join(rustDir, "lib.rs"), "utf8");
+  const source = readFileSync(join(rustDir, "dialogs.rs"), "utf8");
   const decisionStart = source.indexOf(
     'if let Some(cw) = app2.get_webview_window("close-confirm")',
   );

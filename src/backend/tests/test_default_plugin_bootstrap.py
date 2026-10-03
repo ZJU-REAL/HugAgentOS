@@ -5,7 +5,22 @@ from types import SimpleNamespace
 
 import pytest
 from core.db.models import AdminMcpServer, ContentBlock, InstalledPlugin
-from core.services import plugin_service
+from core.plugins import management as plugin_service
+from core.plugins.ui import contributions as plugin_ui
+
+
+@pytest.fixture(autouse=True)
+def isolated_catalog_caches():
+    # Each test uses a fresh DB; process-wide catalog snapshots must not leak
+    # from earlier API/plugin tests into this bootstrap contract.
+    from core.config.catalog_runtime import invalidate_runtime_catalog_cache
+    from core.config.catalog_resolver import invalidate_capability_cache
+
+    invalidate_runtime_catalog_cache()
+    invalidate_capability_cache()
+    yield
+    invalidate_runtime_catalog_cache()
+    invalidate_capability_cache()
 
 
 def test_ce_default_plugins_bootstrap_once_and_are_globally_available(db_session):
@@ -89,7 +104,7 @@ async def test_ce_compose_startup_runs_default_plugin_bootstrap(monkeypatch):
     )
     # 启动钩子同时负责把 ui_contributions 与 bundle 清单对齐（存量安装回填）
     monkeypatch.setattr(
-        plugin_service,
+        plugin_ui,
         "refresh_builtin_ui_contributions",
         lambda db: calls.append(("refresh_ui", db)) or 0,
     )

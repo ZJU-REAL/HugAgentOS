@@ -241,7 +241,7 @@ class _CubeFiles:
 
 @pytest.mark.asyncio
 async def test_cube_streams_file_to_path(tmp_path):
-    CubeSandboxProvider = pytest.importorskip("core.sandbox.cube_provider").CubeSandboxProvider
+    CubeSandboxProvider = pytest.importorskip("core.sandbox.cube.provider").CubeSandboxProvider
     provider = CubeSandboxProvider.__new__(CubeSandboxProvider)
     provider._request_timeout_s = 120
 
@@ -286,7 +286,7 @@ async def test_remote_providers_reject_known_size_before_stream(provider_kind: s
         provider._get_or_create_session = _get_session
         call = provider.get_file_to_path("chat-1", "/workspace/large.bin", destination, max_bytes=8)
     else:
-        CubeSandboxProvider = pytest.importorskip("core.sandbox.cube_provider").CubeSandboxProvider
+        CubeSandboxProvider = pytest.importorskip("core.sandbox.cube.provider").CubeSandboxProvider
         provider = CubeSandboxProvider.__new__(CubeSandboxProvider)
         provider._request_timeout_s = 120
 

@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.models import Plan
 from core.infra.logging import LogContext
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 from core.llm.context_adapter import append_context_text, next_request_sequence, render_context_item
 from core.llm.context_ir import (
     KIND_ATTACHMENT,

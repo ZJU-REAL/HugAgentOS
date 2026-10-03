@@ -241,7 +241,7 @@ async def _enqueue_followup_run(
 
     这样前端不用任何改动：它本来就会在会话里看到新的一轮（断线还能按 run_id 续播）。
     """
-    from api.routes.v1.chats import _load_session_messages
+    from api.routes.v1.chats.session_context import _load_session_messages
     from core.chat.context import build_runtime_context
     from core.config.catalog_resolver import resolve_all_runtime_enabled
     from core.services.chat_sequencer import ChatSequencer

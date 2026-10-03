@@ -79,7 +79,7 @@ Each source can be disabled individually via `HUGAGENT_DISABLE_{ADMIN,USER,PROJE
 
 ## Injection: how skills enter the prompt
 
-Skill registration happens while `core/llm/agent_factory.py` builds the agent. The enabled set comes from the [catalog](catalog.md) `skills` section plus the user/sub-agent configuration (private skills are filtered by `owner_user_id` to prevent cross-user leakage), then each skill is registered through AgentScope's `toolkit.register_agent_skill(skill_dir)`. AgentScope renders a skills section into the system prompt — name, description and the `{dir}` directory path per skill.
+Skill registration happens while `core/llm/factory/build.py` builds the agent. The enabled set comes from the [catalog](catalog.md) `skills` section plus the user/sub-agent configuration (private skills are filtered by `owner_user_id` to prevent cross-user leakage), then each skill is registered through AgentScope's `toolkit.register_agent_skill(skill_dir)`. AgentScope renders a skills section into the system prompt — name, description and the `{dir}` directory path per skill.
 
 A crucial path redirection follows (`loader._repoint_skill_dir_to_sandbox`): the registered directory is a **backend physical path** (built-ins in the source tree, DB skills materialized under `/app/storage/sandbox_skills/<id>`), but scripts actually execute in the **sandbox**, where every skill lives at the unified path `/workspace/skills/<id>`. The prompt-facing `dir` is rewritten to that sandbox path immediately after registration — otherwise the model would feed backend paths to `bash` and be rejected by the path validator.
 
@@ -144,7 +144,7 @@ Key points:
 - **Scope**: main-chat assembly and sub-agents. A sub-agent's bound plugins are deferred the same way, but activation lives only within that run and is never persisted (sub-agent runs are short-lived and isolated; writing under the parent chat's key would leak the activation into the main agent's assembly). Plugins pinned by a restricted chat mode stay eagerly loaded (a deliberate admin narrowing); plugins with stdio-transport MCP components are not deferred.
 - **Kill switch**: set `PLUGIN_PROGRESSIVE_LOADING=false` to revert to eager assembly.
 
-Implementation: `core/llm/plugin_loader.py` (deferral resolution / directory rendering / activation tool) plus the assembly hook in `core/llm/agent_factory.py`.
+Implementation: `core/plugins/runtime/__init__.py` (deferral resolution / directory rendering / activation tool) plus the assembly hook in `core/llm/factory/build.py`.
 
 ## The Skill Marketplace
 

@@ -347,7 +347,7 @@ def _resolve_bindings(
     """
     from core.config.catalog import get_enabled_ids
     from core.services import marketplace_service as mk
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
     from core.services.user_agent_service import UserAgentService
 
     avail = UserAgentService(db).list_available_resources(owner_user_id=owner_user_id)

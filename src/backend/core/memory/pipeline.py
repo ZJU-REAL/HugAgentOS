@@ -20,8 +20,8 @@ from threading import Lock
 from typing import Optional
 
 from core.config.settings import settings
-from core.infra.rate_limit import CircuitBreaker as _InfraCircuitBreaker
-from core.infra.rate_limit import CircuitBreakerState
+from core.infra.circuit_breaker import CircuitBreaker as _InfraCircuitBreaker
+from core.infra.circuit_breaker import CircuitBreakerState
 from core.memory.context import MemoryContext
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def get_background_semaphore() -> asyncio.Semaphore:
 
 
 class CircuitBreaker(_InfraCircuitBreaker):
-    """Reuses `core.infra.rate_limit.CircuitBreaker` (three-state machine),
+    """Reuses `core.infra.circuit_breaker.CircuitBreaker` (three-state machine),
     additionally exposing `is_open()` plus public `record_success()` / `record_failure()`.
 
     Why a local subclass is needed: the base class's `.call()` / `.call_async()` are

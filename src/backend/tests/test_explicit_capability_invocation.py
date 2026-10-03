@@ -1,17 +1,11 @@
 from types import SimpleNamespace
 
 import pytest
-from api.routes.v1.chats import _resolve_explicit_capability_invocation
+from api.routes.v1.chats.invocation import _resolve_explicit_capability_invocation
 from api.schemas import ChatRequest
 from core.config import catalog_resolver
-from core.db.models import (
-    AdminMcpServer,
-    AdminSkill,
-    CatalogOverride,
-    InstalledPlugin,
-    UserShadow,
-)
-from core.services import plugin_service
+from core.db.models import AdminMcpServer, AdminSkill, CatalogOverride, InstalledPlugin, UserShadow
+from core.plugins import management as plugin_service
 from fastapi import HTTPException
 from orchestration.workflow import _build_skill_injection
 
@@ -29,9 +23,7 @@ def _runtime_catalog(*_args, **_kwargs):
     }
 
 
-def test_explicit_resolution_uses_installation_not_enabled_switch(
-    db_session, monkeypatch
-):
+def test_explicit_resolution_uses_installation_not_enabled_switch(db_session, monkeypatch):
     monkeypatch.setattr(catalog_resolver, "get_runtime_catalog", _runtime_catalog)
     db_session.add(UserShadow(user_id="user-a", username="User A"))
     db_session.add_all(
@@ -343,7 +335,8 @@ def test_installed_plugin_distinguishes_personal_enabled_from_hard_callability(
 
 
 def test_explicit_disabled_connector_is_loaded_but_not_ambient(monkeypatch):
-    from core.llm import agent_factory
+    import core.services.mcp_service as mcp_service
+    from core.llm.factory.tools import mcp_config as factory_mcp_config
 
     class FakeMcpService:
         def get_all_servers(self, enabled_only=True):
@@ -355,14 +348,16 @@ def test_explicit_disabled_connector_is_loaded_but_not_ambient(monkeypatch):
             }
 
     monkeypatch.setattr(
-        agent_factory.McpServerConfigService,
+        mcp_service.McpServerConfigService,
         "get_instance",
         classmethod(lambda _cls: FakeMcpService()),
     )
-    assert agent_factory._effective_mcp_server_keys(
+    assert factory_mcp_config._effective_mcp_server_keys(
         None, None, enabled_mcp_ids=["installed-off"]
     ) == ["installed-off"]
-    assert set(agent_factory._filter_mcp_servers_by_keys(["installed-off"])) == {"installed-off"}
-    assert agent_factory._effective_mcp_server_keys(
+    assert set(factory_mcp_config._filter_mcp_servers_by_keys(["installed-off"])) == {
+        "installed-off"
+    }
+    assert factory_mcp_config._effective_mcp_server_keys(
         None, None, enabled_mcp_ids=["enabled"]
     ) == ["enabled"]

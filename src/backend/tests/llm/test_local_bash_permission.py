@@ -40,9 +40,15 @@ def _host_provider(execute=None):
 
     async def start(req, yield_time_ms=10000):
         result = await (execute or _unreachable)(req)
-        return {"stdout": result.stdout, "stderr": result.stderr,
-                "exit_code": result.exit_code, "execution_time_ms": result.execution_time_ms,
-                "status": "exited", "session_id": None}
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.exit_code,
+            "execution_time_ms": result.execution_time_ms,
+            "status": "exited",
+            "session_id": None,
+        }
+
     return SimpleNamespace(runs_on_host=True, start_process=start)
 
 
@@ -91,9 +97,9 @@ def _payload(response) -> dict:
 
 async def _authorize(command: str, *, interactive: bool, approval_mode: str = APPROVAL_ASK):
     registry = ToolPermissionRegistry()
-    spec = builtin_tool_permission("bash")
+    spec = builtin_tool_permission("Bash")
     assert spec is not None
-    registry.register("bash", spec, source="test")
+    registry.register("Bash", spec, source="test")
     service = ToolPermissionService(
         registry,
         PermissionRuntime(
@@ -107,7 +113,7 @@ async def _authorize(command: str, *, interactive: bool, approval_mode: str = AP
     return await service.authorize(
         ToolCallBlock(
             id="bash-1",
-            name="bash",
+            name="Bash",
             input=json.dumps({"command": command}),
         )
     )
@@ -308,9 +314,9 @@ async def test_an_unattended_run_is_confined_like_an_interactive_one():
     """自动化/子智能体只是跳过「问一句」，不跳过沙箱。"""
     captured: dict = {}
     registry = ToolPermissionRegistry()
-    spec = builtin_tool_permission("bash")
+    spec = builtin_tool_permission("Bash")
     assert spec is not None
-    registry.register("bash", spec, source="test")
+    registry.register("Bash", spec, source="test")
     service = ToolPermissionService(
         registry,
         PermissionRuntime(
@@ -335,7 +341,7 @@ async def test_an_unattended_run_is_confined_like_an_interactive_one():
         _patch_host_provider(),
     ):
         outcome = await service.authorize(
-            ToolCallBlock(id="bash-1", name="bash", input=json.dumps({"command": "ls -la"}))
+            ToolCallBlock(id="bash-1", name="Bash", input=json.dumps({"command": "ls -la"}))
         )
         assert outcome.ticket is not None
         assert outcome.ticket.local_command is not None

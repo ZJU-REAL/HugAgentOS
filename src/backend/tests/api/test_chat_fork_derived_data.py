@@ -48,7 +48,7 @@ def test_scheduled_backfill_does_not_create_episodes_for_forked_history(fork_env
     for module in (backfill, trace_assembler, trace_store):
         monkeypatch.setattr(module, "SessionLocal", sessions)
     # Sanitization and unrelated execution log tables have their own tests.
-    monkeypatch.setattr(trace_assembler, "_preview", lambda text: text)
+    monkeypatch.setattr(trace_assembler, "sanitized_preview", lambda text, **kwargs: text)
     monkeypatch.setattr(trace_assembler, "_count_existing_logs", lambda db, mid: {})
     response = client.post("/v1/chats/source/fork", json={"request_id": str(uuid4())})
     assert response.status_code == 201

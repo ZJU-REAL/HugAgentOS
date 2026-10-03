@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.content.artifact_refs import require_artifact_storage_key
+
 import asyncio
 import base64
 import json
@@ -332,7 +334,7 @@ def upsert_myspace_artifact(
                             filename=name,
                             size_bytes=max(len(content), 1),
                             mime_type=mime,
-                            storage_key=ref.get("storage_key") or f"artifacts/{new_file_id}",
+                            storage_key=require_artifact_storage_key(new_file_id, ref.get("storage_key")),
                             storage_url=ref.get("url"),
                             extra_data={"source": "myspace_sync"},
                         )

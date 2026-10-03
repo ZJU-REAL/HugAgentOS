@@ -78,6 +78,17 @@ async function run() {
   await ambiguous.getState().load('agent');
   assert.deepEqual(Object.keys(ambiguous.getState().kinds.agent.byName), [],
     'Ambiguous display names and stale cloud accounts must never supply an upload target');
+  let burstCalls = 0;
+  const burst = createDesktopCapabilityStore({ list: async () => {
+    burstCalls++;
+    await new Promise(done => setTimeout(done, 1));
+    return listing(`version-${burstCalls}`);
+  } }, () => true);
+  const initialLoad = burst.getState().load('skill');
+  const refreshes = Array.from({ length: 20 }, () => burst.getState().load('skill', true));
+  await Promise.all([initialLoad, ...refreshes]);
+  assert.equal(burstCalls, 2, 'a burst while loading requests only one trailing refresh');
+  assert.equal(burst.getState().kinds.skill.items[0].runtime_name, 'version-2');
   console.log('desktop capabilities: local routing, deduplication, cache, account isolation and retry passed');
 }
 void run().catch((error) => { console.error(error); process.exitCode = 1; });

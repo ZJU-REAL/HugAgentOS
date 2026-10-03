@@ -159,7 +159,7 @@ def publish_local_plugin(
 
 
 def remove_local_plugin(slug: str) -> bool:
-    from .runtime import references
+    from core.capabilities.runtime import references
 
     if references("plugin", LOCAL_PROFILE, slug):
         # Source deletion revokes use; history still needs its exact bytes.

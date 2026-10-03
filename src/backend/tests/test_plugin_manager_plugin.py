@@ -124,7 +124,7 @@ def test_shipped_validator_accepts_all_real_bundles():
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     with pm_env.Session() as db:
         res = ps.install_plugin(db, "plugin-manager", owner_user_id=OWNER, created_by=OWNER)

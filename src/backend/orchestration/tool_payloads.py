@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from core.config.catalog_loader import get_skill_curated_detail
+from core.config.catalog_details import get_skill_curated_detail
 
 _FILE_PREVIEW_MAX_LINES = 8
 _FILE_PREVIEW_MAX_CHARS = 400

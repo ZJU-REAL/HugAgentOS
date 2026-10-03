@@ -27,9 +27,9 @@ from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.responses import success_response
-from core.services import plugin_data_proxy as proxy
-from core.services import plugin_service as ps
-from core.services.plugin_ui_contract import find_data_source, find_module
+from core.plugins.ui import data_proxy as proxy
+from core.plugins.ui import contributions as plugin_ui
+from core.plugins.ui.contract import find_data_source, find_module
 
 router = APIRouter(prefix="/v1/plugins", tags=["Plugin UI"])
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def list_ui_contributions(
 
     # 同上：云端账号的插件不投影进来，混合模式下这些插件的面板就整片消失。
     items = device_catalog.merge_items(
-        ps.resolve_ui_contributions(db, str(user.user_id)),
+        plugin_ui.resolve_ui_contributions(db, str(user.user_id)),
         device_catalog.plugin_ui_contributions(),
         key="slug",
     )
@@ -75,7 +75,7 @@ def list_ui_contributions(
 
 
 def _require_ui(db: Session, slug: str, user_id: str) -> Dict[str, Any]:
-    ui = ps.resolve_installed_ui(db, slug, user_id)
+    ui = plugin_ui.resolve_installed_ui(db, slug, user_id)
     if ui is None:
         raise ResourceNotFoundError("plugin_ui", slug)
     return ui

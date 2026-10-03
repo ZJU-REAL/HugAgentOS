@@ -125,7 +125,7 @@ def test_port_is_registered():
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(am_env):
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     with am_env.Session() as db:
         res = ps.install_plugin(db, "agent-manager", owner_user_id=OWNER, created_by=OWNER)

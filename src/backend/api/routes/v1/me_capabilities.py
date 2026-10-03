@@ -17,7 +17,6 @@ from core.infra.time import utc_now
 
 import logging
 import uuid
-from datetime import datetime
 from typing import Dict, List, Optional
 
 from core.capabilities.paths import capabilities_enabled
@@ -43,12 +42,10 @@ from core.services.skill_management_service import (
     refresh_skill_caches,
     resolve_mcp_bindings,
     resolve_ontology_workflows,
-    validate_skill_file_path,
 )
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 router = APIRouter(prefix="/v1/me", tags=["My Capabilities"])
 logger = logging.getLogger(__name__)
@@ -186,7 +183,9 @@ async def upload_my_skill(
     SKILL.md frontmatter ``name``，须全局唯一（与公共/他人技能冲突会被拒绝）。
     """
     if capabilities_enabled():
-        return created_response(data=local_editor.install_archive(str(user.user_id), await file.read()))
+        return created_response(
+            data=local_editor.install_archive(str(user.user_id), await file.read())
+        )
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     if not file.filename or not file.filename.endswith(".zip"):
@@ -437,8 +436,6 @@ def delete_my_skill(
     delete_skill_icon(db, skill_id)
     from core.agent_skills.config import purge_skill_sandbox_files
 
-    from core.capabilities.paths import capabilities_enabled
-
     # Desktop reconciliation retains immutable revisions and a removed tombstone.
     if not capabilities_enabled():
         purge_skill_sandbox_files(skill_id)
@@ -477,4 +474,5 @@ def set_my_skill_icon(
 
 
 from .me_skill_files import router as skill_files_router
+
 router.include_router(skill_files_router)

@@ -49,7 +49,7 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
 
     from core.capabilities.paths import capabilities_enabled
     if capabilities_enabled() and not server_ids:
-        from core.services.local_legacy_plugin_migration import migrate as migrate_plugins
+        from core.plugins.local.legacy_migration import migrate as migrate_plugins
         from core.services.local_management_migration import migrate as migrate_skills
         await asyncio.to_thread(migrate_plugins)
         await asyncio.to_thread(migrate_skills)

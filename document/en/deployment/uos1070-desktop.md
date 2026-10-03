@@ -23,9 +23,12 @@ capabilities: deep-link login, loopback streaming proxy, tray/quick ask, native
 notifications, local-folder projects, dual-upstream routing, identity/model bridges,
 offline local-service install/upgrade/rollback, and SHA-256 verified updates.
 
-The UOS window follows the compact macOS client layout: it keeps the native title bar
-and window controls. Its File menu offers New Window (Ctrl+Shift+N), New Chat,
-and Quit; quick ask keeps its compact appearance without a menu bar.
+UOS hides the in-window menu bar by default and retains native title-bar controls.
+The tray exposes File, Edit, View, and Help commands; Ctrl+Shift+N opens a new window
+and Ctrl+N starts a new chat. The workspace shares macOS navigation gradients,
+rounded sidebar/content surfaces, light/dark themes, and loading layout. Quick ask
+keeps its compact appearance. The native UOS titlebar sits outside the web area,
+so no additional top inset is reserved inside the page.
 
 A distribution brand may preset the first-launch mode for a full package. A fixed
 dual-mode build goes directly to one-action initialization. The initialization and

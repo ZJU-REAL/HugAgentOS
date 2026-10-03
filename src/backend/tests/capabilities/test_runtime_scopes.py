@@ -253,6 +253,7 @@ def test_subagent_scope_uses_durable_call_not_presentation_id(setup):
     from core.llm.subagent_tool import _child_capability_runtime
     from core.llm.middlewares import CURRENT_TOOL_CALL_ID
     from core.capabilities.errors import IntegrityFailed
+
     parent = {
         "run_id": "root-run",
         "journal_owner": "owner-token",
@@ -275,8 +276,16 @@ def test_subagent_scope_uses_durable_call_not_presentation_id(setup):
 
 
 @pytest.mark.asyncio
-async def test_actual_factory_pins_scope_without_changing_durable_binding(setup, monkeypatch):
-    from core.llm.agent_factory import create_agent_executor
+async def test_actual_factory_pins_scope_without_changing_durable_binding(
+    setup, monkeypatch, durable_index
+):
+    from core.db.engine import Base
+    from core.services import model_config
+
+    Base.metadata.create_all(durable_index.kw["bind"])
+    monkeypatch.setattr(model_config, "SessionLocal", durable_index)
+    monkeypatch.setattr(model_config.ModelConfigService, "_instance", None)
+    from core.llm.factory import create_agent_executor
     from core.llm.middlewares import CURRENT_RUN_BINDING
 
     captured = []
@@ -350,7 +359,7 @@ async def test_recovery_adapter_executes_proven_root_but_never_rebuilds_child(se
         )
 
     monkeypatch.setattr(tool_effect_recovery, "SessionLocal", Db)
-    monkeypatch.setattr("core.llm.agent_factory.create_agent_executor", create)
+    monkeypatch.setattr("core.llm.factory.create_agent_executor", create)
     intent = SimpleNamespace(
         run_id="root-run",
         tool_name="view_text_file",

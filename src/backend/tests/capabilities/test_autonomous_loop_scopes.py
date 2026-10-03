@@ -16,7 +16,10 @@ async def test_actual_loop_scout_then_two_workers_use_separate_factory_snapshots
     durable_index, caps_root, monkeypatch
 ):
     from core.db.engine import Base
-    from core.llm import agent_factory
+    from core.llm.factory.tools import mcp_config as factory_mcp_config
+    from core.llm.factory.selection import capabilities as factory_capabilities
+    import core.config.catalog as catalog
+    import core.agent_skills.loader as skill_loader
     from core.services import desktop_cloud_bridge as bridge
     from core.services.mcp_service import McpServerConfigService
     from orchestration import autonomous_loop as loop, loop_planner
@@ -45,13 +48,15 @@ async def test_actual_loop_scout_then_two_workers_use_separate_factory_snapshots
 
     monkeypatch.setattr(loop_planner, "_workspace_is_empty", nonempty)
     monkeypatch.setattr("core.llm.tool_permissions.resolve_approval_mode", lambda *a, **kw: "auto")
-    monkeypatch.setattr(agent_factory, "get_enabled_ids", lambda *a: [])
+    monkeypatch.setattr(catalog, "get_enabled_ids", lambda *a: [])
     selected = []
-    monkeypatch.setattr(agent_factory, "_effective_main_available_skills", lambda: list(selected))
-    monkeypatch.setattr(agent_factory, "_filter_skill_ids_for_user", lambda ids, uid: ids)
-    monkeypatch.setattr(agent_factory, "_mcp_ids_bound_to_skills", lambda *a: [])
     monkeypatch.setattr(
-        agent_factory, "get_skill_loader", lambda: SimpleNamespace(get_skill_dir=lambda sid: None)
+        factory_capabilities, "_effective_main_available_skills", lambda: list(selected)
+    )
+    monkeypatch.setattr(factory_capabilities, "_filter_skill_ids_for_user", lambda ids, uid: ids)
+    monkeypatch.setattr(factory_capabilities, "_mcp_ids_bound_to_skills", lambda *a: [])
+    monkeypatch.setattr(
+        skill_loader, "get_skill_loader", lambda: SimpleNamespace(get_skill_dir=lambda sid: None)
     )
     monkeypatch.setattr(
         McpServerConfigService,
@@ -63,8 +68,8 @@ async def test_actual_loop_scout_then_two_workers_use_separate_factory_snapshots
         ),
     )
     monkeypatch.setattr(bridge, "cloud_gateway_mcp_configs", lambda *a, **kw: {})
-    monkeypatch.setattr(agent_factory, "_effective_mcp_server_keys", lambda *a, **kw: [])
-    monkeypatch.setattr(agent_factory, "_filter_mcp_servers_by_keys", lambda *a, **kw: {})
+    monkeypatch.setattr(factory_mcp_config, "_effective_mcp_server_keys", lambda *a, **kw: [])
+    monkeypatch.setattr(factory_mcp_config, "_filter_mcp_servers_by_keys", lambda *a, **kw: {})
     original_preflight = runtime.preflight
     captured = []
 
@@ -169,7 +174,8 @@ async def test_resumed_loop_uses_persisted_iteration_and_distinct_review_scopes(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("helper", ["planner", "judge", "ontology"])
 async def test_text_helpers_partition_factory_audit_scope(monkeypatch, helper):
-    from core.llm import agent_factory
+    from core.llm import factory as agent_factory
+    import core.config.catalog as catalog
     from orchestration import loop_planner, loop_evaluator
     from orchestration.subagents import ontology_reviewer
 
@@ -215,7 +221,8 @@ async def test_text_helpers_partition_factory_audit_scope(monkeypatch, helper):
 
 @pytest.mark.asyncio
 async def test_loop_reviewer_forwards_exact_durable_scope_to_factory(monkeypatch):
-    from core.llm import agent_factory
+    from core.llm import factory as agent_factory
+    import core.config.catalog as catalog
     from core.services import log_service
     from orchestration.subagents import loop_reviewer
 

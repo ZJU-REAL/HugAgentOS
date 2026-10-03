@@ -66,7 +66,7 @@ The retrieval entry point for knowledge-base RAG; one server exposes three tools
 - **`list_datasets()`**: lists every knowledge base (public + private) available to the current user, including names, descriptions and document lists, so the model can explore before retrieving;
 - **`retrieve_local_kb(kb_id, query, top_k)`**: retrieval against the platform's self-hosted private knowledge bases.
 
-It is the only **per-request** server: for each chat request the backend injects the allowed KB IDs, current user ID and reranker flag as **HTTP headers** (`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`; see `core/llm/agent_factory.py::_apply_runtime_kb_constraints`), and the server reads them from `ctx.request_context` to enforce multi-user isolation. See the [knowledge base module](knowledge-base.md).
+It is the only **per-request** server: for each chat request the backend injects the allowed KB IDs, current user ID and reranker flag as **HTTP headers** (`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`; see `core/llm/factory/build.py::_apply_runtime_kb_constraints`), and the server reads them from `ctx.request_context` to enforce multi-user isolation. See the [knowledge base module](knowledge-base.md).
 
 ### query_database — data-warehouse query (Enterprise EE)
 
@@ -247,7 +247,7 @@ The backend connects through AgentScope 2.0's `MCPClient`, centred on two files:
   - per-request servers (KB retrieval with user headers) connect on demand and are closed via `close_transient()` when the request ends.
 - **`core/llm/mcp_manager.py` — `BareNameMCPClient`**: AgentScope 2.0 rewrites tool names to `mcp__<server>__<tool>`; this subclass restores the server-side bare name (`internet_search`, not `mcp__internet_search__internet_search`) so the display-name mapping (`core/config/display_names.py`), [citation extraction](chat.md) keyed by tool name, and frontend icon rendering all keep working as in 1.x.
 
-The 2.0 `Toolkit` is constructed once, in `core/llm/agent_factory.py`: `Toolkit(tools=[...], mcps=clients)`.
+The 2.0 `Toolkit` is constructed once, in `core/llm/factory/build.py`: `Toolkit(tools=[...], mcps=clients)`.
 
 ## Unified tool-permission gateway
 

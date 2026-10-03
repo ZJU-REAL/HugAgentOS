@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """打包前自检一个插件目录的结构是否合法（导入前跑一遍，省得来回试错）。
 
-规则对齐后端导入器 core/services/plugin_importer.py：
+规则对齐后端导入器 core/plugins/packaging/importer.py：
 - 包根必须有 plugin.json（或 .claude-plugin/plugin.json）；
 - plugin.json 必须是合法 JSON 且含非空 name；
 - name 必须匹配 ^[a-z0-9_-]{1,100}$（会被用来生成安装 id）；

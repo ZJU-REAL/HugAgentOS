@@ -1,123 +1,26 @@
 """Local project delivery uses the original file through the public tools/API."""
 
 import asyncio
+
 import json
+
 from pathlib import Path
+
 from types import SimpleNamespace
 
 import pytest
+
 from fastapi import BackgroundTasks, HTTPException
-from sqlalchemy.orm import sessionmaker
 
-from core.db.models import Project, UserShadow, Artifact, ChatSession
+
+from core.db.models import Project, UserShadow, Artifact
+
 from core.llm import workspace
+
 from core.llm.tool_collector import ToolCollector
-from core.llm.tools.pin_tool import register_pin_to_workspace
-from core.services.project_scope import ProjectScope
 
 
-@pytest.fixture
-def local_project(tmp_path, db_session, monkeypatch):
-    monkeypatch.setenv("HUGAGENT_LOCAL_MODE", "1")
-    from core.config import local_mode
-
-    monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
-    from api.routes import files
-
-    monkeypatch.setattr(files, "local_mode_enabled", lambda: True)
-    from core.artifacts import store
-
-    monkeypatch.setattr(store, "_STORE_DIR", tmp_path / "artifacts")
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    root = tmp_path / "project"
-    root.mkdir()
-    monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))
-    from core.services.local_grant_service import add_grant
-
-    add_grant(str(root))
-    source = root / "report.txt"
-    source.write_text("original report")
-    db_session.add(UserShadow(user_id="pin-user", username="Pin user"))
-    db_session.add(
-        Project(
-            project_id="pin-project",
-            name="Reports",
-            kind="local",
-            owner_user_id="pin-user",
-            extra_data={"local": {"path": str(root), "slug": "reports"}},
-        )
-    )
-    db_session.add(ChatSession(chat_id="pin-chat", user_id="pin-user", project_id="pin-project"))
-    db_session.commit()
-    from core.infra.logging import user_id_var, chat_id_var
-
-    token = user_id_var.set("pin-user")
-    chat_token = chat_id_var.set("")
-    scope = ProjectScope(
-        project_id="pin-project",
-        kind="local",
-        root_folder_id="",
-        folder_name="reports",
-        is_local=True,
-        local_slug="reports",
-        local_path=str(root),
-    )
-    from core.llm.tool_permissions import (
-        CURRENT_PERMISSION_TICKET,
-        PermissionTicket,
-        PermissionIntent,
-    )
-
-    ticket_token = CURRENT_PERMISSION_TICKET.set(
-        PermissionTicket(
-            "sandbox_get_artifact",
-            "export",
-            "",
-            "test-export",
-            (PermissionIntent("local_path", "read", str(source), "export original"),),
-        )
-    )
-    workspace.init_state()
-    yield source, scope
-    CURRENT_PERMISSION_TICKET.reset(ticket_token)
-    user_id_var.reset(token)
-    chat_id_var.reset(chat_token)
-
-
-def pin_tool(scope, session_id=None):
-    collector = ToolCollector()
-    register_pin_to_workspace(collector, scope=scope, sandbox_session_id=session_id)
-
-    async def invoke(**args):
-        from core.llm.tool_permissions import (
-            ToolPermissionRegistry,
-            ToolPermissionService,
-            PermissionRuntime,
-            CURRENT_PERMISSION_TICKET,
-        )
-
-        registry = ToolPermissionRegistry()
-        registry.register(
-            "pin_to_workspace", collector.permission_specs["pin_to_workspace"], source="test"
-        )
-        service = ToolPermissionService(
-            registry,
-            PermissionRuntime(
-                chat_id="pin-chat", user_id="pin-user", interactive=False, approval_available=False
-            ),
-        )
-        outcome = await service.authorize(
-            SimpleNamespace(name="pin_to_workspace", id="pin-call", input=args)
-        )
-        if not outcome.proceed:
-            raise PermissionError(str(outcome.payload))
-        token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
-        try:
-            return await collector.get_tool("pin_to_workspace")._func(**args)
-        finally:
-            CURRENT_PERMISSION_TICKET.reset(token)
-
-    return invoke
+from tests.llm.local_project_test_support import local_project, pin_tool
 
 
 def test_pin_local_path_opens_original_and_deduplicates(local_project, db_session, tmp_path):
@@ -293,6 +196,7 @@ def test_scratch_export_keeps_copy_behavior(local_project, monkeypatch, tmp_path
 
     source, scope = local_project
     from core.llm.tools import _paths
+
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))
     root.mkdir(parents=True)
@@ -418,7 +322,10 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
 
     from core.config.settings import settings
     from dataclasses import replace
-    monkeypatch.setattr("core.auth.backend.settings", replace(settings, auth=replace(settings.auth, mode="session")))
+
+    monkeypatch.setattr(
+        "core.auth.backend.settings", replace(settings, auth=replace(settings.auth, mode="session"))
+    )
     monkeypatch.setenv("HUGAGENT_DESKTOP_BRIDGE_SECRET", "fixture-only-bridge")
     monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
     source, scope = local_project
@@ -434,9 +341,14 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
     app.dependency_overrides[get_db] = lambda: db_session
     headers = {
         "x-desktop-bridge": "fixture-only-bridge",
-        "x-desktop-bridge-user": base64.b64encode(json.dumps({
-            "user_center_id": "preview-cloud-user", "username": "Preview user",
-        }).encode()).decode(),
+        "x-desktop-bridge-user": base64.b64encode(
+            json.dumps(
+                {
+                    "user_center_id": "preview-cloud-user",
+                    "username": "Preview user",
+                }
+            ).encode()
+        ).decode(),
     }
     with TestClient(app) as client:
         location = client.get(f"/files/{fid}/local-path", headers=headers)
@@ -446,13 +358,27 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
         assert "本机预览" in response.text
         assert response.headers["content-type"].startswith("text/html")
         # A stale forwarded cloud cookie must not override the shell identity.
-        assert client.get(f"/files/{fid}?inline=1", headers={**headers, "Cookie":"jx_session=expired-cloud-cookie"}).status_code == 200
+        assert (
+            client.get(
+                f"/files/{fid}?inline=1",
+                headers={**headers, "Cookie": "jx_session=expired-cloud-cookie"},
+            ).status_code
+            == 200
+        )
         assert client.get(f"/files/{fid}?inline=1").status_code == 401
         bad_headers = {**headers, "x-desktop-bridge": "wrong"}
         assert client.get(f"/files/{fid}?inline=1", headers=bad_headers).status_code == 401
-        other_headers = {**headers, "x-desktop-bridge-user": base64.b64encode(json.dumps({
-            "user_center_id": "another-cloud-user", "username": "Other user",
-        }).encode()).decode()}
+        other_headers = {
+            **headers,
+            "x-desktop-bridge-user": base64.b64encode(
+                json.dumps(
+                    {
+                        "user_center_id": "another-cloud-user",
+                        "username": "Other user",
+                    }
+                ).encode()
+            ).decode(),
+        }
         assert client.get(f"/files/{fid}?inline=1", headers=other_headers).status_code == 403
 
         monkeypatch.delenv("HUGAGENT_DESKTOP_BRIDGE_SECRET")
@@ -481,7 +407,9 @@ def test_pin_session_file_without_export(local_project, monkeypatch, tmp_path, b
     assert source.exists()
 
 
-@pytest.mark.parametrize("case", ["missing", "directory", "other-session", "symlink", "too-large", "cloud"])
+@pytest.mark.parametrize(
+    "case", ["missing", "directory", "other-session", "symlink", "too-large", "cloud"]
+)
 def test_path_delivery_rejects_invalid_sources(local_project, monkeypatch, tmp_path, case):
     from dataclasses import replace
     from core.llm.tools import _paths
@@ -509,15 +437,16 @@ def test_path_delivery_rejects_invalid_sources(local_project, monkeypatch, tmp_p
     elif case == "too-large":
         source.write_text("oversized")
         monkeypatch.setattr(
-            importlib.import_module("core.config.settings"), "settings",
+            importlib.import_module("core.config.settings"),
+            "settings",
             replace(settings, sandbox=replace(settings.sandbox, artifact_max_bytes=3)),
         )
     elif case == "cloud":
         source.write_text("cloud")
         monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
-    result = json.loads(asyncio.run(
-        pin_tool(None, session_id="pin-chat")(file_paths=[str(source)])
-    ).content[0].text)
+    result = json.loads(
+        asyncio.run(pin_tool(None, session_id="pin-chat")(file_paths=[str(source)])).content[0].text
+    )
     assert result["ok"] is False, result
     assert result["pinned"] == [] and len(result["failed"]) == 1
     assert workspace.get_pinned() == []
@@ -534,78 +463,13 @@ def test_session_relative_delivery_reports_partial_failure(local_project, monkey
     add_grant(str(root))
     source = root / "output.txt"
     source.write_text("delivered")
-    result = json.loads(asyncio.run(
-        pin_tool(None, session_id="pin-chat")(file_paths=["output.txt", "missing.txt"])
-    ).content[0].text)
+    result = json.loads(
+        asyncio.run(pin_tool(None, session_id="pin-chat")(file_paths=["output.txt", "missing.txt"]))
+        .content[0]
+        .text
+    )
     assert result["ok"] is True and len(result["pinned"]) == 1
     assert len(result["failed"]) == 1
     source.unlink()
     item = get_artifact(result["pinned"][0]["file_id"])
     assert Path(item["path"]).read_text() == "delivered"
-
-
-def test_session_delivery_deduplicates_retries_but_keeps_changed_content(local_project, monkeypatch, tmp_path):
-    from core.llm.tools import _paths
-    from core.services.local_grant_service import add_grant
-
-    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
-    root = Path(_paths.workspace_directory("pin-chat"))
-    root.mkdir(parents=True)
-    add_grant(str(root))
-    source = root / "output.txt"
-    source.write_text("first")
-    pin = pin_tool(None, session_id="pin-chat")
-    first = json.loads(asyncio.run(pin(file_paths=[str(source), str(source)])).content[0].text)
-    assert first["pinned_count"] == 1
-    retry = json.loads(asyncio.run(pin(file_paths=[str(source)])).content[0].text)
-    assert retry["pinned"][0]["already_pinned"] is True
-    assert retry["pinned_count"] == 1
-    source.write_text("second")
-    changed = json.loads(asyncio.run(pin(file_paths=[str(source)])).content[0].text)
-    assert changed["pinned_count"] == 2
-    assert changed["pinned"][0]["file_id"] != first["pinned"][0]["file_id"]
-
-
-def test_design_picker_accepts_local_images_without_pinning(local_project, monkeypatch, tmp_path):
-    from core.llm.tools import _paths, _myspace_confirm
-    from core.llm.tools.design_picker_tool import register_choose_design
-    from core.services.local_grant_service import add_grant
-    from core.llm.tool_permissions import (
-        ToolPermissionRegistry, ToolPermissionService, PermissionRuntime, CURRENT_PERMISSION_TICKET,
-    )
-    from core.artifacts.store import get_artifact
-
-    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
-    root = Path(_paths.workspace_directory("pin-chat"))
-    root.mkdir(parents=True)
-    add_grant(str(root))
-    from PIL import Image
-    options = []
-    for name, color in [("a", "red"), ("b", "blue")]:
-        source = root / (name + ".png")
-        Image.new("RGB", (2, 2), color).save(source)
-        options.append({"id": name, "title": name, "image_path": str(source)})
-    async def choose(**kwargs):
-        for option in kwargs["options"]:
-            assert get_artifact(option["image_file_id"])["mime_type"] == "image/png"
-        return {"status": "chosen", "option_id": "b"}
-    monkeypatch.setattr(_myspace_confirm, "pick", choose)
-    collector = ToolCollector()
-    register_choose_design(collector, chat_id="pin-chat", user_id="pin-user")
-    registry = ToolPermissionRegistry()
-    registry.register("choose_design", collector.permission_specs["choose_design"], source="test")
-    service = ToolPermissionService(registry, PermissionRuntime(
-        chat_id="pin-chat", user_id="pin-user", interactive=False, approval_available=False,
-    ))
-    async def invoke():
-        args = {"question": "Select", "options": options}
-        outcome = await service.authorize(SimpleNamespace(name="choose_design", id="pick-call", input=args))
-        assert outcome.proceed
-        token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
-        try:
-            return await collector.get_tool("choose_design")._func(**args)
-        finally:
-            CURRENT_PERMISSION_TICKET.reset(token)
-    result = json.loads(asyncio.run(invoke()).content[0].text)
-    assert result["ok"] and result["selected_id"] == "b"
-    assert workspace.get_pinned() == []

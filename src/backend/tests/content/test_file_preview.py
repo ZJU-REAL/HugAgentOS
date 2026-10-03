@@ -68,6 +68,10 @@ def test_preview_file_returns_inline_pdf_for_powerpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(file_routes, "_prepare_local_file", lambda **kwargs: str(tmp_path / "deck.pptx"))
     monkeypatch.setattr(file_routes, "_convert_office_to_pdf", lambda source_path, file_id: (str(pdf_path), str(temp_dir)))
 
+    (tmp_path / 'deck.pptx').write_bytes(b'synthetic unique preview cache source')
+    from core.content.office_preview_cache import cached_office_pdf
+    monkeypatch.setattr(file_routes, "cached_office_pdf", lambda source, fid, convert:
+        cached_office_pdf(source, fid, convert, root=tmp_path / "cache", version="test"))
     background_tasks = BackgroundTasks()
     response = file_routes.preview_file(
         file_id="ppt_1",
@@ -78,7 +82,7 @@ def test_preview_file_returns_inline_pdf_for_powerpoint(monkeypatch, tmp_path):
     )
 
     assert response.media_type == "application/pdf"
-    assert response.path == str(pdf_path)
+    assert Path(response.path).read_bytes() == b"%PDF-1.4\n"
     assert response.filename == "季度汇报.pdf"
     assert len(background_tasks.tasks) == 1
 

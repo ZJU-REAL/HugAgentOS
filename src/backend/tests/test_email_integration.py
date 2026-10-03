@@ -275,7 +275,7 @@ def test_email_plugin_installable(db):
     connection so the frontend renders the account-connection panel on the plugin
     detail page."""
     from core.db.models import AdminSkill
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     items = ps.list_plugins(db, owner_user_id="u1")
     em = next((it for it in items if it["slug"] == "email"), None)

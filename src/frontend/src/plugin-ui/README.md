@@ -12,7 +12,7 @@
 plugin-ui/
 ├── README.md            ← 本文件：素材清单 + 如何扩展
 ├── index.ts             ← 对外出口（宿主只从这里 import）
-├── types.ts             ← 契约类型，与后端 core/services/plugin_ui_contract.py 一一对应
+├── types.ts             ← 契约类型，与后端 core/plugins/ui/contract.py 一一对应
 ├── pointer.ts           ← 受限 pointer 求值器（白名单解析，无 eval）
 ├── i18n.ts              ← 贡献文案解析（字符串或 {zh-CN, en} 映射）
 ├── registry.ts          ← ★ view kind → 组件 的唯一注册表
@@ -60,7 +60,7 @@ plugin-ui/
    只读 `map` 指定的字段（用 `pointer.ts` 的 `readText` / `readRecords` 等），
    要触发动作就调 `ctx.runAction`——**不要自己发请求**，数据一律走 L1 代理。
 2. **登记**：在 `registry.ts` 的 `VIEW_REGISTRY` 里加一行。
-3. **放行**：在后端 `core/services/plugin_ui_contract.py` 的 `VIEW_KINDS` 里加上同名字符串，
+3. **放行**：在后端 `core/plugins/ui/contract.py` 的 `VIEW_KINDS` 里加上同名字符串，
    否则安装时会被当作未知类型丢弃（这是有意的：拼错的 view 名会出现在导入报告里，
    而不是运行时变成一张空卡片）。
 

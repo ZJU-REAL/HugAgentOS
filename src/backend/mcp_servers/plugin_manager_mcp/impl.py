@@ -63,7 +63,7 @@ def search_plugin_market(*, user_id: str, query: str = "", category: str = "") -
     if not user_id:
         return _no_user()
     from core.db.engine import SessionLocal
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     q = (query or "").strip().lower()
     cat = (category or "").strip()
@@ -109,7 +109,7 @@ def get_plugin_info(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not slug:
         return {"ok": False, "message": "❌ 请提供插件 slug。"}
     from core.db.engine import SessionLocal
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     with SessionLocal() as db:
         detail = None
@@ -168,7 +168,7 @@ def install_plugin(
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的插件 slug。"}
     from core.db.engine import SessionLocal
-    from core.services import plugin_service
+    from core.plugins import management as plugin_service
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_import_plugin")

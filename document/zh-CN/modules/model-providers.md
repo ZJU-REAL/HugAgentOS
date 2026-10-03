@@ -182,7 +182,7 @@ token 用量在流式收尾的 `meta.usage` 中统计（`orchestration/streaming
 | 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`，`core/services/api_key_service.py`，`core/auth/backend.py` |
 | 用量日志 / 计费 | `src/backend/api/routes/v1/admin_usage_logs.py`，`api/routes/v1/admin_billing.py` |
 | 路由策略 | `src/backend/orchestration/strategy.py` |
-| 主模型缺失快速失败 | `src/backend/api/routes/v1/chats.py::_ensure_main_model_configured` |
+| 主模型缺失快速失败 | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ## 模型专属思考档位
 

@@ -19,14 +19,20 @@ export function CapabilitySyncGate() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    let fingerprint = '';
+    let delay = 700;
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       if (!active) return;
       if (identityReady) {
         try {
-          const next = await desktopCapabilityRequest<CapabilitySyncStatus>('sync-status');
+          const next = await desktopCapabilityRequest<CapabilitySyncStatus>('sync-status', 'GET', controller.signal);
           if (!active) return;
-          setStatus(next);
+          const key = JSON.stringify(next);
+          delay = key === fingerprint ? Math.min(5000, delay * 1.5) : 700;
+          if (key !== fingerprint) setStatus(next);
+          fingerprint = key;
           setRequestError(null);
           if (next.ready && modelsReady && runtimeReady) {
             useDeploymentModeStore.setState({ capabilityGateOpen: false, partialCapabilities: next.partial });
@@ -34,12 +40,13 @@ export function CapabilitySyncGate() {
           }
         } catch (error) {
           if (active) setRequestError(error instanceof Error ? error.message : '无法读取同步进度');
+          delay = Math.min(5000, delay * 1.5);
         }
       }
-      if (active) timer = setTimeout(poll, 700);
+      if (active) timer = setTimeout(poll, delay);
     }
     void poll();
-    return () => { active = false; clearTimeout(timer); };
+    return () => { active = false; controller.abort(); clearTimeout(timer); };
   }, [identityReady, modelsReady, runtimeReady]);
 
   // 本机服务自己没起来时，它的状态才是真原因；等待期间不算失败，只报进度。

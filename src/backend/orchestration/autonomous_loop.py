@@ -410,7 +410,7 @@ async def _run_worker_iteration(
     user-selected **project folder** (where the site source lives) — changes land in the real
     project and publish_site can locate the site by conversation, no longer an isolated draft.
     """
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 

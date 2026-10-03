@@ -78,7 +78,7 @@
 
 ## 注入机制：技能如何进入提示词
 
-技能注册发生在 `core/llm/agent_factory.py` 构建智能体时，按 [catalog](catalog.md) 的 `skills` 段与用户/子智能体配置决定启用集合（私有技能会按 `owner_user_id` 过滤防越权），然后逐个调用 AgentScope 的 `toolkit.register_agent_skill(skill_dir)`。AgentScope 会在系统提示词里生成技能清单，每项含名称、描述和 `{dir}` 目录路径。
+技能注册发生在 `core/llm/factory/build.py` 构建智能体时，按 [catalog](catalog.md) 的 `skills` 段与用户/子智能体配置决定启用集合（私有技能会按 `owner_user_id` 过滤防越权），然后逐个调用 AgentScope 的 `toolkit.register_agent_skill(skill_dir)`。AgentScope 会在系统提示词里生成技能清单，每项含名称、描述和 `{dir}` 目录路径。
 
 这里有一个关键的路径重定向（`loader._repoint_skill_dir_to_sandbox`）：注册时传入的是**后端物理路径**（内置技能在源码树、DB 技能物化在 `/app/storage/sandbox_skills/<id>`），但模型实际执行脚本的地方是**沙箱**，技能在沙箱里的统一路径是 `/workspace/skills/<id>`。因此注册后立即把提示词可见的 `dir` 改写为沙箱路径——否则模型会拿后端路径去调 bash，被路径校验拒绝。
 
@@ -138,7 +138,7 @@
 - **范围**：主对话链路 + 子智能体。子智能体绑定的插件同样延迟加载，但激活只在该次运行内生效、不落库（子智能体运行短暂且相互隔离，落到父会话的键上会把激活泄漏进主智能体装配）；收窄模式（对话模式）圈定的插件保持全量装配（那是管理员的显式圈定）；组件含 stdio 形态 MCP 的插件不延迟。
 - **开关**：环境变量 `PLUGIN_PROGRESSIVE_LOADING=false` 可整体回退到全量装配。
 
-实现：`core/llm/plugin_loader.py`（延迟解析 / 目录渲染 / 激活工具）+ `core/llm/agent_factory.py` 装配接入。
+实现：`core/plugins/runtime/__init__.py`（延迟解析 / 目录渲染 / 激活工具）+ `core/llm/factory/build.py` 装配接入。
 
 ## 技能市场（Skill Marketplace）
 

@@ -1,9 +1,8 @@
 //! Native event-loop regression. Uses an isolated HTTP page and no user service/data.
-use crate::{auth, device_login, hybrid, local_server, Shared};
+use crate::{device_login, local_server, Shared};
 use std::sync::{atomic::AtomicU64, mpsc, Arc};
 use std::time::Duration;
 use tauri::Manager;
-use tokio::sync::RwLock;
 
 #[test]
 #[ignore = "requires a native desktop session; run alone with an external timeout"]
@@ -68,6 +67,7 @@ fn native_new_window_loads_from_menu_navigation() {
             }
         })
         .setup(move |app| {
+            app.manage(crate::window_events::WindowNavigation(crate::navigation::handle_navigation));
             let http = reqwest::Client::new();
             let local_server = local_server::LocalServerManager::new(
                 config_dir.join("local-server"), config_dir.join("data"),
@@ -77,20 +77,17 @@ fn native_new_window_loads_from_menu_navigation() {
             app.manage(Shared {
                 server_base: format!("http://127.0.0.1:{port}"),
                 update_base: format!("http://127.0.0.1:{port}"),
-                token: Arc::new(RwLock::new(None)),
+                session: Arc::new(crate::session_state::SessionState::new(None)),
                 http, port, config_dir,
                 ui_zoom: AtomicU64::new(1.0_f64.to_bits()),
                 local_server, cookie_name: "test_session".into(), hybrid_local: false,
                 bridge_secret: String::new(),
-                bridge_user: Arc::new(RwLock::new(None)),
-                bridge_sync: Arc::new(RwLock::new(hybrid::BridgeSync::default())),
-                session_epoch: Arc::new(auth::SessionEpoch::default()),
                 device_id: "test-device".into(),
                 device_login: Arc::new(device_login::Login::default()),
             });
             // Initial construction is legal in setup; subsequent windows must come
             // through the real navigation -> menu dispatch -> window factory path.
-            crate::build_window(app.handle(), "main", &format!("http://127.0.0.1:{port}/"))?;
+            crate::windows::build_window(app.handle(), "main", &format!("http://127.0.0.1:{port}/"))?;
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let check = (|| -> Result<(), String> {

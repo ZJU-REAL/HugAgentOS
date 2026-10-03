@@ -16,26 +16,23 @@ is triggered by the ``/stream`` endpoint here.
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import asyncio
 import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
-from api.schemas import ChatRequest
 from api.routes.v1.chat_admission import chat_busy_http_exception
+from api.schemas import ChatRequest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import BatchPlan, ChatMessage
-from core.infra.responses import success_response, sse_response
+from core.infra.responses import sse_response, success_response
+from core.infra.time import utc_now
+from fastapi import APIRouter, Depends, HTTPException
 from orchestration.batch_orchestrator import BatchOrchestrator, cancel_running_task
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -265,17 +262,13 @@ async def cancel_and_resume(
     """
     # Lazy imports — these helpers live in chats.py and pull in heavy
     # session/message infrastructure, so we keep them out of module init.
-    from api.routes.v1.chats import (
-        _build_ctx,
-        _build_effective_user_message,
-        _ensure_main_model_configured,
-        _load_session_messages,
-        _restore_attachments,
-        _authenticated_user_id,
-    )
+    from api.routes.v1.chats.request_context import _build_ctx
+    from api.routes.v1.chats.rerun_metadata import _restore_attachments
+    from api.routes.v1.chats.session_context import _authenticated_user_id, _ensure_main_model_configured, _load_session_messages
+    from core.chat.context import build_effective_user_message as _build_effective_user_message
+    from core.chat.context import resolve_db_user_id, resolve_enabled_capabilities
     from core.services import ChatService, UserService
     from core.services.chat_reference_service import render_reference_block
-    from core.chat.context import resolve_enabled_capabilities, resolve_db_user_id
     from orchestration import chat_run_executor
 
     _ensure_main_model_configured()
@@ -381,7 +374,7 @@ async def cancel_and_resume(
         session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
 
         # Use the modern chat_run_executor pipeline so:
-        #   • the run is registered in `chat_runs` (visible as "in progress")
+        #   • the run is registered in `chat_run_views` (visible as "in progress")
         #   • the orchestration task survives client disconnect (refresh resumes)
         #   • thinking events flow through the same Redis-backed stream that
         #     processRegenerateStream knows how to render

@@ -22,6 +22,12 @@ impl SessionEpoch {
     pub fn advance(&self) -> u64 {
         self.value.fetch_add(1, Ordering::SeqCst) + 1
     }
+    pub fn advance_if_current(&self, expected: u64) -> Option<u64> {
+        self.value
+            .compare_exchange(expected, expected + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| expected + 1)
+    }
     pub fn matches(&self, expected: u64) -> bool {
         self.current() == expected
     }
@@ -214,5 +220,17 @@ mod tests {
         drop(writing);
         let _cleanup = epoch.local_write.lock().await;
         assert!(!epoch.matches(old));
+    }
+    #[tokio::test]
+    async fn late_startup_check_cannot_invalidate_a_new_login() {
+        let epoch = SessionEpoch::default();
+        let startup = epoch.current();
+        let next = epoch.advance();
+        epoch.activate(next);
+        assert_eq!(epoch.advance_if_current(startup), None);
+        assert!(epoch.matches(next));
+        assert!(epoch.is_active());
+        assert_eq!(epoch.advance_if_current(next), Some(next + 1));
+        assert!(!epoch.is_active());
     }
 }

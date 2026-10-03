@@ -43,7 +43,7 @@ def _user_capability_configs(
                 return list(hit[1]), list(hit[2]), dict(hit[3])
 
     from core.config.catalog_resolver import resolve_all_runtime_enabled
-    from core.llm.agent_factory import _effective_mcp_server_keys
+    from core.llm.factory.tools.mcp_config import _effective_mcp_server_keys
     from core.services.mcp_service import McpServerConfigService
 
     svc = McpServerConfigService.get_instance()

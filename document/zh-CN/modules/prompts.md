@@ -6,7 +6,7 @@ HugAgentOS 的系统提示词不是写死的字符串，而是一套**DB 优先�
 
 ## 装配机制（prompts/prompt_runtime.py）
 
-`build_system_prompt(config, ctx)` 是主智能体系统提示词的唯一入口，由 `core/llm/agent_factory.py` 在每次建 agent 时调用。装配优先级：
+`build_system_prompt(config, ctx)` 是主智能体系统提示词的唯一入口，由 `core/llm/factory/build.py` 在每次建 agent 时调用。装配优先级：
 
 ```
 1. 版本池激活版本           ContentBlock(id="prompt_versions") 中 kind="system" 的 active 版本

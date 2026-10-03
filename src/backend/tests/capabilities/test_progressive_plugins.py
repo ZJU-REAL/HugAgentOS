@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 import pytest
 from core.capabilities import plugins, skills, runtime
-from core.llm import plugin_loader
+from core.plugins import runtime as plugin_loader
 from core.services.desktop_capability_protocol import skill_content_hash
 from core.llm.tool_collector import ToolCollector
 

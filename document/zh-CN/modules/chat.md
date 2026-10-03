@@ -48,7 +48,7 @@ orchestration/chat_run_executor.py::start_run()
 orchestration/workflow.py::astream_chat_workflow()
    │   ├─ orchestration/memory_integration.py  非阻塞记忆检索（后台 task + 预算超时）
    │   ├─ core/config/catalog_resolver.py      解析本次启用的 skills/mcp/kb
-   │   ├─ core/llm/agent_factory.py::create_agent_executor()
+   │   ├─ core/llm/factory/build.py::create_agent_executor()
    │   │     MCP 连接池 + 技能注册 + 文件工具 + 系统提示词 + 中间件 → Agent
    │   ├─ core/llm/context_manager.py          历史按 token 预算裁剪
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
@@ -109,7 +109,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 **桌面端沿用同一档，不再另存一份权限档。** 原来的「本机操作权限档」（严格 / 标准 / 放开，存本机 `local_grants.json`，接口 `/v1/local/approval-mode`）已整体删除；本机执行策略改由 `core/services/local_grant_service.policy_for_gate(approval_mode)` 按本档位翻译：`full` 全部放行，`ask` / `auto` 走用户配置的分类处置与内置默认。OS 文件沙箱约束同样按档位声明（`LOCAL_CONFINEMENT_BY_MODE`）：`ask` / `auto` 优先约束、缺执行器时降级告警，`full` 显式不约束，读不出本机安全配置时落到 `FAIL_CLOSED_MODE` 这个记号档、要求强制隔离。桌面端仍保留的「授权目录 / 危险命令分类处置」（`/v1/local/grants`、`/v1/local/policy`）管的是"本机哪些目录能动"，与档位是两件事，入口仍在胶囊底部。
 
-### Agent 构建要点（core/llm/agent_factory.py）
+### Agent 构建要点（core/llm/factory/build.py）
 
 `create_agent_executor()` 是所有模式（主对话、计划、批量、子智能体、自动化）共用的工厂：
 
@@ -352,12 +352,12 @@ framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.
 
 | 主题 | 路径 |
 |---|---|
-| 聊天路由 / SSE 出口 | `src/backend/api/routes/v1/chats.py` |
+| 聊天路由 / SSE 出口 | `src/backend/api/routes/v1/chats/__init__.py` |
 | Run 解耦 / Redis Stream / 续播 | `src/backend/orchestration/chat_run_executor.py`，`api/routes/v1/chat_runs.py` |
 | 流式编排主流程 | `src/backend/orchestration/workflow.py` |
 | 事件映射（reply_stream → SSE） | `src/backend/orchestration/streaming.py` |
 | 运行时上下文装配 | `src/backend/core/chat/context.py` |
-| Agent 工厂 | `src/backend/core/llm/agent_factory.py` |
+| Agent 工厂 | `src/backend/core/llm/factory/build.py` |
 | 中间件 | `src/backend/core/llm/middlewares.py`（纯函数 helper 在 `core/llm/hooks.py`） |
 | 引用抽取 | `src/backend/orchestration/citations.py` |
 | 跨会话引用（名片 / 摘要 / 分页） | `src/backend/core/services/chat_reference_service.py` |

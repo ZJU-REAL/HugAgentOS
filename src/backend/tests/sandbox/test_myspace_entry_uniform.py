@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("provider_database")
+
 _SERVICES = Path(__file__).resolve().parents[2] / "services"
 if str(_SERVICES) not in sys.path:
     sys.path.insert(0, str(_SERVICES))
@@ -64,7 +66,7 @@ def test_cube_command_creates_the_symlink_inline(monkeypatch):
     """Observe the SDK command at the provider boundary, independent of helper layout."""
     import asyncio
     from unittest.mock import AsyncMock
-    from .test_sandbox_provider import _install_fake_e2b, _fake_sbx, _reload_cube, _bash_req
+    from .provider_test_support import _install_fake_e2b, _fake_sbx, _reload_cube, _bash_req
 
     sdk, _, _ = _install_fake_e2b(monkeypatch)
     sandbox = _fake_sbx(stdout="ok", exit_code=0)

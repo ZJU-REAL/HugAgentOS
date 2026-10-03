@@ -228,7 +228,7 @@ def _run_subagent_in_thread(
     async def _inner() -> str:
         from agentscope.message import Msg
         from core.db.engine import SessionLocal
-        from core.llm.agent_factory import create_agent_executor
+        from core.llm.factory import create_agent_executor
         from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
         from core.llm.mcp_manager import close_clients
         from core.llm.message_compat import (

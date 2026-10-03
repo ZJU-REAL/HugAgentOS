@@ -208,7 +208,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 |---|---|
 | 应用入口与启动钩子 | `src/backend/api/app.py` |
 | 路由注册表 | `src/backend/api/routes/v1/__init__.py` |
-| 智能体工厂 | `src/backend/core/llm/agent_factory.py` |
+| 智能体工厂 | `src/backend/core/llm/factory/build.py` |
 | Run 执行器 / 工作流 | `src/backend/orchestration/chat_run_executor.py`、`workflow.py` |
 | 能力目录 | `src/backend/core/config/catalog.py` |
 | 沙箱协议 | `src/backend/core/sandbox/protocol.py` |

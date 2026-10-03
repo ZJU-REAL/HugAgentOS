@@ -51,7 +51,7 @@ def plugin_ui_contributions(user_id=None) -> List[Dict[str, Any]]:
     """
     if not capabilities_enabled():
         return []
-    from core.services.plugin_ui_contract import public_contributions
+    from core.plugins.ui.contract import public_contributions
 
     from . import plugins as caps_plugins, store
 
@@ -83,7 +83,7 @@ def _projected_plugin(install_id_or_slug: str, user_id=None):
 
 
 def _component_skill(profile: str, skill_id: str) -> Optional[Dict[str, Any]]:
-    from core.config.catalog_loader import skill_body_from_raw
+    from core.config.catalog_details import skill_body_from_raw
 
     from . import registry
 

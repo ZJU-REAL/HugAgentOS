@@ -90,7 +90,7 @@ import core.db.models
 from agentscope.message import UserMsg
 from core.db.engine import Base, engine, SessionLocal
 from core.db.model_repository import create_provider, assign_role, unassign_role, update_provider
-from core.llm.agent_factory import create_agent_executor
+from core.llm.factory import create_agent_executor
 from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
 
 Base.metadata.create_all(engine)
@@ -167,7 +167,8 @@ async def run():
         assert agent.state.model_name != "user-selected"
     if scenario == "timeout_only":
         primary = getattr(agent.model, "_primary", agent.model)
-        assert primary._http_client.timeout.read == 7
+        # The transport contract deliberately normalizes legacy agent timeouts.
+        assert primary._http_client.timeout.read == 600
     result = await agent.reply(UserMsg(name="user", content="Reply done"))
     assert result.get_text_content() == "done"
     expected = ("shared-child" if scenario.startswith("shared") else

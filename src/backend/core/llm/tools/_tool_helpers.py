@@ -127,21 +127,6 @@ def _store_generated_file_path(
     }
 
 
-def _summarize_generated_files(files_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Strip binary payloads before exposing file metadata to the model/frontend."""
-    summaries: list[dict[str, Any]] = []
-    for fd in files_data or []:
-        name = str(fd.get("name", "")).strip()
-        if not name:
-            continue
-        summaries.append(
-            {
-                "name": name,
-                "mime_type": str(fd.get("mime_type", "application/octet-stream")),
-                "size": int(fd.get("size", 0) or 0),
-            }
-        )
-    return summaries
 
 
 MAX_ARTIFACT_FILE_SIZE = settings.sandbox.artifact_max_bytes

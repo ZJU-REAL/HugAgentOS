@@ -64,7 +64,7 @@ def _stash_artifact(tar_bytes: bytes) -> str:
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(sm_env):
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     with sm_env.Session() as db:
         res = ps.install_plugin(db, "skill-manager", owner_user_id=OWNER, created_by=OWNER)

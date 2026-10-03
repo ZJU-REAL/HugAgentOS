@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 import core.db.models  # noqa: F401  ensure all models are registered (FK depends on users_shadow)
-from core.db.models import UserShadow, DingTalkConnection, AdminSkill
+from core.db.models import UserShadow, AdminSkill
 from core.db.repository import DingTalkConnectionRepository
 from core.services.dingtalk_service import (
     parse_device_login_output,
@@ -23,16 +23,20 @@ from core.services.dingtalk_service import (
 # agentscope is absent locally — they run normally inside the container (the real test environment).
 try:
     from core.llm.tools.sandbox_tool import _detect_dws_pat_authorization
+
     _HAS_SANDBOX_TOOL = True
 except ModuleNotFoundError:
     _HAS_SANDBOX_TOOL = False
 
 
 @pytest.fixture
-def db():
+def db(monkeypatch):
+    monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
-    s = sessionmaker(bind=eng)()
+    sessions = sessionmaker(bind=eng)
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
+    s = sessions()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()
     yield s
@@ -70,45 +74,84 @@ def test_parse_device_login_empty():
 
 
 # ── auth status / get-self ────────────────────────────────────────────────
-@pytest.mark.parametrize("blob,expect", [
-    ('{"success":true,"authenticated":true}', True),
-    ('{"authenticated":false,"message":"未登录"}', False),
-    ('not json at all', False),
-    ('', False),
-    ('[1,2,3]', False),
-])
+@pytest.mark.parametrize(
+    "blob,expect",
+    [
+        ('{"success":true,"authenticated":true}', True),
+        ('{"authenticated":false,"message":"未登录"}', False),
+        ("not json at all", False),
+        ("", False),
+        ("[1,2,3]", False),
+    ],
+)
 def test_parse_auth_status(blob, expect):
     assert parse_auth_status(blob) is expect
 
 
 def test_parse_get_self_nested():
-    blob = json.dumps({"result": [{"orgEmployeeModel": {
-        "orgUserName": "张三", "userId": "u12345", "corpId": "ding9988"}}]})
+    blob = json.dumps(
+        {
+            "result": [
+                {
+                    "orgEmployeeModel": {
+                        "orgUserName": "张三",
+                        "userId": "u12345",
+                        "corpId": "ding9988",
+                    }
+                }
+            ]
+        }
+    )
     out = parse_get_self(blob)
     assert out == {"dingtalk_user_id": "u12345", "dingtalk_name": "张三", "corp_id": "ding9988"}
 
 
 def test_parse_get_self_garbage():
     assert parse_get_self("oops") == {
-        "dingtalk_user_id": None, "dingtalk_name": None, "corp_id": None}
+        "dingtalk_user_id": None,
+        "dingtalk_name": None,
+        "corp_id": None,
+    }
 
 
 # ── verify_and_refresh: verdict via real API probing (does not trust local auth status) ──
 @pytest.mark.asyncio
-@pytest.mark.parametrize("out,rc,expect", [
-    # Identity fetched successfully → valid (this call also makes the backend HOME refresh + rotate in place)
-    (json.dumps({"result": [{"orgEmployeeModel": {"orgUserName": "张三", "userId": "u1"}}]}), 0, "valid"),
-    # Explicit auth failure (category=auth / reason=not_authenticated) → invalid
-    (json.dumps({"error": {"category": "auth", "reason": "not_authenticated",
-                           "message": "未登录，请先执行 dws auth login"}}), 1, "invalid"),
-    # reason matches the failure set but category is missing → still invalid
-    (json.dumps({"error": {"reason": "token_expired"}}), 1, "invalid"),
-    # Non-auth errors (rate limiting / server-side 5xx) → unknown, no conclusion drawn
-    (json.dumps({"error": {"category": "rate_limit", "reason": "too_many_requests"}}), 1, "unknown"),
-    # Unparsable / empty output / dws missing → unknown
-    ("not json", 0, "unknown"),
-    ("", 124, "unknown"),
-])
+@pytest.mark.parametrize(
+    "out,rc,expect",
+    [
+        # Identity fetched successfully → valid (this call also makes the backend HOME refresh + rotate in place)
+        (
+            json.dumps({"result": [{"orgEmployeeModel": {"orgUserName": "张三", "userId": "u1"}}]}),
+            0,
+            "valid",
+        ),
+        # Explicit auth failure (category=auth / reason=not_authenticated) → invalid
+        (
+            json.dumps(
+                {
+                    "error": {
+                        "category": "auth",
+                        "reason": "not_authenticated",
+                        "message": "未登录，请先执行 dws auth login",
+                    }
+                }
+            ),
+            1,
+            "invalid",
+        ),
+        # reason matches the failure set but category is missing → still invalid
+        (json.dumps({"error": {"reason": "token_expired"}}), 1, "invalid"),
+        # Non-auth errors (rate limiting / server-side 5xx) → unknown, no conclusion drawn
+        (
+            json.dumps({"error": {"category": "rate_limit", "reason": "too_many_requests"}}),
+            1,
+            "unknown",
+        ),
+        # Unparsable / empty output / dws missing → unknown
+        ("not json", 0, "unknown"),
+        ("", 124, "unknown"),
+    ],
+)
 async def test_verify_and_refresh_verdict(monkeypatch, out, rc, expect):
     import core.services.dingtalk_service as ds
 
@@ -124,8 +167,9 @@ def test_mark_login_expired_sets_disconnected(monkeypatch):
     import core.services.dingtalk_service as ds
 
     captured = {}
-    monkeypatch.setattr(ds, "_update_connection",
-                        lambda user_id, data: captured.update(user_id=user_id, data=data))
+    monkeypatch.setattr(
+        ds, "_update_connection", lambda user_id, data: captured.update(user_id=user_id, data=data)
+    )
     ds.mark_login_expired("u1")
     assert captured["user_id"] == "u1"
     assert captured["data"]["status"] == "disconnected"
@@ -136,7 +180,10 @@ def test_mark_login_expired_sets_disconnected(monkeypatch):
 @pytest.mark.skipif(not _HAS_SANDBOX_TOOL, reason="agentscope 未安装（仅容器内测）")
 def test_detect_pat_from_stderr():
     pat = _detect_dws_pat_authorization(
-        4, "", "权限不足\nPAT_AUTHORIZATION_URL=https://open-dev.dingtalk.com/auth?x=1&userCode=ABC\n")
+        4,
+        "",
+        "权限不足\nPAT_AUTHORIZATION_URL=https://open-dev.dingtalk.com/auth?x=1&userCode=ABC\n",
+    )
     assert pat is not None
     assert pat["authorization_url"] == "https://open-dev.dingtalk.com/auth?x=1&userCode=ABC"
     assert pat["reason"] == "dingtalk_pat_consent_required"
@@ -151,6 +198,7 @@ def test_detect_pat_none_when_absent():
 # ── Settings ──────────────────────────────────────────────────────────────
 def test_settings_dws_arch_flag():
     from core.config.settings import settings
+
     # bind-mount is an architecture switch, kept in settings; client_id/secret moved to the Config platform DB configuration
     assert settings.sandbox.dws_creds_bind_mount_enabled is True
 
@@ -158,6 +206,7 @@ def test_settings_dws_arch_flag():
 def test_dingtalk_seeded_in_system_configs():
     # Custom App credentials go through system-config dingtalk.* keys (configured visually in the Config admin platform, not in .env)
     from core.services.system_config import SEED_CONFIGS
+
     keys = {row[0] for row in SEED_CONFIGS}
     assert {"dingtalk.client_id", "dingtalk.client_secret", "dingtalk.trusted_domains"} <= keys
     # client_id/secret must be marked secret (masked in API responses)
@@ -167,20 +216,34 @@ def test_dingtalk_seeded_in_system_configs():
 
 
 # ── Credential-volume degradation ─────────────────────────────────────────
-def test_creds_volume_degrades_without_host_storage():
+def test_creds_volume_degrades_without_host_storage(monkeypatch):
+    from dataclasses import replace
+    from core.sandbox import _opensandbox_internals as runtime
+
+    monkeypatch.setattr(
+        runtime,
+        "settings",
+        replace(
+            runtime.settings,
+            sandbox=replace(runtime.settings.sandbox, opensandbox_host_storage_path=""),
+        ),
+    )
     from core.sandbox._opensandbox_internals import _make_dws_creds_volumes
+
     # No local HOST_STORAGE_PATH → quietly return an empty list (sandbox still created, just without the credential volume)
     assert _make_dws_creds_volumes("u1") == []
 
 
 def test_creds_volume_rejects_bad_user_id():
     from core.sandbox._opensandbox_internals import _make_dws_creds_volumes
+
     assert _make_dws_creds_volumes("") == []
     assert _make_dws_creds_volumes("../etc/passwd") == []
 
 
 def test_dws_cache_dir_path():
     from core.sandbox._common import dws_cache_dir
+
     p = dws_cache_dir("u_abc")
     assert p.name == "u_abc"
     assert p.parent.name == "dws_cache"
@@ -202,6 +265,7 @@ def test_connection_repo_ensure_and_update(db):
 
 def test_connection_status_dict(db):
     from core.services.dingtalk_service import DingTalkService
+
     svc = DingTalkService(db)
     data = svc.get_status("u1")
     assert data["status"] == "disconnected"
@@ -213,15 +277,19 @@ def test_connection_status_dict(db):
 
 def test_status_dict_renders_qr_when_pending(db):
     from core.services.dingtalk_service import DingTalkService, make_qr_data_uri
+
     if make_qr_data_uri("https://x") is None:
         pytest.skip("segno 未安装（仅容器内测）")
     repo = DingTalkConnectionRepository(db)
     repo.ensure("u1")
-    repo.update("u1", {
-        "status": "pending",
-        "login_verification_url_complete": "https://login.dingtalk.com/d?user_code=AB-12",
-        "login_user_code": "AB-12",
-    })
+    repo.update(
+        "u1",
+        {
+            "status": "pending",
+            "login_verification_url_complete": "https://login.dingtalk.com/d?user_code=AB-12",
+            "login_user_code": "AB-12",
+        },
+    )
     data = DingTalkService(db).get_status("u1")
     assert data["status"] == "pending"
     assert (data["qr_data_uri"] or "").startswith("data:image/svg+xml")
@@ -234,19 +302,48 @@ def test_owned_private_skills_resolve_into_enabled(db):
     not just global skills."""
     from core.db.models import AdminSkill, AdminMcpServer
     from core.config.catalog_resolver import _owned_enabled_ids
+
     # This user's private skills: one enabled, one disabled
-    db.add(AdminSkill(skill_id="dingtalk-abc", skill_content="---\nname: x\ndescription: d\n---",
-                      display_name="钉钉", description="d", owner_user_id="u1", is_enabled=True))
-    db.add(AdminSkill(skill_id="disabled-skill", skill_content="---\nname: y\ndescription: d\n---",
-                      display_name="禁用", description="d", owner_user_id="u1", is_enabled=False))
+    db.add(
+        AdminSkill(
+            skill_id="dingtalk-abc",
+            skill_content="---\nname: x\ndescription: d\n---",
+            display_name="钉钉",
+            description="d",
+            owner_user_id="u1",
+            is_enabled=True,
+        )
+    )
+    db.add(
+        AdminSkill(
+            skill_id="disabled-skill",
+            skill_content="---\nname: y\ndescription: d\n---",
+            display_name="禁用",
+            description="d",
+            owner_user_id="u1",
+            is_enabled=False,
+        )
+    )
     # Another user's private skill (must never leak over)
-    db.add(AdminSkill(skill_id="other-user-skill", skill_content="---\nname: z\ndescription: d\n---",
-                      display_name="他人", description="d", owner_user_id="u2", is_enabled=True))
-    db.add(AdminMcpServer(server_id="my-mcp", display_name="MyMCP", owner_user_id="u1", is_enabled=True))
+    db.add(
+        AdminSkill(
+            skill_id="other-user-skill",
+            skill_content="---\nname: z\ndescription: d\n---",
+            display_name="他人",
+            description="d",
+            owner_user_id="u2",
+            is_enabled=True,
+        )
+    )
+    db.add(
+        AdminMcpServer(
+            server_id="my-mcp", display_name="MyMCP", owner_user_id="u1", is_enabled=True
+        )
+    )
     db.commit()
     skills, mcps = _owned_enabled_ids(db, "u1", {})
-    assert "dingtalk-abc" in skills          # enabled private skill enters the set
-    assert "disabled-skill" not in skills    # disabled ones do not
+    assert "dingtalk-abc" in skills  # enabled private skill enters the set
+    assert "disabled-skill" not in skills  # disabled ones do not
     assert "other-user-skill" not in skills  # multi-tenant isolation: other users' do not
     assert "my-mcp" in mcps
 
@@ -255,8 +352,17 @@ def test_owned_override_disables(db):
     """User turns a private skill off in the capability center (writes CatalogOverride enabled=false) → not in the set."""
     from core.db.models import AdminSkill
     from core.config.catalog_resolver import _owned_enabled_ids
-    db.add(AdminSkill(skill_id="dingtalk-abc", skill_content="---\nname: x\ndescription: d\n---",
-                      display_name="钉钉", description="d", owner_user_id="u1", is_enabled=True))
+
+    db.add(
+        AdminSkill(
+            skill_id="dingtalk-abc",
+            skill_content="---\nname: x\ndescription: d\n---",
+            display_name="钉钉",
+            description="d",
+            owner_user_id="u1",
+            is_enabled=True,
+        )
+    )
     db.commit()
     # Turn off via override
     skills, _ = _owned_enabled_ids(db, "u1", {"skills": [{"id": "dingtalk-abc", "enabled": False}]})
@@ -269,10 +375,8 @@ def test_skill_instruction_template_has_loop():
     Jinja2 skill loop, otherwise get_skill_instructions renders only the header and the
     skill list is entirely empty → no skill ever appears in the system prompt or triggers
     automatically (losing this loop once made all skills behave as if unloaded)."""
-    import pathlib
-    src = pathlib.Path(__file__).resolve().parents[1] / "core" / "llm" / "agent_factory.py"
-    text = src.read_text(encoding="utf-8")
-    assert "_SKILL_INSTRUCTION_TEMPLATE" in text
+    from core.llm.factory.defaults import _SKILL_INSTRUCTION_TEMPLATE as text
+
     assert "{% for skill in skills %}" in text, "技能清单 Jinja 循环缺失，技能区会渲染为空"
     assert "{{ skill.name }}" in text
 
@@ -284,7 +388,7 @@ def test_dingtalk_plugin_installable(db):
     references/scripts ported with the package → install lands as
     AdminSkill(source_plugin=dingtalk) → detail returns connection for the frontend to
     render the account-connection panel on the plugin detail page."""
-    from core.services import plugin_service as ps
+    from core.plugins import management as ps
 
     items = ps.list_plugins(db, owner_user_id="u1")
     dt = next((it for it in items if it["slug"] == "dingtalk"), None)

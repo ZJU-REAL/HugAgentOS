@@ -8,7 +8,7 @@ import pytest
 
 from core.capabilities.errors import CloudUnavailable
 from core.capabilities.ref import profile_id
-from core.memory import service
+from core.memory import backend as service
 from core.services import desktop_cloud_bridge as bridge
 from tests.capabilities.test_dynamic_model_epoch_cache import state
 

@@ -58,7 +58,8 @@ class ManagementTool(ToolBase):
             from core.services.local_skill_upload import upload
             return upload(user_id, **arguments)
         kind = MANAGERS[self.manager]
-        from core.services import local_skill_service, local_plugin_service
+        from core.services import local_skill_service
+        from core.plugins.local import service as local_plugin_service
         service = local_skill_service if kind == "skill" else local_plugin_service
         action = self.name.removesuffix("_" + kind)
         if self.name == "list_" + kind + "s":

@@ -240,10 +240,10 @@ interface ChatState {
    *  过去是 while(true) 把每一页都拉完再一次性渲染 —— 一个跑过大文件的长对话，
    *  光这一下就能把浏览器压垮。`nextPage` 是下一次要取的 desc 页码；`hasOlder`
    *  为 false 表示已经到最早的一条；`loading` 防止滚动抖动触发并发拉取。 */
-  messagePaging: Record<string, { nextPage: number; hasOlder: boolean; loading: boolean }>;
+  messagePaging: Record<string, { nextPage: number; beforeSeq?: number; hasOlder: boolean; loading: boolean }>;
   setMessagePaging: (
     chatId: string,
-    paging: { nextPage: number; hasOlder: boolean; loading: boolean } | null,
+    paging: { nextPage: number; beforeSeq?: number; hasOlder: boolean; loading: boolean } | null,
   ) => void;
   /** 把按需取回的完整工具结果写回对应的那张工具卡（见 ToolCallRow 的展开取全文）。 */
   applyToolCallOutput: (

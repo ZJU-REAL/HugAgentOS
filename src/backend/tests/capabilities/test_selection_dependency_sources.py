@@ -8,6 +8,7 @@ import pytest
 from core.capabilities import registry, skills, readiness
 from core.services import desktop_cloud_bridge as bridge
 from core.services.desktop_capability_protocol import skill_content_hash
+from tests.capabilities.test_desktop_capabilities_api import cloud as cloud
 from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE, _Cloud
 
 

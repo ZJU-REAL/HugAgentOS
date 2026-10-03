@@ -2,7 +2,27 @@
 
 import os
 from pathlib import Path
+from tests.capabilities.test_desktop_capabilities_api import cloud as cloud
 from tests.capabilities.test_desktop_capabilities_api import client
+
+
+def _publish_news(folder):
+    """Explicitly publish a local installation; directory scanning is not installation."""
+    from core.capabilities import skills, registry, store
+    from core.services.desktop_capability_protocol import skill_content_hash
+    from tests.capabilities.test_desktop_capabilities_api import USER
+
+    files = {file.name: file.read_text() for file in folder.iterdir()}
+    skills.publish_local_skill(
+        "news",
+        files=files,
+        content_hash=skill_content_hash(
+            files["SKILL.md"], {k: v for k, v in files.items() if k != "SKILL.md"}
+        ),
+        owner_user_id=USER,
+    )
+    inst = registry.get("skill:local:news")
+    return store.get("skill", "local", "news", inst.resolved_revision).path
 
 
 def test_preview_includes_query_output_and_marks_file_conflict(client, monkeypatch):
@@ -14,7 +34,7 @@ def test_preview_includes_query_output_and_marks_file_conflict(client, monkeypat
     md = "---\nname: news\ndescription: News\n---\nLocal"
     folder.joinpath("SKILL.md").write_text(md)
     folder.joinpath("query.json").write_text("{}")
-    client.get("/v1/desktop/capabilities/installations")
+    folder = _publish_news(folder)
     cloud = {"SKILL.md": md.replace("Local", "Cloud")}
     monkeypatch.setattr(
         change_sync,
@@ -43,7 +63,7 @@ def test_commit_requires_resolution_and_rechecks_local_files(client, monkeypatch
     folder.mkdir(parents=True)
     md = "---\nname: news\ndescription: News\n---\nLocal"
     folder.joinpath("SKILL.md").write_text(md)
-    client.get("/v1/desktop/capabilities/installations")
+    folder = _publish_news(folder)
     cloud = {"SKILL.md": md.replace("Local", "Cloud")}
     calls = []
 
@@ -77,7 +97,7 @@ def test_successful_upload_is_idempotent_and_next_preview_has_baseline(client, m
     folder.mkdir(parents=True)
     folder.joinpath("SKILL.md").write_text("---\nname: news\ndescription: News\n---\nLocal")
     folder.joinpath("query.json").write_text("{}")
-    client.get("/v1/desktop/capabilities/installations")
+    folder = _publish_news(folder)
     remote = {"files": {}, "exists": False, "can_edit": True}
     calls = []
 
@@ -159,7 +179,7 @@ def test_account_switch_after_http_never_applies_local(client, monkeypatch):
     folder = Path(os.environ["HUGAGENT_CAPS_ROOT"]) / "skills" / "news"
     folder.mkdir(parents=True)
     folder.joinpath("SKILL.md").write_text("---\nname: news\ndescription: News\n---\nLocal")
-    client.get("/v1/desktop/capabilities/installations")
+    folder = _publish_news(folder)
     state = bridge.get_state()
     monkeypatch.setattr(
         change_sync,
@@ -202,7 +222,7 @@ def test_inaccessible_cloud_name_can_be_forked_without_reading_foreign_files(cli
     folder = Path(os.environ["HUGAGENT_CAPS_ROOT"]) / "skills" / "news"
     folder.mkdir(parents=True)
     folder.joinpath("SKILL.md").write_text("---\nname: news\ndescription: News\n---\nLocal")
-    client.get("/v1/desktop/capabilities/installations")
+    folder = _publish_news(folder)
     posted = []
 
     def request(state, method, kind, key, body=None):

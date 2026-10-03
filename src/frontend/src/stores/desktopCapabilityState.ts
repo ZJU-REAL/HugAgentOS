@@ -46,7 +46,7 @@ function fromListing(listing: DeviceCapabilityListing): KindState {
  *  刷新不丢请求，已退出账号的迟到响应永远不发布。 */
 export function createDesktopCapabilityStore(client: DesktopCapabilityClient, enabled: () => boolean) {
   let epoch = 0;
-  const pending = new Map<DeviceCapabilityKind, Promise<void>>();
+  const pending = new Map<DeviceCapabilityKind, { promise: Promise<void>; refresh: boolean }>();
   return create<DesktopCapabilityState>((set, get) => ({
     kinds: emptyKinds(),
     reset: () => { epoch += 1; pending.clear(); set({ kinds: emptyKinds() }); },
@@ -56,23 +56,31 @@ export function createDesktopCapabilityStore(client: DesktopCapabilityClient, en
       const currentEpoch = epoch;
       const inFlight = pending.get(kind);
       if (inFlight) {
-        await inFlight;
-        if (force && currentEpoch === epoch) await get().load(kind, true);
-        return;
+        if (force) inFlight.refresh = true;
+        return inFlight.promise;
       }
       if (!force && get().kinds[kind].loaded) return;
-      const request = (async () => {
+      const entry = { promise: Promise.resolve(), refresh: false };
+      // Register before invoking the client, including clients which throw synchronously.
+      pending.set(kind, entry);
+      entry.promise = (async () => {
         try {
-          const listing = await client.list(kind);
-          if (currentEpoch === epoch) set((s) => ({ kinds: { ...s.kinds, [kind]: fromListing(listing) } }));
-        } catch {
-          // 来源标记拿不到就不标，不打扰用户；下一次同步后会自动补上。
+          do {
+            entry.refresh = false;
+            try {
+              const listing = await client.list(kind);
+              if (currentEpoch === epoch && enabled()) {
+                set((s) => ({ kinds: { ...s.kinds, [kind]: fromListing(listing) } }));
+              }
+            } catch {
+              // Preserve the current labels; a later refresh can retry.
+            }
+          } while (entry.refresh && currentEpoch === epoch && enabled());
         } finally {
-          if (currentEpoch === epoch) pending.delete(kind);
+          if (pending.get(kind) === entry) pending.delete(kind);
         }
       })();
-      pending.set(kind, request);
-      await request;
+      await entry.promise;
     },
   }));
 }

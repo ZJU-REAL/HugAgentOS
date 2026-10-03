@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 from agentscope.message import ToolCallBlock
-from core.llm.agent_factory import _default_allow_builtin_tools
+from core.llm.factory.runtime.evidence import _default_allow_builtin_tools
 from core.llm.tool_permissions import (
     DOMAIN_LOCAL_COMMAND,
     DOMAIN_LOCAL_PATH,

@@ -1,0 +1,52 @@
+
+/* Align both desktop bars to the frontend rail's viewport-sized gradient. */
+:root[data-desktop-platform] .jx-appShell,
+:root[data-desktop-platform] .jx-appLoading{
+  box-sizing:border-box;
+  padding-top:var(--hugagent-desktop-titlebar-height);
+  background-color:var(--module-rail-bg);
+  background-image:var(--module-rail-gradient);
+  background-size:100vw 100vh;
+  background-attachment:fixed;
+  overflow:hidden;
+}
+:root[data-desktop-platform] .jx-moduleRail{
+  background-size:100vw 100vh;
+  background-attachment:fixed;
+}
+:root[data-desktop-platform] .jx-moduleShell.ant-layout-sider,
+:root[data-desktop-platform] .jx-moduleShell .ant-layout-sider-children{
+  background:transparent;
+}
+:root[data-desktop-platform] .jx-moduleSidebar{border-top-left-radius:var(--radius-md);}
+:root[data-desktop-platform] .jx-appMainLayout{
+  border-top-right-radius:var(--radius-md);
+  overflow:hidden;
+}
+:root[data-desktop-platform] .jx-appLoading::before{
+  content:"";
+  width:64px;
+  flex:0 0 64px;
+  background-color:var(--module-rail-bg);
+  background-image:var(--module-rail-gradient);
+  background-size:100vw 100vh;
+  background-attachment:fixed;
+}
+:root[data-desktop-platform] .jx-appLoading-main{
+  background:var(--color-bg-chat);
+  border-top-right-radius:var(--radius-md);
+}
+:root[data-desktop-platform] .jx-appLoading-sidebar{
+  box-sizing:border-box;
+  width:280px;
+  flex-basis:280px;
+  background:var(--module-sidebar-bg);
+  border-top-left-radius:var(--radius-md);
+}
+@media(max-width:960px){
+  :root[data-desktop-platform] .jx-appLoading::before{display:none;}
+  :root[data-desktop-platform] .jx-appShell > .jx-moduleShell.ant-layout-sider{
+    top:var(--hugagent-desktop-titlebar-height);
+    height:calc(100dvh - var(--hugagent-desktop-titlebar-height))!important;
+  }
+}

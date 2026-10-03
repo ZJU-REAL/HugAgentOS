@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>服务设置 · HugAgentOS</title>
+<style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
+  :root{
+    color-scheme:light;
+    --accent:#126DFF;--accent-hover:#3C87FF;--accent-active:#0862F3;--accent2:#32ADE6;
+    --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
+    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);--glow:rgba(18,109,255,.20);
+    --ok:#248A3D;--danger:#D70015;
+    --page:#F5F5F7;--solid:#FFFFFF;--danger-bg:#FFF1F0;--log-ink:#48484A;--contrast-ink:#3A3A3C;
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;--accent2:#42C8FF;
+    --text:#E8ECF4;--secondary:#B3BDCD;--tertiary:#8792A4;
+    --line:#2B3442;--surface:rgba(28,35,48,.72);--glow:rgba(62,139,255,.24);
+    --ok:#22C79D;--danger:#FF6B6B;
+    --page:#0F141B;--solid:#161C25;--danger-bg:rgba(255,107,107,.16);--log-ink:#B3BDCD;--contrast-ink:#E8ECF4;
+  }
+  /* dark-ok-end */
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
+    min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
+  .setup{position:relative;width:min(560px,100%);text-align:center;padding:20px 30px 30px}
+  /* 初始化动画：光晕 + 双层轨道 + 浮动核心。与首启初始化页同一套视觉，让「确认 → 安装」
+     在观感上是同一个流程的两个阶段。 */
+  .visual{position:relative;width:176px;height:176px;margin:0 auto 18px;display:grid;place-items:center}
+  .halo{position:absolute;inset:24px;border-radius:50%;background:var(--glow);filter:blur(24px);animation:halo 3s ease-in-out infinite}
+  .orbit{position:absolute;inset:5px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:50%;animation:spin 7s linear infinite}
+  .orbit.two{inset:22px;border-style:dashed;animation-duration:10s;animation-direction:reverse;opacity:.72}
+  .orbit::before,.orbit::after{content:"";position:absolute;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 6px color-mix(in srgb,var(--accent2) 12%,transparent),0 0 20px var(--glow)}
+  .orbit::before{width:10px;height:10px;left:13px;top:18px}.orbit::after{width:7px;height:7px;right:5px;bottom:37px}
+  .core{position:relative;width:112px;height:112px;border-radius:32px;display:grid;place-items:center;
+    background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 19%,transparent);
+    box-shadow:0 22px 60px var(--glow),0 2px 10px rgba(0,0,0,.08);backdrop-filter:blur(18px); /* dark-ok: 中性投影两档都是黑 */
+    -webkit-backdrop-filter:blur(18px);animation:float 3.2s ease-in-out infinite}
+  .logo{display:block;width:92px;height:92px;border-radius:25px;object-fit:cover}
+  .visual.ready .orbit{border-color:color-mix(in srgb,var(--ok) 46%,transparent)}
+  .visual.ready .orbit::before,.visual.ready .orbit::after{background:var(--ok)}
+  .visual.error .orbit{animation-play-state:paused;border-color:color-mix(in srgb,var(--danger) 44%,transparent)}
+  .brand{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    font-size:42px;line-height:1.08;font-weight:700;letter-spacing:-.03em;color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .title{margin:14px 0 0;font-size:20px;line-height:1.3;font-weight:600;letter-spacing:-.01em}
+  .lead{max-width:420px;margin:8px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
+  .actions{width:min(350px,100%);margin:26px auto 0}
+  .button{width:100%;height:44px;border:0;border-radius:10px;padding:0 18px;font:600 14px/1 inherit;
+    cursor:pointer;transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+  .button.primary{background:var(--accent);color:#fff;
+    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb, var(--accent) 16%, transparent)} /* dark-ok: 投影两档都是黑 */
+  @media(hover:hover){.button.primary:hover{background:var(--accent-hover)}}
+  .button.primary:active{background:var(--accent-active);transform:scale(.97)}
+  .button:disabled{opacity:.5;cursor:default;transform:none}
+  .button:focus-visible,.link-button:focus-visible,.connection button:focus-visible,summary:focus-visible{
+    outline:3px solid color-mix(in srgb, var(--accent) 28%, transparent);outline-offset:3px}
+  .link-button{margin-top:11px;padding:7px 10px;border:0;background:transparent;color:var(--accent);
+    font:500 13px/1.2 inherit;cursor:pointer;border-radius:8px;transition:background 100ms ease-out,transform 100ms ease-out}
+  @media(hover:hover){.link-button:hover{background:color-mix(in srgb, var(--accent) 8%, transparent)}}
+  .link-button:active{background:color-mix(in srgb, var(--accent) 11%, transparent);transform:scale(.97)}
+  .privacy-note{margin:16px 0 0;color:var(--tertiary);font-size:12px;line-height:1.5}
+  .progress-wrap{display:none;width:min(410px,100%);margin:24px auto 0;padding:18px;text-align:left;
+    border:0;border-radius:16px;background:var(--surface);backdrop-filter:blur(18px) saturate(145%);
+    /* dark-ok: 投影两档都是黑 */
+    -webkit-backdrop-filter:blur(18px) saturate(145%);box-shadow:0 1px 1px rgba(0,0,0,.05),0 12px 34px rgba(0,0,0,.07);
+    animation:materialize 260ms cubic-bezier(.2,.8,.2,1) both}
+  @keyframes materialize{from{opacity:0;transform:scale(.985) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  .progress-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
+  .message{color:var(--secondary)}.percent{color:var(--accent);font-variant-numeric:tabular-nums}
+  .progress{position:relative;height:8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 11%,transparent);overflow:hidden}
+  .bar{position:relative;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    box-shadow:0 0 18px var(--glow);transition:width .36s cubic-bezier(.2,.8,.2,1)}
+  .bar::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 28%,rgba(255,255,255,.55) 48%,transparent 68%); /* dark-ok: 进度高光固定为半透明白 */
+    transform:translateX(-120%);animation:sweep 1.7s ease-in-out infinite}
+  .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--danger-bg);color:var(--danger);
+    font-size:12.5px;line-height:1.5}.ready{color:var(--ok);font-weight:600}
+  details{margin-top:13px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
+  .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:0;
+    /* dark-ok: 半透明中性灰，压在任一档底色上都成立 */
+    border-radius:10px;background:rgba(118,118,128,.09);color:var(--log-ink);font:11px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,"PingFang SC","Microsoft YaHei",monospace;
+    white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
+  .ready-actions{display:none;margin-top:16px}
+  .connection{margin-top:22px;color:var(--tertiary);font-size:11px;line-height:1.5;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .connection button{padding:3px 5px;border:0;border-radius:6px;background:transparent;color:var(--secondary);font:inherit;cursor:pointer}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.015)}}
+  @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
+  @keyframes sweep{55%,100%{transform:translateX(160%)}}
+  body.platform-macos .setup{margin-top:-10px}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}.brand{font-size:34px}.visual{transform:scale(.88);margin-bottom:6px}}
+  @media(max-height:700px){body{align-items:flex-start;overflow:auto}.setup{padding-top:14px}.visual{transform:scale(.82);margin-top:-12px;margin-bottom:-4px}}
+  @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}
+    .progress-wrap,.halo,.orbit,.core,.bar::after{animation:none}}
+  @media(prefers-reduced-transparency:reduce){.progress-wrap{background:var(--solid);backdrop-filter:none;-webkit-backdrop-filter:none}}
+  /* dark-ok: 高对比度描边固定用黑，深色档底色已由 --solid 翻过去 */
+  @media(prefers-contrast:more){.progress-wrap{background:var(--solid);box-shadow:0 0 0 1px rgba(0,0,0,.55)}.lead,.privacy-note,.connection,.message{color:var(--contrast-ink)}}
+</style>
+</head>
+<body class="platform-__PLATFORM__">
+  <main class="setup">
+    <div class="visual" id="visual" aria-hidden="true">
+      <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
+      <div class="core"><img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" /></div>
+    </div>
+    <h1 class="brand">HugAgentOS</h1>
+    <h2 class="title" id="title">在这台电脑上开始使用</h2>
+    <section class="actions" aria-label="初始化操作">
+      <button class="button primary" id="install" type="button" onclick="installLocal()">从零开始安装</button>
+    </section>
+    <section class="progress-wrap" id="progressWrap" aria-live="polite">
+      <div class="progress-head"><span class="message" id="message">准备安装…</span><span class="percent" id="percent">0%</span></div>
+      <div class="progress" role="progressbar" aria-label="安装进度" aria-valuemin="0" aria-valuemax="100"><div class="bar" id="bar"></div></div>
+      <div class="error" id="error"></div>
+      <details id="details"><summary>查看安装详情</summary><pre class="log" id="log">等待安装日志…</pre></details>
+      <div class="ready-actions" id="readyActions">
+        <button class="button primary" id="readyButton" type="button" onclick="finishReady()">进入 HugAgentOS</button>
+      </div>
+    </section>
+  </main>
+<script>
+  var manage = new URLSearchParams(location.search).get('manage') === '1';
+  var activeLocal = __ACTIVE_LOCAL__;
+  var dual = __HYBRID_DUAL__;
+  var localSupported = __LOCAL_SUPPORTED__;
+  var installing = false;
+  var autoStartAttempted = false;
+  var pollTimer = null;
+  if(document.body.classList.contains('platform-macos')){
+    document.getElementById('title').textContent='在这台 Mac 上开始使用';
+  }
+  if(manage){
+    document.getElementById('title').textContent='本机服务';
+    document.getElementById('install').textContent='安装或修复本机服务';
+  }
+  function sentinel(path){ window.location.href = path; }
+  function activateLocal(){ sentinel('/__desktop/activate-local'); }
+  // 双模式恒为云端为主：本机服务装好后回到云端应用，绝不整体切换登录目标。
+  function finishReady(){ if(activeLocal||dual){location.replace('/');}else{activateLocal();} }
+  async function installLocal(){
+    if(!localSupported){showError('当前安装包暂不支持在此系统一键部署本机服务。');return;}
+    installing = true;
+    var button=document.getElementById('install');
+    button.disabled=true;button.textContent='正在开始…';
+    document.getElementById('progressWrap').style.display = 'block';
+    document.getElementById('message').textContent='正在准备本机服务…';
+    document.getElementById('error').style.display='none';
+    document.getElementById('visual').className='visual';
+    try{
+      var response=await fetch('/__desktop/setup/install',{method:'POST'});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      await response.json();
+      poll();
+    }catch(e){installing=false;showError('无法启动安装：'+e.message);}
+  }
+  function showError(text){
+    var el=document.getElementById('error');el.textContent=text;el.style.display='block';
+    document.getElementById('details').open=true;
+    document.getElementById('visual').classList.add('error');
+    var button=document.getElementById('install');
+    button.style.display='';button.disabled=false;button.textContent='重新安装';
+  }
+  async function poll(){
+    if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
+    try{
+      var response=await fetch('/__desktop/setup/status',{cache:'no-store'});
+      var s=await response.json();
+      activeLocal=!!s.active_local;
+      var active=['installing','starting','ready','error'].includes(s.phase) || installing;
+      if(active) document.getElementById('progressWrap').style.display='block';
+      var progress=Math.max(0,Math.min(100,s.progress||0));
+      document.getElementById('bar').style.width=progress+'%';
+      document.querySelector('.progress').setAttribute('aria-valuenow',String(progress));
+      document.getElementById('percent').textContent=progress+'%';
+      document.getElementById('message').textContent=s.message||'准备安装…';
+      document.getElementById('log').textContent=(s.logs&&s.logs.length?s.logs.join('\n'):'等待安装日志…');
+      document.getElementById('log').scrollTop=document.getElementById('log').scrollHeight;
+      if(!s.supported){
+        showError('当前安装包暂不支持在此系统一键部署本机服务。');
+        document.getElementById('install').style.display='none';
+        return;
+      }
+      if(s.phase==='error'){showError(s.message||'安装失败，请重试。');installing=false;return;}
+      if(s.ready){
+        installing=false;
+        document.getElementById('bar').style.width='100%';
+        document.getElementById('percent').textContent='100%';
+        document.getElementById('visual').classList.add('ready');
+        document.getElementById('message').innerHTML='<span class="ready">本机服务已就绪</span>';
+        document.getElementById('install').style.display='none';
+        if(s.active_local && !manage){ setTimeout(function(){location.replace('/__desktop/login')},450);return; }
+        if(!s.active_local && !manage){
+          if(dual){
+            document.getElementById('message').textContent='本机服务已就绪，正在返回…';
+            setTimeout(function(){location.replace('/')},450);return;
+          }
+          document.getElementById('message').textContent='安装完成，正在切换到本机服务…';
+          setTimeout(activateLocal,350);return;
+        }
+        document.getElementById('readyButton').textContent=(s.active_local||dual)?'返回应用':'切换到本机服务';
+        document.getElementById('readyActions').style.display='block';
+        return;
+      }
+      if(s.phase==='installing'||s.phase==='starting'){
+        installing=true;var button=document.getElementById('install');button.disabled=true;
+        button.textContent=s.phase==='starting'?'正在启动…':'正在安装…';
+      }else if(!manage&&!active&&!autoStartAttempted&&(activeLocal||dual)){
+        // 本机 / 双模式首启确认过初始化就直接开装，不再让用户在进度页上多点一次按钮。
+        // 纯云端形态落到本页是「云端不可达」，那种情况绝不能顺手装本机服务。
+        autoStartAttempted=true;
+        document.getElementById('title').textContent='正在初始化';
+        await installLocal();return;
+      }else if(s.installed&&!manage){
+        document.getElementById('install').textContent='启动本机服务';
+      }
+    }catch(e){ if(installing) showError('读取安装状态失败：'+e.message); }
+  }
+  // 状态由壳推送；推送断开时才退回到间隔轮询。
+  var events=new EventSource('/__desktop/events');
+  events.onmessage=function(){ poll(); };
+  events.onerror=function(){ events.close(); (function fallback(){ poll().then(function(){ pollTimer=setTimeout(fallback,900); }); })(); };
+  poll();
+</script>
+</body>
+</html>

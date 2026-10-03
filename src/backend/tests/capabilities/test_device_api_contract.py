@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from core.capabilities import registry, store
 from core.capabilities.ref import cloud_ref, local_ref
-from api.routes.v1 import desktop_capabilities as api
+from tests.capabilities.test_desktop_capabilities_api import cloud as cloud
 from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE
 
 

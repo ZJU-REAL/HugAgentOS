@@ -9,7 +9,7 @@ USER_ID = "copytest_9c0cf31f"
 
 
 async def test_llm():
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 
@@ -39,7 +39,7 @@ async def test_llm():
 
 async def test_sandbox_bash():
     """Run a bash command with a tools-enabled agent to verify the sandbox is executable."""
-    from core.llm.agent_factory import create_agent_executor
+    from core.llm.factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 

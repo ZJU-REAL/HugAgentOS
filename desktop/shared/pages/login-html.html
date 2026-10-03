@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>登录 · HugAgentOS</title>
+<style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
+  :root{
+    color-scheme:light;--primary:#126DFF;--primary-hover:#3C87FF;--primary-active:#0862F3;
+    --text:#1D1D1F;--text-2:#6E6E73;--text-3:#8E8E93;
+    --page-top:#FBFBFA;--page-bottom:#F4F4F2;--ring:#E5E5EA;
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;--primary:#3E8BFF;--primary-hover:#5FA0FF;--primary-active:#2E7BF0;
+    --text:#E8ECF4;--text-2:#B3BDCD;--text-3:#8792A4;
+    --page-top:#141A22;--page-bottom:#0F141B;--ring:#2B3442;
+  }
+  /* dark-ok-end */
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    color:var(--text);
+    background:linear-gradient(180deg,var(--page-top) 0%,var(--page-bottom) 100%);
+    display:flex; align-items:center; justify-content:center;
+    -webkit-user-select:none; user-select:none;
+  }
+  .card{
+    width:min(380px,calc(100% - 40px));padding:32px 20px;text-align:center;margin-top:-18px;
+  }
+  .logo{
+    width:64px;height:64px;border-radius:16px;margin:0 auto 20px;display:block;
+    box-shadow:0 8px 24px rgba(0,0,0,.1); /* dark-ok: 投影两档都是黑，不随主题翻转 */
+  }
+  h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:-.035em}
+  .sub{font-size:14px;color:var(--text-2);margin:12px 0 28px;line-height:1.65}
+  .btn{
+    width:100%;height:44px;margin-top:28px;border:none;border-radius:10px;cursor:pointer;
+    /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+    background:var(--primary);color:#fff;font-size:14px;font-weight:600;
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+    transition:background .14s ease,transform .08s ease;box-shadow:0 1px 2px rgba(0,0,0,.08);
+  }
+  .btn:hover{background:var(--primary-hover)}
+  .btn:active{background:var(--primary-active);transform:scale(.99)}
+  .links{margin-top:8px;font-size:13px}
+  .links a{color:var(--primary);text-decoration:none;cursor:pointer;margin:0 8px}
+  .links a:hover{text-decoration:underline}
+  .spin{width:32px;height:32px;margin:8px auto 22px;border:3px solid var(--ring);
+    border-top-color:var(--primary);border-radius:50%;animation:r .9s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.display='none'"/>
+    <!-- 初始态：等待用户点击登录 -->
+    <div id="idle">
+      <h1>HugAgentOS</h1>
+      <button class="btn" onclick="startLogin()">登录并继续</button>
+    </div>
+    <!-- 等待态：浏览器已打开，等待回跳 -->
+    <div id="waiting" class="hidden">
+      <div class="spin"></div>
+      <h1>正在浏览器中登录…</h1>
+      <p class="sub" id="login-message">请在浏览器中确认登录，完成后桌面端会自动进入。</p>
+      <p id="login-code" style="font-size:26px;letter-spacing:5px"></p>
+      <div class="links">
+        <a onclick="startLogin()">没反应？重新打开</a>
+        <a onclick="cancelLogin()">取消登录</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    function openBrowser(){
+      // 整页导航到哨兵路径，由 Rust 导航守卫开系统浏览器。不走 Tauri IPC——
+      // 远程源（本地反代 127.0.0.1:随机端口）下 window.__TAURI__ 不保证注入，
+      // invoke('open_login') 会静默失效（表现为「点了没反应、浏览器不弹」）。
+      window.location.href = '/__desktop/open-login';
+    }
+    function showWaiting(){
+      document.getElementById('idle').classList.add('hidden');
+      document.getElementById('waiting').classList.remove('hidden');
+    }
+    function showIdle(){
+      document.getElementById('waiting').classList.add('hidden');
+      document.getElementById('idle').classList.remove('hidden');
+    }
+    function startLogin(){ showWaiting(); openBrowser(); }
+    function cancelLogin(){ window.location.href='/__desktop/cancel-login'; }
+    async function refreshLogin(){
+      try {
+        const r=await fetch('/__desktop/login/status',{cache:'no-store'});
+        if(r.ok){
+          const s=await r.json();
+          document.getElementById('login-message').textContent=s.message||'正在准备登录…';
+          document.getElementById('login-code').textContent=s.confirm_code||'';
+          document.querySelector('#waiting .spin').style.display=s.status==='error'?'none':'';
+        }
+      } catch {}
+      setTimeout(refreshLogin,1000);
+    }
+    refreshLogin();
+    // 启动 / 会话过期由壳子自动拉起浏览器，并带 ?waiting=1 → 直接进等待态。
+    if(new URLSearchParams(location.search).get('waiting')==='1'){ showWaiting(); }
+  </script>
+</body>
+</html>
