@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.models import ModelProvider, ModelRoleAssignment
 from core.services.model_config import ModelConfigService
+from core.llm.reasoning_effort import reasoning_capabilities
 
 
 class UserModelSelectionError(ValueError):
@@ -116,9 +117,7 @@ def list_user_selectable_models(db: Session) -> list[dict]:
             "model_name": row.model_name,
             "provider": getattr(row, "provider", None) or "openai_compatible",
             "is_default": row.provider_id == default_provider_id,
-            "supports_reasoning_effort": bool(
-                (row.extra_config or {}).get("supports_reasoning_effort")
-            ),
+            **reasoning_capabilities(row.extra_config),
             # Real context window (tokens) so the frontend can show accurate
             # context-usage instead of guessing from the model name. May be 0 /
             # missing when an admin has not filled it in — the caller falls back.

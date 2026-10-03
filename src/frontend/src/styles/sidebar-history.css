@@ -13,7 +13,7 @@
 .jx-sidebarScrollArea.show-scrollbar::-webkit-scrollbar-thumb{ background:var(--color-fill-hover); }
 
 /* ── History list ── */
-/* chat.css 里仍有历史列表的兼容样式；在统一滚动区内显式取消其独立滚动。 */
+/* Sidebar history owns its layout, typography, editing and actions. */
 
 @keyframes jxSkeletonShimmer{
   0%{ background-position:200% 0; }
@@ -41,7 +41,7 @@
 
 /* 可折叠 group 标题行：整行可点击；chevron 默认隐藏，hover/折叠时显形。
    padding-left 4 + listWrap pad 10 → 标题文字 x=14。
-   说明：CSS 上 group 标题与 chat title 即使同 x，因为字号差（12px vs 13px）
+   说明：CSS 上 group 标题与 chat title 即使同 x，因为字号差（11px vs 14px）
    和字重对 CJK 字符的视觉占位不同，会让小字号看着偏右——故在 CSS 上故意
    再左推几像素做视觉补偿。 */
 .jx-historyGroupHeader{
@@ -63,6 +63,7 @@
 .jx-historyGroupHeader:hover{ color:color-mix(in srgb, var(--color-text) 72%, transparent); }
 .jx-historyGroupHeader:focus-visible{ outline:2px solid var(--color-primary-bg); outline-offset:0; }
 .jx-historyGroupTitle{
+  padding:0 10px;
   font-size:11px;
   font-weight:500;
   color:inherit;
@@ -96,7 +97,11 @@
 }
 
 /* ── 项目分组：项目行（folder + 名称）+ 嵌套其下的会话列表 ── */
-.jx-projectGroup{ display:flex; flex-direction:column; }
+.jx-projectGroup{
+  --project-icon-size:13px;
+  --project-label-gap:7px;
+  display:flex; flex-direction:column;
+}
 .jx-projectRow{
   display:flex; align-items:center; gap:6px;
   height:36px; min-height:36px;
@@ -113,22 +118,23 @@
 .jx-projectRow:hover{ background:var(--color-fill-hover); }
 .jx-projectRow.active{ background:var(--color-bg-container); border-color:transparent; }
 .jx-projectRow.active .jx-projectRowIcon{ color:color-mix(in srgb, var(--color-text) 80%, transparent); }
-.jx-projectRow.active .jx-projectRowName{ font-weight:400; }
+.jx-projectRow.active .jx-projectRowName{ font-weight:500; }
 .jx-projectRowToggle{
   appearance:none; border:0; outline:0; background:transparent;
   flex:1; min-width:0; align-self:stretch;
-  display:flex; align-items:center; gap:7px;
+  display:flex; align-items:center; gap:var(--project-label-gap);
   padding:0; color:inherit; font-family:inherit; text-align:left; cursor:pointer;
 }
 .jx-projectRowIcon{
-  font-size:13px;
+  width:var(--project-icon-size);
+  font-size:var(--project-icon-size);
   color:color-mix(in srgb, var(--color-text) 55%, transparent);
   flex-shrink:0;
   transition:color .15s;
 }
 .jx-projectRowName{
   flex:1; min-width:0;
-  font-size:14px; font-weight:500; line-height:1.2; color:var(--color-text);
+  font-size:14px; font-weight:400; line-height:20px; color:var(--color-text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   transition:color .15s;
 }
@@ -154,11 +160,12 @@
   transition:background .12s, color .12s;
 }
 .jx-projectRowActionBtn:hover{ background:var(--color-fill-hover); color:color-mix(in srgb, var(--color-text) 72%, transparent); }
-/* 嵌套会话列表：整体右缩进，形成"项目文件夹 → 会话"的层级观感 */
-.jx-projectChatList{ padding-left:16px; }
+/* 子会话内容与项目名称共用同一文字起点：项目图标宽度 + 图标间距。 */
+.jx-projectChatList{ padding-left:calc(var(--project-icon-size) + var(--project-label-gap)); }
 .jx-projectChatList .jx-historyTitle{ max-width:210px; }
 
 .jx-historyItem{
+  min-width:0;
   display:flex; align-items:center; gap:6px;
   height:36px; min-height:36px;
   /* 左 6 + margin-left 4 + listWrap pad 10 = 内容 x=20，三端对齐 */
@@ -204,7 +211,11 @@
 /* 行本身是 overflow:hidden（高度动画需要），提示线只能画在框内，不能溢出到 -1px */
 .jx-historyItem--dropBefore::before{ top:0; }
 .jx-historyItem--dropAfter::after{ bottom:0; }
-.jx-historyMain{ flex:1; min-width:0; display:flex; align-items:center; }
+.jx-historyMain{
+  flex:1; min-width:0; display:flex; align-items:center;
+  padding-right:2px;
+  transition:padding-right var(--motion-duration-fast) var(--motion-ease-standard);
+}
 .jx-historySkLine{
   width:100%;
   max-width:226px;
@@ -226,13 +237,20 @@
 }
 .jx-historyItem:hover .jx-historyPinIcon{ color:color-mix(in srgb, var(--color-text) 72%, transparent); }
 .jx-historyTitle{
-  font-size:12px; font-weight:500; color:var(--color-text);
+  font-size:14px; font-weight:400; line-height:20px;
+  color:color-mix(in srgb, var(--color-text) 76%, transparent);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   flex:1;
   min-width:0;
   max-width:226px; display:block;
 }
-.jx-historyItem.active .jx-historyTitle{ font-weight:400; }
+.jx-historyItem:hover .jx-historyTitle{
+  color:color-mix(in srgb, var(--color-text) 90%, transparent);
+}
+.jx-historyItem.active .jx-historyTitle{
+  font-weight:500;
+  color:var(--color-text);
+}
 
 /* ── History type icons (agent / code / plan) ── */
 .jx-historyTypeIcon{
@@ -304,13 +322,12 @@
 .jx-historyItem.editing .jx-historyActions{ display:none; }
 .jx-historyItem:hover .jx-historyMain,
 .jx-historyItem.active .jx-historyMain{ padding-right:28px; }
-/* hover 时给操作按钮腾位的 padding 不再瞬跳 */
-.jx-historyMain{ transition:padding-right var(--motion-duration-fast) var(--motion-ease-standard); }
 .jx-historyMoreBtn{
   appearance:none; border:none; outline:none; background:transparent;
   width:24px; height:24px; border-radius:6px;
   display:flex; align-items:center; justify-content:center;
   cursor:pointer; font-size:13px; color:color-mix(in srgb, var(--color-text) 48%, transparent); padding:0;
+  transition:background .15s ease, color .15s ease;
 }
 .jx-historyMoreBtn:hover{ background:var(--color-fill-hover); color:var(--color-text); }
 /* 重命名编辑框：挂载时轻微水平展开入场 */
@@ -328,8 +345,7 @@
   transform-origin:left center;
   animation:jx-kf-renameIn var(--motion-duration-fast) var(--motion-ease-standard) both;
 }
-.jx-historyEditInput .ant-input{ border-radius:8px; }
-.jx-historyEmpty{ padding:20px 8px; font-size:11px; color:color-mix(in srgb, var(--color-text) 40%, transparent); text-align:center; }
+.jx-historyEditInput.ant-input{ border-radius:8px; border-color:var(--color-border); }
 
 /* 关键词高亮：被 utils/highlight.ts 用于侧栏 + 搜索弹窗的高亮 span */
 .jx-searchHighlight{ color:var(--color-primary); font-weight:600; }

@@ -203,6 +203,13 @@ def validate_payload(provider_id: str, provider_type: str, extra_config: dict) -
     if provider_type not in spec.supports_types:
         return f"{spec.label} 不支持用途 '{provider_type}'（支持：{', '.join(spec.supports_types)}）"
     extra = extra_config or {}
+    from core.llm.reasoning_effort import validate_reasoning_config
+
+    error = validate_reasoning_config(extra)
+    if error:
+        return error
+    if extra.get('reasoning_effort_levels') and spec.engine != 'openai':
+        return '当前厂商引擎不支持自定义思考参数映射，请使用 OpenAI 兼容接口。'
     for f in spec.fields:
         if f.required and not str(extra.get(f.key, "")).strip():
             return f"{spec.label} 需要填写「{f.label}」"

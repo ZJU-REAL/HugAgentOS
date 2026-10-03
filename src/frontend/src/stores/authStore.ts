@@ -166,7 +166,7 @@ function showDesktopReturnOverlay(deeplink: string): void {
     'style',
     'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
       'background:radial-gradient(1200px 560px at 50% -12%,#E5EFFF 0%,rgba(229,239,255,0) 62%),linear-gradient(180deg,#FBFCFE 0%,#EEF2F8 100%);' +
-      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;color:#262626;",
+      "font-family:var(--font-family);color:#262626;",
   );
   o.innerHTML =
     '<div style="width:400px;max-width:90vw;padding:44px 40px 32px;text-align:center;background:#fff;' +

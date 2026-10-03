@@ -24,7 +24,7 @@ import { activeProjectId } from './projectSession';
  *  global defaults, now purely plugin-gated (available only when installed + selected). */
 export const SITES_PLUGIN_SLUG = 'sites';
 
-export type ChatMode = 'turbo' | 'fast' | 'medium' | 'high' | 'max';
+export type ChatMode = 'turbo' | 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface QueuedChatMessage {
   id: string;
@@ -40,7 +40,7 @@ export interface QueuedChatMessage {
   durableStatus?: 'accepted' | 'claimed' | 'applied' | 'cancelled' | 'superseded';
 }
 
-const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'medium', 'high', 'max'];
+const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /** Read the admin-configured "default chat mode". Prefer the chat_mode field; fall back to
  *  thinking_mode when unrecognized; if neither is set → fast. */

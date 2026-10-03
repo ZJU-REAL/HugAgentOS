@@ -222,3 +222,11 @@ async def test_a_missing_route_never_pays_for_the_round_trip(monkeypatch):
 
     assert result.protocol == PROTOCOL_CHAT
     assert len(captured["calls"]) == 1
+
+@pytest.mark.asyncio
+async def test_round_trip_sends_explicit_message_type(monkeypatch):
+    captured = _stub(monkeypatch)
+    await detect_api_protocol(base_url="http://up.test/v1", api_key="k", model_name="m")
+    history = captured["calls"][1]["input"]
+    assert history[0]["type"] == "message"
+    assert [item["type"] for item in history[1:]] == ["function_call", "function_call_output"]

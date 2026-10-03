@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { getMainModelCapabilities, type ModelCapabilities } from '../api';
 import { writeLocal, removeLocal } from '../storage';
+import { useChatStore } from './chatStore';
+import { selectedReasoningPolicy, normalizeThinkingEffort } from '../utils/reasoningEffort';
+
+function normalizeSelectedEffort(caps: ModelCapabilities, id: string | null) {
+  const chat = useChatStore.getState();
+  const next = normalizeThinkingEffort(chat.chatMode, selectedReasoningPolicy(caps, id));
+  if (next !== chat.chatMode) chat.setChatMode(next);
+}
 
 const SELECTED_MODEL_PROVIDER_KEY = 'hugagent_selected_model_provider_id';
 
@@ -40,6 +48,7 @@ export const useModelCapabilitiesStore = create<ModelCapabilitiesState>((set, ge
   setSelectedModelProviderId: (providerId) => {
     saveSelectedProviderId(providerId);
     set({ selectedModelProviderId: providerId });
+    normalizeSelectedEffort(get().capabilities, providerId);
   },
   fetchCapabilities: async () => {
     if (get().fetching) return;
@@ -57,6 +66,7 @@ export const useModelCapabilitiesStore = create<ModelCapabilitiesState>((set, ge
         ? (stillAvailable ? current : defaultModel?.provider_id || null)
         : null;
       if (nextSelected !== current) saveSelectedProviderId(nextSelected);
+      normalizeSelectedEffort(caps, nextSelected);
       set({
         capabilities: caps,
         selectedModelProviderId: nextSelected,

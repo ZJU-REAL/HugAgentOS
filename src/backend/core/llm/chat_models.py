@@ -190,7 +190,7 @@ def _slim_tool_schemas(tools: list[dict]) -> list[dict]:
 def _build_chat_template_kwargs(
     *,
     disable_thinking: bool,
-    reasoning_effort: Optional[str],
+    reasoning_effort: str | int | None,
 ) -> dict:
     """Build chat_template_kwargs (Qwen/minimax thinking-chain switch, via extra_body)."""
     if disable_thinking:
@@ -681,10 +681,11 @@ def _make_openai_compatible(
     api_key: str,
     provider_extra: dict,
     disable_thinking: bool,
-    reasoning_effort: Optional[str],
+    reasoning_effort: str | int | None,
     stream: bool,
     context_size: int,
     structured_reasoning: Optional[bool] = None,
+    reasoning_effort_is_wire: bool = False,
 ) -> OpenAICompatChatModel:
     azure: dict | None = None
     actual_model = model
@@ -698,6 +699,8 @@ def _make_openai_compatible(
             reasoning_effort=reasoning_effort,
         )
     }
+    if reasoning_effort_is_wire and reasoning_effort is not None:
+        extra_body["chat_template_kwargs"] = {"thinking": True, "reasoning_effort": reasoning_effort}
     if spec.reasoning_effort_top_level and reasoning_effort is not None:
         # OpenAI Responses-backed Chat Completions gateways expose reasoning
         # only when the effort is sent at the request root. Keep the nested
@@ -767,9 +770,10 @@ def _make_openai_responses(
     base_url: str,
     api_key: str,
     disable_thinking: bool,
-    reasoning_effort: Optional[str],
+    reasoning_effort: str | int | None,
     stream: bool,
     context_size: int,
+    reasoning_effort_is_wire: bool = False,
 ):
     """Build the Responses-protocol twin of ``_make_openai_compatible``."""
     from core.llm.responses_models import OpenAICompatResponsesModel
@@ -808,6 +812,7 @@ def _make_openai_responses(
         provider_id=spec.id,
         extra_body=extra_body,
         reasoning_effort=reasoning_effort,
+        reasoning_effort_is_wire=reasoning_effort_is_wire,
     )
 
 
@@ -822,11 +827,12 @@ def make_chat_model(
     provider: str = "openai_compatible",
     provider_extra: Optional[dict] = None,
     disable_thinking: bool = False,
-    reasoning_effort: Optional[str] = None,
+    reasoning_effort: str | int | None = None,
     stream: bool = False,
     context_size: Optional[int] = None,
     structured_reasoning: Optional[bool] = None,
     api_protocol: Optional[str] = None,
+    reasoning_effort_is_wire: bool = False,
 ) -> ChatModelBase:
     """Construct a ChatModel dispatched by provider (AgentScope 2.0).
 
@@ -889,6 +895,7 @@ def make_chat_model(
             reasoning_effort=reasoning_effort,
             stream=stream,
             context_size=context_size,
+            reasoning_effort_is_wire=reasoning_effort_is_wire,
         )
     return _make_openai_compatible(
         spec,
@@ -904,6 +911,7 @@ def make_chat_model(
         stream=stream,
         context_size=context_size,
         structured_reasoning=structured_reasoning,
+        reasoning_effort_is_wire=reasoning_effort_is_wire,
     )
 
 
@@ -928,12 +936,8 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
     same way rather than by three copies of the same flag arithmetic.
     """
     disable_thinking = mode in ("fast", "turbo")
-    supports_effort = bool((resolved.extra or {}).get("supports_reasoning_effort"))
-    reasoning_effort = (
-        mode
-        if (not disable_thinking and supports_effort and mode in ("medium", "high", "max"))
-        else None
-    )
+    from core.llm.reasoning_effort import resolve_reasoning_effort
+    reasoning_effort = resolve_reasoning_effort(resolved.extra, mode)
     return make_chat_model(
         model=resolved.model_name.replace("openai:", ""),
         temperature=resolved.temperature,
@@ -950,23 +954,20 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
             True if (resolved.extra or {}).get("structured_reasoning") else None
         ),
         api_protocol=(resolved.extra or {}).get("api_protocol"),
+        reasoning_effort_is_wire="reasoning_effort_levels" in (resolved.extra or {}),
     )
 
 
 def get_default_model(
     cfg: ModelConfig | None = None,
     disable_thinking: bool = False,
-    reasoning_effort: Optional[str] = None,
+    reasoning_effort: str | int | None = None,
     stream: bool = False,
 ) -> ChatModelBase:
     cfg = cfg or ModelConfig()
     resolved = _resolve_or_dummy("main_agent")
-    if reasoning_effort is not None:
-        supports = bool(
-            (resolved.extra if resolved else {}).get("supports_reasoning_effort")
-        )
-        if not supports:
-            reasoning_effort = None
+    if resolved and not disable_thinking:
+        return build_model_for_mode(resolved, mode=reasoning_effort, stream=stream)
     if resolved:
         return make_chat_model(
             model=resolved.model_name,

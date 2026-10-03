@@ -497,3 +497,5 @@ frontend Nginx configuration does so.
 ## Local project working directory
 
 [Local project working directory](local-project-workspace.md)
+
+In hybrid mode, available projects load after login and local projects refresh automatically when the local identity is ready. They appear in the sidebar without opening the projects panel. Late responses cannot overwrite a newer list; switching accounts or signing out clears the list and discards earlier responses.

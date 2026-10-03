@@ -53,7 +53,7 @@ export function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
       : (prior?.projectId || undefined),
     projectName: prior?.projectName || undefined,
     modeSlug: typeof meta.mode_slug === 'string' ? meta.mode_slug : prior?.modeSlug,
-    thinkingEffort: ['turbo', 'fast', 'medium', 'high', 'max'].includes(meta.thinking_effort)
+    thinkingEffort: ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'].includes(meta.thinking_effort)
       ? meta.thinking_effort : prior?.thinkingEffort,
     ...(inherited ? {
       planModeActive: prior?.planModeActive ?? false,

@@ -413,7 +413,7 @@
   border-radius:0;
   overflow:visible;
   display:block;
-  font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  font-family:var(--font-family);
   font-size:15.5px;
   line-height:1.82;
   letter-spacing:.004em;
@@ -1595,7 +1595,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   max-width:100%;
   flex:1;
   justify-content:center;
-  font-family:var(--font-family-homepage);
+  font-family:var(--font-family);
 }
 
 /* Homepage hero — transparent mark and compact Qwen Office-style greeting. */
@@ -1606,7 +1606,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   flex-direction:column;
   align-items:flex-start;
   padding:0 0 28px;
-  font-family:var(--font-family-homepage);
+  font-family:var(--font-family);
 }
 .jx-homeBrandMark{
   display:block;
@@ -1662,7 +1662,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   height:100% !important;
   padding:16px 16px 50px 16px !important;
   font-size:16px !important;
-  font-family:var(--font-family-homepage) !important;
+  font-family:var(--font-family) !important;
   color:var(--color-text) !important;
   resize:none !important;
 }
@@ -2145,86 +2145,6 @@ textarea.jx-composer{
 .jx-statusDot.connected{background:var(--color-success)}
 .jx-statusDot.disconnected{background:var(--color-error)}
 
-.jx-historyFilters{display:none;}/* legacy — no longer used */
-.jx-historyGroup{
-  display:flex;
-  flex-direction:column;
-  gap:5px;
-}
-.jx-historyGroupTitle{
-  padding:0 10px;
-  font-size:12px;
-  font-weight:400;
-  color:color-mix(in srgb, var(--color-text) 45%, transparent);
-  letter-spacing:0.03em;
-}
-.jx-historyGroupList{
-  display:flex;
-  flex-direction:column;
-  gap:3px;
-}
-.jx-historyEmpty{
-  padding:24px 8px;
-  font-size:12px;
-  color:color-mix(in srgb, var(--color-text) 42%, transparent);
-  text-align:center;
-}
-.jx-historyItem{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  min-height:36px;
-  padding:0 6px 0 10px;
-  border-radius:10px;
-  border:1px solid transparent;
-  background:transparent;
-  cursor:pointer;
-  transition:background .15s ease, border-color .15s ease, box-shadow .15s ease;
-  min-width:0;
-  position:relative;
-}
-.jx-historyItem:hover{
-  background:var(--color-fill-hover);
-  border-color:transparent;
-}
-.jx-historyItem.active{
-  background:var(--color-bg-container);
-  border-color:transparent;
-}
-.jx-historyMain{
-  flex:1;
-  min-width:0;
-  display:flex;
-  align-items:center;
-  padding-right:2px;
-}
-.jx-historyTitle{
-  flex:1;
-  min-width:0;
-  font-size:14px;
-  font-weight:500;
-  color:color-mix(in srgb, var(--color-text) 76%, transparent);
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  line-height:1.2;
-}
-.jx-historyItem:hover .jx-historyTitle{
-  color:color-mix(in srgb, var(--color-text) 90%, transparent);
-}
-.jx-historyItem.active .jx-historyTitle{
-  font-weight:400;
-  color:var(--color-text);
-}
-.jx-historyEditInput{
-  flex:1;
-  min-width:0;
-}
-.jx-historyEditInput .ant-input{
-  border-radius:8px;
-  border-color:rgba(2,132,199,.24);
-}
-
 .jx-headerTopicTag{
   flex-shrink:0;
   font-size:13px !important;
@@ -2237,44 +2157,6 @@ textarea.jx-composer{
   box-shadow:none !important;
   border:none !important;
 }
-.jx-historyActions{
-  position:absolute;
-  right:6px;
-  top:50%;
-  transform:translateY(-50%);
-  opacity:0;
-  transition:opacity .15s ease;
-  pointer-events:none;
-}
-.jx-historyItem:hover .jx-historyActions,
-.jx-historyItem.active .jx-historyActions{
-  opacity:1;
-  pointer-events:auto;
-}
-.jx-historyItem.editing .jx-historyActions{
-  display:none;
-}
-.jx-historyItem:hover .jx-historyMain,
-.jx-historyItem.active .jx-historyMain{
-  padding-right:28px;
-}
-.jx-historyMoreBtn{
-  appearance:none; border:none; outline:none; background:transparent;
-  width:24px; height:24px;
-  border-radius:6px;
-  display:flex; align-items:center; justify-content:center;
-  cursor:pointer;
-  font-size:13px;
-  color:color-mix(in srgb, var(--color-text) 48%, transparent);
-  padding:0;
-  transition:background .15s ease, color .15s ease;
-}
-.jx-historyMoreBtn:hover{
-  background:var(--color-fill-hover);
-  color:var(--color-text);
-}
-
-
 /* ── 延伸问题按钮（Follow-up Questions） ── */
 .jx-followUpQuestions{
   display:flex;
@@ -3992,7 +3874,7 @@ textarea.jx-composer{
 .jx-spaceImportPreview-tableWrap table {
   border-collapse: collapse;
   font-size: 12.5px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:var(--font-family);
 }
 .jx-spaceImportPreview-table th,
 .jx-spaceImportPreview-table td,
