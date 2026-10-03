@@ -56,7 +56,8 @@ def download(asset, destination):
                 if isinstance(reason, ssl.SSLCertVerificationError):
                     raise
                 last_error = error
-                print(f"[native-tools] {label}: {type(reason).__name__}", flush=True)
+                failure = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(reason).__name__
+                print(f"[native-tools] {label}: {failure}", flush=True)
                 if isinstance(error, urllib.error.HTTPError) and error.code not in (408, 429, 500, 502, 503, 504):
                     break
                 if attempt < 2:
