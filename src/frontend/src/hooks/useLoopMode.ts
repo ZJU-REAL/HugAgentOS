@@ -1,3 +1,4 @@
+import { chatDraftKey, readComposer } from '../stores/composerStore';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { createLoop, startLoop, resumeLoop } from '../api';
@@ -93,10 +94,11 @@ export async function sendLoopMode(
   directMessage?: string,
 ) {
   const {
-    input, setInput, sending, addSendingChatId, removeSendingChatId,
-    currentChatId, updateStore,
+    sending, addSendingChatId, removeSendingChatId,
+    currentChatId, updateStore, chatMode,
   } = useChatStore.getState();
-  const msg = directMessage?.trim() || input.trim();
+  const draft = readComposer(chatDraftKey(currentChatId));
+  const msg = directMessage?.trim() || draft.input.trim();
   if (!msg || sending) return;
   if (!currentChatId) {
     message.error(t('请先新建或选择一个对话。'));
@@ -105,7 +107,7 @@ export async function sendLoopMode(
 
   const streamChatId = currentChatId;
   addSendingChatId(streamChatId);
-  if (!directMessage) setInput('');
+  if (!directMessage) draft.consume(draft, ['text']);
 
   // 1) Optimistically render the user objective (the assistant placeholder bubble is created by the unified stream processor)
   const userMsg: ChatMessage = { role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now() };
@@ -141,7 +143,6 @@ export async function sendLoopMode(
     // The worker's thinking mode **fully** follows the mode the user confirmed in the chat:
     // chat_mode is passed through verbatim (fast/medium/high/max), no longer collapsed to a
     // boolean — the backend sets reasoning_effort accordingly.
-    const chatMode = useChatStore.getState().chatMode;
     const enableThinking = isThinkingMode(chatMode);
     // worker 模型跟随用户在会话里选定的模型（与普通聊天同源），不再永远默认模型
     const modelCaps = useModelCapabilitiesStore.getState();

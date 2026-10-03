@@ -1,3 +1,4 @@
+import { chatDraftKey, readComposer } from '../stores/composerStore';
 import { useCallback, useSyncExternalStore } from 'react';
 import { message } from 'antd';
 import { authFetch, chatTargetHeaders, getApiUrl, isLocalChat, registerLocalChat } from '../api';
@@ -153,7 +154,8 @@ export function forkConversation(chatId: string, throughMessageId?: string, opti
       if (navigationEpoch === navEpoch && useChatStore.getState().currentChatId === chatId
         && (typeof window === 'undefined' || window.location.pathname === startPath)) {
         const current = useChatStore.getState();
-        if (options?.clearInput !== undefined && current.input === options.clearInput) current.setInput('');
+        const draft = readComposer(chatDraftKey(chatId));
+        if (options?.clearInput !== undefined && draft.input === options.clearInput) draft.setInput('');
         current.setCurrentChatId(session.chat_id);
       }
       if (loaded) void message.success(t('已创建聊天分支'));

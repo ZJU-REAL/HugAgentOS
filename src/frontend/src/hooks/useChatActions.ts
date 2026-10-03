@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch } from '../api';
-import { newDraftChatId } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { triggerPdfDownload, toSafeFileName } from '../utils/export';
 import { SUMMARY_MAX_ROUNDS } from '../utils/constants';
@@ -16,7 +15,7 @@ import { ensureFullMessages } from './useChatInit';
 
 export function useChatActions(effectiveApiUrl: string) {
   const {
-    store, updateStore, setCurrentChatId,
+    store, updateStore,
     setToolResultPanel,
     backendSessionIds,
     addLoadedMsgId,
@@ -35,11 +34,10 @@ export function useChatActions(effectiveApiUrl: string) {
   function newChat(inputRef: React.RefObject<HTMLTextAreaElement | null>) {
     // This entry leaves the project page for a standalone conversation.
     useProjectStore.getState().closeCurrentProject();
-    const id = newDraftChatId(useChatStore.getState().currentUserId);
+    useChatStore.getState().resumeHomeChat();
     if (useAutomationChatStore.getState().activeGroup) {
       useAutomationChatStore.getState().exitAutomationChat();
     }
-    setCurrentChatId(id);
     setPanelSafe('chat');
     setToolResultPanel(null);
     clearShareSelection();

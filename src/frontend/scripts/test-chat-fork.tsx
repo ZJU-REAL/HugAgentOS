@@ -1,3 +1,5 @@
+import { t } from '../src/i18n';
+import { chatDraftKey, useComposerStore, readComposer } from '../src/stores/composerStore';
 /* eslint-disable react-refresh/only-export-components -- SSR fixture captures the actual hook action without exporting a production component. */
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
@@ -21,10 +23,10 @@ let actions!: ReturnType<typeof useChatFork>;
 function Composer() { actions = useChatFork(useChatStore.getState().currentChatId); return null; }
 function source(id: string, local = false) {
   window.location.pathname = '/';
-  useChatStore.setState({ currentUserId: 'owner', currentChatId: id, input: '/fork',
+  useChatStore.setState({ currentUserId: 'owner', currentChatId: id,
     backendSessionIds: new Set([id]), loadedMsgIds: new Set([id]),
     store: { order: [id], chats: { [id]: { id, title: 'Original', createdAt: 1, updatedAt: 2, messages: [], runTarget: local ? 'local' : 'cloud' } } },
-  });
+  }); readComposer().setInput('/fork');
   renderToString(<Composer />);
 }
 const requests: { url: string; method?: string; headers: Headers; body?: Record<string, unknown> }[] = [];
@@ -59,17 +61,17 @@ for (const local of [false, true]) {
   for (const call of calls) assert.equal(call.headers.get('x-hugagent-target'), local ? 'local' : null);
   const state = useChatStore.getState();
   assert.equal(state.currentChatId, `fork-${serial}`);
-  assert.equal(state.input, '');
+  assert.equal(readComposer().input, '');
   assert.equal(state.store.chats[state.currentChatId].messages.length, 2);
   assert.equal(state.messagePaging[state.currentChatId].hasOlder, true);
   assert.equal(state.store.chats[state.currentChatId].runTarget, local ? 'local' : 'cloud');
   assert.equal(isLocalChat(state.currentChatId), local);
 }
 source('button-source');
-useChatStore.getState().setInput('Keep this unrelated draft');
-assert.match(renderToString(<ForkChatButton chatId="button-source" messageId="reply-2" />), /aria-label="创建聊天分支"/);
+readComposer().setInput('Keep this unrelated draft');
+assert.ok(renderToString(<ForkChatButton chatId="button-source" messageId="reply-2" />).includes(`aria-label="${t('创建聊天分支')}"`));
 await forkConversation('button-source', 'reply-2');
-assert.equal(useChatStore.getState().input, 'Keep this unrelated draft');
+assert.equal(readComposer(chatDraftKey('button-source')).input, 'Keep this unrelated draft');
 
 source('uncertain-retry');
 const retryRequests: string[] = [];
@@ -82,7 +84,7 @@ globalThis.fetch = async (input, init) => {
   return successfulFetch(input, init);
 };
 assert.equal(await actions.forkChat(), false);
-assert.equal(useChatStore.getState().input, '/fork');
+assert.equal(readComposer().input, '/fork');
 assert.equal(await actions.forkChat(), true);
 assert.equal(retryRequests[0], retryRequests[1], 'uncertain network retry reuses the operation identity');
 
@@ -107,9 +109,11 @@ const discovered = useChatStore.getState();
 discovered.updateStore((store) => ({ ...store, order: [discoveredId, ...store.order], chats: { ...store.chats,
   [discoveredId]: { id: discoveredId, title: 'Renamed branch', titleManuallySet: true, createdAt: 1, updatedAt: 2,
     messages: discoveredMessages, planModeActive: true, batchModeActive: true, workflowModeActive: true,
-    modeSlug: 'custom-mode', thinkingEffort: 'max', pinned: true, favorite: true, pendingQuote: { text: 'Keep branch draft' },
+    modeSlug: 'custom-mode', thinkingEffort: 'max', pinned: true, favorite: true,
   },
 } }));
+useComposerStore.getState().activate(chatDraftKey(discoveredId));
+readComposer(chatDraftKey(discoveredId)).setQuotedFollowUp({text:'Keep branch draft',ts:1});
 discovered.addBackendSessionId(discoveredId);
 discovered.addLoadedMsgId(discoveredId);
 discovered.setMessagePaging(discoveredId, { nextPage: 5, hasOlder: false, loading: true });
@@ -125,7 +129,7 @@ assert.equal(recovered.modeSlug, 'custom-mode');
 assert.equal(recovered.thinkingEffort, 'max');
 assert.equal(recovered.pinned, true);
 assert.equal(recovered.favorite, true);
-assert.equal(recovered.pendingQuote?.text, 'Keep branch draft');
+assert.equal(readComposer(chatDraftKey(discoveredId)).quotedFollowUp?.text, 'Keep branch draft');
 assert.deepEqual(useChatStore.getState().messagePaging[discoveredId], { nextPage: 5, hasOlder: false, loading: true });
 assert.equal(useChatStore.getState().loadedMsgIds.has(discoveredId), true);
 assert.equal(duplicateHistoryLoads, 0, 'an already loaded recovered branch needs no initial load');
@@ -151,13 +155,13 @@ for (const scenario of ['account', 'navigation', 'panel', 'draft'] as const) {
   if (scenario === 'account') useChatStore.setState({ currentUserId: 'other', store: { order: [], chats: {} } });
   if (scenario === 'navigation') useChatStore.setState({ currentChatId: 'other-conversation' });
   if (scenario === 'panel') window.location.pathname = '/settings';
-  if (scenario === 'draft') useChatStore.getState().setInput('Edited during request');
+  if (scenario === 'draft') readComposer().setInput('Edited during request');
   release();
   await task;
   if (scenario === 'account') assert.equal(Object.keys(useChatStore.getState().store.chats).length, 0);
   if (scenario === 'navigation') assert.equal(useChatStore.getState().currentChatId, 'other-conversation');
   if (scenario === 'panel') assert.equal(useChatStore.getState().currentChatId, 'race-panel');
-  if (scenario === 'draft') assert.equal(useChatStore.getState().input, 'Edited during request');
+  if (scenario === 'draft') assert.equal(readComposer(chatDraftKey('race-draft')).input, 'Edited during request');
 }
 source('late-history');
 let releaseHistory!: () => void;

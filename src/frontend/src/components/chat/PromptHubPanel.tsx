@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { CloseOutlined, SearchOutlined } from '@ant-design/icons';
 import { Input } from 'antd';
-import { useUIStore, useChatStore } from '../../stores';
+import { useUIStore } from '../../stores';
+import { useComposerDraft } from '../../stores/composerStore';
 import { useDelayedFlag } from '../../hooks';
 import { t } from '../../i18n';
 
@@ -13,9 +14,9 @@ interface PromptItem {
   sort_order?: number;
 }
 
-export function PromptHubPanel() {
+export function PromptHubPanel({ draftKey }: { draftKey: string }) {
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
-  const { setInput } = useChatStore();
+  const { setInput } = useComposerDraft(draftKey);
   const [items, setItems] = useState<PromptItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');

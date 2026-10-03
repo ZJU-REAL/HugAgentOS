@@ -4,7 +4,7 @@ import { t } from '../i18n';
 export type UploadedAttachment = Pick<UploadedFile, 'file_id' | 'download_url' | 'origin'>;
 
 export async function uploadFileToOSS(
-  file: File, apiUrl: string, chatId: string, projectId?: string,
+  file: File, apiUrl: string, chatId?: string, projectId?: string,
 ): Promise<UploadedAttachment> {
   if (!apiUrl) return { file_id: '', download_url: '' };
   try {

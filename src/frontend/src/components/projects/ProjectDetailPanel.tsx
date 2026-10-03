@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { newDraftChatId } from '../../storage';
+import { projectDraftKey, chatDraftKey, readComposer, useComposerStore } from '../../stores/composerStore';
+import { composeCommandMessage } from '../../utils/projectCommands';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties, RefObject } from 'react';
 import {
   ArrowLeftOutlined,
@@ -19,8 +22,8 @@ import ProjectRightRail from './ProjectRightRail';
 interface Props {
   projectId: string;
   onBack: () => void;
-  handleFileSelect: (event: ChangeEvent<HTMLInputElement>, ref: RefObject<HTMLInputElement | null>) => void;
-  removeFile: (index: number) => void;
+  handleFileSelect: (event: ChangeEvent<HTMLInputElement>, ref: RefObject<HTMLInputElement | null>, draftKey?: string) => void;
+  removeFile: (index: number, draftKey?: string) => void;
 }
 
 function relativeTime(value: string | null): string {
@@ -58,6 +61,10 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
     return () => closeProject();
   }, [closeProject, openProject, projectId]);
 
+  useLayoutEffect(() => {
+    useComposerStore.getState().activate(projectDraftKey(projectId));
+  }, [projectId]);
+
   const openChat = (chatId: string) => {
     setCurrentChatId(chatId);
     setCatalogPanel('chat');
@@ -65,9 +72,10 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
 
   const submitFirstMessage = () => {
     if (!project) return;
-    const content = useChatStore.getState().input.trim();
+    const draft = readComposer(projectDraftKey(projectId));
+    const content = composeCommandMessage(draft.input, draft.activeCommand);
     if (!content) return;
-    const newId = `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    const newId = newDraftChatId(useChatStore.getState().currentUserId);
     const now = Date.now();
     updateStore((previous) => ({
       chats: {
@@ -83,14 +91,15 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
           businessTopic: '综合咨询',
           projectId: project.project_id,
           projectName: project.name,
-          ...(pendingMode === 'plan' ? { planChat: true } : pendingMode === 'batch' ? { batchChat: true } : {}),
+          ...(pendingMode === 'plan' ? { planChat: true, planModeActive: true } : pendingMode === 'batch' ? { batchChat: true } : {}),
         },
       },
       order: [newId, ...(previous.order || []).filter((id) => id !== newId)],
     }));
+    draft.consume(draft, ['text']);
+    useComposerStore.getState().transfer(projectDraftKey(projectId), chatDraftKey(newId));
     setCurrentChatId(newId);
     setPendingFirstMessage({ chatId: newId, content });
-    useChatStore.getState().setInput('');
     setPendingMode(null);
     setCatalogPanel('chat');
   };

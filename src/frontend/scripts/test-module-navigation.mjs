@@ -26,6 +26,7 @@ import { SearchModal } from './src/components/sidebar/SearchModal';
 import { NotificationList } from './src/components/myspace/NotificationList';
 import { usePanel } from './src/routing/usePanel';
 import { bindRouter,chatIdFromPath,isConversationPath,navigateTo } from './src/routing/navigation';
+import { readComposer } from './src/stores/composerStore';
 import { useChatStore,useCatalogStore,useAuthStore,useUIStore,useEditionStore } from './src/stores';
 import './src/styles/index';
 import './src/routing/RouteSync';
@@ -37,13 +38,14 @@ useChatStore.setState({chatsLoading:false,currentUserId:'test-user',currentChatI
 const actions = {onNewChat:()=>useChatStore.getState().newChat(),onNewProjectChat:()=>{},onDeleteChat:confirmDeleteChat,onTogglePinned:()=>{},onToggleFavorite:()=>{},onStartRename:()=>{},onCommitRename:()=>{},onExportChat:()=>{},onSelectChat:id=>useChatStore.getState().setCurrentChatId(id),onSetPanel:(panel,sub)=>useCatalogStore.getState().setPanel(panel,sub)};
 function Shell(){useAppBootstrap(isConversationPath());useChatSearch(); const panel=usePanel();const location=useLocation();useEffect(()=>{const id=chatIdFromPath(location.pathname);if(id)useChatStore.getState().adoptChatFromUrl(id);},[location.pathname]);return <Layout className="jx-appShell" style={{height:'100vh'}}><Sidebar {...actions}/><SearchModal onNewChat={actions.onNewChat} onSelectChat={actions.onSelectChat} onSelectSearchResult={item=>actions.onSelectChat(item.id)}/><main className="jx-panel" style={{flex:1,minWidth:0,overflow:'auto'}}><button aria-label="Open navigation" onClick={()=>useUIStore.getState().setSiderCollapsed(false)}>Menu</button>{panel==='ability_center'?<AbilityCenterPage/>:panel==='my_space'?<NotificationList/>:<Outlet/>}</main></Layout>;}
 const router=createBrowserRouter([{path:'/',element:<Shell/>,children:[{index:true,element:<p>Workspace</p>},{path:'*',element:<p>Module content</p>}]}]);bindRouter(router);
-window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>useChatStore.getState().activePlugin};
+window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>readComposer().activePlugin};
 createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
 `,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
 const origin='http://127.0.0.1:5199';
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM?{executablePath:process.env.PLAYWRIGHT_CHROMIUM}:{})});
 try{
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
  const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
  await page.route(origin+'/**',async route=>{
   const url=new URL(route.request().url());

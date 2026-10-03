@@ -40,6 +40,8 @@ export function InputArea({
     projectComposer, disableMention, forceSendMode, activeMode, onEnterMode: onEnterModeProp, abort,
   };
   const state = useComposerState(options);
+  const selectFiles: typeof handleFileSelect = (event, ref) => handleFileSelect(event, ref, state.draftKey);
+  const removeDraftFile = (index: number) => removeFile(index, state.draftKey);
   const suggestions = useComposerSuggestions(state, options);
   const editor = useComposerEditor(state, suggestions, { inputRef, fileInputRef, send, projectComposer });
   const {
@@ -93,7 +95,7 @@ export function InputArea({
   // 拖文件到输入区直接作为附件上传，复用点击"浏览"的同一条 handleFileSelect 管线
   // （它只读 e.target.files，合成一个最小 change 事件即可）。
   const { dragActive, dropZoneProps } = useFileDropZone(true, (files) => {
-    handleFileSelect(
+    selectFiles(
       { target: { files } } as unknown as React.ChangeEvent<HTMLInputElement>,
       fileInputRef,
     );
@@ -176,7 +178,7 @@ export function InputArea({
           </motion.div>
         )}
       </AnimatePresence>
-      <ComposerAttachments currentChatId={currentChatId} removeFile={removeFile} />
+      <ComposerAttachments draftKey={state.draftKey} currentChatId={currentChatId} removeFile={removeDraftFile} />
       {quotedFollowUp && (
         <div className="jx-inputQuote">
           <div className="jx-inputQuoteBadge">{t('追问引用')}</div>
@@ -209,10 +211,10 @@ export function InputArea({
         />
 
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }}
-          onChange={(e) => handleFileSelect(e, fileInputRef)} />
+          onChange={(e) => selectFiles(e, fileInputRef)} />
         <input ref={imageInputRef} type="file" multiple style={{ display: 'none' }}
           accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml"
-          onChange={(e) => handleFileSelect(e, imageInputRef)} />
+          onChange={(e) => selectFiles(e, imageInputRef)} />
 
         {/* ContentEditable editor — chips and text live on the same layer */}
         <div
@@ -242,7 +244,7 @@ export function InputArea({
             if (images.length) {
               e.preventDefault();
               e.stopPropagation();
-              handleFileSelect(
+              selectFiles(
                 { target: { files: images } } as unknown as React.ChangeEvent<HTMLInputElement>,
                 imageInputRef,
               );

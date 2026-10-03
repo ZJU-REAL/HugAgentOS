@@ -46,7 +46,7 @@
     "test:html-preview-browser": "node scripts/test-html-preview-browser.mjs",
     "test:desktop-menu-update": "esbuild scripts/test-desktop-update.tsx scripts/test-desktop-folder.ts scripts/test-client-download.ts --bundle --platform=node --format=esm --jsx=automatic --packages=external --define:import.meta.env={} --outdir=node_modules/.tmp/desktop-menu-update --out-extension:.js=.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-update.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-folder.mjs && node node_modules/.tmp/desktop-menu-update/test-client-download.mjs",
     "test:attachment-routing": "esbuild scripts/test-attachment-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-routing.mjs && node node_modules/.tmp/test-attachment-routing.mjs",
-    "test:attachment-send": "esbuild scripts/test-attachment-send.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-send.mjs && node node_modules/.tmp/test-attachment-send.mjs",
+    "test:attachment-send": "esbuild scripts/test-attachment-send.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-send.mjs && node node_modules/.tmp/test-attachment-send.mjs",
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:module-navigation": "node scripts/test-module-navigation.mjs",
     "test:hybrid-plugin-routing": "esbuild scripts/test-hybrid-plugin-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-hybrid-plugin-routing.mjs && node node_modules/.tmp/test-hybrid-plugin-routing.mjs",
@@ -55,8 +55,8 @@
     "test:agent-api": "esbuild scripts/test-agent-api.ts --bundle --platform=node --format=esm --define:import.meta.env='{}' --outfile=node_modules/.tmp/test-agent-api.mjs && node node_modules/.tmp/test-agent-api.mjs",
     "test:agent-api-browser": "node scripts/test-agent-api-browser.mjs",
     "test:chat-fork-browser": "node scripts/test-chat-fork-browser.mjs",
-    "test:chat-fork": "esbuild scripts/test-chat-fork.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-chat-fork.mjs && node node_modules/.tmp/test-chat-fork.mjs",
-    "test:fork-composer": "esbuild scripts/test-fork-composer.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-composer.mjs && node node_modules/.tmp/test-fork-composer.mjs",
+    "test:chat-fork": "esbuild scripts/test-chat-fork.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-chat-fork.mjs && node node_modules/.tmp/test-chat-fork.mjs",
+    "test:fork-composer": "esbuild scripts/test-fork-composer.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-composer.mjs && node node_modules/.tmp/test-fork-composer.mjs",
     "test:fork-history": "esbuild scripts/test-fork-history.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-fork-history.mjs && node node_modules/.tmp/test-fork-history.mjs",
     "test:date-timezone": "esbuild scripts/test-date-timezone.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-date-timezone.mjs && node node_modules/.tmp/test-date-timezone.mjs",
     "test:stream-resume": "esbuild scripts/test-stream-resume.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-stream-resume.mjs && node node_modules/.tmp/test-stream-resume.mjs",
@@ -68,7 +68,8 @@
     "test:project-bootstrap-browser": "node scripts/test-project-bootstrap-browser.mjs",
     "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs",
     "lint:desktop": "node scripts/check-desktop-lint.mjs",
-    "test:desktop-highlight-browser": "node scripts/test-desktop-highlight-browser.mjs"
+    "test:desktop-highlight-browser": "node scripts/test-desktop-highlight-browser.mjs",
+    "test:composer-drafts-browser": "node scripts/test-composer-drafts-browser.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

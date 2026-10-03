@@ -4,7 +4,7 @@ export { useCatalogStore } from './catalogStore';
 export { useKbStore } from './kbStore';
 export { useSettingsStore } from './settingsStore';
 export { useUIStore, type HistoryTimeFilter, type UpdateFilter } from './uiStore';
-export { useFileStore } from './fileStore';
+export { useComposerStore, useComposerDraft, readComposer } from './composerStore';
 export { useAgentStore } from './agentStore';
 export { useMySpaceStore } from './mySpaceStore';
 export { useCanvasStore } from './canvasStore';

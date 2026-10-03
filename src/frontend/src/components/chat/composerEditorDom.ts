@@ -42,9 +42,7 @@ export function removeChipsOfType(editor: HTMLElement, type: string): boolean {
   const rich = richEditor(editor);
   return rich ? removeRichChips(rich, type) : false;
 }
-export function setEditorPlainText(editor: HTMLElement, text: string) {
-  richEditor(editor)?.chain().setContent(text, { contentType: 'markdown', emitUpdate: false }).setMeta('addToHistory', false).run();
-}
+
 export function moveCaretToEnd(editor: HTMLElement) {
   richEditor(editor)?.commands.focus('end');
 }

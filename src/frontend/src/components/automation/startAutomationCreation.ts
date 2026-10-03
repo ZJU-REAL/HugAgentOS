@@ -1,3 +1,4 @@
+import { chatDraftKey, useComposerStore } from '../../stores/composerStore';
 import { message } from 'antd';
 import { createSession } from '../../api';
 import { t } from '../../i18n';
@@ -26,8 +27,9 @@ export async function startAutomationCreationInChat() {
   if (project) chat.bindChatProject(session.id, project.project_id, project.name);
   chat.addBackendSessionId(session.id);
   chat.addLoadedMsgId(session.id);
+  useComposerStore.getState().activate(chatDraftKey(session.id), {
+    input: AUTOMATION_CHAT_TEMPLATE, activePlugin: plugin,
+  });
   chat.adoptChatFromUrl(session.id);
-  chat.setInput(AUTOMATION_CHAT_TEMPLATE);
-  chat.setActivePlugin(plugin);
   navigateTo(pathForAutomationChat('new', session.id));
 }

@@ -8,8 +8,6 @@ import { useChatStore } from '../stores';
 import { useAuthStore } from '../stores/authStore';
 import { useAutomationChatStore } from '../stores/automationChatStore';
 import { isAddressableChat } from '../stores/chatStore';
-import { usePluginStore } from '../stores/pluginStore';
-import { resolveAutomationPluginReference } from '../utils/automationConversation';
 import { navigateTo, pathForChat, pathForPanel, setConversationOwnerResolver } from './navigation';
 
 setConversationOwnerResolver(id => useChatStore.getState().store.chats[id]?.automationTaskId);
@@ -41,8 +39,8 @@ export function ChatRoute() {
     if (chatId) {
       if (chat.currentChatId !== chatId) chat.adoptChatFromUrl(chatId);
     } else if (isAddressableChat(chat.currentChatId)) {
-      // 退回首页：首页不指向任何一段已有对话，落到一段新草稿上
-      chat.newChat();
+      // 返回首页时恢复该入口的未发送草稿；已发送的首页草稿由 store 换成空白草稿。
+      chat.resumeHomeChat();
     }
   }, [chatId]);
   return null;
@@ -70,10 +68,6 @@ export function AutomationChatRoute() {
       if (chat.currentChatId !== chatId) chat.adoptChatFromUrl(chatId);
       if (taskId === 'new') {
         useAutomationChatStore.getState().exitAutomationChat();
-        if (!useChatStore.getState().activePlugin) {
-          await usePluginStore.getState().fetchInstalled();
-          if (!cancelled && useChatStore.getState().currentChatId === chatId) chat.setActivePlugin(resolveAutomationPluginReference(usePluginStore.getState().installed));
-        }
         return;
       }
       const [task, runs] = await Promise.all([getAutomation(taskId), getAutomationRuns(taskId, 50)]);

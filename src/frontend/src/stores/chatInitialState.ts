@@ -1,0 +1,46 @@
+import { nowId } from '../storage';
+import type { ChatState } from './chatState';
+
+export function createChatInitialState(): Pick<ChatState, "currentUserId" | "store" | "storeRef" | "currentChatId" | "homeDraftId" | "sending" | "sendingChatIds" | "remoteRunningChatIds" | "expandedThinking" | "chatMode" | "lastStandardMode" | "modeSlug" | "toolResultPanel" | "copiedMsg" | "chatsLoading" | "pendingFirstMessage" | "feedbackMap" | "dislikingUid" | "dislikeComment" | "toolDisplayNames" | "backendSessionIds" | "loadedMsgIds" | "messagePaging" | "shareSelectionMode" | "selectedShareMessageUids" | "pendingScrollMessageTs" | "planMode" | "loopMode" | "currentPlanId" | "editingMessageUid" | "sessionLoadEpoch" | "activeRuns" | "queuedMessages" | "compactionNotices" | "visionReading" | "contextCompactions" | "contextUsages" | "planProgress"> { return {
+// currentUserId stays null until hydrateForUser runs after login. While null,
+  // the store is empty and all save helpers no-op — avoids any chance of
+  // writing one user's data under a key that a later user could read.
+  currentUserId: null,
+store: { chats: {}, order: [] },
+storeRef: { chats: {}, order: [] },
+currentChatId: nowId('chat'),
+homeDraftId: null,
+sending: false,
+sendingChatIds: new Set(),
+remoteRunningChatIds: new Set(),
+expandedThinking: new Set(),
+chatMode: 'fast',
+lastStandardMode: 'fast',
+modeSlug: 'standard',
+toolResultPanel: null,
+copiedMsg: null,
+chatsLoading: false,
+pendingFirstMessage: null,
+feedbackMap: {},
+dislikingUid: null,
+dislikeComment: '',
+toolDisplayNames: {},
+backendSessionIds: new Set(),
+loadedMsgIds: new Set(),
+messagePaging: {},
+shareSelectionMode: false,
+selectedShareMessageUids: new Set(),
+pendingScrollMessageTs: null,
+planMode: false,
+loopMode: false,
+currentPlanId: null,
+editingMessageUid: null,
+sessionLoadEpoch: 0,
+activeRuns: {},
+queuedMessages: {},
+compactionNotices: {},
+visionReading: {},
+contextCompactions: {},
+contextUsages: {},
+planProgress: {}
+}; }

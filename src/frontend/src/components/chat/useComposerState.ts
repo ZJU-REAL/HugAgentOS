@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
+import { chatDraftKey, projectDraftKey, useComposerDraft, useComposerStore } from '../../stores/composerStore';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useChatStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -14,15 +15,10 @@ export function useComposerState({
   projectComposer, forceSendMode, activeMode, onEnterMode: onEnterModeProp, abort,
 }: ComposerOptions) {
   const {
-    input, setInput, sending: storeSending,
-    quotedFollowUp, setQuotedFollowUp,
-    activeSkill, setActiveSkill, activePlugin, setActivePlugin,
-    activeConnector, setActiveConnector, activeMention, setActiveMention,
-    activeCommand, setActiveCommand,
+    sending: storeSending,
     planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
-    referencedChats, addReferencedChat, removeReferencedChat, clearReferencedChats,
   } = useChatStore();
   // Autonomous-loop capability bit (enabled by default): without permission the "autonomous loop" toggle is hidden
   const loopCapEnabled = useAuthStore((s) => s.authUser?.can_run_autonomous_loop);
@@ -55,7 +51,19 @@ export function useComposerState({
     void usePluginUiStore.getState().fetchContributions();
   }, []);
   const sending = forceSendMode ? false : storeSending;
-  const { uploadedFiles, uploadingFiles, importedSpaceFiles } = useFileStore();
+  const draftKey = projectComposer && detailProject
+    ? projectDraftKey(detailProject.project_id) : chatDraftKey(currentChatId);
+  const visibleKey = useComposerStore(s => s.activeKey);
+  useLayoutEffect(() => {
+    if (visibleKey !== draftKey) useComposerStore.getState().activate(draftKey);
+  }, [draftKey, visibleKey]);
+  const {
+    input, setInput, quotedFollowUp, setQuotedFollowUp,
+    activeSkill, setActiveSkill, activePlugin, setActivePlugin,
+    activeConnector, setActiveConnector, activeMention, setActiveMention,
+    activeCommand, setActiveCommand, referencedChats, addReferencedChat,
+    removeReferencedChat, uploadedFiles, uploadingFiles, importedSpaceFiles,
+  } = useComposerDraft(draftKey);
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
@@ -187,11 +195,12 @@ export function useComposerState({
 
 
   return {
+    draftKey,
     input, setInput, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill,
     activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention,
     setActiveMention, activeCommand, setActiveCommand, planMode, loopMode, setLoopMode,
     currentChatId, bindChatProject, unbindChatProject, queuedMessages, updateQueuedMessage,
-    activeRuns, referencedChats, addReferencedChat, removeReferencedChat, clearReferencedChats,
+    activeRuns, referencedChats, addReferencedChat, removeReferencedChat,
     isAppAllowed, planModeAllowed, batchRunnerAllowed, skills, connectors, projects,
     fetchProjects, setProjectCreateModalOpen, agents, fetchAgents, installedPlugins,
     sending, uploadedFiles, uploadingFiles, importedSpaceFiles, promptHubOpen, setPromptHubOpen,
