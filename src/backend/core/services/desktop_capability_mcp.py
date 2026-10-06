@@ -170,6 +170,14 @@ async def invoke_gateway_tool(
             upstream_headers[key.lower()] = value
     upstream_headers["x-current-user-id"] = str(resolved["user_id"])
     upstream_headers["accept-encoding"] = "identity"
+    # The authenticated cloud gateway is a new invocation hop. Never forward
+    # a device-issued proof to an internal MCP that trusts the cloud key.
+    from core.llm.mcp_invocation import HEADER, for_url
+
+    upstream_headers.pop(HEADER.lower(), None)
+    upstream_headers.update(for_url(
+        target.get("url"), str(resolved["user_id"]), upstream_headers.get("x-chat-id", "")
+    ))
     target["headers"] = upstream_headers
 
     client = make_client(str(resolved["server_id"]), target, is_stateful=False)

@@ -88,3 +88,10 @@ A touch tap clicks and a one-finger drag scrolls without starting mouse text sel
 ### 1.0.9 Tab selection fixes
 
 Pages opened by links or popups automatically become the selected Canvas browser page and live frame. Closing the selected tab activates its right neighbor, or its left neighbor when no right neighbor exists. Closing a background tab preserves selection. Tab changes update the address bar and focus address entry for blank pages; metadata updates in the same tab preserve unfinished input. Crowded narrow tab strips scroll horizontally and bring the selected tab into view. Plus still opens the host launcher first; cancelling creates no page. Reopen browser sessions after updating the plugin.
+
+
+### Desktop local installation
+
+In hybrid mode, a cloud-installed browser plugin uses a cloud browser. To use a local browser, import the `browser-automation` package through the plugin manager's local installation entry and load the complete local installation identifier. This distinguishes it from a cloud installation with the same name. User-owned local plugins participate in conversation assembly; legacy shared local bootstrap plugins do not override account capabilities.
+
+When a user-owned local plugin is loaded, the desktop service starts its declared bundled MCPs on loopback on demand with the existing branded port namespace, watchdog and process cleanup. Business connectors continue through the cloud gateway. When invoking a built-in MCP, the gateway issues a fresh invocation proof for the authenticated account and current conversation instead of forwarding a device-issued proof to cloud internal services.
