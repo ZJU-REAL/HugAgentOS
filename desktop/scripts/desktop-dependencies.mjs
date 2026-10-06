@@ -17,6 +17,7 @@ export const DESKTOP_RUNTIME_INPUT_FILES = Object.freeze([
   "desktop/scripts/desktop-dependencies.mjs",
   "desktop/scripts/install-native-tools.py",
   "desktop/scripts/runtime-smoke.py",
+  "desktop/scripts/browser-runtime.py",
   "desktop/scripts/extract-runtime-probe.py",
   "src/backend/services/script_runner_service/runtime_tools.py",
   "desktop/scripts/create-runtime-archive.py",

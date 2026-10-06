@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "browser_runtime": {
+      "type": "streamable-http",
+      "url": "builtin://browser_runtime"
+    }
+  }
+}

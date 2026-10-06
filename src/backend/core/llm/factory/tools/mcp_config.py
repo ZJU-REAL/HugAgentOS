@@ -163,6 +163,8 @@ def _inject_runtime_headers(
         if is_http:
             headers = dict(c.get("headers") or {})
             headers.update(ctx_headers)
+            from core.llm.mcp_invocation import for_url
+            headers.update(for_url(c.get("url"), current_user_id, chat_id))
             c["headers"] = headers
         else:
             env_cfg = dict(c.get("env") or {})

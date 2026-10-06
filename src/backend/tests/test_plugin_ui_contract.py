@@ -365,3 +365,16 @@ def test_backend_view_kinds_match_the_frontend_registry():
         f"view kinds drifted — only in frontend: {sorted(frontend_kinds - set(VIEW_KINDS))}, "
         f"only in backend: {sorted(set(VIEW_KINDS) - frontend_kinds)}"
     )
+
+
+def test_module_owned_canvas_header_is_declarative_and_public():
+    ui, dropped = normalize_ui(_minimal_ui(modules=[
+        {"id": "embedded", "entry": "web/index.html", "surface": "canvas", "canvas_header": "module"},
+        {"id": "ordinary", "entry": "web/index.html", "surface": "canvas"},
+        {"id": "tool", "entry": "web/index.html", "surface": "tool_view", "canvas_header": "module"},
+    ]))
+    assert not dropped
+    modules = public_contributions(ui, slug="any-plugin")["contributes"]["modules"]
+    assert modules[0]["canvas_header"] == "module"
+    assert "canvas_header" not in modules[1]
+    assert "canvas_header" not in modules[2]

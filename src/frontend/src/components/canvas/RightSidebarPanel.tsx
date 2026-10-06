@@ -1,3 +1,6 @@
+import { useEffect } from 'react';
+import { CanvasLauncher } from './CanvasLauncher';
+import { useCanvasLauncherStore } from './canvasLauncherStore';
 import { InsertRowRightOutlined } from '@ant-design/icons';
 
 import { t } from '../../i18n';
@@ -10,6 +13,18 @@ import { OntologySidebarPanel } from './OntologySidebarPanel';
 import { PluginCanvasPanel } from './PluginCanvasPanel';
 
 export function RightSidebarPanel() {
+  const launcherOpen = useCanvasLauncherStore(s => s.open);
+  const dismiss = useCanvasLauncherStore(s => s.dismiss);
+  const activeTabId = useCanvasStore(s => s.activeTabId);
+  useEffect(() => { dismiss(); }, [activeTabId, dismiss]);
+  useEffect(() => () => dismiss(), [dismiss]);
+  return <div className={'jx-canvasWorkspace' + (launcherOpen ? ' is-launching' : '')}>
+    <div className="jx-canvasWorkspace-current" inert={launcherOpen || undefined}><SidebarContent /></div>
+    {launcherOpen && <CanvasLauncher />}
+  </div>;
+}
+
+function SidebarContent() {
   const activeView = useCanvasStore((state) => state.activeView);
   const artifact = useCanvasStore((state) => state.artifact);
   const activeTabId = useCanvasStore((state) => state.activeTabId);

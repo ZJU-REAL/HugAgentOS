@@ -1,6 +1,6 @@
 [package]
 name = "hugagent-desktop"
-version = "1.0.2"
+version = "1.0.3"
 description = "HugAgentOS桌面客户端"
 edition = "2021"
 rust-version = "1.77"
@@ -47,7 +47,9 @@ base64 = "0.22"
 memmap2 = "0.9"
 
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "process", "io-util", "time"] }
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+native-tls = "0.2"
 # default-features=false + rustls 避免对系统 OpenSSL 的依赖，便于跨平台/Windows 构建；
 # stream 用于把上游响应（含 SSE）逐帧转发，不缓冲。
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }

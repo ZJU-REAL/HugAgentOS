@@ -48,6 +48,8 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("marketplace", "router"),
     ("mcp_marketplace", "router"),
     ("agent_marketplace", "router"),
+    ("plugin_ui", "router"),
+    ("plugin_resources", "router"),
     ("plugins", "router"),
     ("integrations", "router"),
     ("channels", "router"),

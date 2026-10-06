@@ -1,3 +1,5 @@
+import { t } from '../src/i18n';
+import { chatDraftKey, readComposer } from '../src/stores/composerStore';
 /* eslint-disable react-refresh/only-export-components -- SSR test harness captures hook actions for event assertions without a browser renderer. */
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
@@ -44,7 +46,7 @@ function Harness({ options }: { options: ComposerOptions }) {
   // Zustand's server snapshot intentionally stays at store initialization. Supply
   // the current chat snapshot to these browser event handlers explicitly.
   state = {
-    ...useComposerState(options), ...useChatStore.getState(),
+    ...useComposerState(options), ...useChatStore.getState(), ...readComposer(chatDraftKey('source')), draftKey:chatDraftKey('source'),
     _currentChat: useChatStore.getState().currentChat(),
   };
   suggestions = useComposerSuggestions(state, options);
@@ -89,11 +91,11 @@ const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 function mount(input: string, projectComposer = false, projectId?: string) {
   const source = { id: 'source', title: 'Source', createdAt: 1, updatedAt: 1, messages: [], projectId };
   useChatStore.setState({
-    currentUserId: 'fork-composer-user', currentChatId: 'source', input, sending: false,
+    currentUserId: 'fork-composer-user', currentChatId: 'source', sending: false,
     store: { chats: { source }, order: ['source'] }, backendSessionIds: new Set(['source']),
-    activeCommand: null, activeSkill: null, activePlugin: null, activeConnector: null, activeMention: null,
-    planMode: false, loopMode: false, referencedChats: [],
+    planMode: false, loopMode: false,
   });
+  readComposer(chatDraftKey('source')).setInput(input);
   renderToString(<Harness options={{ projectComposer, forceSendMode: projectComposer, disableMention: false, activeMode: null }} />);
 }
 function keyEvent(key = 'Enter', isComposing = false): React.KeyboardEvent<HTMLDivElement> {
@@ -109,13 +111,13 @@ try {
   mount('/');
   const action = suggestions.slashEntries.find((entry) => entry.kind === 'chat_action');
   assert.ok(action, 'fork is offered independently from project-only /init');
-  assert.equal(action.name, '创建聊天分支');
+  assert.equal(action.name, t('创建聊天分支'));
   editor.onSlashEntrySelect(action);
   await settle();
   assert.equal(postCount, 1);
   assert.equal(generations, 0);
   assert.equal(useChatStore.getState().currentChatId, 'branch-1', JSON.stringify(notices));
-  assert.equal(useChatStore.getState().input, '');
+  assert.equal(readComposer().input, '');
 
   mount('/fork', false, 'project-1');
   assert.ok(suggestions.slashEntries.some((entry) => entry.kind === 'chat_action'), 'existing project conversations support forks');
@@ -141,8 +143,8 @@ try {
   await settle();
   assert.equal(postCount, 4);
   assert.equal(generations, 0);
-  assert.equal(useChatStore.getState().input, '/fork extra');
-  assert.ok(notices.includes('用法：/fork（不支持参数）'));
+  assert.equal(readComposer().input, '/fork extra');
+  assert.ok(notices.includes(t('用法：/fork（不支持参数）')));
   mount('Please explain /fork');
   editor.sendFromComposer();
   assert.equal(generations, 1, 'ordinary text mentioning the command is still sent');
@@ -164,7 +166,7 @@ try {
   editor.sendFromComposer();
   await settle();
   assert.equal(postCount, 5);
-  assert.equal(useChatStore.getState().input, '/fork', 'rejected fork preserves the command');
+  assert.equal(readComposer().input, '/fork', 'rejected fork preserves the command');
   assert.equal(useChatStore.getState().currentChatId, 'source');
   shouldFail = false;
 
@@ -173,10 +175,10 @@ try {
   waitForResponse = new Promise<void>((resolve) => { release = resolve; });
   editor.sendFromComposer();
   await settle();
-  useChatStore.getState().setInput('New draft while waiting');
+  readComposer().setInput('New draft while waiting');
   release();
   await settle();
-  assert.equal(useChatStore.getState().input, 'New draft while waiting', 'success preserves edits made during creation');
+  assert.equal(readComposer(chatDraftKey('source')).input, 'New draft while waiting', 'success preserves edits made during creation');
   waitForResponse = undefined;
 
   mount('/init');

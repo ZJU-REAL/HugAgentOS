@@ -1,10 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 import { useChatStore } from '../../stores';
+import { readComposer, useComposerStore, type ComposerDraft } from '../../stores/composerStore';
+import { snapshotComposer, restoreComposer, sameDocument } from './composerDocument';
 import type { UserAgentItem } from '../../stores/agentStore';
 import type { InstalledPluginItem, ReferencableChat } from '../../types';
 import type { MentionCandidate } from '../agent';
 import type { SlashEntry } from './SkillSlashPopup';
+import { useStableCallback } from '../../hooks/useStableCallback';
 import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useChatFork } from '../../hooks/useChatFork';
 import { classifyForkCommand } from '../../utils/chatForkCommands';
@@ -13,7 +16,7 @@ import { createRichEditor, disposeRichEditor, richEditor } from './composerRichT
 import '../../styles/composer-rich.css';
 import { t } from '../../i18n';
 import {
-  getEditorText, setEditorPlainText, moveCaretToEnd, removeChipsOfType, insertChipAtStart,
+  moveCaretToEnd, removeChipsOfType,
   insertChipAtCursor, removeQueryAtCursor, resetQueryAtCursor, CHAT_CHIP_ICON,
 } from './composerEditorDom';
 import type { ComposerState } from './useComposerState';
@@ -24,193 +27,114 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   inputRef, fileInputRef, send, projectComposer,
 }: Pick<InputAreaProps, 'inputRef' | 'fileInputRef' | 'send' | 'projectComposer'>) {
   const {
-    input, setInput, activeMention, activeSkill, activePlugin, activeConnector, activeCommand,
     setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector, setActiveCommand,
-    referencedChats, clearReferencedChats, _currentChat, isSiteChat, activeLocalMode,
+    activeLocalMode, draftKey,
     setMySpaceImportOpen, setLoopMode, onEnterMode, canInitProject, addReferencedChat, currentChatId,
   } = state;
   const {
     mentionInputChange, slashInputChange, setMentionVisible, showMentionAgentPicker, setSlashVisible,
   } = suggestions;
+  const onMentionInput = useStableCallback(mentionInputChange);
+  const onSlashInput = useStableCallback(slashInputChange);
   const { forkChat, pending: forkPending } = useChatFork(currentChatId);
   const editorHostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const currentUserId = useChatStore(s => s.currentUserId);
-  const contextKey = currentUserId + ':' + currentChatId;
+  const epoch = useComposerStore(s => s.epoch);
+  const contextKey = currentUserId + ':' + epoch + ':' + draftKey;
   useComposerCaretScroll(editorRef, contextKey);
   const composingRef = useRef(false);
-  const [isComposing, setIsComposing] = useState(false);
-  const prevTextRef = useRef('');
-
-  // ── Sync editor text → store ──
-  const syncTextRef = useRef<() => void>(() => {});
-  useLayoutEffect(() => {
-    syncTextRef.current = () => {
-      if (!editorRef.current) return;
-      const rich = richEditor(editorRef.current);
-      if (rich) {
-        const store = useChatStore.getState();
-        const values = new Map<string, { id: string; name: string }>();
-        const chats: ReferencableChat[] = [];
-        const commands: ChatCommand[] = [];
-        rich.state.doc.descendants(node => {
-          if (node.type.name !== 'invocationChip' || !node.attrs.value) return;
-          const value = JSON.parse(node.attrs.value);
-          if (node.attrs.chip === 'chat') chats.push(value);
-          else if (node.attrs.chip === 'command') commands.push(value);
-          else if (value.id) values.set(node.attrs.chip, value);
-        });
-        for (const [type, current, setter] of [
-          ['mention', store.activeMention, store.setActiveMention],
-          ['skill', store.activeSkill, store.setActiveSkill],
-          ['plugin', store.activePlugin, store.setActivePlugin],
-          ['connector', store.activeConnector, store.setActiveConnector],
-        ] as const) {
-          const next = values.get(type) ?? null;
-          if (next?.id !== current?.id) setter(next);
-        }
-        const command = commands[0] ?? null;
-        if (command?.id !== store.activeCommand?.id) store.setActiveCommand(command);
-        for (const chat of store.referencedChats) {
-          if (!chats.some(next => next.chat_id === chat.chat_id)) store.removeReferencedChat(chat.chat_id);
-        }
-        for (const chat of chats) {
-          if (!store.referencedChats.some(current => current.chat_id === chat.chat_id)) store.addReferencedChat(chat);
-        }
-        if (rich.isActive('codeBlock') || rich.isActive('code')) {
-          setMentionVisible(false);
-          setSlashVisible(false);
-        }
-      }
-      const text = getEditorText(editorRef.current);
-      const prev = prevTextRef.current;
-      if (text === prev) return; // no change
-      prevTextRef.current = text;
-      setInput(text);
-      if (!rich?.isActive('codeBlock') && !rich?.isActive('code')) {
-        mentionInputChange(text, prev);
-        slashInputChange(text, prev);
-      }
-    };
-  });
-  function syncText() { syncTextRef.current(); }
+  const [composition, setComposition] = useState({ contextKey, active: false });
+  const isComposing = composition.contextKey === contextKey && composition.active;
+  const setIsComposing = (active: boolean) => setComposition({ contextKey, active });
+  const publishRef = useRef<{ key: string; flush: () => void }>({ key: '', flush: () => {} });
+  const restoreRef = useRef<(draft: ComposerDraft) => void>(() => {});
+  const seenDraftRef = useRef<ReturnType<typeof readComposer> | null>(null);
 
   useLayoutEffect(() => {
     if (!editorHostRef.current) return;
-    prevTextRef.current = '';
+    composingRef.current = false;
     let frame = 0;
+    let restoring = true;
+    let dirty = false;
+    const actions = readComposer(draftKey);
+    let suggestedInput = actions.input;
     const rich = createRichEditor(editorHostRef.current, () => {
-      if (frame || composingRef.current) return;
-      // Native input may deliver many transactions before the next paint.
-      // Publish one final draft per frame rather than nesting store renders
-      // inside the editor's DOM observer. Sending flushes the draft below.
+      if (restoring) return;
+      dirty = true;
+      publish();
+    });
+    const publish = () => {
+      if (rich.isDestroyed || !dirty) return;
+      const before = readComposer(draftKey);
+      const seen = seenDraftRef.current;
+      // External prompt replacement or send consumption wins over a departing editor.
+      if (seen?.key === draftKey && (before.input !== seen.input || before.document !== seen.document)) return;
+      const next = snapshotComposer(rich);
+      if (sameDocument(before.document, next.document ?? null)) return;
+      dirty = false;
+      // Publish ownership and document synchronously: an upload completion in this same
+      // frame must observe any newer edit before consuming its captured turn.
+      seenDraftRef.current = { ...before, ...next };
+      actions.patch(next);
+      cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         frame = 0;
-        if (!rich.isDestroyed && !composingRef.current) syncTextRef.current();
+        if (!composingRef.current && !rich.isDestroyed && !rich.isActive('codeBlock') && !rich.isActive('code')) {
+          onMentionInput(next.input ?? '', suggestedInput);
+          onSlashInput(next.input ?? '', suggestedInput);
+          suggestedInput = next.input ?? '';
+        }
       });
-    });
-    const element = rich.view.dom as HTMLDivElement;
-    editorRef.current = element;
-    // Pointer navigation blurs the editor before changing the shared draft.
-    // Flush here, never during cleanup where a new chat may already be cleared.
-    const flushDraft = () => {
-      cancelAnimationFrame(frame);
-      frame = 0;
-      if (!composingRef.current) syncTextRef.current();
     };
-    element.addEventListener('blur', flushDraft);
+    const flush = () => {
+      cancelAnimationFrame(frame); frame = 0;
+      publish();
+    };
+    publishRef.current = { key: draftKey, flush };
+    editorRef.current = rich.view.dom as HTMLDivElement;
+    restoreRef.current = draft => {
+      restoring = true;
+      cancelAnimationFrame(frame); frame = 0; dirty = false;
+      restoreComposer(rich, draft);
+      suggestedInput = draft.input;
+      restoring = false;
+      seenDraftRef.current = readComposer(draftKey);
+    };
+    restoreRef.current(actions);
+    const element = rich.view.dom;
+    element.addEventListener('blur', flush);
     return () => {
-      cancelAnimationFrame(frame);
-      element.removeEventListener('blur', flushDraft);
-      editorRef.current = null;
+      // The captured editor, owner and epoch remain authoritative during navigation and IME.
+      flush();
+      element.removeEventListener('blur', flush);
+      if (editorRef.current === element) editorRef.current = null;
+      composingRef.current = false;
       disposeRichEditor(rich);
     };
+  // The editor's lifetime follows its draft, not the current conversation's metadata.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextKey]);
 
-  // ── Sync external store updates back into the contentEditable editor ──
+  function syncText() {
+    // An old composition-end microtask must never flush the new editor.
+    if (useComposerStore.getState().epoch === epoch
+        && publishRef.current.key === draftKey) publishRef.current.flush();
+  }
+
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || composingRef.current || input === prevTextRef.current) return;
-    if (input !== useChatStore.getState().input) return; // A draft flush superseded this render.
-
-    const hadMentionChip = !!editor.querySelector('[data-chip="mention"]');
-    const hadSkillChip = !!editor.querySelector('[data-chip="skill"]');
-    const hadPluginChip = !!editor.querySelector('[data-chip="plugin"]');
-    const hadConnectorChip = !!editor.querySelector('[data-chip="connector"]');
-    const hadCommandChip = !!editor.querySelector('[data-chip="command"]');
-    const hadChatChip = !!editor.querySelector('[data-chip="chat"]');
-
-    setEditorPlainText(editor, input);
-    prevTextRef.current = input;
-
-    if (hadMentionChip && activeMention) setActiveMention(null);
-    if (hadSkillChip && activeSkill) setActiveSkill(null);
-    if (hadPluginChip && activePlugin) setActivePlugin(null);
-    if (hadConnectorChip && activeConnector) setActiveConnector(null);
-    if (hadCommandChip && activeCommand) setActiveCommand(null);
-    if (hadChatChip && referencedChats.length > 0) clearReferencedChats();
-
-    if (document.activeElement === editor) {
-      moveCaretToEnd(editor);
-    }
-  }, [
-    activeMention, activeSkill, activePlugin, activeConnector, activeCommand, input, contextKey,
-    setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector, setActiveCommand,
-    referencedChats, clearReferencedChats,
-  ]);
-
-  // Connector chips are per-turn composer state. Clear stale DOM chips after switching chats,
-  // panels, users, or starting a new chat, just like the site-plugin safety invariant below.
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || activeConnector) return;
-    if (removeChipsOfType(editor, 'connector')) syncText();
-  }, [activeConnector, _currentChat?.id]);
-
-  // 命令 chip 同一条安全网，而且它是唯一出口：只带一个命令 chip 发送时输入框文本前后都是空的，
-  // 上面那个「input 变了才重画编辑器」的 effect 根本不会触发，chip 会留在框里。
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || activeCommand) return;
-    if (removeChipsOfType(editor, 'command')) syncText();
-  }, [activeCommand, _currentChat?.id]);
-
-  // 会话引用 chip 与 connector chip 同一条安全网：编辑器 DOM 是所有会话共用的一个元素，
-  // 切换会话时 store 里的引用已清空，DOM 里的 chip 不会自己消失，得显式扫掉。
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || referencedChats.length > 0) return;
-    if (removeChipsOfType(editor, 'chat')) syncText();
-  }, [referencedChats, _currentChat?.id]);
-
-  // ── Plugin-first entry points: render their activated plugin as an inline reference chip ──
-  // Site building and scheduled-task creation can enter chat with a plugin already active.
-  // The chip must be inserted before any prefilled prompt so the user sees both the referenced
-  // plugin and the editable instruction exactly as they would after choosing a plugin manually.
-  //
-  // Key point (fixes plugin references leaking across chats): the editor DOM is a single
-  // element shared by all chats, so plugin chips do not disappear automatically on chat
-  // switch. We enforce a **strong invariant** as the safety net — "a plugin chip must
-  // correspond to an activePlugin": whenever activePlugin is empty (setCurrentChatId
-  // already recomputed it to null when switching to a non-site chat, or the user deleted
-  // the chip), remove all stale plugin chips from the editor. It does not depend on any
-  // "did we switch" check, so nothing slips through.
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    if (!activePlugin) {
-      const stale = editor.querySelectorAll('[data-chip="plugin"]');
-      if (stale.length) {
-        removeChipsOfType(editor, 'plugin');
-        syncText();
-      }
-      return;
-    }
-    if (!editor.querySelector('[data-chip="plugin"]')) {
-      insertChipAtStart(editor, '/', activePlugin.name, 'jx-editorChip--plugin', 'plugin', activePlugin);
-      syncText();
-    }
-  }, [isSiteChat, activePlugin, _currentChat?.id, input]);
+    const element = editorRef.current;
+    const rich = element && richEditor(element);
+    if (!rich || composingRef.current) return;
+    const draft = readComposer(draftKey);
+    const seen = seenDraftRef.current;
+    if (seen && draft.input === seen.input && sameDocument(draft.document, seen.document)
+        && draft.activeMention === seen.activeMention && draft.activeSkill === seen.activeSkill
+        && draft.activePlugin === seen.activePlugin && draft.activeConnector === seen.activeConnector
+        && draft.activeCommand === seen.activeCommand && draft.referencedChats === seen.referencedChats) return;
+    restoreRef.current(draft);
+    if (document.activeElement === element) moveCaretToEnd(element!);
+  });
 
   // ── Expose the editor as inputRef for external .focus() calls ──
   const externalEditorRef = inputRef as React.RefObject<HTMLElement | null>;
@@ -385,12 +309,12 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
       void message.warning(t('请在已有聊天中创建分支'));
       return;
     }
-    await forkChat(undefined, { clearInput: useChatStore.getState().input });
+    await forkChat(undefined, { clearInput: readComposer(draftKey).input });
   }
 
   function sendFromComposer() {
     syncText();
-    const { input: composerText, activeCommand: pendingCommand } = useChatStore.getState();
+    const { input: composerText, activeCommand: pendingCommand } = readComposer(draftKey);
     const forkCommand = classifyForkCommand(composerText);
     if (forkCommand) {
       if (forkCommand === 'invalid') {

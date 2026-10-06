@@ -81,3 +81,5 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 ---
 
 Internal design and planning documents (CE/EE split blueprints, sandbox snapshot design, etc.) live in the [docs root](../README.md).
+
+- [Browser automation plugin](modules/browser-automation.md)

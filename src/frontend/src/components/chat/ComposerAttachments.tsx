@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { EASE } from '../../utils/motionTokens';
-import { useFileStore } from '../../stores';
+import { useComposerDraft } from '../../stores/composerStore';
 import { getApiUrl } from '../../api';
 import { FileAttachmentCard } from '../file';
 import { exceedsPreviewLimit, getPreviewLimitBytes } from '../../utils/filePreviewSafety';
@@ -30,11 +30,12 @@ const attachCardMotion = {
 } as const;
 
 
-export function ComposerAttachments({ currentChatId, removeFile }: {
+export function ComposerAttachments({ currentChatId, removeFile, draftKey }: {
   currentChatId: string;
+  draftKey: string;
   removeFile: (index: number) => void;
 }) {
-  const { uploadedFiles, uploadedArtifacts, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
+  const { uploadedFiles, uploadedArtifacts, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useComposerDraft(draftKey);
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
   // Object URLs for uploaded image files — revoked when files change.
   // 超大图不给缩略图：浏览器画这张小卡片也要把整幅图解码成未压缩位图（一张

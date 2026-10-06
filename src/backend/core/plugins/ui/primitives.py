@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Contract version understood by this host. A manifest declaring a *higher*
 # major version is ignored wholesale (the frontend falls back to generic
 # rendering) rather than half-rendered from fields we may misinterpret.
-SUPPORTED_UI_VERSION = 1
+SUPPORTED_UI_VERSION = 2
 
 # ── View kinds the host's material library provides ──────────────────────────
 # Grouped exactly like src/frontend/src/plugin-ui/views/: A = document-shaped,
@@ -38,10 +38,13 @@ MODULE_SURFACES = ("canvas", "tool_view")
 BRIDGE_METHODS = (
     "data.query",
     "canvas.open",
+    "canvas.new_tab",
     "chat.send",
     "clipboard.write",
     "file.save",
     "host.info",
+    "resource.attach",
+    "resource.command",
 )
 
 ACTION_TRIGGERS = ("node", "item", "primary")

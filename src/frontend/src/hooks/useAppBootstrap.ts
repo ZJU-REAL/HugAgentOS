@@ -134,13 +134,9 @@ export function useAppBootstrap(chatSurface: boolean) {
     resetRightSidebar();
   }, [panel, currentChatId, resetRightSidebar]);
 
-  // Sync the "composer context" when switching the main view panel: a site session's plugin
-  // reference is kept only on the chat panel; switching to the project page/any other page
-  // always clears it (fixes the site plugin-reference leak). Leaving the chat panel also
-  // turns off autonomous-loop mode.
   useEffect(() => {
-    useChatStore.getState().syncComposerForPanel(chatSurface ? 'chat' : panel);
-  }, [panel, chatSurface]);
+    if (!chatSurface) useChatStore.getState().setLoopMode(false);
+  }, [chatSurface]);
 
   // Global ⌘K / Ctrl+K → open the search modal.
   // Defenses: skip while IME is composing, on key auto-repeat, when focus is inside

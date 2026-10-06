@@ -1,0 +1,27 @@
+@import './vendor/chrome-tabs/chrome-tabs.css';
+/* Host and isolated plugin both adapt the same pinned upstream tab assets. */
+.jx-canvasTabs.chrome-tabs { padding: 8px 8px 0; height: 46px; min-height: 46px; gap: 4px; border: 0; border-radius: 0; background: var(--color-bg-layout); --tab-content-margin: 9px; }
+.jx-canvasTabs.chrome-tabs .chrome-tabs-content { height: 100%; flex: 0 1 auto; width: auto; min-width: 0; gap: 0; align-items: stretch; }
+.jx-canvasTabs.chrome-tabs .chrome-tab { position: relative; left: auto; width: 258px; min-width: 52px; max-width: 258px; height: 36px; flex: 0 1 258px; padding: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: auto; }
+.jx-canvasTabs.chrome-tabs .chrome-tab + .chrome-tab { margin-left: -19px; }
+.jx-canvasTabs.chrome-tabs .chrome-tab[data-active] { z-index: 5; }
+.jx-canvasTabs.chrome-tabs .chrome-tab[data-active] .chrome-tab-background { opacity: 1; }
+.jx-canvasTabs.chrome-tabs .chrome-tab[data-active] .chrome-tab-geometry { fill: var(--color-bg-container); }
+.jx-canvasTabs.chrome-tabs .chrome-tab-content { pointer-events: auto; }
+.jx-canvasTabs.chrome-tabs .chrome-tab-title { font-weight: 400; padding-right: 16px; line-height: normal; }
+.jx-canvasTabs.chrome-tabs .chrome-tab-close { width: 16px; height: 16px; border: 0; padding: 0; background-color: transparent; cursor: pointer; border-radius: 50%; color: inherit; display: block; font-size: 9px; }
+.jx-canvasTabs.chrome-tabs .chrome-tab-close > span { display: none; }
+.jx-canvasTabs.chrome-tabs .chrome-tab-favicon { color: inherit; }
+.jx-canvasTabs.chrome-tabs .jx-canvasTab-dot { position: absolute; right: 29px; top: 15px; }
+.jx-canvasTabs-add { flex: none; align-self: flex-start; border: 0; border-radius: 50%; width: 28px; height: 28px; background: transparent; color: inherit; cursor: pointer; }
+.jx-canvasTabs-add:hover { background: var(--color-bg-gray); }
+.jx-canvasTabs-add:focus-visible { outline: 2px solid var(--color-primary); }
+.jx-rightSidebar--moduleHeader { position: relative; }
+.jx-rightSidebar--moduleHeader > .jx-canvasTabs--controls { position: absolute; top: 4px; right: 0; z-index: 3; width: auto; min-height: 0; background: transparent; border: 0; }
+[data-theme=dark] .jx-canvasTabs.chrome-tabs { background: var(--color-bg-layout); }
+[data-theme=dark] .jx-canvasTabs.chrome-tabs .chrome-tab-geometry { fill: var(--color-bg-layout); }
+[data-theme=dark] .jx-canvasTabs.chrome-tabs .chrome-tab[data-active] .chrome-tab-geometry { fill: var(--color-bg-container); }
+
+.jx-canvasTabs.chrome-tabs .chrome-tab-title { color: var(--color-text-secondary); }
+.jx-canvasTabs.chrome-tabs .chrome-tab[data-active] .chrome-tab-title { color: var(--color-text); }
+.jx-canvasTabs.chrome-tabs .chrome-tab-dividers::before, .jx-canvasTabs.chrome-tabs .chrome-tab-dividers::after { background: var(--color-border); }

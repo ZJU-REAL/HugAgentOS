@@ -13,8 +13,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { getApiUrl, getArtifacts, listPersonalFolderTree } from '../../api';
 import { useDelayedFlag } from '../../hooks';
 import { t } from '../../i18n';
-import { useFileStore } from '../../stores';
-import type { ImportedSpaceFile } from '../../stores/fileStore';
+import { useComposerDraft } from '../../stores/composerStore';
+import type { ImportedSpaceFile } from '../../stores/composerStore';
 import type { PersonalFolderNode, ResourceItem } from '../../types';
 import { formatDateKey } from '../../utils/date';
 import { getFileIconSrc } from '../../utils/fileIcon';
@@ -39,6 +39,7 @@ interface MySpaceImportModalProps {
   mode?: 'attach' | 'project';
   onProjectSubmit?: (selection: ProjectImportSelection) => Promise<void> | void;
   title?: string;
+  draftKey?: string;
 }
 
 const ROOT_KEY = 'personal::__root__';
@@ -161,6 +162,7 @@ export function MySpaceImportModal({
   mode = 'attach',
   onProjectSubmit,
   title,
+  draftKey,
 }: MySpaceImportModalProps) {
   const [folderId, setFolderId] = useState<string | null>(null);
   const [items, setItems] = useState<ResourceItem[]>([]);
@@ -172,7 +174,7 @@ export function MySpaceImportModal({
   const [activeTab, setActiveTab] = useState<'all' | 'document' | 'image'>('all');
   const [previewItem, setPreviewItem] = useState<ResourceItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const addImportedSpaceFiles = useFileStore((state) => state.addImportedSpaceFiles);
+  const { addImportedSpaceFiles } = useComposerDraft(draftKey);
 
   const fetchItems = useCallback(async (nextFolderId: string | null) => {
     setLoading(true);

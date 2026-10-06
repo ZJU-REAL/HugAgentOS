@@ -1,3 +1,5 @@
+import { usePluginUiStore } from './pluginUiStore';
+import { resourceBinding, type ResourceBinding } from '../plugin-ui/module/resource';
 import { create } from 'zustand';
 import { artifactOrigin, type ArtifactLocation } from '../utils/artifactAccess';
 
@@ -25,6 +27,7 @@ export interface OntologyPanelTarget {
  * add a canvas without the store learning anything about it.
  */
 export interface PluginPanelTarget {
+  resource?: ResourceBinding;
   chatId?: string;
   /** Plugin that contributed the canvas view. */
   slug: string;
@@ -82,7 +85,9 @@ export type CanvasTab = CanvasFileTab | CanvasOntologyTab | CanvasPluginTab | Ca
 const fileTabId = (file: CanvasArtifact) => `file:${file.origin || 'cloud'}:${file.file_id}`;
 const ontologyTabId = (chatId: string) => `ontology:${chatId}`;
 const pluginTabId = (target: PluginPanelTarget) =>
-  `plugin:${target.slug}:${target.canvasId}:${target.chatId || 'global'}:${target.toolId || 'latest'}`;
+  target.resource
+    ? `plugin:${target.resource.execution_scope}:${target.resource.install_id}:${target.resource.resource_id}`
+    : `plugin:${target.slug}:${target.canvasId}:${target.chatId || 'global'}:${target.toolId || 'latest'}`;
 
 /** 活动页签投影出的视图字段：老调用方（App / chatStream / 各面板）继续读这些即可。 */
 interface DerivedView {
@@ -182,7 +187,10 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
     return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
   }),
-  openPluginView: (target) => set((state) => {
+  openPluginView: (input) => set((state) => {
+    const module = usePluginUiStore.getState().findModule(input.slug, input.canvasId)?.contribution;
+    const resource = resourceBinding(input.output, module);
+    const target = resource ? { ...input, resource } : input;
     const id = pluginTabId(target);
     const exact = state.tabs.findIndex((tab) => tab.id === id);
     // 一个画布在 tool_call 时以 loading 建页签、tool_result 时补数据，两次事件带的
@@ -207,14 +215,19 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
   }),
   updatePluginView: (patch) => set((state) => {
-    const index = state.tabs.findIndex((tab) => tab.id === state.activeTabId);
+    const index = state.tabs.findIndex((tab) => patch.resource
+      ? tab.kind === 'plugin' && tab.target.resource?.resource_id === patch.resource.resource_id
+      : tab.id === state.activeTabId);
     const active = index >= 0 ? state.tabs[index] : null;
     if (!active || active.kind !== 'plugin') return {};
-    const tabs = replaceAt(state.tabs, index, {
-      ...active,
-      target: { ...active.target, ...patch },
-    });
-    return { tabs, ...derive(tabs, state.activeTabId) };
+    const combined = { ...active.target, ...patch };
+    const module = usePluginUiStore.getState().findModule(combined.slug, combined.canvasId)?.contribution;
+    const resource = resourceBinding(combined.output, module);
+    const target = resource ? { ...combined, resource } : combined;
+    const id = pluginTabId(target);
+    const tabs = replaceAt(state.tabs, index, { ...active, id, target });
+    const activeTabId = state.activeTabId === active.id ? id : state.activeTabId;
+    return { tabs, activeTabId, ...derive(tabs, activeTabId) };
   }),
   activateTab: (tabId) => set((state) => {
     if (!state.tabs.some((tab) => tab.id === tabId)) return {};

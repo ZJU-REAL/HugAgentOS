@@ -37,14 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Chromium into a fixed image path so the read-only runtime container
 # can launch it without trying to download browsers on demand.
 RUN mkdir -p /ms-playwright \
-    && npm install -g playwright \
-    && if PLAYWRIGHT_BROWSERS_PATH=/ms-playwright timeout 180s \
-         npx playwright install --with-deps chromium; then \
-         echo "[script-runner] Playwright Chromium installed"; \
-       else \
-         rm -rf /ms-playwright/*; \
-         echo "[script-runner] optional Chromium download failed; browser rendering will be unavailable" >&2; \
-       fi \
+    && npm install -g playwright@1.59.0 \
+    && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright timeout 600s npx playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
 
 # firecrawl CLI（网页抓取/检索）——firecrawl 插件的官方技能靠它运行（Bash(firecrawl *)）。
@@ -94,6 +88,7 @@ RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
     (echo "[script-runner] skill-deps install failed; continuing with empty set"; true)
 
 COPY src/backend/services/script_runner_service/ /app/
+COPY src/backend/core/sandbox/process_sessions.py /app/process_sessions.py
 WORKDIR /app
 
 # Install the pdf-cli shim so the agent can call ``pdf-cli read …`` from bash
@@ -137,3 +132,7 @@ USER runner
 EXPOSE 8900
 
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8900"]
+
+# Real launch detects driver/browser revision mismatches before delivery.
+COPY docker/verify-browser-runtime.py /opt/verify-browser-runtime.py
+RUN python3 /opt/verify-browser-runtime.py

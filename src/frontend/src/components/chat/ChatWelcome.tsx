@@ -1,6 +1,7 @@
+import { useChatStore } from '../../stores/chatStore';
+import { chatDraftKey, readComposer } from '../../stores/composerStore';
 import { FileTextOutlined, PieChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { staggerStyle } from '../../utils/motionTokens';
-import { useChatStore } from '../../stores';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { t } from '../../i18n';
 import type { ChatAreaProps } from './ChatArea';
@@ -18,7 +19,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
   const { isAgentChat, isSiteChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer } = view;
   const { send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, handleFileSelect, removeFile, inputRef, fileInputRef } = composer;
   const applyQuickScenario = (prompt: string) => {
-    useChatStore.getState().setInput(prompt);
+    readComposer(chatDraftKey(useChatStore.getState().currentChatId)).setInput(prompt);
     inputRef.current?.focus();
   };
   return (

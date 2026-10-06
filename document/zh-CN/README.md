@@ -81,3 +81,5 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 ---
 
 内部设计与方案文档（CE/EE 拆分施工图、沙箱快照设计等）见 [docs 根目录](../README.md)。
+
+- [浏览器自动化插件](modules/browser-automation.md)

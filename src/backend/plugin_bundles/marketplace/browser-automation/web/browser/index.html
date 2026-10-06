@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>浏览器</title><link rel="stylesheet" href="vendor/chrome-tabs/chrome-tabs.css"><link rel="stylesheet" href="style.css">
+<script defer src="i18n.js"></script><script defer src="channel.js"></script><script defer src="control.js"></script><script defer src="viewport.js"></script><script defer src="tabs.js"></script><script defer src="touch.js"></script><script defer src="input.js"></script><script defer src="address.js"></script><script defer src="browser.js"></script>
+</head><body>
+<div id="tabs" class="chrome-tabs" role="tablist" aria-label="浏览器标签页"><div class="chrome-tabs-content"></div><button id="tab-add" aria-label="新建标签页" title="新建标签页">＋</button></div>
+<nav aria-label="浏览器控制">
+<button id="back" title="后退" aria-label="后退" data-action="back">←</button><button id="forward" title="前进" aria-label="前进" data-action="forward">→</button><button id="reload" title="刷新" aria-label="刷新" data-action="reload">↻</button>
+<div id="navigate"><input id="address" aria-label="网页地址" placeholder="搜索 Bing 或输入网页地址"><button id="navigate-open" type="button" aria-label="打开网页">→</button></div>
+<button id="zoom-out" aria-label="缩小网页" title="缩小网页">−</button><button id="zoom-reset" aria-label="重置缩放" title="重置缩放">100%</button><button id="zoom-in" aria-label="放大网页" title="放大网页">＋</button>
+<span id="connection" role="status" title="正在连接浏览器">●</span>
+</nav>
+<div id="stage"><canvas id="screen" aria-label="浏览器页面" tabindex="0"></canvas><textarea id="keyboard" aria-label="浏览器输入" autocomplete="off" spellcheck="false"></textarea><div id="overlay">正在连接浏览器…</div></div>
+<div id="dialog" hidden role="dialog"><p id="dialog-message"></p><input id="dialog-text" aria-label="弹窗输入"><button id="dialog-accept">确认</button><button id="dialog-dismiss">取消</button></div>
+<div id="files"></div><input id="upload" type="file" multiple hidden>
+<p id="notice" role="status"></p>
+<template id="chrome-tab-template">
+    <div class="chrome-tab">
+      <div class="chrome-tab-dividers"></div>
+      <div class="chrome-tab-background">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg"><defs><symbol id="chrome-tab-geometry-left" viewBox="0 0 214 36"><path d="M17 0h197v36H0v-2c4.5 0 9-3.5 9-8V8c0-4.5 3.5-8 8-8z"/></symbol><symbol id="chrome-tab-geometry-right" viewBox="0 0 214 36"><use xlink:href="#chrome-tab-geometry-left"/></symbol><clipPath id="crop"><rect class="mask" width="100%" height="100%" x="0"/></clipPath></defs><svg width="52%" height="100%"><use xlink:href="#chrome-tab-geometry-left" width="214" height="36" class="chrome-tab-geometry"/></svg><g transform="scale(-1, 1)"><svg width="52%" height="100%" x="-100%" y="0"><use xlink:href="#chrome-tab-geometry-right" width="214" height="36" class="chrome-tab-geometry"/></svg></g></svg>
+      </div>
+      <div class="chrome-tab-content">
+        <div class="chrome-tab-favicon"></div>
+        <div class="chrome-tab-title"></div>
+        <div class="chrome-tab-drag-handle"></div>
+        <button class="chrome-tab-close" aria-label="关闭标签页"></button>
+      </div>
+    </div>
+  </template>
+</body></html>

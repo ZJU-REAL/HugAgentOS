@@ -1,6 +1,7 @@
+import { useComposerDraft, chatDraftKey } from '../../stores/composerStore';
 import { useMemo } from 'react';
 import { Popover } from 'antd';
-import { useChatStore, useFileStore, useModelCapabilitiesStore } from '../../stores';
+import { useChatStore, useModelCapabilitiesStore } from '../../stores';
 import {
   combineContextUsage,
   computeContextBreakdown,
@@ -96,7 +97,7 @@ function GaugeContent({ breakdown, window, ratio, modelName, note }: GaugeConten
  * A small ring gauge shown beside the model selector. Completed calls use the
  * upstream total; only unsent input and explicit fallback states are estimated.
  */
-export function ContextGauge() {
+export function ContextGauge({ draftKey }: { draftKey?: string } = {}) {
   const currentChatId = useChatStore((s) => s.currentChatId);
   const messages = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.messages : undefined));
   const compaction = useChatStore((s) => (
@@ -105,9 +106,7 @@ export function ContextGauge() {
   const contextUsage = useChatStore((s) => (
     s.currentChatId ? s.contextUsages[s.currentChatId] : undefined
   ));
-  const draft = useChatStore((s) => s.input);
-  const uploadedFiles = useFileStore((s) => s.uploadedFiles);
-  const importedSpaceFiles = useFileStore((s) => s.importedSpaceFiles);
+  const { input: draft, uploadedFiles, importedSpaceFiles } = useComposerDraft(draftKey ?? chatDraftKey(currentChatId));
 
   const model = useModelCapabilitiesStore((s) => {
     const models = s.capabilities.user_selectable_models;

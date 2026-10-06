@@ -36,7 +36,9 @@ export function Sidebar(actions: SidebarProps) {
   const chatModule = panel === 'chat';
   const title = chatModule ? brandName : LAYOUT_ITEMS[panel === 'project_detail' ? 'projects' : panel]?.label || brandName;
   const select = (target: typeof panel, sub?: string) => {
-    if (target === 'chat' && (panel === 'automation' || isAutomationHistoryChat(useChatStore.getState().store.chats[useChatStore.getState().currentChatId]))) {
+    if (target === 'chat' && panel === 'chat') {
+      actions.onNewChat();
+    } else if (target === 'chat' && (panel === 'automation' || isAutomationHistoryChat(useChatStore.getState().store.chats[useChatStore.getState().currentChatId]))) {
       const chat = useChatStore.getState();
       const hiddenTaskChat = panel === 'automation' && isConversationPath() ? chat.currentChatId : undefined;
       const ordinary = chat.store.order.find(id => id !== hiddenTaskChat && chat.store.chats[id] && !isAutomationHistoryChat(chat.store.chats[id]));

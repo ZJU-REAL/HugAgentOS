@@ -7,13 +7,22 @@
  * module frame). It contains no knowledge of any particular plugin.
  */
 
+import { useCallback, useState } from 'react';
 import { t } from '../../i18n';
 import { PluginModuleFrame, PluginView, resolveText } from '../../plugin-ui';
 import { useCanvasStore } from '../../stores';
 import { usePluginUiStore } from '../../stores/pluginUiStore';
+import { useCanvasLauncherStore } from './canvasLauncherStore';
 import { CanvasTabBar } from './CanvasTabBar';
 
 export function PluginCanvasPanel() {
+  const [headerInset, setHeaderInset] = useState(0);
+  const activeTabId = useCanvasStore(s => s.activeTabId);
+  const showLauncher = useCanvasLauncherStore(s => s.show);
+  const bindNavigation = useCanvasLauncherStore(s => s.bindNavigation);
+  const onNavigateReady = useCallback((navigate: ((url: string) => Promise<void>) | null) => {
+    if (activeTabId) bindNavigation(activeTabId, navigate);
+  }, [activeTabId, bindNavigation]);
   const target = useCanvasStore((state) => state.pluginTarget);
   const openPluginView = useCanvasStore((state) => state.openPluginView);
   const updatePluginView = useCanvasStore((state) => state.updatePluginView);
@@ -22,6 +31,8 @@ export function PluginCanvasPanel() {
 
   const canvas = target ? findCanvas(target.slug, target.canvasId) : null;
   const module = target && !canvas ? findModule(target.slug, target.canvasId) : null;
+
+  const embeddedHeader = module?.contribution.canvas_header === 'module';
 
   const body = (() => {
     if (!target) return <div className="jx-rightSidebar-empty">{t('暂无可展示内容')}</div>;
@@ -39,10 +50,14 @@ export function PluginCanvasPanel() {
     if (module) {
       return (
         <PluginModuleFrame
+          onNewTab={showLauncher}
+          onNavigateReady={onNavigateReady}
           slug={target.slug}
           module={module.contribution}
+          canvasHeaderInset={embeddedHeader ? headerInset : 0}
           payload={target.output}
           toolName={target.toolName}
+          onOpenCanvas={(canvasId) => openPluginView({ ...target, canvasId })}
         />
       );
     }
@@ -78,8 +93,8 @@ export function PluginCanvasPanel() {
     : t('插件视图');
 
   return (
-    <aside className="jx-rightSidebar jx-rightSidebar--plugin" aria-label={title}>
-      <CanvasTabBar />
+    <aside className={'jx-rightSidebar jx-rightSidebar--plugin' + (embeddedHeader ? ' jx-rightSidebar--moduleHeader' : '')} aria-label={title}>
+      <CanvasTabBar controlsOnly={embeddedHeader} onWidthChange={setHeaderInset} />
       <div className="jx-rightSidebar-body jx-rightSidebar-body--fill">{body}</div>
     </aside>
   );
