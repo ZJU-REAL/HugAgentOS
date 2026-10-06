@@ -357,3 +357,5 @@ License 细节见 [License 机制](../editions/license.md)。
 ## 浏览器自动化插件
 
 [配置、运行依赖和使用流程](../modules/browser-automation.md)。
+
+内置 MCP 调用（包括浏览器插件）要求 backend 与 mcp 使用相同的 `BACKEND_INTERNAL_TOKEN`。部署时生成独立的高熵随机值并通过受保护的环境配置注入两个服务，不使用示例占位符。桌面本机模式由启动器提供独立的调用密钥。

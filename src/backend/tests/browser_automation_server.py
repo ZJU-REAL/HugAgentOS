@@ -9,6 +9,8 @@ os.environ["DEPLOY_PROFILE"] = "local"
 os.environ["SANDBOX_PROVIDER"] = "script_runner"
 os.environ["BROWSER_ALLOWED_HOSTS"] = "127.0.0.1"
 os.environ.setdefault("BROWSER_CHROMIUM_SANDBOX", "true")
+os.environ["MCP_HOST"] = "127.0.0.1"
+os.environ["HUGAGENT_CAPS_ROOT"] = str(home)
 
 import json
 from fastapi import FastAPI, HTTPException
@@ -45,18 +47,68 @@ for route in files.router.routes:
 def health():
     return {"ok": True}
 
+from urllib.parse import urlsplit
+from core.config.mcp_config import _PORTS
+from core.config.settings import settings
+_PORTS["browser_runtime"] = urlsplit(os.environ["BROWSER_E2E_MCP"]).port
+assert settings.server.mcp_host == "127.0.0.1"
+from core.plugins.local import service as local_packages
+from core.capabilities import local_plugin_runtime, skills
+modern = local_packages.install("browser-owner", str(Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation"))
+skills.current_local_user_id = lambda: "browser-owner"
+# The isolated desktop proxy carries this synthetic account. Preserve the
+# real bridge authentication and ticket revalidation with its identity seam.
+from core.services import desktop_cloud_bridge as desktop_bridge
+desktop_bridge.get_identity_state = lambda: {"shell_user_center_id": "browser-owner"}
+
 @app.post("/test/tool/{name}")
 async def tool(name: str, arguments: dict):
-    from core.llm.mcp_invocation import issue
-    headers = {"x-current-user-id": "browser-owner", "x-chat-id": "browser-chat", **issue("browser_runtime", "browser-owner", "browser-chat")}
-    async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"], headers=headers) as (read, write, _):
+    from core.llm.factory.tools.mcp_config import _inject_runtime_headers
+    from core.llm.mcp_pool import make_client
+    from core.config.catalog_resolver import _owned_enabled_ids
+    from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
+    sid = modern["components"]["mcp"][0]
+    with SessionLocal() as db:
+        _, allowed = _owned_enabled_ids(db, "browser-owner", {})
+    assert sid in allowed
+    choices = []
+    cloud_gateway_mcp_configs(allowed, resolution_out=choices)
+    assert sid in choices[0].chosen
+    config = _inject_runtime_headers(local_plugin_runtime.configs("browser-owner"),
+        current_user_id="browser-owner", chat_id="browser-chat")[sid]
+    client = make_client(sid, config, is_stateful=False)
+    method = await client.get_tool(name)
+    result = await method(**arguments)
+    if result.metadata.get("is_error") or result.metadata.get("isError"):
+        return __import__("fastapi").responses.JSONResponse(status_code=409, content={"error": result.content[0].text})
+    try:
+        return json.loads(result.content[0].text)
+    except (ValueError, AttributeError):
+        return __import__("fastapi").responses.JSONResponse(status_code=409, content={"error": str(result.content)})
+
+@app.post("/test/cloud-proof")
+async def cloud_proof():
+    import mcp.types
+    from core.services.desktop_capability_mcp import invoke_gateway_tool
+    from core.services import desktop_capability_mcp as gateway
+    gateway.guard_capability_content = lambda uid, data, **kw: data
+    async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
         async with ClientSession(read, write) as client:
             await client.initialize()
-            result = await client.call_tool(name, arguments)
-            if result.isError:
-                return __import__("fastapi").responses.JSONResponse(status_code=409, content={"error": result.content[0].text})
-            value = json.loads(result.content[0].text)
-            return value
+            tools = {t.name: t.model_dump() for t in (await client.list_tools()).tools}
+    async def call(name, args):
+        result = await invoke_gateway_tool({"user_id":"browser-owner", "server_id":"cloud-browser",
+            "target":{"url":os.environ["BROWSER_E2E_MCP"],"transport":"streamable_http"},
+            "tool":tools[name]}, args, {"x-current-user-id":"spoofed",
+            "x-chat-id":"browser-chat", "x-hugagent-invocation":"different-device-key",
+            "x-hugagent-plugin-id":"plugin:local:untrusted"})
+        assert not result.get("metadata", {}).get("is_error"), result
+        return result["content"][0]["text"]
+    # A nonexistent disposable ID must reach the authenticated callback, which
+    # returns resource_unavailable rather than an MCP/proof authentication error.
+    result = await call("browser_observe", {"resource_id":"nonexistent-proof-fixture", "action":"state"})
+    assert "resource_unavailable" in result and "not_authorized" not in result, result
+    return {"fresh_cloud_proof": True, "device_source_not_forwarded": True}
 
 @app.get("/fixture/{asset}")
 def fixture_asset(asset: str):
@@ -109,5 +161,5 @@ print(json.dumps({"private_read_blocked": blocked, "workspace_write": True}))
         sandbox_launch=launch_policy(provider, "browser-owner", "browser-chat"),
     ), yield_time_ms=1000)
     if result.get("exit_code") != 0:
-        raise HTTPException(500, "permission_probe_failed")
+        raise HTTPException(500, "permission_probe_failed: " + str(result))
     return json.loads(result["stdout"])

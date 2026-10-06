@@ -131,3 +131,37 @@ def test_opensandbox_template_allows_the_actual_builtin_skill_mount(monkeypatch,
         "@@HOST_REPO_PATH@@", str(root)).replace("@@HOST_STORAGE_PATH@@", str(tmp_path))
     allowed = tomllib.loads(rendered)["storage"]["allowed_host_paths"]
     assert any(source == Path(path) or source.is_relative_to(path) for path in allowed)
+
+
+def test_invocation_proof_binds_exact_plugin_installation(monkeypatch):
+    monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "isolated-test-signing-key")
+    plugin = "plugin:local:browser-user-owned"
+    headers = {**proof.issue("browser_runtime", "owner", "chat", plugin),
+        proof.PLUGIN_HEADER: plugin, "x-current-user-id": "owner", "x-chat-id": "chat"}
+    assert proof.verify(headers, "browser_runtime")["plugin"] == plugin
+    headers[proof.PLUGIN_HEADER] = "plugin:local:different-source"
+    with pytest.raises(ValueError, match="not_authorized"):
+        proof.verify(headers, "browser_runtime")
+
+
+@pytest.mark.parametrize("changed_body", [True, False])
+async def test_resource_callback_rejects_changed_signed_installation(monkeypatch, changed_body):
+    from types import SimpleNamespace
+    from starlette.requests import Request
+    from fastapi import HTTPException
+    from api.routes.v1 import plugin_resources
+    monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "isolated-test-signing-key")
+    source = "plugin:local:installation-a"
+    headers = {**proof.issue("browser_runtime", "owner", "chat", source),
+        proof.PLUGIN_HEADER: source, "x-current-user-id": "owner", "x-chat-id": "chat",
+        "x-internal-token": "isolated-test-signing-key", "x-hugagent-mcp-audience": "browser_runtime"}
+    request = Request({"type":"http", "headers":[(k.lower().encode(), v.encode()) for k,v in headers.items()]})
+    body = plugin_resources.ToolRequest(chat_id="chat", slug="fixture", module_id="browser",
+        install_id="plugin:local:installation-b" if changed_body else source,
+        resource_id="resource-b", action="state")
+    monkeypatch.setattr(plugin_resources.service, "authorized", lambda *args: SimpleNamespace(
+        chat_id="chat", slug="fixture", module_id="browser", install_id="plugin:local:installation-b"))
+    with pytest.raises(HTTPException) as error:
+        await plugin_resources.tool_resource(body, request, db=object())
+    assert error.value.status_code == 403
+    assert error.value.detail in {"plugin_binding_mismatch", "resource_binding_mismatch"}

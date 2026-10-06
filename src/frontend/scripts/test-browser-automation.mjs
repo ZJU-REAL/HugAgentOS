@@ -16,6 +16,22 @@ import {RightSidebarPanel} from './src/components/canvas/RightSidebarPanel';
 import {useChatStore} from './src/stores/chatStore';
 import {processChatStream} from './src/hooks/chatStream';
 import {usePluginUiStore} from './src/stores/pluginUiStore';
+import {useCanvasStore} from './src/stores/canvasStore';
+window.boundCanvasSource = () => useCanvasStore.getState().pluginTarget?.slug;
+import {bindCanvasResourceSource,runForCurrentCanvas} from './src/components/canvas/canvasResourceSource';
+window.checkDelayedCanvasSource = resource => {
+ const store=useCanvasStore.getState();
+ const oldId=store.activeTabId, oldTarget=store.pluginTarget;
+ const other={...resource,resource_id:'different-resource',slug:'different-source',install_id:'plugin:local:different-source'};
+ store.openPluginView({slug:other.slug,canvasId:other.module_id,status:'success',resource:other});
+ const before=useCanvasStore.getState().activeTabId;
+ bindCanvasResourceSource(resource);
+ let staleRan=false;
+ runForCurrentCanvas(oldId,oldTarget,()=>{staleRan=true;});
+ const kept=useCanvasStore.getState().activeTabId===before && useCanvasStore.getState().pluginTarget.slug===other.slug && !staleRan;
+ useCanvasStore.getState().closeTab(before);
+ return kept;
+};
 import './src/styles/variables.css';
 import './src/styles/canvas.css';
 import './src/plugin-ui/styles.css';
@@ -49,23 +65,32 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXEC
 const checks=[]; const errors=[];
 try{
  const confined=await fetch(backend+'/test/confinement',{method:'POST'});
- assert.equal(confined.status,200);
+ assert.equal(confined.status,200,await confined.clone().text());
  assert.deepEqual(await confined.json(),{private_read_blocked:true,workspace_write:true});
  checks.push('Default auto permission launches the real OS sandbox: private credential probe unreadable; session workspace writable');
  const page=await browser.newPage({viewport:{width:1500,height:1000}});
  await page.addInitScript(()=>{const Native=window.WebSocket;window.__sockets=[];window.WebSocket=class extends Native{constructor(...args){super(...args);window.__sockets.push(this);}};});
  page.on('pageerror',error=>errors.push(error.message));
+ page.on('response',async response=>{ if(response.status()>=400) console.log('Fixture HTTP failure',response.status(),new URL(response.url()).pathname,await response.text()); });
  page.on('websocket', socket=>socket.on('socketerror',message=>console.error('WS error',message)));
  page.on('requestfailed',request=>console.error('Request failed',request.url(),request.failure(), {referer:request.headers().referer,site:request.headers()['sec-fetch-site']}));
  await page.goto(process.env.BROWSER_E2E_FRONTEND || backend);
+ const proofProbe=await fetch(backend+'/test/cloud-proof',{method:'POST'});
+ assert.equal(proofProbe.status,200,await proofProbe.text());
+ checks.push('Real cloud gateway replaces a different-key device proof; native HTTP request hook and internal resource callback verify it');
  const opened=await tool('browser_open',{});
  const id=opened.resource.resource_id;
  assert.ok(id);
 
  await page.evaluate(value=>window.showBrowser(value),opened);
  const frame=page.frameLocator('iframe');
- await frame.locator('#screen').waitFor();
+ try { await frame.locator('#screen').waitFor(); } catch(error) { console.log('Browser fixture output',JSON.stringify(opened)); console.log(await page.locator('body').innerText()); console.log(await page.locator('iframe').evaluateAll(nodes=>nodes.map(n=>n.src))); throw error; }
  try{await frame.locator('#tabs [role=tab]').first().waitFor();}catch(error){await page.screenshot({path:resolve(output,'failure.png')});console.log(await page.locator('body').innerText());throw error;}
+ assert.equal(await page.evaluate(()=>window.boundCanvasSource()),opened.resource.slug);
+ checks.push('Same-name Canvas contributions bind to the exact modern local installation returned by the tool');
+ assert.equal(await page.evaluate(resource=>window.checkDelayedCanvasSource(resource),opened.resource),true);
+ checks.push('Delayed source binding and old module callbacks cannot change another active resource tab or steal its focus');
+ await frame.locator('#tabs [role=tab]').first().waitFor();
  await frame.locator('#overlay').filter({hasText:'输入网址或搜索内容，按 Enter 打开'}).waitFor();
  await frame.locator('#tab-add').click();
  await page.getByRole('textbox',{name:'网页地址',exact:true}).fill(backend+'/test/site');
@@ -86,7 +111,7 @@ try{
  await tool('browser_action',{resource_id:id,action:'fill',params:{selector:'#name',text:'工具自动填写'}});
  await tool('browser_action',{resource_id:id,action:'click',params:{selector:'#submit'}});
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#result'})).text,'工具自动填写');
- checks.push('Actual chat SSE auto-opens Canvas; real MCP → backend → managed worker → Chromium DOM operations');
+ checks.push('Actual chat SSE auto-opens Canvas; modern owned package → catalog allowlist → actual make_client → native MCP → backend → managed worker → Chromium DOM operations');
 
  // Fixed site fixture: input center is (200,45) in remote viewport coordinates.
  const canvas=frame.locator('#screen');

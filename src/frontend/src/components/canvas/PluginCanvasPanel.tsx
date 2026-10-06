@@ -7,13 +7,15 @@
  * module frame). It contains no knowledge of any particular plugin.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { resourceBinding } from '../../plugin-ui/module/resource';
 import { t } from '../../i18n';
 import { PluginModuleFrame, PluginView, resolveText } from '../../plugin-ui';
 import { useCanvasStore } from '../../stores';
 import { usePluginUiStore } from '../../stores/pluginUiStore';
 import { useCanvasLauncherStore } from './canvasLauncherStore';
 import { CanvasTabBar } from './CanvasTabBar';
+import { bindCanvasResourceSource, runForCurrentCanvas } from './canvasResourceSource';
 
 export function PluginCanvasPanel() {
   const [headerInset, setHeaderInset] = useState(0);
@@ -30,7 +32,17 @@ export function PluginCanvasPanel() {
   const findModule = usePluginUiStore((state) => state.findModule);
 
   const canvas = target ? findCanvas(target.slug, target.canvasId) : null;
-  const module = target && !canvas ? findModule(target.slug, target.canvasId) : null;
+  const requestedModule = target && !canvas ? findModule(target.slug, target.canvasId) : null;
+  const binding = resourceBinding(target?.output, requestedModule?.contribution);
+  // A tool name can be shared by multiple installed sources. Its returned
+  // resource chooses the exact registered declaration, never the first name.
+  const module = binding ? findModule(binding.slug, binding.module_id) : requestedModule;
+  useEffect(() => {
+    if (binding && module && target
+        && (target.slug !== binding.slug || target.canvasId !== binding.module_id)) {
+      bindCanvasResourceSource(binding);
+    }
+  }, [binding, module, target]);
 
   const embeddedHeader = module?.contribution.canvas_header === 'module';
 
@@ -52,12 +64,13 @@ export function PluginCanvasPanel() {
         <PluginModuleFrame
           onNewTab={showLauncher}
           onNavigateReady={onNavigateReady}
-          slug={target.slug}
+          slug={module.slug}
           module={module.contribution}
           canvasHeaderInset={embeddedHeader ? headerInset : 0}
           payload={target.output}
           toolName={target.toolName}
-          onOpenCanvas={(canvasId) => openPluginView({ ...target, canvasId })}
+          onOpenCanvas={(canvasId) => runForCurrentCanvas(activeTabId, target,
+            () => openPluginView({ ...target, slug: module.slug, canvasId }))}
         />
       );
     }
@@ -79,10 +92,12 @@ export function PluginCanvasPanel() {
         viewTitle={resolveText(canvas.contribution.title)}
         onTitle={(parsedTitle) => {
           // 结果里解析出真正的标题后回写页签，别停在画布声明的通用名上
-          if (parsedTitle && parsedTitle !== target.title) updatePluginView({ title: parsedTitle });
+          if (parsedTitle && parsedTitle !== target.title) runForCurrentCanvas(activeTabId, target,
+            () => updatePluginView({ title: parsedTitle }));
         }}
         onOpenCanvas={(canvasId) =>
-          openPluginView({ ...target, canvasId, status: 'success' })
+          runForCurrentCanvas(activeTabId, target,
+            () => openPluginView({ ...target, canvasId, status: 'success' }))
         }
       />
     );

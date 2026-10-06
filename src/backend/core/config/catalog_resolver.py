@@ -151,9 +151,14 @@ def _owned_enabled_ids(
                 out.append(rid)
         return out
 
+    from core.capabilities.local_plugin_runtime import configs
+
+    owned_mcps = set(_collect(AdminMcpServer, AdminMcpServer.server_id, "mcps"))
+    mcp_overrides = _ov_map("mcps")
+    owned_mcps.update(sid for sid in configs(user_id) if mcp_overrides.get(sid, True))
     return (
         _collect(AdminSkill, AdminSkill.skill_id, "skills", dep_gated=True),
-        _collect(AdminMcpServer, AdminMcpServer.server_id, "mcps"),
+        sorted(owned_mcps),
     )
 
 
@@ -225,6 +230,10 @@ def resolve_explicit_runtime_capabilities(
                 allowed_mcp_ids.add(mid)
             else:
                 allowed_mcp_ids.discard(mid)
+
+    from core.capabilities.local_plugin_runtime import configs
+
+    allowed_mcp_ids.update(configs(user_id))
 
     # A suspended marketplace installation is no longer an active grant.
     # Its admin row remains for recovery, so existence alone must not revive it.

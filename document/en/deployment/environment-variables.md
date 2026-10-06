@@ -363,3 +363,5 @@ Display and date filters use the application display zone (currently Asia/Shangh
 ## Browser automation plugin
 
 [Configuration, runtime dependencies and usage](../modules/browser-automation.md).
+
+Builtin MCP invocations, including browser automation, require the same `BACKEND_INTERNAL_TOKEN` in backend and mcp services. Generate a separate high-entropy value for each deployment and inject it through protected environment configuration. Never use example placeholders. The local desktop launcher provides its own invocation key.

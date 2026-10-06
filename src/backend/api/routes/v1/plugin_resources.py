@@ -143,9 +143,12 @@ async def tool_resource(body: ToolRequest, request: Request, db: Session = Depen
     if audience not in PORTS or request.headers.get("x-chat-id") != body.chat_id:
         raise HTTPException(401, "invocation_context_required")
     try:
-        verify(request.headers, audience)
+        claims = verify(request.headers, audience)
     except ValueError as exc:
         raise HTTPException(401, "invocation_not_authorized") from exc
+    signed_install = claims.get("plugin", "")
+    if signed_install and signed_install != body.install_id:
+        raise HTTPException(403, "plugin_binding_mismatch")
     user_id = request.headers.get("x-current-user-id", "")
     if not user_id:
         raise HTTPException(401, "identity_required")
@@ -155,7 +158,8 @@ async def tool_resource(body: ToolRequest, request: Request, db: Session = Depen
     if not body.resource_id:
         raise HTTPException(400, "resource_required")
     row = service.authorized(db, body.resource_id, user_id)
-    if row.chat_id != body.chat_id or row.slug != body.slug or row.module_id != body.module_id:
+    if (row.chat_id != body.chat_id or row.slug != body.slug or row.module_id != body.module_id
+            or (signed_install and row.install_id != signed_install)):
         raise HTTPException(403, "resource_binding_mismatch")
     if body.action == "close":
         await service.command(row, {"id": body.command_id, "action": "close", "params": {}}, actor="agent")

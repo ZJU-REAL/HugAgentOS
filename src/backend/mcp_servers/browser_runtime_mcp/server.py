@@ -12,7 +12,9 @@ mcp = FastMCP("browser-automation")
 async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
     headers = ctx.request_context.request.headers
     from core.llm.mcp_invocation import verify
-    verify(headers, "browser_runtime")
+    claims = verify(headers, "browser_runtime")
+    plugin_id = claims.get("plugin", "")
+    slug = plugin_id.split(":", 2)[2] if plugin_id else "browser-automation"
     user_id = headers.get("x-current-user-id", "")
     chat_id = headers.get("x-chat-id") or headers.get("x-conversation-id", "")
     if not user_id or not chat_id:
@@ -20,12 +22,13 @@ async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
     base = os.getenv("BACKEND_INTERNAL_URL") or ("http://127.0.0.1:" + (os.getenv("BACKEND_PORT") or os.getenv("PORT") or "3001"))
     async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
         response = await client.post(base.rstrip("/") + "/v1/internal/plugin-resources/tool", json={
-            "slug": "browser-automation", "module_id": "browser", "chat_id": chat_id,
+            "slug": slug, "install_id": plugin_id or None, "module_id": "browser", "chat_id": chat_id,
             "resource_id": resource_id, "action": action, "params": params or {},
             "checkpoint_id": checkpoint_id, "command_id": uuid.uuid4().hex,
         }, headers={"X-Internal-Token": os.getenv("BACKEND_INTERNAL_TOKEN", ""), "X-Current-User-Id": user_id,
                     "X-Chat-Id": chat_id, "X-Hugagent-Mcp-Audience": "browser_runtime",
-                    "X-Hugagent-Invocation": headers.get("X-Hugagent-Invocation", "")})
+                    "X-Hugagent-Invocation": headers.get("X-Hugagent-Invocation", ""),
+                    "X-Hugagent-Plugin-Id": plugin_id})
         if response.status_code >= 400:
             raise ValueError(response.json().get("detail", "browser_runtime_unavailable"))
         return response.json()["data"]

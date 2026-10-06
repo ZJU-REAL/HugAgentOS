@@ -78,7 +78,7 @@ def main():
                 log.flush(); log.seek(0)
                 content=log.read()
                 relevant=[line for line in content.splitlines() if any(word in line for word in ("ERROR", "stream", "WebSocket", "resource", "Exception", "Traceback", "startup failed"))]
-                print("\n".join(relevant)[-5000:] if relevant else content[-3000:])
+                print(content[-8000:])
             raise
         finally:
             import signal
