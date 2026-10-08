@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+const source=await readFile('../backend/plugin_bundles/marketplace/browser-automation/web/browser/control.js','utf8');
+const reports=[];
+let state={controller:'agent',connection_id:''},resume;
+const blocked=new Promise(resolve=>{resume=resolve;});
+const window={addEventListener(){}};
+vm.runInNewContext(source,{window,document:{hasFocus:()=>true},setTimeout:()=>0,clearTimeout(){}});
+const channel={connection:()=> 'viewer',command:async action=>{
+ if(action==='take_control')return {controller:'user',connection_id:'viewer'};
+ await blocked;
+ return {ok:true};
+}};
+const control=window.installBrowserControl(channel,()=>state,next=>{state=next;},error=>{if(error)reports.push(error.message);});
+const commands=Array.from({length:66},()=>control.command('input').catch(error=>error.message));
+await new Promise(resolve=>setImmediate(resolve));
+resume();
+await Promise.all(commands);
+assert.ok(reports.includes('too_many_pending_commands'));
+assert.ok(!reports.includes('connection_lost_result_unknown'),'A saturated input queue must not be reported as a lost connection');
+console.log('Input queue saturation has an accurate error, without a false connection-lost cascade');

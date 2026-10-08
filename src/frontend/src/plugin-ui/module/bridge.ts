@@ -12,27 +12,36 @@
  * (`event.source === iframe.contentWindow`) instead.
  */
 
+import { navigationRequests } from './navigationRequests';
 import { callPluginDataSource } from '../../api';
+import { createResourceChannel } from './resourceChannel';
+import type { ResourceBinding } from './resource';
 import { copyToClipboard } from '../../utils/clipboard';
 
-export const BRIDGE_API_VERSION = 1;
+export const BRIDGE_API_VERSION = 2;
 
 /** Methods a module may invoke, subject to its `grants`. */
 export type BridgeMethod =
   | 'data.query'
   | 'canvas.open'
+  | 'canvas.new_tab'
   | 'chat.send'
   | 'clipboard.write'
   | 'file.save'
-  | 'host.info';
+  | 'host.info'
+  | 'resource.attach'
+  | 'resource.command';
 
 export interface BridgeHooks {
   slug: string;
+  resource?: ResourceBinding | null;
   grants: string[];
   /** Payload handed to the module at handshake time (the tool output, usually). */
   payload: unknown;
   theme: 'light' | 'dark';
   locale: string;
+  canvasHeaderInset?: number;
+  onNewTab?: () => void;
   onOpenCanvas?: (canvasId: string) => void;
   onChatSend?: (text: string) => void;
   onHeight?: (height: number) => void;
@@ -48,7 +57,7 @@ interface CallMessage {
 }
 
 /** Actions with an outward effect need a recent user gesture inside the module. */
-const GESTURE_REQUIRED: BridgeMethod[] = ['chat.send', 'clipboard.write', 'file.save'];
+const GESTURE_REQUIRED: BridgeMethod[] = ['chat.send', 'clipboard.write', 'file.save', 'canvas.new_tab'];
 const CALL_RATE_LIMIT = 30;
 const CALL_RATE_WINDOW_MS = 10_000;
 
@@ -66,10 +75,21 @@ function granted(grants: string[], method: BridgeMethod, params: Record<string, 
  * module from being talked to after unmount — the lifecycle rule that keeps a
  * disabled or uninstalled plugin from lingering.
  */
-export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): () => void {
+export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): (() => void) & { navigate: (url: string) => Promise<void>; update: (payload: unknown, theme: 'light' | 'dark', canvasHeaderInset?: number) => void } {
   let disposed = false;
   let lastGestureAt = 0;
   const callTimes: number[] = [];
+  const abort = new AbortController();
+  const resource = hooks.resource && hooks.grants.includes('resource.command')
+    ? createResourceChannel(hooks.resource, (event) => {
+      const data = event as { type: string; url: string };
+      if (data.type === 'download' && Date.now() - lastGestureAt <= 5000) {
+        const anchor = document.createElement('a');
+        anchor.href = data.url;
+        anchor.download = '';
+        anchor.click();
+      }
+    }) : null;
 
   const post = (message: unknown) => {
     if (disposed) return;
@@ -78,6 +98,7 @@ export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): () 
     iframe.contentWindow?.postMessage(message, '*');
   };
 
+  const navigation = navigationRequests(post);
   const reply = (id: string, ok: boolean, data?: unknown, error?: string) => {
     post({ type: 'host:result', id, ok, ...(ok ? { data } : { error: error || 'error' }) });
   };
@@ -108,15 +129,27 @@ export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): () 
         case 'host.info':
           reply(message.id, true, { theme: hooks.theme, locale: hooks.locale, apiVersion: BRIDGE_API_VERSION });
           return;
+        case 'resource.attach': {
+          if (!resource || !hooks.resource || hooks.resource.slug !== hooks.slug) throw new Error('resource_not_bound');
+          const port = await resource.attach();
+          if (disposed) { port.close(); return; }
+          iframe.contentWindow?.postMessage({ type: 'host:result', id: message.id, ok: true,
+            data: { resource: hooks.resource } }, '*', [port]);
+          return;
+        }
         case 'data.query': {
           const sourceId = String(params.source_id || params.source || '');
           const query = (params.params && typeof params.params === 'object'
             ? params.params
             : {}) as Record<string, unknown>;
-          const data = await callPluginDataSource(hooks.slug, sourceId, query);
+          const data = await callPluginDataSource(hooks.slug, sourceId, query, abort.signal);
           reply(message.id, true, data);
           return;
         }
+        case 'canvas.new_tab':
+          hooks.onNewTab?.();
+          reply(message.id, true, {});
+          return;
         case 'canvas.open':
           hooks.onOpenCanvas?.(String(params.canvas_id || ''));
           reply(message.id, true, {});
@@ -161,6 +194,7 @@ export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): () 
     const data = event.data as Record<string, unknown> | null;
     if (!data || typeof data !== 'object') return;
 
+    if (data.type === 'module:navigation-result') { navigation.receive(data); return; }
     if (data.type === 'module:ready') {
       if (typeof data.apiVersion === 'number' && data.apiVersion > BRIDGE_API_VERSION) {
         hooks.onError?.('module_api_too_new');
@@ -191,15 +225,25 @@ export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): () 
       version: BRIDGE_API_VERSION,
       theme: hooks.theme,
       locale: hooks.locale,
+      canvasHeaderInset: hooks.canvasHeaderInset || 0,
       grants: hooks.grants,
       payload: hooks.payload,
     });
   };
   iframe.addEventListener('load', sendInit);
 
-  return () => {
+  const dispose = () => {
     disposed = true;
+    abort.abort();
+    navigation.dispose();
+    resource?.dispose();
     window.removeEventListener('message', onMessage);
     iframe.removeEventListener('load', sendInit);
   };
+  return Object.assign(dispose, { navigate: navigation.navigate, update(payload: unknown, theme: 'light' | 'dark', canvasHeaderInset = 0) {
+    hooks.payload = payload;
+    hooks.theme = theme;
+    hooks.canvasHeaderInset = canvasHeaderInset;
+    post({ type: 'host:update', payload, theme, canvasHeaderInset });
+  }});
 }

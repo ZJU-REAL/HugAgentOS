@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:windows
-# input-sha256: e0a6988438db919b2aada261ff80eeba8d7fc5eac61e56e488f985e6a1255b97
+# input-sha256: e1ec4115b0343e8894400423a1bfe7b92348ae4237e5a51444934031bf3bb000
 # Target: CPython 3.11 on Windows x86_64
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt
@@ -153,7 +153,9 @@ googleapis-common-protos==1.75.0
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
 greenlet==3.5.4
-    # via sqlalchemy
+    # via
+    #   playwright
+    #   sqlalchemy
 grpcio==1.83.0
     # via
     #   milvus-lite
@@ -363,6 +365,8 @@ pillow==12.3.0
     #   reportlab
 pip==26.2
     # via -r desktop/requirements-desktop.txt
+playwright==1.59.0
+    # via -r desktop/requirements-desktop.txt
 portalocker==3.2.0
     # via qdrant-client
 posthog==7.35.0
@@ -407,6 +411,8 @@ pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.14.2
     # via mcp
+pyee==13.0.1
+    # via playwright
 pygments==2.20.0
     # via rich
 pyjwt==2.13.0
@@ -596,6 +602,7 @@ typing-extensions==4.16.0
     #   posthog
     #   pydantic
     #   pydantic-core
+    #   pyee
     #   python-datauri
     #   python-docx
     #   python-pptx

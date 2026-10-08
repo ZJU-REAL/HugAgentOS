@@ -213,6 +213,13 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
     inference (url present → HTTP, otherwise stdio).
     """
     url = raw.get("url")
+    if isinstance(url, str) and url.startswith("builtin://"):
+        from core.config.mcp_config import _mcp_http_url
+        from mcp_servers._ports import PORTS
+        server_id = url.removeprefix("builtin://")
+        if server_id not in PORTS:
+            raise ValueError("unknown bundled MCP service")
+        url = _mcp_http_url(server_id)
     command = raw.get("command")
     raw_type = str(raw.get("type") or raw.get("transport") or "").lower().replace("-", "_")
 
@@ -489,5 +496,5 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
         dropped=dropped,
         admin_config=admin_config,
         connection=connection,
-        ui=ui,
+        ui=ui, package_dir=str(plugin_dir),
     )

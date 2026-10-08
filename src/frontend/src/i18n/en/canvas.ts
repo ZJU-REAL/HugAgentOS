@@ -1,0 +1,15 @@
+export const CANVAS_EN: Record<string, string> = {
+  '请输入有效的网页地址': 'Enter a valid web address',
+  '打开失败': 'Unable to open',
+  '新标签页': 'New tab',
+  '网页地址': 'Web address',
+  '搜索 Bing 或输入网页地址': 'Search Bing or enter a web address',
+  '输入网页地址': 'Search or enter a URL',
+  '打开网页': 'Open webpage',
+  '返回对话': 'Return to chat',
+  '插件快捷功能': 'Plugin shortcuts',
+  '请先打开对话': 'Open a chat first',
+  '已打开内容': 'Open content',
+  '正在处理…': 'Working…',
+  '新建标签页': 'New tab',
+};

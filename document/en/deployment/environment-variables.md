@@ -359,3 +359,9 @@ See the [License mechanism](../editions/license.md) for details.
 Persistence, business calculations, and API event timestamps use UTC. ISO timestamp strings include an offset. Database connections explicitly use UTC independently of the host or container `TZ`; SQLite timestamps are normalized at the storage boundary.
 
 Display and date filters use the application display zone (currently Asia/Shanghai). Scheduled tasks retain their configured timezone. `TZ` must not change the instant represented by stored events. Historical timestamps without offsets require source-specific verification, not a blanket eight-hour shift. Repairing legacy team file revisions (EE) requires verification of the cloud object and original content, a backup, and a separate maintenance operation.
+
+## Browser automation plugin
+
+[Configuration, runtime dependencies and usage](../modules/browser-automation.md).
+
+Builtin MCP invocations, including browser automation, require the same `BACKEND_INTERNAL_TOKEN` in backend and mcp services. Generate a separate high-entropy value for each deployment and inject it through protected environment configuration. Never use example placeholders. The local desktop launcher provides its own invocation key.

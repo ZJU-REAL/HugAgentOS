@@ -27,10 +27,22 @@ _lock = threading.Lock()
 _last: Optional[Resolution] = None
 
 
-def db_candidates(server_ids: Iterable[str], enabled_ids: Set[str]) -> List[Candidate]:
-    """Device catalog rows, identified by their registered ``server_id``."""
+def db_candidates(
+    server_ids: Iterable[str], enabled_ids: Set[str], *, user_id: Optional[str] = None
+) -> List[Candidate]:
+    """Device catalog and retained owned packages, keyed by registered server ID.
+
+    Modern packages retain their MCP declarations without creating admin rows.
+    Include those authorized declarations in every device binding resolution;
+    the caller's enabled-ID allowlist still controls their ambient availability.
+    """
+    from .local_plugin_runtime import configs
+    from .skills import current_local_user_id
+
+    selected_user = user_id if user_id is not None else current_local_user_id()
+    ids = set(server_ids) | set(configs(selected_user))
     out: List[Candidate] = []
-    for sid in server_ids:
+    for sid in sorted(ids):
         out.append(
             Candidate(
                 install_id=registry.install_id(KIND_MCP, LOCAL_PROFILE, sid),

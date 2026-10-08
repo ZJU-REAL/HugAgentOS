@@ -176,6 +176,13 @@ def readiness(
     user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Component-by-component readiness of one plugin installation on this device."""
+    from core.services.mcp_service import McpServerConfigService
+
+    service = McpServerConfigService.get_instance()
+    selected_user = user_id or inst.payload.get("owner_user_id")
+    local_ids = set(service.get_all_servers(enabled_only=True))
+    if selected_user:
+        local_ids.update(service.get_owned_servers(selected_user, enabled_only=True))
     cloud_ids = {sid for sid in cloud_server_ids if (managed_enabled or {}).get(sid, True)}
     missing: List[str] = []
     components: List[Dict[str, Any]] = []
@@ -196,9 +203,7 @@ def readiness(
             )
         else:  # connector binding
             if profile == LOCAL_PROFILE:
-                from core.services.mcp_service import McpServerConfigService
-
-                ok = key in McpServerConfigService.get_instance().get_all_servers(enabled_only=True)
+                ok = key in local_ids
             else:
                 ok = key in cloud_ids
             state = "ready" if ok else "absent"
@@ -216,12 +221,6 @@ def readiness(
             missing.append(cid)
     from .dependency import check_installation
 
-    try:
-        from core.services.mcp_service import McpServerConfigService
-
-        local_ids = set(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
-    except Exception:
-        local_ids = set()
     report = check_installation(
         inst,
         user_id=user_id or inst.payload.get("owner_user_id"),

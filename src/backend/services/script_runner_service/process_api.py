@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 if __package__:
-    from .process_sessions import ProcessSessions, ProcessSessionError
+    from core.sandbox.process_sessions import ProcessSessions, ProcessSessionError
 else:
     from process_sessions import ProcessSessions, ProcessSessionError
 

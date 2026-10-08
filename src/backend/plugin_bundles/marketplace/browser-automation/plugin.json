@@ -1,0 +1,98 @@
+{
+  "name": "browser-automation",
+  "version": "1.0.9",
+  "description": "在 Chrome 风格 Canvas 中共同操作真实浏览器：网页、表单、登录、文件与标签页。",
+  "author": {
+    "name": "HugAgentOS"
+  },
+  "extensions": {
+    "org.hugagent": {
+      "ui": {
+        "version": 2,
+        "contributes": {
+          "modules": [
+            {
+              "id": "browser",
+              "entry": "web/browser/index.html",
+              "surface": "canvas",
+              "title": {
+                "zh-CN": "浏览器",
+                "en": "Browser"
+              },
+              "grants": [
+                "resource.attach",
+                "resource.command",
+                "canvas.new_tab"
+              ],
+              "for_tools": [
+                "browser_open"
+              ],
+              "unwrap": [
+                "result",
+                "data",
+                "output"
+              ],
+              "resource_binding": "$.resource",
+              "resource": {
+                "entry": "runtime",
+                "callable": "browser_worker.server:main",
+                "configuration": {
+                  "allowed_hosts": {
+                    "env": "BROWSER_ALLOWED_HOSTS",
+                    "type": "array",
+                    "default": []
+                  },
+                  "allow_private": {
+                    "env": "BROWSER_ALLOW_PRIVATE_NETWORK",
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "chromium_sandbox": {
+                    "env": "BROWSER_CHROMIUM_SANDBOX",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "executable": {
+                    "env": "PLAYWRIGHT_CHROMIUM_EXECUTABLE",
+                    "type": "string",
+                    "default": ""
+                  },
+                  "dns_resolver_url": {
+                    "env": "BROWSER_DNS_RESOLVER_URL",
+                    "type": "string",
+                    "default": ""
+                  }
+                }
+              },
+              "canvas_header": "module"
+            }
+          ]
+        }
+      },
+      "mcp": {
+        "browser_runtime": {
+          "display_name": "浏览器自动化",
+          "description": "与 Canvas 共享浏览器会话。",
+          "tools": [
+            {
+              "name": "browser_open",
+              "description": "打开与当前用户及对话绑定的真实浏览器，并在 Canvas 展示实时画面。返回 resource.resource_id，后续工具复用此编号。可传 resource_id 继续已有会话；仅用用户明确保存的 checkpoint_id 恢复登录。"
+            },
+            {
+              "name": "browser_observe",
+              "description": "读取共享浏览器的当前页面。snapshot 返回 URL、标题和可访问结构；text 按 selector 提取文字；screenshot 返回 PNG；state 返回标签页、控制权、弹窗和下载。先观察再定位；用户接管期间停止读取。"
+            },
+            {
+              "name": "browser_action",
+              "description": "在同一个浏览器中打开网页、点击、填写表单、选择选项、按键、导航、管理标签页、处理弹窗、上传文件或保留下载。必须传 resource_id、action 和相应 params。使用已观察到的定位器；连接错误后先检查结果，避免重复提交。"
+            },
+            {
+              "name": "browser_close",
+              "description": "显式关闭指定 resource_id 的浏览器，停止会话并撤销观看和模块资源票据。已保留为对话附件的下载不受影响。仅在任务完成且无需继续使用时关闭；关闭 Canvas 面板不会调用此工具。"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

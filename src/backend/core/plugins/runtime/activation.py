@@ -223,6 +223,10 @@ def register_load_plugin(
                         return
                     client = None
                     try:
+                        from orchestration.local_plugin_sidecars import ensure_native_servers
+
+                        await stage.checkpoint()
+                        await ensure_native_servers({key: cfg})
                         client = make_client(key, cfg, is_stateful=False)
                         if stage.staged and not plugin_resolution._http_transport(cfg):
                             await client.connect()

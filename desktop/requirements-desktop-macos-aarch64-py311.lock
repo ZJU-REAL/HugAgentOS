@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 89a894bb815c5c8ec9a57fb40412bb7ca6dc9ed6b0141ce85dd89cce89b96801
+# input-sha256: bd25548ff05dc93d196ddf996e2da2d0d47463194772257b27c8af740db0a51b
 # Target: CPython 3.11 on macOS Apple Silicon
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt
@@ -148,6 +148,8 @@ googleapis-common-protos==1.75.0
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
+greenlet==3.5.6
+    # via playwright
 grpcio==1.83.0
     # via
     #   milvus-lite
@@ -361,6 +363,8 @@ pillow==12.3.0
     #   reportlab
 pip==26.2
     # via -r desktop/requirements-desktop.txt
+playwright==1.59.0
+    # via -r desktop/requirements-desktop.txt
 portalocker==3.2.0
     # via qdrant-client
 posthog==7.35.0
@@ -405,6 +409,8 @@ pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.14.2
     # via mcp
+pyee==13.0.1
+    # via playwright
 pygments==2.20.0
     # via rich
 pyjwt==2.13.0
@@ -588,6 +594,7 @@ typing-extensions==4.16.0
     #   posthog
     #   pydantic
     #   pydantic-core
+    #   pyee
     #   python-datauri
     #   python-docx
     #   python-pptx

@@ -1,50 +1,32 @@
 import {
-  ApartmentOutlined,
   CloseOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
   InsertRowRightOutlined,
-  SafetyCertificateOutlined,
+  MoreOutlined,
+  PlusOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
-import { Modal } from 'antd';
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { Dropdown } from 'antd';
+import { useCallback, useEffect, useRef } from 'react';
 
+import './CanvasTabBar.css';
+import { useCanvasGuard } from './useCanvasGuard';
 import { t } from '../../i18n';
 import { useAgentStore } from '../../stores/agentStore';
 import { AgentIcon } from '../agent/AgentIcon';
-import { useCanvasStore, usePluginUiStore } from '../../stores';
-import type { CanvasTab } from '../../stores/canvasStore';
-import { getFileIconSrc } from '../../utils/fileIcon';
+import { useCanvasStore } from '../../stores';
+import { tabTitle, tabIcon } from './canvasTabPresentation';
+import { ChromeTabBackground } from './ChromeTabBackground';
+import { useCanvasLauncherStore } from './canvasLauncherStore';
 
-function tabTitle(tab: CanvasTab): string {
-  if (tab.kind === 'file') return tab.artifact.name;
-  if (tab.kind === 'subagent') return tab.target.agent.name;
-  // A plugin tab is labelled by the plugin's own declaration; the generic
-  // fallback only shows if that declaration carried no title.
-  if (tab.kind === 'plugin') return tab.target.title || t('插件视图');
-  return t('本体校验');
-}
-
-function tabIcon(tab: CanvasTab): ReactNode {
-  if (tab.kind === 'subagent') return <AgentIcon agent={tab.target.agent} size={18} />;
-  if (tab.kind === 'file') {
-    return <img src={getFileIconSrc(tab.artifact.name)} width="17" height="17" alt="" aria-hidden="true" />;
-  }
-  if (tab.kind === 'plugin') {
-    // The contributed canvas view / module may declare its own icon; the glyph
-    // is only the fallback for declarations that ship none.
-    const { target } = tab;
-    const store = usePluginUiStore.getState();
-    const icon = store.findCanvas(target.slug, target.canvasId)?.contribution.icon
-      || store.findModule(target.slug, target.canvasId)?.contribution.icon;
-    return icon
-      ? <img src={icon} width="17" height="17" alt="" aria-hidden="true" />
-      : <ApartmentOutlined />;
-  }
-  return <SafetyCertificateOutlined />;
-}
-
-export function CanvasTabBar() {
+export function CanvasTabBar({ controlsOnly = false, onWidthChange }: {
+  controlsOnly?: boolean;
+  onWidthChange?: (width: number) => void;
+} = {}) {
+  const launcherOpen = useCanvasLauncherStore(s => s.open);
+  const showLauncher = useCanvasLauncherStore(s => s.show);
+  const dismissLauncher = useCanvasLauncherStore(s => s.dismiss);
   const agents = useAgentStore((state) => state.agents);
   const tabs = useCanvasStore((state) => state.tabs);
   const activeTabId = useCanvasStore((state) => state.activeTabId);
@@ -55,6 +37,16 @@ export function CanvasTabBar() {
   const setCanvasFullscreen = useCanvasStore((state) => state.setCanvasFullscreen);
   const toggleCanvasFullscreen = useCanvasStore((state) => state.toggleCanvasFullscreen);
   const activeTabRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!controlsOnly || !barRef.current || !onWidthChange) return;
+    const element = barRef.current;
+    const measure = () => onWidthChange(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [controlsOnly, onWidthChange]);
 
   useEffect(() => {
     if (!isFullscreen) return undefined;
@@ -68,31 +60,16 @@ export function CanvasTabBar() {
   // 页签多到需要横向滚动时，切换/新开的页签要自己滚进可视区。
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [activeTabId]);
+  }, [activeTabId, launcherOpen]);
 
   // 只有活动页签的内容是挂载着的，所以只有它可能有未保存的编辑；切走、关闭、
   // 收起面板都会把它卸载 —— 三条路径统一先确认，避免静默丢改动。
-  const guardDirty = useCallback((action: () => void) => {
-    const state = useCanvasStore.getState();
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    if (!active || active.kind !== 'file' || !active.dirty) {
-      action();
-      return;
-    }
-    Modal.confirm({
-      title: t('有未保存的修改'),
-      content: t('离开后编辑内容将丢失，确定继续？'),
-      okText: t('放弃修改'),
-      cancelText: t('取消'),
-      okButtonProps: { danger: true },
-      onOk: action,
-    });
-  }, []);
+  const guardDirty = useCanvasGuard();
 
   const handleActivate = useCallback((tabId: string) => {
-    if (tabId === activeTabId) return;
-    guardDirty(() => activateTab(tabId));
-  }, [activateTab, activeTabId, guardDirty]);
+    if (tabId === activeTabId) { dismissLauncher(); return; }
+    guardDirty(() => { dismissLauncher(); activateTab(tabId); });
+  }, [activateTab, activeTabId, guardDirty, dismissLauncher]);
 
   const handleCloseTab = useCallback((tabId: string) => {
     // 关闭非活动页签不会卸载正在编辑的内容，无需确认。
@@ -108,8 +85,8 @@ export function CanvasTabBar() {
   }, [closeCanvas, guardDirty]);
 
   return (
-    <div className="jx-canvasTabs" role="tablist" aria-label={t('右侧面板')}>
-      <div className="jx-canvasTabs-list">
+    <div ref={barRef} className={controlsOnly ? "jx-canvasTabs jx-canvasTabs--controls" : "jx-canvasTabs chrome-tabs"} role={controlsOnly ? "toolbar" : "tablist"} aria-label={t('右侧面板')}>
+      {!controlsOnly && <div className="jx-canvasTabs-list chrome-tabs-content">
         {tabs.map((tab) => {
           const agent = tab.kind === 'subagent'
             ? agents.find((item) => tab.target.agent.agent_id
@@ -117,12 +94,13 @@ export function CanvasTabBar() {
               : item.name === tab.target.agent.name) || tab.target.agent
             : null;
           const title = agent?.name || tabTitle(tab);
-          const isActive = tab.id === activeTabId;
+          const isActive = tab.id === activeTabId && !launcherOpen;
           return (
             <div
               key={tab.id}
               ref={isActive ? activeTabRef : undefined}
-              className={`jx-canvasTab${isActive ? ' is-active' : ''}`}
+              className={`chrome-tab jx-canvasTab${isActive ? ' is-active' : ''}`}
+              data-active={isActive ? "" : undefined}
               role="tab"
               aria-selected={isActive}
               tabIndex={0}
@@ -134,19 +112,21 @@ export function CanvasTabBar() {
                 handleCloseTab(tab.id);
               }}
               onKeyDown={(event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return;
+                if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
                 event.preventDefault();
                 handleActivate(tab.id);
               }}
             >
-              <span className="jx-canvasTab-icon" aria-hidden="true">{agent ? <AgentIcon agent={agent} size={18} /> : tabIcon(tab)}</span>
-              <span className="jx-canvasTab-title">{title}</span>
+              <ChromeTabBackground />
+              <div className="chrome-tab-content">
+              <span className="chrome-tab-favicon jx-canvasTab-icon" aria-hidden="true">{agent ? <AgentIcon agent={agent} size={18} /> : tabIcon(tab)}</span>
+              <span className="chrome-tab-title jx-canvasTab-title">{title}</span>
               {tab.kind === 'file' && tab.dirty && (
                 <span className="jx-canvasTab-dot" aria-label={t('有未保存的修改')} />
               )}
               <button
                 type="button"
-                className="jx-canvasTab-close"
+                className="chrome-tab-close jx-canvasTab-close"
                 onClick={(event) => {
                   event.stopPropagation();
                   handleCloseTab(tab.id);
@@ -156,12 +136,33 @@ export function CanvasTabBar() {
               >
                 <CloseOutlined />
               </button>
+              </div>
             </div>
           );
         })}
-      </div>
-      <div className="jx-canvasTabs-spacer" aria-hidden="true" />
+        {launcherOpen && <div ref={activeTabRef} className="chrome-tab jx-canvasTab is-active" data-active="" role="tab" aria-selected="true">
+          <ChromeTabBackground />
+          <div className="chrome-tab-content">
+            <span className="chrome-tab-favicon"><GlobalOutlined /></span>
+            <span className="chrome-tab-title">{t('新标签页')}</span>
+            <button className="chrome-tab-close" type="button" aria-label={t('关闭「{name}」', { name: t('新标签页') })} onClick={dismissLauncher} />
+          </div>
+        </div>}
+      </div>}
+      {!controlsOnly && <button type="button" className="jx-canvasTabs-add" aria-label={t('新建标签页')} title={t('新建标签页')} onClick={showLauncher}><PlusOutlined /></button>}
+      {!controlsOnly && <div className="jx-canvasTabs-spacer" aria-hidden="true" />}
       <div className="jx-canvasTabs-actions">
+        {controlsOnly && tabs.length > 1 && (
+          <Dropdown trigger={['click']} menu={{
+            items: tabs.map(tab => ({ key: tab.id, label: tabTitle(tab) })),
+            selectedKeys: activeTabId ? [activeTabId] : [],
+            onClick: ({ key }) => handleActivate(key),
+          }}>
+            <button type="button" className="jx-canvasTabs-action" aria-label={t('右侧面板')} title={t('右侧面板')}>
+              <MoreOutlined />
+            </button>
+          </Dropdown>
+        )}
         <button
           type="button"
           className="jx-canvasTabs-action jx-canvasTabs-fullscreen"

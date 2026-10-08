@@ -65,16 +65,13 @@ def resolve_desktop_progressive_plugins(
     installations = {
         row.install_id: row for row in registry.list_installations(include_removed=True)
     }
-    # 混合模式下装了什么由云端账号决定，本机自带的那份不参与解析：它和云端同名的
-    # 那个会互相顶替，而本机这份的组件 MCP 用的是 compose 里的服务名
-    # （``http://mcp:<port>/mcp/``），桌面端没有那台主机、也没有对应的 sidecar，
-    # 连不上就被判不可用——于是日志里反复刷「missing MCP」，用户以为建站坏了。
-    # 单机安装（没有云端账号）不受影响：那里本机 profile 本来就是唯一来源。
+    # Cloud projections and explicitly owned local packages are both valid.
+    # Legacy shared local bundles must stay hidden in hybrid mode: their MCP
+    # endpoints belong to a different execution plane.
     from core.capabilities import device_catalog
 
-    allowed_profiles = (
-        (profile,) if (device_catalog.active() and profile) else (LOCAL_PROFILE, profile)
-    )
+    hybrid = device_catalog.active() and profile
+    allowed_profiles = (LOCAL_PROFILE, profile)
     prepared_rows = []
     for row in list(installations.values()):
         if row.kind != "plugin" or row.state == "removed":
@@ -82,6 +79,13 @@ def resolve_desktop_progressive_plugins(
         if row.profile_id not in allowed_profiles or not row.enabled:
             continue
         if row.payload.get("owner_user_id") not in (None, "", user_id):
+            continue
+        if hybrid and row.profile_id == LOCAL_PROFILE:
+            if row.payload.get("owner_user_id") != user_id:
+                continue
+        from core.capabilities.local_plugin_runtime import enabled_for
+
+        if not enabled_for(row, user_id):
             continue
         aliases = {
             row.install_id,

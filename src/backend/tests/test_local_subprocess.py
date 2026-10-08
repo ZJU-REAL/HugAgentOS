@@ -36,9 +36,8 @@ def test_site_publish_callback_uses_local_listener_port(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_local_site_pack_uses_macos_portable_size_probe(monkeypatch):
+async def test_local_site_pack_uses_portable_python_archive(monkeypatch):
     import core.sandbox as sandbox
-    from core.llm.tools import _common
     from core.services import site_packaging
 
     archive = io.BytesIO()
@@ -47,31 +46,24 @@ async def test_local_site_pack_uses_macos_portable_size_probe(monkeypatch):
         info = tarfile.TarInfo("./index.html")
         info.size = len(content)
         tf.addfile(info, io.BytesIO(content))
-
-    commands = []
-
-    async def fake_exec(command, *, chat_id, timeout=30):
-        commands.append(command)
-        if command.startswith("rm -f "):
-            return 0, "", ""
-        return 0, f"  {len(archive.getvalue())}\n", ""
+    requests = []
 
     class FakeProvider:
+        async def run_to_completion(self, request):
+            requests.append(request)
+            return SimpleNamespace(exit_code=0, stdout="", stderr="")
         async def get_file(self, session_id, path, user_id=None):
             return archive.getvalue()
 
-    monkeypatch.setattr(_common, "sandbox_exec_bash", fake_exec)
     monkeypatch.setattr(sandbox, "get_sandbox_provider", lambda: FakeProvider())
-
     files, error = await site_packaging.pack_and_fetch_dir(
         "/workspace/site with spaces", "chat-local", "user-local"
     )
-
     assert error is None
     assert files == [("index.html", b"<h1>desktop site</h1>")]
-    assert "wc -c <" in commands[0]
-    assert "du -b" not in commands[0]
-    assert "'/workspace/site with spaces'" in commands[0]
+    assert requests[0].language == "python"
+    assert requests[0].params["source"] == "/workspace/site with spaces"
+    assert requests[1].script_name == "_site_cleanup.py"
 
 
 def test_streamable_http_bind_host_defaults_to_compose_and_supports_local(monkeypatch):

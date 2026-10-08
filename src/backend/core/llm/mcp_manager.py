@@ -101,11 +101,18 @@ class BareNameMCPClient(MCPClient):
 
     def _create_http_client(self):
         """Attach the SDK OAuth provider without forking AgentScope's client."""
-        if self.oauth_provider is None:
-            return super()._create_http_client()
+        from core.llm.mcp_invocation import HEADER, PLUGIN_HEADER, for_url
         config = self.mcp_config
-        request_hook = getattr(self.oauth_provider, "mcp_request_hook", None)
-        event_hooks = {"request": [request_hook]} if request_hook else None
+        signed = any(key.lower() == HEADER.lower() for key in (config.headers or {}))
+        if self.oauth_provider is None and not signed:
+            return super()._create_http_client()
+        oauth_hook = getattr(self.oauth_provider, "mcp_request_hook", None)
+        async def request_hook(request):
+            if oauth_hook:
+                await oauth_hook(request)
+            if signed:
+                request.headers.update(for_url(config.url, request.headers.get("x-current-user-id"), request.headers.get("x-chat-id"), request.headers.get(PLUGIN_HEADER, "")))
+        event_hooks = {"request": [request_hook]}
         if config.url.endswith("/sse") or config.url.endswith("/messages/"):
             def _http_client_factory(headers=None, timeout=None, auth=None):
                 return httpx.AsyncClient(

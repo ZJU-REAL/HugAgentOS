@@ -86,7 +86,7 @@ def resolve_explicit_ids(user_id, allowed_skill_ids, allowed_mcp_ids):
     context = bridge._bridge_context() if skills.account_authorized_for(user_id) else None
     local_ids = bridge._local_server_ids()
     local_json = bridge._mcp_json_local_declarations()
-    candidates = connectors.db_candidates(local_ids, set(allowed_mcp_ids))
+    candidates = connectors.db_candidates(local_ids, set(allowed_mcp_ids), user_id=user_id)
     candidates.extend(connectors.json_candidates(local_json))
     if context:
         candidates.extend(connectors.cloud_candidates(context["profile"], context["servers"], {}))
