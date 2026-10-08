@@ -1,4 +1,6 @@
 export const APPLICATION_HOSTING_DICT: Record<string, string> = {
+  '已发布': 'Published',
+  '未发布': 'Unpublished',
   '查询企业数据': "Query enterprise data",
   '该站点没有数据库；静态网页无需创建数据库': "This site has no database; static webpages do not need one",
   '暂无应用数据库或 MCP 服务': "No application databases or MCP services",
