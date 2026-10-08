@@ -12,28 +12,29 @@ import React, { useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { InputArea } from './src/components/chat/InputArea';
 import { MessageBubble } from './src/components/chat/MessageBubble';
+import { readComposer } from './src/stores/composerStore';
 import { useChatStore } from './src/stores/chatStore';
 import { useAgentStore } from './src/stores/agentStore';
 import './src/styles/variables.css';
 import './src/styles/chat.css';
-useChatStore.setState({ currentUserId: 'owner', currentChatId: 'source', input: '',
+useChatStore.setState({ currentUserId: 'owner', currentChatId: 'source',
   activeRuns: {}, sendingChatIds: new Set(), sending: false,
   store: { order: ['source'], chats: { source: { id: 'source', title: 'Markdown',
     createdAt: 1, updatedAt: 1, messages: JSON.parse(sessionStorage.getItem('messages') || '[]'), runTarget: 'cloud' } } },
-});
+}); readComposer().setInput('');
 useAgentStore.setState({ agents: [{ agent_id: 'test-agent', name: '测试智能体', description: '测试', welcome_message: '', is_enabled: true }] });
-window.smoke = { setUser: id => useChatStore.setState({ currentUserId: id }), state: () => useChatStore.getState(), set: text => useChatStore.getState().setInput(text), sent: [] };
+window.smoke = { setUser: id => useChatStore.setState({ currentUserId: id }), state: () => readComposer(), set: text => readComposer().setInput(text), sent: [] };
 function Fixture() {
   const inputRef = useRef(null), fileRef = useRef(null);
   const messages = useChatStore(s => s.store.chats.source.messages);
   const send = () => {
-    const s = useChatStore.getState(), content = s.input;
+    const s = useChatStore.getState(), content = readComposer().input;
     window.smoke.sent.push(content);
     sessionStorage.setItem('messages', JSON.stringify([...s.store.chats.source.messages,
       { uid: String(Date.now()), role: 'user', content, ts: Date.now(), isMarkdown: false }]));
-    useChatStore.setState({ input: '', store: { ...s.store, chats: { ...s.store.chats,
+    useChatStore.setState({  store: { ...s.store, chats: { ...s.store.chats,
       source: { ...s.store.chats.source, messages: [...s.store.chats.source.messages,
-        { uid: String(Date.now()), role: 'user', content, ts: Date.now(), isMarkdown: false }] } } } });
+        { uid: String(Date.now()), role: 'user', content, ts: Date.now(), isMarkdown: false }] } } } }); readComposer().setInput('');
   };
   return <main style={{padding: 32, maxWidth: 900}}>
     {messages.map((m, index) => <MessageBubble key={m.uid} m={m} messageIndex={index}
@@ -95,6 +96,7 @@ try {
   assert.equal(await editor.locator('ul[data-type="taskList"] > li').count(), 2);
   assert.equal(await editor.locator('input[type="checkbox"]').nth(1).isChecked(), false, 'new task is unchecked');
   await editor.locator('input[type="checkbox"]').nth(1).click();
+  await page.waitForFunction(() => /\[x\] todo/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /\[x\] todo/);
   await reset();
   for (let level = 1; level <= 6; level++) {
@@ -144,6 +146,7 @@ try {
   assert.equal(await editor.locator('table').count(), 1, 'typed pipe table converts after delimiter row');
   assert.equal(await editor.locator('table strong').innerText(), 'Header', 'table conversion preserves marks');
   assert.equal(await editor.locator('table a').first().getAttribute('href'), 'https://example.com/value');
+  await page.waitForFunction(() => /https:\/\/example.com\/table.png/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /https:\/\/example.com\/table.png/, 'table conversion keeps literal image destination');
 
   assert.equal(await page.evaluate(() => window.smoke.sent.length), 0);
@@ -151,6 +154,7 @@ try {
   await editor.pressSequentially('**加粗**');
   await editor.locator('strong').waitFor({ timeout: 2000 });
   assert.equal(await editor.locator('strong').innerText(), '加粗');
+  await page.waitForFunction(() => window.smoke.state().input === '**加粗**');
   assert.equal(await page.evaluate(() => window.smoke.state().input), '**加粗**');
   await editor.press('Enter');
   await page.locator('.jx-bubble.user strong').waitFor();
@@ -185,6 +189,7 @@ try {
     el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
   });
   assert.equal(await editor.locator('strong').innerText(), '网页粗体');
+  await page.waitForFunction(() => /\*\*网页粗体\*\*/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /\*\*网页粗体\*\*/);
   assert.match(await editor.locator('pre').innerText(), /line1\n  line2/);
   await editor.press('Control+End');
@@ -234,9 +239,11 @@ try {
   assert.equal(await page.evaluate(() => window.smoke.state().activeMention.id), 'test-agent');
   assert.equal(await page.evaluate(() => window.smoke.state().input.trim()), '', 'chip is not prompt text');
   await editor.press('Backspace');
+  await page.waitForFunction(() => window.smoke.state().activeMention === null);
   assert.equal(await page.evaluate(() => window.smoke.state().activeMention), null);
   await editor.press('Control+z');
   await editor.locator('[data-chip="mention"]').waitFor();
+  await page.waitForFunction(() => window.smoke.state().activeMention?.id === 'test-agent');
   assert.equal(await page.evaluate(() => window.smoke.state().activeMention.id), 'test-agent', 'undo restores authoritative chip state');
   await editor.press('Home');
   await editor.pressSequentially('| Header |');
@@ -256,23 +263,26 @@ try {
   await page.evaluate(() => window.smoke.set(''));
   await page.evaluate(() => navigator.clipboard.writeText('**literal**'));
   await editor.press('Control+Shift+v');
-  await page.waitForFunction(() => document.querySelector('.jx-inputArea [contenteditable="true"]').innerText === '**literal**');
+  await page.waitForFunction(() => [...document.querySelectorAll('.jx-inputArea [contenteditable="true"]')].at(-1)?.innerText === '**literal**');
   assert.equal(await editor.locator('strong').count(), 0, 'plain paste bypasses Markdown and HTML conversion');
   assert.equal(await editor.innerText(), '**literal**');
 
   await page.evaluate(() => window.smoke.set('before ![alt](https://example.com/a.png) after'));
   await editor.press('Control+End');
   await editor.pressSequentially('!');
+  await page.waitForFunction(() => /!\[alt\]\(https:\/\/example.com\/a.png\)/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /!\[alt\]\(https:\/\/example.com\/a.png\)/, 'unsupported image keeps URL and Markdown');
   await page.evaluate(() => window.smoke.set('![alt][img]\n\n[img]: https://example.com/ref.png'));
   await editor.press('Control+End');
   await editor.pressSequentially('!');
+  await page.waitForFunction(() => /https:\/\/example.com\/ref.png/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /https:\/\/example.com\/ref.png/, 'reference image keeps resolved destination');
   await page.evaluate(() => window.smoke.set('<strong>literal HTML</strong>'));
   assert.equal(await editor.locator('strong').count(), 0);
   assert.match(await editor.innerText(), /<strong>literal HTML<\/strong>/);
   await editor.press('Control+End');
   await editor.pressSequentially('!');
+  await page.waitForFunction(() => /<strong>literal HTML<\/strong>/.test(window.smoke.state().input));
   assert.match(await page.evaluate(() => window.smoke.state().input), /<strong>literal HTML<\/strong>/);
   await page.evaluate(() => window.smoke.set('```mermaid\ngraph TD; A-->B;\n```'));
   await editor.press('Control+End');

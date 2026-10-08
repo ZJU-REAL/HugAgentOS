@@ -74,12 +74,11 @@
   "src/hooks/useChatInit.ts": {"1:react-hooks/exhaustive-deps": 5},
   "src/hooks/useEvolutionSettlement.ts": {"2:react-hooks/refs": 1},
   "src/hooks/usePlanMode.ts": {"2:@typescript-eslint/no-explicit-any": 9},
-  "src/hooks/useStreaming.ts": {"2:@typescript-eslint/no-explicit-any": 9},
   "src/plugin-ui/module/PluginModuleFrame.tsx": {"2:react-hooks/refs": 1},
   "src/plugin-ui/views/shared/InlineActions.tsx": {"2:react-refresh/only-export-components": 1},
   "src/plugin-ui/views/svg/primitives.tsx": {"2:react-hooks/immutability": 1, "2:react-refresh/only-export-components": 2},
   "src/stores/loopStore.ts": {"2:@typescript-eslint/no-unused-vars": 1},
-  "src/types.ts": {"2:@typescript-eslint/no-explicit-any": 4},
+  "src/types/messages.ts": {"2:@typescript-eslint/no-explicit-any": 4},
   "src/utils/citations.ts": {"2:@typescript-eslint/no-explicit-any": 7},
   "src/utils/contextUsage.ts": {"2:prefer-const": 2},
   "src/utils/export.ts": {"2:@typescript-eslint/no-explicit-any": 3}

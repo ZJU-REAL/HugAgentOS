@@ -10,6 +10,13 @@ Chat is the core pipeline of HugAgentOS: a user message travels through the Fast
 
 The home page, conversation page, and project panel share the message composer. Long text expands the editor up to its maximum height, then scrolls inside it. Shift+Enter, typing, and pasting keep the current line visible above the bottom toolbar. Editing earlier text follows the caret; manually scrolling to read preserves the scroll position.
 
+### Unsent drafts
+
+Each conversation, new conversation, and project keeps its own unsent draft. Switching shows the destination draft; returning restores text, formatting, capability references, quoted follow-up questions, and attachments. Returning home, clicking “New conversation”, or clicking the conversation icon within the chat module restores the current unsent new-conversation draft. After sending it, entering again creates an empty draft.
+
+The scheduled-task setup template is inserted only when its conversation is created. Editing or clearing it is preserved across navigation. In-flight uploads stay with their originating draft, including when a project draft becomes a new conversation on its first send. Drafts remain in the current page's memory and are cleared on refresh or logout.
+
+
 ## Uploaded attachment previews
 
 Once an upload completes, click its attachment card above the composer or in a sent message to preview it in the right-hand Canvas; images display directly. Canvas uses the existing document viewers and offers a download fallback for unsupported formats. Uploading or failed files do not open a preview. The download icon on message attachments and the Canvas download button remain available.

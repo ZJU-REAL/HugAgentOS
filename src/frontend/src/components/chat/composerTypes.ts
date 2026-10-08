@@ -8,8 +8,8 @@ export interface InputAreaProps {
   activateQueuedMessage?: (chatId?: string) => Promise<void>;
   discardQueuedMessage?: (chatId?: string) => Promise<void>;
   continueLoop?: (chatId?: string) => void;
-  handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>) => void;
-  removeFile: (index: number) => void;
+  handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>, draftKey?: string) => void;
+  removeFile: (index: number, draftKey?: string) => void;
   placeholder?: string;
   mobilePlaceholder?: string;
   rows?: number;

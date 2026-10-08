@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckOutlined, CopyOutlined, RedoOutlined } from '@ant-design/icons';
-import { useChatStore } from '../../stores';
+import { useComposerDraft, chatDraftKey } from '../../stores/composerStore';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
-export function useMessageSelection(m: ChatMessage) {
-  const setQuotedFollowUp = useChatStore((s) => s.setQuotedFollowUp);
+export function useMessageSelection(m: ChatMessage, chatId: string) {
+  const { setQuotedFollowUp } = useComposerDraft(chatDraftKey(chatId));
   const contentRef = useRef<HTMLDivElement | null>(null);
   const selectionRangeRef = useRef<Range | null>(null);
   const selectionCopiedTimerRef = useRef<number | null>(null);

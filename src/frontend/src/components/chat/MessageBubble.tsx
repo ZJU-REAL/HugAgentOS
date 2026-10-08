@@ -34,7 +34,7 @@ interface MessageBubbleProps {
  * 且 messages 只订到本条为止。
  */
 export const MessageBubble = memo(function MessageBubble({ m, messageIndex, currentChatId, send, exportChatRecord, regenerate, editAndResend }: MessageBubbleProps) {
-  const { contentRef, onMouseDown, onMouseUp, selectionMenu } = useMessageSelection(m);
+  const { contentRef, onMouseDown, onMouseUp, selectionMenu } = useMessageSelection(m, currentChatId);
   const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
   const selectedShareMessageUids = useChatStore((s) => s.selectedShareMessageUids);
   const toggleShareMessageUid = useChatStore((s) => s.toggleShareMessageUid);

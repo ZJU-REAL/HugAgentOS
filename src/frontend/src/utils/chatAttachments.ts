@@ -1,7 +1,7 @@
 import { isHybridDual, chatUploadTarget, uploadFile, authFetch, LOCAL_TARGET_HEADER, UPLOAD_MAX_BYTES } from '../api';
 import { t } from '../i18n';
 import type { UploadedAttachment } from './fileParser';
-import type { ImportedSpaceFile } from '../stores/fileStore';
+import type { ImportedSpaceFile } from '../stores/composerStore';
 
 export interface ChatAttachment extends UploadedAttachment {
   name: string;
