@@ -13,7 +13,7 @@ import time
 import uuid
 from datetime import timedelta
 
-from services.script_runner_service.process_sessions import ProcessSessionError, ProcessSessions
+from .process_sessions import ProcessSessionError, ProcessSessions
 
 from .errors import SandboxError
 
@@ -41,6 +41,7 @@ class CloudProcesses:
                     (req.session_id or "", req.user_id or ""),
                     max(250, min(yield_time_ms, 60000)),
                     req.timeout,
+                    yield_on_output=req.yield_on_output,
                 )
             except ProcessSessionError as exc:
                 raise SandboxError(str(exc)) from exc
@@ -117,6 +118,11 @@ class CloudProcesses:
             from opensandbox.models.execd import RunCommandOpts
 
             sess = await provider._get_or_create_session(req.session_id, user_id=req.user_id)
+            # skip_health_check starts execd asynchronously. Readiness reads may retry;
+            # staging and process launch must never be replayed after uncertain results.
+            async with asyncio.timeout(provider._ready_timeout_s):
+                while not await sess.sandbox.is_healthy():
+                    await asyncio.sleep(0.25)
             await provider._sync_inputs(sess, req)
             opts = RunCommandOpts(
                 background=True,

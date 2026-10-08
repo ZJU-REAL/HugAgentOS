@@ -376,3 +376,32 @@
   border: 0;
   background: var(--color-bg-container);
 }
+
+/* Protocol endpoints open connection details, with the same address styling as sites. */
+.jx-sites-addressButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.jx-sites-cardHead { flex-wrap: wrap; }
+.jx-sites-cardTitle { max-width: 100%; }
+.jx-sites-cardActions { flex-wrap: wrap; justify-content: flex-end; }
+.jx-sites-connection { display: flex; flex-direction: column; gap: var(--space-md); }
+.jx-sites-connection label { display: flex; flex-direction: column; gap: var(--space-sm); }
+@media (min-width: 769px) {
+  .jx-sites-cardActions { max-width: 340px; }
+}
+
+.jx-sites-toolEditor {
+  margin-block: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.jx-sites-toolEditorHead { display: flex; justify-content: space-between; width: 100%; }
+
+@media (max-width: 768px) {
+  .jx-sites-cardActions { opacity: 1; justify-content: flex-start; }
+}

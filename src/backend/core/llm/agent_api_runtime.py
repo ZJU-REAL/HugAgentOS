@@ -102,6 +102,8 @@ def scope_mcp_servers(servers: dict, scope: AgentApiExecutionScope) -> dict:
             existing = next((key for key in headers if key.lower() == header.lower()), header)
             if not str(headers.get(existing) or "").strip():
                 headers[existing] = "__agent_api_no_kb__"
+        from core.llm.mcp_invocation import for_url
+        headers.update(for_url(item["url"], scope.sandbox_user_id, scope.chat_id))
         item["headers"] = headers
         out[name] = item
     return out

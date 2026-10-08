@@ -28,7 +28,6 @@ export function confirmDeleteChat(id: string) {
         const nextId = chat.store.order.find(candidate => candidate !== id)
           || newDraftChatId(chat.currentUserId);
         chat.adoptChatFromUrl(nextId);
-        chat.setInput('');
         useAutomationChatStore.getState().exitAutomationChat();
         navigateTo(pathForPanel('automation'), { replace: true });
       }

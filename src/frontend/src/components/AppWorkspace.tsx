@@ -1,3 +1,5 @@
+import { chatDraftKey, projectDraftKey } from '../stores/composerStore';
+import { useChatStore } from '../stores/chatStore';
 import {
   CloseOutlined,
   InsertRowRightOutlined,
@@ -225,7 +227,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               <ToolResultPanel />
             </SlidePanel>
             <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && (chatSurface || panel === 'project_detail')} panelKey="prompt-hub">
-              <PromptHubPanel />
+              <PromptHubPanel draftKey={panel === 'project_detail' && currentProjectId ? projectDraftKey(currentProjectId) : chatDraftKey(useChatStore.getState().currentChatId)} />
             </SlidePanel>
             {/* Automation run timeline — persistent panel (not mutually exclusive with SlidePanels).
             * During exit store.activeGroup is already null; RunTimelinePanel falls back to a

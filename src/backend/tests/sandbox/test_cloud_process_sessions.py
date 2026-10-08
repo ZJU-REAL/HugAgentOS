@@ -21,8 +21,9 @@ async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner
     )
     provider = SimpleNamespace(
         name="opensandbox",
+        _ready_timeout_s=5,
         _get_or_create_session=AsyncMock(
-            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands))
+            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands, is_healthy=AsyncMock(return_value=True)))
         ),
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
@@ -82,8 +83,9 @@ async def test_opensandbox_final_logs_and_nonzero_exit_are_not_lost():
     )
     provider = SimpleNamespace(
         name="opensandbox",
+        _ready_timeout_s=5,
         _get_or_create_session=AsyncMock(
-            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands))
+            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands, is_healthy=AsyncMock(return_value=True)))
         ),
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
@@ -316,8 +318,9 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
     )
     provider = SimpleNamespace(
         name="opensandbox",
+        _ready_timeout_s=5,
         _get_or_create_session=AsyncMock(
-            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands))
+            return_value=SimpleNamespace(sandbox=SimpleNamespace(commands=commands, is_healthy=AsyncMock(return_value=True)))
         ),
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(),
@@ -420,3 +423,33 @@ async def test_internal_provider_completion_returns_final_result_without_harness
     assert result.exit_code == 3
     assert result.execution_time_ms == 150000
     assert [path for path, _ in requests] == ["/processes/start", "/processes/write"]
+
+
+async def test_opensandbox_waits_for_execd_before_staging_without_replaying_launch():
+    from core.sandbox.cloud_processes import CloudProcesses
+    calls = []
+    async def healthy():
+        calls.append("health")
+        return calls.count("health") > 1
+    async def stage(*args):
+        calls.append("stage")
+    async def run(*args, **kwargs):
+        calls.append("launch")
+        return SimpleNamespace(id="ready-process")
+    commands = SimpleNamespace(run=run,
+        get_command_status=AsyncMock(return_value=SimpleNamespace(
+            running=False, exit_code=0, error=None)),
+        get_background_command_logs=AsyncMock(return_value=SimpleNamespace(
+            content="ready", cursor=1)), interrupt=AsyncMock())
+    provider = SimpleNamespace(name="opensandbox", _ready_timeout_s=5,
+        _get_or_create_session=AsyncMock(return_value=SimpleNamespace(
+            sandbox=SimpleNamespace(commands=commands, is_healthy=healthy))),
+        _sync_inputs=stage, touch_session=AsyncMock())
+    service = CloudProcesses(provider)
+    try:
+        result = await service.start(ProcessRequest(
+            "true", "ready.sh", language="bash", session_id="chat"), 1000)
+        assert result["exit_code"] == 0
+        assert calls == ["health", "health", "stage", "launch"]
+    finally:
+        await service.close_all()

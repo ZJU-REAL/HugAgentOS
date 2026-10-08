@@ -18,6 +18,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { assertMacosSigning } from "./macos-signing.mjs";
+import { isBrowserRuntimeCode, macRuntimeSigningTargets, refreshSignedBrowserManifest } from "./macos-runtime-signing.mjs";
 import {
   currentDesktopTarget,
   desktopDependencyFingerprint,
@@ -126,6 +127,8 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
     "--runtime", runtimeRoot,
     "--executable", config.executable,
   ], { cwd: repoRoot });
+  run(executable, [join(desktopDir, "scripts", "browser-runtime.py"), "--runtime", runtimeRoot], { cwd: repoRoot });
+  copyFileSync(join(desktopDir, "scripts", "browser-runtime.py"), join(runtimeRoot, "browser-runtime.py"));
   mkdirSync(join(runtimeRoot, "licenses"), { recursive: true });
   for (const name of ["OfficeCLI-LICENSE.txt", "Pandoc-COPYING.md", "Office-runtime-NOTICES.txt", "Git-Bash-NOTICES.txt"]) {
     copyFileSync(join(desktopDir, "licenses", name), join(runtimeRoot, "licenses", name));
@@ -244,6 +247,7 @@ function directorySize(root) {
 
 export function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
+  const browserEntitlements = fileURLToPath(new URL("./browser-jit.entitlements.plist", import.meta.url));
   const officecliEntitlements = fileURLToPath(new URL("./officecli-jit.entitlements.plist", import.meta.url));
   const libreOfficeJitEntitlements = fileURLToPath(new URL("./libreoffice-jit.entitlements.plist", import.meta.url));
   const libreOfficeSelfSignedEntitlements = fileURLToPath(new URL("./libreoffice-self-signed.entitlements.plist", import.meta.url));
@@ -254,18 +258,7 @@ export function signMacRuntime(root) {
       "[desktop] Explicit local-test ad-hoc signing; this runtime must not be released.",
     );
   }
-  const files = [];
-  const bundles = [];
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(path);
-        if (/\.(app|framework|appex|xpc|mdimporter|qlgenerator)$/.test(path)) bundles.push(path);
-      } else if (!entry.isSymbolicLink()) files.push(path);
-    }
-  };
-  visit(root);
+  const { files, bundles } = macRuntimeSigningTargets(root);
   for (const path of files) {
     const kind = capture("/usr/bin/file", ["-b", path]);
     if (!kind.includes("Mach-O")) continue;
@@ -285,6 +278,9 @@ export function signMacRuntime(root) {
       args.push("--entitlements", mode === "self-signed"
         ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
     }
+    if (isBrowserRuntimeCode(root, path) && identity !== "-") {
+      args.push("--entitlements", browserEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }
@@ -297,10 +293,15 @@ export function signMacRuntime(root) {
       args.push("--entitlements", mode === "self-signed"
         ? libreOfficeSelfSignedEntitlements : libreOfficeJitEntitlements);
     }
+    if (isBrowserRuntimeCode(root, path) && identity !== "-") {
+      args.push("--entitlements", browserEntitlements);
+    }
     args.push(path);
     run("/usr/bin/codesign", args);
   }
   for (const path of bundles.filter((path) => path.endsWith(".app"))) {
     run("/usr/bin/codesign", ["--verify", "--deep", "--strict", path]);
   }
+  // Code signing changes Mach-O bytes; pin the final, verified executable.
+  refreshSignedBrowserManifest(root);
 }

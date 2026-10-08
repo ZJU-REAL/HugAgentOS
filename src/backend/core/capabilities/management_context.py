@@ -34,7 +34,7 @@ def connectors_view(user_id: str) -> Dict[str, Any]:
     enabled_ids = set(svc.get_all_servers(enabled_only=True)) | set(svc.get_owned_servers(user_id))
     from core.services.desktop_cloud_bridge import _mcp_json_local_declarations
 
-    candidates = connectors.db_candidates(all_cfgs, enabled_ids) + connectors.json_candidates(
+    candidates = connectors.db_candidates(all_cfgs, enabled_ids, user_id=user_id) + connectors.json_candidates(
         _mcp_json_local_declarations()
     )
     # The runtime context excludes disabled bindings; the management view must

@@ -98,6 +98,9 @@ def _apply_normalized(
             imported.append({"type": "mcp", "id": sid, "name": mc.name})
 
     import_report = {"imported": imported, "adapted": adapted, "dropped": np.dropped}
+    if np.package_dir and np.ui:
+        from core.plugins.packaging.runtime_assets import retain
+        import_report["package_revision"] = retain(db, Path(np.package_dir))
     component_ids = {"skills": skill_ids, "mcp": server_ids, "prompts": []}
 
     # A plugin update is a replacement of its declared component set. Remove

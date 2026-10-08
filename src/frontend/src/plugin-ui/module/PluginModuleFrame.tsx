@@ -1,3 +1,4 @@
+import { resourceBinding, resourceAssetUrl } from './resource';
 /**
  * Host for an L2 plugin module.
  *
@@ -13,7 +14,7 @@
  * a plain card instead of a blank panel.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 
 import { pluginWebAssetUrl } from '../../api';
 import { getLang, t } from '../../i18n';
@@ -33,17 +34,30 @@ export interface PluginModuleFrameProps {
   /** Payload handed to the module at handshake (usually the tool output). */
   payload: unknown;
   toolName?: string;
+  canvasHeaderInset?: number;
+  onNewTab?: () => void;
+  onNavigateReady?: (navigate: ((url: string) => Promise<void>) | null) => void;
   onOpenCanvas?: (canvasId: string) => void;
   onChatSend?: (text: string) => void;
 }
 
-export function PluginModuleFrame({
+export function PluginModuleFrame(props: PluginModuleFrameProps) {
+  const binding = resourceBinding(props.payload, props.module);
+  const identity = [props.slug, props.module.id, props.module.entry, binding?.resource_id,
+    binding?.revision, binding?.install_id, binding?.execution_scope];
+  return <ModuleFrameContent key={JSON.stringify(identity)} {...props} />;
+}
+
+function ModuleFrameContent({
   slug,
   module,
   payload,
   toolName,
   onOpenCanvas,
   onChatSend,
+  onNewTab,
+  onNavigateReady,
+  canvasHeaderInset = 0,
 }: PluginModuleFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
@@ -53,39 +67,66 @@ export function PluginModuleFrame({
   // Callbacks live in refs so an inline arrow from a caller cannot re-key the
   // bridge effect: re-attaching also resets `status`, which would re-render,
   // hand us a fresh arrow, and spin.
-  const handlersRef = useRef({ onOpenCanvas, onChatSend });
-  handlersRef.current = { onOpenCanvas, onChatSend };
+  const handlersRef = useRef({ onOpenCanvas, onChatSend, onNewTab, onNavigateReady });
+  useEffect(() => { handlersRef.current = { onOpenCanvas, onChatSend, onNewTab, onNavigateReady }; }, [onOpenCanvas, onChatSend, onNewTab, onNavigateReady]);
 
-  const src = useMemo(() => pluginWebAssetUrl(slug, module.entry), [slug, module.entry]);
+  const bindingKey = JSON.stringify(resourceBinding(payload, module));
+  const binding = useMemo(() => JSON.parse(bindingKey) as ReturnType<typeof resourceBinding>, [bindingKey]);
+  const [assetSrc, setAssetSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!binding) return;
+    const controller = new AbortController();
+    void resourceAssetUrl(binding, controller.signal).then(setAssetSrc).catch(() => { if (!controller.signal.aborted) setStatus("failed"); });
+    return () => controller.abort();
+  }, [binding]);
+  const ordinarySrc = useMemo(() => {
+    const url = new URL(pluginWebAssetUrl(slug, module.entry), location.href);
+    return url.href;
+  }, [slug, module.entry]);
+  const src = binding ? assetSrc : ordinarySrc;
+  const bridgeRef = useRef<ReturnType<typeof attachBridge> | null>(null);
   const isDark = themeMode === 'dark' || (themeMode === 'system' && systemPrefersDark());
 
-  useEffect(() => {
-    const iframe = frameRef.current;
-    if (!iframe) return undefined;
-    setStatus('loading');
-
-    const detach = attachBridge(iframe, {
+  const initializeBridge = useEffectEvent((iframe: HTMLIFrameElement) => attachBridge(iframe, {
       slug,
       grants: module.grants || [],
+      resource: binding,
       payload,
       theme: isDark ? 'dark' : 'light',
       locale: getLang(),
+      canvasHeaderInset,
+      onNewTab: () => handlersRef.current.onNewTab?.(),
       onOpenCanvas: (canvasId) => handlersRef.current.onOpenCanvas?.(canvasId),
       onChatSend: (text) => handlersRef.current.onChatSend?.(text),
       onHeight: (height) => setAutoHeight(height),
       onReady: () => setStatus('ready'),
       onError: () => setStatus('failed'),
-    });
+  }));
+  const canNavigate = module.grants.includes('canvas.new_tab');
+  const grantsKey = JSON.stringify(module.grants || []);
 
+  useEffect(() => {
+    const iframe = frameRef.current;
+    if (!iframe || !src) return undefined;
+
+    const detach = initializeBridge(iframe);
+
+    bridgeRef.current = detach;
+    if (canNavigate) handlersRef.current.onNavigateReady?.(detach.navigate);
     const timer = window.setTimeout(() => {
       setStatus((current) => (current === 'ready' ? current : 'failed'));
     }, HANDSHAKE_TIMEOUT_MS);
 
     return () => {
       window.clearTimeout(timer);
+      handlersRef.current.onNavigateReady?.(null);
       detach();
+      bridgeRef.current = null;
     };
-  }, [slug, module.grants, payload, isDark]);
+  }, [slug, module.id, binding?.resource_id, src, grantsKey, canNavigate]);
+  useEffect(() => {
+    bridgeRef.current?.update(payload, isDark ? 'dark' : 'light', canvasHeaderInset);
+  }, [payload, isDark, canvasHeaderInset]);
 
   if (status === 'failed') {
     if (module.fallback?.view) {
@@ -125,12 +166,13 @@ export function PluginModuleFrame({
       <iframe
         ref={frameRef}
         className="jx-pv-moduleFrame"
-        src={src}
+        src={src || undefined}
         title={resolveText(module.title, module.id)}
         // No allow-same-origin on purpose: keeps the frame at a null origin so
         // it cannot reach the host's storage or authenticated API.
         sandbox="allow-scripts"
-        loading="lazy"
+        referrerPolicy="no-referrer"
+        loading={module.surface === 'canvas' ? 'eager' : 'lazy'}
       />
     </div>
   );

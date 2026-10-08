@@ -159,6 +159,7 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     let pstate = proxy::ProxyState {
         device_login: device_login.clone(),
         http: http.clone(),
+        insecure_tls: cfg.insecure_tls,
         server_base: cfg.server_base_trimmed().to_string(),
         cookie_name: cfg.cookie_name.clone(),
         session: session.clone(),

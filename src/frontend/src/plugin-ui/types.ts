@@ -114,6 +114,9 @@ export interface DataSourceContribution {
 
 /** An L2 module: frontend assets shipped inside the plugin package. */
 export interface ModuleContribution {
+  canvas_header?: 'module';
+  resource_binding?: string;
+  unwrap?: string[];
   id: string;
   entry: string;
   surface: 'canvas' | 'tool_view';

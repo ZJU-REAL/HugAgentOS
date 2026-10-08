@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Button, Empty, Form, Input, Modal, Popconfirm, Select, Table, Tabs, Tag, message,
+  Alert, Button, Empty, Input, Popconfirm, Skeleton, Tag, message,
 } from 'antd';
 import {
   AppstoreOutlined,
@@ -16,14 +16,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import {
-  clearSiteKv,
-  clearSiteSubmissions,
   deleteSite,
-  deleteSiteKvKey,
-  exportSiteSubmissions,
-  getSiteDetail,
-  listSiteKv,
-  listSiteSubmissions,
   listSites,
   getProject,
   getSession,
@@ -31,52 +24,34 @@ import {
   isLocalProject,
   prepareLocalSiteProject,
   openLocalSiteEditor,
-  rollbackSite,
-  updateSite,
   type SiteItem,
-  type SiteKvItem,
-  type SiteSubmissionItem,
-  type SiteVersionItem,
 } from '../../api';
 import {
-  EditionSiteVisibilityFields,
   EditionSiteVisibilityTag,
-  editionSiteFormValues,
-  editionSiteUpdateFields,
-  getSiteVisibilityOptions,
-  type SiteVisibility,
 } from '../../editionSiteVisibility';
-import { SitePasswordField, SitePasswordTag } from './SitePasswordField';
+import { HostedResourceCard } from './HostedResourceCard';
+import { ApplicationCard, type ApplicationView } from './ApplicationCard';
+import { ApplicationManageModal } from './ApplicationManageModal';
+import { useApplications } from './useApplications';
+import { isMcpApplication, type Application } from './applicationApi';
+import { ensureSitesPluginInstalled, startMcpEdit } from './hostedResourceEditor';
+import { SitePasswordTag } from './SitePasswordField';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
-import { abilitySlug } from '../../routing/subPages';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
-import { usePluginStore } from '../../stores/pluginStore';
 import { copyToClipboard } from '../../utils/clipboard';
 import { pickSiteEditChat } from '../../utils/history';
 import { t } from '../../i18n';
-import { formatDate, formatDateTime } from '../../utils/date';
+import { formatDate } from '../../utils/date';
+import { SiteManageModal } from './SiteManageModal';
+import { formatSize } from './siteFormatting';
 import '../../styles/sites.css';
 
 /** Enter a "site" building session in the main chat: reuse the main chat input (with attachments/projects/+ menu),
  *  and auto-activate the installed "site" plugin (injecting the site-builder skill + site_publish tool). Site-building
  *  is purely plugin-gated — if not installed, guide the user to Capability Center → plugin install rather than forcing
  *  into a session that has no publish tool. */
-async function ensureSitesPluginInstalled(): Promise<boolean> {
-  // First ensure the installed-plugin list is up to date (it may have just been installed/uninstalled elsewhere).
-  await usePluginStore.getState().fetchInstalled(true).catch(() => {});
-  const installed = usePluginStore
-    .getState()
-    .installed.some((p) => p.slug === 'sites' && p.enabled !== false);
-  if (!installed) {
-    message.info(t('首次创建站点需要安装插件，请先在能力中心 → 插件里安装后再创建'));
-    // 不带类别地进能力中心会落到默认的「智能体」——提示让人去装插件、点过去却是别的页面。
-    useCatalogStore.getState().setPanel('ability_center', abilitySlug('plugins'));
-    return false;
-  }
-  return true;
-}
 
 async function startSiteCreation() {
   if (!(await ensureSitesPluginInstalled())) return;
@@ -153,11 +128,6 @@ async function startSiteEdit(site: SiteItem) {
   useCatalogStore.getState().setPanel('chat');
 }
 
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
 
 function VisibilityTag({ site }: { site: SiteItem }) {
   if (site.visibility === 'public') {
@@ -169,312 +139,13 @@ function VisibilityTag({ site }: { site: SiteItem }) {
   return <Tag icon={<LockOutlined />}>{t('私密')}</Tag>;
 }
 
-/** Site management modal: Settings / version rollback / form data / KV storage */
-function SiteManageModal({
-  site, onClose, onChanged,
-}: {
-  site: SiteItem;
-  onClose: () => void;
-  onChanged: (updated: SiteItem) => void;
-}) {
-  const [form] = Form.useForm();
-  const [saving, setSaving] = useState(false);
-  const [visibility, setVisibility] = useState<SiteVisibility>(site.visibility);
-  const [versions, setVersions] = useState<SiteVersionItem[]>([]);
-  const [currentVersion, setCurrentVersion] = useState(site.current_version);
-  const [rollingBack, setRollingBack] = useState<number | null>(null);
-  const [submissions, setSubmissions] = useState<SiteSubmissionItem[]>([]);
-  const [submissionTotal, setSubmissionTotal] = useState(0);
-  const [kvItems, setKvItems] = useState<SiteKvItem[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    form.setFieldsValue({
-      title: site.title, slug: site.slug,
-      visibility: site.visibility,
-      ...editionSiteFormValues(site),
-    });
-    void getSiteDetail(site.site_id, site.origin)
-      .then((d) => { setVersions([...d.versions].reverse()); setCurrentVersion(d.current_version); })
-      .catch(() => {});
-    void listSiteSubmissions(site.site_id, 1, 50, site.origin)
-      .then((r) => { setSubmissions(r.items); setSubmissionTotal(r.total); })
-      .catch(() => {});
-    void listSiteKv(site.site_id, site.origin).then((r) => setKvItems(r.items)).catch(() => {});
-    // 依赖用 site_id 而不是整个 site 对象：站点被 onChanged 刷新后（例如刚改完密码）
-    // 不该重置表单，否则会冲掉用户没保存的标题/地址改动。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site.site_id, form]);
-
-  const handleSave = async () => {
-    try {
-      const values = await form.validateFields();
-      setSaving(true);
-      const updated = await updateSite(site.site_id, {
-        title: values.title?.trim(),
-        slug: values.slug !== site.slug ? values.slug : undefined,
-        visibility: values.visibility,
-        ...editionSiteUpdateFields(values.visibility, values),
-      }, site.origin);
-      onChanged(updated);
-      message.success(t('已保存'));
-      onClose();
-    } catch (e) {
-      if (e instanceof Error) message.error(t('保存失败：') + e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRollback = async (version: number) => {
-    setRollingBack(version);
-    try {
-      const updated = await rollbackSite(site.site_id, version, site.origin);
-      setCurrentVersion(updated.current_version);
-      onChanged(updated);
-      message.success(t('已回滚到版本') + ` v${version}`);
-    } catch (e) {
-      message.error(t('回滚失败：') + (e as Error).message);
-    } finally {
-      setRollingBack(null);
-    }
-  };
-
-  const handleExport = async () => {
-    setBusy(true);
-    try {
-      const r = await exportSiteSubmissions(site.site_id, site.origin);
-      message.success(t('已导出到「我的空间」：') + r.filename);
-      window.open(r.download_url, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      message.error(t('导出失败：') + (e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClearSubmissions = async () => {
-    setBusy(true);
-    try {
-      await clearSiteSubmissions(site.site_id, site.origin);
-      setSubmissions([]); setSubmissionTotal(0);
-      message.success(t('表单数据已清空'));
-    } catch (e) {
-      message.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDeleteKv = async (key: string) => {
-    try {
-      await deleteSiteKvKey(site.site_id, key, site.origin);
-      setKvItems((prev) => prev.filter((i) => i.key !== key));
-    } catch (e) {
-      message.error((e as Error).message);
-    }
-  };
-
-  const handleClearKv = async () => {
-    try {
-      await clearSiteKv(site.site_id, site.origin);
-      setKvItems([]);
-      message.success(t('KV 已清空'));
-    } catch (e) {
-      message.error((e as Error).message);
-    }
-  };
-
-  const submissionColumns = [
-    { title: t('时间'), dataIndex: 'created_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
-    { title: t('表单'), dataIndex: 'form_key', width: 110 },
-    {
-      title: t('内容'), dataIndex: 'payload',
-      render: (p: Record<string, unknown>) => (
-        <span className="jx-sites-payload">{JSON.stringify(p, null, 0)}</span>
-      ),
-    },
-  ];
-
-  const kvColumns = [
-    { title: 'Key', dataIndex: 'key', width: 160 },
-    {
-      title: 'Value', dataIndex: 'value',
-      render: (v: string) => <span className="jx-sites-payload">{v}</span>,
-    },
-    { title: t('更新于'), dataIndex: 'updated_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
-    {
-      title: '', key: 'op', width: 60,
-      render: (_: unknown, row: SiteKvItem) => (
-        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => handleDeleteKv(row.key)} />
-      ),
-    },
-  ];
-
-  return (
-    <Modal
-      wrapClassName="jx-sites-manageModal"
-      title={`${t('站点管理')} — ${site.title}`}
-      open
-      onCancel={onClose}
-      footer={null}
-      width={720}
-      destroyOnClose
-    >
-      <Tabs
-        items={[
-          {
-            key: 'settings',
-            label: t('设置'),
-            children: (
-              <Form form={form} layout="vertical">
-                {/* whitespace 校验：只敲空格时 required 是满足的（值非空串），
-                    过去要等提交后后端拒掉才报「保存失败」——校验放在输入框上。 */}
-                <Form.Item
-                  name="title"
-                  label={t('站点标题')}
-                  rules={[
-                    { required: true, message: t('请输入站点标题') },
-                    { whitespace: true, message: t('站点标题不能只包含空格') },
-                  ]}
-                >
-                  <Input maxLength={200} />
-                </Form.Item>
-                <Form.Item
-                  name="slug"
-                  label={t('访问地址')}
-                  extra={t('仅支持 3-50 位小写字母、数字、连字符；修改后旧链接会失效')}
-                  rules={[
-                    { required: true, message: t('请输入访问地址') },
-                    { pattern: /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, message: t('格式不正确') },
-                  ]}
-                >
-                  <Input addonBefore={`${stablePublicOrigin()}/site/`} addonAfter="/" />
-                </Form.Item>
-                <Form.Item name="visibility" label={t('可见性')}>
-                  <Select
-                    onChange={(v) => setVisibility(v)}
-                    options={getSiteVisibilityOptions()}
-                  />
-                </Form.Item>
-                <EditionSiteVisibilityFields visibility={visibility} />
-                <Form.Item label={t('访问密码')} extra={t('开启后访客需输入密码才能打开站点')}>
-                  <SitePasswordField site={site} onChanged={onChanged} />
-                </Form.Item>
-                <Button type="primary" onClick={handleSave} loading={saving}>{t('保存')}</Button>
-              </Form>
-            ),
-          },
-          {
-            key: 'versions',
-            label: `${t('版本')} (${versions.length})`,
-            children: (
-              <Table
-                size="small"
-                rowKey="version"
-                pagination={false}
-                scroll={{ x: 620 }}
-                dataSource={versions}
-                columns={[
-                  {
-                    title: t('版本'), dataIndex: 'version', width: 100,
-                    render: (v: number) => (
-                      <span>
-                        v{v}{' '}
-                        {v === currentVersion ? <Tag color="green">{t('当前线上')}</Tag> : null}
-                      </span>
-                    ),
-                  },
-                  { title: t('发布时间'), dataIndex: 'created_at', render: (v: string) => formatDateTime(v, '') },
-                  { title: t('文件数'), dataIndex: 'file_count', width: 90 },
-                  { title: t('大小'), dataIndex: 'total_size_bytes', width: 100, render: (v: number) => formatSize(v) },
-                  {
-                    title: '', key: 'op', width: 100,
-                    render: (_: unknown, row: SiteVersionItem) =>
-                      row.version === currentVersion ? null : (
-                        <Popconfirm
-                          title={t('回滚站点')}
-                          description={t('线上内容将立即切换到该版本，确定回滚？')}
-                          okText={t('回滚')}
-                          cancelText={t('取消')}
-                          onConfirm={() => handleRollback(row.version)}
-                        >
-                          <Button size="small" loading={rollingBack === row.version}>{t('回滚')}</Button>
-                        </Popconfirm>
-                      ),
-                  },
-                ]}
-              />
-            ),
-          },
-          {
-            key: 'submissions',
-            label: `${t('表单数据')} (${submissionTotal})`,
-            children: (
-              <div>
-                <div className="jx-sites-tabActions">
-                  <Button size="small" type="primary" onClick={handleExport} loading={busy} disabled={!submissionTotal}>
-                    {t('导出 CSV 到我的空间')}
-                  </Button>
-                  <Popconfirm
-                    title={t('清空全部表单数据？')}
-                    okText={t('清空')}
-                    okButtonProps={{ danger: true }}
-                    cancelText={t('取消')}
-                    onConfirm={handleClearSubmissions}
-                  >
-                    <Button size="small" danger disabled={!submissionTotal}>{t('清空')}</Button>
-                  </Popconfirm>
-                </div>
-                <Table
-                  size="small"
-                  rowKey="id"
-                  pagination={{ pageSize: 8 }}
-                  scroll={{ x: 560 }}
-                  dataSource={submissions}
-                  columns={submissionColumns}
-                  locale={{ emptyText: t('站点表单提交后会出现在这里') }}
-                />
-              </div>
-            ),
-          },
-          {
-            key: 'kv',
-            label: `KV (${kvItems.length})`,
-            children: (
-              <div>
-                <div className="jx-sites-tabActions">
-                  <Popconfirm
-                    title={t('清空全部 KV 数据？')}
-                    okText={t('清空')}
-                    okButtonProps={{ danger: true }}
-                    cancelText={t('取消')}
-                    onConfirm={handleClearKv}
-                  >
-                    <Button size="small" danger disabled={!kvItems.length}>{t('清空')}</Button>
-                  </Popconfirm>
-                </div>
-                <Table
-                  size="small"
-                  rowKey="key"
-                  pagination={{ pageSize: 8 }}
-                  scroll={{ x: 520 }}
-                  dataSource={kvItems}
-                  columns={kvColumns}
-                  locale={{ emptyText: t('站点通过 __api/kv 写入的数据会出现在这里') }}
-                />
-              </div>
-            ),
-          },
-        ]}
-      />
-    </Modal>
-  );
-}
-
 export function SitesPanel() {
+  const applications = useApplications();
+  const [editingApplication, setEditingApplication] = useState<string | null>(null);
+  const [activeApplication, setActiveApplication] = useState<{ app: Application; view: ApplicationView } | null>(null);
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [siteError, setSiteError] = useState('');
   const [managing, setManaging] = useState<SiteItem | null>(null);
   const [keyword, setKeyword] = useState('');
   // 手机上「打开站点」不能是 window.open：站点是后端直出的独立页面（/site/<slug>/），
@@ -485,11 +156,12 @@ export function SitesPanel() {
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setSiteError('');
     try {
       const { items } = await listSites();
       setSites(items);
     } catch (e) {
-      message.error(t('加载站点列表失败：') + (e as Error).message);
+      setSiteError(t('加载站点列表失败：') + (e as Error).message);
     } finally {
       setLoading(false);
     }
@@ -541,13 +213,24 @@ export function SitesPanel() {
       )
     : sites;
 
+  const cardApps = applications.apps.filter((app) =>
+    isMcpApplication(app) || !sites.some((site) => site.site_id === app.site_id),
+  );
+  const filteredApps = kw ? cardApps.filter((app) =>
+    [app.title, app.id, ...app.tools.flatMap((tool) => [tool.name, tool.description])]
+      .some((value) => value.toLowerCase().includes(kw)),
+  ) : cardApps;
+  const listLoading = loading || applications.loading;
+  const empty = sites.length === 0 && cardApps.length === 0;
+  const noMatches = filteredSites.length === 0 && filteredApps.length === 0;
+
   // ── My sites list / management view (the build entry is in the main chat; clicking "Create" jumps to a main-chat building session) ──
   return (
     <div className="jx-agentPage">
       <div className="jx-agentPage-header">
         <div>
           <div className="jx-agentPage-title">{t('站点')}</div>
-          <div className="jx-agentPage-subtitle">{t('将你的想法变成真实网站')}</div>
+          <div className="jx-agentPage-subtitle">{t('在同一处访问和管理你的站点与 MCP 服务')}</div>
         </div>
         <Button type="primary" onClick={startSiteCreation}>{t('创建')}</Button>
       </div>
@@ -559,25 +242,29 @@ export function SitesPanel() {
           prefix={<SearchOutlined style={{ color: 'var(--color-text-placeholder)' }} />}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder={t('搜索站点')}
+          placeholder={t('搜索站点或 MCP 服务')}
         />
 
-        {!loading && sites.length === 0 ? (
+        {siteError && <Alert type="error" showIcon message={siteError}
+          action={<Button onClick={() => void reload()}>{t('重试')}</Button>} />}
+        {applications.error && <Alert type="error" showIcon message={applications.error}
+          action={<Button onClick={() => void applications.reload()}>{t('重试')}</Button>} />}
+        {listLoading && empty ? <Skeleton active paragraph={{ rows: 3 }} /> : !listLoading && empty ? (
           <Empty
             image={<AppstoreOutlined style={{ fontSize: 44, opacity: 0.35 }} />}
-            description={<div className="jx-sites-emptyTitle">{t('暂无站点')}</div>}
+            description={<div className="jx-sites-emptyTitle">{t('暂无站点或 MCP 服务')}</div>}
             style={{ marginTop: 80 }}
           >
             <Button onClick={startSiteCreation}>{t('创建新站点')}</Button>
           </Empty>
-        ) : !loading && filteredSites.length === 0 ? (
+        ) : !listLoading && noMatches ? (
           /* 搜不到时原来渲染的是一个空的列表容器——页面看着像卡住了。
              区分「一个站点都没有」和「有站点但没搜到」两种空态。 */
           <Empty
             image={<SearchOutlined style={{ fontSize: 44, opacity: 0.35 }} />}
             description={(
               <>
-                <div className="jx-sites-emptyTitle">{t('没有匹配的站点')}</div>
+                <div className="jx-sites-emptyTitle">{t('没有匹配的站点或 MCP 服务')}</div>
                 <div className="jx-sites-emptyDesc">{t('换个关键词试试')}</div>
               </>
             )}
@@ -586,14 +273,9 @@ export function SitesPanel() {
         ) : (
           <div className="jx-sites-list">
             {filteredSites.map((site) => (
-              <div key={site.site_id} className="jx-sites-card jx-card-lift">
-                <div className="jx-sites-cardMain">
-                  <div className="jx-sites-cardHead">
-                    <span className="jx-sites-cardTitle">{site.title}</span>
-                    <VisibilityTag site={site} />
-                    <SitePasswordTag site={site} />
-                  </div>
-                  <a
+              <HostedResourceCard key={site.site_id} title={site.title}
+                tags={<><Tag>{t('站点')}</Tag><VisibilityTag site={site} /><SitePasswordTag site={site} /></>}
+                address={<a
                     className="jx-sites-cardUrl"
                     href={siteUrl(site)}
                     target="_blank"
@@ -605,14 +287,13 @@ export function SitesPanel() {
                     }}
                   >
                     {siteUrl(site)}
-                  </a>
-                  <div className="jx-sites-cardMeta">
+                  </a>}
+                meta={<>
                     {t('版本')} v{site.current_version} · {site.file_count} {t('个文件')} ·{' '}
                     {formatSize(site.total_size_bytes)} · <EyeOutlined /> {site.view_count} {t('次访问')}
                     {site.updated_at ? ` · ${t('更新于')} ${formatDate(site.updated_at, '')}` : ''}
-                  </div>
-                </div>
-                <div className="jx-sites-cardActions">
+                </>}
+                actions={<>
                   <Button
                     size="small"
                     type="primary"
@@ -653,17 +334,34 @@ export function SitesPanel() {
                     <Button size="small" danger icon={<DeleteOutlined />}>{t('删除')}</Button>
                   </Popconfirm>
                   </>}
-                </div>
-              </div>
+                </>}
+              />
             ))}
+            {filteredApps.map((app) => <ApplicationCard key={app.id} app={app}
+              siteTitle={sites.find((site) => site.site_id === app.site_id)?.title}
+              editing={editingApplication === app.id}
+              onOpen={(view) => {
+                if (view === 'edit' && isMcpApplication(app)) {
+                  if (editingApplication) return;
+                  setEditingApplication(app.id);
+                  void startMcpEdit(app).finally(() => setEditingApplication(null));
+                } else setActiveApplication({ app, view });
+              }} />)}
           </div>
         )}
       </div>
 
+      {activeApplication && <ApplicationManageModal
+        key={`${activeApplication.app.id}:${activeApplication.view}`}
+        app={activeApplication.app} view={activeApplication.view}
+        onClose={() => setActiveApplication(null)}
+        onChanged={() => void applications.reload()}
+      />}
+
       {managing ? (
         <SiteManageModal
           site={managing}
-          onClose={() => setManaging(null)}
+          onClose={() => { setManaging(null); void applications.reload(); }}
           onChanged={(updated) => {
             setSites((prev) => prev.map((s) => (s.site_id === updated.site_id ? updated : s)));
             // 弹窗开着时也换成最新站点，省得里面的控件各自再存一份镜像状态。

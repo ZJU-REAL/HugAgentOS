@@ -1,0 +1,40 @@
+/* Chrome tab geometry/style are supplied by the pinned MIT upstream assets. */
+:root {color-scheme:light;font:13px system-ui,sans-serif;color:#202124;background:#fff}
+* {box-sizing:border-box}
+body {margin:0;display:flex;flex-direction:column;height:100vh;height:100dvh;width:100%;min-width:0;overflow:hidden}
+#tabs {padding-right:var(--host-header-inset,0px);display:flex;gap:4px;flex:none;border-radius:0;--tab-content-margin:9px;background:#f1f3f4}
+#tabs .chrome-tabs-content {display:flex;overflow-x:auto;scrollbar-width:none;flex:0 1 auto;width:auto;min-width:0}
+#tabs .chrome-tab {position:relative;left:auto;flex:0 1 258px;width:258px;min-width:52px;pointer-events:auto}
+#tabs .chrome-tab + .chrome-tab {margin-left:-19px}
+#tabs .chrome-tab-title {padding-right:16px}
+#tab-add {flex:none;width:28px;height:28px;margin-top:4px}
+#tabs .chrome-tab-close {padding:0;width:16px;height:16px;border-radius:50%;pointer-events:auto}
+#tabs .chrome-tab-drag-handle {cursor:pointer}
+#tabs .chrome-tab:focus-visible {outline:2px solid #1a73e8;outline-offset:-4px}
+nav {display:flex;gap:3px;padding:6px 8px;align-items:center;background:#fff;border-bottom:1px solid #dadce0;flex:none}
+button,input {font:inherit;color:inherit}
+button {border:0;border-radius:50%;width:30px;height:30px;background:transparent;cursor:pointer}
+button:hover {background:#e8eaed}
+button:focus-visible,input:focus-visible {outline:2px solid #1a73e8}
+#navigate {display:flex;flex:1;min-width:0;align-items:center;border-radius:18px;background:#f1f3f4;padding:0 4px 0 12px}
+#address {flex:1;width:100%;min-width:0;height:32px;border:0;background:transparent;outline:0}
+#connection {font-size:10px;color:#80868b;padding:0 4px}
+#connection[data-connected=true] {color:#188038}
+#stage {min-width:0;width:100%;position:relative;flex:1;min-height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#fff}
+#screen {-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;display:block;flex:none;outline:0;touch-action:none}
+#keyboard {pointer-events:none;position:absolute;opacity:.01;width:1px;height:1px;resize:none;border:0;padding:0;z-index:2}
+#overlay {position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#f1f3f4ee}
+#overlay[hidden] {display:none}
+#dialog {padding:12px;background:#fff;border-top:1px solid #dadce0}
+#dialog button,#files button {width:auto;height:auto;padding:6px 12px;border-radius:4px}
+#files {max-height:100px;overflow:auto}
+#files:empty,#notice:empty {display:none}
+#notice {margin:0;padding:5px 8px;overflow-wrap:anywhere;color:#b3261e}
+[data-theme=dark] {color-scheme:dark;background:#202124;color:#e8eaed}
+[data-theme=dark] nav,[data-theme=dark] #dialog {background:#202124}
+[data-theme=dark] #navigate {background:#303134}
+[data-theme=dark] #tabs {background:#303134}
+[data-theme=dark] #tabs .chrome-tab-background > svg .chrome-tab-geometry {fill:#303134}
+[data-theme=dark] #tabs .chrome-tab[active] .chrome-tab-background > svg .chrome-tab-geometry {fill:#202124}
+
+#zoom-reset {width:48px;flex:none;border-radius:4px;font-size:12px}

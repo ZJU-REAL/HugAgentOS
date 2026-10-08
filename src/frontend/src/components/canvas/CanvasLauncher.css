@@ -1,0 +1,28 @@
+/* Keep the original panel mounted so launch/cancel preserves edits and resource connections. */
+.jx-canvasWorkspace { position: relative; display: flex; min-width: 0; min-height: 0; width: 100%; height: 100%; }
+.jx-canvasWorkspace-current { display: flex; width: 100%; min-width: 0; min-height: 0; }
+.jx-canvasWorkspace-current > .jx-rightSidebar, .jx-canvasWorkspace-current > .jx-canvas { width: 100%; min-width: 0; max-width: 100%; flex: 1 1 0; }
+.jx-canvasWorkspace.is-launching > .jx-canvasWorkspace-current { visibility: hidden; }
+.jx-rightSidebar.jx-canvasLauncher { position: absolute; inset: 0; z-index: 4; width: 100%; background: var(--color-bg-layout); }
+.jx-canvasLauncher-address { display: flex; align-items: center; margin: 12px 18px; padding: 0 12px; gap: 10px; background: var(--color-bg-gray); border-radius: 24px; }
+.jx-canvasLauncher-address input { border: 0; background: transparent; color: inherit; flex: 1; min-width: 0; padding: 10px 0; outline: none; }
+.jx-canvasLauncher-address:focus-within { outline: 2px solid var(--color-primary); }
+.jx-canvasLauncher-address button { border: 0; background: transparent; color: inherit; padding: 8px; cursor: pointer; }
+.jx-canvasLauncher-content { overflow: auto; margin: 0 auto; width: 100%; max-width: 740px; padding: 28px clamp(18px, 5vw, 40px); }
+.jx-canvasLauncher h2 { font-size: 12px; font-weight: 500; margin: 0 0 14px; }
+.jx-canvasLauncher-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 36px; }
+.jx-canvasLauncher button { font: inherit; color: inherit; }
+.jx-canvasLauncher-tools button { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid transparent; border-radius: 8px; text-align: left; background: var(--color-bg-container); cursor: pointer; min-width: 0; }
+.jx-canvasLauncher-tools button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jx-canvasLauncher-tools img { width: 18px; height: 18px; }
+.jx-canvasLauncher-suggested { display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 16px; }
+.jx-canvasLauncher-suggested button { display: flex; flex-direction: column; align-items: center; gap: 16px; min-width: 0; border: 0; border-radius: 8px; padding: 12px 6px; background: transparent; cursor: pointer; }
+.jx-canvasLauncher-suggested button > span:first-child { font-size: 24px; height: 28px; }
+.jx-canvasLauncher-suggested button > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.jx-canvasLauncher button:hover { background: var(--color-bg-gray); }
+.jx-canvasLauncher button:focus-visible { outline: 2px solid var(--color-primary); }
+.jx-canvasLauncher button:disabled { opacity: .5; cursor: default; }
+.jx-canvasLauncher [role=alert] { color: var(--color-error); overflow-wrap: anywhere; }
+@media (max-width: 420px) { .jx-canvasLauncher-tools { grid-template-columns: 1fr; } }
+
+.jx-canvasLauncher, .jx-canvasLauncher * { box-sizing: border-box; }

@@ -29,6 +29,7 @@ pub struct ProxyState {
     pub session: Arc<crate::session_state::SessionState>,
     pub device_login: Arc<crate::device_login::Login>,
     pub http: reqwest::Client,
+    pub insecure_tls: bool,
     /// 后端根地址（已去尾斜杠）。
     pub server_base: String,
     pub cookie_name: String,
@@ -122,6 +123,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
             "/__desktop/update/status",
             get(|| async { Json(crate::update::status()) }),
         )
+        .route("/api/v1/plugin-resources/:resource_id/stream", get(websocket::upgrade))
         .route("/api", any(proxy_handler))
         .route("/api/*rest", any(proxy_handler))
         // nginx-free desktop mode still needs the backend-owned public paths:
@@ -132,6 +134,8 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
         .route("/files/*rest", any(proxy_handler))
         .route("/site", any(proxy_handler))
         .route("/site/*rest", any(proxy_handler))
+        .route("/applications-mcp", any(proxy_handler))
+        .route("/applications-mcp/*rest", any(proxy_handler))
         // Page-config assets and manuals also live on the backend, not in the
         // frontend dist.  Forward them with the same streaming proxy.
         .route("/docs/*rest", any(proxy_handler))
@@ -176,6 +180,7 @@ mod state;
 /// 地址；没有 `Origin` 的请求（同源 GET、页面跳转）看 `Sec-Fetch-Site`。两者都拿不到，
 /// 说明发起方根本不是这个 WebView（curl、同机的其它程序），拒绝。
 mod transport;
+mod websocket;
 use pages::*;
 use state::{desktop_events, setup_status, start_local_install};
 #[cfg(test)]

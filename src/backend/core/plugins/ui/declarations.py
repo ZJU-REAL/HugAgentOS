@@ -299,9 +299,31 @@ def _modules(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
             "title": _i18n_text(raw.get("title")) or mid,
             "grants": grants,
         }
+        if surface == "canvas" and raw.get("canvas_header") == "module":
+            item["canvas_header"] = "module"
+        resource = raw.get("resource")
+        if resource is not None:
+            import re
+            root = _safe_relpath(resource.get("entry")) if isinstance(resource, dict) else ""
+            callable_name = resource.get("callable", "") if isinstance(resource, dict) else ""
+            if not root or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*", callable_name):
+                dropper.drop("modules", mid, "resource runtime 非法")
+                continue
+            item["resource"] = {"entry": root, "callable": callable_name}
+            if resource.get("prewarm") is True:
+                item["resource"]["prewarm"] = True
+            configuration = resource.get("configuration", {})
+            if isinstance(configuration, dict):
+                item["resource"]["configuration"] = configuration
+            binding = _pointer(raw.get("resource_binding"))
+            if binding:
+                item["resource_binding"] = binding
         icon = _text(raw.get("icon"), max_len=300)
         if icon:
             item["icon"] = icon
+        module_unwrap = _string_list(raw.get("unwrap"), limit=8)
+        if module_unwrap:
+            item["unwrap"] = module_unwrap
         for_tools = _string_list(raw.get("for_tools"), pattern=_TOOL_RE)
         if for_tools:
             item["for_tools"] = for_tools

@@ -62,6 +62,7 @@ class NormalizedPlugin:
     # renders which tool, canvas tabs, homepage shortcuts, proxied data sources
     # and self-shipped L2 modules. Validated by ``plugin_ui_contract``; None =
     ui: Optional[Dict[str, Any]] = None
+    package_dir: Optional[str] = None
 
 
 # ── Manifest detection ────────────────────────────────────────────────────────

@@ -208,7 +208,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
                     <IconPlus size={16} className="jx-attachIcon" />
                   </button>
                 </Dropdown>
-                <MySpaceImportModal open={mySpaceImportOpen} onClose={() => setMySpaceImportOpen(false)} />
+                <MySpaceImportModal draftKey={state.draftKey} open={mySpaceImportOpen} onClose={() => setMySpaceImportOpen(false)} />
                 {/* Toolbar "create personal project" in-place modal: after a successful
                     creation, automatically binds the current chat to the new project
                     (not rendered on the project page — the project selector dropdown is
@@ -419,7 +419,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
               会一路捅到顶层错误边界、整页变成"页面显示遇到异常"——为一条进度条
               赔上整个页面不值当。单独兜一层，出事就让它自己消失。 */}
           <ContentErrorBoundary fallback={null}>
-            <ContextGauge />
+            <ContextGauge draftKey={state.draftKey} />
           </ContentErrorBoundary>
 
           {/* While a run is active, an empty composer keeps the stop button; typing switches

@@ -485,8 +485,3 @@ async def publish(
             db.close()
 
     return await run_in_threadpool(persist_site, files)
-
-
-from .internal_site_kv import router as kv_router
-
-router.include_router(kv_router)

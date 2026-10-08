@@ -39,7 +39,7 @@ async def run_spawn(cmd, stdin_data, timeout, cwd, sandbox_launch=None):
     import tempfile
     from pathlib import Path
     from services.script_runner_service.process_api import LocalHandle
-    from services.script_runner_service.process_sessions import ProcessSessions
+    from core.sandbox.process_sessions import ProcessSessions
 
     sessions = ProcessSessions()
 

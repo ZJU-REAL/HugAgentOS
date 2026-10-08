@@ -147,7 +147,7 @@ impl LocalServerManager {
                     .env("NODE_PATH", self.node_runtime_dir().join("node_modules"))
                     .env(
                         "PLAYWRIGHT_BROWSERS_PATH",
-                        self.node_runtime_dir().join("browsers"),
+                        release.smoke_test.parent().ok_or("运行时目录无效")?.join("native").join("browser"),
                     )
                     .stdin(Stdio::null())
                     // 走管道而不是直接把文件交给子进程：句柄留在壳这边，日志才能在运行

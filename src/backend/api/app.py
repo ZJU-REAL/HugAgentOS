@@ -568,9 +568,6 @@ app.include_router(health_router)
 # Non-v1 routers (file downloads keep legacy path for artifact URL stability)
 app.include_router(files_router)
 
-# Public site hosting (/site/{slug}/…): nginx location /site/ reverse-proxies here verbatim
-app.include_router(sites_serve_router)
-
 # V1 API routers — community-capable routes first, then edition extensions.
 # The CE registry contains no extension entries and the derived tree does not
 # carry their modules. The full repository attaches edition policy dependencies
@@ -582,6 +579,9 @@ for _name, _router, _feature in iter_edition_routers(EE_ROUTERS):
         _router,
         dependencies=edition_router_dependencies(_feature),
     )
+
+# Register static site catch-all after specific application data routes.
+app.include_router(sites_serve_router)
 
 # Unified login entry points: /login + /register (always on, coexisting with mock-sso)
 app.include_router(login_router)

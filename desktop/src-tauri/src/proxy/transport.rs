@@ -29,6 +29,15 @@ pub(super) fn is_same_origin(headers: &HeaderMap, port: u16) -> bool {
     }
 }
 
+pub(super) fn is_module_asset_request(method: &Method, path: &str) -> bool {
+    if *method != Method::GET && *method != Method::HEAD { return false; }
+    let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
+    parts.len() >= 6 && parts[..3] == ["api", "v1", "plugin-resource-assets"]
+        && ["local", "cloud"].contains(&parts[3])
+        && parts[4].len() == 43
+        && parts[4].bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+}
+
 /// 正式站点及其管理接口只认云端：本机既不再托管站点，也不接受旧客户端遗留的
 /// `local` 路由标记，否则同一个站点会在两个后端各存一半状态。
 /// 与 `desktop-uos/src/proxy.mjs` 的同名判定保持一致。
@@ -37,6 +46,10 @@ pub(super) fn is_cloud_site_path(path: &str) -> bool {
         || path.starts_with("/site/")
         || path == "/api/v1/sites"
         || path.starts_with("/api/v1/sites/")
+        || path == "/api/v1/applications"
+        || path.starts_with("/api/v1/applications/")
+        || path == "/applications-mcp"
+        || path.starts_with("/applications-mcp/")
 }
 
 /// 反代处理器：把 `/api/*` 透传到后端，注入 session cookie，流式回传。
@@ -51,7 +64,7 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
     if !is_same_origin(
         &headers,
         state.bound_port.load(std::sync::atomic::Ordering::Relaxed),
-    ) {
+    ) && !is_module_asset_request(&method, uri.path()) {
         return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
     }
 
@@ -68,7 +81,9 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
             || uri
                 .query()
                 .map(|q| q.split('&').any(|kv| kv == "hg_target=local"))
-                .unwrap_or(false));
+                .unwrap_or(false)
+            || uri.path().starts_with("/api/v1/plugin-resource-assets/local/")
+);
     let expected_epoch = state.session.epoch.current();
     let session = state.session.snapshot().await;
     let bridge_user = session.bridge_user;
@@ -209,5 +224,20 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
             }
         }
         Err(e) => (StatusCode::BAD_GATEWAY, format!("代理上游失败: {e}")).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod resource_asset_tests {
+    use super::*;
+    #[test]
+    fn opaque_asset_exception_is_capability_scoped_and_read_only() {
+        let path = format!("/api/v1/plugin-resource-assets/local/{}/browser/channel.js", "A".repeat(43));
+        assert!(is_module_asset_request(&Method::GET, &path));
+        assert!(is_module_asset_request(&Method::HEAD, &path));
+        assert!(!is_module_asset_request(&Method::POST, &path));
+        assert!(!is_module_asset_request(&Method::GET, "/api/v1/me"));
+        assert!(!is_module_asset_request(&Method::GET, &path.replace("local", "unknown")));
+        assert!(!is_module_asset_request(&Method::GET, &path.replace(&"A".repeat(43), "short")));
     }
 }

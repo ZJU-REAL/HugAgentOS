@@ -238,8 +238,6 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         "Read",
         "read_project_instructions",
         "list_sites",
-        "site_kv_list",
-        "site_kv_get",
         "Glob",
         "Grep",
         "view_text_file",

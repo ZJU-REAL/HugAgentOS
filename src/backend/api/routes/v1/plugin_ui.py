@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Request, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -111,6 +111,7 @@ async def call_plugin_data_source(
 def get_plugin_web_asset(
     slug: str = Path(..., min_length=1, max_length=100),
     asset_path: str = "",
+    install_id: str | None = Query(None),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -121,11 +122,17 @@ def get_plugin_web_asset(
     restrictive CSP (notably ``connect-src 'none'``) and are sandboxed by the
     embedding iframe.
     """
+    return web_asset_response(db, slug, str(user.user_id), asset_path, install_id)
+
+
+def web_asset_response(db, slug, user_id, asset_path, install_id=None):
+    """Serve authenticated or ticket-authorized static files with identical isolation."""
     from core.services.site_service import guess_site_mime
 
-    _require_ui(db, slug, str(user.user_id))
-    target = proxy.module_asset_path(slug, asset_path)
-    if target is None:
+    from core.plugins.resources.installation import resolve, safe_path
+    selected = resolve(db, slug, user_id, install_id)
+    target = safe_path(selected.package / "web", asset_path)
+    if not target.is_file():
         raise ResourceNotFoundError("plugin_web_asset", f"{slug}/{asset_path}")
     media_type = guess_site_mime(target.name)
     return FileResponse(

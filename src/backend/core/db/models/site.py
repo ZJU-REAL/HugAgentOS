@@ -1,11 +1,11 @@
 """SQLAlchemy ORM models — site hosting (build sites in chat, hosted by the platform at /site/<slug>/)."""
-from core.db.utc_datetime import UTCDateTime
-from core.infra.time import utc_now
 
 from datetime import datetime
 
 from core.db.engine import Base
 from core.db.models.site_scope import SiteScopeMixin, site_scope_table_args
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -14,7 +14,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    PrimaryKeyConstraint,
     String,
     Text,
 )
@@ -80,31 +79,3 @@ class Site(SiteScopeMixin, Base):
         Index("idx_sites_project_id", "project_id"),
         Index("idx_sites_updated_at", "updated_at"),
     )
-
-
-class SiteKV(Base):
-    """Site-level KV store (a minimal subset matching D1) — in-site JS reads/writes via /site/<slug>/__api/kv."""
-
-    __tablename__ = "site_kv"
-
-    site_id = Column(String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False)
-    k = Column(String(64), nullable=False)
-    v = Column(Text, nullable=False)
-    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
-
-    __table_args__ = (PrimaryKeyConstraint("site_id", "k"),)
-
-
-class SiteSubmission(Base):
-    """Site form collection — in-site JS POSTs to /site/<slug>/__api/forms/<form_key>, exportable as an artifact."""
-
-    __tablename__ = "site_submissions"
-
-    id = Column(String(64), primary_key=True)
-    site_id = Column(String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False)
-    form_key = Column(String(64), nullable=False)
-    payload = Column(JSONType, nullable=False)
-    client_ip = Column(String(45))
-    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
-
-    __table_args__ = (Index("idx_site_submissions_site_created", "site_id", "created_at"),)

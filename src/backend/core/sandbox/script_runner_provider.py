@@ -96,6 +96,7 @@ class ScriptRunnerProvider(CompletionMixin):
         body["capability_run_id"] = req.capability_run_id if body["capability_view_key"] else None
         body["capability_scope"] = req.capability_scope
         body["yield_time_ms"] = max(250, min(yield_time_ms, 60000))
+        body["yield_on_output"] = req.yield_on_output
         return await self._process_request("/processes/start", body, body["yield_time_ms"])
 
     async def write_stdin(

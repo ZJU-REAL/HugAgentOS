@@ -166,6 +166,9 @@ async def mcp_connections(
                 )
                 return client
             try:
+                from orchestration.local_plugin_sidecars import ensure_native_servers
+
+                await ensure_native_servers({key: _http_cfg})
                 await client.list_tools()
                 _HTTP_MCP_FAIL_AT.pop(key, None)
                 _log.info(

@@ -35,7 +35,8 @@ def upgrade_builtin_sites(db) -> int:
             # Unknown/custom version semantics must not silently become a downgrade.
             continue
         owner = install.owner_user_id
-        ids = install.component_ids or {}
+        ids = {key: list(value) for key, value in (install.component_ids or {}).items()}
+        added_skills = []
         siblings = {
             sk.name: plugin_sources._make_skill_id("sites", sk.name, owner)
             for sk in normalized.skills
@@ -43,13 +44,21 @@ def upgrade_builtin_sites(db) -> int:
         for sk in normalized.skills:
             sid = siblings[sk.name]
             row = db.get(AdminSkill, sid)
-            if (
-                sid not in ids.get("skills", [])
-                or row is None
-                or row.source_plugin != "sites"
-                or row.owner_user_id != owner
-            ):
+            if row is not None and (row.source_plugin != "sites" or row.owner_user_id != owner):
                 continue
+            if sid not in ids.get("skills", []):
+                if row is not None:
+                    continue
+                added_skills.append(sid)
+                ids.setdefault("skills", []).append(sid)
+            elif row is None:
+                continue
+            existing_skills = [
+                db.get(AdminSkill, key) for key in ids.get("skills", []) if key != sid
+            ]
+            enabled = (
+                row.is_enabled if row else any(item and item.is_enabled for item in existing_skills)
+            )
             plugin_components._apply_skill(
                 db,
                 sk,
@@ -57,7 +66,7 @@ def upgrade_builtin_sites(db) -> int:
                 owner_user_id=owner,
                 secrets={},
                 required_secrets=[],
-                enabled=row.is_enabled,
+                enabled=enabled,
                 validate_ontology_build=False,
                 sibling_ids=siblings,
             )
@@ -76,10 +85,24 @@ def upgrade_builtin_sites(db) -> int:
             row.tools_json = plugin_components._merge_tool_metadata(
                 row.tools_json, list(mc.tools or [])
             )
+            # Retired shipped KV tools must not remain in the persisted catalog.
+            row.tools_json = [
+                tool
+                for tool in row.tools_json
+                if tool.get("name")
+                not in {
+                    "site_kv_list",
+                    "site_kv_get",
+                    "site_kv_set",
+                    "site_kv_delete",
+                    "manage_legacy_site_data",
+                }
+            ]
             row.updated_at = utc_now()
+        install.component_ids = ids
         install.version = normalized.version
         install.updated_at = utc_now()
-        _refresh_existing_projection(db, install)
+        _refresh_existing_projection(db, install, added_skills)
         changed_owners.append(owner)
     if changed_owners:
         db.commit()
@@ -88,7 +111,7 @@ def upgrade_builtin_sites(db) -> int:
     return len(changed_owners)
 
 
-def _refresh_existing_projection(db, install):
+def _refresh_existing_projection(db, install, added_skills):
     """Update only the already-owned device snapshot, preserving enablement and edges."""
     from core.capabilities.paths import capabilities_enabled, revision_for_hash
 
@@ -109,6 +132,8 @@ def _refresh_existing_projection(db, install):
         return
     definition = plugins.load_manifest(component)
     definition["version"] = install.version
+    if added_skills:
+        definition.setdefault("components", {}).setdefault("skills", []).extend(added_skills)
     files = plugins.plugin_manifest_files(definition)
     content_hash = entity_content_hash(files)
     revision = revision_for_hash(content_hash)
@@ -125,4 +150,8 @@ def _refresh_existing_projection(db, install):
         source_plugin=current.source_plugin,
         db=db,
     )
+    if added_skills:
+        edges = registry.components_of(current.install_id)
+        edges.update(plugins.component_install_ids(current.profile_id, definition))
+        registry.set_components(current.install_id, edges, db=db)
     registry.set_state(current.install_id, "ready", resolved_revision=revision, db=db)

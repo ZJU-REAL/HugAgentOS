@@ -26,6 +26,7 @@ logger = get_logger(__name__)
 
 # Sensitive field patterns for log sanitization
 SENSITIVE_PATTERNS = [
+    (re.compile(r"(/plugin-resource-assets/[^/]+/)[^/]+"), r"\1[redacted]"),
     (
         re.compile(
             r'"(password|token|secret|api_key|authorization)"\s*:\s*"[^"]*"',
@@ -92,7 +93,7 @@ class LoggingMiddleware:
                 logger.error(
                     "request_failed",
                     method=request.method,
-                    path=request.url.path,
+                    path=sanitize_log(request.url.path),
                     error=str(e),
                     latency=duration,
                     exc_info=True,
@@ -104,7 +105,7 @@ class LoggingMiddleware:
                     logger.info(
                         "request_completed",
                         method=request.method,
-                        path=request.url.path,
+                        path=sanitize_log(request.url.path),
                         client_ip=request.client.host if request.client else None,
                         status_code=status_code,
                         latency=duration,

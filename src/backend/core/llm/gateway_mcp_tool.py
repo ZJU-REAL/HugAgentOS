@@ -168,9 +168,13 @@ class GatewayMCPTool(ToolBase):
             data = payload.get("data") if isinstance(payload, dict) else None
             if not isinstance(data, dict):
                 raise ValueError("cloud gateway returned no tool result")
-            if channel is not None and channel.localize is not None:
-                with bridge.account_scope(captured):
-                    channel.localize(data, captured["cloud_base"], kwargs, headers)
+            if captured is not None:
+                from core.services.desktop_gateway_uploads import result_localizer
+
+                localize = result_localizer(self._source_plugin, self.name)
+                if localize is not None:
+                    with bridge.account_scope(captured):
+                        localize(data, captured["cloud_base"], kwargs, headers)
             chunk = ToolChunk.model_validate(data)
             chunk.metadata.setdefault("origin", "cloud")
             chunk.metadata.setdefault("mcp_server_id", self.mcp_name)

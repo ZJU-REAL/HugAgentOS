@@ -92,7 +92,7 @@ from core.db.models.ontology import (
     OntologyReviewRun,
 )
 from core.db.models.project import Project, ProjectFavorite
-from core.db.models.site import Site, SiteKV, SiteSubmission
+from core.db.models.site import Site
 from sqlalchemy import JSON, String
 from sqlalchemy.dialects.postgresql import INET, JSONB
 
@@ -112,3 +112,5 @@ __all__ = [name for name in globals() if not name.startswith("_")]
 from core.db.models.observability import DesktopOutbox, DesktopRecord, DesktopSyncDevice
 
 from core.db.models.channel_relay import DesktopChannelBinding, ChannelRelayDelivery, ChannelRelayOperation
+
+from core.db.models.plugin_resource import PluginResource, PluginResourceTicket, PluginResourceCheckpoint
