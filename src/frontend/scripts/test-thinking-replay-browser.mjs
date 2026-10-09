@@ -42,7 +42,7 @@ await build({
         const response = new Response(data, {
           headers: { 'Content-Type': 'text/event-stream' },
         });
-        const seedFrom = streamResumeSeed(base, true);
+        const seedFrom = streamResumeSeed(base);
         const result = await processChatStream(response, {
           chatId, enableThinking: true, seedFrom,
         });
@@ -57,7 +57,7 @@ await build({
   bundle: true, jsx: "automatic", format: "esm", loader: { ".css": "empty" },
   define: { 'import.meta.env': '{}' },
 });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE });
 try {
   const page = await browser.newPage();
   page.on("pageerror", error => console.error(error.message));

@@ -26,6 +26,8 @@ class NetworkPolicy:
             if ip.is_link_local or ip.is_unspecified or ip.is_multicast:
                 raise ValueError("blocked_destination")
             if not self.allow_private and host not in self.allowed_hosts and (not ip.is_global or getattr(ip, "is_site_local", False)):
+                if ip in ipaddress.ip_network("198.18.0.0/15"):
+                    raise ValueError("fake_ip_dns: configure BROWSER_DNS_RESOLVER_URL with a trusted HTTPS resolver")
                 raise ValueError("private_destination_not_allowed")
         return addresses
 

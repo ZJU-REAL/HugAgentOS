@@ -1,6 +1,8 @@
 import '../platformTypography';
 import './variables.css';
 import './motion.css';
+import './skeleton.css';
+import './panel-loading.css';
 import './sidebar.css';
 import './search-modal.css';
 import './chat.css';

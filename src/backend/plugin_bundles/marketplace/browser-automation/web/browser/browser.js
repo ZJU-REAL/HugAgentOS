@@ -4,8 +4,7 @@
   const channel = window.BrowserChannel;
   const $ = id => document.getElementById(id);
   const screen = $('screen');
-  const context = screen.getContext('2d');
-  let state, frameSerial = 0, connected = false, navigating = false;
+  let state, connected = false, navigating = false;
   const report = error => {
     const code = error?.message || (error ? String(error) : '');
     const text = {
@@ -13,6 +12,8 @@
       pending_input_cancelled: '操作已取消，请重新操作。',
       too_many_pending_commands: '操作过于频繁，请稍后重试。',
       resource_disconnected: '浏览器正在重连，请稍后操作。',
+      stale_frame_input_not_sent: '画面正在更新，本次输入未发送，请等待后重试。',
+      dns_failed: '域名解析失败，请检查 DNS 配置。',
       stale_viewport: '网页尺寸已调整，请重新操作。',
       stale_control_epoch: '控制权已更新，请重新操作。',
       control_already_owned: '浏览器正在由另一个窗口操作。',
@@ -49,7 +50,7 @@
     const tabChanged = next.active_tab !== state?.active_tab;
     const layoutChanged = tabChanged || next.viewport_revision !== state?.viewport_revision;
     state = next;
-    if (layoutChanged) overlay(t('正在加载网页…'));
+    if (layoutChanged) { frames.invalidate(); overlay(t('正在加载网页…')); }
     channel.epoch(state.epoch);
     const active = state.tabs.find(tab => tab.id === state.active_tab);
     if (tabChanged || document.activeElement !== $('address')) $('address').value = active?.url === 'about:blank' ? '' : active?.url || '';
@@ -63,6 +64,13 @@
       button.onclick = () => channel.download(download.id);
       $('files').append(button);
     }
+    if (state.downloads.length) {
+      const clear = document.createElement('button');
+      clear.textContent = t('清空下载列表');
+      clear.onclick = () => act('clear_downloads');
+      $('files').append(clear);
+    }
+    $('release-control').hidden = !control.owns();
     if (state.filechoosers.length) {
       const button = document.createElement('button');
       button.textContent = t('选择上传文件');
@@ -79,6 +87,7 @@
   };
   control = window.installBrowserControl(channel, () => state, render, report);
   const view = window.installBrowserViewport($('stage'), screen, channel, () => state, report, control.busy, value => { $('zoom-reset').textContent = Math.round(value * 100) + '%'; });
+  $('release-control').onclick = () => { void control.release(); };
   $('zoom-out').onclick = () => view.zoom(-1);
   $('zoom-in').onclick = () => view.zoom(1);
   $('zoom-reset').onclick = () => view.zoom(0);
@@ -96,6 +105,7 @@
     event.preventDefault(); event.stopImmediatePropagation();
   }, true);
   const renderTabs = window.installBrowserTabs($('tabs'), command);
+  const frames = window.installBrowserFrames(screen, () => state, () => { view.frame(); updateOverlay(); }, report);
   channel.listen(async (event, data) => {
     if (event.type === 'navigate') {
       try { await navigateTo(event.url, true); channel.navigationResult(event.id); }
@@ -109,22 +119,7 @@
       updateOverlay();
     } else if (event.type === 'state') render(event);
     else if (event.type === 'frame') {
-      if (!state || event.tab_id !== state.active_tab || event.viewport_revision !== state.viewport_revision) return;
-      const serial = ++frameSerial;
-      const viewport = event.viewport;
-      try {
-        const image = await createImageBitmap(new Blob([data], { type: 'image/jpeg' }));
-        if (serial === frameSerial && event.tab_id === state?.active_tab && event.viewport_revision === state?.viewport_revision) {
-          screen.width = viewport.width;
-          screen.height = viewport.height;
-          context.drawImage(image, 0, 0, screen.width, screen.height);
-          screen.dataset.revision = String(event.viewport_revision);
-          screen.dataset.tab = event.tab_id;
-          view.frame();
-          updateOverlay();
-        }
-        image.close();
-      } catch (error) { report(error); }
+      frames.push(event, data);
     } else if (event.type === 'dialog') {
       $('dialog').hidden = false;
       $('dialog-message').textContent = event.message;
@@ -133,13 +128,14 @@
       connected = false;
       $('connection').title = t('连接中断');
       $('connection').dataset.connected = 'false';
-      frameSerial++;
+      frames.invalidate();
       control.disconnected();
       view.connected(false);
       overlay(event.error || t('连接中断，正在重连…'));
     } else if (event.type === 'stream_error') report(new Error(event.error));
-    else if (event.type === 'closed') overlay(t('浏览器已关闭'));
+    else if (event.type === 'closed') { frames.invalidate(); overlay(t('浏览器已关闭')); }
   });
+  window.addEventListener('pagehide', () => frames.invalidate());
   const navigate = () => { void navigateTo($('address').value).catch(() => {}); };
   $('navigate-open').onclick = navigate;
   $('address').onkeydown = event => {

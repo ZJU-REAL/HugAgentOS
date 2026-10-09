@@ -359,3 +359,17 @@ License 细节见 [License 机制](../editions/license.md)。
 [配置、运行依赖和使用流程](../modules/browser-automation.md)。
 
 内置 MCP 调用（包括浏览器插件）要求 backend 与 mcp 使用相同的 `BACKEND_INTERNAL_TOKEN`。部署时生成独立的高熵随机值并通过受保护的环境配置注入两个服务，不使用示例占位符。桌面本机模式由启动器提供独立的调用密钥。
+
+
+## 应用托管与浏览器运行时
+
+| 变量 | 作用 |
+|---|---|
+| APPLICATION_DATABASE_URL | 独立应用数据库，使用非超级用户 application_owner，不能指向平台数据库 |
+| APPLICATION_DB_PASSWORD | 专用数据库初始化凭据，仅初始化服务使用 |
+| APPLICATION_OWNER_DB_PASSWORD | 不同的 URL 安全运行账号凭据，应用托管 Compose 覆盖文件必须配置 |
+| APPLICATION_PROVISION_DATABASE_URL | 仅初始化使用的管理员连接串，用于创建运行账号；不能提供给后端运行服务 |
+| BROWSER_DNS_RESOLVER_URL | Fake-IP 网络使用的受信任 HTTPS JSON DNS 解析器；仍检查私网地址 |
+| BROWSER_CHROMIUM_SANDBOX | 默认 true；仅宿主确认隔离的容器允许对明确沙箱错误安全回退 |
+
+应用托管仍需显式启用。参见[应用部署](../modules/application-hosting.md)和[浏览器部署](../modules/browser-automation.md)。云端站点写入依赖共享 Redis，未配置或不可用时拒绝写入。

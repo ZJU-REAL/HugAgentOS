@@ -4,7 +4,7 @@ import { DeleteOutlined, EyeOutlined, FolderOutlined } from '@ant-design/icons';
 import type { DataNode } from 'antd/es/tree';
 import type { ProjectFileItem } from '../../types';
 import { t } from '../../i18n';
-import { fmtBytes, leafName, shortType } from './projectFileDisplay';
+import { fmtBytes, leafName } from './projectFileDisplay';
 
 interface FileNode extends DataNode {
   file?: ProjectFileItem;
@@ -15,10 +15,11 @@ interface Props {
   canEdit: boolean;
   onPreview: (file: ProjectFileItem) => void;
   onDelete: (file: ProjectFileItem) => void;
+  onDeleteFolder: (name: string) => void;
 }
 
 /** Mount controls only for viewport rows, even when one folder has thousands of files. */
-export default memo(function ProjectFileList({ files, canEdit, onPreview, onDelete }: Props) {
+export default memo(function ProjectFileList({ files, canEdit, onPreview, onDelete, onDeleteFolder }: Props) {
   const treeData = useMemo(() => {
     const groups = new Map<string, FileNode>();
     const loose: FileNode[] = [];
@@ -47,7 +48,8 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
       className="jx-projectRail-fileTree"
       treeData={treeData}
       height={320}
-      itemHeight={54}
+      itemHeight={38}
+      switcherIcon={null}
       virtual
       blockNode
       selectable={false}
@@ -73,6 +75,16 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
             <FolderOutlined />
             <span className="jx-projectRail-groupName" title={String(node.title)}>{node.title as string}</span>
             <span className="jx-projectRail-groupCount">{node.children?.length}</span>
+            {canEdit && (
+              <span className="jx-projectRail-rowActions">
+                <Button type="text" size="small" icon={<DeleteOutlined />} title={t('删除文件夹')}
+                  aria-label={t('删除文件夹')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteFolder(String(node.title));
+                  }} />
+              </span>
+            )}
           </span>
         );
         return (
@@ -80,14 +92,16 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
             <button type="button" className="jx-projectRail-fileInfo jx-projectRail-filePreview"
               onClick={() => onPreview(file)} title={file.name}>
               <span className="jx-projectRail-fileName">{leafName(file)}</span>
-              <span className="jx-projectRail-fileMeta">{shortType(file)} · {fmtBytes(file.size_bytes || 0)}</span>
+              <span className="jx-projectRail-fileMeta">{fmtBytes(file.size_bytes || 0)}</span>
             </button>
-            <Button type="text" size="small" icon={<EyeOutlined />} title={t('预览')}
-              onClick={() => onPreview(file)} />
-            {canEdit && (
-              <Button type="text" size="small" icon={<DeleteOutlined />} title={t('删除')}
-                onClick={() => onDelete(file)} />
-            )}
+            <span className="jx-projectRail-rowActions">
+              <Button type="text" size="small" icon={<EyeOutlined />} title={t('预览')} aria-label={t('预览')}
+                onClick={() => onPreview(file)} />
+              {canEdit && (
+                <Button type="text" size="small" icon={<DeleteOutlined />} title={t('删除')} aria-label={t('删除')}
+                  onClick={() => onDelete(file)} />
+              )}
+            </span>
           </div>
         );
       }}

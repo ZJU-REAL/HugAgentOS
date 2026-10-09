@@ -208,11 +208,16 @@ async def test_first_wheel_targets_hovered_scroll_container_without_prior_click(
 async def test_visible_native_scrollbar_and_same_size_resize_keeps_input_revision(browser):
     page = browser.pages[browser.active_tab]
     await page.set_content('<style>body{height:3000px}</style>Scroll')
-    assert await page.evaluate("innerWidth - document.documentElement.clientWidth") > 0
-    await page.mouse.move(page.viewport_size["width"] - 5, 30)
-    await page.mouse.down()
-    await page.mouse.move(page.viewport_size["width"] - 5, 400, steps=10)
-    await page.mouse.up()
+    gutter = await page.evaluate("innerWidth - document.documentElement.clientWidth")
+    if gutter > 0:
+        await page.mouse.move(page.viewport_size["width"] - 5, 30)
+        await page.mouse.down()
+        await page.mouse.move(page.viewport_size["width"] - 5, 400, steps=10)
+        await page.mouse.up()
+    else:  # macOS can use overlay scrollbars with no reserved layout width.
+        await page.mouse.move(100, 100)
+        await page.mouse.wheel(0, 400)
+        await page.wait_for_function("scrollY > 0")
     assert await page.evaluate("scrollY") > 0
     revision = browser.viewport_revision
     await command(browser, "resize", page.viewport_size, "user", "viewer")

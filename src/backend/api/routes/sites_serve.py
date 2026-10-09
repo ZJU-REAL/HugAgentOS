@@ -1,12 +1,7 @@
-"""Public site hosting routes — static files + per-site dynamic APIs (KV / form collection).
+"""Public site hosting routes — static files and site access authorization.
 
 - ``GET /site/{slug}/{path}``: static hosting. nginx ``location /site/``
   reverse-proxies it as-is.
-- ``/site/{slug}/__api/kv/*``, ``/site/{slug}/__api/forms/*``: lightweight
-  backend capabilities available to in-site JS (a minimal subset benchmarked
-  against ChatGPT Sites' D1/R2). ``__api/`` is a reserved publish prefix
-  (the service layer refuses to publish files by that name); these routes are
-  declared before the catch-all so they match first.
 
 Security:
 - Public site responses carry ``Content-Security-Policy: sandbox`` (without
@@ -27,18 +22,11 @@ Security:
 """
 
 import logging
-import time
 from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 from api.routes.site_gate import render_site_gate
 from core.db.engine import get_db
 from core.db.repository import SiteRepository
-from core.infra.exceptions import AppException
 from core.services.site_password import (
     ACCESS_COOKIE_NAME,
     access_cookie_params,
@@ -48,6 +36,10 @@ from core.services.site_password import (
     verify_access_token,
 )
 from core.services.site_service import SiteService
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
@@ -65,48 +57,6 @@ _CORS_API_HEADERS = {
     "Access-Control-Max-Age": "600",
     "Cache-Control": "no-store",
 }
-
-# ── Simple in-process rate limiting (site API writes): 60 requests/minute per (ip, slug) ──
-_RATE_LIMIT_PER_MIN = 60
-_rate_buckets: dict[str, tuple[float, int]] = {}
-
-# 密码尝试单独限流：10 次 / 5 分钟，挡住对短密码的暴力猜测。独立一个桶，免得写操作
-# 那个桶被清空时连带把暴力破解的计数也一起清掉。
-_UNLOCK_LIMIT = 10
-_UNLOCK_WINDOW_SECONDS = 300.0
-_unlock_buckets: dict[str, tuple[float, int]] = {}
-
-
-def _count_in_window(
-    buckets: dict[str, tuple[float, int]], key: str, window: float
-) -> int:
-    """进程内滚动计数，返回本窗口内的第几次。"""
-    now = time.monotonic()
-    start, count = buckets.get(key, (now, 0))
-    if now - start >= window:
-        start, count = now, 0
-    count += 1
-    buckets[key] = (start, count)
-    if len(buckets) > 10000:  # guard against memory bloat
-        stale = [k for k, (begun, _) in buckets.items() if now - begun >= window]
-        for k in stale:
-            del buckets[k]
-        if len(buckets) > 10000:  # 全在窗口内，只能整桶丢
-            buckets.clear()
-    return count
-
-
-def _rate_limit_write(ip: str, slug: str) -> None:
-    if _count_in_window(_rate_buckets, f"{ip}|{slug}", 60.0) > _RATE_LIMIT_PER_MIN:
-        raise HTTPException(status_code=429, detail="操作太频繁，请稍后再试")
-
-
-def _unlock_attempt_allowed(ip: str, slug: str) -> bool:
-    return (
-        _count_in_window(_unlock_buckets, f"{ip}|{slug}", _UNLOCK_WINDOW_SECONDS)
-        <= _UNLOCK_LIMIT
-    )
-
 
 def _client_ip(request: Request) -> str:
     # X-Real-IP 由 nginx 按连接对端填写，访客改不了；X-Forwarded-For 的头一段是客户端
@@ -158,7 +108,7 @@ async def _load_authorized_site(
     两道闸：可见性（不通过一律 404，不泄露站点是否存在）与访问密码（不通过返回
     ``gate`` 响应，由调用方直接回给访客）。默认两道都过——``require_unlock=False``
     是显式豁免，只给 ``__api/*`` 用：站内脚本跑在沙箱的不透明源上、请求不带凭据，
-    闸上了站内 KV/表单就全废；``__api/access`` 本身更是解锁入口，必须豁免。
+    仅解锁入口 ``__api/access`` 可豁免；应用表单仍执行密码验证。
     """
     site = await run_in_threadpool(SiteRepository(db).get_by_slug, slug)
     if not site:
@@ -182,9 +132,7 @@ async def _unlock_gate(site, request: Request, db: Session) -> Optional[Response
     from api.deps import _resolve_session_user_id
 
     user_id = await _resolve_session_user_id(request)
-    if user_id and await run_in_threadpool(
-        SiteService(db).authorize_access, site, user_id, None
-    ):
+    if user_id and await run_in_threadpool(SiteService(db).authorize_access, site, user_id, None):
         # 给管理者也发一枚凭据，否则同一个页面的每个资源都要重跑一遍会话 + 权限查询。
         request.state.site_access_grant = site
         return None
@@ -197,6 +145,7 @@ def _api_json(payload: dict, status_code: int = 200) -> JSONResponse:
 
 # ── Site dynamic APIs (declared before the catch-all) ─────────────
 
+
 @router.options("/{slug}/__api/{rest:path}", include_in_schema=False)
 async def site_api_preflight(slug: str, rest: str):
     """CORS preflight：opaque origin 下带 JSON body 的 fetch 会先发 OPTIONS。"""
@@ -207,8 +156,8 @@ async def site_api_preflight(slug: str, rest: str):
 async def site_unlock(slug: str, request: Request, db: Session = Depends(get_db)):
     """校验访问密码并下发解锁凭据（统一验证页提交到这里）。这是解锁入口，必须免闸。"""
     # 限流放在取站点之前：被挡下的尝试连一次 get_by_slug 都不该花。
-    if not _unlock_attempt_allowed(_client_ip(request), slug):
-        return _api_json({"error": "尝试过于频繁，请稍后再试"}, 429)
+    from core.services.site_rate_limit import count_attempt
+    await count_attempt(_client_ip(request), slug, unlock=True)
     site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
     if not site.access_password_hash:
         return _api_json({"ok": True})
@@ -224,77 +173,8 @@ async def site_unlock(slug: str, request: Request, db: Session = Depends(get_db)
     return response
 
 
-@router.get("/{slug}/__api/kv/{key}", summary="站点 KV 读")
-async def site_kv_get(
-    slug: str, key: str, request: Request, db: Session = Depends(get_db),
-):
-    site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
-    try:
-        value = await run_in_threadpool(SiteService(db).kv_get, site, key)
-    except AppException as exc:
-        return _api_json({"error": exc.message}, 400)
-    if value is None:
-        return _api_json({"key": key, "value": None, "exists": False}, 404)
-    return _api_json({"key": key, "value": value, "exists": True})
-
-
-@router.put("/{slug}/__api/kv/{key}", summary="站点 KV 写")
-@router.post("/{slug}/__api/kv/{key}", include_in_schema=False)
-async def site_kv_set(
-    slug: str, key: str, request: Request, db: Session = Depends(get_db),
-):
-    site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
-    _rate_limit_write(_client_ip(request), slug)
-    try:
-        body = await request.json()
-    except Exception:
-        return _api_json({"error": "请求体必须是 JSON，如 {\"value\": \"...\"}"}, 400)
-    value = body.get("value") if isinstance(body, dict) else None
-    if value is None:
-        return _api_json({"error": "缺少 value 字段"}, 400)
-    import json as _json
-
-    raw = value if isinstance(value, str) else _json.dumps(value, ensure_ascii=False)
-    try:
-        await run_in_threadpool(SiteService(db).kv_set, site, key, raw)
-    except AppException as exc:
-        return _api_json({"error": exc.message}, 400)
-    return _api_json({"ok": True, "key": key})
-
-
-@router.delete("/{slug}/__api/kv/{key}", summary="站点 KV 删")
-async def site_kv_delete(
-    slug: str, key: str, request: Request, db: Session = Depends(get_db),
-):
-    site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
-    _rate_limit_write(_client_ip(request), slug)
-    try:
-        deleted = await run_in_threadpool(SiteService(db).kv_delete, site, key)
-    except AppException as exc:
-        return _api_json({"error": exc.message}, 400)
-    return _api_json({"ok": True, "deleted": deleted})
-
-
-@router.post("/{slug}/__api/forms/{form_key}", summary="站点表单提交")
-async def site_form_submit(
-    slug: str, form_key: str, request: Request, db: Session = Depends(get_db),
-):
-    site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
-    _rate_limit_write(_client_ip(request), slug)
-    try:
-        payload = await request.json()
-    except Exception:
-        return _api_json({"error": "请求体必须是 JSON 对象"}, 400)
-    try:
-        submission_id = await run_in_threadpool(
-            SiteService(db).submit_form, site, form_key, payload, client_ip=_client_ip(request),
-        )
-    except AppException as exc:
-        return _api_json({"error": exc.message}, 400)
-    return _api_json({"ok": True, "id": submission_id}, 201)
-
-
 # ── Static hosting ───────────────────────────────────────────────
+
 
 @router.get("/{slug}", include_in_schema=False)
 async def site_root(slug: str):
@@ -309,6 +189,8 @@ async def serve_site_file(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    if path == "__api" or path.startswith("__api/"):
+        raise HTTPException(404, "API route not found")
     site, gate = await _load_authorized_site(slug, request, db)
     if gate is not None:
         return gate

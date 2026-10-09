@@ -140,6 +140,7 @@ export const MYSPACE_DICT: Record<string, string> = {
   // ── Document list ────────────────────────────────────────────────────
   '大小': 'Size',
   '最近更新': 'Last Modified',
+  '文件夹不存在': 'Folder not found',
   '删除文件夹': 'Delete Folder',
   '双击打开 {name}': 'Double-click to open {name}',
   '已选 {n} 项': '{n} selected',

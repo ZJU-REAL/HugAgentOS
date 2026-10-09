@@ -1,6 +1,9 @@
 """Plugin browser tools forward trusted invocation context to the owning backend."""
 import os
 import uuid
+import base64
+from core.infra.http_errors import response_error
+from mcp.server.fastmcp.utilities.types import Image
 from typing import Any
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
@@ -30,7 +33,7 @@ async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
                     "X-Hugagent-Invocation": headers.get("X-Hugagent-Invocation", ""),
                     "X-Hugagent-Plugin-Id": plugin_id})
         if response.status_code >= 400:
-            raise ValueError(response.json().get("detail", "browser_runtime_unavailable"))
+            raise ValueError(response_error(response, f"browser_runtime_http_{response.status_code}"))
         return response.json()["data"]
 
 @mcp.tool()
@@ -39,11 +42,14 @@ async def browser_open(ctx: Context, resource_id: str | None = None, checkpoint_
     return await call(ctx, "open", resource_id, checkpoint_id=checkpoint_id)
 
 @mcp.tool()
-async def browser_observe(ctx: Context, resource_id: str, action: str = "snapshot", selector: str = "body") -> dict:
+async def browser_observe(ctx: Context, resource_id: str, action: str = "snapshot", selector: str = "body"):
     """Observe the shared browser: snapshot, text, screenshot or state. Observation pauses during manual/private control. Snapshot before selecting a locator."""
     if action not in {"snapshot", "text", "screenshot", "state"}:
         raise ValueError("unsupported_observation")
-    return await call(ctx, action, resource_id, {"selector": selector})
+    result = await call(ctx, action, resource_id, {"selector": selector})
+    if action == "screenshot":
+        return Image(data=base64.b64decode(result["data"], validate=True), format="png")
+    return result
 
 @mcp.tool()
 async def browser_action(ctx: Context, resource_id: str, action: str, params: dict[str, Any] | None = None) -> dict:

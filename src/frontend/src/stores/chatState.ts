@@ -202,7 +202,7 @@ export interface ChatState {
    *  When opts.projectId is given, binds the chat to that site source-code project (both building
    *  and editing happen inside the project folder; messages are sent with project_id
    *  automatically); opts.title is used as the chat/project display name. */
-  enterSiteMode: (opts?: { projectId?: string; projectName?: string; title?: string }) => boolean;
+  enterSiteMode: (opts?: { projectId?: string; projectName?: string; title?: string; resourceKind?: 'site' | 'mcp' }) => boolean;
   setEditingMessageUid: (uid: string | null) => void;
   bumpSessionLoadEpoch: () => void;
   /** Truncate messages from the given message (inclusive), located by its identity */

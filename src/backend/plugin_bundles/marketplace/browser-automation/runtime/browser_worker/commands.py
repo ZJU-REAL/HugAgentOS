@@ -16,6 +16,15 @@ def locator(page, params):
         raise ValueError("selector_required")
     return page.locator(selector)
 
+async def unique_locator(page, params):
+    target = locator(page, params)
+    count = await target.count()
+    if count == 0:
+        raise ValueError("element_not_found")
+    if count > 1:
+        raise ValueError("ambiguous_locator")
+    return target
+
 @asynccontextmanager
 async def operation_lock(session, action):
     if action in CONTROL_ACTIONS or action == "dialog":
@@ -61,7 +70,16 @@ async def execute(session, command: Command):
             if session.private and command.actor == "agent":
                 raise ValueError("private_observation")
         session.results[command.id] = (fingerprint, {"error": "operation_result_unknown"})
-        result = await asyncio.wait_for(dispatch(session, command), 30)
+        if len(session.results) > 200:
+            session.results.pop(next(iter(session.results)))
+        try:
+            result = await asyncio.wait_for(dispatch(session, command), 30)
+        except (ValueError, KeyError) as error:
+            session.results[command.id] = (fingerprint, {"error": str(error)})
+            raise
+        except OSError:
+            session.results[command.id] = (fingerprint, {"error": "dns_failed"})
+            raise
         session.results[command.id] = (fingerprint, result)
         if len(session.results) > 200:
             session.results.pop(next(iter(session.results)))
@@ -71,6 +89,13 @@ async def execute(session, command: Command):
 async def dispatch(s, c):
     p, action = c.params, c.action
     navigation_wait = "commit" if c.actor == "user" else "domcontentloaded"
+    if action == "clear_downloads":
+        downloads = list(s.downloads.values())
+        s.downloads.clear()
+        for download in downloads:
+            await download.cancel()
+            await download.delete()
+        return await s.state()
     if action == "state":
         return await s.state()
     if action == "take_control":
@@ -121,16 +146,16 @@ async def dispatch(s, c):
     elif action == "snapshot":
         return {"url": page.url, "title": await page.title(), "snapshot": (await page.locator("body").aria_snapshot())[:65536]}
     elif action == "text":
-        return {"text": (await locator(page, p).inner_text())[:65536]}
+        return {"text": (await (await unique_locator(page, p)).inner_text())[:65536]}
     elif action == "screenshot":
         import base64
         return {"mime_type": "image/png", "data": base64.b64encode(await page.screenshot()).decode()}
     elif action == "click":
-        await locator(page, p).click(timeout=10000)
+        await (await unique_locator(page, p)).click(timeout=10000)
     elif action == "fill":
-        await locator(page, p).fill(str(p["text"]), timeout=10000)
+        await (await unique_locator(page, p)).fill(str(p["text"]), timeout=10000)
     elif action == "select":
-        await locator(page, p).select_option(p["value"], timeout=10000)
+        await (await unique_locator(page, p)).select_option(p["value"], timeout=10000)
     elif action == "key":
         await page.keyboard.press(str(p["key"]))
     elif action == "input":
@@ -175,7 +200,7 @@ async def dispatch(s, c):
         if chooser:
             await chooser.set_files(files)
         else:
-            await locator(page, p).set_input_files(files)
+            await (await unique_locator(page, p)).set_input_files(files)
     elif action == "checkpoint":
         return {"state": await s.context.storage_state(indexed_db=True)}
     else:

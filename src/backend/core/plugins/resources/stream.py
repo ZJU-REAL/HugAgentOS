@@ -8,6 +8,7 @@ import httpx
 from fastapi import HTTPException, WebSocket
 from core.db.engine import SessionLocal
 from . import service, store
+from .transport import RuntimeTransport
 
 MAX_PACKET = 8 * 1024 * 1024
 
@@ -76,9 +77,9 @@ async def connect(websocket: WebSocket, resource_id: str):
                 try:
                     if payload.get("action") == "checkpoint":
                         with SessionLocal() as db:
-                            data = await service.checkpoint(db, current, str(payload.get("params", {}).get("name", "账号")), connection_id)
+                            data = await service.checkpoint(db, current, str(payload.get("params", {}).get("name", "账号")), connection_id, transport=transport)
                     else:
-                        data = await service.command(current, payload, actor="user", connection_id=connection_id)
+                        data = await service.command(current, payload, actor="user", connection_id=connection_id, transport=transport)
                     await send({"type": "result", "id": payload.get("id"), "ok": True, "data": data})
                     if payload.get("action") == "close":
                         with SessionLocal() as db:
@@ -93,15 +94,16 @@ async def connect(websocket: WebSocket, resource_id: str):
                 with SessionLocal() as db:
                     await validate_authentication(authentication, user_id, db)
                     service.authorized(db, resource_id, user_id)
-        tasks = [asyncio.create_task(fn()) for fn in (frames, receive, validate)]
-        try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                task.result()
-        finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        async with RuntimeTransport(target) as transport:
+            tasks = [asyncio.create_task(fn()) for fn in (frames, receive, validate)]
+            try:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
     except HTTPException as exc:
         if websocket.client_state.name == "CONNECTED":
             await websocket.close(4410 if exc.status_code == 410 else 4403)

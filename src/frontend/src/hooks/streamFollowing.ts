@@ -1,5 +1,6 @@
-import { getChatRunSteers, followChatRun } from '../api';
-import { useChatStore, useAuthStore } from '../stores';
+import { openRunSubscription } from '../runSubscriptionClient';
+import { getChatRunSteers } from '../api';
+import { useChatStore } from '../stores';
 import { processChatStream } from './chatStream';
 import { reloadChatHistory } from './useChatInit';
 import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
@@ -19,8 +20,10 @@ export function createStreamFollowing(ctx: Pick<StreamingContext, 'generateClass
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     ctx.syncManualTitleToBackend(chatId);
-    setTimeout(() => ctx.generateSummary(chatId), 500);
-    setTimeout(() => ctx.generateClassification(chatId), 800);
+    if (outcome.settled) {
+      setTimeout(() => ctx.generateSummary(chatId), 500);
+      setTimeout(() => ctx.generateClassification(chatId), 800);
+    }
     return outcome;
   }
 
@@ -53,7 +56,7 @@ export function createStreamFollowing(ctx: Pick<StreamingContext, 'generateClass
   ) {
     let outcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
     try {
-      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice, seedFrom });
+      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice, seedFrom, signal });
     } catch (error) {
       const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
       const recovered = await followQueuedRunChain(
@@ -134,15 +137,9 @@ export function createStreamFollowing(ctx: Pick<StreamingContext, 'generateClass
         lastOffset: 0,
       });
 
-      const response = await followChatRun(
-        queued.runId,
-        0,
-        signal,
-        useAuthStore.getState().authUser?.user_id,
-        chatId,
-      );
+      const response = await openRunSubscription(queued.runId, signal, chatId);
       if (!response.ok || !response.body) throw new Error(await response.text());
-      outcome = await processChatStream(response, { chatId, enableThinking });
+      outcome = await processChatStream(response, { chatId, enableThinking, signal });
       sourceRunId = queued.runId;
     }
     if (usedDurableBackfill) {

@@ -345,4 +345,6 @@ export const CE_SHARED_DICT: Record<string, string> = {
   '端口': 'Port',
   '（未启用）': ' (disabled)',
   '请输入字段名': 'Enter column name',
+  '已发布': 'Published',
+  '未发布': 'Unpublished',
 };

@@ -74,7 +74,7 @@ class LoggingMiddleware:
             async def send_wrapper(message: dict) -> None:
                 nonlocal status_code
                 if message["type"] == "http.response.start":
-                    status_code = message.get("status", 0)
+                    status_code = int(message.get("status", 0))
                     # Inject trace_id header
                     headers = list(message.get("headers", []))
                     headers.append((b"x-trace-id", trace_id.encode()))
@@ -171,3 +171,6 @@ def setup_logging_middleware(app: FastAPI) -> None:
     max_size = settings.server.max_request_size
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RequestSizeLimitMiddleware, max_size=max_size)
+
+    from api.middleware.cors import SiteApiCorsMiddleware
+    app.add_middleware(SiteApiCorsMiddleware)

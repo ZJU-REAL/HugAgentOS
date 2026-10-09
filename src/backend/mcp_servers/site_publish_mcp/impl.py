@@ -83,33 +83,3 @@ async def publish_site(
         "chat_id": chat_id,
     }
     return await _call_backend("/v1/internal/sites/publish", payload, timeout=120.0)
-
-
-async def site_kv(
-    *,
-    action: str,
-    user_id: str,
-    site_id: str = "",
-    slug: str = "",
-    key: str = "",
-    value: str = "",
-    limit: int = 50,
-) -> Dict[str, Any]:
-    """Forward a site KV read/write to the backend's ``/v1/internal/sites/kv``.
-
-    KV lives in the database and the mcp container has no connection to it, and
-    the ownership check needs backend context — so, like publishing, this only
-    forwards. KV never touches the sandbox, hence no chat id.
-    """
-    if not user_id:
-        return {"error": "当前会话缺少用户身份，无法访问站点 KV"}
-    payload = {
-        "action": action,
-        "site_id": site_id,
-        "slug": slug,
-        "key": key,
-        "value": value,
-        "limit": limit,
-        "user_id": user_id,
-    }
-    return await _call_backend("/v1/internal/sites/kv", payload, timeout=30.0)

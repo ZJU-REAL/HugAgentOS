@@ -2,6 +2,9 @@
 (() => {
   let english = false;
   const translations = {
+    '画面正在更新，本次输入未发送，请等待后重试。': 'Frame updating. Input was not sent; wait and retry.',
+    '域名解析失败，请检查 DNS 配置。': 'DNS resolution failed. Check your DNS configuration.',
+    '清空下载列表': 'Clear downloads', '交还控制权': 'Release control',
     '缩小网页': 'Zoom out', '放大网页': 'Zoom in', '重置缩放': 'Reset zoom',
     '连接中断。请检查刚才的操作结果。': 'Connection interrupted. Check the result of your last action.',
     '操作已取消，请重新操作。': 'Action cancelled. Please try again.',

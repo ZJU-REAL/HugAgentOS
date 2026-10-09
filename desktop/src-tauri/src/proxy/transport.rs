@@ -46,6 +46,10 @@ pub(super) fn is_cloud_site_path(path: &str) -> bool {
         || path.starts_with("/site/")
         || path == "/api/v1/sites"
         || path.starts_with("/api/v1/sites/")
+        || path == "/api/v1/applications"
+        || path.starts_with("/api/v1/applications/")
+        || path == "/applications-mcp"
+        || path.starts_with("/applications-mcp/")
 }
 
 /// 反代处理器：把 `/api/*` 透传到后端，注入 session cookie，流式回传。

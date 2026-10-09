@@ -365,3 +365,17 @@ Display and date filters use the application display zone (currently Asia/Shangh
 [Configuration, runtime dependencies and usage](../modules/browser-automation.md).
 
 Builtin MCP invocations, including browser automation, require the same `BACKEND_INTERNAL_TOKEN` in backend and mcp services. Generate a separate high-entropy value for each deployment and inject it through protected environment configuration. Never use example placeholders. The local desktop launcher provides its own invocation key.
+
+
+## Application hosting and browser runtime
+
+| Variable | Purpose |
+|---|---|
+| APPLICATION_DATABASE_URL | Dedicated database, non-superuser application_owner; never the platform database |
+| APPLICATION_DB_PASSWORD | Dedicated database bootstrap credential; initialization only |
+| APPLICATION_OWNER_DB_PASSWORD | Different URL-safe runtime credential; required by the hosting Compose overlay |
+| APPLICATION_PROVISION_DATABASE_URL | Bootstrap-only administrator URL for initial owner provisioning; never set in backend runtime |
+| BROWSER_DNS_RESOLVER_URL | Trusted HTTPS JSON DNS resolver for Fake-IP networks; private-address checks remain active |
+| BROWSER_CHROMIUM_SANDBOX | Defaults true; known failures retry only in host-verified isolated containers |
+
+Hosting remains opt-in. See [application deployment](../modules/application-hosting.md) and [browser deployment](../modules/browser-automation.md). Cloud site writes require shared Redis; missing or unavailable Redis rejects writes.

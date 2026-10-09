@@ -50,6 +50,9 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 | PATCH | `/v1/projects/{id}/instructions` | Update project instructions |
 | GET | `/v1/projects/{id}/chats` | Conversations inside the project (team projects show shared chats) |
 
+### Page loading
+While page code loads, the project list shows skeletons for the heading, actions, search field, and project cards. The first data request uses the same card skeletons; refreshing an existing list keeps its content visible. Project details use skeletons matching the main content and right rail. Skeletons adapt to narrow screens and dark themes, and freeze the shimmer when the system requests reduced motion.
+
 ### How project context enters a conversation
 
 When a conversation is started inside a project (the request carries `project_id`), `api/routes/v1/chats/__init__.py` assembles the workflow context:
@@ -219,6 +222,8 @@ manifests and lockfiles. Unsynchronized changes must not be treated as durably s
 
 
 ### Browsing large project file lists
+
+Project file rows show the file name and size on one line. Folders have no expansion arrow; click their names to expand or collapse them. Preview and delete controls appear on hover or keyboard focus and remain visible on touch devices. Users with edit permission can delete a cloud-project folder using its right-side button. Confirmation cascade-soft-deletes the folder, its subfolders and files. Desktop local-folder projects continue to use the system file manager for deletion.
 
 The project file panel uses a fixed-height virtual list that renders only visible rows. Folder expansion, scrolling, preview and deletion remain available. Project instructions have a wider reading area and a larger, vertically resizable editor. A failed file request can be retried without hiding project details or instructions.
 

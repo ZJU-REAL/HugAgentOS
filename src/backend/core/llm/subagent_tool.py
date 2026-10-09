@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Thread pool for sub-agent execution.
 # Each thread gets its own event loop so anyio cancel scopes stay within
 # a single task — avoiding the cross-task RuntimeError.
-_subagent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subagent")
+_subagent_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subagent")
 
 
 class _ChildExecution:

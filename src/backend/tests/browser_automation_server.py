@@ -32,7 +32,8 @@ with SessionLocal() as db:
     UserService(db).update_user_metadata("browser-owner", {"tool_approval_mode": os.getenv("BROWSER_E2E_APPROVAL_MODE", "auto")})
     install_plugin(db, "browser-automation", owner_user_id="browser-owner")
 
-app = FastAPI()
+from core.plugins.resources.lifecycle import lifespan as resources_lifespan
+app = FastAPI(lifespan=resources_lifespan)
 app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="browser-owner", user_center_id="browser-owner", username="Browser owner")
 app.include_router(plugin_resources.router, prefix="/api")
 app.include_router(plugin_ui.router, prefix="/api")
@@ -163,3 +164,19 @@ print(json.dumps({"private_read_blocked": blocked, "workspace_write": True}))
     if result.get("exit_code") != 0:
         raise HTTPException(500, "permission_probe_failed: " + str(result))
     return json.loads(result["stdout"])
+
+
+@app.post("/test/prewarm")
+async def prewarm_probe():
+    import asyncio
+    from core.sandbox.factory import get_sandbox_provider
+    from core.plugins.resources import store
+    await get_sandbox_provider().put_file("browser-chat", ".prewarm-probe", b"", user_id="browser-owner")
+    for _ in range(600):
+        with SessionLocal() as db:
+            row = db.query(store.PluginResource).filter_by(
+                chat_id="browser-chat", user_id="browser-owner", status="warm").first()
+            if row is not None:
+                return {"resource_id": row.resource_id, "status": row.status}
+        await asyncio.sleep(.05)
+    raise HTTPException(500, "sandbox did not produce a warm browser")

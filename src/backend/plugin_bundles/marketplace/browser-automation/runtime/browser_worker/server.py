@@ -22,6 +22,8 @@ def create_app(config):
     @asynccontextmanager
     async def lifespan(app):
         await session.start()
+        if config.get("_ready"):
+            config["_ready"]()
         async def reap():
             while not session.closed:
                 await asyncio.sleep(15)
@@ -59,6 +61,8 @@ def create_app(config):
             raise HTTPException(409, str(exc)) from exc
         except asyncio.TimeoutError as exc:
             raise HTTPException(504, "operation_timeout_result_unknown") from exc
+        except OSError as exc:
+            raise HTTPException(502, "dns_failed") from exc
         except PlaywrightError as exc:
             # Driver messages can contain private URLs or page text.
             raise HTTPException(409, "browser_operation_failed_result_unknown") from exc
@@ -86,7 +90,8 @@ def main(config):
     sock = socket.socket()
     sock.bind(("0.0.0.0", int(config.get("port", 0))))
     sock.listen(128)
-    print('{"runtime_ready": true, "port": ' + str(sock.getsockname()[1]) + '}', flush=True)
+    config["_ready"] = lambda: print(
+        '{"runtime_ready": true, "port": ' + str(sock.getsockname()[1]) + '}', flush=True)
     server = uvicorn.Server(uvicorn.Config(create_app(config), log_level="warning", access_log=False, lifespan="on", loop="asyncio"))
     config["_shutdown"] = lambda: setattr(server, "should_exit", True)
     server.run(sockets=[sock])

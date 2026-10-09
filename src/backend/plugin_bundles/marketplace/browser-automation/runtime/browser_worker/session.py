@@ -1,5 +1,6 @@
 """One worker owns one browser context, bounded viewers and control state."""
 import asyncio
+import uuid
 import base64
 import time
 import os
@@ -29,6 +30,7 @@ class BrowserSession:
         self.last_active = time.monotonic()
         self.viewers = set()
         self.latest_frame = None
+        self.published_state = None
         self.cdp = None
         self.frame_id = 0
         self.dialogs = {}
@@ -57,11 +59,17 @@ class BrowserSession:
         self.policy = NetworkPolicy(self.config.get("allowed_hosts", []), self.config.get("allow_private", False), self.config.get("dns_resolver_url", ""))
         self.egress = BrowserEgress(self.policy)
         proxy = await self.egress.start()
-        options = {"headless": True, "ignore_default_args": ["--hide-scrollbars"], "chromium_sandbox": self.config.get("chromium_sandbox", True) and (not hasattr(os, "geteuid") or os.geteuid() != 0),
+        options = {"headless": True, "ignore_default_args": ["--hide-scrollbars"], "chromium_sandbox": self.config.get("chromium_sandbox", True) and not (self.config.get("_container_isolated", False) and hasattr(os, "geteuid") and os.geteuid() == 0),
                    "proxy": {"server": proxy}, "args": ["--proxy-bypass-list=<-loopback>", "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]}
         if self.config.get("executable"):
             options["executable_path"] = self.config["executable"]
-        self.browser = await self.playwright.chromium.launch(**options)
+        from .launch import launch_browser
+        try:
+            self.browser = await launch_browser(self.playwright, options, container_isolated=self.config.get("_container_isolated", False))
+        except BaseException:
+            await self.egress.close()
+            await self.playwright.stop()
+            raise
         self.context = await self.browser.new_context(
             viewport={"width": 1280, "height": 800}, accept_downloads=True,
             service_workers="block", storage_state=self.config.get("checkpoint"),
@@ -192,7 +200,10 @@ class BrowserSession:
 
     async def publish_state(self):
         if not self.closed:
-            self.broadcast(packet(await self.state()))
+            state = await self.state()
+            if state != self.published_state:
+                self.published_state = state
+                self.broadcast(packet(state))
 
     async def subscribe(self):
         if len(self.viewers) >= 8:
@@ -222,7 +233,11 @@ class BrowserSession:
         await self.publish_state()
 
     async def download_open(self, tab, download):
-        key = str(len(self.downloads) + 1)
+        if len(self.downloads) >= 50:
+            old = self.downloads.pop(next(iter(self.downloads)))
+            await old.cancel()
+            await old.delete()
+        key = uuid.uuid4().hex
         self.downloads[key] = download
         await self.publish_state()
 

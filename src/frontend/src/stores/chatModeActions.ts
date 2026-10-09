@@ -122,7 +122,7 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
           ? existing
           : {
               id: targetId,
-              title: opts?.title ? t('编辑站点：{name}', { name: opts.title }) : t('新对话'),
+              title: opts?.title ? t(opts.resourceKind === 'mcp' ? '编辑 MCP：{name}' : '编辑站点：{name}', { name: opts.title }) : t('新对话'),
               createdAt: now,
               updatedAt: now,
               messages: [],

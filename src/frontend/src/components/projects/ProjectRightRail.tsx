@@ -1,3 +1,4 @@
+import { prepareProjectFolderDeletion } from './projectFolderDeletion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Empty, Input, Modal, Progress, Spin, Tag, message } from 'antd';
 import {
@@ -226,6 +227,32 @@ function FilesCard() {
     });
   }, [removeFile]);
 
+  const doDeleteFolder = useCallback((name: string) => {
+    if (!project || !canUpload) return;
+    void prepareProjectFolderDeletion(project, name).then(({ fileCount, remove }) => {
+      Modal.confirm({
+        title: t('删除文件夹「{name}」', { name }),
+        content: t('该文件夹及其子目录内共有 {n} 个文件将一并被删除。此操作会级联软删，确认继续吗？', { n: fileCount }),
+        okType: 'danger',
+        okText: t('删除'),
+        cancelText: t('取消'),
+        onOk: async () => {
+          try {
+            await remove();
+          } catch (err) {
+            message.error((err as Error)?.message || t('删除失败'));
+            throw err;
+          }
+          message.success(t('已删除'));
+          // A refresh failure has its own file-list retry; deletion already succeeded.
+          await refreshFiles().catch(() => {});
+        },
+      });
+    }).catch((err) => {
+      message.error((err as Error)?.message || t('删除失败'));
+    });
+  }, [project, canUpload, refreshFiles]);
+
   // Adapt ProjectFileItem to the ResourceItem shape that FilePreviewPane accepts
   const previewItem = previewFile
     ? {
@@ -315,7 +342,7 @@ function FilesCard() {
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('该项目还没有文件')} />
       ) : (
         <ProjectFileList key={project?.project_id} files={files} canEdit={canUpload}
-          onPreview={setPreviewFile} onDelete={doDelete} />
+          onPreview={setPreviewFile} onDelete={doDelete} onDeleteFolder={doDeleteFolder} />
       )}
 
       <input

@@ -134,6 +134,8 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
         .route("/files/*rest", any(proxy_handler))
         .route("/site", any(proxy_handler))
         .route("/site/*rest", any(proxy_handler))
+        .route("/applications-mcp", any(proxy_handler))
+        .route("/applications-mcp/*rest", any(proxy_handler))
         // Page-config assets and manuals also live on the backend, not in the
         // frontend dist.  Forward them with the same streaming proxy.
         .route("/docs/*rest", any(proxy_handler))

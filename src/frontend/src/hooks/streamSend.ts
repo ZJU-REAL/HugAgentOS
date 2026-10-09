@@ -1,3 +1,4 @@
+import { StreamDisconnectedError } from './chatStream/transport';
 import { chatDraftKey, readComposer } from '../stores/composerStore';
 import { prepareChatAttachments, type ChatAttachment } from '../utils/chatAttachments';
 import { message } from 'antd';
@@ -328,10 +329,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
         })();
       }
     } catch (e) {
-      // Plan F short-term fix: every error path must flag the placeholder's isStreaming false;
-      // otherwise when SSE throws due to a backend restart / network interruption, the last
-      // assistant bubble's streaming cursor keeps spinning — users who don't see / miss the
-      // toast will assume it's still working.
+      if (!(e instanceof StreamDisconnectedError)) {
       useChatStore.getState().updateStore((prev) => {
         const c = prev.chats[currentChatId];
         if (!c) return { chats: prev.chats, order: prev.order };
@@ -349,7 +347,10 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
         }
         return { chats: { ...prev.chats, [currentChatId]: { ...c, messages: msgs } }, order: prev.order };
       });
-      if (!(e instanceof Error && e.name === 'AbortError')) {
+      }
+      if (e instanceof StreamDisconnectedError) {
+        message.info(t('连接已中断，任务状态尚未同步'));
+      } else if (!(e instanceof Error && e.name === 'AbortError')) {
         // Failed to fetch / TypeError usually means the backend is down / the SSE stream broke —
         // give one more hint than the generic error so the user knows it was an interruption, not a real failure.
         const raw = e instanceof Error ? e.message : String(e);
@@ -364,7 +365,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       ctx.settleQueuedMessageAfterRun(
         streamChatId,
         streamOutcome?.bubbleUid,
-        streamOutcome !== undefined,
+        streamOutcome?.settled === true,
       );
       // NOTE: do NOT clear draft attachments here. This round's
       // attachments were already cleared right after they were assembled

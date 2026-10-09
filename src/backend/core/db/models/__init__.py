@@ -92,7 +92,7 @@ from core.db.models.ontology import (
     OntologyReviewRun,
 )
 from core.db.models.project import Project, ProjectFavorite
-from core.db.models.site import Site, SiteKV, SiteSubmission
+from core.db.models.site import Site
 from sqlalchemy import JSON, String
 from sqlalchemy.dialects.postgresql import INET, JSONB
 

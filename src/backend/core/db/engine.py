@@ -2,6 +2,7 @@
 
 import logging
 import os
+from pathlib import Path
 from typing import Generator
 
 from core.config.settings import settings
@@ -143,6 +144,14 @@ def _merge_duplicate_identities() -> None:
 
 def init_db():
     """Initialize or reconcile the database schema for the active edition."""
+    if settings.deploy.is_local and engine.dialect.name == "sqlite":
+        from core.db.site_storage_retirement import retire_site_storage
+        from core.services.application_store import initialize_local_store
+
+        directory = settings.storage.root / "migration-backups"
+        directory = Path(os.getenv("SITE_STORAGE_BACKUP_DIR", str(directory)))
+        retire_site_storage(engine, directory)
+        initialize_local_store()
     if settings.edition.edition == "ce":
         if settings.deploy.is_local:
             from core.db.local_schema_upgrade import reconcile_local_chat_sequences

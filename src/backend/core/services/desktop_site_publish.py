@@ -190,10 +190,18 @@ async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
     """Sites are cloud-hosted: a local site MCP's call goes to the cloud gateway plugin."""
     from core.llm.factory.tools.mcp_config import _inject_runtime_headers
     from core.llm.mcp_pool import make_client
-    from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
+    from core.services.desktop_cloud_bridge import (
+        cloud_gateway_mcp_configs,
+        get_state,
+        require_current_account,
+    )
     from core.services.desktop_gateway_uploads import endpoint_plugin
 
+    state = get_state()
+    if state is None:
+        return {"error": "云端账号不可用，请重新登录后重试"}
     configs = cloud_gateway_mcp_configs()
+    require_current_account(state)
     for sid, config in configs.items():
         if config.get("gateway_plugin") != endpoint_plugin("site-publish"):
             continue
@@ -209,6 +217,13 @@ async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
         try:
             tool = await client.get_tool(tool_name)
             result = await tool(**arguments)
+            require_current_account(state)
+            if tool_name in {"manage_application", "publish_mcp"}:
+                data = {"content": [block.model_dump() for block in result.content]}
+                localize_application_result(data, state["cloud_base"])
+                return json.loads(
+                    next(block["text"] for block in data["content"] if block["type"] == "text")
+                )
             for block in result.content:
                 if getattr(block, "type", None) == "text":
                     return json.loads(block.text)
@@ -216,3 +231,16 @@ async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
         finally:
             await client.close()
     return {"error": "云端站点能力不可用，请启用云端站点插件后重试"}
+
+
+def localize_application_result(data, cloud_base, arguments=None, headers=None):
+    """Use the cloud service origin for MCP receipts shown in local conversations."""
+    for block in data.get("content", []):
+        if block.get("type") != "text":
+            continue
+        result = json.loads(block["text"])
+        if isinstance(result, dict) and str(result.get("url", "")).startswith(
+            "/applications-mcp/"
+        ):
+            result["url"] = cloud_base.rstrip("/") + result["url"]
+            block["text"] = json.dumps(result, ensure_ascii=False)

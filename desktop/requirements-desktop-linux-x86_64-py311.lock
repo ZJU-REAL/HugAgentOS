@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: e1ec4115b0343e8894400423a1bfe7b92348ae4237e5a51444934031bf3bb000
+# input-sha256: 607dc448935874fd60be944090c035ef34c56e1c037e93516cbd50e4a991cab3
 # Target: CPython 3.11 on Linux x86_64
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt
@@ -20,9 +20,7 @@ aiosignal==1.4.0
 alembic==1.18.5
     # via -r desktop/requirements-desktop.txt
 annotated-doc==0.0.5
-    # via
-    #   fastapi
-    #   typer
+    # via typer
 annotated-types==0.8.0
     # via pydantic
 anthropic==0.120.2
@@ -118,7 +116,7 @@ et-xmlfile==2.0.0
     # via openpyxl
 faiss-cpu==1.14.3
     # via milvus-lite
-fastapi==0.141.1
+fastapi==0.115.12
     # via -r desktop/requirements-desktop.txt
 fastuuid==0.14.0
     # via litellm
@@ -529,13 +527,12 @@ sqlalchemy==2.0.51
     #   -r desktop/requirements-desktop.txt
     #   alembic
     #   mem0ai
-sse-starlette==3.4.6
+sse-starlette==3.0.3
     # via mcp
-starlette==1.3.1
+starlette==0.46.2
     # via
     #   fastapi
     #   mcp
-    #   sse-starlette
 structlog==26.1.0
     # via -r desktop/requirements-desktop.txt
 tabulate==0.10.0
@@ -590,11 +587,9 @@ typing-extensions==4.16.0
     #   python-pptx
     #   referencing
     #   sqlalchemy
-    #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
     # via
-    #   fastapi
     #   mcp
     #   pydantic
     #   pydantic-settings

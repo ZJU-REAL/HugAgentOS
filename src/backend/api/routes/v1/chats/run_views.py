@@ -124,3 +124,27 @@ def chat_active_run(
             "enable_thinking": resolved_mode not in ("fast", "turbo"),
         }
     )
+
+@router.get("/stream/{run_id}/subscription", summary="订阅当前会话状态和后续事件")
+def chat_run_subscription(
+    run_id: str,
+    user: UserContext = Depends(auth_backend.get_current_user),
+    db: Session = Depends(db_engine.get_db),
+):
+    """Native ordinary-chat snapshot + tail; the raw replay API is separate."""
+    from orchestration import chat_run_executor
+    from orchestration.run_subscription import subscribe_run
+
+    db_user_id = chat_context.resolve_db_user_id(
+        db, chat_session_context._authenticated_user_id(user)
+    )
+    run = chat_run_executor.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if run.user_id != db_user_id:
+        raise HTTPException(status_code=403, detail="无权访问该 run")
+    payload = run.request_payload if isinstance(run.request_payload, dict) else {}
+    if payload.get("kind", "chat") != "chat":
+        raise HTTPException(status_code=400, detail="This run uses a specialized progress protocol")
+    chat_session_context._release_request_session(db)
+    return responses.sse_response(subscribe_run(run_id))

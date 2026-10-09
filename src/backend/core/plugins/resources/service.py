@@ -4,16 +4,20 @@ import os
 import secrets
 import time
 import uuid
-import httpx
 from fastapi import HTTPException
 from .crypto import encrypt_secret
 from core.plugins.ui.contract import find_module
 from . import installation, store
+from .transport import RuntimeTransport
 
 def authorized(db, resource_id, user_id):
     row = store.get(db, resource_id, user_id)
     if row.status != "active" or row.expires_at < time.time():
         raise HTTPException(410, "resource_expired")
+    validate_binding(db, row, user_id)
+    return row
+
+def validate_binding(db, row, user_id):
     selected = installation.resolve(db, row.slug, user_id, row.install_id)
     if selected.revision != row.revision:
         raise HTTPException(409, "plugin_revision_changed")
@@ -23,7 +27,7 @@ def authorized(db, resource_id, user_id):
         raise HTTPException(403, "conversation_unavailable")
     return row
 
-async def create(db, slug, module_id, user_id, chat_id, *, resource_id=None, install_id=None, checkpoint_id=None):
+async def create(db, slug, module_id, user_id, chat_id, *, resource_id=None, install_id=None, checkpoint_id=None, _prewarm=False, _provider=None):
     if resource_id:
         row = authorized(db, resource_id, user_id)
         if row.chat_id != chat_id or row.slug != slug or row.module_id != module_id:
@@ -53,33 +57,47 @@ async def create(db, slug, module_id, user_id, chat_id, *, resource_id=None, ins
         config["checkpoint"] = json.loads(state)
     from .lifecycle import reconcile
     await reconcile(db, user_id)
-    from core.db.models import UserShadow
-    if db.bind.dialect.name == "sqlite":
-        from sqlalchemy import text
-        db.execute(text("BEGIN IMMEDIATE"))
-    else:
-        db.query(UserShadow).filter_by(user_id=user_id).with_for_update().one()
-    active = db.query(store.PluginResource).filter(
-        store.PluginResource.user_id == user_id,
-        store.PluginResource.status.in_(["active", "starting"]),
-        store.PluginResource.expires_at > time.time(),
-    ).count()
-    if active >= int(os.getenv("PLUGIN_RESOURCE_MAX_PER_USER", "8")):
-        db.rollback()
-        raise HTTPException(429, "resource_limit")
+    from .reservation import adopt, check_quota
+    row, reused = await adopt(db, selected, module_id, user_id, chat_id,
+                             prewarm=_prewarm, checkpoint_id=checkpoint_id)
+    if reused:
+        if row is None:
+            return None
+        from core.sandbox.factory import get_sandbox_provider
+        provider = _provider or get_sandbox_provider()
+        target = store.descriptor(row)
+        if (target.get("sandbox_id") == await provider.current_sandbox_id(chat_id)
+                and target.get("provider") == provider.name):
+            try:
+                state = await request(row, "/state")
+                if not state.get("closed"):
+                    alive = True
+                else:
+                    alive = False
+            except HTTPException:
+                alive = False
+            if alive:
+                db.expire_all()
+                row = authorized(db, row.resource_id, user_id)
+                return store.public(row)
+        await close(db, row)
+        # A dead warm worker has performed no user actions; reserve a fresh one.
+        from .reservation import lock_owner
+        lock_owner(db, user_id)
+    check_quota(db, user_id)
     from core.config.settings import settings
     row = store.PluginResource(
         resource_id=uuid.uuid4().hex, user_id=user_id, chat_id=chat_id,
         install_id=selected.install_id, revision=selected.revision, slug=slug,
         module_id=module_id, scope="local" if settings.deploy.is_local else "cloud",
-        descriptor=encrypt_secret("{}"), status="starting",
+        descriptor=encrypt_secret("{}"), status="warming" if _prewarm else "starting",
         created_at=time.time(), expires_at=time.time() + 90,
     )
     db.add(row)
     db.commit()
     from core.sandbox.factory import get_sandbox_provider
     from core.sandbox.interactive import launch
-    provider = get_sandbox_provider()
+    provider = _provider or get_sandbox_provider()
     try:
         descriptor = await launch(provider, selected, module, user_id, chat_id, config)
     except BaseException as exc:
@@ -87,38 +105,48 @@ async def create(db, slug, module_id, user_id, chat_id, *, resource_id=None, ins
         db.commit()
         if not isinstance(exc, Exception):
             raise
-        raise HTTPException(503, "resource_runtime_unavailable: " + type(exc).__name__) from exc
-    row.descriptor = encrypt_secret(json.dumps(descriptor))
-    row.status = "active"
-    row.expires_at = time.time() + int(os.getenv("PLUGIN_RESOURCE_TTL_SECONDS", "86400"))
+        code = str(exc) if isinstance(exc, ValueError) and str(exc) in {
+            "chromium_sandbox_unavailable", "chromium_runtime_missing", "chromium_launch_failed",
+            "runtime_process_failed", "runtime_start_timeout", "runtime_start_failed",
+        } else type(exc).__name__
+        raise HTTPException(503, "resource_runtime_unavailable: " + code) from exc
     try:
-        db.add(row)
+        db.expire_all()
+        validate_binding(db, row, user_id)
+        updated = db.query(store.PluginResource).filter_by(
+            resource_id=row.resource_id, status="warming" if _prewarm else "starting",
+        ).update({
+            "descriptor": encrypt_secret(json.dumps(descriptor)),
+            "status": "warm" if _prewarm else "active",
+            "expires_at": time.time() + (300 if _prewarm else int(os.getenv("PLUGIN_RESOURCE_TTL_SECONDS", "86400"))),
+        }, synchronize_session=False)
         db.commit()
+        if updated != 1:
+            raise HTTPException(410, "resource_start_cancelled")
+        db.refresh(row)
     except BaseException:
-        await provider.write_stdin(descriptor["process_id"], sandbox_session_id=chat_id, user_id=user_id, chars="\x03", yield_time_ms=1000)
+        db.rollback()
+        await provider.write_stdin(descriptor["process_id"], sandbox_session_id=chat_id,
+                                   user_id=user_id, chars="\x03", yield_time_ms=1000)
+        row.status = "closed"
+        db.commit()
         raise
     return store.public(row)
 
-async def request(row, path, body=None):
-    target = store.descriptor(row)
-    try:
-        async with httpx.AsyncClient(timeout=40, trust_env=False, headers=target["headers"]) as client:
-            response = await client.get(target["url"] + path) if body is None else await client.post(target["url"] + path, json=body)
-            if response.status_code >= 400:
-                detail = response.json().get("detail", "runtime_request_failed")
-                raise HTTPException(response.status_code, detail)
-            return response.json()
-    except httpx.HTTPError as exc:
-        raise HTTPException(503, "runtime_disconnected_result_unknown") from exc
+async def request(row, path, body=None, *, transport=None):
+    if transport is not None:
+        return await transport.request(path, body)
+    async with RuntimeTransport(store.descriptor(row)) as connection:
+        return await connection.request(path, body)
 
-async def command(row, payload, *, actor, connection_id=""):
+async def command(row, payload, *, actor, connection_id="", transport=None):
     body = {**payload, "actor": actor, "connection_id": connection_id}
     if body.get("action") in {"storage_state", "checkpoint"}:
         raise HTTPException(403, "checkpoint_requires_explicit_save")
-    return await request(row, "/command", body)
+    return await request(row, "/command", body, transport=transport)
 
-async def checkpoint(db, row, name, connection_id):
-    state = await request(row, "/command", {"id": uuid.uuid4().hex, "actor": "user", "connection_id": connection_id, "action": "checkpoint", "params": {}})
+async def checkpoint(db, row, name, connection_id, *, transport=None):
+    state = await request(row, "/command", {"id": uuid.uuid4().hex, "actor": "user", "connection_id": connection_id, "action": "checkpoint", "params": {}}, transport=transport)
     record = store.PluginResourceCheckpoint(checkpoint_id=uuid.uuid4().hex, user_id=row.user_id, install_id=row.install_id, name=name[:80], state_enc=encrypt_secret(json.dumps(state["state"])))
     db.add(record)
     db.commit()

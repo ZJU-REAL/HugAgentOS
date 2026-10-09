@@ -200,3 +200,27 @@ make migrate-new msg="describe change"
 状态轮询和增量日志不再绕回代理。直连不可达或 SDK 客户端结构不受支持时保留代理。
 首次应用这项修复需要重建控制器镜像并重启后端与控制器；遵守部署授权流程，
 应用后分别验证同会话连续命令、后端重启恢复和并发请求。
+
+## 站点数据与浏览器部署检查
+
+普通 Compose 启动不启用应用数据托管，也不重建 OpenSandbox 按需运行镜像。需要这两项能力时，部署前分别完成[应用数据升级](../modules/application-hosting.md#外部检验修复与升级)和[浏览器运行镜像检查](../modules/browser-automation.md)。配置不同的 APPLICATION_DB_PASSWORD 与 APPLICATION_OWNER_DB_PASSWORD、共享 Redis 和适合网络环境的 BROWSER_DNS_RESOLVER_URL；使用 application_owner 作为应用数据运行账号。已有数据库卷也必须重新执行 application-database-init，然后更新后端、MCP、前端及沙箱运行镜像，并创建新浏览器会话进行验证。
+
+### WSL 内存紧张时限制构建资源
+
+在 WSL 项目目录中创建专用 BuildKit builder，限制内存及构建并发：
+
+    printf '[worker.oci]\n  max-parallelism = 1\n' > /tmp/hugagent-buildkit.toml
+    docker buildx create --name hugagent-limited --driver docker-container \
+      --driver-opt memory=3g --driver-opt memory-swap=4g \
+      --driver-opt cpu-period=100000 --driver-opt cpu-quota=200000 \
+      --buildkitd-config /tmp/hugagent-buildkit.toml
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build backend
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build mcp
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build frontend
+    docker buildx build --builder hugagent-limited --load \
+      -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+    docker buildx stop hugagent-limited
+
+builder 已存在时直接复用。构建结束后停止专用 builder，保留缓存供下次使用。
+应用托管部署仍需叠加 docker-compose.application-hosting.yml。
+不要同时运行完整构建和多组浏览器测试。WSL 上限应结合其他容器及编辑器的实际占用设置。

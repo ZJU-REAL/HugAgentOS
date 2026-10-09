@@ -32,6 +32,8 @@ import { ToolResultPanel } from './tool';
 
 import type { useAppController } from '../hooks/useAppController';
 import { SlidePanel } from './common/SlidePanel';
+import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
+import { ProjectsSkeleton, ProjectDetailSkeleton } from './projects/ProjectSkeletons';
 const AutomationPanel = lazy(() => import('./automation/AutomationPanel').then(m => ({ default: m.AutomationPanel })));
 const RunTimelinePanel = lazy(() => import('./automation/RunTimelinePanel').then(m => ({ default: m.RunTimelinePanel })));
 const AbilityCenterPage = lazy(() => import('./catalog/AbilityCenterPage').then(m => ({ default: m.AbilityCenterPage })));
@@ -43,7 +45,6 @@ const ProjectsPanel = lazy(() => import('./projects/ProjectsPanel').then(m => ({
 const ProjectDetailPanel = lazy(() => import('./projects/ProjectDetailPanel').then(m => ({ default: m.default })));
 const SettingsPage = lazy(() => import('./settings/SettingsModal').then(m => ({ default: m.default })));
 const SitesPanel = lazy(() => import('./sites/SitesPanel').then(m => ({ default: m.SitesPanel })));
-const panelLoading = <div className="jx-skeletonBlock" style={{ minHeight: 160 }} role="status" aria-label={t('加载中…')} />;
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
   const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, currentProjectId, setCatalogPanel, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
@@ -201,7 +202,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                     messagesEndRef={messagesEndRef}
                   />
                 )}
-                <Suspense fallback={panelLoading}>
+                <Suspense fallback={panel === 'projects' ? <ProjectsSkeleton /> : panel === 'project_detail' ? <ProjectDetailSkeleton /> : <PanelLoadingSkeleton />}>
                 {panel === 'ability_center' && <AbilityCenterPage />}
                 {panel === 'docs' && <DocsPanel />}
                 {panel === 'app_center' && <AppCenterPanel />}
@@ -233,7 +234,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
             * During exit store.activeGroup is already null; RunTimelinePanel falls back to a
             * snapshot internally to render the last frame. */}
             <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface} panelKey="run-timeline" x={24} duration={0.24}>
-              <Suspense fallback={panelLoading}><RunTimelinePanel /></Suspense>
+              <Suspense fallback={<PanelLoadingSkeleton />}><RunTimelinePanel /></Suspense>
             </SlidePanel>
           </div>
         </div>
