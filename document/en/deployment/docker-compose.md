@@ -208,3 +208,34 @@ logs no longer return through the proxy. Unreachable direct endpoints or unsuppo
 SDK layouts retain the proxy. Initial rollout requires rebuilding the controller
 image and restarting the backend and controller under the deployment authorization
 process. Verify repeated commands, backend restart recovery and concurrent requests.
+
+## Site data and browser deployment checks
+
+Ordinary Compose startup neither enables application hosting nor rebuilds the on-demand OpenSandbox runtime image.
+Complete the [application database upgrade](../modules/application-hosting.md) and [browser image checks](../modules/browser-automation.md) before deployment.
+Set different APPLICATION_DB_PASSWORD and APPLICATION_OWNER_DB_PASSWORD values.
+Configure shared Redis and an appropriate BROWSER_DNS_RESOLVER_URL.
+Use application_owner for runtime data access.
+Rerun application-database-init for existing volumes too.
+Update backend, MCP, frontend and sandbox images.
+Validate a fresh browser session.
+
+### Bound build resources when WSL memory is scarce
+
+Create a dedicated BuildKit builder from the WSL project directory:
+
+    printf '[worker.oci]\n  max-parallelism = 1\n' > /tmp/hugagent-buildkit.toml
+    docker buildx create --name hugagent-limited --driver docker-container \
+      --driver-opt memory=3g --driver-opt memory-swap=4g \
+      --driver-opt cpu-period=100000 --driver-opt cpu-quota=200000 \
+      --buildkitd-config /tmp/hugagent-buildkit.toml
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build backend
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build mcp
+    BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build frontend
+    docker buildx build --builder hugagent-limited --load \
+      -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+    docker buildx stop hugagent-limited
+
+Reuse the builder if it already exists. Stop it after builds; its cache remains available.
+Application hosting still requires the application-hosting Compose overlay.
+Avoid running full builds alongside several browser test suites. Size WSL memory limits for other containers and editor processes too.

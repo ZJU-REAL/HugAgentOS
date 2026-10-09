@@ -15,23 +15,6 @@
 /* ── History list ── */
 /* Sidebar history owns its layout, typography, editing and actions. */
 
-@keyframes jxSkeletonShimmer{
-  0%{ background-position:200% 0; }
-  100%{ background-position:-200% 0; }
-}
-
-/* motion-keep: 全站骨架屏基础块，停下就是一片静止灰条，读起来像加载失败 */
-.jx-skeletonBlock{
-  border-radius:999px;
-  /* 从文字令牌派生的低透明度灰，深浅两个主题下都是「比底色深/亮一点」的微光 */
-  background:linear-gradient(90deg,
-    color-mix(in srgb, var(--color-text) 10%, transparent) 0%,
-    color-mix(in srgb, var(--color-text) 6%, transparent) 50%,
-    color-mix(in srgb, var(--color-text) 10%, transparent) 100%);
-  background-size:240% 100%;
-  animation:jxSkeletonShimmer 2.2s ease-in-out infinite;
-}
-
 /* 首挂载淡入：骨架（chatsLoading）→ 真实列表交接时不再硬切（两态都是 .jx-historyGroup，
    挂载即播一次；折叠开合不重挂、不会重播）。 */
 .jx-historyGroup{

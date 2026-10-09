@@ -61,6 +61,8 @@ def create_app(config):
             raise HTTPException(409, str(exc)) from exc
         except asyncio.TimeoutError as exc:
             raise HTTPException(504, "operation_timeout_result_unknown") from exc
+        except OSError as exc:
+            raise HTTPException(502, "dns_failed") from exc
         except PlaywrightError as exc:
             # Driver messages can contain private URLs or page text.
             raise HTTPException(409, "browser_operation_failed_result_unknown") from exc

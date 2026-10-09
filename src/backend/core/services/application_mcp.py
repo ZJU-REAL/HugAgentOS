@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import inspect
 import re
-from typing import Any
+from typing import Annotated, Any
 
 from core.services.application_data import ApplicationDataService
 from core.services.application_schema import ToolDefinition
@@ -15,6 +15,7 @@ from core.services.application_store import applications
 from fastapi import HTTPException
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import Field
 from sqlalchemy import select
 from starlette.responses import JSONResponse
 
@@ -73,8 +74,8 @@ def query_tool(service: ApplicationDataService, app: dict, definition: ToolDefin
     ]
     parameters.extend(
         [
-            inspect.Parameter("limit", inspect.Parameter.KEYWORD_ONLY, default=50, annotation=int),
-            inspect.Parameter("offset", inspect.Parameter.KEYWORD_ONLY, default=0, annotation=int),
+            inspect.Parameter("limit", inspect.Parameter.KEYWORD_ONLY, default=50, annotation=Annotated[int, Field(ge=1, le=100)]),
+            inspect.Parameter("offset", inspect.Parameter.KEYWORD_ONLY, default=0, annotation=Annotated[int, Field(ge=0, le=100000)]),
         ]
     )
 
@@ -92,6 +93,10 @@ class ApplicationMCPGateway:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
+            return
+        if scope["method"] in {"GET", "DELETE", "HEAD"}:
+            await JSONResponse({"detail": "This stateless MCP endpoint accepts POST"},
+                               405, headers={"Allow": "POST, OPTIONS"})(scope, receive, send)
             return
         app_id = scope["path"].rstrip("/").split("/")[-1]
         if not re.fullmatch("[0-9a-f]{32}", app_id):

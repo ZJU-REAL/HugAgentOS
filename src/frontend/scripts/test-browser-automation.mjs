@@ -107,6 +107,12 @@ try{
  await frame.locator('#overlay').waitFor({state:'hidden'});
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
+ assert.equal(await frame.locator('#release-control').isVisible(), true);
+ checks.push('Leaving browser focus preserves human control until explicit release');
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await page.locator('#outside').click();
+ await page.waitForTimeout(300);
  const initialState=await tool('browser_observe',{resource_id:id,action:'state'});
  assert.equal(initialState.tabs.length,1,'The initial blank tab must be reused');
  assert.equal(initialState.tabs[0].url,backend+'/test/site');
@@ -132,6 +138,8 @@ try{
  await frame.locator('#keyboard').press('Control+A');
  await frame.locator('#keyboard').pressSequentially('人工中文输入');
  await page.waitForTimeout(300);
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#result'})).text,'工具自动填写');
@@ -147,6 +155,8 @@ try{
  await page.mouse.move(scrollBox.x+300*scrollBox.width/scrollSize.width,scrollBox.y+350*scrollBox.height/scrollSize.height);
  await page.mouse.wheel(0,450);
  await page.waitForTimeout(600);
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>0);
@@ -157,6 +167,8 @@ try{
  await page.mouse.click(scrollBox.x+300*scrollBox.width/scrollSize.width,scrollBox.y+350*scrollBox.height/scrollSize.height);
  await page.mouse.wheel(0,250);
  await page.waitForTimeout(600);
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>previousScroll);
@@ -174,6 +186,8 @@ try{
  await page.waitForTimeout(600);
  await touchCdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
  await touchCdp.detach();
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>beforeTouch);
  checks.push('Touch drag scrolls the remote nested container without mouse drag selection');
@@ -189,6 +203,8 @@ try{
  await frame.locator('#zoom-reset').filter({hasText:'100%'}).waitFor();
  await page.waitForTimeout(500);
  assert.equal(await canvas.evaluate(el=>el.width),baseWidth);
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();await page.waitForTimeout(300);
  checks.push('Ctrl plus reflows the remote viewport and Ctrl zero restores 100 percent');
 
@@ -199,6 +215,8 @@ try{
  await frame.locator('#dialog-accept').click();
  await dialogClick;
  await frame.locator('#dialog').waitFor({state:'hidden'});
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  checks.push('Live JavaScript dialog handled without blocking the operation lock');
@@ -209,6 +227,8 @@ try{
  await frame.locator('#files button').filter({hasText:'选择上传文件'}).click();
  await (await chooser).setFiles({name:'中文.txt',mimeType:'text/plain',buffer:Buffer.from('实机上传')});
  await page.waitForTimeout(300);
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#filename'})).text,'中文.txt');
@@ -227,6 +247,8 @@ try{
  await frame.locator('#connection[data-connected=true]').waitFor();
  await page.mouse.click(box.x+200*box.width/size.width,box.y+45*box.height/size.height);
 
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#result'})).text,'人工中文输入');
@@ -249,12 +271,16 @@ try{
  await page.screenshot({path:resolve(output,'03-popup-selected.png')});
  checks.push('Target-blank link automatically selects its new page, updates the address and renders its live frame');
  await frame.locator('[role=tab]').nth(1).locator('.chrome-tab-close').click();
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  state=await tool('browser_observe',{resource_id:id,action:'state'});
  assert.equal(state.active_tab,'3');
  assert.equal(state.tabs.length,2);
  await frame.locator('[role=tab][active] .chrome-tab-close').click();
+ await page.waitForTimeout(300);
+ if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  state=await tool('browser_observe',{resource_id:id,action:'state'});

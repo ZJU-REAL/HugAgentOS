@@ -105,7 +105,11 @@ async def create(db, slug, module_id, user_id, chat_id, *, resource_id=None, ins
         db.commit()
         if not isinstance(exc, Exception):
             raise
-        raise HTTPException(503, "resource_runtime_unavailable: " + type(exc).__name__) from exc
+        code = str(exc) if isinstance(exc, ValueError) and str(exc) in {
+            "chromium_sandbox_unavailable", "chromium_runtime_missing", "chromium_launch_failed",
+            "runtime_process_failed", "runtime_start_timeout", "runtime_start_failed",
+        } else type(exc).__name__
+        raise HTTPException(503, "resource_runtime_unavailable: " + code) from exc
     try:
         db.expire_all()
         validate_binding(db, row, user_id)

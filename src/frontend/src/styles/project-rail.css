@@ -118,6 +118,8 @@
 }
 
 .jx-projectRail-fileName {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--color-text);
   white-space: nowrap;
@@ -136,6 +138,7 @@
 }
 
 .jx-projectRail-fileMeta {
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--color-text-tertiary);
   white-space: nowrap;
@@ -196,11 +199,12 @@
 .jx-projectRail-fileTree .ant-tree-node-content-wrapper { min-width: 0; overflow: hidden; }
 .jx-projectRail-fileTree .ant-tree-title { display: block; }
 .jx-projectRail-fileTree .jx-projectRail-fileItem,
-.jx-projectRail-fileTree .jx-projectRail-groupHeader { height: 50px; box-sizing: border-box; }
+.jx-projectRail-fileTree .jx-projectRail-groupHeader { height: 34px; box-sizing: border-box; }
 .jx-projectRail-filePreview {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -209,3 +213,22 @@
   cursor: pointer;
 }
 .jx-projectRail-filePreview:focus-visible { outline: 2px solid var(--color-primary); }
+
+.jx-projectRail-fileTree .ant-tree-switcher { display: none; }
+.jx-projectRail-rowActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+.jx-projectRail-fileItem:hover .jx-projectRail-rowActions,
+.jx-projectRail-fileItem:focus-within .jx-projectRail-rowActions,
+.jx-projectRail-groupHeader:hover .jx-projectRail-rowActions,
+.jx-projectRail-groupHeader:focus-within .jx-projectRail-rowActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .jx-projectRail-rowActions { opacity: 1; pointer-events: auto; }
+}

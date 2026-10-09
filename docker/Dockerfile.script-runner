@@ -135,4 +135,4 @@ CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "89
 
 # Real launch detects driver/browser revision mismatches before delivery.
 COPY docker/verify-browser-runtime.py /opt/verify-browser-runtime.py
-RUN python3 /opt/verify-browser-runtime.py
+RUN python3 /opt/verify-browser-runtime.py --container-isolated

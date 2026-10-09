@@ -81,6 +81,7 @@ async def endpoint(provider, chat_id, user_id, port):
     raise ValueError("interactive_runtime_not_supported")
 
 async def launch(provider, installation, module, user_id, chat_id, config):
+    config = {**config, "_container_isolated": not getattr(provider, "runs_on_host", True) and getattr(provider, "name", "") in {"opensandbox", "script_runner", "cube"}}
     runtime = module["resource"]
     source = (installation.package / runtime["entry"]).resolve()
     if not source.is_relative_to(installation.package.resolve()) or not source.is_dir():
@@ -137,7 +138,8 @@ async def launch(provider, installation, module, user_id, chat_id, config):
                                     raise ValueError("runtime_start_failed")
                                 await asyncio.sleep(0.5)
             if not handle or process.get("exit_code") is not None:
-                raise ValueError("runtime_process_failed")
+                diagnostic = next((code for code in ("chromium_sandbox_unavailable", "chromium_runtime_missing", "chromium_launch_failed") if code in stdout + errors), "runtime_process_failed")
+                raise ValueError(diagnostic)
             process = await provider.write_stdin(handle, sandbox_session_id=chat_id, user_id=user_id, yield_time_ms=1000)
             stdout += process.get("output", process.get("stdout", ""))
             errors += process.get("stderr", "")

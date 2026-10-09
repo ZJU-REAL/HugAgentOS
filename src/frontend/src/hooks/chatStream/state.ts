@@ -1,0 +1,50 @@
+import type { ChatMessage,CitationItem,EvolutionSummary,MessageSegment,OntologyGovernanceSummary,ToolCall } from '../../types';
+import { type QueuedRunHandoff } from '../../utils/streamHandoff';
+import {
+type DeferredThinkingTextFragment
+} from '../../utils/streamSegments';
+import type { ChatStreamApi } from './runtime';
+export interface ChatStreamState {
+chatId: string;
+enableThinking: boolean;
+pendingNotice: string | undefined;
+onEvent: ((ev: Record<string, unknown>, api: ChatStreamApi) => boolean) | undefined;
+runId: string;
+eventOffset: number;
+decoder: TextDecoder;
+sseBuffer: string;
+full: string;
+streamEnded: boolean;
+toolCalls: ToolCall[];
+thinking: { content: string; timestamp: number; }[];
+segments: MessageSegment[];
+ontologyGovernance: OntologyGovernanceSummary | undefined;
+evolutionSummary: EvolutionSummary | undefined;
+metaMessageId: string | undefined;
+metaFollowUps: string[];
+queuedRun: QueuedRunHandoff | undefined;
+allCitations: CitationItem[];
+metaWorkspaceFiles: string[] | null;
+metaDurationMs: number | null;
+compactionPending: boolean;
+parseBuffer: string;
+deferredThinkingText: DeferredThinkingTextFragment | undefined;
+toolPending: boolean;
+ontologySidebarAutoOpened: boolean;
+aborted: boolean;
+thinkingPhaseActive: boolean;
+structuredReasoning: boolean;
+implicitThinkSegIdxs: Set<number>;
+sawThinkCloseTag: boolean;
+normalizeToolId: (value: unknown) => string | undefined;
+bubbleUid: string;
+bubbleStartedAt: number;
+lastEventTs: number;
+seed: ChatMessage | undefined;
+pendingStreamingUpdate: { cits?: CitationItem[]; persistedMessageId?: string; } | null;
+streamingUpdateTimer: number | null;
+lastStreamingCommitAt: number;
+hookApi: ChatStreamApi;
+thrown: unknown;
+isMd: boolean;
+}

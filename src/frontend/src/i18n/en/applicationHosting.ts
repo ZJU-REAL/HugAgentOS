@@ -57,4 +57,13 @@ export const APPLICATION_HOSTING_DICT: Record<string, string> = {
   'MCP 已发布，但个人连接验证未完成，请重新发布以修复连接': 'MCP published, but the personal connection is unverified. Publish again to repair it.',
   '编辑 MCP：{name}': 'Edit MCP: {name}',
   'MCP 已发布，但项目定义同步失败，请在项目中核对版本后继续编辑': 'MCP published, but its project definition could not be synchronized. Reconcile the version before editing further.',
+  '允许访客替换整张表': "Allow visitors to replace the entire table",
+  '匿名访客可以清空或替换全部记录。历史仅保留最近20个版本，限流不能防止首次清空。': "Anonymous visitors can erase or replace all records. Only the latest 20 recovery versions are retained; rate limits cannot prevent the first deletion.",
+  '导出完整 CSV': "Export full CSV",
+  '删除数据表': "Delete table",
+  '删除应用': "Delete application",
+  '删除记录': "Delete record",
+  '此操作永久删除数据及恢复历史，无法撤销。': "This permanently erases data and recovery history and cannot be undone.",
+  '恢复历史版本': "Restore a previous version",
+  '恢复会替换当前数据，并生成新的记录编号。当前版本会保留在历史中。': "Restoring replaces current data and creates new record IDs. The current version is retained in history.",
 };

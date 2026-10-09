@@ -1,5 +1,5 @@
 # HTTP 服务
-fastapi>=0.104.0
+fastapi==0.115.12
 uvicorn>=0.24.0
 
 # 数据分析（Skill 脚本常用）

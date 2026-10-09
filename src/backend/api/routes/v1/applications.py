@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 
 from core.auth.backend import UserContext, get_current_user
@@ -21,6 +19,7 @@ from core.services.application_schema import (
     MCPRollback,
     PatchRecord,
     RecordBatch,
+    RestoreCollection,
     TableDefinition,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -134,38 +133,14 @@ def patch_record(
 def export_records(
     app_id: str,
     table: str,
-    offset: int = Query(0, ge=0, le=100000),
     user: UserContext = Depends(get_current_user),
 ):
-    result = ApplicationDataService().query(app_id, user.user_id, table, limit=100, offset=offset)
-    buffer = io.StringIO()
-    if result["items"]:
-        writer = csv.DictWriter(buffer, fieldnames=list(result["items"][0]))
-        writer.writeheader()
-        for row in result["items"]:
-            # Spreadsheet formula injection protection for downloaded untrusted text.
-            writer.writerow(
-                {
-                    k: (
-                        "'" + v
-                        if isinstance(v, str)
-                        and (
-                            v.startswith(("\t", "\r", "\n"))
-                            or v.lstrip().startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
-                        )
-                        else v
-                    )
-                    for k, v in row.items()
-                }
-            )
-    return Response(
-        buffer.getvalue(),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": 'attachment; filename="records.csv"',
-            "X-Total-Count": str(result["total"]),
-            "Cache-Control": "no-store",
-        },
+    from core.services.application_export import export_csv
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        export_csv(ApplicationDataService(), app_id, user.user_id, table),
+        media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="records.csv"',
+                                       "Cache-Control": "no-store"},
     )
 
 
@@ -218,3 +193,43 @@ async def rollback_mcp(
     await ApplicationProjectService(db, publication.engine).flush_source(app_id, user.user_id)
     receipt = await run_in_threadpool(publication.rollback, app_id, user.user_id, body.version)
     return success_response(data=await finish_application_publication(user.user_id, receipt))
+
+@router.delete("/{app_id}/tables/{table}/records/{record_id}")
+def erase_record(app_id: str, table: str, record_id: str,
+                 version: int = Query(..., ge=1),
+                 user: UserContext = Depends(get_current_user)):
+    from core.services.application_lifecycle import delete_record
+    return success_response(data=delete_record(ApplicationDataService(), app_id, user.user_id, table, record_id, version))
+
+@router.delete("/{app_id}/tables/{table}")
+def erase_table(app_id: str, table: str, user: UserContext = Depends(get_current_user)):
+    from core.services.application_lifecycle import delete_table
+    return success_response(data=delete_table(ApplicationDataService(), app_id, user.user_id, table))
+
+@router.delete("/{app_id}")
+def erase_application(app_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
+    from core.services.application_lifecycle import delete_application
+    return success_response(data=delete_application(ApplicationDataService(), db, app_id, user.user_id))
+
+@router.get("/{app_id}/tables/{table}/history")
+def recovery_history(app_id: str, table: str, user: UserContext = Depends(get_current_user)):
+    from core.services.application_history import list_history
+    return success_response(data=list_history(ApplicationDataService(), app_id, user.user_id, table))
+
+@router.post("/{app_id}/tables/{table}/history/{history_id}/restore")
+def restore_collection(app_id: str, table: str, history_id: str, body: RestoreCollection,
+                       user: UserContext = Depends(get_current_user)):
+    from core.services.application_history import restore
+    return success_response(data=restore(ApplicationDataService(), app_id, user.user_id, table, history_id, body.revision))
+
+@router.get("/{app_id}/tables/{table}/collection")
+def owner_collection(app_id: str, table: str, user: UserContext = Depends(get_current_user)):
+    from core.services.application_collections import snapshot
+    from core.services.application_store import owned_application
+    from core.services.application_relational import table_definition
+    from core.services.application_sql_policy import application_role
+    service = ApplicationDataService()
+    with service.engine.begin() as connection:
+        app = owned_application(connection, app_id, user.user_id)
+        with application_role(connection, app_id):
+            return success_response(data=snapshot(connection, service._table(app_id, table_definition(app, table))))

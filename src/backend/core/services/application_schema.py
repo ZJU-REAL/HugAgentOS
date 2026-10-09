@@ -168,3 +168,8 @@ class InternalMCPPublish(MCPPublish):
     user_id: str = Field(min_length=1, max_length=64)
     chat_id: str = ""
     app_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class RestoreCollection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")

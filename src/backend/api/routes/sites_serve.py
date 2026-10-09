@@ -22,7 +22,6 @@ Security:
 """
 
 import logging
-import time
 from typing import Optional
 
 from api.routes.site_gate import render_site_gate
@@ -58,45 +57,6 @@ _CORS_API_HEADERS = {
     "Access-Control-Max-Age": "600",
     "Cache-Control": "no-store",
 }
-
-# ── Simple in-process rate limiting (site API writes): 60 requests/minute per (ip, slug) ──
-_RATE_LIMIT_PER_MIN = 60
-_rate_buckets: dict[str, tuple[float, int]] = {}
-
-# 密码尝试单独限流：10 次 / 5 分钟，挡住对短密码的暴力猜测。独立一个桶，免得写操作
-# 那个桶被清空时连带把暴力破解的计数也一起清掉。
-_UNLOCK_LIMIT = 10
-_UNLOCK_WINDOW_SECONDS = 300.0
-_unlock_buckets: dict[str, tuple[float, int]] = {}
-
-
-def _count_in_window(buckets: dict[str, tuple[float, int]], key: str, window: float) -> int:
-    """进程内滚动计数，返回本窗口内的第几次。"""
-    now = time.monotonic()
-    start, count = buckets.get(key, (now, 0))
-    if now - start >= window:
-        start, count = now, 0
-    count += 1
-    buckets[key] = (start, count)
-    if len(buckets) > 10000:  # guard against memory bloat
-        stale = [k for k, (begun, _) in buckets.items() if now - begun >= window]
-        for k in stale:
-            del buckets[k]
-        if len(buckets) > 10000:  # 全在窗口内，只能整桶丢
-            buckets.clear()
-    return count
-
-
-def _rate_limit_write(ip: str, slug: str) -> None:
-    if _count_in_window(_rate_buckets, f"{ip}|{slug}", 60.0) > _RATE_LIMIT_PER_MIN:
-        raise HTTPException(status_code=429, detail="操作太频繁，请稍后再试")
-
-
-def _unlock_attempt_allowed(ip: str, slug: str) -> bool:
-    return (
-        _count_in_window(_unlock_buckets, f"{ip}|{slug}", _UNLOCK_WINDOW_SECONDS) <= _UNLOCK_LIMIT
-    )
-
 
 def _client_ip(request: Request) -> str:
     # X-Real-IP 由 nginx 按连接对端填写，访客改不了；X-Forwarded-For 的头一段是客户端
@@ -196,8 +156,8 @@ async def site_api_preflight(slug: str, rest: str):
 async def site_unlock(slug: str, request: Request, db: Session = Depends(get_db)):
     """校验访问密码并下发解锁凭据（统一验证页提交到这里）。这是解锁入口，必须免闸。"""
     # 限流放在取站点之前：被挡下的尝试连一次 get_by_slug 都不该花。
-    if not _unlock_attempt_allowed(_client_ip(request), slug):
-        return _api_json({"error": "尝试过于频繁，请稍后再试"}, 429)
+    from core.services.site_rate_limit import count_attempt
+    await count_attempt(_client_ip(request), slug, unlock=True)
     site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
     if not site.access_password_hash:
         return _api_json({"ok": True})

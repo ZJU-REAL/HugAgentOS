@@ -12,7 +12,7 @@ from core.config.settings import settings
 logger = logging.getLogger(__name__)
 
 # Site dynamic API path (/site/<slug>/__api/**)
-_SITE_API_RE = re.compile(r"^/site/[^/]+/__api/")
+_SITE_API_RE = re.compile(r"^/site/[^/]+/__api(?:/|$)")
 
 _SITE_API_CORS = [
     (b"access-control-allow-origin", b"*"),
@@ -30,27 +30,40 @@ class SiteApiCorsMiddleware:
     should not be added to) the credentials whitelist, so it gets blocked with 400. Here
     we answer OPTIONS on ``/site/<slug>/__api/**`` directly with 204 + ``ACAO: *``
     (credential-less semantics, since the site API is meant for anonymous visitors), and
-    pass every other request through unchanged (the actual response CORS headers are
-    filled in by the route layer).
+    decorate every response, including exceptions and outer middleware rejections.
     """
 
     def __init__(self, app: ASGIApp):
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] == "http"
-            and scope["method"] == "OPTIONS"
-            and _SITE_API_RE.match(scope["path"])
-        ):
-            await send({
-                "type": "http.response.start",
-                "status": 204,
-                "headers": list(_SITE_API_CORS),
-            })
+        if scope["type"] != "http" or not _SITE_API_RE.match(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def decorate(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+                names = {name for name, _ in _SITE_API_CORS} | {b"access-control-allow-credentials"}
+                headers = [(k, v) for k, v in message.get("headers", []) if k.lower() not in names]
+                message = {**message, "headers": headers + _SITE_API_CORS}
+            await send(message)
+
+        if scope["method"] == "OPTIONS":
+            await decorate({"type": "http.response.start", "status": 204, "headers": []})
             await send({"type": "http.response.body", "body": b""})
             return
-        await self.app(scope, receive, send)
+        try:
+            await self.app(scope, receive, decorate)
+        except Exception:
+            if started:
+                raise
+            logger.exception("Site API request failed")
+            from starlette.responses import JSONResponse
+            await JSONResponse({"detail": "Site API service unavailable"}, 500)(scope, receive, decorate)
+
 
 
 def setup_cors(app: FastAPI) -> None:

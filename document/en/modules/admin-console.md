@@ -176,3 +176,25 @@ Aligned with chapter 4 of the productization plan and the route registry:
 | Service configs | `src/backend/api/routes/v1/service_configs.py` |
 
 Further reading: [Authentication & Permissions](auth.md) · [Prompt System](prompts.md) · [Editions & Licensing](../editions/overview.md)
+
+## Export individual marketplace entries (EE)
+
+In the skill, plugin, and agent marketplaces under `/admin`, click **Export** on an entry to download its ZIP. Skill and agent detail views also provide this button. Administrators can export entries without installing them, including unlisted entries.
+
+- Skill ZIPs contain `SKILL.md`, scripts, references, and binary attachments. Re-import them through skill upload.
+- Plugin ZIPs preserve the original manifest, runtime, and resources. Skills removed from the marketplace are excluded. Re-import them through plugin upload.
+- Agent ZIPs contain one Markdown file with YAML frontmatter. It preserves the system prompt, model parameters, welcome message, suggested questions, and capability references. Re-import it through agent import. Referenced skills, plugins, tools, and knowledge bases are not bundled as dependencies.
+
+Exports read marketplace content and do not read installed-instance credentials. Credential files, environment files, caches, and symbolic links are excluded. Marketplace visibility and installation state do not transfer with the package. These download endpoints use content-management authorization:
+
+| Entry | GET endpoint |
+| --- | --- |
+| Skill | `/v1/admin/marketplace/skills/{slug}/export-zip` |
+| Plugin | `/v1/admin/plugins/market/{slug}/export-zip` |
+| Agent | `/v1/admin/agent-marketplace/agents/{slug}/export-zip` |
+
+All three marketplaces support entry selection and selecting all filtered results. Individual export uses a compact download icon with an Export tooltip, next to Edit in the plugin marketplace. Export Selected downloads one ZIP containing independently importable entry ZIPs. A batch allows up to 100 entries and 100 MB of entry ZIP data. Endpoint: `POST /v1/admin/marketplace/export-zip`, body: `{kind: "skill" | "agent" | "plugin", slugs: string[]}`.
+
+Delete Selected asks for confirmation of eligible entries. Preset entries are skipped. Only listings are removed; installed instances remain. Failures show entry names and reasons and retain selection for retry. Selection survives pagination and resets on search/category changes or reopening the marketplace.
+
+The plugin marketplace selection count, Select All and bulk actions remain above the scrollable list. Only plugin entries scroll; the toolbar stays visible.

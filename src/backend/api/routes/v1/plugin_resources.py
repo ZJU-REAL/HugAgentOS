@@ -48,6 +48,27 @@ async def open_resource(slug: str, module_id: str, body: OpenRequest, user: User
     result = await service.create(db, slug, module_id, str(user.user_id), **body.model_dump())
     return success_response(data={"resource": result})
 
+@router.get("/chats/{chat_id}/plugin-resources")
+async def chat_resources(chat_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
+    import asyncio
+    from core.db.models import ChatSession
+    chat = db.get(ChatSession, chat_id)
+    uid = str(user.user_id)
+    if chat is None or chat.user_id != uid or chat.deleted_at is not None:
+        raise HTTPException(404, "conversation_unavailable")
+    rows = db.query(store.PluginResource).filter_by(user_id=uid, chat_id=chat_id, status="active").limit(8).all()
+    async def live(row):
+        try:
+            service.authorized(db, row.resource_id, uid)
+            state = await asyncio.wait_for(service.request(row, "/state"), 5)
+            if state.get("closed"):
+                return None
+            return store.public(row)
+        except (HTTPException, TimeoutError):
+            return None
+    items = await asyncio.gather(*(live(row) for row in rows))
+    return success_response(data={"items": [item for item in items if item is not None]})
+
 @router.get("/plugin-resources/{resource_id}")
 async def get_resource(resource_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
     row = service.authorized(db, resource_id, str(user.user_id))

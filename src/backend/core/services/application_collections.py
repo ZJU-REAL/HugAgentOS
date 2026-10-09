@@ -47,7 +47,7 @@ def read_collection(service, app_id, owner, name):
             return {"items": [json_record(row) for row in rows], "total": total}
 
 
-def replace_collection(service, app_id, owner, name, revision, rows):
+def replace_collection(service, app_id, owner, name, revision, rows, *, owner_restore=False):
     if (
         not isinstance(revision, str)
         or len(revision) != 64
@@ -70,7 +70,7 @@ def replace_collection(service, app_id, owner, name, revision, rows):
             ).first()
             app = owned_application(connection, app_id, owner)
             definition = table_definition(app, name)
-            if not definition.public_read or not definition.public_replace:
+            if not owner_restore and (not definition.public_read or not definition.public_replace):
                 raise HTTPException(404, "Public collection not found")
             table = service._table(app_id, definition)
             values = [
@@ -84,8 +84,14 @@ def replace_collection(service, app_id, owner, name, revision, rows):
                 for row in rows
             ]
             with application_role(connection, app_id):
-                if snapshot(connection, table)["revision"] != revision:
+                previous = snapshot(connection, table)
+                if previous["revision"] != revision:
                     raise HTTPException(409, "Collection changed; reload before saving")
+                if not previous["items"] and not rows:
+                    return previous
+            from core.services.application_history import archive
+            archive(connection, app_id, name, previous["items"])
+            with application_role(connection, app_id):
                 connection.execute(delete(table))
                 if values:
                     connection.execute(insert(table), values)

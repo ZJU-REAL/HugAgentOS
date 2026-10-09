@@ -1,5 +1,6 @@
 """A resource connection owns its HTTP pool and releases it on disconnect."""
 import httpx
+from core.infra.http_errors import response_error
 from fastapi import HTTPException
 
 
@@ -21,7 +22,10 @@ class RuntimeTransport:
                         else await self.client.post(self.url + path, json=body))
             if response.status_code >= 400:
                 raise HTTPException(response.status_code,
-                                    response.json().get("detail", "runtime_request_failed"))
-            return response.json()
+                                    response_error(response, f"runtime_http_{response.status_code}"))
+            try:
+                return response.json()
+            except ValueError as error:
+                raise HTTPException(502, "runtime_invalid_json") from error
         except httpx.HTTPError as exc:
             raise HTTPException(503, "runtime_disconnected_result_unknown") from exc

@@ -35,11 +35,14 @@
       }).then(result => { report(); return result; }).catch(error => {
         if (seen === generation) { cancellation = error.message; generation++; report(error); }
         throw error;
-      }).finally(() => { if (document.hasFocus()) arm(); else void release(); });
+      }).finally(() => { if (document.hasFocus()) arm(); else clearTimeout(timer); });
     };
-    window.addEventListener('blur', () => { setTimeout(() => { void release(); }, 0); });
+    window.addEventListener('blur', () => { clearTimeout(timer); });
+    window.addEventListener('focus', () => { if (owns()) arm(); });
     return {
       command,
+      release,
+      rejectInput() { report(new Error('stale_frame_input_not_sent')); },
       owns,
       busy() { return holds.size > 0; },
       hold(name, value) { value ? holds.add(name) : holds.delete(name); },

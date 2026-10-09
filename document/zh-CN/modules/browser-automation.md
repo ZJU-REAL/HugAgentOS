@@ -48,7 +48,7 @@ Docker 使用沙箱镜像内的 Python Playwright 与 Chromium；桌面完整包
 不再显示独立的接管、登录、保存登录或关闭浏览器按钮。
 
 网页视口跟随 Canvas 的宽度和高度调整。用户直接点击、滚动或输入时自动取得连接专属控制权。
-操作期间暂停智能体读取。焦点离开面板或停止操作 15 秒后自动交还控制权。
+操作期间暂停智能体读取。保持焦点且停止操作15秒后自动交还；窗口失焦保留控制权。
 中文输入法组合期间和鼠标拖动期间不会自动交还。
 此面板不提供保存登录入口，不会自动保存登录；已有登录恢复编号仍可用于恢复。
 
@@ -100,3 +100,15 @@ Docker 使用沙箱镜像内的 Python Playwright 与 Chromium；桌面完整包
 浏览器初始化完成后才报告就绪。实时画面只保留一个正在解码的帧和一个最新待处理帧，避免慢速设备累积旧画面。标签页切换或连接中断会丢弃过期画面；浏览器状态有变化时才更新标签页等界面。
 
 沙箱绑定到用户和对话后，主机按已启用插件的 resource.prewarm 声明异步启动空白浏览器。首次 browser_open 原子接管同一安装版本的预热资源；如果仍在启动，则等待同一次启动完成。预热资源计入用户配额，空置五分钟后由资源回收器关闭；沙箱销毁、回池及后端退出时清理。带 checkpoint_id 的打开仍单独创建浏览器并恢复显式保存的状态。
+
+### 1.0.12 可用性与错误恢复
+
+启动时实际尝试 Chromium 沙箱。仅经过宿主验证的外层隔离容器在出现明确的内部沙箱错误时允许关闭 Chromium 内层沙箱后重试；本机环境不采用此降级。启动失败显示 chromium_sandbox_unavailable、chromium_runtime_missing 或 chromium_launch_failed，而不是仅显示异常类型。
+
+更新 OpenSandbox 时需显式从仓库根目录构建运行镜像：docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .。普通 docker compose up --build 不会重建这一按需启动的镜像。核对 OPENSANDBOX_IMAGE 实际标签，并在更新后用 browser_open 创建新会话；只有 Chromium 初始化及真实浏览器验证通过后才报告资源就绪。其他运行提供方同样需重建各自运行镜像。
+
+Fake-IP DNS 返回198.18.0.0/15时仍禁止连接，错误提示 fake_ip_dns，并建议配置 BROWSER_DNS_RESOLVER_URL 为受信任的 HTTPS JSON DNS 服务。解析失败返回 dns_failed；不得为解决公网 DNS 问题打开私网访问。缺失元素和重复定位器分别返回 element_not_found、ambiguous_locator，未执行动作不再标为结果未知。
+
+截图通过 MCP image 内容返回。聊天重开时查询仍活动、属于当前用户及聊天且安装版本一致的浏览器，并恢复 Canvas；失效会话不从旧工具回执自动重建。browser_open 卡片提供“在 Canvas 中打开”。
+
+画面尚未就绪时明确提示输入未发送。窗口失焦保留用户控制权；返回窗口后恢复15秒空闲计时，也可点击“交还控制权”。下载列表最多50项，可显式清空；清空取消并移除临时下载，不删除已保存的对话附件。macOS 覆盖式滚动条不要求占据布局宽度。

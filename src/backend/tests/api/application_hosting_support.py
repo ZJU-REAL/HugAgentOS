@@ -17,6 +17,9 @@ from sqlalchemy.engine import make_url
 def hosted(tmp_path, monkeypatch, request):
     from api.routes.v1 import application_transports, applications
 
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("core.services.site_rate_limit.redis_configured", lambda: True)
+    monkeypatch.setattr("core.services.site_rate_limit.get_redis", lambda: SimpleNamespace(eval=AsyncMock(return_value=1)))
     admin = None
     database = "test_applications_" + uuid4().hex
     if request.param == "postgres":

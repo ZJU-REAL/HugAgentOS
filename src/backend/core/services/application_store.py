@@ -19,6 +19,7 @@ from sqlalchemy import (
     create_engine,
     inspect,
     select,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -95,11 +96,23 @@ def application_engine() -> Engine:
         from core.db.engine import apply_sqlite_concurrency_pragmas
 
         apply_sqlite_concurrency_pragmas(engine, settings.db.pool_timeout)
+    if target.get_backend_name() == "postgresql":
+        try:
+            with engine.connect() as connection:
+                if connection.scalar(text("SELECT rolsuper FROM pg_roles WHERE rolname=current_user")):
+                    raise HTTPException(503, "Application runtime requires a non-superuser owner")
+        except HTTPException:
+            engine.dispose()
+            raise
+        except SQLAlchemyError:
+            engine.dispose()
+            raise HTTPException(503, "Application data service is unavailable") from None
     return engine
 
 
 def initialize_store(engine: Engine) -> None:
     """Explicit provisioning entry point; runtime requests never create registry tables."""
+    from core.services.application_history import collection_history
     metadata.create_all(engine)
 
 
@@ -119,9 +132,10 @@ def initialize_local_store() -> None:
 
 
 def require_store(engine: Engine) -> None:
+    from core.services.application_history import collection_history
     try:
         ready = all(
-            inspect(engine).has_table(table.name) for table in (applications, application_sources)
+            inspect(engine).has_table(table.name) for table in (applications, application_sources, metadata.tables["hosted_collection_history"])
         )
     except SQLAlchemyError:
         raise HTTPException(503, "Application data service is unavailable")

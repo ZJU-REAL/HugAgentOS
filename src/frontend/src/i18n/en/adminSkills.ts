@@ -278,4 +278,11 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '目标：{targets}': 'Target: {targets}',
   '（暂无日志）': '(No log yet)',
   '正在 rebuild：{targets}': 'Rebuilding: {targets}',
+  '批量导出': 'Export Selected',
+  '确定从市场删除选中的 {n} 项？': 'Delete the {n} selected marketplace entries?',
+  '仅移出市场，不影响已安装实例。预置条目不会删除。': 'Only marketplace listings are removed. Installed instances are unchanged. Preset entries are preserved.',
+  '已删除 {n} 项': 'Deleted {n} entries',
+  '部分条目删除失败': 'Some entries could not be deleted',
+  '已选择 {n} 项': 'Selected {n} entries',
+  '选择 {name}': 'Select {name}',
 };

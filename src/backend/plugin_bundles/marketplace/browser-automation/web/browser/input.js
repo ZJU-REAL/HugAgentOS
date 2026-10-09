@@ -7,7 +7,7 @@
     const ready = () => getState() && screen.dataset.revision === String(getState().viewport_revision) && screen.dataset.tab === getState().active_tab;
     const send = params => {
       const state = getState();
-      if (!state || !ready()) return Promise.resolve();
+      if (!state || !ready()) { control.rejectInput(); return Promise.resolve(); }
       return control.command('input', { ...params, viewport_revision: state.viewport_revision }).catch(() => {});
     };
     const position = event => {
@@ -23,7 +23,7 @@
     const touch = window.installBrowserTouch(screen, getState, control, send,
       (point, dx, dy) => queueScroll(point, dx, dy), focus);
     screen.addEventListener('pointerdown', event => {
-      if (!ready()) return;
+      if (!ready()) { control.rejectInput(); return; }
       if (touch('down', event)) return;
       event.preventDefault();
       control.hold('pointer', true);
@@ -86,7 +86,7 @@
       void scroll();
     };
     screen.addEventListener('wheel', event => {
-      if (!ready()) return;
+      if (!ready()) { control.rejectInput(); return; }
       event.preventDefault();
       keyboard.focus({ preventScroll: true });
       const bounds = screen.getBoundingClientRect();
@@ -100,6 +100,7 @@
     screen.addEventListener('contextmenu', event => event.preventDefault());
     keyboard.addEventListener('compositionstart', () => { composing = true; control.hold('composition', true); });
     const flush = () => {
+      if (!ready()) { control.rejectInput(); keyboard.value = ''; return; }
       if (keyboard.value) { send({ kind: 'text', text: keyboard.value }); keyboard.value = ''; }
     };
     keyboard.addEventListener('compositionend', () => { composing = false; control.hold('composition', false); flush(); });
@@ -128,6 +129,7 @@
     keyboard.addEventListener('blur', () => {
       composing = false;
       control.hold('composition', false);
+      if (keyboard.value) control.rejectInput();
       keyboard.value = '';
       for (const key of pressedKeys) { control.hold('key:' + key, false); send({ kind: 'key_up', key }); }
       pressedKeys.clear();

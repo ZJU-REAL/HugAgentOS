@@ -31,7 +31,8 @@ services:
       - ./src/backend:/app/src/backend:ro
     command: ["python", "-m", "core.services.application_hosting_setup"]
     environment:
-      APPLICATION_DATABASE_URL: postgresql://application_admin:${APPLICATION_DB_PASSWORD}@application-postgres:5432/applications
+      APPLICATION_DATABASE_URL: postgresql://application_owner:${APPLICATION_OWNER_DB_PASSWORD:?Set a separate APPLICATION_OWNER_DB_PASSWORD}@application-postgres:5432/applications
+      APPLICATION_PROVISION_DATABASE_URL: postgresql://application_admin:${APPLICATION_DB_PASSWORD}@application-postgres:5432/applications
     networks:
       - hugagent-network
     depends_on:
@@ -40,7 +41,7 @@ services:
     restart: "no"
   backend:
     environment:
-      APPLICATION_DATABASE_URL: postgresql://application_admin:${APPLICATION_DB_PASSWORD}@application-postgres:5432/applications
+      APPLICATION_DATABASE_URL: postgresql://application_owner:${APPLICATION_OWNER_DB_PASSWORD:?Set a separate APPLICATION_OWNER_DB_PASSWORD}@application-postgres:5432/applications
     depends_on:
       application-database-init:
         condition: service_completed_successfully

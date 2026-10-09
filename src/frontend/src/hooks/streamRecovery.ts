@@ -1,3 +1,4 @@
+import { openRunSubscription } from '../runSubscriptionClient';
 import { streamResumeSeed } from '../utils/streamResume';
 import { message } from 'antd';
 import { t } from '../i18n';
@@ -284,8 +285,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
     await reloadChatHistory(chatId);
     const base = useChatStore.getState().store.chats[chatId]?.messages
       .find((m) => m.role === 'assistant' && m.messageId === active.message_id);
-    const seedFrom = streamResumeSeed(base, !!active.enable_thinking);
-    const fromOffset = seedFrom?.inFlight?.eventOffset ?? 0;
+    const seedFrom = streamResumeSeed(base);
 
     addSendingChatId(chatId);
 
@@ -294,7 +294,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
     let streamOutcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
 
     try {
-      const r = await followChatRun(active.run_id, fromOffset, abortController.signal, uid, chatId);
+      const r = await openRunSubscription(active.run_id, abortController.signal, chatId);
       if (!r.ok || !r.body) return;
       streamOutcome = await ctx.processRegenerateStream(r, chatId, {
         enableThinking: !!active.enable_thinking,
@@ -312,7 +312,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
       ctx.settleQueuedMessageAfterRun(
         chatId,
         streamOutcome?.bubbleUid,
-        streamOutcome !== undefined,
+        streamOutcome?.settled === true,
       );
     }
   }

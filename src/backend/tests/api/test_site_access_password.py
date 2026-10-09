@@ -4,6 +4,7 @@ import time
 
 import pytest
 from api.routes import sites_serve
+from core.services.site_rate_limit import UNLOCK_LIMIT
 from core.db.engine import get_db
 from core.db.models import UserShadow
 from core.services import site_password
@@ -30,12 +31,16 @@ def svc(db_session, tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, monkeypatch):
+    monkeypatch.setattr("core.services.site_rate_limit.redis_configured", lambda: False)
+    from types import SimpleNamespace
+    monkeypatch.setattr("core.services.site_rate_limit.settings", SimpleNamespace(deploy=SimpleNamespace(is_local=True)))
     app = FastAPI()
     app.include_router(sites_serve.router)
     app.dependency_overrides[get_db] = lambda: db_session
-    sites_serve._rate_buckets.clear()
-    sites_serve._unlock_buckets.clear()
+    from core.services import site_rate_limit
+    site_rate_limit._rate_buckets.clear()
+    site_rate_limit._unlock_buckets.clear()
     return TestClient(app)
 
 
@@ -162,9 +167,9 @@ def test_unlock_attempts_are_rate_limited(svc, owner, client):
     )
     codes = [
         client.post(f"/site/{site.slug}/__api/access", json={"password": "nope"}).status_code
-        for _ in range(sites_serve._UNLOCK_LIMIT + 2)
+        for _ in range(UNLOCK_LIMIT + 2)
     ]
-    assert codes[: sites_serve._UNLOCK_LIMIT] == [401] * sites_serve._UNLOCK_LIMIT
+    assert codes[: UNLOCK_LIMIT] == [401] * UNLOCK_LIMIT
     assert codes[-1] == 429
 
 

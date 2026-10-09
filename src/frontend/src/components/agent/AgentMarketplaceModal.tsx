@@ -1,3 +1,6 @@
+import { useMarketSelection } from '../common/MarketBatchActions';
+import { MarketBatchToolbar } from '../common/MarketBatchToolbar';
+import { MarketExportButton } from '../common/MarketExportButton';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Modal, Input, Tag, Button, Empty, Spin, Typography, Pagination, Tooltip, Popconfirm, Switch, message } from 'antd';
@@ -8,11 +11,9 @@ import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 import { OntologyBuildValidationModal, VisibilityScopeModal } from '../common';
-
 // Sub-agent marketplace modal: browse preset/community sub-agents, view their prompts and capability bindings, and install (clone) them.
 // The transport (user / admin) is injected via fetchers, reusing the skill marketplace's jx-mk-* styles.
 const MARKET_PAGE_SIZE = 12;
-
 function AgentMarketIcon({ avatar, size }: { avatar?: string; size?: number }) {
   const s = size || 40;
   return (
@@ -28,7 +29,6 @@ function AgentMarketIcon({ avatar, size }: { avatar?: string; size?: number }) {
     </div>
   );
 }
-
 function CapabilityTags({ item }: { item: MarketplaceAgent }) {
   return (
     <span className="jx-mk-capTags" style={{ display: 'inline-flex', gap: 8, color: 'var(--color-text-tertiary)', fontSize: 12 }}>
@@ -38,7 +38,6 @@ function CapabilityTags({ item }: { item: MarketplaceAgent }) {
     </span>
   );
 }
-
 export function AgentMarketplaceModal({
   open,
   onClose,
@@ -62,7 +61,6 @@ export function AgentMarketplaceModal({
   const [detail, setDetail] = useState<MarketplaceAgentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [buildFailure, setBuildFailure] = useState<OntologyBuildFailure | null>(null);
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -75,7 +73,6 @@ export function AgentMarketplaceModal({
       setLoading(false);
     }
   }, [fetchers]);
-
   useEffect(() => {
     if (open) {
       setQuery('');
@@ -85,9 +82,7 @@ export function AgentMarketplaceModal({
       void load();
     }
   }, [open, load]);
-
   useEffect(() => { setPage(1); }, [query, category]);
-
   const openDetail = useCallback(async (slug: string) => {
     setDetailLoading(true);
     setDetail(null);
@@ -99,12 +94,10 @@ export function AgentMarketplaceModal({
       setDetailLoading(false);
     }
   }, [fetchers]);
-
   const markInstalled = useCallback((slug: string) => {
     setItems((prev) => prev.map((it) => (it.slug === slug ? { ...it, installed: true } : it)));
     setDetail((prev) => (prev && prev.slug === slug ? { ...prev, installed: true } : prev));
   }, []);
-
   const doInstall = useCallback(
     async (agent: MarketplaceAgent) => {
       setInstallingSlug(agent.slug);
@@ -136,7 +129,6 @@ export function AgentMarketplaceModal({
     },
     [fetchers, onInstalled, markInstalled],
   );
-
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const doDelete = useCallback(
     async (agent: MarketplaceAgent) => {
@@ -155,7 +147,6 @@ export function AgentMarketplaceModal({
     },
     [fetchers, load],
   );
-
   const [togglingSlug, setTogglingSlug] = useState<string | null>(null);
   const toggleEnabled = useCallback(
     async (agent: MarketplaceAgent, enabled: boolean) => {
@@ -173,7 +164,6 @@ export function AgentMarketplaceModal({
     },
     [fetchers],
   );
-
   const enableSwitch = (agent: MarketplaceAgent) =>
     fetchers.setEnabled ? (
       <Tooltip title={agent.market_enabled === false ? t('已下架，点击上架') : t('已上架，点击下架')}>
@@ -186,14 +176,12 @@ export function AgentMarketplaceModal({
         />
       </Tooltip>
     ) : null;
-
   // Visibility scope (shown only when the admin injects visibility fetchers): a modal configures public/scoped + the authorization allowlist.
   const [visibilityTarget, setVisibilityTarget] = useState<MarketplaceAgent | null>(null);
   const onVisibilitySaved = useCallback((slug: string, visibility: MarketVisibilityValue) => {
     setItems((prev) => prev.map((it) => (it.slug === slug ? { ...it, visibility } : it)));
     setDetail((prev) => (prev && prev.slug === slug ? { ...prev, visibility } : prev));
   }, []);
-
   const visibilityButton = (agent: MarketplaceAgent) =>
     fetchers.visibility ? (
       <Tooltip title={agent.visibility === 'scoped' ? t('指定范围可见，点击调整') : t('所有人可见，点击设置可见范围')}>
@@ -205,7 +193,6 @@ export function AgentMarketplaceModal({
         />
       </Tooltip>
     ) : null;
-
   const deleteButton = (agent: MarketplaceAgent) =>
     fetchers.remove && agent.deletable ? (
       <Popconfirm
@@ -220,7 +207,6 @@ export function AgentMarketplaceModal({
         <Button type="text" size="small" danger icon={<DeleteOutlined />} loading={deletingSlug === agent.slug} onClick={(e) => e.stopPropagation()} />
       </Popconfirm>
     ) : null;
-
   const installButton = (agent: MarketplaceAgent, block?: boolean) => (
     <Button
       size="small"
@@ -244,7 +230,6 @@ export function AgentMarketplaceModal({
       </AnimatePresence>
     </Button>
   );
-
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     return items.filter((it) => {
@@ -253,19 +238,19 @@ export function AgentMarketplaceModal({
       return `${it.name} ${it.summary} ${(it.tags || []).join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
   }, [items, category, q]);
-
   const paged = useMemo(
     () => filtered.slice((page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
     [filtered, page],
   );
-
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filtered.length / MARKET_PAGE_SIZE));
     if (page > maxPage) setPage(1);
   }, [filtered.length, page]);
-
+  const selection = useMarketSelection({ open, resetKey: `${query}:${category}`, kind: 'agent',
+    items: filtered.map((item) => ({ slug: item.slug, name: item.name, deletable: !!fetchers.remove && !!item.deletable })),
+    onDeleted: async () => { setDetail(null); await load(); },
+  });
   const cats = useMemo(() => ['全部', ...categories], [categories]);
-
   return (
     <>
     <Modal
@@ -302,19 +287,17 @@ export function AgentMarketplaceModal({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 96 }}>
               {enableSwitch(detail)}
               {visibilityButton(detail)}
+                        {fetchers.setEnabled && <MarketExportButton kind="agent" slug={detail.slug} />}
               {deleteButton(detail)}
               {installButton(detail, true)}
             </div>
           </div>
-
           {detail.summary && <p className="jx-mk-detailSummary">{detail.summary}</p>}
-
           {detail.tags?.length > 0 && (
             <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
               {detail.tags.map((tag, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{tag}</Tag>)}
             </div>
           )}
-
           <div className="jx-mk-detailBodyTitle">{t('携带能力')}</div>
           <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--color-text-secondary)' }}>
             <CapabilityTags item={detail} />
@@ -322,7 +305,6 @@ export function AgentMarketplaceModal({
               <span style={{ color: 'var(--color-text-tertiary)' }}>{t('纯提示词，无额外能力绑定')}</span>
             )}
           </div>
-
           {detail.suggested_questions?.length > 0 && (
             <>
               <div className="jx-mk-detailBodyTitle">{t('推荐问题')}</div>
@@ -331,7 +313,6 @@ export function AgentMarketplaceModal({
               </div>
             </>
           )}
-
           <div className="jx-mk-detailBodyTitle">{t('角色设定（系统提示词）')}</div>
           <div className="jx-mk-detailBody jx-md" dangerouslySetInnerHTML={{ __html: mdToHtml(detail.system_prompt || '暂无内容') }} />
         </div>
@@ -350,7 +331,6 @@ export function AgentMarketplaceModal({
               {t('安装后{scope}', { scope: scopeLabel || t('在本人「智能体」中生成一个私有副本') })}
             </Typography.Text>
           </div>
-
           {cats.length > 1 && (
             <div className="jx-mk-cats">
               {cats.map((c) => (
@@ -363,12 +343,13 @@ export function AgentMarketplaceModal({
               ))}
             </div>
           )}
-
-          <Spin spinning={loading}>
+          {fetchers.setEnabled && <MarketBatchToolbar selection={selection} />}
+            <Spin spinning={loading}>
             <div className="jx-mk-grid jx-anim-stagger" style={{ '--stagger-step': '30ms' } as React.CSSProperties} key={`agentmk-${page}-${category}`}>
               {paged.map((agent, idx) => (
                 <div key={agent.slug} className="jx-mk-card jx-card-lift" style={staggerStyle(idx)} onClick={() => void openDetail(agent.slug)}>
                   <div className="jx-mk-cardTop">
+                      {fetchers.setEnabled && selection.checkbox(agent.slug, agent.name)}
                     <AgentMarketIcon avatar={agent.avatar} />
                     <div className="jx-mk-cardHead">
                       <div className="jx-mk-cardNameRow">
@@ -384,11 +365,12 @@ export function AgentMarketplaceModal({
                     </div>
                   </div>
                   <div className="jx-mk-cardDesc" title={agent.summary}>{agent.summary || '—'}</div>
-                  <div className="jx-mk-cardFoot">
+                  <div className="jx-mk-cardFoot" style={{ flexWrap: 'wrap' }}>
                     <CapabilityTags item={agent} />
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                       {enableSwitch(agent)}
                       {visibilityButton(agent)}
+                        {fetchers.setEnabled && <MarketExportButton kind="agent" slug={agent.slug} />}
                       {deleteButton(agent)}
                       {installButton(agent)}
                     </span>
@@ -416,7 +398,6 @@ export function AgentMarketplaceModal({
         </>
       )}
     </Modal>
-
     {/* Visibility-scope configuration modal (reachable only when the admin injects visibility fetchers) */}
     {fetchers.visibility && (
       <VisibilityScopeModal

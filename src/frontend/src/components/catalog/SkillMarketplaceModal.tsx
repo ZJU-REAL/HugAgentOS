@@ -1,3 +1,7 @@
+import { useMarketSelection } from '../common/MarketBatchActions';
+import { MarketBatchToolbar } from '../common/MarketBatchToolbar';
+import { SkillMarketSecretsDialog } from './SkillMarketSecretsDialog';
+import { MarketExportButton } from '../common/MarketExportButton';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Modal, Input, Tag, Button, Empty, Spin, Form, Typography, Pagination, Tooltip, Popconfirm, Switch, message } from 'antd';
@@ -9,16 +13,10 @@ import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { VisibilityScopeModal } from '../common';
 import { SkillAvatar, categoryPreset } from './skillIcons';
-
-// Skill marketplace modal: browse preset skills, view details and install. The transport (user / admin) is injected via fetchers,
-// and the same component is reused in both the capability center and /admin skill management. The icon prefers icon_url, otherwise a built-in icon by category.
 function MarketIcon({ skill, size }: { skill: MarketplaceSkill; size?: number }) {
   return <SkillAvatar icon={skill.icon_url || categoryPreset(skill.category)} seed={skill.slug} size={size || 40} />;
 }
-
-// List page size (2-column grid × 6 rows)
 const MARKET_PAGE_SIZE = 12;
-
 export function SkillMarketplaceModal({
   open,
   onClose,
@@ -42,15 +40,10 @@ export function SkillMarketplaceModal({
   const [category, setCategory] = useState<string>('全部');
   const [page, setPage] = useState(1);
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
-
-  // Detail view
   const [detail, setDetail] = useState<MarketplaceSkillDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  // Credential configuration modal
   const [secretSkill, setSecretSkill] = useState<MarketplaceSkill | null>(null);
   const [secretForm] = Form.useForm();
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -63,7 +56,6 @@ export function SkillMarketplaceModal({
       setLoading(false);
     }
   }, [fetchers]);
-
   useEffect(() => {
     if (open) {
       setQuery('');
@@ -73,12 +65,9 @@ export function SkillMarketplaceModal({
       void load();
     }
   }, [open, load]);
-
-  // Return to the first page when searching / switching category
   useEffect(() => {
     setPage(1);
   }, [query, category]);
-
   const openDetail = useCallback(async (slug: string) => {
     setDetailLoading(true);
     setDetail(null);
@@ -90,12 +79,10 @@ export function SkillMarketplaceModal({
       setDetailLoading(false);
     }
   }, [fetchers]);
-
   const markInstalled = useCallback((slug: string, depStatus: 'installing' | 'ready' | 'rejected' = 'ready') => {
     setItems((prev) => prev.map((it) => (it.slug === slug ? { ...it, installed: true, dep_status: depStatus } : it)));
     setDetail((prev) => (prev && prev.slug === slug ? { ...prev, installed: true, dep_status: depStatus } : prev));
   }, []);
-
   const doInstall = useCallback(
     async (skill: MarketplaceSkill, secrets: Record<string, string>) => {
       setInstallingSlug(skill.slug);
@@ -117,7 +104,6 @@ export function SkillMarketplaceModal({
     },
     [fetchers, onInstalled, markInstalled],
   );
-
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const doDelete = useCallback(
     async (skill: MarketplaceSkill) => {
@@ -136,8 +122,6 @@ export function SkillMarketplaceModal({
     },
     [fetchers, load],
   );
-
-  // List/delist toggle (shown only when the admin injects setEnabled): updates in place to avoid list re-fetch jitter.
   const [togglingSlug, setTogglingSlug] = useState<string | null>(null);
   const toggleEnabled = useCallback(
     async (skill: MarketplaceSkill, enabled: boolean) => {
@@ -155,8 +139,6 @@ export function SkillMarketplaceModal({
     },
     [fetchers],
   );
-
-  // List toggle: shown only when a setEnabled fetcher (admin) is injected. Delisted = not shown on the user side.
   const enableSwitch = (skill: MarketplaceSkill) =>
     fetchers.setEnabled ? (
       <Tooltip title={skill.market_enabled === false ? t('已下架，点击上架') : t('已上架，点击下架')}>
@@ -169,14 +151,12 @@ export function SkillMarketplaceModal({
         />
       </Tooltip>
     ) : null;
-
   // Visibility scope (shown only when the admin injects visibility fetchers): modal configures public/scoped + authorization whitelist.
   const [visibilityTarget, setVisibilityTarget] = useState<MarketplaceSkill | null>(null);
   const onVisibilitySaved = useCallback((slug: string, visibility: MarketVisibilityValue) => {
     setItems((prev) => prev.map((it) => (it.slug === slug ? { ...it, visibility } : it)));
     setDetail((prev) => (prev && prev.slug === slug ? { ...prev, visibility } : prev));
   }, []);
-
   const visibilityButton = (skill: MarketplaceSkill) =>
     fetchers.visibility ? (
       <Tooltip title={skill.visibility === 'scoped' ? t('指定范围可见，点击调整') : t('所有人可见，点击设置可见范围')}>
@@ -188,7 +168,6 @@ export function SkillMarketplaceModal({
         />
       </Tooltip>
     ) : null;
-
   // Delete button: shown only when a remove fetcher (admin) is injected and the item is a DB listing record (deletable).
   const deleteButton = (skill: MarketplaceSkill) =>
     fetchers.remove && skill.deletable ? (
@@ -211,7 +190,6 @@ export function SkillMarketplaceModal({
         />
       </Popconfirm>
     ) : null;
-
   const handleInstallClick = useCallback(
     (skill: MarketplaceSkill) => {
       if (skill.required_secrets && skill.required_secrets.length > 0) {
@@ -223,7 +201,6 @@ export function SkillMarketplaceModal({
     },
     [doInstall, secretForm],
   );
-
   const submitSecrets = useCallback(async () => {
     if (!secretSkill) return;
     const values = await secretForm.validateFields();
@@ -235,7 +212,6 @@ export function SkillMarketplaceModal({
     setSecretSkill(null);
     await doInstall(secretSkill, secrets);
   }, [secretSkill, secretForm, doInstall]);
-
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     return items.filter((it) => {
@@ -244,20 +220,20 @@ export function SkillMarketplaceModal({
       return `${it.display_name} ${it.summary} ${it.tags.join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
   }, [items, category, q]);
-
   const paged = useMemo(
     () => filtered.slice((page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
     [filtered, page],
   );
-
   // Pull back to the first page when data changes push the page number out of range
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filtered.length / MARKET_PAGE_SIZE));
     if (page > maxPage) setPage(1);
   }, [filtered.length, page]);
-
+  const selection = useMarketSelection({ open, resetKey: `${query}:${category}`, kind: 'skill',
+    items: filtered.map((item) => ({ slug: item.slug, name: item.display_name, deletable: !!fetchers.remove && !!item.deletable })),
+    onDeleted: async () => { setDetail(null); await load(); },
+  });
   const cats = useMemo(() => ['全部', ...categories], [categories]);
-
   // Install button (reused in list card / detail page): three states install → loading → installed.
   // A single Button swaps props (rather than hard-switching two Buttons), the background color goes through a CSS transition,
   // the text hands off via AnimatePresence mode="wait", and the installed-state Check icon springs in.
@@ -313,7 +289,6 @@ export function SkillMarketplaceModal({
     }
     return btn;
   };
-
   return (
     <>
       <Modal
@@ -358,28 +333,24 @@ export function SkillMarketplaceModal({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 96 }}>
                 {enableSwitch(detail)}
                 {visibilityButton(detail)}
+                        {fetchers.setEnabled && <MarketExportButton kind="skill" slug={detail.slug} />}
                 {deleteButton(detail)}
                 {installButton(detail, true)}
               </div>
             </div>
-
             {detail.summary && <p className="jx-mk-detailSummary">{stripMarkdown(detail.summary)}</p>}
-
             {detail.tags?.length > 0 && (
               <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
                 {detail.tags.map((t, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{t}</Tag>)}
               </div>
             )}
-
             {detail.required_secrets?.length > 0 && (
               <div className="jx-mk-secretsNote">
                 <KeyOutlined /> 安装时需配置：{detail.required_secrets.map((s) => s.label || s.key).join('、')}
               </div>
             )}
-
             <div className="jx-mk-detailBodyTitle">{t('技能说明（SKILL.md）')}</div>
             <div className="jx-mk-detailBody jx-md" dangerouslySetInnerHTML={{ __html: mdToHtml(detail.instructions || '暂无内容') }} />
-
             {detail.files?.length > 0 && (
               <>
                 <div className="jx-mk-detailBodyTitle">{t('附带文件（{n}）', { n: detail.files.length })}</div>
@@ -410,7 +381,6 @@ export function SkillMarketplaceModal({
                 {t('安装后{scope}', { scope: scopeLabel || t('仅自己可见可用') })}
               </Typography.Text>
             </div>
-
             {cats.length > 1 && (
               <div className="jx-mk-cats">
                 {cats.map((c) => (
@@ -434,7 +404,7 @@ export function SkillMarketplaceModal({
                 ))}
               </div>
             )}
-
+            {fetchers.setEnabled && <MarketBatchToolbar selection={selection} />}
             <Spin spinning={loading}>
               <div
                 className="jx-mk-grid jx-anim-stagger"
@@ -449,6 +419,7 @@ export function SkillMarketplaceModal({
                     onClick={() => void openDetail(skill.slug)}
                   >
                     <div className="jx-mk-cardTop">
+                      {fetchers.setEnabled && selection.checkbox(skill.slug, skill.display_name)}
                       <MarketIcon skill={skill} />
                       <div className="jx-mk-cardHead">
                         <div className="jx-mk-cardNameRow">
@@ -471,13 +442,14 @@ export function SkillMarketplaceModal({
                       </div>
                     </div>
                     <div className="jx-mk-cardDesc" title={stripMarkdown(skill.summary)}>{stripMarkdown(skill.summary) || '—'}</div>
-                    <div className="jx-mk-cardFoot">
+                    <div className="jx-mk-cardFoot" style={{ flexWrap: 'wrap' }}>
                       <div className="jx-mk-tags">
                         {(skill.tags || []).slice(0, 3).map((t, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{t}</Tag>)}
                       </div>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         {enableSwitch(skill)}
                         {visibilityButton(skill)}
+                        {fetchers.setEnabled && <MarketExportButton kind="skill" slug={skill.slug} />}
                         {deleteButton(skill)}
                         {installButton(skill)}
                       </span>
@@ -505,7 +477,6 @@ export function SkillMarketplaceModal({
           </>
         )}
       </Modal>
-
       {/* Visibility scope configuration modal (reachable only when the admin injects visibility fetchers) */}
       {fetchers.visibility && (
         <VisibilityScopeModal
@@ -517,36 +488,10 @@ export function SkillMarketplaceModal({
           onSaved={onVisibilitySaved}
         />
       )}
-
       {/* Credential configuration modal (pops up when installing a skill that needs an API-Key etc.) */}
-      <Modal
-        title={secretSkill ? t('配置「{name}」', { name: secretSkill.display_name }) : t('配置凭据')}
-        open={!!secretSkill}
-        onCancel={() => setSecretSkill(null)}
-        onOk={() => void submitSecrets()}
-        okText={t('安装')}
-        cancelText={t('取消')}
-        confirmLoading={!!secretSkill && installingSlug === secretSkill.slug}
-        destroyOnHidden
-      >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('该技能运行需要以下凭据。凭据仅保存在你安装的这份技能里，不会上传到技能市场。')}
-        </Typography.Paragraph>
-        <Form form={secretForm} layout="vertical">
-          {secretSkill?.required_secrets.map((f) => (
-            <Form.Item
-              key={f.key}
-              name={f.key}
-              label={f.label || f.key}
-              tooltip={f.help}
-              extra={f.help}
-              rules={f.required ? [{ required: true, message: t('请填写{label}', { label: f.label || f.key }) }] : []}
-            >
-              <Input.Password placeholder={f.placeholder || t('请输入 {label}', { label: f.label || f.key })} autoComplete="off" />
-            </Form.Item>
-          ))}
-        </Form>
-      </Modal>
+      <SkillMarketSecretsDialog secretSkill={secretSkill} secretForm={secretForm}
+        loading={!!secretSkill && installingSlug === secretSkill.slug}
+        onClose={() => setSecretSkill(null)} onSubmit={submitSecrets} />
     </>
   );
 }

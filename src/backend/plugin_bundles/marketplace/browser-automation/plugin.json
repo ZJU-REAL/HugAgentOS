@@ -1,6 +1,6 @@
 {
   "name": "browser-automation",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "在 Chrome 风格 Canvas 中共同操作真实浏览器：网页、表单、登录、文件与标签页。",
   "author": {
     "name": "HugAgentOS"
@@ -66,6 +66,29 @@
                 }
               },
               "canvas_header": "module"
+            }
+          ],
+          "tool_views": [
+            {
+              "view": "kv",
+              "unwrap": [
+                "result",
+                "data",
+                "output"
+              ],
+              "map": {
+                "resource": "$.resource.resource_id"
+              },
+              "primary_action": {
+                "open_canvas": "browser",
+                "label": {
+                  "zh-CN": "在 Canvas 中打开",
+                  "en": "Open in Canvas"
+                }
+              },
+              "tool": [
+                "browser_open"
+              ]
             }
           ]
         }

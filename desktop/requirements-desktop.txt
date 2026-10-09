@@ -16,7 +16,7 @@ wheel>=0.45.1
 uv==0.11.33
 
 # Core web service and orchestration.
-fastapi>=0.110.0
+fastapi==0.115.12
 uvicorn>=0.27.0
 pydantic>=2.6.0
 anyio>=4.2.0

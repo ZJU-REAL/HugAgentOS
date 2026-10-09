@@ -6,7 +6,7 @@ Static sites do not create databases. Persistent forms create typed application 
 
 Set `APPLICATION_DATABASE_URL` to a separate database and run `python -m core.services.application_hosting_setup` once. Cloud installations without this setting show hosting as unavailable; local mode may use SQLite. Production uses PostgreSQL.
 
-The optional `docker-compose.application-hosting.yml` adds PostgreSQL, a persistent volume and an initialization job. Set a separate URL-safe `APPLICATION_DB_PASSWORD` or encode the connection string correctly. The initialization job uses the same Dockerfile build target as the backend and mounts current backend sources read-only. Build the backend from these sources and rebuild the frontend for the nginx `/applications-mcp/` route. Follow repository approval rules before deployment. End-to-end tests use separate databases and platform mock authentication for local testing only.
+The optional `docker-compose.application-hosting.yml` adds PostgreSQL, a persistent volume and an initialization job. Set different URL-safe `APPLICATION_DB_PASSWORD` (bootstrap) and `APPLICATION_OWNER_DB_PASSWORD` (runtime), or encode connection strings correctly. The initialization job uses the same Dockerfile build target as the backend and mounts current backend sources read-only. Build the backend from these sources and rebuild the frontend for the nginx `/applications-mcp/` route. Follow repository approval rules before deployment. End-to-end tests use separate databases and platform mock authentication for local testing only.
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml config --quiet
@@ -17,7 +17,7 @@ docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml u
 
 Site management has a Data and MCP tab for linked applications. The Sites page uses one shared card design for sites, MCP services with defined tools, and databases without an active linked site. Shared search covers site titles and addresses, plus MCP titles, tool names and descriptions. Databases linked to an active site remain in site management.
 MCP cards provide Open, Copy link, Edit and Manage. Open shows the connection URL, status and tools instead of navigating to a protocol endpoint. Edit opens the MCP source project conversation. Manage retains the complete tool form for adding/removing tools and changing names, descriptions, tables, returned fields and filters. Management pins the selected application and provides Data and MCP tabs. Publication shows the new credential once; revocation requires confirmation.
-Deleting a webpage does not delete its application data or revoke MCP. Its retained database or MCP card still provides data inspection and access revocation. Tables have typed columns, constraints and indexes. The UI supports JSON import, paginated reads and CSV export capped at 100 rows. The REST update endpoint checks record versions; the UI does not yet include a row editor.
+Deleting a webpage does not delete its application data or revoke MCP. Its retained database or MCP card still provides data inspection and access revocation. Tables have typed columns, constraints and indexes. The UI supports JSON import, paginated reads and full-table streaming CSV export. The REST update endpoint checks record versions; the UI does not yet include a row editor.
 
 Browser management uses `/api/v1/applications` (backend `/v1/applications`). Public forms submit to `/site/{slug}/__api/data/{table}`. Only explicitly enabled `public_insert` tables accept visitor writes; site visibility and password checks apply, and visitor reads are disabled by default. Shared collections must explicitly enable public_read; whole-list replacement also requires public_replace and the current revision. Anonymous means an unauthenticated visitor, not anonymized data.
 
@@ -134,3 +134,25 @@ or credentials. No platform Alembic migration is needed. When reverting the code
 and project files so subsequent upgrades reuse bindings; do not delete application data.
 
 Management and rollback publication reject an existing unpublished project draft instead of overwriting it. Project publication waits for file-tool registration and refreshes the mounted source to its new version before reporting synchronization complete.
+
+## External review fixes and upgrades
+
+Application hosting remains optional. Set different APPLICATION_DB_PASSWORD and APPLICATION_OWNER_DB_PASSWORD values. Use both docker-compose.yml and docker-compose.application-hosting.yml.
+
+Run application-database-init for new deployments and existing volumes. It creates recovery history and transfers application schema and table ownership to application_owner. It also grants access to existing application roles. Initialization failures must block backend startup.
+
+The backend uses application_owner with NOSUPERUSER, NOCREATEDB and CREATEROLE. application_admin is bootstrap-only. CREATEROLE permits provisioning and reclaiming application roles. Use a dedicated PostgreSQL instance, never the platform database.
+
+Visitor API successes and errors include CORS headers. Cloud writes and password attempts share atomic Redis counters across workers. Missing or unavailable Redis returns503. Only local single-process mode without Redis uses memory counters.
+
+public_replace defaults to false. Enabling it permits anonymous visitors to replace or erase the entire table. Revisions and rate limits cannot prevent the first erasure.
+
+Replacements atomically retain the previous contents. Each table keeps20 snapshots: a protected first nonempty baseline and the latest19 versions. Anonymous replacements cannot evict the baseline. Each snapshot is bounded to512 KiB; oversized snapshots reject replacement.
+
+Owners can restore through management using the observed current revision. Stale revisions return409. Restored records receive new IDs.
+
+Owners can delete records, tables and applications. Record DELETE requires version. Erasure removes table recovery history and application deduplication receipts. Tables referenced by MCP tools return409 until those definitions are removed.
+
+Application deletion revokes tokens and removes the personal connection. It deletes the dedicated schema, role and registry entries, reclaiming quota. Source project files remain independently managed. Database backups follow the operator retention policy.
+
+CSV streams the entire table from a consistent transaction snapshot. JSON uses standard syntax; spreadsheet formula protection remains active. MCP GET, HEAD and DELETE return405. Only POST carries stateless protocol requests. Tool schemas constrain limit to1–100.

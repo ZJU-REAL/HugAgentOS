@@ -1,13 +1,7 @@
 import type { ChatMessage } from '../types';
-import { hasUnclosedThink } from './segments';
 
-/** A durable message offset does not preserve an inline reasoning parser's phase.
- * Thinking runs replay from the beginning through the ordinary stream parser.
- */
-export function streamResumeSeed(
-  message: ChatMessage | undefined,
-  enableThinking: boolean,
-): ChatMessage | undefined {
-  if (!message || enableThinking || hasUnclosedThink(message.content)) return undefined;
-  return message;
+/** History supplies identity only; the ordered log supplies the aligned state. */
+export function streamResumeSeed(message: ChatMessage | undefined): ChatMessage | undefined {
+  return message ? { uid: message.uid, messageId: message.messageId, role: 'assistant',
+    content: '', ts: message.ts } : undefined;
 }

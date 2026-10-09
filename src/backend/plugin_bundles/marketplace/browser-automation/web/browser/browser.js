@@ -12,6 +12,8 @@
       pending_input_cancelled: '操作已取消，请重新操作。',
       too_many_pending_commands: '操作过于频繁，请稍后重试。',
       resource_disconnected: '浏览器正在重连，请稍后操作。',
+      stale_frame_input_not_sent: '画面正在更新，本次输入未发送，请等待后重试。',
+      dns_failed: '域名解析失败，请检查 DNS 配置。',
       stale_viewport: '网页尺寸已调整，请重新操作。',
       stale_control_epoch: '控制权已更新，请重新操作。',
       control_already_owned: '浏览器正在由另一个窗口操作。',
@@ -62,6 +64,13 @@
       button.onclick = () => channel.download(download.id);
       $('files').append(button);
     }
+    if (state.downloads.length) {
+      const clear = document.createElement('button');
+      clear.textContent = t('清空下载列表');
+      clear.onclick = () => act('clear_downloads');
+      $('files').append(clear);
+    }
+    $('release-control').hidden = !control.owns();
     if (state.filechoosers.length) {
       const button = document.createElement('button');
       button.textContent = t('选择上传文件');
@@ -78,6 +87,7 @@
   };
   control = window.installBrowserControl(channel, () => state, render, report);
   const view = window.installBrowserViewport($('stage'), screen, channel, () => state, report, control.busy, value => { $('zoom-reset').textContent = Math.round(value * 100) + '%'; });
+  $('release-control').onclick = () => { void control.release(); };
   $('zoom-out').onclick = () => view.zoom(-1);
   $('zoom-in').onclick = () => view.zoom(1);
   $('zoom-reset').onclick = () => view.zoom(0);

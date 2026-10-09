@@ -1,3 +1,4 @@
+import { useChatResourceRecovery } from './useChatResourceRecovery';
 import { useEffect,useRef } from 'react';
 import { authFetch,chatTargetHeaders,checkSession,isHybridDual } from '../api';
 import { usePanel } from '../routing/usePanel';
@@ -400,6 +401,7 @@ export function useChatInit() {
   }, [currentChatId, effectiveApiUrl, authUser, authChecking, sessionLoadEpoch]);
 
   useChatBatchHydration(currentChatId);
+  useChatResourceRecovery(currentChatId, authChecking ? null : authUserId);
 
   return {
     effectiveApiUrl,

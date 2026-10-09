@@ -47,7 +47,7 @@ The inline plus opens a real tab. Selecting a tab switches pages; its close butt
 The address bar supports Enter, back, forward and reload. Separate takeover, login, save-login and browser-close buttons are removed.
 
 The remote viewport follows Canvas dimensions. Direct clicks, scrolling and typing automatically acquire connection-bound user control.
-Agent observation pauses during human control. Focus leaving the panel or 15 seconds of inactivity returns control.
+Agent observation pauses during human control. While focused,15 seconds of inactivity returns control; losing focus keeps human ownership.
 IME composition and active pointer dragging prevent automatic release.
 This panel has no save-login entry and does not save logins automatically. Existing checkpoint IDs can still restore a session.
 
@@ -99,3 +99,25 @@ When a user-owned local plugin is loaded, the desktop service starts its declare
 The browser reports readiness after initialization completes. Live viewing keeps one frame being decoded and one latest pending frame so slower devices do not accumulate stale images. Tab switches and disconnects invalidate old frames; browser controls update when their state changes.
 
 Once a sandbox is bound to its owner and conversation, the host asynchronously starts blank browser workers opted in through enabled plugins' resource.prewarm declarations. The first browser_open atomically adopts the matching installation revision, joining its start if still pending. Warm workers count against owner quotas and expire after five unused minutes; sandbox destruction, pool reuse and backend shutdown clean them up. Opens with checkpoint_id still create a separate browser with explicitly saved state.
+
+### 1.0.12 Availability and failure recovery
+
+Startup probes the actual Chromium sandbox. Known inner-sandbox failures retry without it only inside an isolated container verified by the host. Local execution does not use that fallback. Startup reports chromium_sandbox_unavailable, chromium_runtime_missing or chromium_launch_failed.
+
+After OpenSandbox updates, explicitly build the runtime image from the repository root:
+
+```bash
+docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+```
+
+Ordinary docker compose up --build does not rebuild this on-demand image. Check OPENSANDBOX_IMAGE and create a fresh browser_open session after updating. Resource readiness requires Chromium initialization and real browser verification. Rebuild the corresponding images for other providers too.
+
+Fake-IP DNS responses in198.18.0.0/15 remain blocked with fake_ip_dns. Configure BROWSER_DNS_RESOLVER_URL using a trusted HTTPS JSON DNS resolver. Resolution failures return dns_failed. Do not enable private networking to bypass public DNS issues.
+
+Missing and duplicate locators return element_not_found and ambiguous_locator. These indicate definite non-execution outcomes. Screenshots return MCP image content.
+
+Reopening a chat discovers resources belonging to the current user, chat and installation revision. Live resources restore Canvas. Expired sessions are never recreated from historical tool results. The browser_open card includes Open in Canvas.
+
+Inputs submitted before the current frame is ready report non-delivery. Losing focus keeps human ownership. Regaining focus restarts the15-second idle timer. Users can release control explicitly.
+
+Downloads retain at most50 entries. Clearing removes temporary files without deleting saved chat attachments. Overlay scrollbars on macOS need not reserve layout width.

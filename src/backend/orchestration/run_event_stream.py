@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 import time
+import threading
 from collections import deque
 from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 from core.infra.redis import get_redis, redis_configured
+from redis.exceptions import WatchError
+from orchestration.run_projection import fold_projection, new_projection
+from orchestration.run_projection_storage import affected_tools, decode_checkpoint, encode_checkpoint
 
 # Cursor meaning "from the very beginning of the log".
 START = ""
@@ -70,6 +75,9 @@ class RunEventStream(Protocol):
 
     async def append(self, run_id: str, event: Dict[str, Any]) -> None:
         """Add an event to the end of the run's log."""
+
+    async def capture(self, run_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        """Capture one aligned projection and tail cursor atomically."""
 
     async def read(
         self, run_id: str, *, after: str = START, limit: Optional[int] = None
@@ -123,13 +131,93 @@ class RedisRunEventStream:
                 continue
         return decoded
 
+    def _snapshot_key(self, run_id: str) -> str:
+        return f"jx:chat:run:{run_id}:projection"
+
+    def __init__(self) -> None:
+        self._projections: Dict[str, Dict[str, Any]] = {}
+        self._pending: Dict[str, int] = {}
+        self._versions: Dict[str, str] = {}
+        self._dirty_tools: Dict[str, set[int]] = {}
+        self._history_dirty: Dict[str, bool] = {}
+
     async def append(self, run_id: str, event: Dict[str, Any]) -> None:
-        await get_redis().xadd(
-            self._key(run_id),
-            {"data": json.dumps(event, ensure_ascii=False)},
-            maxlen=MAXLEN,
-            approximate=True,
-        )
+        event = {**event, "event_offset": int(event.get("_offset") or 0)}
+        for attempt in range(8):
+            if attempt:
+                await asyncio.sleep(min(0.005 * 2 ** attempt, 0.1))
+            async with get_redis().pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(self._key(run_id))
+                    latest = self._decode(await pipe.xrevrange(self._key(run_id), count=1))
+                    version = latest[0][0] if latest else START
+                    previous = self._projections.get(run_id)
+                    if previous is None or self._versions.get(run_id) != version:
+                        previous, captured_version = await self.capture(run_id)
+                        if captured_version != version:
+                            continue
+                        previous = previous or new_projection(run_id)
+                        count = 1
+                        dirty = set(range(len(previous["tools"])))
+                        history_dirty = True
+                    else:
+                        count = self._pending.get(run_id, 0) + 1
+                        dirty = set(self._dirty_tools.get(run_id, set()))
+                        history_dirty = self._history_dirty.get(run_id, False)
+                    offset = int(event.get("_offset") or 0)
+                    if offset and offset <= previous["event_offset"]:
+                        raise ValueError("run event offset must advance")
+                    state = fold_projection(previous, event)
+                    if event.get("type") in {"run_started", "steer_applied"}:
+                        dirty = affected_tools(state, event)
+                    else:
+                        dirty.update(affected_tools(state, event))
+                    if len(state["tools"]) > len(previous["tools"]):
+                        dirty.update(range(len(previous["tools"]), len(state["tools"])))
+                    history_dirty = history_dirty or event.get("type") in {"run_started", "steer_applied"}
+                    interval = min(64, max(1, MAXLEN // 2))
+                    distance = offset - previous.get("_checkpoint_offset", 0) if offset else count
+                    checkpoint = distance >= interval or event.get("type") in {
+                        "run_started", "steer_applied", "__terminal__"
+                    }
+                    pipe.multi()
+                    pipe.xadd(self._key(run_id), {"data": json.dumps(event, ensure_ascii=False)}, maxlen=MAXLEN)
+                    if checkpoint:
+                        state["_checkpoint_offset"] = offset
+                        pipe.hset(self._snapshot_key(run_id), mapping=encode_checkpoint(state, dirty, history_dirty=history_dirty))
+                    result = await pipe.execute()
+                    self._projections[run_id] = state
+                    self._versions[run_id] = result[0]
+                    self._pending[run_id] = 0 if checkpoint else count
+                    self._dirty_tools[run_id] = set() if checkpoint else dirty
+                    self._history_dirty[run_id] = False if checkpoint else history_dirty
+                    return
+                except WatchError:
+                    continue
+                except BaseException:
+                    self._projections.pop(run_id, None)
+                    self._versions.pop(run_id, None)
+                    self._pending.pop(run_id, None)
+                    self._dirty_tools.pop(run_id, None)
+                    self._history_dirty.pop(run_id, None)
+                    raise
+
+        raise RuntimeError(f"Run {run_id}: event append exceeded 8 transaction conflicts")
+
+    async def capture(self, run_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        async with get_redis().pipeline(transaction=True) as pipe:
+            pipe.hgetall(self._snapshot_key(run_id))
+            pipe.xrange(self._key(run_id), min="-", max="+")
+            raw, entries = await pipe.execute()
+        state = decode_checkpoint(raw)
+        decoded = self._decode(entries)
+        if state is not None:
+            floor = state["event_offset"]
+            state["_checkpoint_offset"] = floor
+            for _, event in decoded:
+                if int(event.get("_offset") or 0) > floor:
+                    state = fold_projection(state, event)
+        return state, decoded[-1][0] if decoded else START
 
     async def read(
         self, run_id: str, *, after: str = START, limit: Optional[int] = None
@@ -171,19 +259,34 @@ class RedisRunEventStream:
         return cursor_millis(cursor)
 
     async def expire(self, run_id: str, ttl: int) -> None:
-        await get_redis().expire(self._key(run_id), ttl)
+        self._projections.pop(run_id, None)
+        self._pending.pop(run_id, None)
+        self._dirty_tools.pop(run_id, None)
+        self._history_dirty.pop(run_id, None)
+        self._versions.pop(run_id, None)
+        async with get_redis().pipeline(transaction=True) as pipe:
+            pipe.expire(self._key(run_id), ttl)
+            pipe.expire(self._snapshot_key(run_id), ttl)
+            await pipe.execute()
 
     async def clear(self, run_id: str) -> None:
-        await get_redis().delete(self._key(run_id))
+        self._projections.pop(run_id, None)
+        self._pending.pop(run_id, None)
+        self._dirty_tools.pop(run_id, None)
+        self._history_dirty.pop(run_id, None)
+        self._versions.pop(run_id, None)
+        await get_redis().delete(self._key(run_id), self._snapshot_key(run_id))
 
 
 class _RunLog:
     """One run's in-process buffer plus the followers parked on it."""
 
-    __slots__ = ("entries", "expires_at", "last_millis", "sequence", "waiters")
+    __slots__ = ("entries", "expires_at", "last_millis", "sequence", "waiters", "projection", "lock")
 
     def __init__(self) -> None:
         self.entries: deque[Entry] = deque(maxlen=MAXLEN)
+        self.projection = None
+        self.lock = threading.RLock()
         self.expires_at: Optional[float] = None
         self.last_millis = 0
         self.sequence = 0
@@ -198,8 +301,9 @@ class _RunLog:
 
     def since(self, after: str, limit: Optional[int]) -> List[Entry]:
         floor = _sort_key(after)
-        found = [entry for entry in self.entries if _sort_key(entry[0]) > floor]
-        return found[:limit] if limit else found
+        with self.lock:
+            found = [entry for entry in self.entries if _sort_key(entry[0]) > floor]
+            return found[:limit] if limit else found
 
 
 class LocalRunEventStream:
@@ -231,13 +335,23 @@ class LocalRunEventStream:
 
     async def append(self, run_id: str, event: Dict[str, Any]) -> None:
         log = self._log(run_id, create=True)
-        log.entries.append((log.mint(), event))
-        waiters, log.waiters = log.waiters, []
+        event = {**event, "event_offset": int(event.get("_offset") or 0)}
+        with log.lock:
+            log.projection = fold_projection(log.projection or new_projection(run_id), event)
+            log.entries.append((log.mint(), event))
+            waiters, log.waiters = log.waiters, []
         for loop, ready in waiters:
             try:
                 loop.call_soon_threadsafe(ready.set)
             except RuntimeError:  # pragma: no cover - follower's loop is gone
                 continue
+
+    async def capture(self, run_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        log = self._log(run_id, create=False)
+        if log is None:
+            return None, START
+        with log.lock:
+            return deepcopy(log.projection), log.entries[-1][0] if log.entries else START
 
     async def read(
         self, run_id: str, *, after: str = START, limit: Optional[int] = None

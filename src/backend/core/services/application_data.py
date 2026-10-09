@@ -140,11 +140,6 @@ class ApplicationDataService:
     ) -> dict:
         try:
             with write_connection(self.engine) as connection:
-                app = owned_application(connection, app_id, owner)
-                definition = table_definition(app, name)
-                if public and not definition.public_insert:
-                    raise HTTPException(403, "Visitor submissions are disabled")
-                table = self._table(app_id, definition)
                 # Lock the registry row to serialize quotas and request-key insertion.
                 connection.execute(
                     select(applications.c.id)
@@ -153,6 +148,11 @@ class ApplicationDataService:
                     )
                     .with_for_update()
                 ).first()
+                app = owned_application(connection, app_id, owner)
+                definition = table_definition(app, name)
+                if public and not definition.public_insert:
+                    raise HTTPException(403, "Visitor submissions are disabled")
+                table = self._table(app_id, definition)
                 digest = hashlib.sha256(
                     json.dumps(
                         {"table": name, "rows": batch.rows},

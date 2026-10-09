@@ -1,0 +1,15 @@
+/* Shared shimmer and neutral shape. Each layout owns the block dimensions. */
+.jx-skeletonBlock{
+  border-radius:var(--radius-sm);
+  /* 从文字令牌派生的低透明度灰，深浅两个主题下都是「比底色深/亮一点」的微光 */
+  background:linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 10%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 10%, transparent) 100%);
+  background-size:240% 100%;
+  animation:jx-kf-shimmer 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jx-skeletonBlock { animation: none; }
+}

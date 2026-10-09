@@ -103,11 +103,11 @@ async def visitor_insert(slug: str, table: str, request: Request, db: Session = 
         _api_json,
         _client_ip,
         _load_authorized_site,
-        _rate_limit_write,
     )
     from core.services.application_store import applications
 
-    _rate_limit_write(_client_ip(request), slug)
+    from core.services.site_rate_limit import count_attempt
+    await count_attempt(_client_ip(request), slug)
     site, gate = await _load_authorized_site(slug, request, db, require_unlock=True)
     if gate is not None:
         return _api_json(
@@ -156,7 +156,6 @@ async def visitor_collection(
         _api_json,
         _client_ip,
         _load_authorized_site,
-        _rate_limit_write,
     )
     from core.services.application_collections import read_collection, replace_collection
     from core.services.application_store import applications
@@ -169,7 +168,8 @@ async def visitor_collection(
         )
     payload = None
     if request.method == "PUT":
-        _rate_limit_write(_client_ip(request), slug)
+        from core.services.site_rate_limit import count_attempt
+        await count_attempt(_client_ip(request), slug)
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
