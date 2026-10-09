@@ -41,6 +41,7 @@ class CloudProcesses:
                     (req.session_id or "", req.user_id or ""),
                     max(250, min(yield_time_ms, 60000)),
                     req.timeout,
+                    yield_on_output=req.yield_on_output,
                 )
             except ProcessSessionError as exc:
                 raise SandboxError(str(exc)) from exc

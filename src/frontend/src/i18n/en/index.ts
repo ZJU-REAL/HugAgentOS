@@ -15,6 +15,7 @@ import { STORES_DICT } from './stores';
 import { APIDOC_DICT } from './apidoc';
 import { AGENT_MARKET_DICT } from './agentMarket';
 import { ONBOARDING_DICT } from './onboarding';
+import { APPLICATION_HOSTING_DICT } from './applicationHosting';
 import { CE_SHARED_DICT } from './ceShared';
 
 export const EN_DICT: Record<string, string> = {
@@ -35,4 +36,5 @@ export const EN_DICT: Record<string, string> = {
   ...AGENT_MARKET_DICT,
   ...ONBOARDING_DICT,
   ...CE_SHARED_DICT,
+  ...APPLICATION_HOSTING_DICT,
 };

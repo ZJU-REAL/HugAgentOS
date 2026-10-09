@@ -29,6 +29,7 @@ class BrowserSession:
         self.last_active = time.monotonic()
         self.viewers = set()
         self.latest_frame = None
+        self.published_state = None
         self.cdp = None
         self.frame_id = 0
         self.dialogs = {}
@@ -192,7 +193,10 @@ class BrowserSession:
 
     async def publish_state(self):
         if not self.closed:
-            self.broadcast(packet(await self.state()))
+            state = await self.state()
+            if state != self.published_state:
+                self.published_state = state
+                self.broadcast(packet(state))
 
     async def subscribe(self):
         if len(self.viewers) >= 8:

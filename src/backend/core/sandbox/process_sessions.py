@@ -35,6 +35,8 @@ class Entry:
     started: float = field(default_factory=time.monotonic)
     finished: float | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    output_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    yield_on_output: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stdout: str = ""
     stderr: str = ""
@@ -47,6 +49,8 @@ class Entry:
         dropped = max(0, len(pending) - MAX_PENDING_CHARS)
         self.omitted_chars += dropped
         setattr(self, stream, pending[-MAX_PENDING_CHARS:])
+        if text:
+            self.output_ready.set()
 
 
 class ProcessSessions:
@@ -60,6 +64,7 @@ class ProcessSessions:
         owner: tuple[str, str],
         yield_time_ms: int = 10000,
         timeout: int | None = None,
+        *, yield_on_output: bool = False,
     ) -> dict:
         if owner[0] in self.closing_owners:
             raise ProcessSessionError("Conversation is closing")
@@ -80,7 +85,7 @@ class ProcessSessions:
                 )
             del self.entries[completed]
         sid = uuid.uuid4().hex
-        entry = Entry(owner)
+        entry = Entry(owner, yield_on_output=yield_on_output)
         self.entries[sid] = entry  # reserve before the first await
         entry.task = asyncio.create_task(self._launch(entry, factory, timeout))
         await entry.ready.wait()
@@ -106,6 +111,7 @@ class ProcessSessions:
             entry.exit_code = -1
             entry.finished = time.monotonic()
             entry.done.set()
+            entry.output_ready.set()
             return
         finally:
             entry.ready.set()
@@ -165,6 +171,7 @@ class ProcessSessions:
             entry.handle = None
             entry.finished = time.monotonic()
             entry.done.set()
+            entry.output_ready.set()
 
     async def write(
         self,
@@ -188,7 +195,8 @@ class ProcessSessions:
             if not entry.done.is_set():
                 seconds = max(0, min(int(yield_time_ms), 300000)) / 1000
                 try:
-                    await asyncio.wait_for(entry.done.wait(), seconds)
+                    wake = entry.output_ready if entry.yield_on_output and not chars else entry.done
+                    await asyncio.wait_for(wake.wait(), seconds)
                 except asyncio.TimeoutError:
                     pass
             result = {
@@ -211,19 +219,23 @@ class ProcessSessions:
             if paths:
                 result["output_files"] = paths
             entry.stdout = entry.stderr = ""
+            entry.output_ready.clear()
             entry.omitted_chars = 0
             return result
 
     async def close_owner(self, sandbox_session_id: str) -> None:
         task = self.closing_owners.get(sandbox_session_id)
         if task is None:
-            task = asyncio.create_task(self._close_owner(sandbox_session_id))
+            task = asyncio.create_task(self._close_owner(sandbox_session_id, asyncio.current_task()))
             self.closing_owners[sandbox_session_id] = task
             task.add_done_callback(lambda _: self.closing_owners.pop(sandbox_session_id, None))
         await asyncio.shield(task)
 
-    async def _close_owner(self, sandbox_session_id: str) -> None:
-        entries = [(sid, e) for sid, e in self.entries.items() if e.owner[0] == sandbox_session_id]
+    async def _close_owner(self, sandbox_session_id: str, caller: asyncio.Task) -> None:
+        # A launch factory may retire the old sandbox while building its replacement.
+        # Closing its own task here would deadlock retirement against that launch.
+        entries = [(sid, e) for sid, e in self.entries.items()
+                   if e.owner[0] == sandbox_session_id and e.task is not caller]
         for _, entry in entries:
             entry.closing = True
             if entry.task and not entry.task.done() and not entry.cleaning:
@@ -239,6 +251,7 @@ class ProcessSessions:
                 )
                 entry.ready.set()
                 entry.done.set()
+            entry.output_ready.set()
             self.entries.pop(sid, None)
 
     async def close_all(self) -> None:

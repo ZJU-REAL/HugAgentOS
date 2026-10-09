@@ -126,13 +126,21 @@ fn upgrade_backup_restores_databases_and_removes_new_wal_files() {
     std::fs::create_dir_all(&manager.data_root).unwrap();
     std::fs::write(manager.data_root.join("data.db"), "before").unwrap();
     std::fs::write(manager.data_root.join("config.env"), "old=true").unwrap();
+    std::fs::create_dir_all(manager.data_root.join("storage")).unwrap();
+    std::fs::write(manager.data_root.join("storage/applications.sqlite"), "application before").unwrap();
+    std::fs::write(manager.data_root.join("storage/applications.sqlite-wal"), "original wal").unwrap();
     let backup = backup_local_data(&manager.data_root, &manager.root.join("backups"))
         .unwrap()
         .unwrap();
 
     std::fs::write(manager.data_root.join("data.db"), "after").unwrap();
     std::fs::write(manager.data_root.join("data.db-wal"), "new wal").unwrap();
+    std::fs::write(manager.data_root.join("storage/applications.sqlite"), "application after").unwrap();
+    std::fs::write(manager.data_root.join("storage/applications.sqlite-shm"), "new shm").unwrap();
     restore_local_data(&manager.data_root, &backup).unwrap();
+    assert_eq!(std::fs::read_to_string(manager.data_root.join("storage/applications.sqlite")).unwrap(), "application before");
+    assert_eq!(std::fs::read_to_string(manager.data_root.join("storage/applications.sqlite-wal")).unwrap(), "original wal");
+    assert!(!manager.data_root.join("storage/applications.sqlite-shm").exists());
 
     assert_eq!(
         std::fs::read_to_string(manager.data_root.join("data.db")).unwrap(),

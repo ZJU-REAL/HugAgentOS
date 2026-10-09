@@ -38,6 +38,8 @@ class ProcessRequest:
     sandbox_launch: Optional[SandboxLaunch] = None
     # Explicit host cwd; session_id still owns scratch files and process handles.
     cwd: Optional[str] = None
+    # Interactive workers consume readiness output before the process exits.
+    yield_on_output: bool = False
 
 
 @dataclass

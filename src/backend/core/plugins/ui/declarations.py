@@ -310,6 +310,8 @@ def _modules(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
                 dropper.drop("modules", mid, "resource runtime 非法")
                 continue
             item["resource"] = {"entry": root, "callable": callable_name}
+            if resource.get("prewarm") is True:
+                item["resource"]["prewarm"] = True
             configuration = resource.get("configuration", {})
             if isinstance(configuration, dict):
                 item["resource"]["configuration"] = configuration

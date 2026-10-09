@@ -17,7 +17,7 @@ from core.services.site_access_policy import (
     site_scope_ref,
 )
 from core.services.site_password import MAX_PASSWORD_LENGTH
-from core.services.site_service import KV_READ_LEVEL, KV_WRITE_LEVEL, SiteService
+from core.services.site_service import SiteService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -149,104 +149,6 @@ def clear_site_password(
 ):
     site = SiteService(db).clear_access_password(site_id, user.user_id)
     return success_response(data=_site_to_dict(site))
-
-
-@router.get("/{site_id}/submissions", summary="站点表单数据列表")
-def list_site_submissions(
-    site_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id)
-    items, total = service.repo.submission_list(site.site_id, page, page_size)
-    return paginated_response(
-        items=[
-            {
-                "id": s.id,
-                "form_key": s.form_key,
-                "payload": s.payload,
-                "created_at": s.created_at.isoformat() if s.created_at else None,
-            }
-            for s in items
-        ],
-        page=page,
-        page_size=page_size,
-        total_items=total,
-    )
-
-
-@router.post("/{site_id}/submissions/export", summary="表单数据导出为 CSV artifact")
-def export_site_submissions(
-    site_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    result = SiteService(db).export_submissions_to_artifact(site_id, user.user_id)
-    return success_response(data=result)
-
-
-@router.delete("/{site_id}/submissions", summary="清空站点表单数据")
-def clear_site_submissions(
-    site_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id)
-    cleared = service.repo.submission_clear(site.site_id)
-    return success_response(data={"cleared": cleared})
-
-
-@router.get("/{site_id}/kv", summary="站点 KV 列表")
-def list_site_kv(
-    site_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id, required=KV_READ_LEVEL)
-    rows, total = service.kv_list(site)
-    return success_response(
-        data={
-            "items": [
-                {
-                    "key": r.k,
-                    "value": r.v,
-                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-                }
-                for r in rows
-            ],
-            "total": total,
-        }
-    )
-
-
-@router.delete("/{site_id}/kv/{key}", summary="删除站点 KV 键")
-def delete_site_kv(
-    site_id: str,
-    key: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id, required=KV_WRITE_LEVEL)
-    deleted = service.kv_delete(site, key)
-    return success_response(data={"deleted": deleted})
-
-
-@router.delete("/{site_id}/kv", summary="清空站点 KV")
-def clear_site_kv(
-    site_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id, required=KV_WRITE_LEVEL)
-    cleared = service.repo.kv_clear(site.site_id)
-    return success_response(data={"cleared": cleared})
 
 
 @router.delete("/{site_id}", summary="删除站点")

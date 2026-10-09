@@ -16,7 +16,7 @@ from api.routes import sites_serve
 from api.routes.v1 import internal_sites, sites
 from core.auth.backend import get_current_user
 from core.db.engine import Base, get_db
-from core.db.models import Site, SiteKV, UserShadow
+from core.db.models import Site, UserShadow
 from core.services.site_service import SiteService
 from core.storage.local import LocalStorageBackend
 from fastapi import FastAPI
@@ -71,7 +71,6 @@ def site_http(tmp_path, monkeypatch):
                 files=[("index.html", b"<h1>site</h1>")],
             )
             site_id = site.site_id
-            service.kv_set(site, "existing", "before")
 
         def database():
             with factory() as db:
@@ -101,24 +100,21 @@ def test_site_panel_reads_do_not_wait_for_site_write_lock(site_http):
             with ThreadPoolExecutor(max_workers=3) as pool:
                 futures = [
                     pool.submit(client.get, f"/v1/sites/{site_id}{suffix}")
-                    for suffix in ("", "/submissions", "/kv")
+                    for suffix in ("",)
                 ]
                 responses = [future.result(timeout=6) for future in futures]
-            assert [r.status_code for r in responses] == [200, 200, 200]
+            assert [r.status_code for r in responses] == [200]
             assert client.get("/health").status_code == 200
         finally:
             holder.rollback()
 
 
-@pytest.mark.parametrize("operation", ["page", "kv-set", "kv-delete", "form", "publish"])
+@pytest.mark.parametrize("operation", ["page", "publish"])
 def test_site_lock_wait_does_not_block_health(site_http, operation):
     client, factory, engine, schema, site_id = site_http
     root = "/site/contention-fixture"
     requests = {
         "page": ("GET", root + "/", {}),
-        "kv-set": ("PUT", root + "/__api/kv/new", {"json": {"value": "new"}}),
-        "kv-delete": ("DELETE", root + "/__api/kv/existing", {}),
-        "form": ("POST", root + "/__api/forms/contact", {"json": {"message": "hi"}}),
         "publish": (
             "POST",
             "/v1/internal/sites/publish",
@@ -129,10 +125,7 @@ def test_site_lock_wait_does_not_block_health(site_http, operation):
         ),
     }
     with factory() as holder:
-        if operation == "kv-delete":
-            holder.query(SiteKV).filter_by(site_id=site_id, k="existing").with_for_update().one()
-        else:
-            holder.query(Site).filter_by(site_id=site_id).with_for_update().one()
+        holder.query(Site).filter_by(site_id=site_id).with_for_update().one()
         with ThreadPoolExecutor(max_workers=1) as pool:
             method, path, kwargs = requests[operation]
             pending = pool.submit(client.request, method, path, **kwargs)
@@ -161,7 +154,7 @@ def test_site_lock_wait_does_not_block_health(site_http, operation):
             response = pending.result(timeout=6)
         assert health.status_code == 200
         assert elapsed < 0.75, f"{operation} blocked unrelated health requests for {elapsed:.2f}s"
-        assert response.status_code == (201 if operation == "form" else 200), response.text
+        assert response.status_code == 200, response.text
         if operation == "publish":
             assert response.json()["data"].get("ok"), response.text
 

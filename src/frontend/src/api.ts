@@ -4364,19 +4364,6 @@ export interface SiteVersionItem {
   created_at: string;
 }
 
-export interface SiteSubmissionItem {
-  id: string;
-  form_key: string;
-  payload: Record<string, unknown>;
-  created_at: string | null;
-}
-
-export interface SiteKvItem {
-  key: string;
-  value: string;
-  updated_at: string | null;
-}
-
 export async function getSiteDetail(
   siteId: string, origin?: 'cloud' | 'local',
 ): Promise<SiteItem & { versions: SiteVersionItem[] }> {
@@ -4399,72 +4386,6 @@ export async function rollbackSite(
     body: JSON.stringify({ version }),
   }, siteTarget(origin));
   return { ...toSiteItem(unwrapData<JsonObject>(wrapped)), origin };
-}
-
-export async function listSiteSubmissions(
-  siteId: string, page = 1, pageSize = 50, origin?: 'cloud' | 'local',
-): Promise<{ items: SiteSubmissionItem[]; total: number }> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/submissions?page=${page}&page_size=${pageSize}`,
-    undefined, siteTarget(origin),
-  );
-  const data = unwrapData<JsonObject>(wrapped);
-  const pagination = (data.pagination ?? {}) as JsonObject;
-  return {
-    items: Array.isArray(data.items) ? (data.items as SiteSubmissionItem[]) : [],
-    total: Number(pagination.total_items ?? 0),
-  };
-}
-
-export async function exportSiteSubmissions(
-  siteId: string, origin?: 'cloud' | 'local',
-): Promise<{ artifact_id: string; filename: string; rows: number; download_url: string }> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/submissions/export`,
-    { method: 'POST' }, siteTarget(origin),
-  );
-  const res = unwrapData<{ artifact_id: string; filename: string; rows: number; download_url: string }>(wrapped);
-  // 本机导出的产物在本机端，下载链接补路由标记（window.open 带不上请求头）。
-  if (siteTarget(origin) === 'local' && res.download_url && !res.download_url.includes('hg_target=local')) {
-    res.download_url += res.download_url.includes('?') ? '&hg_target=local' : '?hg_target=local';
-  }
-  return res;
-}
-
-export async function clearSiteSubmissions(siteId: string, origin?: 'cloud' | 'local'): Promise<number> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/submissions`, { method: 'DELETE' }, siteTarget(origin),
-  );
-  return Number(unwrapData<JsonObject>(wrapped).cleared ?? 0);
-}
-
-export async function listSiteKv(
-  siteId: string, origin?: 'cloud' | 'local',
-): Promise<{ items: SiteKvItem[]; total: number }> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/kv`, undefined, siteTarget(origin),
-  );
-  const data = unwrapData<JsonObject>(wrapped);
-  return {
-    items: Array.isArray(data.items) ? (data.items as SiteKvItem[]) : [],
-    total: Number(data.total ?? 0),
-  };
-}
-
-export async function deleteSiteKvKey(
-  siteId: string, key: string, origin?: 'cloud' | 'local',
-): Promise<void> {
-  await apiRequest(
-    `/v1/sites/${encodeURIComponent(siteId)}/kv/${encodeURIComponent(key)}`,
-    { method: 'DELETE' }, siteTarget(origin),
-  );
-}
-
-export async function clearSiteKv(siteId: string, origin?: 'cloud' | 'local'): Promise<number> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/kv`, { method: 'DELETE' }, siteTarget(origin),
-  );
-  return Number(unwrapData<JsonObject>(wrapped).cleared ?? 0);
 }
 
 // ── Personal system settings (delegated to users on CE: model providers / service configs / my logs) ──

@@ -78,7 +78,14 @@ try{
  const proofProbe=await fetch(backend+'/test/cloud-proof',{method:'POST'});
  assert.equal(proofProbe.status,200,await proofProbe.text());
  checks.push('Real cloud gateway replaces a different-key device proof; native HTTP request hook and internal resource callback verify it');
+ const warmResponse=await fetch(backend+'/test/prewarm',{method:'POST'});
+ assert.equal(warmResponse.status,200);
+ const warm=await warmResponse.json();
+ const openingStarted=performance.now();
  const opened=await tool('browser_open',{});
+ assert.equal(opened.resource.resource_id,warm.resource_id);
+ checks.push('Sandbox startup prewarms real Chromium; browser_open adopts its exact resource ('+Math.round(performance.now()-openingStarted)+' ms through MCP)');
+
  const id=opened.resource.resource_id;
  assert.ok(id);
 

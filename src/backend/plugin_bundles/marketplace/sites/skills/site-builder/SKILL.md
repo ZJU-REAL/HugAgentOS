@@ -1,7 +1,7 @@
 ---
 name: site-builder
-version: 1.4.1
-description: 用对话把用户的想法做成一个真实可访问的网站并一键发布上线。当用户说"做一个网站/页面/门户/展示站/落地页/看板/H5 并要能打开访问""帮我搭个站""把这份内容做成网页发布出去"，或要在已发布站点上继续迭代修改时，或要查看/修改站点已存的 KV 数据（站内页面写入的计数、配置、内容）时，务必使用本技能。它教你两条建站路径——简单内容手写静态站、复杂/精美需求用预装的 React 工程模板构建——并用 choose_design 让用户三选一设计方案，最后用 publish_site 发布为平台托管站点，拿到形如 /site/<slug>/ 的访问链接交付给用户。
+version: 1.8.1
+description: 用对话把用户的想法做成一个真实可访问的网站并一键发布上线。当用户说"做一个网站/页面/门户/展示站/落地页/看板/H5 并要能打开访问""帮我搭个站""把这份内容做成网页发布出去"，或要在已发布站点上继续迭代修改时，或需要应用数据库、MCP 托管时，务必使用本技能。它教你两条建站路径——简单内容手写静态站、复杂/精美需求用预装的 React 工程模板构建——并用 choose_design 让用户三选一设计方案，最后用 publish_site 发布为平台托管站点，拿到形如 /site/<slug>/ 的访问链接交付给用户。
 ---
 
 # 对话建站（Site Builder）
@@ -110,7 +110,7 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
    显示在用户浏览器标签页上）。工程硬约束：
    - **HashRouter 不许换、`vite.config.mjs` 的 `base: './'` 不许改**（改了发布后打不开）；
    - 禁外部 CDN；静态资源放 `src/assets/` 交给构建打包；
-   - 动态数据用 `src/lib/siteApi.js`（kvGet/kvSet/kvDelete/submitForm）；
+   - 持久化业务数据用 manage_application 定义 SQL 表及字段；
    - 界面图标用预装图标库（`lucide-react` 或 `@ant-design/icons`），**禁止拿
      emoji 当图标**（跨系统渲染不一致、色相杂乱，是"AI 生成感"最强的元素）；
    - echarts 图表注意数值标签防裁切：柱状图外置 label 要给 `grid.top` 留够
@@ -198,76 +198,33 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 - 可见性 `visibility`：`public`（默认，凭链接访问）/ `private`（仅本人登录可见）/
 
 
-## 站点内置轻后端 API（可选，需要动态能力时用）
+## 应用 SQL 数据接口与 MCP（按需求创建）
 
 站内 JS 用**相对路径**（不带前导 `/`）fetch，平台已配好 CORS：
 
-- **KV 存储**（计数器 / 分数 / 简单配置）：
-  - 读：`GET __api/kv/<key>` → `{value, exists}`
-  - 写：`PUT __api/kv/<key>`，body `{"value":"..."}`（≤4KB，≤200 键）
-- **表单收集**（留言 / 报名 / 反馈，站主可在站点管理里导出 CSV）：
-  - `POST __api/forms/<form_key>`，body 为扁平 JSON 对象（≤8KB）
+- 仅发布静态内容时调用 publish_site；需要持久化数据时再创建数据库。
+- 表单系统：先发布网页获取 site_id，调用 manage_application create {title,site_id}。
+  `app_id` 必须作为工具顶层参数，不放进 payload。字段类型只能为
+  text、integer、number、boolean、date、json，不能用 string 或 varchar。
+  json 用于对象和数组；不能加 unique/indexed，也不能作为查询过滤参数。
+  public_read 和 public_replace 默认关闭。共享列表需要时显式开启两项；
+  修改整个共享列表时须带当前 revision，409 时先重新加载，不能覆盖他人修改。
+  调用示例：
+  `manage_application(action="table", app_id="<create返回的id>", payload={"name":"entries","columns":[{"name":"name","type":"text","required":true},{"name":"email","type":"text","required":true},{"name":"message","type":"text","required":true}],"public_insert":true})`。
+  先完整定义所有字段，表创建后不通过重新定义修改结构。接口报错时按字段错误修正，
+  不删掉必填项、访问限制或用户要求的字段来换取成功。
+  网页提交 POST __api/data/entries，JSON 为 {rows:[{name,email}],request_key:唯一编号}。
+  访客不能读取、修改或删除记录。站点管理的数据页查看字段、记录和导出。
+- 数据库查询 MCP：依据用户需求确定数据来源、查询范围和工具定义；独立服务不要求 site_id。
+  使用 [mcp-builder](../mcp-builder/SKILL.md) 技能和独立 publish_mcp 工具，
+  发布后自动加入当前用户的个人 MCP。只暴露批准字段，服务端加密保存凭据，
+  对话结果不包含凭据。手动外部接入通过站点管理获取凭据。
+  只在用户要求时发布 MCP；不要把数据源凭据或 MCP 凭据写进网页。
+- 应用数据统一存入声明式数据库。旧键值接口与旧表单收集接口已移除。
+- 静态网页不创建数据库。表单向 __api/data/<表名> 提交结构化记录。
 
-> `__api/` 是保留前缀，站点文件不能用这个目录名。React 工程用
-> `src/lib/siteApi.js` 封装，静态站直接 `fetch('__api/kv/score')`。
-
-### 你自己读写 KV：用工具，不要 curl `__api/`
-
-`__api/` 那套是**给站内 JS（浏览器里）用的**。你在沙箱里没有站点会话，直接 curl
-它对私密 / 团队站会 404，公开站也不保证连得通——用这四个工具：
-
-- `site_kv_list(site_id 或 slug)` — 看现在有哪些键（默认 50 条，值给前 200 字预览；
-  `total` 比返回条数多就说明还有，调大 `limit`）
-- `site_kv_get(key, site_id 或 slug)` — 取某个键的全文
-- `site_kv_set(key, value, site_id 或 slug)` — 写 / 覆盖，改的就是线上数据
-- `site_kv_delete(key, site_id 或 slug)` — 删键
-
-`site_id` 取自 `list_sites` 或 `publish_site` 回执；`slug` 是访问地址
-`/site/<slug>/` 中间那段。
-
-**KV 是这个站点自带的轻量数据库**——页面运行时读写的数据都在这儿。改数据是日常
-操作，随时可做，**不需要重新发布**。
-
-### 什么时候重新发布，什么时候只改 KV
-
-分界不是"什么时候改"，而是**改的是代码还是数据**：
-
-| 用户要改的 | 走哪条 |
-|---|---|
-| 版式、结构、交互、新增栏目 / 图表、换图表类型 | 改源码 → `publish_site` |
-| 页面某处显示的值，而该处本来就从 KV 读 | `site_kv_set` 直接改，**立即生效、不用发布** |
-| 页面某处的值，但它写死在源码里 | 改源码重发；若用户会**反复**改这段，先把它改造成从 KV 读（改一次源码发一次），之后每次改数据只动 KV |
-| 访客产生的数据（计数 / 投票 / 打分） | 默认别动；用户要清零或纠错时才改 |
-
-所以接到"把 X 改成 Y"，**先读源码查这个站是怎么做的**：X 是写死的，还是
-`kvGet('x')` 来的？再决定走哪条路。不要一律当成"改内容就得重新发布"。
-
-同理，用户抱怨"每次改个数字都要重发一次"时，主动提议把这段数据挪进 KV——这是
-站点该有的优化，不是额外工作。
-
-规矩：
-
-- **改之前先 `site_kv_get` 看现值**——`site_kv_set` 是整值替换，凭印象重写会丢数据；
-- 结构化内容自己 `json.dumps` 成字符串再传，读回来自己解析；
-- 删键不可撤销，先跟用户确认键名；
-- 公开站的 `__api/kv` **访客也能写**（只有限流），KV 里的东西不防篡改——密钥、
-  不容改动的声明性内容仍写死在源码里；
-- 上限：单值 ≤4KB、每站 ≤200 键，键名限字母数字和 `_.:-`。装不下的大块数据不要
-  硬塞 KV，放进站点文件随发布上线。
-
-## 禁止事项清单
-
-- 禁止在工程目录（尤其 `/myspace/` 下）直接 `npm install`——加依赖走"改
-  package.json + 重跑 init 脚本"。
-- 禁止把源码目录当站点发布（路径 B 的 `src_dir` 必须指向构建产物目录）。
-- 禁止改 `base: './'`、换 BrowserRouter、引外部 CDN。
-- 禁止构建报错未修就发布；禁止编辑会话里绕开原文件另建新站。
-- 禁止把设计 mockup 截图 pin 给用户、或对同一问题反复调 choose_design。
-
-## 交付话术
-
-把返回的 `url` 以 **markdown 链接**发给用户，并告知：可在「实验室 → 站点」里管理
-（改可见性 / 版本回滚 / 看访问量 / 导出表单数据），点站点卡片上的「编辑」按钮可随时
+站点可以在「实验室 → 站点」管理
+（改可见性 / 版本回滚 / 看访问量 / 查看数据库与 MCP），点站点卡片上的「编辑」按钮可随时
 回来通过对话继续修改。
 
 ## 示例
@@ -275,6 +232,6 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 用户："做一个部门数据看板网站，能看各科室的月度指标，要好看。"
 你（路径 B）：init 模板 → 问一句"指标数据我先用示例数据占位，之后您可以发我真实数据"
 → 写 3 个 mockup（深色科技风 / 明亮商务风 / 极简卡片风）截图 → `choose_design` 等用户
-选 → 按选中方案实现（antd 布局 + echarts 图表 + siteApi 存配置）→ `npm run build` →
+选 → 按选中方案实现（antd 布局 + echarts 图表 + 按需定义应用数据库）→ `npm run build` →
 `publish_site(title='部门数据看板', src_dir='/workspace/.site-dist/dashboard',
 source_dir='/workspace/site-src/dashboard')` → 交付链接 + 管理/编辑指引。

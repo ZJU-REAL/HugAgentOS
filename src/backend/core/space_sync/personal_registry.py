@@ -29,7 +29,9 @@ def get_registry() -> Optional[MySpaceRegistry]:
     return _registry
 
 
-async def flush_user(user_id: str, *, metadata_only: bool = False) -> None:
+async def flush_user(
+    user_id: str, *, metadata_only: bool = False, paths: tuple[str, ...] = ()
+) -> None:
     "催一下这个用户待登记的改动 —— 读「我的空间」之前调，看到的就是当下状态。"
     if _registry is None or not user_id:
         return
@@ -37,6 +39,23 @@ async def flush_user(user_id: str, *, metadata_only: bool = False) -> None:
     from fastapi import HTTPException
 
     try:
+        # Explicit paths close the gap between a file tool returning and watchdog
+        # delivering its event. They still use the ordinary authorization/conflict
+        # policy, queue, memory budget and registration transaction.
+        from pathlib import PurePosixPath
+        from time import time
+
+        from .events import Change
+
+        for path in paths:
+            if (
+                not path
+                or PurePosixPath(path).is_absolute()
+                or ".." in PurePosixPath(path).parts
+                or "\\" in path
+            ):
+                raise ValueError("Invalid personal source path")
+            _registry._receive(Change("modified", user_id + "/" + path, observed=time()))
         if metadata_only:
             await _registry.flush(user_id, metadata_only=True)
             return

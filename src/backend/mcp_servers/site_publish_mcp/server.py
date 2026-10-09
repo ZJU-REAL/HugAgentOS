@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
+
+from core.services.application_schema import ApplicationPayload, ToolDefinition
+from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp_servers.site_publish_mcp import impl
@@ -86,114 +89,82 @@ async def publish_site(
     )
 
 
-# ── Site KV (the data plane of a published site's built-in light backend) ──
-#
-# In-site JS writes this through __api/kv. An agent in the sandbox holds no site
-# session cookie, so curling __api/kv 404s on private/team sites — it reads and
-# writes through these four tools instead.
-
-
-def _kv_target(ctx: Context | None, site_id: str, slug: str) -> Dict[str, Any]:
-    """KV is authorized by site ownership and never touches the sandbox — no chat id."""
-    return {
-        "user_id": _hdr(ctx, _HDR_USER) or "",
-        "site_id": site_id,
-        "slug": slug,
-    }
-
-
 @mcp.tool()
-async def site_kv_list(
-    site_id: str = "", slug: str = "", limit: int = 50, ctx: Context | None = None
+async def manage_application(
+    action: Literal[
+        "list",
+        "create",
+        "table",
+        "insert",
+        "query",
+        "publish_mcp",
+        "revoke_mcp",
+        "source",
+        "publish_project",
+    ],
+    payload: ApplicationPayload | None = None,
+    app_id: str = "",
+    ctx: Context | None = None,
 ) -> Dict[str, Any]:
-    """列出站点 KV 里现有的键，看站内 JS（__api/kv）写进来的数据。
+    """管理应用数据库、记录和 MCP 项目。
 
-    站点编号和访问地址传其一即可：site_id 取自 list_sites 或 publish_site 回执，
-    slug 是访问地址 /site/<slug>/ 中间那段。
-
-    值只给前 200 字预览，value_chars 是全长；要全文用 site_kv_get。
-    total 大于返回条数说明还有更多，调大 limit 再取。
-
-    Args:
-        site_id (`str`, 可选): 站点编号。
-        slug (`str`, 可选): 站点访问路径；不传 site_id 时必传。
-        limit (`int`, 可选): 本次返回条数，默认 50，上限 200。
-
-    Returns:
-        JSON: {ok, site_id, slug, total, items:[{key, preview, value_chars,
-        updated_at}]} 或 {error: '...'}。
+    action 指定操作，app_id 放在顶层，payload 按工具 schema 提供。
+    list 查询已有应用；create 使用用户确定的标题，可选关联 site_id。
+    kind=mcp 创建 MCP 源码项目；kind=data 创建数据应用。
+    table 定义表与字段，字段类型为 text、integer、number、boolean、date、json。
+    insert 写入用户提供或授权来源的记录；query 按字段过滤并分页查询。
+    数据来源、表名、字段和查询范围由用户需求及实际数据决定。
+    source 返回项目草稿和已发布定义；publish_project 发布项目中的 mcp.json，
+    校验应用编号与版本，更新原服务并回写项目版本。
+    publish_mcp 发布显式工具定义；revoke_mcp 停用服务及个人连接。
+    独立 publish_mcp 工具用于发布并接入当前用户的个人 MCP。
+    访问权限须显式配置，凭据由服务端保存，不写入源码或返回对话。
     """
-    return await impl.site_kv(action="list", limit=limit, **_kv_target(ctx, site_id, slug))
-
-
-@mcp.tool()
-async def site_kv_get(
-    key: str, site_id: str = "", slug: str = "", ctx: Context | None = None
-) -> Dict[str, Any]:
-    """读取站点 KV 中某个键的完整值。
-
-    Args:
-        key (`str`): 键名（字母/数字/`_.:-`，≤64 位）。
-        site_id (`str`, 可选): 站点编号。
-        slug (`str`, 可选): 站点访问路径；不传 site_id 时必传。
-
-    Returns:
-        JSON: {ok, site_id, key, value, exists} 或 {error: '...'}。
-    """
-    return await impl.site_kv(action="get", key=key, **_kv_target(ctx, site_id, slug))
-
-
-@mcp.tool()
-async def site_kv_set(
-    key: str, value: str, site_id: str = "", slug: str = "", ctx: Context | None = None
-) -> Dict[str, Any]:
-    """写入/覆盖站点 KV 中的一个键，改的就是站点线上正在读的那份数据。
-
-    KV 是站点自带的轻量数据库，改数据是日常操作、随时可做，**不需要重新发布站点**。
-
-    判断该改 KV 还是该重新发布，看改的是数据还是代码：页面某处显示的值、而该处
-    本来就从 KV 读 → 改 KV 即时生效；页面的版式/结构/交互/新增栏目 → 改源码走
-    publish_site。值目前写死在源码里、而用户会反复改它 → 先改造成从 KV 读并发布
-    一次，之后只动 KV。接到"把 X 改成 Y"先读源码确认 X 是写死的还是 kvGet 来的。
-
-    结构化内容自己先 JSON 序列化成字符串再传。
-    覆盖是整值替换，改之前先用 site_kv_get 看现值，不要凭印象重写。
-
-    限制：单值 ≤4KB，每站 ≤200 个键。
-
-    Args:
-        key (`str`): 键名（字母/数字/`_.:-`，≤64 位）。
-        value (`str`): 新值（字符串；对象/数组先 JSON 序列化）。
-        site_id (`str`, 可选): 站点编号。
-        slug (`str`, 可选): 站点访问路径；不传 site_id 时必传。
-
-    Returns:
-        JSON: {ok, site_id, key} 或 {error: '...'}。
-    """
-    return await impl.site_kv(action="set", key=key, value=value, **_kv_target(ctx, site_id, slug))
-
-
-@mcp.tool()
-async def site_kv_delete(
-    key: str, site_id: str = "", slug: str = "", ctx: Context | None = None
-) -> Dict[str, Any]:
-    """删除站点 KV 中某个键。删除不可撤销，执行前先跟用户确认要删哪个键。
-
-    Args:
-        key (`str`): 键名。
-        site_id (`str`, 可选): 站点编号。
-        slug (`str`, 可选): 站点访问路径；不传 site_id 时必传。
-
-    Returns:
-        JSON: {ok, site_id, key, deleted} 或 {error: '...'}。
-    """
-    return await impl.site_kv(action="delete", key=key, **_kv_target(ctx, site_id, slug))
+    identity = _identity(ctx)
+    if not identity["user_id"]:
+        return {"error": "Current user identity is required"}
+    return await impl._call_backend(
+        "/v1/internal/applications/operation",
+        {
+            **identity,
+            "action": action,
+            "payload": payload.model_dump() if isinstance(payload, BaseModel) else (payload or {}),
+            "app_id": app_id,
+        },
+        timeout=60.0,
+    )
 
 
 def main() -> None:
     from mcp_servers import _serve
 
     _serve.run(mcp, default_port=9113)
+
+
+@mcp.tool()
+async def publish_mcp(
+    app_id: str,
+    tools: list[ToolDefinition],
+    ctx: Context | None = None,
+) -> Dict[str, Any]:
+    """发布已有应用的 MCP，并验证连接后添加到当前用户的个人 MCP。
+
+    从已有应用的数据表定义查询工具；应用编号、工具名称和查询范围取自实际需求。
+    工具只暴露批准的表、字段和过滤条件。重复发布更新同一个个人 MCP。
+    当前身份由平台注入；不接受自定义 URL、账号或凭据。需要个人 MCP 创建权限。
+    成功回执含 app_id、server_id、地址、版本、installed 和 connection_verified；
+    只有两项都为 true 才能宣称接入成功。部分失败保留发布结果，修复后重试。
+    访问凭据加密保存在服务端，不返回对话，不写入页面或源码。
+    手动对外接入需在站点管理中发布并取得单独的访问凭据。
+    """
+    identity = _identity(ctx)
+    if not identity["user_id"]:
+        return {"error": "Current user identity is required"}
+    return await impl._call_backend(
+        "/v1/internal/applications/publish-mcp",
+        {**identity, "app_id": app_id, "tools": [tool.model_dump() for tool in tools]},
+        timeout=60.0,
+    )
 
 
 if __name__ == "__main__":

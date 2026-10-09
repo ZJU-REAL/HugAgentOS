@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sites",
-  "version": "1.4.1",
-  "description": "用对话把想法做成真实网站并一键发布上线：简单内容直接生成静态站，复杂/精美需求用预装的 React 工程模板（antd + echarts + tailwind）在沙箱内构建，建站前还会生成 3 个设计方案预览图供你挑选。调 publish_site 发布成平台托管站点，拿到形如 /site/<slug>/ 的链接即可访问。支持自定义访问地址、公开/私密可见、版本回滚、访问统计，以及站点内置轻后端（KV 存储 + 表单收集）。装上后在对话里描述需求即可建站，也可在「实验室 → 站点」里管理。",
+  "version": "1.8.1",
+  "description": "通过对话构建和发布网站，管理应用数据，并创建、编辑和发布数据库查询 MCP。",
   "author": {
     "name": "HugAgentOS"
   },
@@ -11,7 +11,7 @@
       "mcp": {
         "site_publish": {
           "display_name": "对话建站发布",
-          "description": "把沙箱里的静态网站目录发布为平台托管站点，返回可访问 URL；并读写该站点内置轻后端的 KV 数据。身份/会话走 X-Current-User-Id / X-Conversation-Id 头；发布、查询与 KV 都转发到后端内部接口完成（后端有沙箱访问权与站点权限上下文）。",
+          "description": "发布网站，管理应用数据库，并托管需要鉴权的查询 MCP 服务。",
           "tools": [
             {
               "name": "list_sites",
@@ -22,20 +22,12 @@
               "description": "发布指定站点目录。新建与编辑均显式传 src_dir，静态站为实际页面根目录，构建型为本次构建产物并另传 source_dir。编辑前先用 list_sites 查询站点编号与目录；从项目、新会话或编辑按钮进入都必须显式带原 site_id，不依赖后端自动定位。仅用户明确新建时省略 site_id；多目标不明确先询问。发布后核对编号、URL、版本及首页实际改动。源码保留在本机，云端托管构建产物。限制 ≤300 文件、≤30MB。"
             },
             {
-              "name": "site_kv_list",
-              "description": "列出站点 KV 现有的键，即站内 JS 经 __api/kv 写入的数据。传 site_id 或 slug 其一定位站点，site_id 用 list_sites 查。默认返回 50 条并给出总数 total，值只给前 200 字预览，全文用 site_kv_get。要改 KV 先列出看现状，不要凭猜测写。"
+              "name": "manage_application",
+              "description": "管理应用数据库、记录和 MCP 项目。按用户需求及实际数据确定应用标题、表、字段和查询范围。kind=mcp 自动创建项目；source 返回草稿和已发布定义；publish_project 从项目 mcp.json 更新原服务并校验版本。操作及参数见工具 schema。"
             },
             {
-              "name": "site_kv_get",
-              "description": "读取站点 KV 中某个键的完整值。传 site_id 或 slug 其一定位站点。"
-            },
-            {
-              "name": "site_kv_set",
-              "description": "写入或覆盖站点 KV 的一个键，直接改线上站点正在读的数据。KV 是站点自带的轻量数据库，改数据是日常操作、随时可做，不需要重新发布。改数据还是重新发布看改的是数据还是代码：页面某处的值且该处本来就从 KV 读→改 KV 即时生效；版式/结构/交互/新增栏目→改源码走 publish_site；值写死在源码里而用户会反复改它→先改造成从 KV 读并发布一次，之后只动 KV。接到「把 X 改成 Y」先读源码确认 X 是写死的还是 kvGet 来的。覆盖是整值替换，改前先 site_kv_get 看现值。结构化内容自己 JSON 序列化成字符串。单值 ≤4KB，每站 ≤200 键。"
-            },
-            {
-              "name": "site_kv_delete",
-              "description": "删除站点 KV 的一个键，不可撤销，执行前先跟用户确认键名。"
+              "name": "publish_mcp",
+              "description": "发布已有应用的查询 MCP，验证连接并加入当前用户的个人 MCP。重复发布更新原服务；仅 installed 和 connection_verified 都为 true 时表示接入成功。工具定义取自实际数据与授权范围，凭据仅在服务端加密保存。"
             }
           ]
         }

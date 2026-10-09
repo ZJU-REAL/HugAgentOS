@@ -4,8 +4,7 @@
   const channel = window.BrowserChannel;
   const $ = id => document.getElementById(id);
   const screen = $('screen');
-  const context = screen.getContext('2d');
-  let state, frameSerial = 0, connected = false, navigating = false;
+  let state, connected = false, navigating = false;
   const report = error => {
     const code = error?.message || (error ? String(error) : '');
     const text = {
@@ -49,7 +48,7 @@
     const tabChanged = next.active_tab !== state?.active_tab;
     const layoutChanged = tabChanged || next.viewport_revision !== state?.viewport_revision;
     state = next;
-    if (layoutChanged) overlay(t('正在加载网页…'));
+    if (layoutChanged) { frames.invalidate(); overlay(t('正在加载网页…')); }
     channel.epoch(state.epoch);
     const active = state.tabs.find(tab => tab.id === state.active_tab);
     if (tabChanged || document.activeElement !== $('address')) $('address').value = active?.url === 'about:blank' ? '' : active?.url || '';
@@ -96,6 +95,7 @@
     event.preventDefault(); event.stopImmediatePropagation();
   }, true);
   const renderTabs = window.installBrowserTabs($('tabs'), command);
+  const frames = window.installBrowserFrames(screen, () => state, () => { view.frame(); updateOverlay(); }, report);
   channel.listen(async (event, data) => {
     if (event.type === 'navigate') {
       try { await navigateTo(event.url, true); channel.navigationResult(event.id); }
@@ -109,22 +109,7 @@
       updateOverlay();
     } else if (event.type === 'state') render(event);
     else if (event.type === 'frame') {
-      if (!state || event.tab_id !== state.active_tab || event.viewport_revision !== state.viewport_revision) return;
-      const serial = ++frameSerial;
-      const viewport = event.viewport;
-      try {
-        const image = await createImageBitmap(new Blob([data], { type: 'image/jpeg' }));
-        if (serial === frameSerial && event.tab_id === state?.active_tab && event.viewport_revision === state?.viewport_revision) {
-          screen.width = viewport.width;
-          screen.height = viewport.height;
-          context.drawImage(image, 0, 0, screen.width, screen.height);
-          screen.dataset.revision = String(event.viewport_revision);
-          screen.dataset.tab = event.tab_id;
-          view.frame();
-          updateOverlay();
-        }
-        image.close();
-      } catch (error) { report(error); }
+      frames.push(event, data);
     } else if (event.type === 'dialog') {
       $('dialog').hidden = false;
       $('dialog-message').textContent = event.message;
@@ -133,13 +118,14 @@
       connected = false;
       $('connection').title = t('连接中断');
       $('connection').dataset.connected = 'false';
-      frameSerial++;
+      frames.invalidate();
       control.disconnected();
       view.connected(false);
       overlay(event.error || t('连接中断，正在重连…'));
     } else if (event.type === 'stream_error') report(new Error(event.error));
-    else if (event.type === 'closed') overlay(t('浏览器已关闭'));
+    else if (event.type === 'closed') { frames.invalidate(); overlay(t('浏览器已关闭')); }
   });
+  window.addEventListener('pagehide', () => frames.invalidate());
   const navigate = () => { void navigateTo($('address').value).catch(() => {}); };
   $('navigate-open').onclick = navigate;
   $('address').onkeydown = event => {

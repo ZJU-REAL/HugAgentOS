@@ -197,7 +197,11 @@ fn site_paths_always_route_to_cloud() {
         "/site/my-report/",
         "/site/my-report/assets/app.js",
         "/api/v1/sites",
-        "/api/v1/sites/abc/submissions",
+        "/api/v1/sites/abc",
+        "/api/v1/applications",
+        "/api/v1/applications/abc/tables/entries/records",
+        "/applications-mcp",
+        "/applications-mcp/abc",
     ] {
         assert!(is_cloud_site_path(path), "{path} 必须走云端");
     }
@@ -211,6 +215,8 @@ fn non_site_paths_stay_routable_to_local() {
         "/api/v1/sitemap",
         "/sites",
         "/website/index.html",
+        "/api/v1/applications-other",
+        "/applications-mcp-other",
     ] {
         assert!(!is_cloud_site_path(path), "{path} 不应被当作站点路径");
     }

@@ -103,8 +103,9 @@ async def test_nonpty_rejects_input_and_ctrl_c_interrupts_a_concurrent_wait(runn
     assert (await asyncio.wait_for(waiting, 2)).json()["status"] == "exited"
 
 
-async def test_cancelled_http_wait_does_not_cancel_process(runner):
-    started = await start_command(runner, "sleep 0.8; printf survived")
+@pytest.mark.parametrize("yield_on_output", [False, True])
+async def test_cancelled_http_wait_does_not_cancel_process(runner, yield_on_output):
+    started = await start_command(runner, "sleep 0.8; printf survived", yield_on_output=yield_on_output)
     waiting = asyncio.create_task(poll(runner, started["session_id"]))
     await asyncio.sleep(0.1)
     waiting.cancel()
@@ -337,3 +338,30 @@ async def test_python_resources_resolve_next_to_script(runner):
     result = response.json()
     assert result["exit_code"] == 0, result
     assert result["stdout"].splitlines() == ["42", "sibling"]
+
+async def test_output_wait_returns_before_worker_exit_and_wait_budget(runner):
+    import time
+
+    started_at = time.monotonic()
+    response = await runner.post("/processes/start", json={
+        "session_id": "chat-a", "user_id": "alice", "language": "bash",
+        "script_name": "worker.sh", "script_content": "printf ready; sleep 10",
+        "yield_time_ms": 2000, "yield_on_output": True,
+    })
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["stdout"] == "ready"
+    assert result["status"] == "running"
+    assert time.monotonic() - started_at < .7
+    stopped = await poll(runner, result["session_id"], chars="\x03")
+    assert stopped.json()["status"] == "exited"
+
+
+async def test_output_wait_wakes_for_new_increment_without_repeating_old_output(runner):
+    result = await start_command(runner, "printf first; sleep .4; printf second; sleep 10",
+                                 yield_on_output=True, yield_time_ms=2000)
+    assert result["stdout"] == "first"
+    response = await asyncio.wait_for(poll(runner, result["session_id"]), .8)
+    assert response.json()["stdout"] == "second"
+    assert response.json()["status"] == "running"
+    await poll(runner, result["session_id"], chars="\x03")

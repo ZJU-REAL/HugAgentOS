@@ -12,6 +12,9 @@ const BACKUP_FILES: &[&str] = &[
     "config.env",
     "secrets.json",
     "catalog.json",
+    "storage/applications.sqlite",
+    "storage/applications.sqlite-wal",
+    "storage/applications.sqlite-shm",
 ];
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -45,6 +48,10 @@ pub(super) fn backup_local_data(
         .map_err(|error| format!("创建数据备份暂存目录失败：{error}"))?;
     let result = (|| {
         for name in &files {
+            if let Some(parent) = staged.join(name).parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| format!("创建备份子目录失败：{error}"))?;
+            }
             std::fs::copy(data_root.join(name), staged.join(name))
                 .map_err(|error| format!("备份 {name} 失败：{error}"))?;
         }
@@ -89,6 +96,10 @@ pub(super) fn restore_local_data(data_root: &Path, backup: &Path) -> Result<(), 
         }
     }
     for name in manifest.files {
+        if let Some(parent) = data_root.join(&name).parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建恢复子目录失败：{error}"))?;
+        }
         std::fs::copy(backup.join(&name), data_root.join(&name))
             .map_err(|error| format!("恢复 {name} 失败：{error}"))?;
     }

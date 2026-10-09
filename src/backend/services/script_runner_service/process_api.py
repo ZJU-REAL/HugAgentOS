@@ -22,6 +22,7 @@ def install(server):
     class StartRequest(server.ProcessRequest):
         timeout: int | None = None
         yield_time_ms: int = 60000
+        yield_on_output: bool = False
         capability_run_id: str | None = None
         capability_scope: str = ""
         cwd: str | None = None
@@ -123,6 +124,7 @@ def install(server):
                 (req.session_id, req.user_id or ""),
                 max(250, min(req.yield_time_ms, 60000)),
                 req.timeout,
+                yield_on_output=req.yield_on_output,
             )
         except ProcessSessionError as exc:
             raise HTTPException(400, str(exc)) from exc

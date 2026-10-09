@@ -25,18 +25,15 @@ class UploadChannel:
     content_type: str
     # (arguments, headers) -> (body bytes, options JSON string)
     package: Callable[[Dict[str, Any], Dict[str, str]], Awaitable[Tuple[bytes, str]]]
-    # (result data, cloud base url, arguments, headers) -> None; local receipt and URLs
-    localize: Optional[Callable[[Dict[str, Any], str, Dict[str, Any], Dict[str, str]], None]] = None
 
 
 def _site_publish_channel() -> UploadChannel:
-    from core.services.desktop_site_publish import localize_site_result, package_local_site
+    from core.services.desktop_site_publish import package_local_site
 
     return UploadChannel(
         endpoint="site-publish",
         content_type="application/gzip",
         package=package_local_site,
-        localize=localize_site_result,
     )
 
 
@@ -63,3 +60,16 @@ def endpoint_plugin(endpoint: str) -> Optional[str]:
             if factory().endpoint == endpoint:
                 return slug
     return None
+
+
+def result_localizer(source_plugin: str, tool_name: str):
+    """Resolve component-owned receipt handling independently of upload transport."""
+    if source_plugin != "sites":
+        return None
+    from core.services.desktop_site_publish import localize_application_result, localize_site_result
+
+    return {
+        "publish_site": localize_site_result,
+        "manage_application": localize_application_result,
+        "publish_mcp": localize_application_result,
+    }.get(tool_name)

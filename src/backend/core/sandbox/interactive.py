@@ -98,11 +98,21 @@ async def launch(provider, installation, module, user_id, chat_id, config):
     body = {**config, "archive": archive_name, "callable": runtime["callable"]}
     from core.plugins.resources.confinement import launch_policy
     confinement = launch_policy(provider, user_id, chat_id)
-    process = await provider.start_process(ProcessRequest(
-        sandbox_launch=confinement, script_content=BOOTSTRAP, script_name="interactive.py", timeout=None,
+    start = asyncio.create_task(provider.start_process(ProcessRequest(
+        sandbox_launch=confinement, script_content=BOOTSTRAP, script_name="interactive.py", timeout=None, yield_on_output=True,
         user_id=user_id, session_id=chat_id, params=body,
         input_files_b64={archive_name: base64.b64encode(data.getvalue()).decode()},
-    ), yield_time_ms=1000)
+    ), yield_time_ms=1000))
+    try:
+        process = await asyncio.shield(start)
+    except asyncio.CancelledError:
+        # Managed commands survive caller cancellation. Keep ownership of the
+        # initial response so no child can lose its handle during launch.
+        process = await start
+        if process.get("session_id"):
+            await provider.write_stdin(process["session_id"], sandbox_session_id=chat_id,
+                                       user_id=user_id, chars="\x03", yield_time_ms=1000)
+        raise
     handle = process.get("session_id")
     stdout = process.get("output", process.get("stdout", ""))
     errors = process.get("stderr", "")

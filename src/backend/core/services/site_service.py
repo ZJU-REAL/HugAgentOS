@@ -11,7 +11,6 @@ file set to v<n+1> + switch ``current_version``; the hosted URL
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import logging
 import mimetypes
@@ -24,11 +23,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.db.models import Site
 from core.db.repository import SiteRepository
 from core.infra.exceptions import BadRequestError
+from core.infra.time import utc_now
 from core.services.site_access_policy import (
-    site_management_permission,
     resolve_site_scope,
-    site_scope_write_fields,
+    site_management_permission,
     site_scope_ref,
+    site_scope_write_fields,
 )
 from core.services.site_management import SiteManagementMixin
 from core.storage import get_storage
@@ -44,9 +44,6 @@ KEEP_VERSIONS = (
     3  # number of historical versions kept after publishing a new one in local mode (incl. current)
 )
 
-# KV authorization levels are shared by the hosted route and internal tools.
-KV_READ_LEVEL = "view"
-KV_WRITE_LEVEL = "edit"
 # Reserved in-site path prefix: /site/<slug>/__api/** is the dynamic API; publishing files under the same name is not allowed
 RESERVED_PATH_PREFIX = "__api"
 
@@ -181,7 +178,9 @@ class SiteService(SiteManagementMixin):
         title = (title or "").strip()
         if not title:
             raise BadRequestError("站点标题不能为空")
-        resolved_scope_id = resolve_site_scope(self.db, user_id, visibility, scope_id) if not site_id else None
+        resolved_scope_id = (
+            resolve_site_scope(self.db, user_id, visibility, scope_id) if not site_id else None
+        )
 
         cleaned = self._validate_files(files)
         entry_file = self._pick_entry_file(cleaned)
@@ -228,9 +227,14 @@ class SiteService(SiteManagementMixin):
         if project_id:
             from core.auth.permissions_iface import resolve_project_permission
             from core.db.models import Project
+
             project = self.db.get(Project, project_id)
-            if project is None or resolve_project_permission(self.db, user_id, project) not in ("edit", "admin"):
+            if project is None or resolve_project_permission(self.db, user_id, project) not in (
+                "edit",
+                "admin",
+            ):
                 from fastapi import HTTPException
+
                 raise HTTPException(403, "无权在该项目发布站点")
         final_slug = self._resolve_slug(slug)
         new_id = f"site_{uuid.uuid4().hex[:16]}"

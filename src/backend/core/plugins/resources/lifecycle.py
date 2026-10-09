@@ -10,17 +10,17 @@ from . import store
 
 async def reconcile(db, user_id=None, after="", limit=100):
     from . import service
-    query = db.query(store.PluginResource).filter(store.PluginResource.status.in_(["active", "starting"]))
+    query = db.query(store.PluginResource).filter(store.PluginResource.status.in_(["active", "starting", "warming", "warm"]))
     if user_id:
         query = query.filter_by(user_id=user_id)
     rows = query.filter(store.PluginResource.resource_id > after).order_by(store.PluginResource.resource_id).limit(limit).all()
     async def valid(row):
         if row.expires_at <= time.time():
             return False
-        if row.status == "starting":
+        if row.status in {"starting", "warming"}:
             return True
         try:
-            service.authorized(db, row.resource_id, row.user_id)
+            service.validate_binding(db, row, row.user_id)
             target = store.descriptor(row)
             async with httpx.AsyncClient(timeout=3, trust_env=False, headers=target["headers"]) as client:
                 response = await client.get(target["url"] + "/state")
@@ -39,6 +39,8 @@ async def reconcile(db, user_id=None, after="", limit=100):
 
 @asynccontextmanager
 async def lifespan(app):
+    from . import prewarm
+    prewarm.resume()
     async def sweep():
         cursor = ""
         while True:
@@ -54,3 +56,5 @@ async def lifespan(app):
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        from .prewarm import stop
+        await stop()
