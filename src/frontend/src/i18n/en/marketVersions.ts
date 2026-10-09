@@ -1,0 +1,18 @@
+export const MARKET_VERSIONS_DICT: Record<string, string> = {
+  '当前': 'Current',
+  '更新版本': 'Update version',
+  '选择版本': 'Select version',
+  '市场版本已更新': 'Marketplace version updated',
+  '切换到版本 {version}？': 'Switch to version {version}?',
+  '市场将恢复该版本的完整内容。': 'The marketplace will restore the complete contents of this version.',
+  'ZIP ≤20 MiB；解压 ≤50 MiB；禁止凭据文件。': 'ZIP up to 20 MiB; extracted up to 50 MiB; no credential files.',
+  '下载当前版本包': 'Download current package',
+  '版本递增方式': 'Version increment',
+  '补丁版本 +1': 'Patch +1',
+  '次版本 +1': 'Minor +1',
+  '主版本 +1': 'Major +1',
+  '选择 ZIP': 'Choose ZIP',
+  '请选择不超过 20 MiB 的 ZIP 包': 'Choose a ZIP package up to 20 MiB',
+  '上传并更新': 'Upload and update',
+  '刷新版本': 'Refresh versions',
+};

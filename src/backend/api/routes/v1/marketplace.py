@@ -26,7 +26,7 @@ from core.auth.backend import get_current_user, UserContext
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.responses import created_response, success_response
-from core.services import marketplace_service as mk
+from core.services import marketplace_skill_versions as mk
 from core.services import marketplace_listing as ml
 from core.infra.exceptions import AccessDeniedError
 

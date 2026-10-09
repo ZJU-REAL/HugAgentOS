@@ -5,3 +5,4 @@ export { useDelayedFlag } from './useDelayedFlag';
 export { useStallDetector } from './useStallDetector';
 export { usePopupFlip } from './usePopupFlip';
 export { useOverflowFade } from './useOverflowFade';
+export { useWeixinBinding } from './useWeixinBinding';

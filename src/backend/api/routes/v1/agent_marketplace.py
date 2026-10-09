@@ -26,7 +26,7 @@ from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.exceptions import AccessDeniedError
 from core.infra.responses import created_response, success_response
-from core.services import agent_market_service as am
+from core.services import marketplace_agent_versions as am
 from core.services import marketplace_listing as ml
 
 router = APIRouter(prefix="/v1/agent-marketplace", tags=["Agent Marketplace"])
