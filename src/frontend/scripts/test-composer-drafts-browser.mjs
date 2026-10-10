@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 const bundle = await build({ stdin: { contents: `
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { InputArea } from './src/components/chat/InputArea';
 import { useChatStore } from './src/stores/chatStore';
 import { useChatActions } from './src/hooks/useChatActions';
-import { readComposer, useComposerStore, chatDraftKey, projectDraftKey } from './src/stores/composerStore';
+import { readComposer, useComposerStore, chatDraftKey } from './src/stores/composerStore';
 import { useProjectStore } from './src/stores/projectStore';
 import { usePluginStore } from './src/stores/pluginStore';
 import { useComposerFiles } from './src/hooks/useComposerFiles';
@@ -31,10 +31,8 @@ window.drafts = {
   createTask: startAutomationCreationInChat,
   openTask: () => useChatStore.getState().adoptChatFromUrl('task-new'),
   transfer: () => {
-    const source = readComposer(projectDraftKey('p1'));
+    const source = readComposer();
     source.consume(source, ['text']);
-    useComposerStore.getState().transfer(projectDraftKey('p1'), chatDraftKey('project-chat'));
-    useChatStore.getState().adoptChatFromUrl('project-chat');
   },
   document: () => richEditor(document.querySelector('.jx-composerEditor')).getJSON(),
   insert: text => richEditor(document.querySelector('.jx-composerEditor')).commands.insertContent(text),
@@ -44,23 +42,22 @@ window.drafts = {
 };
 function Fixture() {
   const inputRef = useRef(null), fileRef = useRef(null);
-  const [project, setProject] = useState(null);
   const files = useComposerFiles('/api');
   const actions = useChatActions('/api');
-  window.drafts.showChat = () => setProject(null);
   const openProject = id => {
-    useProjectStore.setState({ currentProject:{ project_id:id, name:id, permission:'admin' } });
-    setProject(id);
+    const chat = useChatStore.getState();
+    chat.bindChatProject('project-'+id, id, id);
+    chat.adoptChatFromUrl('project-'+id);
   };
   return <main>
-    <button onClick={() => { setProject(null); actions.newChat(inputRef); }}>新对话</button>
+    <button onClick={() => { actions.newChat(inputRef); }}>新对话</button>
     <button onClick={() => openProject('p1')}>项目一</button>
     <button onClick={() => openProject('p2')}>项目二</button>
-    <button onClick={() => setProject(null)}>返回当前对话</button>
-    <button onClick={() => { window.drafts.transfer(); setProject(null); }}>提交项目草稿</button>
+    <button onClick={() => useChatStore.getState().adoptChatFromUrl('a')}>返回当前对话</button>
+    <button onClick={() => { window.drafts.transfer(); }}>提交项目草稿</button>
     <button onClick={() => useChatStore.getState().setCurrentChatId('a')}>对话 A</button>
     <button onClick={() => useChatStore.getState().setCurrentChatId('b')}>对话 B</button>
-    <InputArea projectComposer={!!project} forceSendMode={!!project} inputRef={inputRef} fileInputRef={fileRef} send={() => {}}
+    <InputArea inputRef={inputRef} fileInputRef={fileRef} send={() => {}}
       handleFileSelect={files.handleFileSelect} removeFile={files.removeFile} />
   </main>;
 }

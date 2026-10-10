@@ -1,3 +1,4 @@
+import { MarketVersionControls } from '../common/MarketVersionControls';
 import { useMarketSelection } from '../common/MarketBatchActions';
 import { MarketBatchToolbar } from '../common/MarketBatchToolbar';
 import { SkillMarketSecretsDialog } from './SkillMarketSecretsDialog';
@@ -331,6 +332,8 @@ export function SkillMarketplaceModal({
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 96 }}>
+                {fetchers.setEnabled && <MarketVersionControls kind="skill" slug={detail.slug}
+                  onChanged={async () => { await load(); setDetail(await fetchers.loadDetail(detail.slug)); }} />}
                 {enableSwitch(detail)}
                 {visibilityButton(detail)}
                         {fetchers.setEnabled && <MarketExportButton kind="skill" slug={detail.slug} />}

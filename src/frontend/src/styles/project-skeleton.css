@@ -11,12 +11,8 @@
 .jx-projects-skDescription { width: 90%; height: 14px; }
 .jx-projects-skDescriptionShort { width: 65%; height: 14px; }
 .jx-projects-skMeta { width: 100px; height: 12px; }
-.jx-projects-skComposer { width: 100%; height: 200px; border-radius: var(--radius-md); }
-.jx-projects-skRail { width: 100%; height: 160px; border-radius: var(--radius-md); }
-.jx-projects-skChatRow { padding: 16px 4px; border-bottom: 1px solid var(--color-border); }
 @media (max-width: 640px) {
   .jx-projects--skeleton .jx-projects-header { flex-wrap: wrap; }
   .jx-projects-skHeading { flex-basis: 100%; }
   .jx-projects-skeletonContent .jx-projects-grid { grid-template-columns: minmax(0, 1fr); }
-  .jx-projectDetail--skeleton .jx-projectDetail-shell { padding: 24px 16px; }
 }

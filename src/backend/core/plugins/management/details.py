@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 def _normalize_market_plugin(slug: str, db: Optional[Session]) -> NormalizedPlugin:
     """Fetch and normalize a plugin by slug: filesystem preset bundle first, DB-published package as fallback."""
+    from core.services.marketplace_version_store import active, decode
+    from core.services.marketplace_version_sources import normalized_plugin
+    if plugin_sources._resolve_plugin_dir(slug) is None and (
+        db is None or plugin_packages._market_row(db, slug) is None
+    ):
+        raise ResourceNotFoundError("plugin", slug)
+    snapshot = active(db, "plugin", slug)
+    if snapshot:
+        return normalized_plugin(decode(snapshot))
     plugin_dir = plugin_sources._resolve_plugin_dir(slug)
     if plugin_dir is not None:
         return normalize_plugin_dir(plugin_dir)

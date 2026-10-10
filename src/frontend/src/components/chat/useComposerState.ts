@@ -1,4 +1,4 @@
-import { chatDraftKey, projectDraftKey, useComposerDraft, useComposerStore } from '../../stores/composerStore';
+import { chatDraftKey, useComposerDraft, useComposerStore } from '../../stores/composerStore';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useChatStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
@@ -12,7 +12,7 @@ import { canInitializeProject } from '../../utils/projectCommands';
 import type { ComposerOptions } from './composerTypes';
 
 export function useComposerState({
-  projectComposer, forceSendMode, activeMode, onEnterMode: onEnterModeProp, abort,
+  abort,
 }: ComposerOptions) {
   const {
     sending: storeSending,
@@ -36,7 +36,6 @@ export function useComposerState({
   // Project list (for the toolbar "Project" selector dropdown)
   const projects = useProjectStore((s) => s.list);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
-  const detailProject = useProjectStore((s) => s.currentProject);
   const setProjectCreateModalOpen = useProjectStore((s) => s.setCreateModalOpen);
   // Sub-agent list (for the "@sub-agent" submenu of the "+" menu)
   const agents = useAgentStore((s) => s.agents);
@@ -50,9 +49,8 @@ export function useComposerState({
     // 插件贡献的工具卡片/画布声明也在这里首次拉取：对话面板是它们的主要出场位置。
     void usePluginUiStore.getState().fetchContributions();
   }, []);
-  const sending = forceSendMode ? false : storeSending;
-  const draftKey = projectComposer && detailProject
-    ? projectDraftKey(detailProject.project_id) : chatDraftKey(currentChatId);
+  const sending = storeSending;
+  const draftKey = chatDraftKey(currentChatId);
   const visibleKey = useComposerStore(s => s.activeKey);
   useLayoutEffect(() => {
     if (visibleKey !== draftKey) useComposerStore.getState().activate(draftKey);
@@ -76,7 +74,7 @@ export function useComposerState({
   // + has the loop capability bit + has lab permission. When eligible it no longer occupies
   // the toolbar but is tucked into the "+" attachment menu, visible to lab users only.
   const showLoopEntry =
-    !planMode && !batchModeOn && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
+    !planMode && !batchModeOn && loopCapEnabled !== false && labEnabled !== false;
   // 当前部署能否读图：主模型原生多模态，或后台配了「图像理解（视觉桥）」角色。
   // 未加载完成时按 true 处理，避免首屏闪出一句「不识图」又立刻收回。
   const canReadImage = useModelCapabilitiesStore(
@@ -99,9 +97,9 @@ export function useComposerState({
   const localCapable = canCreateLocalProject;
   // 项目下拉里的「新建本地项目」：跳壳的文件夹选择器（/__desktop/pick-local-folder），
   // 壳选完把路径以 hugagent:local-folder 事件回抛到页面；这里建项目、刷新列表并
-  // 把当前对话直接绑定到新项目上（项目页 composer 不注册，避免双实例重复建）。
+  // 文件夹菜单创建项目后，绑定当前统一会话。
   useEffect(() => {
-    if (projectComposer || !isDesktopShell || !localCapable) return;
+    if (!isDesktopShell || !localCapable) return;
     const onFolder = (e: Event) => {
       const path = (e as CustomEvent<string>).detail;
       if (!path) return;
@@ -118,12 +116,11 @@ export function useComposerState({
     };
     window.addEventListener('hugagent:local-folder', onFolder as EventListener);
     return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
-  }, [projectComposer, isDesktopShell, localCapable]);
+  }, [isDesktopShell, localCapable]);
 
-  const commandProjectId = projectComposer ? detailProject?.project_id : _currentChat?.projectId;
+  const commandProjectId = _currentChat?.projectId;
   const [loadedCommandProject, setLoadedCommandProject] = useState<ProjectDetail | null>(null);
-  const listedCommandProject = detailProject?.project_id === commandProjectId
-    ? detailProject : projects.find((p) => p.project_id === commandProjectId);
+  const listedCommandProject = projects.find((p) => p.project_id === commandProjectId);
   // Existing chats can refer to projects outside the paginated selector list.
   useEffect(() => {
     if (!commandProjectId || listedCommandProject) return;
@@ -140,8 +137,8 @@ export function useComposerState({
     permission: commandProject?.permission,
     busy: sending,
     hasCapability: !!(activeSkill || activePlugin || activeConnector || activeMention
-      || (!projectComposer && _currentChat?.agentId)),
-    specialMode: !!(projectComposer ? activeMode : planMode || batchModeOn || workflowModeOn || loopMode),
+      || _currentChat?.agentId),
+    specialMode: !!(planMode || batchModeOn || workflowModeOn || loopMode),
   });
 
   // ── Project binding (toolbar "Project" selector dropdown, to the right of the Prompt Hub) ──
@@ -155,40 +152,22 @@ export function useComposerState({
     bindChatProject(currentChatId, projectId, projectName);
   }
 
-  /** Whether the composer currently runs in this mode (main composer: live composer state;
-   *  project composer: the pending selection passed in via activeMode). */
   function isModeOn(mode: 'plan' | 'batch' | 'workflow') {
-    if (projectComposer) return activeMode === mode;
     if (mode === 'plan') return planMode;
     if (mode === 'workflow') return workflowModeOn;
     return batchModeOn;
   }
 
-  /** Enter plan / batch-execution mode from the "+" menu. The project page customizes this via
-   *  the onEnterMode prop (defer chat creation until send, no navigation); the default switches
-   *  the current chat to that mode in place — no new chat, no navigation (avoids bouncing the
-   *  whole chat back to the home page). */
   function onEnterMode(mode: 'plan' | 'batch' | 'workflow') {
-    if (onEnterModeProp) {
-      onEnterModeProp(mode);
-      return;
-    }
     enterChatMode(mode, { inPlace: true });
   }
 
-  /** Close a running mode from the ✕ on its composer chip — the single, always-visible way out.
-   *  On the project page the pending selection is owned by the parent, so hand the toggle back
-   *  to it (onEnterModeProp flips the already-selected mode off). */
   function onCloseMode(mode: 'plan' | 'batch' | 'workflow') {
     // 关掉计划模式的同时得真的把正在跑的计划停下来。原来这里只翻了个
     // planModeActive 标志位：后端的计划和 run 继续跑，卡片也一直挂在「执行中」，
     // 用户以为已经关掉了（问题 31）。abort() 会取消 run、取消计划、并把卡片落成已中断。
     if (mode === 'plan' && sending) {
       abort?.();
-    }
-    if (onEnterModeProp) {
-      onEnterModeProp(mode);
-      return;
     }
     exitChatMode(mode);
   }

@@ -34,7 +34,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
   showStopButton: boolean;
   composerHasContent: boolean;
 }) {
-  const { projectComposer, activeMode, disableMention, abort } = options;
+  const { disableMention, abort } = options;
   const {
     isModeOn, isAppAllowed, onEnterMode, canReadImage, imageInputRef, showLoopEntry,
     loopMode, setLoopMode, agents, skills, connectors, installedPlugins, activeLocalMode,
@@ -54,8 +54,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
           {/* ➕：附件与能力入口，坐在工具条最左（参考稿把 add 放在左下角，
               和右下角的发送形成一对，输入区两端各一个圆钮）*/}
           {(() => {
-            // Mode entries (plan / batch), shared by the main menu and the project-page
-            // projectComposer, each gated by allowed_apps. A chat can retain historical plan
+            // Mode entries are gated by allowed_apps. A chat can retain historical plan
             // cards after the user returns to ordinary conversation, so the main menu must use
             // the active composer mode rather than the persistent planChat classification.
             // The menu only turns a mode **on** and marks the one already running; turning it
@@ -63,7 +62,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
             const planActive = isModeOn('plan');
             const batchActive = isModeOn('batch');
             const workflowActive = isModeOn('workflow');
-            const activeSuffix = projectComposer ? t('（已选）') : t('（已开启）');
+            const activeSuffix = t('（已开启）');
             const modeItems = [
               ...(isAppAllowed('plan_mode') ? [{
                 key: 'mode-plan',
@@ -209,18 +208,12 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
                   </button>
                 </Dropdown>
                 <MySpaceImportModal draftKey={state.draftKey} open={mySpaceImportOpen} onClose={() => setMySpaceImportOpen(false)} />
-                {/* Toolbar "create personal project" in-place modal: after a successful
-                    creation, automatically binds the current chat to the new project
-                    (not rendered on the project page — the project selector dropdown is
-                    hidden there and the chat is fixed to the current project) */}
-                {!projectComposer && (
-                  <CreateProjectModal
-                    onCreated={(pid) => {
-                      const created = useProjectStore.getState().list.find((p) => p.project_id === pid);
-                      bindChatProject(currentChatId, pid, created?.name || t('项目'));
-                    }}
-                  />
-                )}
+                <CreateProjectModal
+                  onCreated={(pid) => {
+                    const created = useProjectStore.getState().list.find((p) => p.project_id === pid);
+                    bindChatProject(currentChatId, pid, created?.name || t('项目'));
+                  }}
+                />
               </>
             );
           })()}
@@ -241,7 +234,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
             </button>
           )}
 
-          {!projectComposer && (() => {
+          {(() => {
             // Project selector dropdown: default (no project bound) / bound to a project / create a new personal project.
             // Binding state uses chat.projectId as the single source of truth; project_id is attached automatically when sending messages.
             const projectMenuItems = [
@@ -350,13 +343,13 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
             );
           })()}
 
-      {!projectComposer && <ApprovalPill />}
+      <ApprovalPill />
 
           {/* Mode chips report "you are in this mode" and carry their own ✕ at the top-right —
               that ✕ is the way out, so an accidentally started mode is always one click from
               being cancelled. The chip only renders while its mode is actually running; a plan
               chat keeping its historical plan cards shows nothing once back to normal chat. */}
-          {!projectComposer && planMode && (
+          {planMode && (
             <ComposerModeChip
               icon={<OrderedListOutlined className="jx-planModeIcon" />}
               label={t('计划模式')}
@@ -366,7 +359,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
             />
           )}
 
-          {!projectComposer && batchModeOn && (
+          {batchModeOn && (
             <ComposerModeChip
               icon={<ThunderboltOutlined className="jx-planModeIcon" />}
               label={t('批量执行')}
@@ -376,7 +369,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
             />
           )}
 
-          {!projectComposer && workflowModeOn && (
+          {workflowModeOn && (
             <ComposerModeChip
               icon={<PartitionOutlined className="jx-planModeIcon" />}
               label={t('工作流模式')}
@@ -393,18 +386,6 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
               title={t('自主循环：描述一个可验证目标，AI 会反复迭代、自我修正，达标或触预算即停')}
               closeLabel={t('关闭自主循环：切换为普通对话')}
               onClose={() => setLoopMode(false)}
-            />
-          )}
-
-          {projectComposer && activeMode && (
-            <ComposerModeChip
-              icon={activeMode === 'plan'
-                ? <OrderedListOutlined className="jx-planModeIcon" />
-                : <ThunderboltOutlined className="jx-planModeIcon" />}
-              label={activeMode === 'plan' ? t('计划模式') : t('批量执行')}
-              title={t('发送后将以该模式在本项目内开始对话')}
-              closeLabel={t('取消该模式')}
-              onClose={() => onCloseMode(activeMode)}
             />
           )}
 

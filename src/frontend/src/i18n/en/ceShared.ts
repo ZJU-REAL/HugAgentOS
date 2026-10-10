@@ -1,5 +1,6 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '下载失败': 'Download failed',
   '团队文件夹': 'Team Folder',
   '发布': 'Publish',
   '重新加载': 'Reload',
@@ -345,4 +346,6 @@ export const CE_SHARED_DICT: Record<string, string> = {
   '端口': 'Port',
   '（未启用）': ' (disabled)',
   '请输入字段名': 'Enter column name',
+  '已发布': 'Published',
+  '未发布': 'Unpublished',
 };

@@ -30,20 +30,16 @@ export function InputArea({
   placeholder = t('请输入你的问题，按Enter发送，Shift+Enter换行'),
   mobilePlaceholder,
   disableMention = false,
-  projectComposer = false,
-  forceSendMode = false,
-  onEnterMode: onEnterModeProp,
-  activeMode = null,
 }: InputAreaProps) {
 
   const options: ComposerOptions = {
-    projectComposer, disableMention, forceSendMode, activeMode, onEnterMode: onEnterModeProp, abort,
+    disableMention, abort,
   };
   const state = useComposerState(options);
   const selectFiles: typeof handleFileSelect = (event, ref) => handleFileSelect(event, ref, state.draftKey);
   const removeDraftFile = (index: number) => removeFile(index, state.draftKey);
   const suggestions = useComposerSuggestions(state, options);
-  const editor = useComposerEditor(state, suggestions, { inputRef, fileInputRef, send, projectComposer });
+  const editor = useComposerEditor(state, suggestions, { inputRef, fileInputRef, send });
   const {
     input, activeMention, activeSkill, activePlugin, activeConnector, activeCommand,
     referencedChats, uploadedFiles, importedSpaceFiles, queuedMessages,
@@ -71,10 +67,7 @@ export function InputArea({
   const composerHasContent = !!input.trim() || !!activeCommand;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
-  // A project-detail composer starts a separate chat and deliberately ignores
-  // the currently selected chat's run state; do not leak that chat's queue
-  // into this independent composer either.
-  const queuedMessage = forceSendMode ? undefined : queuedMessages[currentChatId];
+  const queuedMessage = queuedMessages[currentChatId];
   const canSteerQueued = !!activeRuns[currentChatId]?.runId
     && !hasAttachments
     && !hasChatInvocation(queuedMessage?.invocation);
@@ -152,9 +145,7 @@ export function InputArea({
     <div className="jx-inputArea" {...dropProps}>
       <DropOverlay active={dragActive} hint={t('松开即可添加为附件')} className="jx-inputArea-dropOverlay" iconSize={20} />
       <DropOverlay active={chatDragActive} hint={t('松开即可引用这段会话')} className="jx-inputArea-dropOverlay" iconSize={20} />
-      {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
-          本地项目在本机），不在项目内提供切换入口 */}
-      {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}
+      <LoopPlanBar onContinue={continueLoop} />
       <AnimatePresence initial={false}>
         {queuedMessage && (
           <motion.div
@@ -190,7 +181,7 @@ export function InputArea({
           极速与否决定整段对话的工具面和提示词，值得摆在框外常驻可见，而不是藏进下拉。 */}
       <div className="jx-runTargetRow">
         <ChatModeSwitch />
-        {!projectComposer && <DeploymentSwitcher />}
+        <DeploymentSwitcher />
       </div>
       <div className={`jx-composerWrap${planMode ? ' jx-composerWrap--plan' : ''}`}>
         <AgentMentionPopup

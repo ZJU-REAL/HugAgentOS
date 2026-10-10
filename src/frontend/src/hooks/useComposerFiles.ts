@@ -3,9 +3,8 @@ import { message } from 'antd';
 import { t } from '../i18n';
 import { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from '../api';
 import { uploadFileToOSS } from '../utils/fileParser';
-import { readComposer, useComposerStore, projectDraftKey } from '../stores/composerStore';
+import { readComposer, useComposerStore } from '../stores/composerStore';
 import { useChatStore } from '../stores/chatStore';
-import { useProjectStore } from '../stores/projectStore';
 
 export function useComposerFiles(effectiveApiUrl: string) {
   function handleFileSelect(
@@ -37,11 +36,8 @@ export function useComposerFiles(effectiveApiUrl: string) {
     setUploadedFiles([...uploadedFiles, ...newFiles]);
 
     const curApiUrl = effectiveApiUrl ?? '';
-    const project = useProjectStore.getState().currentProject;
-    const isProjectDraft = !!project && owner.key === projectDraftKey(project.project_id);
-    const curChatId = isProjectDraft ? undefined : useChatStore.getState().currentChatId;
-    const curProjectId = isProjectDraft ? project.project_id
-      : curChatId ? useChatStore.getState().store.chats[curChatId]?.projectId : undefined;
+    const curChatId = useChatStore.getState().currentChatId;
+    const curProjectId = useChatStore.getState().store.chats[curChatId]?.projectId;
 
     for (const file of newFiles) {
       const { addUploadingFile, removeUploadingFile } = owner;

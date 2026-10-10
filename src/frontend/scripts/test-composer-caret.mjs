@@ -12,11 +12,10 @@ const result = await build({
     import 'antd/dist/reset.css';
     import './src/index.css';
     import './src/styles';
-    const project = location.search.includes('project');
     createRoot(document.getElementById('root')).render(
       <InputArea inputRef={React.createRef()} fileInputRef={React.createRef()}
         send={() => { window.sent = true; }} handleFileSelect={() => {}} removeFile={() => {}}
-        projectComposer={project} forceSendMode={project} />
+         />
     );
   `, resolveDir: process.cwd(), loader: 'tsx' },
   jsx: 'automatic', bundle: true, write: false, outdir: 'node_modules/.tmp/composer-browser', format: 'esm', external: ['/loader.gif', '/loader-done.png'],
@@ -25,14 +24,12 @@ const result = await build({
 });
 const js = result.outputFiles.find(f => f.path.endsWith('.js')).text;
 const css = result.outputFiles.find(f => f.path.endsWith('.css'))?.text || '';
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
 try {
   for (const [name, width, wrapper] of [
     ['home', 1280, 'jx-emptyPage--main"><div class="jx-homeInput'],
     ['chat', 1280, 'jx-chatMain'],
-    ['project', 1280, 'jx-projectDetail-inputWrap'],
     ['home-mobile', 390, 'jx-emptyPage--main"><div class="jx-homeInput'],
-    ['project-mobile', 390, 'jx-projectDetail-inputWrap'],
   ]) {
     const page = await browser.newPage({ viewport: { width, height: 800 } });
     page.on('pageerror', error => console.error(error.message));

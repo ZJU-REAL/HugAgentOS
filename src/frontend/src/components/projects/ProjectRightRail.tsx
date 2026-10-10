@@ -17,6 +17,7 @@ import { FilePreviewPane } from '../file/FilePreviewPane';
 import { DropOverlay } from '../common/DropOverlay';
 import { UploadProgressBar } from '../common/UploadProgressBar';
 import ProjectMemoryCard from './ProjectMemoryCard';
+import ProjectAutomationsCard from './ProjectAutomationsCard';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { t } from '../../i18n';
 
@@ -38,6 +39,7 @@ function InstructionsEditModal({
       title={t('编辑项目指令')}
       width={880}
       style={{ top: 32 }}
+      styles={{ body: { maxHeight: 'calc(100dvh - 200px)', overflowY: 'auto' } }}
       open={open}
       onCancel={onClose}
       confirmLoading={saving}
@@ -64,10 +66,12 @@ function InstructionsEditModal({
         onChange={(e) => setDraft(e.target.value)}
         rows={18}
         style={{ height: 'min(55vh, 560px)', minHeight: 240, resize: 'vertical' }}
-        showCount={{ formatter: () => `${bytes} / 32768 B` }}
         status={bytes > 32768 ? 'error' : undefined}
         placeholder={t('为本项目的对话设定基调、目标、必须遵守的规则等…')}
       />
+      <div style={{ marginTop: 8, textAlign: 'right', color: bytes > 32768 ? 'var(--color-error)' : 'var(--color-text-secondary)' }}>
+        {bytes} / 32768 B
+      </div>
     </Modal>
   );
 }
@@ -395,6 +399,7 @@ export default function ProjectRightRail() {
   return (
     <div className="jx-projectRail">
       <ProjectMemoryCard projectId={project.project_id} />
+      <ProjectAutomationsCard key={project.project_id} project={project} />
       <InstructionsCard />
       <FilesCard />
     </div>

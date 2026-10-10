@@ -4,6 +4,7 @@ import { AnimatePresence } from 'motion/react';
 import { useRef, useState } from 'react';
 import { t } from '../../i18n';
 import { usePanel } from '../../routing/usePanel';
+import { projectOverviewId, useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { SharedFolderOutlined } from './SharedFolderOutlined';
 import { ChatSidebarItem } from './ChatSidebarItem';
@@ -13,8 +14,9 @@ export function ProjectSidebarGroup({ pg, actions, dragScopeRef }: { pg: Sidebar
   const [projCollapsed, setCollapsed] = useState(false);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
   const panel = usePanel();
+  const selectedProjectId = useChatStore(s => projectOverviewId(s.store.chats[s.currentChatId]));
   const ProjectIcon = pg.isLocal ? LaptopOutlined : pg.isTeam ? SharedFolderOutlined : FolderOutlined;
-  const projActive = panel === 'project_detail' && currentProjectId === pg.projectId;
+  const projActive = (panel === 'chat' && selectedProjectId === pg.projectId);
   const openProjectPanel = (projectId: string) => {
     void useProjectStore.getState().openProject(projectId);
   };

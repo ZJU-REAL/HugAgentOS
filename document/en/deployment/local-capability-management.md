@@ -54,3 +54,29 @@ Startup migrates legacy personal skills and device plugins into the device regis
 Cloud upgrades must apply database migrations (the standard backend entrypoint does this) and update both backend and MCP services. Migration `capids01` widens `content_blocks.id` to 128 characters while preserving existing skill revision, working-copy and installation receipt IDs and contents. If installation returns `Database field length limit exceeded (SQLSTATE 22001)`, check migration completion instead of repackaging the skill. Other database failures report SQLSTATE when available without exposing SQL or bound parameters.
 
 Downgrades stop if any IDs exceed 64 characters, preventing revision and receipt truncation. Back up the data and plan a migration for these records before downgrading; do not delete or truncate records to force a downgrade.
+
+## Update or select a version in marketplace details
+
+Administrators open a skill, plugin or agent marketplace detail and use Update version
+and the version selector beside its title. Connectors use the same controls in the
+Config console MCP marketplace detail. There is no separate capability version page.
+
+Download the current package, edit its contents, and upload a ZIP. Skill packages
+contain SKILL.md and plugins retain their existing manifest format. Agent packages
+contain only agent.json; connector packages contain only connector.json. Resource
+identity must remain unchanged. The backend chooses patch +1 by default, with minor
+and major increments available. Uploaded version fields do not determine the release.
+A legacy nonnumeric version starts managed versioning at 1.0.1.
+
+Limits: ZIP 20 MiB, extracted total 50 MiB, individual file 10 MiB, at most 1000 entries.
+Traversal, links, duplicate paths, encrypted archives, excessive compression and
+credential files or inline credentials are rejected. Agent binding changes and MCP
+endpoint/auth/tool-definition changes continue through the existing editor, review
+and revalidation flows; version packages cannot bypass those controls.
+
+The selector shows the current version and at least five historical versions.
+Selecting and confirming restores complete contents and the original version number.
+Subsequent uploads increment the highest published version. The current version from the existing
+publisher is retained before the next update or selection of an older snapshot. Built-in skill changes
+update runtime contents; existing installed copies of other market resources remain
+under their established installation and configuration flows.

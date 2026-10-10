@@ -4,7 +4,6 @@ import { message } from 'antd';
 import { t } from '../i18n';
 import { generatePlanStream, updatePlanApi, executePlanStream } from '../api';
 import { useChatStore, useCatalogStore, useModelCapabilitiesStore } from '../stores';
-import { useProjectStore } from '../stores/projectStore';
 import type { ChatItem, ChatMessage } from '../types';
 import { ensureFullMessages } from './useChatInit';
 import { newMessageUid } from '../utils/messageIdentity';
@@ -59,8 +58,7 @@ export async function sendPlanMode(
   // New round: clear the previous round's settled plan bar
   useChatStore.getState().setPlanProgress(streamChatId, null);
 
-  const projectId = useChatStore.getState().store.chats[currentChatId]?.projectId
-    || useProjectStore.getState().currentProjectId || undefined;
+  const projectId = useChatStore.getState().store.chats[currentChatId]?.projectId;
   let attachments: ChatAttachment[];
   try {
     attachments = await prepareChatAttachments(

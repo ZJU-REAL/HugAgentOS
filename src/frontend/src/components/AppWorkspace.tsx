@@ -1,4 +1,4 @@
-import { chatDraftKey, projectDraftKey } from '../stores/composerStore';
+import { chatDraftKey } from '../stores/composerStore';
 import { useChatStore } from '../stores/chatStore';
 import {
   CloseOutlined,
@@ -33,7 +33,7 @@ import { ToolResultPanel } from './tool';
 import type { useAppController } from '../hooks/useAppController';
 import { SlidePanel } from './common/SlidePanel';
 import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
-import { ProjectsSkeleton, ProjectDetailSkeleton } from './projects/ProjectSkeletons';
+import { ProjectsSkeleton } from './projects/ProjectSkeletons';
 const AutomationPanel = lazy(() => import('./automation/AutomationPanel').then(m => ({ default: m.AutomationPanel })));
 const RunTimelinePanel = lazy(() => import('./automation/RunTimelinePanel').then(m => ({ default: m.RunTimelinePanel })));
 const AbilityCenterPage = lazy(() => import('./catalog/AbilityCenterPage').then(m => ({ default: m.AbilityCenterPage })));
@@ -42,12 +42,14 @@ const DocsPanel = lazy(() => import('./docs/DocsPanel').then(m => ({ default: m.
 const LabPanel = lazy(() => import('./lab/LabPanel').then(m => ({ default: m.default })));
 const MySpacePanel = lazy(() => import('./myspace/MySpacePanel').then(m => ({ default: m.MySpacePanel })));
 const ProjectsPanel = lazy(() => import('./projects/ProjectsPanel').then(m => ({ default: m.default })));
-const ProjectDetailPanel = lazy(() => import('./projects/ProjectDetailPanel').then(m => ({ default: m.default })));
+const ProjectHeader = lazy(() => import('./projects/ProjectHeader'));
+const ProjectWorkspaceRail = lazy(() => import('./projects/ProjectWorkspaceRail'));
 const SettingsPage = lazy(() => import('./settings/SettingsModal').then(m => ({ default: m.default })));
 const SitesPanel = lazy(() => import('./sites/SitesPanel').then(m => ({ default: m.SitesPanel })));
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
-  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, currentProjectId, setCatalogPanel, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
+  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, conversationProjectId, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
+  const showProjectOverview = !!overviewProjectId;
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
       <Sidebar
@@ -154,7 +156,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
           {/* Chat empty state: closable recommend banner (full-width); on close the height collapses so the content below moves up smoothly */}
           <CollapseHeight
-            show={chatSurface && isEmptyChat && recommendBarVisible}
+            show={chatSurface && !conversationProjectId && isEmptyChat && recommendBarVisible}
             motionKey="recommend-banner"
             duration={0.2}
             style={{ flex: 'none' }}
@@ -172,7 +174,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
           </CollapseHeight>
 
 
-          <div className="jx-mainRow">
+          <div className={`jx-mainRow${showProjectOverview ? ' jx-mainRow--project' : ''}`}>
             <Content ref={handleContentRef} className={`jx-content${chatSurface ? ' jx-content--chatSurface' : ''}`}>
               {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
@@ -183,6 +185,9 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 data-panel={panel}
                 style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
               >
+                {overviewProjectId && (
+                  <Suspense fallback={null}><ProjectHeader key={overviewProjectId} projectId={overviewProjectId} /></Suspense>
+                )}
                 {chatSurface && (
                   <ChatArea
                     send={send}
@@ -202,7 +207,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                     messagesEndRef={messagesEndRef}
                   />
                 )}
-                <Suspense fallback={panel === 'projects' ? <ProjectsSkeleton /> : panel === 'project_detail' ? <ProjectDetailSkeleton /> : <PanelLoadingSkeleton />}>
+                <Suspense fallback={panel === 'projects' ? <ProjectsSkeleton /> : <PanelLoadingSkeleton />}>
                 {panel === 'ability_center' && <AbilityCenterPage />}
                 {panel === 'docs' && <DocsPanel />}
                 {panel === 'app_center' && <AppCenterPanel />}
@@ -212,28 +217,25 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 {panel === 'settings' && <SettingsPage />}
                 {panel === 'my_space' && <MySpacePanel />}
                 {panel === 'projects' && <ProjectsPanel onOpenProject={(pid) => { void useProjectStore.getState().openProject(pid); }} />}
-                {panel === 'project_detail' && currentProjectId && (
-                  <ProjectDetailPanel
-                    projectId={currentProjectId}
-                    onBack={() => setCatalogPanel('projects')}
-                    handleFileSelect={handleFileSelect}
-                    removeFile={removeFile}
-                  />
-                )}
                 </Suspense>
               </div>
             </Content>
 
+            {overviewProjectId && !canvasOpen && (
+              <Suspense fallback={null}>
+                <ProjectWorkspaceRail key={overviewProjectId} projectId={overviewProjectId} />
+              </Suspense>
+            )}
             <SlidePanel show={!!toolResultPanel && !promptHubOpen && !canvasOpen && chatSurface} panelKey="tool-result-panel" x={20} duration={0.22}>
               <ToolResultPanel />
             </SlidePanel>
-            <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && (chatSurface || panel === 'project_detail')} panelKey="prompt-hub">
-              <PromptHubPanel draftKey={panel === 'project_detail' && currentProjectId ? projectDraftKey(currentProjectId) : chatDraftKey(useChatStore.getState().currentChatId)} />
+            <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && chatSurface} panelKey="prompt-hub">
+              <PromptHubPanel draftKey={chatDraftKey(useChatStore.getState().currentChatId)} />
             </SlidePanel>
             {/* Automation run timeline — persistent panel (not mutually exclusive with SlidePanels).
             * During exit store.activeGroup is already null; RunTimelinePanel falls back to a
             * snapshot internally to render the last frame. */}
-            <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface} panelKey="run-timeline" x={24} duration={0.24}>
+            <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface && !showProjectOverview} panelKey="run-timeline" x={24} duration={0.24}>
               <Suspense fallback={<PanelLoadingSkeleton />}><RunTimelinePanel /></Suspense>
             </SlidePanel>
           </div>

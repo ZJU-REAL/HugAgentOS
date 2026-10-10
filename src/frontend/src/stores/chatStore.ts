@@ -5,7 +5,6 @@ import { isHomePath, navigateTo, pathForChat, setChatPathResolver } from '../rou
 import { isDraftChatId, isNewDraftChatId, mergeChatStores, setStreamingIdsProvider, STORAGE_KEY, userScopedKey } from '../storage';
 import type { ChatStore as ChatStoreData } from '../types';
 import { usePluginStore } from './pluginStore';
-import { activeProjectId } from './projectSession';
 import { SITES_PLUGIN_SLUG, isAutomationEntry } from './chatSupport';
 import type { ChatState } from './chatState';
 import { createChatInitialState } from './chatInitialState';
@@ -39,6 +38,10 @@ export function isAddressableChat(chatId: string): boolean {
     || (s.store.order || []).includes(chatId)
     || (s.store.chats[chatId]?.messages?.length ?? 0) > 0;
 }
+/** Only an unsent project conversation is the project overview. */
+export function projectOverviewId(chat: { id: string; projectId?: string } | undefined): string | undefined {
+  return chat?.projectId && !isAddressableChat(chat.id) ? chat.projectId : undefined;
+}
 export const useChatStore = create<ChatState>((set,get)=> {
 
   // Only frontend-created, unsent drafts get a default. Never move restored history.
@@ -48,7 +51,6 @@ export const useChatStore = create<ChatState>((set,get)=> {
     if (!isHybridDual() || !isNewDraftChatId(chatId) || !isLocalDraftChat(chatId) || isRegisteredLocalChat(chatId)
         || chat?.projectId || chat?.runTarget
         || (!newlyCreated && state.store.order.includes(chatId))) return;
-    if (activeProjectId()) return;
     state.setChatRunTarget(chatId, 'local');
   };
 

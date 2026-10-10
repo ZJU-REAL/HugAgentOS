@@ -4,7 +4,6 @@ import { CloudOutlined, LaptopOutlined } from '@ant-design/icons';
 import { isLocalChat, isLocalProject, isRegisteredLocalChat } from '../../api';
 import { useChatStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { useProjectStore } from '../../stores/projectStore';
 
 /**
  * 混合架构（桌面双模式）：当前对话的「运行位置」选择器——云端 / 本机。
@@ -21,7 +20,6 @@ export default function DeploymentSwitcher() {
   const currentChatId = useChatStore((s) => s.currentChatId);
   const chat = useChatStore((s) => s.store.chats[s.currentChatId]);
   const setChatRunTarget = useChatStore((s) => s.setChatRunTarget);
-  const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -36,7 +34,7 @@ export default function DeploymentSwitcher() {
 
   if (provisionMode !== 'dual') return null;
 
-  const projectId = chat?.projectId ?? currentProjectId ?? undefined;
+  const projectId = chat?.projectId;
   const projectBound = !!projectId;
   const started = !!chat && (chat.messages.length > 0 || isRegisteredLocalChat(chat.id));
   const local = projectBound ? isLocalProject(projectId) : isLocalChat(currentChatId);

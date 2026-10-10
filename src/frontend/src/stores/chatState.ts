@@ -137,10 +137,6 @@ export interface ChatState {
   /** 同上，但不改地址栏——供路由把「地址 → 状态」这一方向同步回来（前进 / 后退）。 */
   adoptChatFromUrl: (id: string) => void;
   syncCurrentChatMode: () => void;
-  /** First message pending send across panels (project-page input box → chat panel auto-send).
-   *  Once set, an effect in App.tsx consumes it when currentChatId matches, then clears it. */
-  pendingFirstMessage: { chatId: string; content: string } | null;
-  setPendingFirstMessage: (p: { chatId: string; content: string } | null) => void;
   setSending: (v: boolean) => void;
   /** Mark a chat id as currently streaming. Adds to set + updates derived `sending`. */
   addSendingChatId: (id: string) => void;
@@ -236,7 +232,7 @@ export interface ChatState {
   /** Create a new chat and switch to it */
   homeDraftId: string | null;
   resumeHomeChat: () => void;
-  newChat: () => void;
+  newChat: (project?: { projectId: string; projectName: string }) => void;
   /** Delete a chat by id */
   deleteChat: (id: string) => void;
   /** Update messages for a given chat */

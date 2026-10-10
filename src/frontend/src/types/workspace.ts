@@ -1,6 +1,6 @@
 import type { EditionChatShareScope, EditionProjectChatFields, EditionProjectFields, EditionProjectKind } from '../editionModelTypes';
 
-export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail' | 'automation' | 'sites';
+export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'automation' | 'sites';
 
 /** 能力中心的四类能力。选中项由侧边栏的二级导航驱动，所以状态放在 catalogStore 而非页面内部。 */
 export type AbilityTabKey = 'agents' | 'skills' | 'mcp' | 'plugins';

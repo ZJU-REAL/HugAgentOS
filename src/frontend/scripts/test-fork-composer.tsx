@@ -52,7 +52,7 @@ function Harness({ options }: { options: ComposerOptions }) {
   suggestions = useComposerSuggestions(state, options);
   editor = useComposerEditor(state, suggestions, {
     inputRef: { current: null }, fileInputRef: { current: null },
-    send: () => { generations += 1; }, projectComposer: options.projectComposer,
+    send: () => { generations += 1; },
   });
   return null;
 }
@@ -88,7 +88,7 @@ globalThis.fetch = async (input, init) => {
   throw new Error('Unexpected request: ' + url);
 };
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
-function mount(input: string, projectComposer = false, projectId?: string) {
+function mount(input: string, projectId?: string) {
   const source = { id: 'source', title: 'Source', createdAt: 1, updatedAt: 1, messages: [], projectId };
   useChatStore.setState({
     currentUserId: 'fork-composer-user', currentChatId: 'source', sending: false,
@@ -96,7 +96,7 @@ function mount(input: string, projectComposer = false, projectId?: string) {
     planMode: false, loopMode: false,
   });
   readComposer(chatDraftKey('source')).setInput(input);
-  renderToString(<Harness options={{ projectComposer, forceSendMode: projectComposer, disableMention: false, activeMode: null }} />);
+  renderToString(<Harness options={{ disableMention: false }} />);
 }
 function keyEvent(key = 'Enter', isComposing = false): React.KeyboardEvent<HTMLDivElement> {
   const event = {
@@ -119,7 +119,7 @@ try {
   assert.equal(useChatStore.getState().currentChatId, 'branch-1', JSON.stringify(notices));
   assert.equal(readComposer().input, '');
 
-  mount('/fork', false, 'project-1');
+  mount('/fork', 'project-1');
   assert.ok(suggestions.slashEntries.some((entry) => entry.kind === 'chat_action'), 'existing project conversations support forks');
   const menuKeyboard = createComposerKeyHandler(state, { ...suggestions, slashVisible: true, sIdx: 0 }, editor);
   menuKeyboard(keyEvent());
@@ -148,13 +148,6 @@ try {
   mount('Please explain /fork');
   editor.sendFromComposer();
   assert.equal(generations, 1, 'ordinary text mentioning the command is still sent');
-
-  mount('/fork', true);
-  assert.ok(suggestions.slashEntries.every((entry) => entry.kind !== 'chat_action'));
-  editor.sendFromComposer();
-  await settle();
-  assert.equal(postCount, 4, 'project landing composer cannot fork an unrelated current chat');
-  assert.equal(generations, 1);
 
   mount('/fork');
   createComposerKeyHandler(state, suggestions, editor)(keyEvent('Enter', true));

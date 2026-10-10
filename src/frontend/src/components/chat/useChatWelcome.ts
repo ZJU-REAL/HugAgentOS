@@ -3,6 +3,7 @@ import { useEditionStore, usePluginUiStore } from '../../stores';
 import { resolveText } from '../../plugin-ui';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
+import { projectOverviewId } from '../../stores/chatStore';
 import { resolveBatchModeActive } from '../../utils/chatMode';
 import { t } from '../../i18n';
 import type { ChatItem } from '../../types';
@@ -67,6 +68,7 @@ export function useChatWelcome(chat: ChatItem | undefined) {
   // ── Resolve hero text: sub-agent uses its own name/description ──
   const isAgentChat = !!(chat?.agentId);
   const isSiteChat = !!chat?.siteChat;
+  const isProjectChat = !!chat?.projectId;
   const heroTitle = isSiteChat
     ? t('我们该构建什么？')
     : isAgentChat ? (chat.agentName || t('智能体')) : cfgHeroTitle;
@@ -83,7 +85,7 @@ export function useChatWelcome(chat: ChatItem | undefined) {
       ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
       : isBatchChat
         ? t('描述要批量处理的对象与任务，例如："分别用一句话评价阿里、腾讯、字节"')
-        : cfgInputPlaceholder;
+        : isProjectChat ? t('在「{name}」内开始新对话，Enter 发送，Shift+Enter 换行', { name: chat.projectName || t('项目') }) : cfgInputPlaceholder;
 
-  return { isAgentChat, isSiteChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer };
+  return { overviewProjectId: projectOverviewId(chat), isAgentChat, isSiteChat, isProjectChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer };
 }

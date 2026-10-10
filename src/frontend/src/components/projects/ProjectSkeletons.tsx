@@ -45,28 +45,3 @@ export function ProjectsSkeleton() {
     </div>
   );
 }
-
-export function ProjectDetailSkeleton() {
-  return (
-    <div className="jx-projectDetail jx-projectDetail--skeleton" role="status" aria-label={t('加载中…')} aria-busy="true">
-      <div className="jx-projectDetail-shell" aria-hidden="true">
-        <div className="jx-projectDetail-main">
-          <div className="jx-skeletonBlock jx-projects-skSection" />
-          <div className="jx-skeletonBlock jx-projects-skTitle" />
-          <div className="jx-skeletonBlock jx-projects-skSubtitle" />
-          <div className="jx-skeletonBlock jx-projects-skComposer" />
-          {Array.from({ length: 3 }, (_, index) => (
-            <div className="jx-projects-skChatRow" key={index}>
-              <div className="jx-skeletonBlock jx-projects-skDescription" />
-            </div>
-          ))}
-        </div>
-        <div className="jx-projectDetail-main">
-          <div className="jx-skeletonBlock jx-projects-skSection" />
-          <div className="jx-skeletonBlock jx-projects-skRail" />
-          <div className="jx-skeletonBlock jx-projects-skRail" />
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -1,8 +1,6 @@
 import { create } from 'zustand';
-
 import type { UploadProgress } from '../components/common/UploadProgressBar';
 import type {
-  ProjectChatSummary,
   ProjectDetail,
   ProjectFileItem,
   ProjectItem,
@@ -12,17 +10,20 @@ import {
   createProject as apiCreateProject,
   deleteProject as apiDeleteProject,
   getProject as apiGetProject,
-  listProjectChats,
-  listProjectFiles,
   listProjects,
+  listProjectFiles,
   removeProjectFile,
   toggleProjectFavorite,
   updateProject as apiUpdateProject,
   updateProjectInstructions as apiUpdateProjectInstructions,
   uploadProjectFile,
 } from '../api';
+import { registerUnboundProject } from '../storage';
+import { isAddressableChat, isLocalDraftChat, useChatStore } from './chatStore';
+
 import { t } from '../i18n';
 
+let projectSelectionGeneration = 0;
 let projectGeneration = 0;
 let projectListGeneration = 0;
 let pendingProject: { id: string; generation: number; promise: Promise<void> } | null = null;
@@ -36,45 +37,64 @@ const SORT_MAP: Record<SortKey, string> = {
 };
 
 interface ProjectStoreState {
+  // List state
   list: ProjectItem[];
   listLoading: boolean;
   searchKeyword: string;
   sort: SortKey;
   listError: string | null;
   total: number;
+
+  // Detail state
   currentProjectId: string | null;
   currentProject: ProjectDetail | null;
   detailLoading: boolean;
   projectFiles: ProjectFileItem[];
   filesLoading: boolean;
   filesError: string | null;
-  projectChats: ProjectChatSummary[];
   capacityUsed: number;
   capacityLimit: number;
+  /** Batch upload progress (non-null during uploadFiles), consumed by the right-column progress bar */
   uploadProgress: UploadProgress | null;
+
+  // Dialog state
   createModalOpen: boolean;
   referenceModalOpen: boolean;
   instructionsEditOpen: boolean;
+
+
+  // ── Actions ──
   setSearchKeyword: (q: string) => void;
   setSort: (s: SortKey) => void;
   fetchProjects: () => Promise<void>;
   resetProjectList: () => void;
+  /** 选择项目并进入绑定该项目的统一会话界面。 */
   openProject: (projectId: string) => Promise<void>;
+  /** 只重新载入详情，不跳转。给「已经在这个项目页上」的刷新场景用。 */
   reloadProject: (projectId: string) => Promise<void>;
   closeCurrentProject: () => void;
+
+
   createPersonal: (name: string, description?: string, linkedFolderId?: string) => Promise<string>;
-  updateProject: (patch: { name?: string; description?: string; pinned?: boolean; icon_color?: string; memory_enabled?: boolean; memory_write_enabled?: boolean }) => Promise<void>;
+
+  updateProject: (patch: Parameters<typeof apiUpdateProject>[1]) => Promise<void>;
   updateInstructions: (instructions: string, revision?: string) => Promise<void>;
   refreshInstructions: () => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   toggleFavorite: (on: boolean) => Promise<void>;
+  /** List-page star optimistic update: flip the UI first, roll back if the request fails (does not open project detail) */
   toggleFavoriteById: (projectId: string, on: boolean) => Promise<void>;
+  /** Sidebar pin optimistic update: reorder immediately, roll back if the request fails. */
   togglePinnedById: (projectId: string, on: boolean) => Promise<void>;
+
   refreshFiles: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
+  /** Batch upload (including the local folder webkitdirectory case). Returns { succeeded, failed } */
   uploadFiles: (files: File[]) => Promise<{ succeeded: number; failed: number }>;
+  /** Delete a project file (effectively a soft-delete of that MySpace artifact) */
   removeFile: (artifactId: string) => Promise<void>;
-  refreshChats: (scope?: 'all' | 'mine' | 'shared') => Promise<void>;
+
+
   setCreateModalOpen: (v: boolean) => void;
   setReferenceModalOpen: (v: boolean) => void;
   setInstructionsEditOpen: (v: boolean) => void;
@@ -87,25 +107,28 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   sort: 'activity',
   listError: null,
   total: 0,
+
   currentProjectId: null,
   currentProject: null,
   detailLoading: false,
   projectFiles: [],
   filesLoading: false,
   filesError: null,
-  projectChats: [],
   capacityUsed: 0,
   capacityLimit: 0,
   uploadProgress: null,
+
   createModalOpen: false,
   referenceModalOpen: false,
   instructionsEditOpen: false,
 
+
   setSearchKeyword: (q) => set({ searchKeyword: q }),
-  setSort: (sort) => set({ sort }),
+  setSort: (s) => set({ sort: s }),
 
   resetProjectList: () => {
     projectListGeneration += 1;
+    projectSelectionGeneration += 1;
     set({ list: [], total: 0, listLoading: false, listError: null, searchKeyword: '' });
   },
 
@@ -114,26 +137,41 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     const { searchKeyword, sort } = get();
     set({ listLoading: true, listError: null });
     try {
-      const result = await listProjects({
-        q: searchKeyword.trim() || undefined,
-        sort: SORT_MAP[sort],
-      });
+      const r = await listProjects({ q: searchKeyword.trim() || undefined, sort: SORT_MAP[sort] });
       if (generation !== projectListGeneration) return;
-      set({
-        list: result.items,
-        total: result.pagination?.total_items || result.items.length,
-      });
-    } catch (error) {
+      set({ list: r.items, total: r.pagination?.total_items || r.items.length });
+    } catch (err) {
       if (generation !== projectListGeneration) return;
-      set({ listError: (error as Error).message || t('加载失败') });
+      set({ listError: (err as Error).message || t('加载失败') });
     } finally {
       if (generation === projectListGeneration) set({ listLoading: false });
     }
   },
 
   openProject: async (projectId) => {
-    const loading = get().reloadProject(projectId);
-    await loading;
+    const selection = ++projectSelectionGeneration;
+    const chat = useChatStore.getState();
+    const userId = chat.currentUserId;
+    const originPath = window.location.pathname;
+    const originChatId = chat.currentChatId;
+    const project = get().list.find(item => item.project_id === projectId) || await apiGetProject(projectId);
+    if (selection !== projectSelectionGeneration || useChatStore.getState().currentUserId !== userId
+      || window.location.pathname !== originPath || useChatStore.getState().currentChatId !== originChatId) return;
+    if (chat.currentChat()?.projectId !== projectId || chat.currentChat()?.automationTaskId || isAddressableChat(chat.currentChatId)) {
+      const draft = Object.values(chat.store.chats).find(item =>
+        item.projectId === projectId && !item.automationTaskId && isLocalDraftChat(item.id));
+      if (draft) {
+        chat.bindChatProject(draft.id, projectId, project.name);
+        chat.setCurrentChatId(draft.id);
+      }
+      else {
+        chat.newChat({ projectId, projectName: project.name });
+      }
+    } else {
+      chat.bindChatProject(chat.currentChatId, projectId, project.name);
+      chat.setCurrentChatId(chat.currentChatId);
+    }
+    chat.setToolResultPanel(null);
   },
 
   reloadProject: (projectId) => {
@@ -145,7 +183,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({
       currentProjectId: projectId, detailLoading: true,
       ...(switched ? {
-        currentProject: null, projectFiles: [], projectChats: [],
+        currentProject: null, projectFiles: [],
         capacityUsed: 0, capacityLimit: 0, filesLoading: false, filesError: null,
       } : {}),
     });
@@ -160,10 +198,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
           detailLoading: false,
         });
         // A file-list failure should not hide valid project details or instructions.
-        const results = await Promise.allSettled([get().refreshFiles(), get().refreshChats()]);
-        for (const result of results) {
-          if (result.status === 'rejected') console.warn('Project resource load failed', result.reason);
-        }
+        await get().refreshFiles().catch(() => { /* refreshFiles exposes the error in filesError. */ });
       } catch (err) {
         if (generation !== projectGeneration) return;
         console.warn('openProject failed', err);
@@ -189,7 +224,6 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
       projectFiles: [],
       filesLoading: false,
       filesError: null,
-      projectChats: [],
       capacityUsed: 0,
       capacityLimit: 0,
       instructionsEditOpen: false,
@@ -197,14 +231,14 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   },
 
   createPersonal: async (name, description, linkedFolderId) => {
-    const project = await apiCreateProject({
+    const proj = await apiCreateProject({
       name,
       description,
       kind: 'personal',
       linked_folder_id: linkedFolderId,
     });
     await get().fetchProjects();
-    return project.project_id;
+    return proj.project_id;
   },
 
   updateProject: async (patch) => {
@@ -212,6 +246,37 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     if (!currentProjectId) return;
     const updated = await apiUpdateProject(currentProjectId, patch);
     set({ currentProject: { ...currentProject, ...updated } });
+    // Keep the list card in sync so a rename shows up without a refetch.
+    set({
+      list: get().list.map((p) =>
+        p.project_id === currentProjectId
+          ? { ...p, name: updated.name, description: updated.description }
+          : p,
+      ),
+    });
+    // Sessions cache the project name locally (chatStore.chats[].projectName) — refresh those
+    // labels too, otherwise the sidebar keeps showing the old name until a reload.
+    if (patch.name !== undefined) {
+      const { useChatStore } = await import('./chatStore');
+      useChatStore.getState().updateStore((prev) => ({
+        ...prev,
+        chats: Object.fromEntries(
+          Object.entries(prev.chats).map(([id, chat]) => [
+            id,
+            chat.projectId === currentProjectId ? { ...chat, projectName: updated.name } : chat,
+          ]),
+        ),
+      }));
+    }
+  },
+
+  refreshInstructions: async () => {
+    const { currentProjectId } = get();
+    if (!currentProjectId) return;
+    const before = get().currentProject;
+    const updated = await apiGetProject(currentProjectId);
+    if (get().currentProjectId !== currentProjectId || get().currentProject !== before) return;
+    set({ currentProject: updated });
   },
 
   updateInstructions: async (instructions, revision) => {
@@ -225,18 +290,28 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     void get().refreshFiles().catch(() => {});
   },
 
-  refreshInstructions: async () => {
-    const { currentProjectId } = get();
-    if (!currentProjectId) return;
-    const before = get().currentProject;
-    const updated = await apiGetProject(currentProjectId);
-    if (get().currentProjectId !== currentProjectId || get().currentProject !== before) return;
-    set({ currentProject: updated });
-  },
-
   deleteProject: async (projectId) => {
     await apiDeleteProject(projectId);
-    if (get().currentProjectId === projectId) get().closeCurrentProject();
+    // 登记成"已删除项目"：会话上残留的 projectId/projectName 会在合并写盘和
+    // 下次加载时被摘掉，别的窗口也不会再把旧绑定贴回来（否则侧边栏会拿
+    // projectName 兜底造出一个已删除项目的分组，新对话就挂在它下面）。
+    registerUnboundProject(useChatStore.getState().currentUserId, projectId);
+    useChatStore.getState().updateStore((prev) => {
+      let changed = false;
+      const chats = { ...prev.chats };
+      for (const [chatId, chat] of Object.entries(chats)) {
+        if (chat.projectId !== projectId) continue;
+        const next = { ...chat };
+        delete next.projectId;
+        delete next.projectName;
+        chats[chatId] = next;
+        changed = true;
+      }
+      return changed ? { ...prev, chats } : prev;
+    });
+    if (get().currentProjectId === projectId) {
+      get().closeCurrentProject();
+    }
     await get().fetchProjects();
   },
 
@@ -245,40 +320,43 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     if (!currentProjectId) return;
     await toggleProjectFavorite(currentProjectId, on);
     if (currentProject) set({ currentProject: { ...currentProject, favorite: on } });
+    // sync list
     set({
-      list: get().list.map((project) => (
-        project.project_id === currentProjectId ? { ...project, favorite: on } : project
-      )),
+      list: get().list.map((p) =>
+        p.project_id === currentProjectId ? { ...p, favorite: on } : p,
+      ),
     });
   },
 
   toggleFavoriteById: async (projectId, on) => {
     const applyFavorite = (value: boolean) => {
       set({
-        list: get().list.map((project) => (
-          project.project_id === projectId ? { ...project, favorite: value } : project
-        )),
+        list: get().list.map((p) =>
+          p.project_id === projectId ? { ...p, favorite: value } : p,
+        ),
       });
       const { currentProjectId, currentProject } = get();
       if (currentProject && currentProjectId === projectId) {
         set({ currentProject: { ...currentProject, favorite: value } });
       }
     };
+    // Optimistic update: flip the UI first so the star animation happens immediately
     applyFavorite(on);
     try {
       await toggleProjectFavorite(projectId, on);
-    } catch (error) {
+    } catch (err) {
+      // Roll back on failure
       applyFavorite(!on);
-      console.warn('toggleFavoriteById failed', projectId, error);
+      console.warn('toggleFavoriteById failed', projectId, err);
     }
   },
 
   togglePinnedById: async (projectId, on) => {
     const applyPinned = (value: boolean) => {
       set({
-        list: get().list.map((project) => (
-          project.project_id === projectId ? { ...project, pinned: value } : project
-        )),
+        list: get().list.map((p) =>
+          p.project_id === projectId ? { ...p, pinned: value } : p,
+        ),
       });
       const { currentProjectId, currentProject } = get();
       if (currentProject && currentProjectId === projectId) {
@@ -289,9 +367,9 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     applyPinned(on);
     try {
       await apiUpdateProject(projectId, { pinned: on });
-    } catch (error) {
+    } catch (err) {
       applyPinned(!on);
-      throw error;
+      throw err;
     }
   },
 
@@ -335,12 +413,14 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     let failed = 0;
     set({ uploadProgress: { done: 0, total: files.length } });
     try {
-      for (const file of files) {
+      // Serial upload: preserve the relative path (webkitRelativePath is used as the filename inside uploadProjectFile),
+      // control concurrency and avoid instantaneous backend pressure; the backend capacity check compares against cumulative used, so uploads must be serialized in order to avoid over-limit misjudgment.
+      for (const f of files) {
         try {
-          await uploadProjectFile(currentProjectId, file);
+          await uploadProjectFile(currentProjectId, f);
           succeeded += 1;
-        } catch (error) {
-          console.warn('uploadFiles single failed', file.name, error);
+        } catch (err) {
+          console.warn('uploadFiles single failed', (f as File).name, err);
           failed += 1;
         }
         set({ uploadProgress: { done: succeeded + failed, total: files.length } });
@@ -360,18 +440,9 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     await get().refreshInstructions();
   },
 
-  refreshChats: async (scope) => {
-    const { currentProjectId } = get();
-    if (!currentProjectId) return;
-    const generation = projectGeneration;
-    const { items } = await listProjectChats(currentProjectId, 1, 50, scope || 'all');
-    if (generation !== projectGeneration || get().currentProjectId !== currentProjectId) return;
-    set({ projectChats: items });
-  },
-
-  setCreateModalOpen: (createModalOpen) => set({ createModalOpen }),
-  setReferenceModalOpen: (referenceModalOpen) => set({ referenceModalOpen }),
-  setInstructionsEditOpen: (instructionsEditOpen) => set({ instructionsEditOpen }),
+  setCreateModalOpen: (v) => set({ createModalOpen: v }),
+  setReferenceModalOpen: (v) => set({ referenceModalOpen: v }),
+  setInstructionsEditOpen: (v) => set({ instructionsEditOpen: v }),
 }));
 
 export type { SortKey, ProjectKind };

@@ -1,5 +1,4 @@
 import { generatePath, matchPath } from 'react-router';
-import { activeProjectId } from '../stores/projectSession';
 import type { PanelKey } from '../types';
 
 interface RouterLike {
@@ -19,7 +18,6 @@ export function pathForAutomationChat(taskId: string, chatId: string): string {
 export function isConversationPath(pathname: string = currentPath()): boolean {
   return panelFromPath(pathname) === 'chat' || !!matchPath(AUTOMATION_CHAT_PATTERN, pathname);
 }
-export const PROJECT_PATTERN = '/projects/:projectId';
 
 /** 这些 slug 不能和服务端自己占着的路径撞车（nginx 把 `/docs`、`/login`、`/register`、
  *  `/redoc`、`/site/`、`/mock-sso/` 直接转给后端，前端根本收不到），所以文档面板用
@@ -82,10 +80,6 @@ export function pathForChat(chatId: string | null): string {
  *  给它们一段地址，这些页面才谈得上分享、收藏和刷新回到原处。 */
 export function pathForPanel(panel: PanelKey, ...subs: Array<string | null | undefined>): string {
   if (panel === 'chat') return chatPath();
-  if (panel === 'project_detail') {
-    const projectId = activeProjectId();
-    return projectId ? generatePath(PROJECT_PATTERN, { projectId }) : '/projects';
-  }
   const slug = PANEL_SLUGS[panel];
   if (!slug) return '/';
   const tail: string[] = [];
@@ -100,16 +94,11 @@ export function chatIdFromPath(pathname: string = currentPath()): string | null 
   return (matchPath(CHAT_PATTERN, pathname) ?? matchPath(AUTOMATION_CHAT_PATTERN, pathname))?.params.chatId ?? null;
 }
 
-export function projectIdFromPath(pathname: string = currentPath()): string | null {
-  return matchPath(PROJECT_PATTERN, pathname)?.params.projectId ?? null;
-}
-
 function segments(pathname: string): string[] {
   return pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
 }
 
 export function panelFromPath(pathname: string = currentPath()): PanelKey {
-  if (projectIdFromPath(pathname)) return 'project_detail';
   return PANEL_BY_SLUG.get(segments(pathname)[0] ?? '') ?? 'chat';
 }
 

@@ -2,6 +2,8 @@
 
 > Last updated: September 9, 2026
 
+The frontend shows a startup label only while a new reply has no text, reasoning, or tool execution records. After output begins, pauses before further content or tool calls add no waiting text or timer.
+
 Regular code blocks have an always-visible Copy button in the top right. It copies only the code text, preserving indentation and line breaks; during streaming it copies the content currently displayed. On success, the button shows a checkmark and Copied in the original button color for two seconds before resetting. Failures appear in the button as Copy failed, without a top-of-page notification.
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.

@@ -8,7 +8,6 @@ import { inferBusinessTopic } from '../utils/history';
 import { resolveBatchModeActive, resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
 import { composeCommandMessage, seedChatTitle } from '../utils/projectCommands';
 import { useChatStore, useCatalogStore, useChatModeStore, useUIStore, useModelCapabilitiesStore } from '../stores';
-import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream } from './chatStream';
 import { captureChatInvocation, chatInvocationMessageProps, chatInvocationRequestFields, normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
@@ -89,8 +88,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
     // …and the previous round's settled plan bar (a new turn starts a fresh plan, if any)
     useChatStore.getState().setPlanProgress(streamChatId, null);
 
-    const effectiveProjectId = useChatStore.getState().store.chats[currentChatId]?.projectId
-      || useProjectStore.getState().currentProjectId || undefined;
+    const effectiveProjectId = useChatStore.getState().store.chats[currentChatId]?.projectId;
     let attachments: ChatAttachment[];
     try {
       attachments = await prepareChatAttachments(
@@ -236,12 +234,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
           ...(batchChat ? { batch_chat: true } : {}),
           ...(workflowChat ? { workflow_chat: true } : {}),
           ...(siteMode ? { site_chat: true } : {}),
-          // Project mount: read from the chat's own projectId (the frontend binds it when
-          // creating/fetching the session). When the chat has no bound project, fall back to
-          // useProjectStore.currentProjectId — this only applies to the first message sent while
-          // the user is on the "project details" panel (chat freshly minted, not yet written
-          // back); after switching to another chat, chat.projectId is the sole source of truth,
-          // preventing store residue from polluting ordinary conversations.
+          // Project scope comes from the conversation that owns this send.
           ...(effectiveProjectId ? { project_id: effectiveProjectId } : {}),
         }),
         signal: abortController.signal,

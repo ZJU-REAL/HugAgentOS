@@ -349,7 +349,14 @@ export const SETTINGS_DICT: Record<string, string> = {
   '文件预览': 'File Preview',
   '点击预览': 'Click to preview',
 
-  // ── ProjectDetailPanel ─────────────────────────────────────────────────────
+  // ── Project conversation ─────────────────────────────────────────────────────
+  '执行成功': 'Succeeded',
+  '任务详情': 'Task Details',
+  '收藏项目': 'Favorite Project',
+  '项目资料': 'Project Resources',
+  '项目定时任务': 'Project Scheduled Tasks',
+  '刷新项目定时任务': 'Refresh Project Scheduled Tasks',
+  '本项目暂无定时任务': 'No scheduled tasks in this project yet',
   '所有项目': 'All Projects',
   '本项目对话历史': 'Conversations in This Project',
   '我创建的': 'Created by me',
@@ -524,10 +531,6 @@ export const SETTINGS_DICT: Record<string, string> = {
 
   '设备在线': 'Device online',
   '设备离线': 'Device offline',
-  '在这台电脑的默认项目中运行，无需绑定目录。机器人沿用桌面端的本地文件权限，使用者可通过机器人访问已授权的本地内容。':
-    'Runs in the default project on this computer, with no folder binding. The bot uses your desktop file permissions; people who can use it can access authorized local content.',
-  '电脑需保持在线且桌面端已登录；最小化到托盘可继续运行，离线不会自动改用云端。':
-    'Keep this computer online and the desktop signed in. It continues in the tray and never falls back to the cloud when offline.',
   '本机服务尚未就绪，暂不可选择本机。': 'The local service is not ready yet.',
   // ── 渠道机器人（我的机器人）─────────────────────────────────────────────────
   '我的机器人': 'My Bots',
@@ -549,7 +552,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '企业微信走回调模式：绑定后把回吐的回调地址填回「企业微信后台 → 自建应用 → 接收消息」。':
     'WeCom uses callback mode: after binding, fill the returned callback URL into "WeCom console → Custom app → Receive messages".',
   // 微信扫码绑定
-  '微信走扫码绑定个人微信号，无需填凭据。': 'WeChat binds a personal account by scanning a QR code — no credentials needed.',
   '扫码绑定': 'Scan to bind',
   '微信扫码绑定': 'Bind WeChat by QR',
   '正在获取二维码…': 'Fetching QR code…',
@@ -572,12 +574,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   // ── 群聊旁听 ──
   '群聊旁听：读取群里未 @ 它的消息作为上下文（只读不回复）':
     'Group listening: read messages that do not @-mention the bot as context (read-only, never replied to)',
-  '开启后群内成员的日常发言会被记录为该机器人的对话上下文，请确保群成员知情。':
-    'Once enabled, everyday messages from group members are recorded as this bot\'s conversation context — make sure group members are aware.',
-  '另需在飞书开放平台为该应用申请敏感权限「获取群组中所有消息」(im:message.group_msg) 并重新发布版本，否则飞书不会推送未 @ 的消息，此开关不会生效。':
-    'You must also request the sensitive scope "Read all messages in a group" (im:message.group_msg) for this app on the Feishu open platform and republish the app version; otherwise Feishu never pushes non-@ messages and this switch has no effect.',
-  '另需在钉钉开放平台为该应用申请群消息读取权限，否则钉钉只在被 @ 时回调，此开关不会生效。':
-    'You must also request group-message read permission for this app on the DingTalk open platform; otherwise DingTalk only calls back on @-mentions and this switch has no effect.',
   '还没有机器人，点下方「绑定机器人」创建。': 'No bots yet. Click "Bind bot" below to create one.',
   '绑定机器人': 'Bind bot',
   '绑定': 'Bind',

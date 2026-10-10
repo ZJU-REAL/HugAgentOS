@@ -336,8 +336,10 @@ class ChannelService:
             status = await adapter.poll_qr_status(ctx["qrcode"])
         except Exception as exc:  # noqa: BLE001
             raise BadRequestError(f"查询扫码状态失败：{exc}")
-        if status.get("status") != "confirmed" or not status.get("bot_token"):
+        if status.get("status") != "confirmed":
             return {"status": status.get("status") or "waiting"}
+        if not isinstance(status.get("bot_token"), str) or not status["bot_token"].strip():
+            raise BadRequestError("微信绑定未返回有效凭据，请重新扫码")
 
         # confirmed → create the connection (app_id is derived from bot_token, satisfying the unique constraint)
         await state.drop(key)
