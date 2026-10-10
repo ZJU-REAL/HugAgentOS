@@ -512,3 +512,19 @@ containing a real credential are still withheld.
 For 422 / integrity_failed, inspect the cloud response and configuration checks.
 The fix takes effect in the cloud backend; changing reasoning levels, clearing desktop
 data, or reinstalling the client is unnecessary.
+
+### Troubleshooting local channel binding
+
+In hybrid desktop mode, binding Lark, DingTalk, WeCom or WeChat with the Local execution
+location first authorizes the current device. The cloud handles channel connections;
+the desktop runs the agent. Network access, cloud login and a ready local service are required.
+
+If an older desktop shows “Success” without a WeChat QR code, upgrade to a complete desktop
+package containing the channel response fix. This fix also covers local message claims,
+lease renewals, replies and attachment transfer. Updating only the cloud does not replace
+the bundled local backend. Existing accounts, chats and files do not need to be removed.
+
+The updated QR dialog polls sequentially and ignores UI results from closed or replaced
+attempts. Authorization failures, scan failures and expired codes stop loading and offer Retry.
+Credential binding failures refresh the bot list. If an error bot was retained, inspect its
+error and delete that failed entry before binding the same application again.

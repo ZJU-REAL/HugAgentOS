@@ -230,6 +230,13 @@ def install_plugin(
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Install a marketplace plugin package (filesystem default / marketplace, or a DB-published marketplace package)."""
+    from core.services.marketplace_version_store import active, archive, decode
+    plugin_details.get_plugin_detail(slug, db)
+    snapshot = active(db, "plugin", slug)
+    if snapshot:
+        with _extract_plugin_zip(archive(decode(snapshot))) as root:
+            return import_plugin(db, root, owner_user_id=owner_user_id,
+                                 secrets=secrets or {}, created_by=created_by)
     plugin_dir = plugin_sources._resolve_plugin_dir(slug)
     if plugin_dir is not None:
         np = normalize_plugin_dir(plugin_dir)

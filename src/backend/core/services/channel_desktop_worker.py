@@ -25,18 +25,30 @@ async def cloud_post(captured, path, payload):
     current = bridge.get_state()
     if not current:
         raise AccessDeniedError("桌面云端会话已失效")
-    async with httpx.AsyncClient(timeout=25) as client:
-        response = await client.post(
-            current["cloud_base"] + "/api/v1/channels/desktop/" + path,
-            headers=bridge.cloud_headers(current),
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            response = await client.post(
+                current["cloud_base"] + "/api/v1/channels/desktop/" + path,
+                headers=bridge.cloud_headers(current),
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise BadRequestError("渠道执行服务连接失败，请检查网络后重试") from exc
     bridge.require_current_account(captured)
-    if data.get("code") not in (0, 200, 201):
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise BadRequestError("渠道执行服务响应格式无效") from exc
+    if not isinstance(data, dict):
+        raise BadRequestError("渠道执行服务响应格式无效")
+    if response.status_code in (401, 403):
+        raise AccessDeniedError(str(data.get("message") or "渠道授权已失效，请重新登录"))
+    # All channel routes use core.infra.responses, including registration and replies.
+    if not response.is_success or data.get("code") not in (10000, 10001):
         raise BadRequestError(str(data.get("message") or "渠道执行服务不可用"))
-    return data.get("data")
+    if "data" not in data:
+        raise BadRequestError("渠道执行服务响应格式无效")
+    return data["data"]
 
 
 def identity_owner(db):
@@ -59,6 +71,14 @@ async def prepare_binding(db, owner):
         raise AccessDeniedError("本机账号不匹配")
     captured = bridge.get_state()
     grant = await cloud_post(captured, "register", {"device_name": platform.node() or "本机"})
+    if (
+        not isinstance(grant, dict)
+        or not isinstance(grant.get("binding_id"), str)
+        or not grant["binding_id"]
+        or grant.get("device_id") != identity["device_id"]
+        or not isinstance(grant.get("device_name"), str)
+    ):
+        raise BadRequestError("本机授权响应格式无效，请重试")
     with bridge.account_scope(captured):
         db.add(
             ContentBlock(

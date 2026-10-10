@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Input, Modal, Popconfirm, Radio, Select, Spin, Switch, Tag, message } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Button, Input, Modal, Popconfirm, Radio, Select, Spin, Switch, Tag, message } from 'antd';
 import {
   CheckCircleFilled, DeleteOutlined, PlusOutlined, ReloadOutlined, RobotOutlined,
   ScanOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
   listChannelAdapters, listChannelBots, createChannelBot, updateChannelBot, deleteChannelBot,
-  testChannelBot, startWeixinBind, getWeixinBindStatus, prepareChannelLocalBinding,
+  testChannelBot, prepareChannelLocalBinding,
   type ChannelAdapterInfo, type ChannelBot, type CreateChannelBotPayload,
 } from '../../api';
 import { t } from '../../i18n';
+import { useWeixinBinding } from '../../hooks/useWeixinBinding';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 
 const STATUS_META: Record<ChannelBot['status'], { color: string; label: string }> = {
@@ -66,12 +67,6 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
   const [encryptKey, setEncryptKey] = useState('');
   const [verificationToken, setVerificationToken] = useState('');
 
-  // WeChat QR code
-  const [qrOpen, setQrOpen] = useState(false);
-  const [qrImg, setQrImg] = useState('');
-  const [qrTip, setQrTip] = useState('');
-  const qrTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const adapter = adapters.find((a) => a.channel_type === channelType);
 
   const refresh = useCallback(async () => {
@@ -84,6 +79,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
       setLoading(false);
     }
   }, [agentId]);
+  const qr = useWeixinBinding(agentId, executionLocation, localReady, refresh);
 
   useEffect(() => {
     void refresh();
@@ -103,6 +99,10 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
   };
 
   const onCreate = async () => {
+    if (executionLocation === 'local' && !localReady) {
+      message.warning(t('本机服务尚未就绪，暂不可选择本机。'));
+      return;
+    }
     const fields = adapter?.credential_fields ?? ['app_id', 'app_secret'];
     if (!creds.app_id?.trim() || !creds.app_secret?.trim()) {
       message.warning(t('请填写 App ID 和 App Secret'));
@@ -142,50 +142,11 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
       await refresh();
     } catch (e) {
       message.error((e as Error)?.message || t('绑定失败'));
+      await refresh();
     } finally {
       setCreating(false);
     }
   };
-
-  // ── WeChat QR-code binding ───────────────────────────────────────────
-  const stopQrPoll = () => {
-    if (qrTimer.current) { clearInterval(qrTimer.current); qrTimer.current = null; }
-  };
-
-  const onWeixinScan = async () => {
-    setQrImg(''); setQrTip(t('正在获取二维码…')); setQrOpen(true);
-    try {
-      const localBinding = executionLocation === 'local'
-        ? await prepareChannelLocalBinding() : undefined;
-      const { bind_id, qrcode_img } = await startWeixinBind(agentId, localBinding?.binding_id);
-      setQrImg(qrcode_img);
-      setQrTip(t('请用微信扫描二维码并确认登录'));
-      let elapsed = 0;
-      stopQrPoll();
-      qrTimer.current = setInterval(async () => {
-        elapsed += 2;
-        if (elapsed > 300) { stopQrPoll(); setQrTip(t('二维码已过期，请重试')); return; }
-        try {
-          const st = await getWeixinBindStatus(bind_id);
-          if (st.status === 'confirmed') {
-            stopQrPoll();
-            message.success(t('微信已绑定'));
-            setQrOpen(false);
-            await refresh();
-          } else if (st.status === 'scanned') {
-            setQrTip(t('已扫描，请在手机上确认'));
-          }
-        } catch {
-          stopQrPoll();
-          setQrTip(t('绑定失败，请重试'));
-        }
-      }, 2000);
-    } catch (e) {
-      setQrTip((e as Error)?.message || t('获取二维码失败'));
-    }
-  };
-
-  useEffect(() => () => stopQrPoll(), []);
 
   const onToggle = async (bot: ChannelBot, enabled: boolean) => {
     try { await updateChannelBot(bot.channel_id, { enabled }); await refresh(); }
@@ -312,7 +273,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                   <span className="jx-conn-desc">{t('执行位置')}</span>
                   <Radio.Group
                     value={executionLocation}
-                    disabled={creating || qrOpen}
+                    disabled={creating || qr.open}
                     onChange={(event) => setExecutionLocation(event.target.value)}
                     options={[
                       { value: 'cloud', label: t('云端') },
@@ -343,7 +304,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
               <div className="jx-conn-desc">
                 {t('微信走扫码绑定个人微信号，无需填凭据。')}
                 <div style={{ marginTop: 8 }}>
-                  <Button type="primary" icon={<ScanOutlined />} onClick={() => void onWeixinScan()}>{t('扫码绑定')}</Button>
+                  <Button type="primary" icon={<ScanOutlined />} onClick={() => void qr.start()}>{t('扫码绑定')}</Button>
                 </div>
               </div>
             ) : (
@@ -397,17 +358,24 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
 
       {/* WeChat QR-code Modal */}
       <Modal
-        open={qrOpen} title={t('微信扫码绑定')} footer={null}
-        onCancel={() => { stopQrPoll(); setQrOpen(false); }}
+        open={qr.open} title={t('微信扫码绑定')} footer={null}
+        onCancel={qr.close}
         destroyOnClose maskClosable={false}
       >
         <div style={{ textAlign: 'center', padding: '12px 0' }}>
-          {qrImg ? (
-            <img src={`data:image/png;base64,${qrImg}`} alt="qrcode" style={{ width: 200, height: 200 }} />
-          ) : (
-            <Spin />
+          {qr.phase === 'loading' ? <Spin /> : (
+            qr.phase === 'waiting' || qr.phase === 'scanned'
+              ? <img src={`data:image/png;base64,${qr.image}`} alt="qrcode" style={{ width: 200, height: 200 }} />
+              : <Alert type={qr.phase === 'error' ? 'error' : 'warning'} message={qr.tip} />
           )}
-          <div className="jx-conn-desc" style={{ marginTop: 12 }}>{qrTip}</div>
+          {(qr.phase === 'loading' || qr.phase === 'waiting' || qr.phase === 'scanned') && (
+            <div className="jx-conn-desc" style={{ marginTop: 12 }}>{qr.tip}</div>
+          )}
+          {(qr.phase === 'error' || qr.phase === 'expired') && (
+            <Button icon={<ReloadOutlined />} onClick={() => void qr.start()} style={{ marginTop: 12 }}>
+              {t('重试')}
+            </Button>
+          )}
         </div>
       </Modal>
     </div>

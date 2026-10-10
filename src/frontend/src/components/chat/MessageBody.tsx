@@ -59,11 +59,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
     if (currentPlanId === planId) setCurrentPlanId(null);
     updatePlanApi(planId, { status: 'cancelled' }, currentChatId).catch(() => { /* best-effort; the card is already marked */ });
   }, [currentChatId, m]);
-  // Drives the "正在准备调用工具" pending step inside the ToolRunShell — the
-  // Some LLM providers still buffer tool-call args server-side, so when the message is
-  // streaming and goes silent (or backend has fired `tool_pending`) we want
-  // *some* signal that work is still happening. Replaces the old free-floating
-  // StreamWaitIndicator below the text bubble.
+  // Track stream activity for the startup clock and output dots.
   const streamedArgsLength = (m.toolCalls || []).reduce(
     (total, tool) => total + (tool.inputText?.length || 0),
     0,
@@ -79,12 +75,8 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
     0,
   );
   const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${streamedThinkingLength}|${m.segments?.length ?? 0}`;
-  // Anchor the stall clock to the message's persisted `lastActivityTs` so the
-  // "正在准备调用工具…" timer keeps counting from the real start even after a
-  // session switch or page refresh remounts this component.
+  // Preserve the startup clock across remounts.
   const stall = useStallDetector(stallSignature, 2500, m.lastActivityTs, !!m.isStreaming);
-  const noToolRunning = !anyToolRunning(m.toolCalls || []);
-  const pendingWaiting = !!m.isStreaming && noToolRunning && (!!m.toolPending || stall.waiting);
 
   /** Render a settled thinking block. Live thinking is rendered by ThinkingInline. */
   const renderThinkingBlock = (content: string, thinkKey: string) => {
@@ -145,23 +137,11 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
               // empty-text only chunks are absorbed but never anchor a run.
               //
               // OFF mode (dispatchProcessVisible=false) keeps the existing
-              // ToolProgressInline for tool batches; pending state still
-              // surfaces, but the unified shell only takes over in ON mode.
+              // ToolProgressInline for tool batches; the unified shell takes over in ON mode.
               const segs = m.segments!;
-              const isEmptyText = (i: number): boolean => {
-                const s = segs[i];
-                return !!s && s.type === 'text' && !(s.content || '').trim();
-              };
               const { runs, suppressedIdx } = groupExecutionRuns(m, dispatchProcessVisible);
 
-              // Attach a pending step where the wait state should appear.
-              // - In ON mode + an active run that runs to the end of segments
-              //   (no text after) → append to that run's steps.
-              // - In ON mode otherwise (no run yet, or finished with text) →
-              //   render a separate "virtual" mini-shell below the last
-              //   segment so the user sees *some* progress signal.
-              // - In OFF mode → fall through to the per-text-segment
-              //   StreamWaitIndicator (preserves existing inline behavior).
+              // Only the initial empty response needs a waiting label.
               const hasVisibleTextProgress = segs.some(s => s.type === 'text' && (s.content || '').trim().length > 0);
               // A thinking segment that is not folded into a run renders as its
               // own ThinkingInline below, so the reasoning is already on screen.
@@ -180,22 +160,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 runs.length === 0 &&
                 !hasVisibleTextProgress &&
                 !hasVisibleThinkingProgress;
-              const showPendingInShell = pendingWaiting && dispatchProcessVisible;
-              let virtualPending: { startTs: number; key: string } | null = null;
-              if (showPendingInShell || startupPending) {
-                const lastRun = runs.length ? runs[runs.length - 1] : null;
-                const lastRunReachesEnd = !!lastRun && (() => {
-                  for (let j = lastRun.endIdx + 1; j < segs.length; j++) {
-                    if (!isEmptyText(j)) return false;
-                  }
-                  return true;
-                })();
-                if (lastRun && lastRunReachesEnd) {
-                  lastRun.steps.push({ kind: 'pending', startTs: stall.since, key: `${m.uid}-pending` });
-                } else {
-                  virtualPending = { startTs: stall.since, key: `${m.uid}-pending-virtual` };
-                }
-              }
+              const virtualPending = startupPending
+                ? { startTs: stall.since, key: `${m.uid}-pending-virtual` }
+                : null;
 
               const runByAnchor = new Map<number, (typeof runs)[number]>();
               runs.forEach((r) => runByAnchor.set(r.anchor, r));
@@ -333,10 +300,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
               });
 
               if (virtualPending) {
-                // No real tool run to attach to (turn start, or the model went
-                // silent again after finishing a run + text) — a light turn-level
-                // shimmer label beats a hollow "执行中" shell card here: we don't
-                // even know yet whether a tool will be called.
+                // Hide the startup label once this response has visible progress.
                 rendered.push(
                   <TurnStatusIndicator
                     key={virtualPending.key}
@@ -372,9 +336,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
               </div>
             )}
             {m.isStreaming && !m.content ? (
-              dispatchProcessVisible ? (
+              dispatchProcessVisible && !m.toolCalls?.length && !m.thinking?.some(block => block.content?.trim()) ? (
                 <TurnStatusIndicator startTs={stall.since} label={turnStatusLabel} />
-              ) : (
+              ) : dispatchProcessVisible ? null : (
                 <ThinkingInline content="" isActive={true} />
               )
             ) : (

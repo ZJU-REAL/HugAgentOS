@@ -1,3 +1,4 @@
+import { MarketVersionControls } from '../common/MarketVersionControls';
 import { useMarketSelection } from '../common/MarketBatchActions';
 import { MarketBatchToolbar } from '../common/MarketBatchToolbar';
 import { MarketExportButton } from '../common/MarketExportButton';
@@ -285,7 +286,9 @@ export function AgentMarketplaceModal({
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 96 }}>
-              {enableSwitch(detail)}
+              {fetchers.setEnabled && <MarketVersionControls kind="agent" slug={detail.slug}
+                  onChanged={async () => { await load(); setDetail(await fetchers.loadDetail(detail.slug)); }} />}
+                {enableSwitch(detail)}
               {visibilityButton(detail)}
                         {fetchers.setEnabled && <MarketExportButton kind="agent" slug={detail.slug} />}
               {deleteButton(detail)}
