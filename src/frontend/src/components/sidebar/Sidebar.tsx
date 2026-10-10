@@ -34,7 +34,7 @@ export function Sidebar(actions: SidebarProps) {
   const visible = (key: string) => LAYOUT_ITEMS[key] && (!LAYOUT_ITEMS[key].requiresLab || authUser?.lab_enabled !== false) && !(key === 'my_space' && mode === 'local_only');
   const more = [...new Set([...configuredSidebar, ...configuredMenu])].filter(key => !PRIMARY.some(primary => primary === key) && key !== 'settings' && visible(key));
   const chatModule = panel === 'chat';
-  const title = chatModule ? brandName : LAYOUT_ITEMS[panel === 'project_detail' ? 'projects' : panel]?.label || brandName;
+  const title = chatModule ? brandName : LAYOUT_ITEMS[panel]?.label || brandName;
   const select = (target: typeof panel, sub?: string) => {
     if (target === 'chat' && panel === 'chat') {
       actions.onNewChat();

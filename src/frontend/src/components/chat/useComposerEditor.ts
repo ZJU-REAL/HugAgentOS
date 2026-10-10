@@ -24,8 +24,8 @@ import type { ComposerSuggestions } from './useComposerSuggestions';
 import type { InputAreaProps } from './composerTypes';
 
 export function useComposerEditor(state: ComposerState, suggestions: ComposerSuggestions, {
-  inputRef, fileInputRef, send, projectComposer,
-}: Pick<InputAreaProps, 'inputRef' | 'fileInputRef' | 'send' | 'projectComposer'>) {
+  inputRef, fileInputRef, send,
+}: Pick<InputAreaProps, 'inputRef' | 'fileInputRef' | 'send'>) {
   const {
     setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector, setActiveCommand,
     activeLocalMode, draftKey,
@@ -305,10 +305,6 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   }
 
   async function runFork() {
-    if (projectComposer) {
-      void message.warning(t('请在已有聊天中创建分支'));
-      return;
-    }
     await forkChat(undefined, { clearInput: readComposer(draftKey).input });
   }
 

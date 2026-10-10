@@ -15,7 +15,7 @@ setConversationOwnerResolver(id => useChatStore.getState().store.chats[id]?.auto
 /** App 是常驻外壳，路由子节点只负责「地址 → store」这一个方向的同步，自身不渲染内容，
  *  所以换路由不会重挂载整个聊天界面。
  *
- *  需要同步回来的只剩会话：面板、项目 id 都直接从地址算（usePanel / projectIdFromPath），
+ *  需要同步回来的只剩会话：面板直接从地址算（usePanel），
  *  没有第二份状态要对齐。会话不同——草稿故意不占地址（`/` 不指向任何一段具体对话），
  *  所以 currentChatId 带着地址给不出的信息，必须真的存一份。 */
 export function Shell() {

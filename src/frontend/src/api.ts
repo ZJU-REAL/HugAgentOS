@@ -719,13 +719,18 @@ export async function listReferencableChats(params: {
 }
 
 export async function getSession(chatId: string): Promise<ChatItem> {
+  const local = isLocalChat(chatId);
   const wrapped = await apiRequest<unknown>(
     `/v1/chats/${chatId}`,
     undefined,
-    isLocalChat(chatId) ? 'local' : undefined,
+    local ? 'local' : undefined,
   );
-  const data = unwrapData<JsonObject>(wrapped);
-  return toChatItem(data);
+  const session = toChatItem(unwrapData<JsonObject>(wrapped));
+  // Task identity includes its execution location in the dual desktop workspace.
+  if (_hybridDual && local && session.automationTaskId) {
+    session.automationTaskId = `local:${session.automationTaskId}`;
+  }
+  return session;
 }
 
 export async function createSession(data: CreateSessionRequest): Promise<ChatItem> {

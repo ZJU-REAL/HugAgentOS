@@ -16,12 +16,12 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
   'newChat' | 'deleteChat' | 'updateMessages' | 'currentChat' | 'hydrateForUser' | 'clearForLogout' | 'resumeHomeChat'
 > {
   return {
-    newChat: () => {
+    newChat: (project) => {
         const id = newDraftChatId(get().currentUserId);
         syncChatUrl(id);
         set({
           currentChatId: id,
-          homeDraftId: id,
+          homeDraftId: project ? get().homeDraftId : id,
           sending: false,
           expandedThinking: new Set(),
           shareSelectionMode: false,
@@ -33,6 +33,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
           modeSlug: 'standard',
         });
         initializeDraftRunTarget(id);
+        if (project) get().bindChatProject(id, project.projectId, project.projectName);
       },
     deleteChat: (id) => {
         const { store, currentChatId, currentUserId } = get();
@@ -184,7 +185,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
       },
     resumeHomeChat: () => {
         const id = get().homeDraftId;
-        if (id && isDraftChatId(get().currentUserId, id) && !get().backendSessionIds.has(id) && !(get().store.chats[id]?.messages.length)) get().adoptChatFromUrl(id);
+        if (id && !get().store.chats[id]?.projectId && isDraftChatId(get().currentUserId, id) && !get().backendSessionIds.has(id) && !(get().store.chats[id]?.messages.length)) get().adoptChatFromUrl(id);
         else get().newChat();
       }
   };

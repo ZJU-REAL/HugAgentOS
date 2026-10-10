@@ -16,7 +16,7 @@ function findFolder(nodes: FolderNode[], id: string): FolderNode | undefined {
   }
 }
 
-/** Resolve a direct child of the linked root, never a same-named folder elsewhere. */
+/** Resolve a relative folder path under the linked root, never a same-named folder elsewhere. */
 export async function prepareProjectFolderDeletion(project: ProjectItem, name: string): Promise<{
   fileCount: number;
   remove: () => Promise<void>;
@@ -26,9 +26,15 @@ export async function prepareProjectFolderDeletion(project: ProjectItem, name: s
   const path = '/v1/myspace/folders';
   const response = await apiRequest<unknown>(path + '?as=tree');
   const root = findFolder(unwrapData<{ tree: FolderNode[] }>(response).tree || [], String(rootId));
-  const matches = (root?.children || []).filter(folder => folder.name === name);
-  if (matches.length !== 1) throw new Error(t('文件夹不存在'));
-  const folderPath = path + '/' + encodeURIComponent(matches[0].folder_id);
+  let folder = root;
+  const parts = name.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) throw new Error(t('文件夹不存在'));
+  for (const part of parts) {
+    const matches = (folder?.children || []).filter(child => child.name === part);
+    if (matches.length !== 1) throw new Error(t('文件夹不存在'));
+    folder = matches[0];
+  }
+  const folderPath = path + '/' + encodeURIComponent(folder!.folder_id);
   const affected = await apiRequest<unknown>(folderPath + '/affected-count');
   return {
     fileCount: unwrapData<{ count: number }>(affected).count,

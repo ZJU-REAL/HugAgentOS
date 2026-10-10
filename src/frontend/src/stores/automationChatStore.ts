@@ -64,17 +64,20 @@ interface AutomationChatState {
 }
 
 /** Seed a known run so history loading has a destination before metadata arrives. */
-function prepareRunChat(taskId: string, taskName: string, run: AutomationRun) {
+export function prepareRunChat(taskId: string, taskName: string, run: AutomationRun, project?: { projectId: string; projectName: string }) {
   const id = run.chat_id!;
   const chat = useChatStore.getState();
   chat.updateStore(prev => ({
     ...prev,
     chats: {
       ...prev.chats,
-      [id]: prev.chats[id] || {
-        id, title: taskName || t('定时任务'),
-        createdAt: parseServerTime(run.started_at), updatedAt: parseServerTime(run.started_at),
-        messages: [], automationRun: true, automationTaskId: taskId,
+      [id]: {
+        ...prev.chats[id],
+        id, title: prev.chats[id]?.title || taskName || t('定时任务'),
+        createdAt: prev.chats[id]?.createdAt || parseServerTime(run.started_at),
+        updatedAt: prev.chats[id]?.updatedAt || parseServerTime(run.started_at),
+        messages: prev.chats[id]?.messages || [], automationRun: true, automationTaskId: taskId,
+        ...project,
       },
     },
     order: prev.order.includes(id) ? prev.order : [id, ...prev.order],

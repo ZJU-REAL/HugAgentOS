@@ -50,8 +50,18 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 | PATCH | `/v1/projects/{id}/instructions` | Update project instructions |
 | GET | `/v1/projects/{id}/chats` | Conversations inside the project (team projects show shared chats) |
 
+### Project conversations and scheduled tasks
+
+The project new-conversation page lists project history below the shared composer. Team projects can filter all, owned, or shared conversations. Selecting a record opens the shared conversation UI and highlights only the conversation, not its parent project. Scheduled runs remain available through the task rail.
+
+Selecting a project binds the shared conversation interface. Projects use the main composer, attachment pipeline, modes, and chat history. Switching projects preserves unsent conversation drafts without rebinding existing conversations from other projects.
+
+The conversation takes the main width. A 360–440 px resource rail shows project memory, scheduled tasks, instructions, and files only on the project new-conversation page. Sending the first message or opening history hides the project overview header and resource rail and restores the ordinary conversation layout. Instructions have a compact scrollable preview and a full editor. Narrow windows expose the rail through the Project Resources button.
+
+Scheduled tasks are filtered by the selected project and execution location. Each task has one conversation entry. Clicking it retrieves the latest run again; tasks with no runs show an empty state without starting execution. The settings button opens the existing task management page. Earlier runs remain available in task history.
+
 ### Page loading
-While page code loads, the project list shows skeletons for the heading, actions, search field, and project cards. The first data request uses the same card skeletons; refreshing an existing list keeps its content visible. Project details use skeletons matching the main content and right rail. Skeletons adapt to narrow screens and dark themes, and freeze the shimmer when the system requests reduced motion.
+While page code loads, the project list shows skeletons for the heading, actions, search field, and project cards. The first data request uses the same card skeletons; refreshing an existing list keeps its content visible. Selecting a project opens the shared conversation interface and loads project resources separately. Skeletons adapt to narrow screens and dark themes, and freeze the shimmer when the system requests reduced motion.
 
 ### How project context enters a conversation
 
@@ -125,7 +135,7 @@ File uploads go through the unified `POST /v1/file/upload` (with optional `folde
 - `team/`: team scope tree, breadcrumb, move-to-team, permission modals (Enterprise Edition, EE);
 - State: `stores/mySpaceStore.ts`.
 
-Project frontend lives in `src/frontend/src/components/projects/`: `ProjectsPanel` (list), `ProjectCard`, `CreateProjectModal`, `ProjectDetailPanel` (files + instructions + chats), `ProjectRightRail`, `ProjectMemoriesModal` (project memory viewer); state in `stores/projectStore.ts`.
+Project frontend lives in `src/frontend/src/components/projects/`: `ProjectsPanel` (list), `ProjectCard`, `CreateProjectModal`, `ProjectHeader` (files + instructions + chats), `ProjectRightRail`, `ProjectMemoriesModal` (project memory viewer); state in `stores/projectStore.ts`.
 
 ## Team folders and team files (Enterprise Edition, EE)
 
@@ -223,7 +233,7 @@ manifests and lockfiles. Unsynchronized changes must not be treated as durably s
 
 ### Browsing large project file lists
 
-Project file rows show the file name and size on one line. Folders have no expansion arrow; click their names to expand or collapse them. Preview and delete controls appear on hover or keyboard focus and remain visible on touch devices. Users with edit permission can delete a cloud-project folder using its right-side button. Confirmation cascade-soft-deletes the folder, its subfolders and files. Desktop local-folder projects continue to use the system file manager for deletion.
+Initially, only root files and first-level folders are visible. Click a folder to show its immediate files and subfolders; nested folders remain collapsed. Project file rows show the file name and size on one line. Folders have no expansion arrow; click their names to expand or collapse them. Preview and delete controls appear on hover or keyboard focus and remain visible on touch devices. Users with edit permission can delete a cloud-project folder using its right-side button. Confirmation cascade-soft-deletes the folder, its subfolders and files. Desktop local-folder projects continue to use the system file manager for deletion.
 
 The project file panel uses a fixed-height virtual list that renders only visible rows. Folder expansion, scrolling, preview and deletion remain available. Project instructions have a wider reading area and a larger, vertically resizable editor. A failed file request can be retried without hiding project details or instructions.
 

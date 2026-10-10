@@ -34,7 +34,7 @@ export const LAYOUT_ITEMS: Record<string, LayoutItemMeta> = {
   app_center:     { label: t('应用中心'), icon: '/home/app-center.svg', targetPanel: 'app_center', activePanels: ['app_center'] },
   automation:     { label: t('定时任务'), icon: '/home/schedule.svg',   targetPanel: 'automation', activePanels: ['automation'] },
   sites:          { label: t('站点'),     icon: '/home/sites.svg',      targetPanel: 'sites',      activePanels: ['sites'], requiresLab: true },
-  projects:       { label: t('项目'),     icon: '/home/projects.svg',   targetPanel: 'projects',   activePanels: ['projects', 'project_detail'] },
+  projects:       { label: t('项目'),     icon: '/home/projects.svg',   targetPanel: 'projects',   activePanels: ['projects'] },
   my_space:       { label: t('我的空间'), icon: '/home/my-space.svg',   targetPanel: 'my_space',   activePanels: ['my_space'] },
   settings:       { label: t('设置'),     icon: '/home/settings.svg',   targetPanel: 'settings' },
   lab:            { label: t('实验室'),   icon: '/home/new-icons/lab.svg', targetPanel: 'lab',     requiresLab: true },

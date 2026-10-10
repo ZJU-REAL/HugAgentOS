@@ -41,7 +41,6 @@ function emptyDraft(): ComposerDraft {
 let nextDraftId = 0;
 const EMPTY_DRAFT = emptyDraft();
 export const chatDraftKey = (id: string) => 'chat:' + id;
-export const projectDraftKey = (id: string) => 'project:' + id;
 interface ComposerState {
   userId: string | null;
   epoch: number;

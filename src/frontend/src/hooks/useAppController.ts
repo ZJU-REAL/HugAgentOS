@@ -6,7 +6,9 @@ import { useCallback, useEffect, useRef } from 'react';
 import { listenForFolderProjects } from '../desktop/folderMenu';
 import { t } from '../i18n';
 import { isConversationPath, panelFromPath } from '../routing/navigation';
-import { usePanel, useRouteProjectId } from '../routing/usePanel';
+import { usePanel } from '../routing/usePanel';
+import { useProjectResources } from './useProjectResources';
+import { projectOverviewId } from '../stores/chatStore';
 import { useProjectListBootstrap } from './useProjectListBootstrap';
 import { useAppBootstrap } from './useAppBootstrap';
 import { useChatRecovery } from './useChatRecovery';
@@ -68,6 +70,9 @@ export function useAppController() {
   const { closeMobileSidebar, openMobileSidebar, authUserId } = useAppBootstrap(chatSurface);
 
   const chat = store.chats[currentChatId];
+  const conversationProjectId = chatSurface ? chat?.projectId : undefined;
+  const overviewProjectId = chatSurface ? projectOverviewId(chat) : undefined;
+  useProjectResources(overviewProjectId);
   const latestOntologyMessage = [...(chat?.messages || [])]
     .reverse()
     .find((message) => Boolean(message.ontologyGovernance));
@@ -91,9 +96,6 @@ export function useAppController() {
   // fetched from the backend only carry projectId, so fall back to looking the name up
   // in the project list.
   const projectList = useProjectStore((s) => s.list);
-  // 订阅而不是 getState()：刷新后项目 id 由 sessionStorage 恢复，读快照会漏掉这次更新。
-  // 打开的是哪个项目由地址说了算，不从 store 再读一份
-  const currentProjectId = useRouteProjectId();
   const chatProjectName = chat?.projectId
     ? (chat.projectName || projectList.find((p) => p.project_id === chat.projectId)?.name || '')
     : '';
@@ -167,21 +169,6 @@ export function useAppController() {
     return editAndResend(messageIndex, newContent);
   };
 
-  // Cross-panel first message: the project-page composer stuffs the message into
-  // chatStore.pendingFirstMessage; after jumping to the chat panel, this effect
-  // auto-sends + clears it once currentChatId matches.
-  const pendingFirstMessage = useChatStore((s) => s.pendingFirstMessage);
-  const setPendingFirstMessage = useChatStore((s) => s.setPendingFirstMessage);
-  useEffect(() => {
-    if (!pendingFirstMessage) return;
-    if (!chatSurface) return;
-    if (pendingFirstMessage.chatId !== currentChatId) return;
-    const content = pendingFirstMessage.content;
-    // Clear pending first, then trigger send (avoids the effect re-firing in the same frame)
-    setPendingFirstMessage(null);
-    void send(content);
-  }, [pendingFirstMessage, chatSurface, currentChatId, setPendingFirstMessage, send]);
-
   useChatSearch();
 
   // ── Sidebar handlers ──
@@ -234,9 +221,9 @@ export function useAppController() {
   };
 
   const handleNewProjectChat = (projectId: string, projectName: string) => {
-    newChat(inputRef);
-    const chatId = useChatStore.getState().currentChatId;
-    useChatStore.getState().bindChatProject(chatId, projectId, projectName);
+    useChatStore.getState().newChat({ projectId, projectName });
+    useChatStore.getState().setToolResultPanel(null);
+    useAutomationChatStore.getState().exitAutomationChat();
     closeMobileSidebar();
   };
 
@@ -324,7 +311,8 @@ export function useAppController() {
     fileInputRef,
     chatListRef,
     messagesEndRef,
-    currentProjectId,
+    conversationProjectId,
+    overviewProjectId,
     setCatalogPanel,
     toolResultPanel,
     promptHubOpen,

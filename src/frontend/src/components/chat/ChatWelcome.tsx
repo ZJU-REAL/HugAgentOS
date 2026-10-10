@@ -3,10 +3,12 @@ import { chatDraftKey, readComposer } from '../../stores/composerStore';
 import { FileTextOutlined, PieChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { staggerStyle } from '../../utils/motionTokens';
 import { useCatalogStore } from '../../stores/catalogStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { t } from '../../i18n';
 import type { ChatAreaProps } from './ChatArea';
 import type { useChatWelcome } from './useChatWelcome';
 import { InputArea } from './InputArea';
+import ProjectConversationHistory from '../projects/ProjectConversationHistory';
 
 const HOME_SUGGESTION_ICONS = [SearchOutlined, FileTextOutlined, PieChartOutlined] as const;
 
@@ -16,14 +18,15 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
   view: ReturnType<typeof useChatWelcome>;
   shareAccessLevel: 'admin' | 'edit' | 'read' | null;
 }) {
-  const { isAgentChat, isSiteChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer } = view;
+  const project = useProjectStore(s => s.currentProject);
+  const { overviewProjectId, isAgentChat, isSiteChat, isProjectChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer } = view;
   const { send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, handleFileSelect, removeFile, inputRef, fileInputRef } = composer;
   const applyQuickScenario = (prompt: string) => {
     readComposer(chatDraftKey(useChatStore.getState().currentChatId)).setInput(prompt);
     inputRef.current?.focus();
   };
   return (
-    <div className={`jx-emptyPage${!isAgentChat && !isSiteChat ? ' jx-emptyPage--main' : ''}`}>
+    <div className={`jx-emptyPage${!isAgentChat && !isSiteChat && !isProjectChat ? ' jx-emptyPage--main' : ''}`}>
       {isSiteChat && (
         <div className="jx-siteHeroTop">
           <button
@@ -38,8 +41,8 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         </div>
       )}
       <div className="jx-emptyCenter jx-anim-stagger">
-        <div className="jx-heroBg" style={staggerStyle(0)}>
-          {!isAgentChat && !isSiteChat && showHomepageLogo && homepageLogoUrl && (
+        {!isProjectChat && <div className="jx-heroBg" style={staggerStyle(0)}>
+          {!isAgentChat && !isSiteChat && !isProjectChat && showHomepageLogo && homepageLogoUrl && (
             <img
               src={homepageLogoUrl}
               alt={`${cfgProductName} Logo`}
@@ -48,13 +51,13 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           )}
           <h1 className="jx-heroTitle">{heroTitle}</h1>
           <p className="jx-heroSubtitle">{heroSubtitle}</p>
-          {!isAgentChat && !isSiteChat && (
+          {!isAgentChat && !isSiteChat && !isProjectChat && (
             <div className="jx-mobileHeroText">
               <h1>HugAgentOS</h1>
               <p>{t('你的智能任务助手')}</p>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="jx-homeInput" style={staggerStyle(1)}>
           {shareAccessLevel === 'read' ? (
@@ -73,11 +76,13 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
               handleFileSelect={handleFileSelect}
               removeFile={removeFile}
               placeholder={inputPlaceholder}
-              mobilePlaceholder={!isAgentChat && !isSiteChat ? t('输入问题或需求') : inputPlaceholder}
+              mobilePlaceholder={!isAgentChat && !isSiteChat && !isProjectChat ? t('输入问题或需求') : inputPlaceholder}
               disableMention={isAgentChat}
             />
           )}
         </div>
+
+        {overviewProjectId && project?.project_id === overviewProjectId && <ProjectConversationHistory key={overviewProjectId} project={project} />}
 
         {/* Quick pills: only sub-agents show suggested questions */}
         {isAgentChat && suggestedQuestions.length > 0 && (
@@ -90,7 +95,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           </div>
         )}
 
-        {!isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
+        {!isAgentChat && !isSiteChat && !isProjectChat && visibleHomepageSuggestions.length > 0 && (
           <div className="jx-homeSuggestions" style={staggerStyle(2)}>
             <div className="jx-homeSuggestionList">
               {visibleHomepageSuggestions.map((prompt, idx) => {
@@ -123,7 +128,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         )}
 
         {/* Capability cards: plugin-contributed homepage entries (main agent page only) */}
-        {!isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
+        {!isAgentChat && !isSiteChat && !isProjectChat && pluginShortcuts.length > 0 && (
           <div className="jx-capCards" style={staggerStyle(2)}>
             {pluginShortcuts.map((card) => (
               <button

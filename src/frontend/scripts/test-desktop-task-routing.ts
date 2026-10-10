@@ -5,7 +5,6 @@ import {
   createLoop, startLoop, resumeLoop, getLoop, steerLoop, cancelLoop, getSession,
 } from '../src/api';
 import { useChatStore } from '../src/stores/chatStore';
-import { setActiveProjectReader } from '../src/stores/projectSession';
 import { flushChatStore, loadChatStore, registerDraftChatId } from '../src/storage';
 
 const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -113,11 +112,8 @@ assert.deepEqual(chatTargetHeaders(oldCloud.id), {}, 'old cloud history with unl
 registerDraftChatId('default-target-test', 'evicted-cloud');
 useChatStore.getState().setCurrentChatId('evicted-cloud');
 assert.deepEqual(chatTargetHeaders('evicted-cloud'), {}, 'evicted old cloud history stays cloud');
-let activeProject: string | null = 'cloud-project';
-setActiveProjectReader(() => activeProject);
-useChatStore.getState().newChat();
-assert.deepEqual(chatTargetHeaders(useChatStore.getState().currentChatId), {}, 'active cloud project overrides local default');
-activeProject = null;
+useChatStore.getState().newChat({ projectId: 'cloud-project', projectName: 'Cloud' });
+assert.deepEqual(chatTargetHeaders(useChatStore.getState().currentChatId), {}, 'project draft follows cloud ownership');
 useChatStore.getState().newChat();
 const nextDraft = useChatStore.getState().currentChatId;
 assert.equal(chatTargetHeaders(nextDraft)['x-hugagent-target'], 'local');

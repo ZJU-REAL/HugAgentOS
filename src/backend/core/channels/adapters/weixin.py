@@ -204,7 +204,11 @@ class WeixinAdapter:
                 )
         except httpx.TimeoutException:
             return {"status": "waiting"}
-        return resp.json() or {}
+        data = resp.json() or {}
+        # iLink uses wait/scaned; the channel API exposes waiting/scanned to clients.
+        status = data.get("status")
+        data["status"] = {"wait": "waiting", "scaned": "scanned"}.get(status, status)
+        return data
 
     # ── Event → InboundMsg ──────────────────────────────────────────────
     def parse_inbound(self, conn: Any, payload: Dict[str, Any]) -> Optional[InboundMsg]:

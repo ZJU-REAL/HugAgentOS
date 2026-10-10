@@ -8,7 +8,7 @@ import type { ChatActionsContext } from './chatSupport';
 
 
 export function createChatSelectionActions({ set, get, initializeDraftRunTarget, syncChatUrl, publishCurrentChatUrl }: ChatActionsContext): Pick<ChatState,
-  'setStore' | 'updateStore' | 'setCurrentChatId' | 'syncCurrentChatMode' | 'adoptChatFromUrl' | 'toggleThinking' | 'setChatMode' | 'setModeSlug' | 'setToolResultPanel' | 'setCopiedMsg' | 'setChatsLoading' | 'setPendingFirstMessage' | 'setFeedbackMap' | 'setDislikingUid' | 'setDislikeComment' | 'setToolDisplayNames' | 'addBackendSessionId' | 'removeBackendSessionId' | 'clearBackendSessionIds' | 'addLoadedMsgId' | 'removeLoadedMsgId' | 'clearLoadedMsgIds' | 'setMessagePaging' | 'applyToolCallOutput' | 'setShareSelectionMode' | 'toggleShareMessageUid' | 'clearShareSelection' | 'startShareSelectionWithAll' | 'setPendingScrollMessageTs' | 'setPlanMode' | 'setLoopMode' | 'setCurrentPlanId' | 'setEditingMessageUid' | 'bumpSessionLoadEpoch'
+  'setStore' | 'updateStore' | 'setCurrentChatId' | 'syncCurrentChatMode' | 'adoptChatFromUrl' | 'toggleThinking' | 'setChatMode' | 'setModeSlug' | 'setToolResultPanel' | 'setCopiedMsg' | 'setChatsLoading' | 'setFeedbackMap' | 'setDislikingUid' | 'setDislikeComment' | 'setToolDisplayNames' | 'addBackendSessionId' | 'removeBackendSessionId' | 'clearBackendSessionIds' | 'addLoadedMsgId' | 'removeLoadedMsgId' | 'clearLoadedMsgIds' | 'setMessagePaging' | 'applyToolCallOutput' | 'setShareSelectionMode' | 'toggleShareMessageUid' | 'clearShareSelection' | 'startShareSelectionWithAll' | 'setPendingScrollMessageTs' | 'setPlanMode' | 'setLoopMode' | 'setCurrentPlanId' | 'setEditingMessageUid' | 'bumpSessionLoadEpoch'
 > {
   return {
     setStore: (store) => {
@@ -93,7 +93,6 @@ export function createChatSelectionActions({ set, get, initializeDraftRunTarget,
     setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
     setCopiedMsg: (uid) => set({ copiedMsg: uid }),
     setChatsLoading: (v) => set({ chatsLoading: v }),
-    setPendingFirstMessage: (p) => set({ pendingFirstMessage: p }),
     setFeedbackMap: (map) => set({ feedbackMap: map }),
     setDislikingUid: (uid) => set({ dislikingUid: uid }),
     setDislikeComment: (comment) => set({ dislikeComment: comment }),

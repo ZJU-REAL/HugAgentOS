@@ -10,7 +10,7 @@ import type { ComposerState } from './useComposerState';
 import type { ComposerOptions } from './composerTypes';
 
 export function useComposerSuggestions(state: ComposerState, {
-  projectComposer, disableMention, activeMode,
+  disableMention,
 }: ComposerOptions) {
   const {
     input, installedPlugins, skills, canInitProject, referencedChats,
@@ -65,7 +65,7 @@ export function useComposerSuggestions(state: ComposerState, {
             description: t('初始化指令：检查项目并创建或完善 AGENTS.md'),
             command: initCommand }]
         : [];
-      const actions: SlashEntry[] = !projectComposer && currentChatId
+      const actions: SlashEntry[] = currentChatId
         && ['fork', '创建聊天分支'].some((alias) => alias.includes(query.trim()))
         ? [{ kind: 'chat_action', action: 'fork', id: 'fork', name: t('创建聊天分支'),
             description: t('为此聊天创建分支') }]
@@ -84,7 +84,7 @@ export function useComposerSuggestions(state: ComposerState, {
         }));
       return [...actions, ...commands, ...pluginEntries, ...skillEntries, ...chatEntries];
     },
-    [input, installedPlugins, skills, canInitProject, referencableChats, referencedChats, projectComposer, currentChatId],
+    [input, installedPlugins, skills, canInitProject, referencableChats, referencedChats, currentChatId],
   );
 
   // `@` is a launcher first and an agent search second: an empty query shows the
@@ -106,19 +106,19 @@ export function useComposerSuggestions(state: ComposerState, {
       id: 'plan' as const,
       name: t('计划模式'),
       description: t('计划模式：AI 将自动分解任务为多步骤并逐步执行'),
-      active: projectComposer ? activeMode === 'plan' : planMode,
+      active: planMode,
     }] : []),
     ...(batchRunnerAllowed ? [{
       id: 'batch' as const,
       name: t('批量执行'),
       description: t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划'),
-      active: projectComposer ? activeMode === 'batch' : batchModeOn,
+      active: batchModeOn,
     }] : []),
     {
       id: 'workflow' as const,
       name: t('工作流模式'),
       description: t('工作流模式：面对成百上千个同类工作项时，AI 会写一段作业脚本交给后台并发处理，进度记在台账上，中断可续跑'),
-      active: projectComposer ? activeMode === 'workflow' : workflowModeOn,
+      active: workflowModeOn,
     },
     ...(showLoopEntry ? [{
       id: 'loop' as const,
@@ -131,8 +131,6 @@ export function useComposerSuggestions(state: ComposerState, {
     disableMention,
     planModeAllowed,
     batchRunnerAllowed,
-    projectComposer,
-    activeMode,
     planMode,
     batchModeOn,
     workflowModeOn,

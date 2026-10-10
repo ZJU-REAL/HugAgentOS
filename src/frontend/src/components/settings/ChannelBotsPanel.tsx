@@ -241,14 +241,6 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                       </span>
                     </div>
                   )}
-                  {canObserve && bot.group_listen_mode === 'observe_all' && (
-                    <div className="jx-conn-desc" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
-                      {t('开启后群内成员的日常发言会被记录为该机器人的对话上下文，请确保群成员知情。')}
-                      {bot.channel_type === 'lark'
-                        ? t('另需在飞书开放平台为该应用申请敏感权限「获取群组中所有消息」(im:message.group_msg) 并重新发布版本，否则飞书不会推送未 @ 的消息，此开关不会生效。')
-                        : t('另需在钉钉开放平台为该应用申请群消息读取权限，否则钉钉只在被 @ 时回调，此开关不会生效。')}
-                    </div>
-                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   <Switch size="small" checked={bot.enabled} onChange={(v) => onToggle(bot, v)} />
@@ -281,13 +273,6 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                     ]}
                   />
                 </div>
-                {executionLocation === 'local' && (
-                  <div className="jx-conn-note">
-                    {t('在这台电脑的默认项目中运行，无需绑定目录。机器人沿用桌面端的本地文件权限，使用者可通过机器人访问已授权的本地内容。')}
-                    <br />
-                    {t('电脑需保持在线且桌面端已登录；最小化到托盘可继续运行，离线不会自动改用云端。')}
-                  </div>
-                )}
                 {!localReady && <div className="jx-conn-desc">{t('本机服务尚未就绪，暂不可选择本机。')}</div>}
               </>
             )}
@@ -301,11 +286,8 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
             </div>
 
             {isQr ? (
-              <div className="jx-conn-desc">
-                {t('微信走扫码绑定个人微信号，无需填凭据。')}
-                <div style={{ marginTop: 8 }}>
-                  <Button type="primary" icon={<ScanOutlined />} onClick={() => void qr.start()}>{t('扫码绑定')}</Button>
-                </div>
+              <div>
+                <Button type="primary" icon={<ScanOutlined />} onClick={() => void qr.start()}>{t('扫码绑定')}</Button>
               </div>
             ) : (
               <>

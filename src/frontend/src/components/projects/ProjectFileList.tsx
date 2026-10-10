@@ -8,6 +8,8 @@ import { fmtBytes, leafName } from './projectFileDisplay';
 
 interface FileNode extends DataNode {
   file?: ProjectFileItem;
+  folderPath?: string;
+  fileCount?: number;
   children?: FileNode[];
 }
 interface Props {
@@ -21,27 +23,32 @@ interface Props {
 /** Mount controls only for viewport rows, even when one folder has thousands of files. */
 export default memo(function ProjectFileList({ files, canEdit, onPreview, onDelete, onDeleteFolder }: Props) {
   const treeData = useMemo(() => {
-    const groups = new Map<string, FileNode>();
-    const loose: FileNode[] = [];
+    const folders = new Map<string, FileNode>();
+    const roots: FileNode[] = [];
     for (const file of files) {
-      const node: FileNode = { key: 'file:' + file.id, title: leafName(file), file, isLeaf: true };
-      const top = (file.folder_path || '').split('/', 1)[0];
-      if (!top) {
-        loose.push(node);
-        continue;
+      let siblings = roots;
+      let path = '';
+      for (const part of (file.folder_path || '').split('/').filter(Boolean)) {
+        path = path ? `${path}/${part}` : part;
+        let folder = folders.get(path);
+        if (!folder) {
+          folder = { key: 'folder:' + path, title: part, folderPath: path, fileCount: 0, children: [] };
+          folders.set(path, folder);
+          siblings.push(folder);
+        }
+        folder.fileCount! += 1;
+        siblings = folder.children!;
       }
-      let group = groups.get(top);
-      if (!group) {
-        group = { key: 'folder:' + top, title: top, children: [] };
-        groups.set(top, group);
-      }
-      group.children!.push(node);
+      siblings.push({ key: 'file:' + file.id, title: leafName(file), file, isLeaf: true });
     }
-    return [...groups.values(), ...loose];
+    // Keep folders before files at every level without sorting the whole inventory.
+    for (const nodes of [roots, ...Array.from(folders.values(), folder => folder.children!)]) {
+      nodes.sort((a, b) => Number(!!a.file) - Number(!!b.file));
+    }
+    return roots;
   }, [files]);
 
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const expandedKeys = treeData.filter(node => node.children && !collapsed.has(String(node.key))).map(node => node.key);
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
   return (
     <Tree<FileNode>
@@ -54,19 +61,12 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
       blockNode
       selectable={false}
       expandedKeys={expandedKeys}
-      onExpand={(keys) => {
-        const expanded = new Set(keys);
-        setCollapsed(new Set(treeData.filter(node => node.children && !expanded.has(node.key)).map(node => String(node.key))));
-      }}
+      onExpand={setExpandedKeys}
       onClick={(_, node) => {
         if (node.file) return;
-        const key = String(node.key);
-        setCollapsed(previous => {
-          const next = new Set(previous);
-          if (next.has(key)) next.delete(key);
-          else next.add(key);
-          return next;
-        });
+        setExpandedKeys(previous => previous.includes(node.key)
+          ? previous.filter(key => key !== node.key)
+          : [...previous, node.key]);
       }}
       titleRender={(node) => {
         const file = node.file;
@@ -74,14 +74,14 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
           <span className="jx-projectRail-groupHeader">
             <FolderOutlined />
             <span className="jx-projectRail-groupName" title={String(node.title)}>{node.title as string}</span>
-            <span className="jx-projectRail-groupCount">{node.children?.length}</span>
+            <span className="jx-projectRail-groupCount">{node.fileCount}</span>
             {canEdit && (
               <span className="jx-projectRail-rowActions">
                 <Button type="text" size="small" icon={<DeleteOutlined />} title={t('删除文件夹')}
                   aria-label={t('删除文件夹')}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onDeleteFolder(String(node.title));
+                    onDeleteFolder(node.folderPath!);
                   }} />
               </span>
             )}
