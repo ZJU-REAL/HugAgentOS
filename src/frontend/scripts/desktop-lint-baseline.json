@@ -29,7 +29,6 @@
   "src/components/common/MarketPickerModal.tsx": {"2:react-hooks/set-state-in-effect": 1},
   "src/components/common/ResizableColumns.tsx": {"2:react-refresh/only-export-components": 1},
   "src/components/config/BatchImportUsersModal.tsx": {"2:@typescript-eslint/no-explicit-any": 2},
-  "src/components/config/DesktopLogsPanel.tsx": {"2:react-hooks/purity": 1},
   "src/components/config/InviteCodesPanel.tsx": {"2:@typescript-eslint/no-explicit-any": 5},
   "src/components/config/KBGrantsModal.tsx": {"2:@typescript-eslint/no-explicit-any": 2},
   "src/components/config/LicensePanel.tsx": {"2:@typescript-eslint/no-explicit-any": 2, "2:react-hooks/set-state-in-effect": 1},

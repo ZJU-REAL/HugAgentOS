@@ -17,6 +17,7 @@ import { AGENT_MARKET_DICT } from './agentMarket';
 import { ONBOARDING_DICT } from './onboarding';
 import { APPLICATION_HOSTING_DICT } from './applicationHosting';
 import { CE_SHARED_DICT } from './ceShared';
+import { SIDEBAR_LAYOUT_DICT } from './sidebarLayout';
 
 export const EN_DICT: Record<string, string> = {
   ...CORE_DICT,
@@ -36,5 +37,6 @@ export const EN_DICT: Record<string, string> = {
   ...AGENT_MARKET_DICT,
   ...ONBOARDING_DICT,
   ...CE_SHARED_DICT,
+  ...SIDEBAR_LAYOUT_DICT,
   ...APPLICATION_HOSTING_DICT,
 };

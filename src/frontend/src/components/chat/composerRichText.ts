@@ -7,6 +7,7 @@ import DOMPurify from 'dompurify';
 import { closeHistory } from '@tiptap/pm/history';
 import { editorMarkdownParser, MarkdownLiterals } from './composerMarkdown';
 import { DOMSerializer } from '@tiptap/pm/model';
+import { insertClipboardContent } from './composerClipboard';
 
 const editors = new WeakMap<HTMLElement, Editor>();
 export function richEditor(element: HTMLElement): Editor | undefined { return editors.get(element); }
@@ -54,6 +55,8 @@ const MarkdownTaskItem = TaskItem.extend({
 export function createRichEditor(element: HTMLElement, onUpdate: () => void): Editor {
   const editor = new Editor({
     element,
+    // Clipboard parsing owns formatting; running paste rules again would double-parse it.
+    enablePasteRules: false,
     extensions: [
       StarterKit.configure({ underline: false, codeBlock: { enableTabIndentation: true }, link: { openOnClick: false, markdownLinks: true } }),
       TableKit, TaskList, MarkdownTaskItem.configure({ nested: true }), InvocationChip, ...MarkdownLiterals, Markdown.configure({ marked: editorMarkdownParser(), markedOptions: { gfm: true, breaks: true } }),
@@ -116,41 +119,4 @@ export function removeRichQuery(editor: Editor, trigger: string, keepTrigger = f
   const index = before.lastIndexOf(trigger);
   if (index < 0) return;
   editor.commands.deleteRange({ from: from - before.length + index + (keepTrigger ? trigger.length : 0), to: from });
-}
-/** Plain-text paste is deliberately literal, including Markdown punctuation. */
-export function pastePlainText(editor: Editor, text: string) {
-  if (!text) return;
-  if (editor.isActive('codeBlock') || editor.isActive('code')) {
-    editor.commands.insertContent({ type: 'text', text });
-    return;
-  }
-  const lines = text.split(/\r?\n/);
-  const content = lines.flatMap((line, index) => [
-    ...(index ? [{ type: 'hardBreak' }] : []), ...(line ? [{ type: 'text', text: line }] : []),
-  ]);
-  editor.commands.insertContent(content);
-}
-
-/** Formatted clipboard input and Markdown source take explicit, separate paths. */
-export function insertClipboardContent(editor: Editor, data: Pick<DataTransfer, 'getData'>) {
-  const text = data.getData('text/plain');
-  if (editor.isActive('codeBlock') || editor.isActive('code')) {
-    pastePlainText(editor, text);
-    return;
-  }
-  const html = data.getData('text/html');
-  if (!html) {
-    if (text) editor.commands.insertContent(text, { contentType: 'markdown' });
-    return;
-  }
-  const safe = DOMPurify.sanitize(html, {
-    FORBID_TAGS: ['style', 'script', 'iframe'], FORBID_ATTR: ['style'],
-  });
-  const host = document.createElement('div');
-  host.innerHTML = safe;
-  // Remote clipboard images are not fetched by the editor. Retain their syntax.
-  host.querySelectorAll('img').forEach(image => {
-    image.replaceWith(document.createTextNode('![' + (image.getAttribute('alt') || '') + '](' + (image.getAttribute('src') || '') + ')'));
-  });
-  editor.commands.insertContent(host.innerHTML);
 }

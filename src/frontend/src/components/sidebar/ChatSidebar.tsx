@@ -1,13 +1,13 @@
 import { CaretDownOutlined } from '@ant-design/icons';
 import { AnimatePresence } from 'motion/react';
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores';
 import { ChatSidebarItem } from './ChatSidebarItem';
 import { ProjectSidebarGroup } from './ProjectSidebarGroup';
 import type { SidebarProps } from './sidebarTypes';
 import { useSidebarHistory } from './useSidebarHistory';
-export function ChatSidebar({ actions }: { actions: SidebarProps }) {
+export function ChatSidebar({ actions, children }: { actions: SidebarProps; children?: ReactNode }) {
   const { projectGroups, groupedHistoryList } = useSidebarHistory();
   const loading = useChatStore(s => s.chatsLoading);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -16,6 +16,7 @@ export function ChatSidebar({ actions }: { actions: SidebarProps }) {
   return <>
     <button className="jx-newChatBtn" onClick={actions.onNewChat}><img src="/home/new-chat.svg" alt="" className="jx-newChatIcon" /><span>{t('新建对话')}</span></button>
     <div className="jx-sidebarScrollArea">
+      {children}
       {loading && <div className="jx-historySkeletonList" aria-busy="true" aria-label={t('加载中')}>
         {Array.from({ length: 8 }, (_, i) => <div key={i} className="jx-historyItem jx-historyItemSkeleton"><div className="jx-skeletonBlock jx-historySkLine" /></div>)}
       </div>}

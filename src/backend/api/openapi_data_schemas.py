@@ -287,6 +287,7 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "default_model": {"type": "string"},
             "language": {"type": "string"},
             "theme": {"type": "string"},
+            "sidebar_layout": {"type": "string", "enum": ["classic", "modern"]},
             "enabled_skills": {"type": "array", "items": {"type": "string"}},
             "enabled_mcps": {"type": "array", "items": {"type": "string"}},
         },

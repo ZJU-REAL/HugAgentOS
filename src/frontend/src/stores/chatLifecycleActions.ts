@@ -21,6 +21,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
         syncChatUrl(id);
         set({
           currentChatId: id,
+          projectOverviewChatId: null,
           homeDraftId: project ? get().homeDraftId : id,
           sending: false,
           expandedThinking: new Set(),
@@ -69,6 +70,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
           syncChatUrl(newId);
           set({
             currentChatId: newId,
+            projectOverviewChatId: null,
             planMode: resolvePlanModeActive(nextChat),
             modeSlug: resolveModeSlug(nextChat),
             ...restoredEffort(nextChat),
@@ -110,6 +112,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
         const pendingScroll = loadPendingScrollMessageTs(userId);
         set({
           currentUserId: userId,
+          projectOverviewChatId: null,
           homeDraftId: isDraftChatId(userId, currentChatId) ? currentChatId : null,
           store,
           storeRef: store,
@@ -159,6 +162,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
         // the previous user's chats.
         set({
           currentUserId: null,
+          projectOverviewChatId: null,
           homeDraftId: null,
           store: { chats: {}, order: [] },
           storeRef: { chats: {}, order: [] },

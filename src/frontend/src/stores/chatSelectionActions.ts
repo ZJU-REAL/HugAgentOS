@@ -37,6 +37,7 @@ export function createChatSelectionActions({ set, get, initializeDraftRunTarget,
         const chat = get().store.chats[id];
         set({
           currentChatId: id,
+          projectOverviewChatId: id === get().currentChatId ? get().projectOverviewChatId : null,
           sending: get().sendingChatIds.has(id),
           planMode: resolvePlanModeActive(chat),
           // 模式跟着对话走：切到哪段对话就恢复它记录上的模式，没记录的按标准模式。

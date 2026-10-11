@@ -1,0 +1,20 @@
+/* Use the shared collision-aware portal rather than overflowing the composer. */
+.jx-modelEffortPopup .jx-modelEffortMenu {
+  position:relative;
+  inset:auto;
+  box-sizing:border-box;
+  width:100%;
+  max-width:calc(100vw - 24px);
+  overflow:hidden;
+}
+.jx-modelEffortPopup .jx-menuBack,
+.jx-modelEffortPopup .jx-menuPaneTitle,
+.jx-modelEffortPopup .jx-menuCell {
+  flex-shrink:0;
+}
+.jx-modelEffortPopup .jx-menuPaneList {
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}

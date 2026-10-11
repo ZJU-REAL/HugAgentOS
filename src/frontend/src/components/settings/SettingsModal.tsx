@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
-  Alert, Modal, Switch, Button, Tag, Slider, message, Tabs, Empty, Input, Select,
+  Alert, Modal, Switch, Button, Tag, Slider, message, Tabs, Empty, Input,
   Skeleton, Spin, Tooltip,
 } from 'antd';
 import {
@@ -12,7 +12,7 @@ import {
   ExperimentOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
-import { useSettingsStore, useAuthStore, useCatalogStore, useUIStore, useEditionStore, usePluginStore } from '../../stores';
+import { useSettingsStore, useAuthStore, useCatalogStore, useEditionStore, usePluginStore } from '../../stores';
 import { DUR, EASE, SLIDE_EASE } from '../../utils/motionTokens';
 import type { MemoryItem } from '../../types';
 import { resolveAvatarUrl } from '../../utils/avatar';
@@ -43,10 +43,10 @@ import { ChatModesPanel } from './ChatModesPanel';
 import { FactsList } from '../memory/FactsList';
 import { MemoryGraphView } from '../memory/MemoryGraphView';
 import { OntologyManager } from '../ontology';
-import { getLang, setLang, t, type Lang } from '../../i18n';
+import { t } from '../../i18n';
+import { SessionSettingsPanel } from './SessionSettingsPanel';
 import { navigateTo, pathForPanel } from '../../routing/navigation';
 import { useSettingsSection } from '../../routing/subPages';
-import type { ThemeMode } from '../../theme';
 
 interface SectionDef {
   id: string;
@@ -103,7 +103,6 @@ function getCropBounds(imageWidth: number, imageHeight: number, zoom: number) {
 }
 
 export default function SettingsPage() {
-  const { dispatchProcessVisible, setDispatchProcessVisible, themeMode, setThemeMode } = useUIStore();
   const {
     memoryEnabled,
     memoryWriteEnabled,
@@ -646,64 +645,7 @@ export default function SettingsPage() {
 
         {/* ── Session settings ─────────────────────────────────── */}
         {activeSection === 'session' && (
-        <section id="section-session" className="jx-settings-section">
-        <h3 className="jx-settings-section-title">{t('会话设置')}</h3>
-        <div className="jx-settings-card">
-          <div className="jx-settings-row">
-            <div className="jx-settings-rowLeft">
-              <span className="jx-settings-rowLabel">{t('显示调度过程')}</span>
-              <span className="jx-settings-rowDesc">
-                {t('控制对话中是否显示对话里调度的智能体、连接器、技能等组件')}
-              </span>
-            </div>
-            <Switch
-              checked={dispatchProcessVisible}
-              onChange={(checked) => setDispatchProcessVisible(checked)}
-            />
-          </div>
-
-          <div className="jx-settings-divider" />
-
-          <div className="jx-settings-row">
-            <div className="jx-settings-rowLeft">
-              <span className="jx-settings-rowLabel">{t('界面语言')}</span>
-              <span className="jx-settings-rowDesc">
-                {t('切换界面显示语言，切换后页面将自动刷新')}
-              </span>
-            </div>
-            <Select
-              value={getLang()}
-              style={{ width: 140 }}
-              options={[
-                { value: 'zh-CN', label: t('简体中文') },
-                { value: 'en', label: 'English' },
-              ]}
-              onChange={(v) => setLang(v as Lang)}
-            />
-          </div>
-
-          <div className="jx-settings-divider" />
-
-          <div className="jx-settings-row">
-            <div className="jx-settings-rowLeft">
-              <span className="jx-settings-rowLabel">{t('外观')}</span>
-              <span className="jx-settings-rowDesc">
-                {t('切换界面深浅配色，选择跟随系统时自动匹配系统外观')}
-              </span>
-            </div>
-            <Select
-              value={themeMode}
-              style={{ width: 140 }}
-              options={[
-                { value: 'system', label: t('跟随系统') },
-                { value: 'light', label: t('浅色') },
-                { value: 'dark', label: t('深色') },
-              ]}
-              onChange={(v) => setThemeMode(v as ThemeMode)}
-            />
-          </div>
-        </div>
-        </section>
+        <SessionSettingsPanel />
         )}
 
         {/* ── Memory settings ─────────────────────────────────── */}

@@ -218,9 +218,7 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
     }
 
 
-def list_records(
-    db, *, kind=None, user_id=None, device_id=None, chat_id=None, run_id=None, page=1, page_size=50
-):
+def record_query(*, kind=None, user_id=None, device_id=None, chat_id=None, run_id=None):
     gateway = aliased(DesktopRecord)
     matched_gateway = (
         select(gateway.id)
@@ -247,6 +245,15 @@ def list_records(
                 if column is DesktopRecord.kind and value == "agent"
                 else q.where(column == value)
             )
+    return q
+
+
+def list_records(
+    db, *, kind=None, user_id=None, device_id=None, chat_id=None, run_id=None, page=1, page_size=50
+):
+    q = record_query(
+        kind=kind, user_id=user_id, device_id=device_id, chat_id=chat_id, run_id=run_id
+    )
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     ordering = (
         (DesktopRecord.payload["chat_seq"].as_integer(), DesktopRecord.id)
@@ -254,6 +261,10 @@ def list_records(
         else (DesktopRecord.received_at.desc(), DesktopRecord.id)
     )
     rows = db.scalars(q.order_by(*ordering).offset((page - 1) * page_size).limit(page_size)).all()
+    return serialize_records(db, rows), total
+
+
+def serialize_records(db, rows):
     output = []
     local_ids = [
         key(r.user_id, r.device_id, "desktop", r.kind, r.object_id)
@@ -280,4 +291,4 @@ def list_records(
                 payload["usage_known"] = local.payload.get("usage_known", False)
             item["payload"] = payload
         output.append(item)
-    return output, total
+    return output

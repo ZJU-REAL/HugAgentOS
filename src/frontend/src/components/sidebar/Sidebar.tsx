@@ -1,3 +1,5 @@
+import { useSidebarLayoutStore } from '../../stores/sidebarLayoutStore';
+import { ClassicSidebar } from './ClassicSidebar';
 import { EllipsisOutlined } from '@ant-design/icons';
 import { Badge, Dropdown, Layout, Tooltip } from 'antd';
 import { usePageConfig, usePageConfigAll } from '../../hooks/usePageConfig';
@@ -18,6 +20,10 @@ import type { SidebarProps } from './sidebarTypes';
 import { SidebarUtilities } from './SidebarUtilities';
 const PRIMARY = ['my_space', 'automation', 'ability_center'] as const;
 export function Sidebar(actions: SidebarProps) {
+  const layout = useSidebarLayoutStore(s => s.layout);
+  return layout === 'classic' ? <ClassicSidebar {...actions} /> : <ModernSidebar {...actions} />;
+}
+function ModernSidebar(actions: SidebarProps) {
   const panel = usePanel();
   const abilityTab = useAbilityTab();
   const collapsed = useUIStore(s => s.siderCollapsed);

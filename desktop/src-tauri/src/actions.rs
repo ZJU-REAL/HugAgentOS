@@ -80,6 +80,7 @@ pub fn dispatch_for_window(app: &AppHandle, id: &str, label: &str) {
                 let _ = w.set_focus();
             }
         }
+        "sidebar_layout_apply" => app.restart(),
         "reload" => {
             if let Some(w) = app.get_webview_window(label) {
                 let _ = w.eval("window.location.reload()");

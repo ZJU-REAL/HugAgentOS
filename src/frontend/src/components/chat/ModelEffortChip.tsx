@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Dropdown } from 'antd';
+import '../../styles/model-effort-popup.css';
 import { RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useChatStore, useChatModeStore, useModelCapabilitiesStore } from '../../stores';
-import type { ThinkingEffort } from '../../stores/chatStore';
+import { projectOverviewId, type ThinkingEffort } from '../../stores/chatStore';
+import { useModelMenuBounds } from './useModelMenuBounds';
 import { ChipChevron } from '../common/ChipChevron';
 import { t } from '../../i18n';
 import { selectedReasoningPolicy, thinkingLevels, normalizeThinkingEffort, effortLabels } from '../../utils/reasoningEffort';
@@ -42,18 +45,20 @@ export default function ModelEffortChip() {
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setOpen(false);
+      }
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
 
+  const projectOverview = useChatStore(s => !!projectOverviewId(s.store.chats[s.currentChatId]));
+  const menuBounds = useModelMenuBounds(rootRef, open, projectOverview);
   // 「思考强度不可调」现在由模式说了算（chat_modes.effort_locked），不再是
   // 硬编码的 chatMode==='turbo'——自定义模式也能锁死强度。
   const activeMode = modeOf(modeSlug);
@@ -126,29 +131,36 @@ export default function ModelEffortChip() {
   // 让用户为了改一件事先点开一个只有一行的目录，是白赚的一次点击。
   const singlePane: 'root' | 'effort' = modelPickable ? 'root' : 'effort';
 
-  const toggle = () => {
-    setPane(singlePane);
-    setOpen((v) => !v);
-  };
+  const trigger = (
+    <button
+      type="button"
+      className={`jx-composerChip jx-modelEffortBtn${open ? ' open' : ''}`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      title={t('切换模型与思考强度')}
+      aria-label={t('切换模型与思考强度')}
+    >
+      <span className="jx-composerChip-label">{triggerLabel}</span>
+      {triggerAside && <span className="jx-modelEffortAside">{triggerAside}</span>}
+      <ChipChevron />
+    </button>
+  );
 
   return (
     <div className="jx-modelEffort" ref={rootRef}>
-      <button
-        type="button"
-        className={`jx-composerChip jx-modelEffortBtn${open ? ' open' : ''}`}
-        onClick={toggle}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={t('切换模型与思考强度')}
-        aria-label={t('切换模型与思考强度')}
-      >
-        <span className="jx-composerChip-label">{triggerLabel}</span>
-        {triggerAside && <span className="jx-modelEffortAside">{triggerAside}</span>}
-        <ChipChevron />
-      </button>
+      <Dropdown
+        transitionName=""
+        open={open}
+        onOpenChange={(next) => { if (next) setPane(singlePane); setOpen(next); }}
+        trigger={['click']}
+        placement={menuBounds.below ? 'bottomRight' : 'topRight'}
+        autoAdjustOverflow={false}
+        destroyOnHidden
+        classNames={{ root: 'jx-modelEffortPopup' }}
+        styles={{ root: menuBounds.popupStyle }}
+        popupRender={() => (
 
-      {open && (
-        <div className="jx-modelEffortMenu" role="menu">
+        <div className="jx-modelEffortMenu" role="menu" style={{ maxHeight: menuBounds.height }}>
           {pane === 'root' && (
             <>
               {modelPickable && (
@@ -239,7 +251,10 @@ export default function ModelEffortChip() {
             </>
           )}
         </div>
-      )}
+        )}
+      >
+        {trigger}
+      </Dropdown>
     </div>
   );
 }

@@ -10,6 +10,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("chat_forks", "router"),
     ("auth", "router"),
     ("users", "router"),
+    ("user_preferences", "router"),
     ("catalog", "router"),
     ("kb", "router"),
     ("summary", "router"),
