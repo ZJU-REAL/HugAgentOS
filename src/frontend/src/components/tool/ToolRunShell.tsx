@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { CloseOutlined } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
 import { BrandLoader } from '../common';
 import { ToolCallRow } from './ToolCallRow';
 import { ThinkingStepRow } from './ThinkingStepRow';
 import { PendingStepRow } from './PendingStepRow';
+import { CompactionStepRow } from './CompactionStepRow';
+import { compactionLabel, type CompactionProgress } from '../../utils/compactionProgress';
 import { computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
 import { getDoneActionLabel, getRunningActionLabel } from '../../utils/toolActionLabel';
@@ -23,7 +26,8 @@ type ShellStatus = 'running' | 'success';
 export type ShellStep =
   | { kind: 'tool'; tool: ToolCall; key: string }
   | { kind: 'thinking'; content: string; active: boolean; key: string }
-  | { kind: 'pending'; startTs: number; key: string };
+  | { kind: 'pending'; startTs: number; key: string }
+  | { kind: 'compaction'; progress: CompactionProgress; key: string };
 
 function formatDuration(totalSec: number): string {
   const m = Math.floor(totalSec / 60);
@@ -60,7 +64,7 @@ function ShellTimer({
     return () => window.clearInterval(id);
   }, [running]);
 
-  const sec = bornRunning
+  const sec = running
     ? Math.max(0, Math.floor((now - startTs) / 1000))
     : Math.max(0, Math.floor((endTs - startTs) / 1000));
 
@@ -107,16 +111,19 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   const anyToolRunning = toolStatuses.includes('running');
   const anyThinkingActive = steps.some((s) => s.kind === 'thinking' && s.active);
   const anyPending = steps.some((s) => s.kind === 'pending');
-  const running = anyToolRunning || anyThinkingActive || anyPending;
+  const compactions = steps.flatMap(s => s.kind === 'compaction' ? [s.progress] : []);
+  const activeCompaction = compactions.find(p => p.status === 'running');
+  const lastCompaction = compactions[compactions.length - 1];
+  const running = !!activeCompaction || anyToolRunning || anyThinkingActive || anyPending;
   const status: ShellStatus = running ? 'running' : 'success';
 
   const timed = tools.filter((t): t is ToolCall & { timestamp: number } => typeof t.timestamp === 'number');
-  const startTs = timed.length ? Math.min(...timed.map((t) => t.timestamp)) : mountTs;
+  const starts = [...timed.map(t => t.timestamp), ...compactions.map(p => p.started_at)];
+  const startTs = starts.length ? Math.min(...starts) : mountTs;
   // 收尾时刻 = 最后一个跑完的调用的开始时刻 + 它的耗时。少了这个耗时，一批工具
   // 的跨度就只数到"最后一个开始"为止，最后那次执行整段不算。
-  const endTs = timed.length
-    ? Math.max(...timed.map((t) => t.timestamp + (t.durationMs ?? 0)))
-    : mountTs;
+  const ends = [...timed.map(t => t.timestamp + (t.durationMs ?? 0)), ...compactions.map(p => p.ended_at || p.started_at)];
+  const endTs = ends.length ? Math.max(...ends) : mountTs;
 
   // 折叠态下这行是用户唯一看得到的信息，所以报的是实际动作而不是"执行中/已完成"：
   // 跑的时候跟着当前那个工具走，收尾后按这一批用过的工具类型给结论。
@@ -127,7 +134,9 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
     displayName: resolveToolDisplayName(tc, toolDisplayNames),
   }));
   const runningTool = labeled.find((_, i) => toolStatuses[i] === 'running');
-  const title = running
+  const title = activeCompaction ? t('正在压缩上下文')
+    : !running && lastCompaction ? t(compactionLabel(lastCompaction))
+    : running
     ? (runningTool
         ? getRunningActionLabel(runningTool)
         : anyThinkingActive ? t('正在思考') : t('执行中'))
@@ -152,14 +161,14 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
         onClick={() => setOpen((value) => !value)}
       >
         <span className={`jx-trs-mark jx-trs-mark--${status}`} aria-hidden="true">
-          <BrandLoader
+          {!running && lastCompaction && ['failed', 'interrupted'].includes(lastCompaction.status) ? <CloseOutlined /> : <BrandLoader
             size={18}
             done={status === 'success'}
-            label={status === 'success' ? t('已完成') : t('执行中')}
-          />
+            label={title}
+          />}
         </span>
         {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
-        <span key={title} className={`jx-trs-title${running ? ' jx-trs-title--live' : ''}`}>{title}</span>
+        <span key={title} className={`jx-trs-title${running ? ' jx-trs-title--live' : ''}`} aria-live="polite">{title}</span>
         <ShellTimer startTs={startTs} endTs={endTs} running={running} />
         {runningNote && <span className="jx-trs-note">{runningNote}</span>}
         {/* 折叠态下用户最关心的是"到底动了多少次手"，所以有工具就直接报工具数；
@@ -180,6 +189,9 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
           {steps.map((step) => {
             if (step.kind === 'tool') {
               return <ToolCallRow key={step.key} tool={step.tool} isStreaming={isStreaming} />;
+            }
+            if (step.kind === 'compaction') {
+              return <CompactionStepRow key={step.key} progress={step.progress} />;
             }
             if (step.kind === 'thinking') {
               return <ThinkingStepRow key={step.key} content={step.content} active={step.active} />;

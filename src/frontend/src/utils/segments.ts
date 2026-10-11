@@ -1,5 +1,6 @@
 import type { ChatMessage, MessageSegment, StoredSegment, ThinkingBlock } from '../types';
 import { isSingleHanCharacter, liftTrailingSegmentsAboveFinalText } from './streamSegments';
+import { parseCompactionProgress } from './compactionProgress';
 
 /**
  * Parse multi-turn thinking blocks from a historical message's content field, rebuilding segments for inline rendering in history.
@@ -149,6 +150,11 @@ function renderStoredSegments(
       // 否则推理过程会当作正文渲染出来。
       const visible = segmentTextSlice(entry.text || '', segments);
       if (visible) visibleAll += (visibleAll ? '\n\n' : '') + visible;
+      return;
+    }
+    if (entry.type === 'compaction') {
+      const progress = parseCompactionProgress(entry.progress);
+      if (progress) segments.push({ type: 'compaction', compaction: progress });
       return;
     }
     if (entry.type === 'thinking') {

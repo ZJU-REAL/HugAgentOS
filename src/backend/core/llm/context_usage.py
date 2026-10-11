@@ -8,6 +8,7 @@ mix, but its byte-based tokenizer must never be presented as provider truth.
 from __future__ import annotations
 
 import math
+import time
 from typing import Any, Dict, Mapping, Optional
 
 SCHEMA_VERSION = "context-usage.v2"
@@ -104,20 +105,24 @@ def _agent_metadata(agent: Any, manifest: Mapping[str, Any]) -> tuple[int, str, 
     model = getattr(agent, "model", None)
     state = getattr(agent, "state", None)
     details = manifest.get("budget_details")
-    context_window = (
-        _non_negative(details.get("context_window"))
-        if isinstance(details, Mapping)
-        else 0
-    )
+    # Failover may have selected a different endpoint after request assembly.
+    # Attribute usage to that endpoint's window, just like its provider ID.
+    context_window = _non_negative(getattr(model, "context_size", 0))
     if context_window <= 0:
-        context_window = _non_negative(getattr(model, "context_size", 0))
+        context_window = (
+            _non_negative(details.get("context_window")) if isinstance(details, Mapping) else 0
+        )
     model_name = str(
         getattr(model, "model", None)
         or getattr(model, "model_name", None)
         or getattr(state, "model_name", None)
         or ""
     )
-    provider_id = str(getattr(state, "model_provider_id", "") or "")
+    provider_id = str(
+        getattr(model, "resolved_model_provider_id", "")
+        or getattr(state, "model_provider_id", "")
+        or ""
+    )
     return context_window, model_name, provider_id
 
 
@@ -158,6 +163,7 @@ def build_context_usage_snapshot(
 
     return {
         "schema_version": SCHEMA_VERSION,
+        "captured_at_ms": time.time_ns() // 1_000_000,
         "source": "provider" if exact else "backend_estimate",
         "exact": exact,
         "used_tokens": used,
@@ -199,6 +205,7 @@ def build_compaction_context_usage(
     used = sum(breakdown.values())
     return {
         "schema_version": SCHEMA_VERSION,
+        "captured_at_ms": time.time_ns() // 1_000_000,
         "source": "compaction_estimate",
         "exact": False,
         "used_tokens": used,
@@ -214,21 +221,9 @@ def build_compaction_context_usage(
     }
 
 
-def latest_persisted_context_usage(chat_service: Any, chat_id: str) -> Optional[Dict[str, Any]]:
-    """Return the newest assistant snapshot without loading the whole chat."""
-    rows = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50, metadata_only=True)
-    for row in reversed(rows):
-        extra = getattr(row, "extra_data", None)
-        raw = extra.get("context_usage") if isinstance(extra, Mapping) else None
-        if isinstance(raw, Mapping) and raw.get("schema_version") == SCHEMA_VERSION:
-            return dict(raw)
-    return None
-
-
 __all__ = [
     "BREAKDOWN_KEYS",
     "SCHEMA_VERSION",
     "build_compaction_context_usage",
     "build_context_usage_snapshot",
-    "latest_persisted_context_usage",
 ]

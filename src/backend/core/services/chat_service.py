@@ -21,7 +21,7 @@ from core.db.repository import (
     ChatSessionRepository,
 )
 from core.db.repository.chat import _strip_nul
-from sqlalchemy import exists, update
+from sqlalchemy import update
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
 
@@ -476,24 +476,27 @@ class ChatService:
     ) -> bool:
         """Overwrite the in-flight assistant row while its run streams.
 
-        One statement, conditioned on the run lease, so a superseded worker
-        cannot clobber its successor's row and no row lock is held across
-        Python work. Nothing else is touched — in particular no session
+        The run row lock serializes this write with its final commit, so a
+        superseded or finishing worker cannot clobber the final message. Nothing else is touched — in particular no session
         timestamps, so pollers do not mistake a checkpoint for a new message.
         Returns False when the caller no longer owns the run.
         """
+        # Lock the same run row as journal.complete before touching its message.
+        # An EXISTS predicate alone can see a live lease, wait for the message
+        # lock, and then overwrite a final commit using that stale MVCC view.
+        live_run = (self.db.query(ChatRun)
+                    .filter(ChatRun.run_id == run_id, ChatRun.lease_owner == owner,
+                            ChatRun.status.in_(("pending", "running")))
+                    .with_for_update().first())
+        if live_run is None:
+            return False
         extra = dict(extra_data)
         kept_thinking, kept_segments = clamp_thinking(thinking, extra.get("segments"))
         if "segments" in extra:
             extra["segments"] = kept_segments
-        owned = exists().where(
-            ChatRun.run_id == run_id,
-            ChatRun.lease_owner == owner,
-            ChatRun.status.in_(("pending", "running")),
-        )
         result = self.db.execute(
             update(ChatMessage)
-            .where(ChatMessage.message_id == message_id, owned)
+            .where(ChatMessage.message_id == message_id)
             .values(
                 content=clamp_message_content(content),
                 thinking=_strip_nul(kept_thinking),
@@ -520,6 +523,7 @@ class ChatService:
         commit: bool = True,
         chat_seq: Optional[int] = None,
         model_steps: Optional[List[Dict[str, Any]]] = None,
+        invalidate_mid_turn_checkpoint: bool = False,
     ) -> ChatMessage:
         """Idempotently upsert a message by message_id: overwrite in place if it exists, otherwise create.
 
@@ -552,6 +556,26 @@ class ChatService:
                 if "segments" in extra:
                     extra["segments"] = kept_segments
                 update["extra_data"] = extra
+            if invalidate_mid_turn_checkpoint:
+                # The completed turn has already crossed the post-turn trigger.
+                # Its new steps cannot be safely sliced from a row covered by a
+                # mid-turn checkpoint, so rebuild that successor from originals.
+                # Match checkpoint publisher lock order: session, then lineage.
+                self.db.query(ChatSession).filter(ChatSession.chat_id == chat_id).with_for_update().first()
+                state = (self.db.query(ChatCompactionState)
+                         .filter(ChatCompactionState.chat_id == chat_id)
+                         .with_for_update().populate_existing().first())
+                if (state is not None and state.active_checkpoint_id
+                        and int(existing.chat_seq or 0) <= int(state.covered_seq or 0)):
+                    checkpoint = self.db.get(ChatMessage, state.active_checkpoint_id)
+                    manifest = ((checkpoint.extra_data or {}).get("replacement_manifest") or {}) if checkpoint else {}
+                    captured = (extra or {}).get("context_usage", {}).get("captured_at_ms", 0)
+                    checkpoint_ms = int(_as_utc(checkpoint.created_at).timestamp() * 1000) if checkpoint else 0
+                    if (manifest.get("phase") == "mid_turn" and type(captured) is int
+                            and captured > checkpoint_ms):
+                        self._invalidate_compaction_lineage_for_rewrite(
+                            chat_id, rewritten_seq=int(existing.chat_seq or 0)
+                        )
             msg = self.message_repo.update(message_id, update, commit=commit)
             session = self.session_repo.get_by_id(chat_id)
             if session:

@@ -225,7 +225,7 @@ async def test_durable_event_store_allocates_sequence_before_observers(ledger_en
 async def test_compaction_http_retry_is_also_physical_model_usage(
     ledger_env, monkeypatch
 ):
-    import core.services.compaction_service as compaction
+    import core.services.compaction_summary as compaction
 
     ledger = HarnessUsageLedger(ledger_env)
     from core.llm.single_turn import Endpoint

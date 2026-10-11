@@ -13,8 +13,8 @@ import { stripMcpToolPrefix } from '../../utils/constants';
 import {
 isCompactionCheckpointForRun,
 parseContextCompactionState,
-parseContextUsageSnapshot,
 } from '../../utils/contextUsage';
+import { applyContextStateResponse, captureContextState } from '../../utils/contextStateResponse';
 import { type QueuedRunHandoff } from '../../utils/streamHandoff';
 import {
 appendSubagentStepDelta,
@@ -31,17 +31,30 @@ export const _seenRuns = new Set<string>();
 export function hasStreamedRun(runId: string): boolean {
   return _seenRuns.has(runId);
 }
-export const COMPACTION_REFRESH_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 12_000, 16_000, 20_000];
+export const COMPACTION_REFRESH_DELAYS_MS = [500, 1_000, 2_000, 4_000, ...Array.from({ length: 40 }, () => 5_000)];
+import { applyCompactionProgress, progressForMessage } from '../compactionProgressStore';
+
 export async function refreshContextAfterCompaction(
   chatId: string,
   previousCheckpointId: string,
   runStartedAt: number,
   expectedCoveredMessageId?: string,
+  progressPhase = 'post_turn',
 ): Promise<void> {
+  const initial = useChatStore.getState();
+  const epoch = initial.contextUsageEpochs[chatId] || 0;
+  const userId = initial.currentUserId;
   for (const delayMs of COMPACTION_REFRESH_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     try {
+      const before = useChatStore.getState();
+      if ((before.contextUsageEpochs[chatId] || 0) !== epoch || before.currentUserId !== userId) return;
+      const request = captureContextState(before, chatId);
       const state = await getChatContextState(chatId);
+      if (useChatStore.getState().currentUserId !== userId) return;
+      applyCompactionProgress(chatId, state.compaction_progress);
+      const progress = progressForMessage(state.compaction_progress, expectedCoveredMessageId)
+        .filter(p => p?.phase === progressPhase && p.started_at >= runStartedAt);
       const compaction = parseContextCompactionState(state.context_compaction);
       const isNewCheckpoint = isCompactionCheckpointForRun(
         compaction,
@@ -49,16 +62,18 @@ export async function refreshContextAfterCompaction(
         runStartedAt,
         expectedCoveredMessageId,
       );
-      if (!isNewCheckpoint || !compaction) continue;
-      const store = useChatStore.getState();
-      store.setContextCompaction(chatId, compaction);
-      // Older checkpoints may not carry a replacement snapshot. In that case
-      // retain the latest provider measurement rather than fabricating a drop.
-      if (!compaction.contextUsage) {
-        const usage = parseContextUsageSnapshot(state.context_usage);
-        if (usage) store.setContextUsage(chatId, usage);
+      if (!isNewCheckpoint || !compaction) {
+        if (progress.length && progress.every(p => p?.status !== 'running')) {
+          if (progress.some(p => p?.status === 'completed')) {
+            applyContextStateResponse(useChatStore.getState(), chatId, request, state);
+          }
+          return;
+        }
+        continue;
       }
-      return;
+      const store = useChatStore.getState();
+      applyContextStateResponse(store, chatId, request, state);
+      if (progress.length && progress.every(p => p?.status !== 'running')) return;
     } catch {
       // Background compaction is best-effort. Keep polling within the bounded
       // summarizer window and leave the last provider measurement intact.

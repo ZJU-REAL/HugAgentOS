@@ -31,11 +31,13 @@ pub(super) fn build_progress_window(app: &AppHandle, port: u16) -> Result<Webvie
                 }
             })
             .inner_size(460.0, 168.0)
+            // Download lifetime belongs to the worker; this window can stay minimized.
             .resizable(false)
-            .minimizable(false)
+            .minimizable(true)
             .maximizable(false)
             .closable(false)
-            .always_on_top(true)
+            .always_on_top(false)
+            .skip_taskbar(false)
             .center()
             .build()
             .map_err(|error| format!("创建窗口失败：{error}"))?;

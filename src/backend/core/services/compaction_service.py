@@ -3,27 +3,21 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import time
-import uuid
 from typing import Any, Dict, List, Optional
 
-import httpx
-
 from core.chat import inflight
-from core.chat.context import build_effective_user_message
-from core.services.chat_reference_service import render_reference_block
-from core.config.settings import settings
+from core.config import settings as config_settings
 from core.llm import compaction as C
-from core.llm.context_ir import SESSION_CONTEXT_META_KEY
 from core.llm.context_manager import (
     AUTO_COMPACT_MAX_RATIO,
     resolve_model_context_window,
     usable_context_window,
 )
-from core.llm.model_steps import assistant_row_replay
+from core.services.compaction_budget import estimate_context_budget, should_compact
+from core.services.compaction_history import normalize_rows
+from core.services.compaction_summary import _load_base_system_prompt, summarize_without_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -47,59 +41,6 @@ def _live_run_ids(chat_service: Any, rows: List[Any]) -> frozenset:
         .filter(ChatRun.run_id.in_(run_ids), ChatRun.status.in_(("pending", "running")))
         .all()
     )
-
-
-def _normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
-    """Normalize message rows, excluding internal compaction checkpoints.
-
-    A row still being written by a live run is skipped: it is half-written by
-    definition and would show the model a truncated version of its own reply.
-    """
-    out: List[Dict[str, Any]] = []
-    for msg in rows:
-        role = getattr(msg, "role", None)
-        extra = getattr(msg, "extra_data", None) or {}
-        if role == "system" and extra.get("kind") == C.COMPACTION_CHECKPOINT_KIND:
-            continue
-        owner = inflight.marker(extra)
-        if owner and owner["run_id"] in live_run_ids:
-            continue
-        content = getattr(msg, "content", "")
-        if role == "user":
-            quoted = extra.get("quoted_follow_up")
-            row = {
-                "role": "user",
-                "content": build_effective_user_message(
-                    content,
-                    quoted,
-                    render_reference_block(extra.get("referenced_chats")),
-                ),
-            }
-            if isinstance(extra.get(SESSION_CONTEXT_META_KEY), dict):
-                row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
-            out.append(row)
-        elif role == "assistant":
-            # The model-facing sequence comes from the step record; rows that
-            # predate it fall back to the streamed display order, and rows
-            # older than that are replayed as an explicit digest. A cancelled
-            # turn is marked so the next turn does not mistake a cut-off answer
-            # for a finished one.
-            out.extend(
-                assistant_row_replay(
-                    content=content or "",
-                    model_steps=getattr(msg, "model_steps", None),
-                    thinking=getattr(msg, "thinking", None),
-                    tool_calls=getattr(msg, "tool_calls", None),
-                    segments=extra.get("segments"),
-                    cancelled=bool(extra.get("cancelled")),
-                )
-            )
-        else:
-            row = {"role": role or "user", "content": content}
-            if isinstance(extra.get(SESSION_CONTEXT_META_KEY), dict):
-                row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
-            out.append(row)
-    return out
 
 
 def _rows_after_seq(
@@ -147,18 +88,18 @@ def _load_history(chat_service: Any, chat_id: str, *, repair: bool = True) -> Li
     """
     ckpt = (
         chat_service.get_latest_compaction_checkpoint(chat_id)
-        if settings.compaction.enabled
+        if config_settings.settings.compaction.enabled
         else None
     )
     if ckpt is None:
         rows = _rows_after_seq(chat_service, chat_id, 0, repair=repair)
-        return _normalize_rows(rows, _live_run_ids(chat_service, rows))
+        return normalize_rows(rows, _live_run_ids(chat_service, rows))
 
     extra = getattr(ckpt, "extra_data", None) or {}
     replacement: List[Dict[str, Any]] = list(extra.get("replacement_history") or [])
     covered_seq = chat_service._checkpoint_covered_seq(ckpt)
     tail_rows = _rows_after_seq(chat_service, chat_id, covered_seq, repair=repair)
-    return replacement + _normalize_rows(tail_rows, _live_run_ids(chat_service, tail_rows))
+    return replacement + normalize_rows(tail_rows, _live_run_ids(chat_service, tail_rows))
 
 
 def load_session_history(
@@ -222,7 +163,7 @@ def resolve_trigger_ratio() -> float:
 
 
 def _read_trigger_ratio() -> float:
-    fallback = settings.compaction.trigger_ratio
+    fallback = config_settings.settings.compaction.trigger_ratio
     try:
         from core.services.system_config import SystemConfigService
 
@@ -254,7 +195,7 @@ def resolve_token_limit(
     (never trigger, conservative) for the derived case, while an explicit limit
     still stands: there is nothing to cap it against.
     """
-    cfg = settings.compaction
+    cfg = config_settings.settings.compaction
     limit = cfg.token_limit if cfg.token_limit and cfg.token_limit > 0 else None
     if not context_window or context_window <= 0:
         return limit
@@ -263,525 +204,13 @@ def resolve_token_limit(
     return min(limit, int(context_window * AUTO_COMPACT_MAX_RATIO))
 
 
-def should_compact(active_tokens: Optional[int], limit: Optional[int]) -> bool:
-    if not settings.compaction.enabled:
-        return False
-    if not active_tokens or not limit or limit <= 0:
-        return False
-    return active_tokens >= limit
-
-
 def resolve_active_tokens(usage: Optional[Dict[str, Any]]) -> int:
-    """Extract the "end-of-turn real context usage" from whole-turn usage, for :func:`should_compact`.
-
-    Prefer ``context_tokens`` (prompt+completion of the last LLM call, see
-    ``streaming.get_usage``); when old meta lacks this field, fall back to the
-    whole-turn cumulative ``total_tokens`` — tool loops re-accumulate the prompt
-    repeatedly, so the cumulative value overestimates usage; better to compact early.
-    """
+    """Prefer the last model call's tokens over cumulative multi-call usage."""
     u = usage or {}
     return int(u.get("context_tokens") or u.get("total_tokens") or 0)
 
 
-# ── Summary LLM call (mirrors the one-shot httpx call in followups.py) ───────
-
-
-def _resolve_summarizer_model():
-    """Use the main chat model because compaction input may fill its window."""
-    from core.llm.single_turn import Endpoint
-
-    try:
-        from core.services.model_config import ModelConfigService
-
-        c = ModelConfigService.get_instance().resolve("main_agent")
-        if c and c.base_url and c.api_key and c.model_name:
-            return Endpoint.from_resolved(c)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("[compaction] model config unavailable: %s", exc)
-    return None
-
-
-# Rendering lives beside the region logic; keep the historical name here for
-# the tests and call sites that address it through this module.
-_render_content_for_summary = C.render_content_for_summary
-
-
-def _flatten_for_summary(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    """Flatten possibly block-containing history into OpenAI /chat/completions [{role, content}].
-
-    Tool calls/results are preserved as structured text via
-    :func:`_render_content_for_summary`; role='tool' is mapped to user
-    (OpenAI-compatible endpoints only accept user/assistant/system).
-    """
-    flat: List[Dict[str, str]] = []
-    for m in history:
-        role = m.get("role", "user")
-        text = _render_content_for_summary(m.get("content"))
-        if role not in ("user", "assistant", "system"):
-            role = "user"
-        if not text:
-            continue
-        flat.append({"role": role, "content": text})
-    return flat
-
-
-def _load_base_system_prompt() -> str:
-    """Get the main conversation's base system prompt (without the tools appendix or other runtime context).
-
-    Aligned with Codex, whose summary request carries base_instructions: it lets
-    the summary model understand the assistant's role positioning and behavioral
-    constraints, so the handoff summary stays consistent with the main
-    conversation. Returns an empty string when unavailable (degrade to omitting it).
-    """
-    try:
-        from prompts.prompt_config import load_prompt_config
-        from prompts.prompt_runtime import build_system_prompt
-
-        return build_system_prompt(load_prompt_config()) or ""
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("[compaction] base system prompt unavailable: %s", exc)
-        return ""
-
-
-# Max retries for context-overflow self-rescue (each retry drops a proportional
-# slice of the oldest history; converges quickly)
-_SUMMARIZE_MAX_ATTEMPTS = 5
-
-# Typical keywords of "context exceeded" errors from OpenAI-compatible endpoints
-# (400/413 response body, lowercase matching)
-_CTX_ERROR_MARKERS = (
-    "context length",
-    "context_length",
-    "maximum context",
-    "context window",
-    "too long",
-    "token limit",
-    "tokens exceed",
-)
-
-
-def _looks_like_context_error(status_code: int, body: str) -> bool:
-    if status_code == 413:
-        return True
-    if status_code != 400:
-        return False
-    lowered = (body or "").lower()
-    return any(m in lowered for m in _CTX_ERROR_MARKERS)
-
-
-def _estimate_flat_tokens(messages: List[Dict[str, str]]) -> int:
-    return sum(C.approx_token_count(m.get("content") or "") for m in messages)
-
-
-async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional[str]:
-    """Send history + SUMMARIZATION_PROMPT to the model; return the summary body (None on failure, never raises).
-
-    Context-overflow self-rescue (aligned with Codex ``run_compact_task``'s
-    ContextWindowExceeded handling):
-    1. Pre-trim: when the summary model's window is known, first trim the input
-       into 0.9×window by byte estimation (dropping the oldest history
-       messages), saving the API round-trip that would inevitably fail;
-    2. Reactive: if a "context exceeded" error still hits (400/413 + keywords)
-       → drop a proportional slice of the oldest history and retry, at most
-       :data:`_SUMMARIZE_MAX_ATTEMPTS` times.
-    The leading system message (base prompt) and the trailing summarization
-    instruction are never dropped.
-    """
-    endpoint = _resolve_summarizer_model()
-    if endpoint is None:
-        logger.warning("[compaction] no summarizer model resolved")
-        return None
-    model = endpoint.model_name
-    provider = endpoint.provider
-
-    messages = _flatten_for_summary(history)
-    base_prompt = _load_base_system_prompt()
-    if base_prompt:
-        # Qwen-family models require system to be only at index 0; the flattened history contains no system rows
-        messages.insert(0, {"role": "system", "content": base_prompt})
-    messages.append({"role": "user", "content": C.SUMMARIZATION_PROMPT})
-
-    # Droppable range = [droppable_start, len-1): keep the system head and the trailing summarization instruction
-    droppable_start = 1 if base_prompt else 0
-
-    # (1) Pre-trim (when the window is known)
-    try:
-        window = resolve_model_context_window(model)
-    except Exception:  # noqa: BLE001
-        window = None
-    if window and window > 0:
-        budget = usable_context_window(window)
-        dropped = 0
-        while len(messages) - droppable_start > 2 and _estimate_flat_tokens(messages) > budget:
-            messages.pop(droppable_start)
-            dropped += 1
-        if dropped:
-            logger.info(
-                "[compaction] summarizer input pre-trimmed: dropped %d oldest (budget=%d)",
-                dropped,
-                budget,
-            )
-
-    from core.llm.single_turn import build_request, parse_response
-
-    # (2) Call + reactive context-overflow self-rescue. The optional context is
-    # bound by CompactionCoordinator so each direct HTTP try becomes one
-    # append-only model attempt without changing this helper's public signature.
-    from core.llm.model_usage import CURRENT_MODEL_USAGE
-
-    usage_context = CURRENT_MODEL_USAGE.get()
-    previous_attempt_seq = None
-
-    async def record_attempt(resp=None, *, status: str, started: float) -> None:
-        nonlocal previous_attempt_seq
-        if usage_context is None:
-            return
-        from core.harness.usage import AttemptUsage, UsageAttempt, record_usage_safely
-
-        payload = resp.json() if resp is not None and resp.status_code == 200 else {}
-        usage = payload.get("usage") if isinstance(payload, dict) else {}
-        usage = usage if isinstance(usage, dict) else {}
-        details = usage.get("prompt_tokens_details")
-        details = details if isinstance(details, dict) else {}
-        try:
-            recorded = await record_usage_safely(
-                usage_context.recorder,
-                UsageAttempt(
-                    run_id=usage_context.run_id,
-                    kind="model",
-                    operation_name=model,
-                    provider=provider or "unknown",
-                    model=model,
-                    status=status,
-                    retry_of=previous_attempt_seq,
-                    latency_ms=int((time.monotonic() - started) * 1_000),
-                    usage=AttemptUsage(
-                        prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                        completion_tokens=int(usage.get("completion_tokens") or 0),
-                        cache_read_tokens=int(
-                            usage.get("cache_read_tokens") or details.get("cached_tokens") or 0
-                        ),
-                        cache_write_tokens=int(usage.get("cache_write_tokens") or 0),
-                    ),
-                    metadata={
-                        "source": "compaction",
-                        "http_status": getattr(resp, "status_code", None),
-                    },
-                ),
-            )
-            previous_attempt_seq = recorded.attempt_seq
-        except Exception:  # noqa: BLE001
-            pass
-
-    for attempt in range(_SUMMARIZE_MAX_ATTEMPTS):
-        started = time.monotonic()
-        # 每轮重挂消息：上下文超限的自救会就地删掉最老的几条。
-        endpoint_url, headers, req = build_request(endpoint, messages, temperature=0.3)
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(endpoint_url, headers=headers, json=req)
-        except asyncio.CancelledError:
-            await record_attempt(status="cancelled", started=started)
-            raise
-        except Exception as exc:  # noqa: BLE001
-            from core.harness.usage import attempt_status_for_exception
-
-            await record_attempt(status=attempt_status_for_exception(exc), started=started)
-            logger.warning("[compaction] summarize failed: %r", exc)
-            return None
-
-        if resp.status_code == 200:
-            await record_attempt(resp, status="success", started=started)
-            return parse_response(endpoint, resp.json()).text or None
-
-        body = resp.text[:500]
-        await record_attempt(resp, status="failed", started=started)
-        droppable = (
-            len(messages) - droppable_start - 1
-        )  # trailing summarization instruction excluded
-        if _looks_like_context_error(resp.status_code, body) and droppable > 1:
-            drop_n = max(1, droppable // 5)
-            del messages[droppable_start : droppable_start + drop_n]
-            logger.info(
-                "[compaction] summarizer context exceeded, dropped %d oldest, retry %d/%d",
-                drop_n,
-                attempt + 1,
-                _SUMMARIZE_MAX_ATTEMPTS,
-            )
-            continue
-
-        logger.warning("[compaction] summarizer API %s: %s", resp.status_code, body[:200])
-        return None
-
-    logger.warning(
-        "[compaction] summarizer still over context after %d trims",
-        _SUMMARIZE_MAX_ATTEMPTS,
-    )
-    return None
-
-
-class CompactionCoordinator:
-    """Transaction coordinator shared by every compaction phase.
-
-    The database session is deliberately short-lived on both sides of the LLM
-    call: first acquire a source watermark + lease, then summarize without a DB
-    connection, finally publish through a version/lease CAS.
-    """
-
-    def __init__(self, chat_id: str, *, run_id: str = "", hook_bus: Any = None):
-        self.chat_id = chat_id
-        self.run_id = run_id
-        self.owner = f"compactor:{uuid.uuid4().hex}"
-        if hook_bus is not None:
-            self.hook_bus = hook_bus
-        elif run_id:
-            from core.harness.events import EventSink
-            from core.harness.hooks import HookBus
-            from core.services.harness_ledger import (
-                DurableEventStore,
-                HarnessUsageLedger,
-            )
-
-            self.hook_bus = HookBus(
-                event_sink=EventSink(DurableEventStore()),
-                usage_recorder=HarnessUsageLedger(),
-            )
-        else:
-            self.hook_bus = None
-
-    def _acquire(self):
-        from core.db.engine import SessionLocal
-        from core.services.chat_service import ChatService
-
-        with SessionLocal() as db:
-            return ChatService(db).acquire_compaction_snapshot(
-                self.chat_id,
-                owner=self.owner,
-                lease_seconds=max(30, int(settings.compaction.summarize_timeout_s) + 30),
-            )
-
-    def _release(self) -> None:
-        from core.db.engine import SessionLocal
-        from core.services.chat_service import ChatService
-
-        with SessionLocal() as db:
-            ChatService(db).release_compaction_lease(self.chat_id, owner=self.owner)
-
-    def _commit(
-        self,
-        snapshot: Any,
-        *,
-        summary_text: str,
-        replacement: List[Dict[str, Any]],
-        manifest: Dict[str, Any],
-    ) -> None:
-        from core.db.engine import SessionLocal
-        from core.services.chat_service import ChatService
-
-        with SessionLocal() as db:
-            ChatService(db).commit_compaction_checkpoint(
-                snapshot,
-                owner=self.owner,
-                summary_text=summary_text,
-                replacement_history=replacement,
-                replacement_manifest=manifest,
-            )
-
-    async def compact(
-        self,
-        *,
-        phase: C.CompactionPhase = C.CompactionPhase.POST_TURN,
-        in_memory_history: Optional[List[Dict[str, Any]]] = None,
-        budget_inputs: Optional[Dict[str, Any]] = None,
-        token_limit: Optional[int] = None,
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Run one phase of the shared pipeline under a watermark + lease + CAS.
-
-        ``phase`` does not change the algorithm; it selects which history is
-        authoritative and is recorded on the checkpoint so a summary can be
-        attributed to where the decision was taken.
-
-        ``in_memory_history`` is only consulted for mid-turn compaction, where
-        the agent may contain messages not yet visible in the DB snapshot.
-        """
-        try:
-            snapshot = await asyncio.to_thread(self._acquire)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[compaction] snapshot acquisition failed chat=%s: %r",
-                self.chat_id,
-                exc,
-            )
-            return None
-        if snapshot is None:
-            # A live lease means another compactor owns the checkpoint. Mid-turn
-            # compaction is overflow protection for the turn already running, so
-            # it still summarizes and hands the result back for immediate use —
-            # it just does not publish. Letting the context blow past the window
-            # would be the worse failure.
-            if phase is C.CompactionPhase.MID_TURN and in_memory_history:
-                logger.info(
-                    "[compaction] lease busy, mid-turn falls back to ephemeral chat=%s",
-                    self.chat_id,
-                )
-                return await _summarize_without_checkpoint(list(in_memory_history))
-            return None
-
-        persisted = list(snapshot.replacement_history) + _normalize_rows(list(snapshot.source_rows))
-        # Summarize what the turn actually holds, but publish against the
-        # snapshot's watermark so the lease/CAS guarantees are unchanged.
-        history = (
-            list(in_memory_history)
-            if phase is C.CompactionPhase.MID_TURN and in_memory_history
-            else persisted
-        )
-        published = False
-        try:
-            if not history:
-                return None
-            inputs = dict(budget_inputs or {})
-            if self.hook_bus is not None:
-                from core.harness.events import thaw_value
-                from core.harness.hooks import HookStage, Invocation
-
-                before = await self.hook_bus.enforce(
-                    Invocation.create(
-                        run_id=self.run_id,
-                        stage=HookStage.BEFORE_COMPACTION,
-                        operation_name="context_compaction",
-                        data={"history": history, "budget": inputs},
-                    )
-                )
-                if before.data.get("history") is not None:
-                    history = thaw_value(before.data["history"])
-                if before.data.get("budget") is not None:
-                    inputs = thaw_value(before.data["budget"])
-            inputs["messages"] = history
-            if "system_prompt" not in inputs:
-                inputs["system_prompt"] = _load_base_system_prompt()
-            estimate = estimate_context_budget(**inputs)
-            if token_limit is not None and not should_compact(
-                estimate["total_estimated_tokens"], token_limit
-            ):
-                return None
-
-            cfg = settings.compaction
-            older, recent = C.split_history_for_compaction(
-                history, keep_recent_tokens=cfg.keep_recent_tokens
-            )
-            if not older:
-                # Everything fits in the verbatim tail; a summary would remove
-                # nothing. The caller sees "nothing to compact", not a failure.
-                logger.info(
-                    "[compaction] nothing older than the kept tail chat=%s rows=%d",
-                    self.chat_id,
-                    len(recent),
-                )
-                return None
-            from core.llm.model_usage import model_usage_scope
-
-            with model_usage_scope(
-                self.run_id,
-                self.hook_bus.usage_recorder if self.hook_bus is not None else None,
-            ):
-                summary = await _summarize(older, timeout=cfg.summarize_timeout_s)
-            if not summary:
-                return None
-
-            summary_text = C.format_summary_text(summary)
-            replacement = C.build_compacted_history(summary_text, recent)
-            if self.hook_bus is not None:
-                from core.harness.events import thaw_value
-                from core.harness.hooks import HookStage, Invocation
-
-                after = await self.hook_bus.enforce(
-                    Invocation.create(
-                        run_id=self.run_id,
-                        stage=HookStage.AFTER_COMPACTION,
-                        operation_name="context_compaction",
-                        data={"replacement": replacement, "metadata": {}},
-                    )
-                )
-                if after.data.get("replacement") is not None:
-                    replacement = thaw_value(after.data["replacement"])
-            manifest: Dict[str, Any] = {
-                "phase": phase.value,
-                "source_high_watermark_seq": snapshot.covered_seq,
-                "source_hash": snapshot.source_hash,
-                "base_checkpoint_version": snapshot.base_checkpoint_version,
-                "budget_estimate": estimate,
-            }
-            replacement_inputs = {**inputs, "messages": replacement}
-            replacement_estimate = estimate_context_budget(**replacement_inputs)
-            from core.llm.context_usage import build_compaction_context_usage
-
-            manifest["replacement_budget_estimate"] = replacement_estimate
-            manifest["replacement_context_usage"] = build_compaction_context_usage(
-                replacement_estimate,
-                context_window=int(inputs.get("context_window") or 0),
-                model_name=str(inputs.get("model_name") or ""),
-                model_provider_id=str(inputs.get("model_provider_id") or ""),
-            )
-            await asyncio.to_thread(
-                self._commit,
-                snapshot,
-                summary_text=summary_text,
-                replacement=replacement,
-                manifest=manifest,
-            )
-            published = True
-        except Exception as exc:  # noqa: BLE001
-            from core.harness.hooks import HookPaused
-
-            if isinstance(exc, HookPaused):
-                raise
-            # Persistence failure is an explicit failure: no replacement is
-            # returned to the turn and no success/notice is fabricated.
-            logger.warning("[compaction] checkpoint commit failed chat=%s: %r", self.chat_id, exc)
-            return None
-        finally:
-            if not published:
-                try:
-                    await asyncio.to_thread(self._release)
-                except Exception as release_exc:  # noqa: BLE001
-                    logger.debug(
-                        "[compaction] lease release failed chat=%s: %r",
-                        self.chat_id,
-                        release_exc,
-                    )
-
-        logger.info(
-            "[compaction] checkpoint written chat=%s phase=%s covered_seq=%d "
-            "msgs=%d→%d summary_len=%d",
-            self.chat_id,
-            phase.value,
-            snapshot.covered_seq,
-            len(history),
-            len(replacement),
-            len(summary_text),
-        )
-        return replacement
-
-
-async def _summarize_without_checkpoint(
-    history: List[Dict[str, Any]],
-) -> Optional[List[Dict[str, Any]]]:
-    """Summarize and return a replacement without touching the database.
-
-    Used where there is nothing to publish against — an agent with no persisted
-    session (sub-agents, plan mode, connectivity probes) — and where publishing
-    is not ours to do because another compactor holds the lease.
-    """
-    cfg = settings.compaction
-    older, recent = C.split_history_for_compaction(
-        history, keep_recent_tokens=cfg.keep_recent_tokens
-    )
-    if not older:
-        return None
-    summary = await _summarize(older, timeout=cfg.summarize_timeout_s)
-    if not summary:
-        return None
-    return C.build_compacted_history(C.format_summary_text(summary), recent)
+from core.services.compaction_coordinator import CompactionCoordinator
 
 
 async def run_compaction(
@@ -821,10 +250,10 @@ async def run_mid_turn_compaction(
     (sub-agents, plan mode, connectivity probes): the summary is still produced
     and returned, only the checkpoint write is skipped.
     """
-    if not settings.compaction.enabled:
+    if not config_settings.settings.compaction.enabled:
         return None
     if not chat_id:
-        return await _summarize_without_checkpoint(history)
+        return await summarize_without_checkpoint(history)
     return await run_compaction(chat_id, history, phase=C.CompactionPhase.MID_TURN)
 
 
@@ -842,7 +271,7 @@ async def run_post_turn_compaction(
     model. Idempotent and safe: every failure is swallowed and returns False,
     never affecting the main conversation. Returns True only after commit.
     """
-    if not settings.compaction.enabled:
+    if not config_settings.settings.compaction.enabled:
         return False
 
     try:
@@ -858,121 +287,6 @@ async def run_post_turn_compaction(
     except Exception as exc:  # noqa: BLE001
         logger.warning("[compaction] run_post_turn_compaction failed chat=%s: %r", chat_id, exc)
         return False
-
-
-# ── Pre-turn compaction ──
-
-
-def estimate_history_tokens(history: List[Dict[str, Any]]) -> int:
-    """Estimate history text and image reserves without DB or LLM calls."""
-    return sum(C.estimate_content_tokens(m.get("content")) for m in history)
-
-
-def estimate_context_budget(
-    *,
-    system_prompt: str = "",
-    tool_schema: Any = None,
-    messages: Optional[List[Dict[str, Any]]] = None,
-    provider_overhead_tokens: Optional[int] = None,
-    context_window: int = 0,
-    model_name: str = "",
-    model_provider_id: str = "",
-) -> Dict[str, int]:
-    """Return one auditable estimate shared by trigger decisions and manifests.
-
-    The estimate covers exactly what the request will send — system prompt, tool
-    schemas, history and protocol overhead. Reserving the model's ``max_tokens``
-    on top of that is deliberately absent: output headroom is carried once, as
-    the window share in ``EFFECTIVE_CONTEXT_WINDOW_PERCENT``, so a per-model
-    output cap the operator never configured cannot move the trigger line.
-    """
-    # These identity fields travel with the frozen budget inputs so the
-    # post-compaction gauge retains the same model/window attribution. They do
-    # not participate in token arithmetic.
-    del context_window, model_name, model_provider_id
-    history = messages or []
-    serialized_tools = (
-        json.dumps(tool_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        if tool_schema
-        else ""
-    )
-    system_tokens = C.approx_token_count(system_prompt or "")
-    tool_tokens = C.approx_token_count(serialized_tools)
-    message_tokens = estimate_history_tokens(history)
-    overhead_tokens = (
-        max(0, int(provider_overhead_tokens))
-        if provider_overhead_tokens is not None
-        else 8 + (3 * len(history))
-    )
-    return {
-        "system_prompt_tokens": system_tokens,
-        "tool_schema_tokens": tool_tokens,
-        "message_tokens": message_tokens,
-        "provider_overhead_tokens": overhead_tokens,
-        "total_estimated_tokens": (
-            system_tokens + tool_tokens + message_tokens + overhead_tokens
-        ),
-    }
-
-
-def get_compaction_context_state(chat_service: Any, chat_id: str) -> Optional[Dict[str, Any]]:
-    """Return the latest compacted-context baseline for user-facing estimates.
-
-    The visible message history remains complete for reading/export.  This
-    small projection tells clients which visible messages the checkpoint has
-    replaced and how many estimated tokens its replacement history occupies,
-    so a context gauge can count ``replacement + post-checkpoint tail`` instead
-    of accumulating the full pre-compaction transcript forever.
-    """
-    if not settings.compaction.enabled:
-        return None
-
-    ckpt = chat_service.get_latest_compaction_checkpoint(chat_id)
-    if ckpt is None:
-        return None
-
-    extra = getattr(ckpt, "extra_data", None) or {}
-    replacement = extra.get("replacement_history")
-    if not isinstance(replacement, list):
-        replacement = []
-    created_at = getattr(ckpt, "created_at", None)
-    covered_seq = chat_service._checkpoint_covered_seq(ckpt)
-    replacement_manifest = extra.get("replacement_manifest")
-    replacement_context_usage = (
-        replacement_manifest.get("replacement_context_usage")
-        if isinstance(replacement_manifest, dict)
-        else None
-    )
-
-    # A later model call supersedes this estimate with provider usage. Keep
-    # exposing the checkpoint boundary, but attach its token projection only
-    # while it still covers the newest measured assistant row.
-    if isinstance(replacement_context_usage, dict):
-        recent = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50, metadata_only=True)
-        latest_usage_seq = 0
-        for row in reversed(recent):
-            row_extra = getattr(row, "extra_data", None)
-            if isinstance(row_extra, dict) and isinstance(
-                row_extra.get("context_usage"), dict
-            ):
-                latest_usage_seq = int(getattr(row, "chat_seq", 0) or 0)
-                break
-        if latest_usage_seq > covered_seq:
-            replacement_context_usage = None
-
-    state = {
-        "checkpoint_id": getattr(ckpt, "message_id", ""),
-        "checkpoint_created_at": created_at.isoformat() if created_at is not None else None,
-        "covered_through_message_id": extra.get("covers_up_to_message_id"),
-        "covered_through_chat_seq": covered_seq,
-        "covered_message_count": chat_service.message_repo.count_visible_through_seq(
-            chat_id, covered_seq
-        ),
-        "replacement_tokens": estimate_history_tokens(replacement),
-    }
-    if isinstance(replacement_context_usage, dict):
-        state["context_usage"] = replacement_context_usage
-    return state
 
 
 async def maybe_run_pre_turn_compaction(
@@ -1005,7 +319,7 @@ async def maybe_run_pre_turn_compaction(
         is swallowed (later trim acts as the safety net), never affecting the
         main conversation.
     """
-    if not settings.compaction.enabled or not chat_id or not history:
+    if not config_settings.settings.compaction.enabled or not chat_id or not history:
         return history, False
 
     try:
@@ -1068,7 +382,7 @@ async def maybe_run_pre_turn_compaction(
 
 def pop_compaction_notice(chat_service: Any, chat_id: str) -> bool:
     """Consume the one-shot pending compaction notice flag."""
-    if not settings.compaction.enabled:
+    if not config_settings.settings.compaction.enabled:
         return False
     try:
         ckpt = chat_service.get_latest_compaction_checkpoint(chat_id)

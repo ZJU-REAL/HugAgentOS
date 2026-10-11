@@ -2,9 +2,12 @@ import { authFetch, chatTargetHeaders } from '../api';
 import { useAuthStore, useChatStore } from '../stores';
 import { markResolvedPlanPreviews, scanPlanSnapshots } from '../utils/planHistory';
 import { mergeHistoryPage } from '../utils/historyMerge';
-import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
+import { applyContextStateResponse, captureContextState } from '../utils/contextStateResponse';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { parseHistoryMessage } from './chatHistoryMessage';
+import { applyCompactionProgress } from './compactionProgressStore';
+import { parseCompactionProgress } from '../utils/compactionProgress';
+import { refreshContextAfterCompaction } from './chatStream/runtime';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 // Chats with a message fetch currently in flight. Separate from
@@ -104,6 +107,7 @@ export function reloadChatHistory(chatId: string): Promise<boolean> {
 }
 
 async function fetchAndMergeHistoryPage(chatId: string, userId: string | undefined): Promise<boolean> {
+  const contextRequest = captureContextState(useChatStore.getState(), chatId);
   const r = await authFetch(
     `${effectiveApiUrl}/v1/chats/${chatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc&cursor=true`,
     { headers: { ...chatTargetHeaders(chatId) } },
@@ -116,12 +120,7 @@ async function fetchAndMergeHistoryPage(chatId: string, userId: string | undefin
   const page = items.map(parseHistoryMessage);
   const { hasPlanMessages, pendingPlanId } = scanPlanSnapshots(items.filter((item) => item.metadata?.forked_history !== true));
   const st = useChatStore.getState();
-  if (Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_usage')) {
-    st.setContextUsage(chatId, parseContextUsageSnapshot(payload.data.context_usage));
-  }
-  if (Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
-    st.setContextCompaction(chatId, parseContextCompactionState(payload.data.context_compaction));
-  }
+  applyContextStateResponse(st, chatId, contextRequest, payload?.data || {});
   // Retain older pagination only when the refreshed page overlaps the loaded
   // transcript. A remote burst can replace it with a disjoint recent page.
   const knownIds = new Set((st.store.chats[chatId]?.messages ?? []).map(m => m.messageId).filter(Boolean));
@@ -151,6 +150,14 @@ async function fetchAndMergeHistoryPage(chatId: string, userId: string | undefin
       },
     };
   });
+  applyCompactionProgress(chatId, payload?.data?.compaction_progress);
+  for (const raw of payload?.data?.compaction_progress || []) {
+    const progress = parseCompactionProgress(raw);
+    if (progress?.status === 'running' && progress.message_id) {
+      void refreshContextAfterCompaction(chatId,
+        useChatStore.getState().contextCompactions[chatId]?.checkpointId || '', progress.started_at, progress.message_id, progress.phase);
+    }
+  }
   st.addLoadedMsgId(chatId);
   const latest = useChatStore.getState();
   if (chatId !== latest.currentChatId) return true;

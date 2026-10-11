@@ -58,6 +58,7 @@ from orchestration.run_event_stream import (
 )
 from core.services.tool_effect_ledger import ToolOutcomeUnknown, find_tool_outcome_unknown
 from orchestration.workflow import astream_chat_workflow
+from orchestration.compaction_stream import stream_with_compaction
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 logger = get_logger(__name__)
@@ -209,7 +210,7 @@ def _is_first_response(item: Any) -> bool:
         return bool(item.get("content"))
     return kind in {
         "tool_call_start", "tool_call_delta", "tool_call", "tool_result",
-        "tool_pending", "batch_confirm", "file_confirm", "plan_update",
+        "tool_pending", "batch_confirm", "file_confirm", "plan_update", "compaction_progress",
     }
 
 
@@ -1441,15 +1442,16 @@ async def _run_workflow(
         # Failures are silent and must never affect the main conversation.
         try:
             from core.services.compaction_service import (
-                get_compaction_context_state,
                 pop_compaction_notice,
             )
+
+            from core.services.context_usage_projection import get_chat_context_state
 
             with SessionLocal() as _cn_db:
                 _cn_service = ChatService(_cn_db)
                 _notify_compaction = pop_compaction_notice(_cn_service, chat_id)
                 _compaction_state = (
-                    get_compaction_context_state(_cn_service, chat_id)
+                    get_chat_context_state(_cn_service, chat_id)["context_compaction"]
                     if _notify_compaction
                     else None
                 )
@@ -1491,7 +1493,9 @@ async def _run_workflow(
 
         checkpoint_task = asyncio.create_task(_checkpoint_loop())
         async for chunk in _aiter_with_inactivity_timeout(
-            astream_chat_workflow(
+            stream_with_compaction(
+                astream_chat_workflow,
+                raw_user_message=raw_user_message,
                 session_messages=session_messages,
                 user_message=effective_user_message,
                 context=context,
@@ -1550,7 +1554,7 @@ async def _run_workflow(
                 _thinking_log.clear()
                 replace_final_text(_model_steps, replacement)
                 # 整体替换后，先前记下的段落描述的是旧草稿，已无意义——重记。
-                _segments.reset()
+                _segments.reset(preserve_compaction=True)
                 _segments.add_text(replacement)
                 await _emit(
                     {
@@ -1784,6 +1788,10 @@ async def _run_workflow(
                     else:
                         await _flush_inflight()
 
+            elif chunk_type == "compaction_progress":
+                _segments.add_compaction(chunk)
+                await _emit(chunk)
+
             elif chunk_type == "context_usage":
                 # Provider-reported usage is the authoritative live gauge.
                 # Forward the sanitized snapshot unchanged; unlike subagent
@@ -1933,9 +1941,10 @@ async def _run_workflow(
                 _ws_files = _workspace_mod.get_pinned_file_ids()
                 usage_payload = chunk.get("usage") or None
                 context_usage_payload = chunk.get("context_usage") or None
-                compaction_pending = _should_schedule_compaction(
+                compaction_pending = not chunk.get("manual_compaction") and _should_schedule_compaction(
                     model_name=model_name,
                     usage=usage_payload,
+                    budget_inputs=compaction_budget_inputs,
                 )
                 # 本轮总耗时：同一个值既下发给正在看的这一页，也写进 extra_data 供历史
                 # 加载使用。以前只写库不下发，前端只能自己按「占位气泡创建到现在」估一个，
@@ -2023,6 +2032,7 @@ async def _run_workflow(
                         message_id=current_message_id,
                         chat_seq=current_chat_seq,
                         extra_data=_persist_extra,
+                        invalidate_mid_turn_checkpoint=compaction_pending,
                         commit=False,
                     )
                     # Build a ProjectScope from the workflow context and pass it
@@ -2109,7 +2119,7 @@ async def _run_workflow(
                 # follow-ups is when the batch finishes, on the final entry, by
                 # the frontend — so skip here to avoid popping the question list
                 # at the wrong moment.
-                if not seen_batch_confirm:
+                if not seen_batch_confirm and not chunk.get("manual_compaction"):
                     _spawn_followup_task(
                         run_id=run_id,
                         chat_id=chat_id,
@@ -2129,6 +2139,7 @@ async def _run_workflow(
                     usage=usage_payload,
                     budget_inputs=compaction_budget_inputs,
                     should_schedule=compaction_pending,
+                    message_id=current_message_id,
                 )
 
         # AgentScope may absorb a tool adapter exception after ToolEffectMiddleware
@@ -2284,105 +2295,7 @@ async def _run_workflow(
         _acknowledge_terminal_writer(run_id)
 
 
-def _should_schedule_compaction(
-    *,
-    model_name: str,
-    usage: Optional[Dict] = None,
-) -> bool:
-    """Return whether the post-turn compactor will be scheduled."""
-    try:
-        from core.config.settings import settings as _settings
-
-        if not _settings.compaction.enabled:
-            return False
-        from core.llm.context_manager import resolve_model_context_window
-        from core.services.compaction_service import (
-            resolve_active_tokens,
-            resolve_token_limit,
-            resolve_trigger_ratio,
-            should_compact,
-        )
-
-        active_tokens = resolve_active_tokens(usage)
-        limit = resolve_token_limit(
-            resolve_model_context_window(model_name or ""),
-            ratio=resolve_trigger_ratio(),
-        )
-        return should_compact(active_tokens, limit)
-    except Exception:
-        logger.debug("compaction_schedule_check_failed", exc_info=True)
-        return False
-
-
-def _spawn_compaction_task(
-    *,
-    run_id: str,
-    chat_id: str,
-    model_name: str,
-    usage: Optional[Dict] = None,
-    budget_inputs: Optional[Dict[str, Any]] = None,
-    should_schedule: Optional[bool] = None,
-) -> None:
-    """PostTurn phase: background pre-warm of the shared compaction engine.
-
-    Fire-and-forget; never affects the main conversation. This is *not* a second
-    compactor — it calls the same
-    :func:`core.services.compaction_service.run_compaction` the mid-turn hook
-    does, and normally finds nothing to do: a turn that crossed the threshold
-    while it still had steps left has already compacted mid-turn and persisted
-    its checkpoint. It earns its keep only when the threshold is crossed by a
-    turn's *final* reasoning step, where there is no later step boundary to
-    catch it; doing it here rather than at the next turn's PreTurn check keeps
-    the summarisation off the user-visible latency path.
-
-    ``run_id`` and ``budget_inputs`` are threaded through to the Coordinator so
-    the checkpoint is published under the run's hook bus and usage ledger, and
-    so its component estimator reuses the turn's already-frozen execution
-    surface instead of re-deriving one.
-    """
-    schedule = (
-        _should_schedule_compaction(model_name=model_name, usage=usage)
-        if should_schedule is None
-        else should_schedule
-    )
-    if not schedule:
-        return
-
-    async def _bg() -> None:
-        try:
-            from core.llm.context_manager import resolve_model_context_window
-            from core.services.compaction_service import (
-                resolve_token_limit,
-                resolve_trigger_ratio,
-                run_post_turn_compaction,
-            )
-
-            # Trigger criterion — see resolve_active_tokens: real end-of-turn
-            # context occupancy, not the cumulative billing value. Gating here
-            # keeps a turn that never approached the window from taking the
-            # compaction lease at all; the Coordinator re-checks against the
-            # authoritative snapshot estimate before calling the summariser.
-            limit = resolve_token_limit(
-                resolve_model_context_window(model_name or ""), ratio=resolve_trigger_ratio()
-            )
-            logger.info(
-                "chat_compaction_evaluating",
-                chat_id=chat_id,
-                limit=limit,
-            )
-            await run_post_turn_compaction(
-                chat_id,
-                budget_inputs=dict(budget_inputs or {}),
-                token_limit=limit,
-                run_id=run_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("background_compaction_failed", error=str(exc))
-
-    try:
-        asyncio.create_task(_bg())
-    except RuntimeError:
-        pass
+from orchestration.post_turn_compaction import _should_schedule_compaction, _spawn_compaction_task
 
 
 def _spawn_followup_task(

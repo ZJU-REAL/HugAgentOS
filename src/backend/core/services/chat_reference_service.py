@@ -284,7 +284,8 @@ async def build_session_digest(
     import asyncio
 
     from core.db.engine import SessionLocal
-    from core.services.compaction_service import _load_history, _summarize
+    from core.services.compaction_service import _load_history
+    from core.services.compaction_summary import _summarize
 
     def _prepare():
         with SessionLocal() as db:

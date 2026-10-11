@@ -65,6 +65,11 @@ export function useComposerSuggestions(state: ComposerState, {
             description: t('初始化指令：检查项目并创建或完善 AGENTS.md'),
             command: initCommand }]
         : [];
+      if (['compact', '压缩上下文'].some(alias => alias.includes(query.trim()))) {
+        commands.unshift({ kind: 'command', id: 'context-compact', name: '/compact',
+          description: t('压缩当前对话上下文'),
+          command: { id: 'context-compact', label: t('压缩上下文'), message: '/compact' } });
+      }
       const actions: SlashEntry[] = currentChatId
         && ['fork', '创建聊天分支'].some((alias) => alias.includes(query.trim()))
         ? [{ kind: 'chat_action', action: 'fork', id: 'fork', name: t('创建聊天分支'),

@@ -577,3 +577,28 @@ Shortcuts include Ctrl+B for bold, Ctrl+I for italic, Ctrl+E for inline code, Ct
 Pasting Markdown or formatted HTML preserves common structures. A single paragraph joins the current line at the cursor without extra line breaks or blank lines; original line breaks and multiple paragraphs remain. Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
 
 Shift+Enter continues list/task items; an empty item exits the list. Headings continue as paragraphs and blockquotes continue or exit. Tab/Shift+Tab indent/outdent list items. Tab in the last table cell adds a row. Type pipe table header and delimiter lines followed by Shift+Enter to create a table. Task markers [ ] / [x] followed by a space and Markdown links [text](URL) convert while typing. Standard task-list Markdown also works when pasted or edited.
+
+
+### Context usage update ordering
+
+The gauge reports occupancy for the latest primary model call, rather than cumulative billing across repeated calls.
+After a compaction checkpoint commits, the API returns its compressed baseline estimate. A later model call in the same turn can replace it with fresh measured usage.
+Snapshots follow server capture time. Delayed history responses cannot overwrite newer statistics, and edit-and-resend invalidates older requests.
+Categories remain estimates. Switching models labels the previous model snapshot as awaiting calibration. Overflow shows the actual percentage, such as 120%, while the ring draws at most one full circle.
+
+Editing and regenerating use the model, conversation mode, and thinking effort currently selected in the composer. Modes with locked effort use their default. When older clients omit these selections, the backend restores the saved turn selections. Attachments and skill references remain attached to the turn.
+
+### Context compaction progress and /compact
+
+Automatic compaction appears as “Compacting context” inside the conversation's tool-call section. The collapsed header keeps the status visible; expanding it reveals a separate compaction step. Compaction does not increase the tool count. Completed, failed and interrupted states remain visible in history, and background work can be observed after a page reload.
+
+Send `/compact` to compact the current conversation, or select “Compact the current conversation context” from the slash-command suggestions. This command reuses the existing compaction coordinator without invoking the main reply model. A short context, an already running compactor or disabled compaction produces an explicit explanation. Retry failed or interrupted work with `/compact`. The visible transcript is retained; only the context read by subsequent model calls changes.
+
+History responses and streamed compaction notices use the same context projection. The current model window takes precedence over an older snapshot when model switching is disabled or the window changes. Post-turn refresh waits for the target phase to finish; an earlier mid-turn checkpoint does not stop polling.
+
+
+Post-turn automatic compaction uses measured usage from the current persisted
+assistant message when available. A byte estimate cannot veto that measurement.
+The window and provider identity follow the endpoint actually called, including
+the default model and failover. Streaming saves and final commits serialize on
+the same run record so a delayed save cannot overwrite final usage.

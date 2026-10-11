@@ -65,7 +65,8 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       return;
     }
 
-    const currentInvocation = invocationOverride === undefined
+    const compactCommand = msg === '/compact';
+    const currentInvocation = compactCommand ? normalizeChatInvocation(undefined) : invocationOverride === undefined
       ? captureChatInvocation({ activeSkill, activePlugin, activeConnector, activeMention })
       : normalizeChatInvocation(invocationOverride);
     const currentMention = currentInvocation.mention;
@@ -251,10 +252,12 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       addLoadedMsgId(currentChatId);
       syncManualTitleToBackend(currentChatId);
 
-      setTimeout(() => ctx.generateSummary(currentChatId), 500);
-      setTimeout(() => ctx.generateClassification(currentChatId), 800);
+      if (!compactCommand) {
+        setTimeout(() => ctx.generateSummary(currentChatId), 500);
+        setTimeout(() => ctx.generateClassification(currentChatId), 800);
+      }
 
-      if (outcome.metaMessageId && outcome.metaFollowUps.length === 0) {
+      if (!compactCommand && outcome.metaMessageId && outcome.metaFollowUps.length === 0) {
         const _pollChatId = currentChatId;
         const _pollMsgId = outcome.metaMessageId;
 

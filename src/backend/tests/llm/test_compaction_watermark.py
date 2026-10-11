@@ -1,6 +1,8 @@
 """Regression tests for sequence-watermarked, CAS-safe compaction."""
 
 from __future__ import annotations
+from core.services import compaction_budget as budget
+from core.config import settings as config_settings
 
 import asyncio
 import dataclasses
@@ -27,9 +29,9 @@ def _session(db) -> ChatService:
 def _keep_recent(monkeypatch, tokens: int, **overrides) -> None:
     """These histories are a few words long; the production 20k verbatim tail
     would leave nothing older to summarize, so the tail is sized per test."""
-    real = S.settings
+    real = config_settings.settings
     compaction = dataclasses.replace(real.compaction, keep_recent_tokens=tokens, **overrides)
-    monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=compaction))
+    monkeypatch.setattr(config_settings, "settings", dataclasses.replace(real, compaction=compaction))
 
 
 def _message(svc: ChatService, message_id: str, role: str, content: str) -> ChatMessage:
@@ -149,7 +151,7 @@ def test_replay_uses_chat_seq_when_created_at_is_identical(db_session):
 
     history = S._load_history(svc, CHAT_ID)
     rendered = "\n".join(
-        S._render_content_for_summary(item["content"]) for item in history
+        C.render_content_for_summary(item["content"]) for item in history
     )
     assert "first summary" in rendered
     assert "same-time tail" in rendered
@@ -208,7 +210,7 @@ def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
             _message(ChatService(other), "m3", "user", "arrived while summarizing")
         return "snapshot summary"
 
-    monkeypatch.setattr(S, "_summarize", summarize_then_insert)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize_then_insert)
 
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is True
     checkpoint = svc.get_latest_compaction_checkpoint(CHAT_ID)
@@ -279,7 +281,7 @@ def test_two_compactors_overlap_but_only_lease_holder_publishes(
         await finish.wait()
         return "winner"
 
-    monkeypatch.setattr(S, "_summarize", held_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", held_summary)
 
     async def overlap() -> tuple[bool, bool]:
         first = asyncio.create_task(S.run_post_turn_compaction(CHAT_ID))
@@ -387,7 +389,7 @@ def test_accepting_covered_revision_invalidates_checkpoint_and_inflight_snapshot
         raise AssertionError("accepted revision must fence the in-flight summary")
 
     rendered = "\n".join(
-        S._render_content_for_summary(item["content"])
+        C.render_content_for_summary(item["content"])
         for item in S._load_history(svc, CHAT_ID)
     )
     assert "accepted revised answer" in rendered
@@ -409,7 +411,7 @@ def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
     def fail_write(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(S, "_summarize", fake_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
     monkeypatch.setattr(ChatService, "commit_compaction_checkpoint", fail_write)
 
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is False
@@ -418,7 +420,7 @@ def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
 
 
 def test_context_budget_estimator_has_stable_component_manifest():
-    estimate = S.estimate_context_budget(
+    estimate = budget.estimate_context_budget(
         system_prompt="system",
         tool_schema=[{"type": "function", "function": {"name": "lookup"}}],
         messages=[
@@ -441,7 +443,7 @@ def test_context_budget_estimator_has_stable_component_manifest():
         "tool_schema_tokens": C.approx_token_count(
             '[{"function":{"name":"lookup"},"type":"function"}]'
         ),
-        "message_tokens": S.estimate_history_tokens(
+        "message_tokens": budget.estimate_history_tokens(
             [
                 {"role": "user", "content": "question"},
                 {
@@ -473,14 +475,14 @@ def test_pre_turn_rechecks_authoritative_snapshot_before_summarizing(
     monkeypatch.setattr(
         engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
     )
-    real = S.settings
+    real = config_settings.settings
     cfg = dataclasses.replace(real.compaction, token_limit=100)
-    monkeypatch.setattr(S, "settings", dataclasses.replace(real, compaction=cfg))
+    monkeypatch.setattr(config_settings, "settings", dataclasses.replace(real, compaction=cfg))
 
     async def must_not_summarize(history, *, timeout):
         raise AssertionError("authoritative snapshot is below the threshold")
 
-    monkeypatch.setattr(S, "_summarize", must_not_summarize)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", must_not_summarize)
     stale_caller_history = [
         {
             "role": "tool",
@@ -515,7 +517,7 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     async def fake_summary(history, *, timeout):
         return "summary"
 
-    monkeypatch.setattr(S, "_summarize", fake_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
     history = S._load_history(svc, CHAT_ID)
     _, compacted = asyncio.run(
         S.maybe_run_pre_turn_compaction(
@@ -576,7 +578,7 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
     async def fake_summary(history, *, timeout):
         return next(summaries)
 
-    monkeypatch.setattr(S, "_summarize", fake_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is True
     _message(svc, "m3", "user", "round-two-question")
     _message(svc, "m4", "assistant", "round-two-answer")
@@ -584,7 +586,7 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
 
     history = S._load_history(svc, CHAT_ID)
     rendered = "\n".join(
-        S._render_content_for_summary(item["content"]) for item in history
+        C.render_content_for_summary(item["content"]) for item in history
     )
     assert rendered.count("round-two-question") == 1
     assert "round-two-summary" in rendered

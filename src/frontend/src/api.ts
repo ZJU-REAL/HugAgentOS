@@ -870,6 +870,7 @@ export async function getToolCallResult(
 }
 
 export interface ChatContextState {
+  compaction_progress?: unknown;
   context_usage?: unknown;
   context_compaction?: unknown;
 }

@@ -10,7 +10,7 @@ resumed one — sends the model what it actually said, step by step, instead of
 a reassembly guessed from three separate columns.
 
 The record is written by the run as steps complete and read by
-``compaction_service._normalize_rows``. Nothing else interprets it.
+``compaction_history.normalize_rows``. Nothing else interprets it.
 """
 
 from __future__ import annotations

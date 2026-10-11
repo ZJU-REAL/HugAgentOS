@@ -192,7 +192,8 @@ def _compaction_budget_inputs(agent: Any, context_window: int) -> Dict[str, Any]
             or ""
         ),
         "model_provider_id": str(
-            getattr(getattr(agent, "state", None), "model_provider_id", "") or ""
+            getattr(getattr(agent, "model", None), "resolved_model_provider_id", "")
+            or getattr(getattr(agent, "state", None), "model_provider_id", "") or ""
         ),
     }
 

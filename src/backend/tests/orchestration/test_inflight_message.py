@@ -15,7 +15,7 @@ from core.chat import inflight
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.services.chat_sequencer import ChatSequencer
-from core.services.compaction_service import _normalize_rows
+from core.services.compaction_history import normalize_rows
 from core.services.run_journal import RunJournal
 from orchestration import chat_run_executor as executor
 from sqlalchemy import create_engine
@@ -218,7 +218,7 @@ def test_inflight_rows_never_reach_model_context():
         ),
         SimpleNamespace(role="assistant", content="final", extra_data={}, tool_calls=None),
     ]
-    out = _normalize_rows(rows, frozenset({"run-live"}))
+    out = normalize_rows(rows, frozenset({"run-live"}))
     # User rows stay plain strings; assistant rows are block lists.
     assert [_row_text(m) for m in out] == ["q1", "left by a dead run", "final"]
 
