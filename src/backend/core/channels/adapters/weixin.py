@@ -123,6 +123,31 @@ def _bind_headers(bot_token: Optional[str] = None) -> Dict[str, str]:
     return h
 
 
+def _checked_response(resp: httpx.Response, operation: str) -> Dict[str, Any]:
+    """Check transport and iLink business status without exposing response bodies."""
+    if not 200 <= resp.status_code < 300:
+        raise RuntimeError(f"微信 {operation} 失败 HTTP {resp.status_code}")
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError(f"微信 {operation} 返回无效 JSON") from None
+    if not isinstance(data, dict):
+        raise RuntimeError(f"微信 {operation} 返回无效数据")
+    for field in ("ret", "errcode"):
+        if field not in data:
+            continue
+        code = data[field]
+        if isinstance(code, bool) or not isinstance(code, (int, str)):
+            raise RuntimeError(f"微信 {operation} 返回无效 {field}")
+        try:
+            code = int(code)
+        except ValueError:
+            raise RuntimeError(f"微信 {operation} 返回无效 {field}") from None
+        if code != 0:
+            raise RuntimeError(f"微信 {operation} 失败 {field}={code}")
+    return data
+
+
 class WeixinAdapter:
     caps = ChannelCaps(
         channel_type="weixin",
@@ -156,10 +181,9 @@ class WeixinAdapter:
                     f"{self._baseurl(conn)}/ilink/bot/getconfig",
                     headers=_bind_headers(token), json={"base_info": {"channel_version": _CHANNEL_VERSION}},
                 )
-            if resp.status_code >= 400:
-                raise RuntimeError(f"bot_token 校验失败 HTTP {resp.status_code}")
+            _checked_response(resp, "凭据校验")
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"bot_token 校验失败: {exc}")
+            raise RuntimeError(f"bot_token 校验失败: {type(exc).__name__}") from None
         return {"app_id": conn.app_id}
 
     def verify_webhook(self, conn: Any, headers: Dict[str, str], body: bytes) -> bool:
@@ -390,9 +414,9 @@ class WeixinAdapter:
 class _ILinkPoller:
     """iLink getupdates long poller: ``start()`` pulls messages in a blocking loop; ``stop()`` sets the flag to exit.
 
-    A single getupdates call is held by the server for at most ~35s. On network/server errors,
-    back off briefly and keep pulling (the manager's thread-level backoff is also a safety net).
-    Each message is normalized and delivered to the main loop via ``on_message``.
+    A single getupdates call is held by the server for at most ~35s. Transport and business
+    failures propagate to the manager, which records error status and retries with backoff.
+    Valid responses report receiver health; messages reach the main loop via ``on_message``.
     """
 
     def __init__(self, adapter: WeixinAdapter, conn: Any, bot_token: str, baseurl: str,
@@ -404,6 +428,10 @@ class _ILinkPoller:
         self._on_message = on_message
         self._stopped = threading.Event()
         self._buf = ""
+        self._on_connected: Optional[Callable[[], None]] = None
+
+    def set_status_handler(self, on_connected: Callable[[], None]) -> None:
+        self._on_connected = on_connected
 
     def start(self) -> None:
         with httpx.Client(timeout=45) as client:
@@ -415,13 +443,13 @@ class _ILinkPoller:
                         json={"get_updates_buf": self._buf,
                               "base_info": {"channel_version": _CHANNEL_VERSION}},
                     )
-                    data = resp.json()
-                except Exception as exc:  # noqa: BLE001
-                    if self._stopped.is_set():
-                        break
-                    logger.debug("[weixin] getupdates 异常，2s 后重试: %s", exc)
-                    self._stopped.wait(2.0)
-                    continue
+                    data = _checked_response(resp, "收信")
+                except httpx.HTTPError as exc:
+                    raise RuntimeError(f"微信收信网络错误: {type(exc).__name__}") from None
+                if self._stopped.is_set():
+                    break
+                if self._on_connected is not None:
+                    self._on_connected()
                 self._buf = data.get("get_updates_buf", self._buf) or self._buf
                 for msg in data.get("msgs") or []:
                     try:

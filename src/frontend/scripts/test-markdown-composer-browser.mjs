@@ -82,6 +82,108 @@ try {
     await page.evaluate(() => window.smoke.set(''));
     await editor.click();
   };
+  // Native selectionchange must reach the editor before a synthetic paste event.
+  const settleSelection = () => page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  // Clipboard paragraphs must join the cursor's line, as native paste does.
+  await editor.pressSequentially('前文后文');
+  await settleSelection();
+  await editor.press('ArrowLeft');
+  await editor.press('ArrowLeft');
+  await editor.evaluate(el => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '粘贴内容');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  assert.equal(await editor.innerText(), '前文粘贴内容后文', 'single-line paste must not add paragraphs');
+  assert.equal(await page.evaluate(() => window.smoke.state().input), '前文粘贴内容后文');
+  await editor.pressSequentially('继续输入');
+  assert.equal(await editor.innerText(), '前文粘贴内容继续输入后文', 'paste leaves the cursor after inserted text');
+
+  for (const clipboard of [
+    { text: '粘贴内容', html: '' },
+    { text: '**粘贴内容**', html: '', formatted: true },
+    { text: '粘贴内容', html: '<p><strong>粘贴内容</strong></p>', formatted: true },
+    { text: '粘贴内容', html: '<div><span>粘贴内容</span></div>' },
+  ]) {
+    for (const position of ['start', 'middle', 'end', 'selection']) {
+      await reset();
+      await editor.pressSequentially('前文后文');
+      await settleSelection();
+      await editor.press('Control+Home');
+      if (position !== 'start') {
+        await editor.press('ArrowRight');
+        await editor.press('ArrowRight');
+      }
+      if (position === 'end') await editor.press('Control+End');
+      if (position === 'selection') {
+        await editor.press('Shift+ArrowRight');
+        await editor.press('Shift+ArrowRight');
+      }
+      await settleSelection();
+      await editor.evaluate((el, clipboard) => {
+        const data = new DataTransfer();
+        data.setData('text/plain', clipboard.text);
+        if (clipboard.html) data.setData('text/html', clipboard.html);
+        el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      }, clipboard);
+      const expected = {
+        start: '粘贴内容前文后文', middle: '前文粘贴内容后文',
+        end: '前文后文粘贴内容', selection: '前文粘贴内容',
+      }[position];
+      assert.equal(await editor.innerText(), expected, 'single paragraph paste stays inline at ' + position);
+      assert.equal(await editor.locator('p').count(), 1);
+      assert.equal(await page.evaluate(() => window.smoke.state().input.includes('\n')), false);
+      if (clipboard.formatted) assert.equal(await editor.locator('strong').innerText(), '粘贴内容');
+    }
+  }
+  await reset();
+  await editor.pressSequentially('前文后文');
+  await settleSelection();
+  await editor.press('Control+Home');
+  await editor.press('ArrowRight');
+  await editor.press('ArrowRight');
+  await settleSelection();
+  await editor.evaluate(el => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '第一行\n第二行');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  assert.equal(await editor.innerText(), '前文第一行\n第二行后文', 'real newlines remain without extra paragraph boundaries');
+  assert.equal(await editor.locator('p').count(), 1);
+  await reset();
+  await editor.evaluate(el => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '第一段\n\n第二段');
+    data.setData('text/html', '<p>第一段</p><p>第二段</p>');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  assert.equal(await editor.locator('p').count(), 2, 'multiple clipboard paragraphs stay separate');
+  await reset();
+  for (const clipboard of [
+    { text: String.fromCharCode(96).repeat(3) + 'js' + String.fromCharCode(10) + 'let x = 1'
+      + String.fromCharCode(10) + String.fromCharCode(96).repeat(3), html: '', selector: 'pre' },
+    { text: 'let x = 1', html: '<pre><code>let x = 1</code></pre>', selector: 'pre' },
+    { text: '## 标题', html: '', selector: 'h2' },
+    { text: '标题', html: '<h2>标题</h2>', selector: 'h2' },
+    { text: '- 项目', html: '', selector: 'ul > li' },
+  ]) {
+    await reset();
+    await editor.pressSequentially('前文后文');
+    await settleSelection();
+    await editor.press('ArrowLeft');
+    await editor.press('ArrowLeft');
+    await settleSelection();
+    await editor.evaluate((el, clipboard) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', clipboard.text);
+      if (clipboard.html) data.setData('text/html', clipboard.html);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, clipboard);
+    assert.equal(await editor.locator(clipboard.selector).count(), 1, 'structural clipboard content retains its block');
+    assert.doesNotMatch(await editor.locator(clipboard.selector).innerText(), /前文|后文/);
+  }
+  await reset();
   await editor.pressSequentially('1. first');
   await editor.press('Shift+Enter');
   await editor.pressSequentially('second');
@@ -310,5 +412,5 @@ try {
   await page.getByRole('button', { name: '发送', exact: true }).click();
   assert.equal(await page.evaluate(() => window.smoke.sent.at(-1)), 'button send', 'send button is unchanged');
   assert.deepEqual(errors, []);
-  console.log('PASS: lists/indentation/tasks/headings/quotes/links/tables, Markdown typing/send/history, shortcuts, code Enter/indentation, HTML paste, Markdown+HTML copy, rich editing, citation text, chip delete/undo, IME confirmation and plain paste');
+  console.log('PASS: lists/indentation/tasks/headings/quotes/links/tables, Markdown typing/send/history, shortcuts, code Enter/indentation, inline clipboard paste/cursor/selection/newlines, HTML paste, Markdown+HTML copy, rich editing, citation text, chip delete/undo, IME confirmation and plain paste');
 } finally { await browser.close(); }

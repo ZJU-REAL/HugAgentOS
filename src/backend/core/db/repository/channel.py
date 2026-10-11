@@ -6,15 +6,14 @@ See internal design docs.
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.db.models import ChannelConnection
+from core.infra.time import utc_now
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
-
-from core.db.models import ChannelConnection
 
 
 class ChannelConnectionRepository:
@@ -86,8 +85,29 @@ class ChannelConnectionRepository:
         return item
 
     def set_status(
-        self, channel_id: str, status: str, *, last_error: Optional[str] = None
+        self,
+        channel_id: str,
+        status: str,
+        *,
+        last_error: Optional[str] = None,
+        only_active: bool = False,
     ) -> None:
+        if only_active:
+            # Worker callbacks may arrive after a concurrent disable/delete.
+            values = {"status": status, "last_error": None if status == "connected" else last_error}
+            query = self.db.query(ChannelConnection).filter(
+                ChannelConnection.channel_id == channel_id,
+                ChannelConnection.enabled.is_(True),
+                ChannelConnection.status != "disconnected",
+            )
+            if status == "connected":
+                query = query.filter(
+                    (ChannelConnection.status != "connected")
+                    | ChannelConnection.last_error.isnot(None)
+                )
+            query.update(values, synchronize_session=False)
+            self.db.commit()
+            return
         item = self.get_by_id(channel_id)
         if not item:
             return

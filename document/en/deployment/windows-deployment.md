@@ -528,3 +528,19 @@ The updated QR dialog polls sequentially and ignores UI results from closed or r
 attempts. Authorization failures, scan failures and expired codes stop loading and offer Retry.
 Credential binding failures refresh the bot list. If an error bot was retained, inspect its
 error and delete that failed entry before binding the same application again.
+
+## Sidebar layout
+
+Choose Classic or Modern under Settings → Session settings → Sidebar layout. Modern is the default.
+Classic puts text navigation, capability categories, projects and conversation history in one sidebar.
+Modern keeps the icon rail and module sidebar.
+
+Selecting a card changes only the pending choice. Apply asks to reload the web page or restart the desktop client.
+Cancel does not save or switch the layout. Save unfinished edits before confirming.
+Desktop restart closes all windows and can interrupt tasks running locally.
+Both web and desktop save the choice in the authenticated user’s database preferences, without browser or native preference storage.
+After confirmation, saving must succeed before reload or restart. Signing in again or using a new browser restores the same user’s layout.
+A failed load offers Retry. A failed save preserves the current layout and shows an error.
+Both layouts share conversations, projects, feature permissions and configured navigation entries.
+
+Rebuild and distribute desktop packages to deliver this change. Updating the website does not update installed clients.

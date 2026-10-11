@@ -18,12 +18,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 _MAX_BACKOFF = 60.0
+_RECONCILE_SECONDS = 3.0
 
 
 class _Worker:
@@ -45,29 +45,52 @@ class ChannelManager:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._workers: Dict[str, _Worker] = {}
         self._lock = threading.Lock()
+        self._reconcile_task: Optional[asyncio.Task] = None
 
     # ── Startup / shutdown ──────────────────────────────────────────────
     async def start_all(self) -> None:
         """Call on the main event loop: capture the loop, scan enabled long connections and start each."""
         self._loop = asyncio.get_running_loop()
+        await self._reconcile_connections()
+        self._reconcile_task = asyncio.create_task(self._reconcile_loop())
+
+    async def _reconcile_connections(self) -> None:
+        # The elected process alone runs this loop. HTTP workers persist desired
+        # state; they must not start competing receivers or rely on process memory.
         from core.db.engine import SessionLocal
         from core.db.repository.channel import ChannelConnectionRepository
 
         with SessionLocal() as db:
-            rows = ChannelConnectionRepository(db).list_active()
-            specs = [
-                (r.channel_id, r.channel_type, r.transport)
-                for r in rows
+            specs = {
+                r.channel_id: r.channel_type
+                for r in ChannelConnectionRepository(db).list_active()
                 if r.transport == "long_conn"
-            ]
-        for channel_id, channel_type, _ in specs:
-            self.start_connection(channel_id, channel_type)
-        if specs:
-            logger.info("[channels] 已拉起 %d 条长连接", len(specs))
+            }
+        with self._lock:
+            current = set(self._workers)
+        for channel_id in current - specs.keys():
+            self.stop_connection(channel_id)
+        for channel_id, channel_type in specs.items():
+            if channel_id not in current:
+                self._set_status(channel_id, "pending")
+                self.start_connection(channel_id, channel_type)
+
+    async def _reconcile_loop(self) -> None:
+        while True:
+            await asyncio.sleep(_RECONCILE_SECONDS)
+            try:
+                await self._reconcile_connections()
+            except Exception:  # one DB outage must not permanently stop discovery
+                logger.warning("[channels] connection reconciliation failed", exc_info=True)
 
     def shutdown(self) -> None:
+        self._loop = None
+        if self._reconcile_task is not None:
+            self._reconcile_task.cancel()
+            self._reconcile_task = None
         with self._lock:
             workers = list(self._workers.values())
+            self._workers.clear()
         for w in workers:
             w.stop_flag.set()
             self._safe_disconnect(w)
@@ -75,7 +98,7 @@ class ChannelManager:
     # ── Bind / unbind a single connection (at runtime, no restart needed) ──
     def start_connection(self, channel_id: str, channel_type: str) -> None:
         if self._loop is None:
-            logger.warning("[channels] manager 未初始化，跳过 %s", channel_id)
+            logger.debug("[channels] channel will be reconciled by receiver owner: %s", channel_id)
             return
         with self._lock:
             if channel_id in self._workers:
@@ -133,6 +156,8 @@ class ChannelManager:
                 # A failure raises → falls through to the backoff retry below (credentials
                 # may recover later, unlike an unrecoverable construction failure).
                 self._verify_credentials(adapter, conn)
+                if worker.stop_flag.is_set():
+                    break
                 client = self._build_client(worker, adapter, conn)
                 if client is None:
                     self._set_status(worker.channel_id, "error", "适配器/SDK 不可用")
@@ -142,18 +167,31 @@ class ChannelManager:
                 prepare = getattr(adapter, "prepare_ws_thread", None)
                 if prepare is not None:
                     prepare(thread_loop)
-                self._set_status(worker.channel_id, "connected")
-                backoff = 1.0
+                status_handler = getattr(client, "set_status_handler", None)
+                if callable(status_handler):
+
+                    def mark_connected():
+                        nonlocal backoff
+                        if not worker.stop_flag.is_set():
+                            self._set_status(worker.channel_id, "connected")
+                            backoff = 1.0
+
+                    status_handler(mark_connected)
+                else:
+                    self._set_status(worker.channel_id, "connected")
+                    backoff = 1.0
                 client.start()  # blocking: SDK maintains the connection internally + auto-reconnects
             except Exception as exc:  # noqa: BLE001
                 if worker.stop_flag.is_set():
                     break
                 logger.warning(
                     "[channels] 长连接断开 channel_id=%s，%.0fs 后重试: %s",
-                    worker.channel_id, backoff, exc,
+                    worker.channel_id,
+                    backoff,
+                    exc,
                 )
                 self._set_status(worker.channel_id, "error", str(exc)[:480])
-                time.sleep(backoff)
+                worker.stop_flag.wait(backoff)
                 backoff = min(backoff * 2, _MAX_BACKOFF)
             finally:
                 # Close this round's loop (a successful start blocks above and never gets here;
@@ -181,9 +219,13 @@ class ChannelManager:
         if make_ws is None:
             return None
         try:
-            return make_ws(conn, self._dispatch_factory(worker.channel_id))
-        except Exception as exc:  # noqa: BLE001 — construction failure (missing SDK, etc.) = unrecoverable, stop retrying
-            logger.warning("[channels] 长连接 client 构造失败，停止重试 %s: %s", worker.channel_id, exc)
+            return make_ws(conn, self._dispatch_factory(worker))
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — construction failure (missing SDK, etc.) = unrecoverable, stop retrying
+            logger.warning(
+                "[channels] 长连接 client 构造失败，停止重试 %s: %s", worker.channel_id, exc
+            )
             return None
 
     def _verify_credentials(self, adapter, conn) -> None:
@@ -194,19 +236,17 @@ class ChannelManager:
         ``_loop`` is guaranteed by start_connection to be ready before the thread is
         started, so no extra None check is needed.
         """
-        fut = asyncio.run_coroutine_threadsafe(
-            adapter.validate_credentials(conn), self._loop
-        )
+        fut = asyncio.run_coroutine_threadsafe(adapter.validate_credentials(conn), self._loop)
         fut.result(timeout=15)
 
-    def _dispatch_factory(self, channel_id: str):
+    def _dispatch_factory(self, worker: _Worker):
         """Return a synchronous callback that delivers InboundMsg to handle_inbound on the main loop."""
         from core.channels.inbound import handle_inbound
 
         loop = self._loop
 
         def _dispatch(inbound) -> None:
-            if loop is None or loop.is_closed():
+            if worker.stop_flag.is_set() or loop is None or loop.is_closed():
                 return
             asyncio.run_coroutine_threadsafe(handle_inbound(inbound), loop)
 
@@ -252,7 +292,7 @@ class ChannelManager:
         try:
             with SessionLocal() as db:
                 ChannelConnectionRepository(db).set_status(
-                    channel_id, status, last_error=last_error
+                    channel_id, status, last_error=last_error, only_active=True
                 )
         except Exception:  # noqa: BLE001
             logger.debug("[channels] 状态回写失败 %s", channel_id, exc_info=True)

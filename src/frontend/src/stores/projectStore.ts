@@ -171,6 +171,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
       chat.bindChatProject(chat.currentChatId, projectId, project.name);
       chat.setCurrentChatId(chat.currentChatId);
     }
+    useChatStore.setState({ projectOverviewChatId: useChatStore.getState().currentChatId });
     chat.setToolResultPanel(null);
   },
 

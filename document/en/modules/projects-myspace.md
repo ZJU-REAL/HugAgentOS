@@ -52,16 +52,18 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 
 ### Project conversations and scheduled tasks
 
-The project new-conversation page lists project history below the shared composer. Team projects can filter all, owned, or shared conversations. Selecting a record opens the shared conversation UI and highlights only the conversation, not its parent project. Scheduled runs remain available through the task rail.
+The project overview, opened from a project card or **Open in project panel**, lists project history below the shared composer. Team projects can filter all, owned, or shared conversations. Selecting a record opens the shared conversation UI and highlights only the conversation, not its parent project. Scheduled runs remain available through the task rail.
 
 Selecting a project binds the shared conversation interface. Projects use the main composer, attachment pipeline, modes, and chat history. Switching projects preserves unsent conversation drafts without rebinding existing conversations from other projects.
 
-The conversation takes the main width. A 360–440 px resource rail shows project memory, scheduled tasks, instructions, and files only on the project new-conversation page. Sending the first message or opening history hides the project overview header and resource rail and restores the ordinary conversation layout. Instructions have a compact scrollable preview and a full editor. Narrow windows expose the rail through the Project Resources button.
+The conversation takes the main width. A 360–440 px resource rail shows project memory, scheduled tasks, instructions, and files only when the project overview is explicitly opened. Sending the first message or opening history hides the project overview header and resource rail and restores the ordinary conversation layout. Instructions have a compact scrollable preview and a full editor. Narrow windows expose the rail through the Project Resources button.
 
 Scheduled tasks are filtered by the selected project and execution location. Each task has one conversation entry. Clicking it retrieves the latest run again; tasks with no runs show an empty state without starting execution. The settings button opens the existing task management page. Earlier runs remain available in task history.
 
 ### Page loading
 While page code loads, the project list shows skeletons for the heading, actions, search field, and project cards. The first data request uses the same card skeletons; refreshing an existing list keeps its content visible. Selecting a project opens the shared conversation interface and loads project resources separately. Skeletons adapt to narrow screens and dark themes, and freeze the shimmer when the system requests reduced motion.
+
+In the project overview, the model and thinking-effort menu always opens downward. Its height is limited to the space below the trigger; longer lists do not flip it upward. The ordinary bottom composer chooses its direction from available space. Long lists scroll inside the menu. Resizing, viewport zoom and scrolling recalculate the bounds for all model and effort options.
 
 ### How project context enters a conversation
 
@@ -80,8 +82,8 @@ The left sidebar groups each project with its conversations and provides these
 shortcuts on the project row:
 
 - Select the project name area to expand or collapse its conversation list.
-- Select the new-chat button to open a blank conversation already bound to the
-  project.
+- Select the new-chat button to open a blank conversation in the normal chat layout
+  with the project selected. The overview header, project history and resource rail stay hidden.
 - Open the more-actions menu to pin the project, open it in the project panel,
   or remove it. Pinning and removal require project-admin access. Removal soft
   deletes the project, and existing conversations return to the regular chat

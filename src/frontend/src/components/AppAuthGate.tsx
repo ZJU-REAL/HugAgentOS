@@ -1,4 +1,5 @@
 import { Modal } from 'antd';
+import { SidebarLayoutGate } from './SidebarLayoutGate';
 import type { ReactNode } from 'react';
 import { useDelayedFlag } from '../hooks/useDelayedFlag';
 import { t } from '../i18n';
@@ -57,5 +58,5 @@ export function AppAuthGate({ children }: { children: ReactNode }) {
     return <CapabilitySyncGate />;
   }
 
-  return children;
+  return <SidebarLayoutGate userId={authUser.user_id}>{children}</SidebarLayoutGate>;
 }

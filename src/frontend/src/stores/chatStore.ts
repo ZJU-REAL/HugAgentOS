@@ -38,9 +38,10 @@ export function isAddressableChat(chatId: string): boolean {
     || (s.store.order || []).includes(chatId)
     || (s.store.chats[chatId]?.messages?.length ?? 0) > 0;
 }
-/** Only an unsent project conversation is the project overview. */
+/** Only an explicitly opened, unsent project overview displays project resources. */
 export function projectOverviewId(chat: { id: string; projectId?: string } | undefined): string | undefined {
-  return chat?.projectId && !isAddressableChat(chat.id) ? chat.projectId : undefined;
+  return chat?.projectId && useChatStore.getState().projectOverviewChatId === chat.id
+    && !isAddressableChat(chat.id) ? chat.projectId : undefined;
 }
 export const useChatStore = create<ChatState>((set,get)=> {
 

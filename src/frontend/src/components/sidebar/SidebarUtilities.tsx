@@ -8,13 +8,16 @@ import { DesktopUpdateEntry } from '../../desktop/DesktopUpdateEntry';
 import { useDesktopUpdateStatus } from '../../desktop/useDesktopUpdateStatus';
 import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
 import { FeedbackModal } from '../../feedbackEdition';
-import { usePageConfig } from '../../hooks/usePageConfig';
+import { usePageConfig, usePageConfigAll } from '../../hooks/usePageConfig';
+import { abilitySlug } from '../../routing/subPages';
+import { DEFAULT_MENU_ITEMS } from '../../utils/pageConfigDefaults';
+import { LAYOUT_ITEMS } from './items';
 import { t } from '../../i18n';
 import { useAuthStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import type { SidebarProps } from './sidebarTypes';
-export function SidebarUtilities({ onSetPanel }: Pick<SidebarProps, 'onSetPanel'>) {
+export function SidebarUtilities({ onSetPanel, classic = false, expanded = false }: Pick<SidebarProps, 'onSetPanel'> & { classic?: boolean; expanded?: boolean }) {
   const { authUser, doLogout, loggingOut } = useAuthStore();
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -23,9 +26,24 @@ export function SidebarUtilities({ onSetPanel }: Pick<SidebarProps, 'onSetPanel'
   const cfgLogoutTitle = usePageConfig('texts.dialog_logout_confirm_title', '确认退出登录？');
   const cfgLogoutContent = usePageConfig('texts.dialog_logout_confirm_content', '退出登录不会丢失任何数据，你仍可以登录此账号。');
   const cfgLogoutOk = usePageConfig('texts.dialog_logout_confirm_ok', '退出登录');
+  const mode = useDeploymentModeStore(s => s.provisionMode);
+  const config = usePageConfigAll();
+  const configuredMenu = usePageConfig<string[]>('navigation.menu_items', DEFAULT_MENU_ITEMS);
+  const extraMenu = classic ? [...new Set(configuredMenu)].filter(key => key !== 'settings' && LAYOUT_ITEMS[key]
+    && (!LAYOUT_ITEMS[key].requiresLab || authUser?.lab_enabled !== false)
+    && !(key === 'my_space' && mode === 'local_only')) : [];
   const footerSettingsMenu: MenuProps = {
     items: [
       { key: 'settings', label: t('设置'), onClick: () => onSetPanel('settings') },
+      ...extraMenu.map(key => ({ key, label: LAYOUT_ITEMS[key].label,
+        icon: <img src={LAYOUT_ITEMS[key].icon} alt="" style={{ width: 16, height: 16 }} />,
+        ...(LAYOUT_ITEMS[key].children?.length ? {
+          children: LAYOUT_ITEMS[key].children!.map(child => ({
+            key: `classic-menu-${child.key}`,
+            label: t(config.navigation.panel_titles[child.key] || child.label),
+            onClick: () => onSetPanel(LAYOUT_ITEMS[key].targetPanel, abilitySlug(child.key)),
+          })),
+        } : { onClick: () => onSetPanel(LAYOUT_ITEMS[key].targetPanel) }) })),
       ...(!IS_COMMUNITY_EDITION_BUILD && (authUser?.can_system_config || authUser?.can_content_manage)
         ? [{ type: 'divider' as const }]
         : []),
@@ -109,7 +127,7 @@ export function SidebarUtilities({ onSetPanel }: Pick<SidebarProps, 'onSetPanel'
   };
 
   return <>
-    <div className="jx-miniRailFooter">
+    <div className={expanded ? 'jx-classicFooter' : 'jx-miniRailFooter'}>
       <CapabilitySyncEntry className="jx-miniRailBtn" />
       <DesktopUpdateEntry status={desktopUpdateStatus} className="jx-miniRailBtn">
         <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
@@ -122,8 +140,9 @@ export function SidebarUtilities({ onSetPanel }: Pick<SidebarProps, 'onSetPanel'
       </DesktopUpdateEntry>
       <Dropdown open={footerMenuOpen} onOpenChange={setFooterMenuOpen} menu={footerSettingsMenu} trigger={['click']} placement="topLeft" overlayClassName="jx-settingsMenu">
         <Tooltip title={authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')} placement="right">
-          <button type="button" className="jx-miniRailBtn jx-miniRailAvatarBtn" aria-label={t('用户菜单')}>
+          <button type="button" className={expanded ? 'jx-classicUser' : 'jx-miniRailBtn jx-miniRailAvatarBtn'} aria-label={t('用户菜单')}>
             <img src={resolveAvatarUrl(authUser?.avatar_url)} alt="" className="jx-miniRailAvatar" />
+            {expanded && <span>{authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')}</span>}
           </button>
         </Tooltip>
       </Dropdown>

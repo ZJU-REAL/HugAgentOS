@@ -1,0 +1,34 @@
+
+.jx-classicShell .ant-layout-sider-children{height:100%;overflow:hidden;background:var(--module-sidebar-bg);}
+.jx-classicInner{height:100%;display:flex;flex-direction:column;padding:16px;min-height:0;border-right:1px solid var(--module-border);}
+.jx-classicBrand{display:flex;align-items:center;gap:6px;margin-bottom:18px;min-height:42px;}
+.jx-classicHome{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:0;border:0;background:transparent;color:var(--color-text);text-align:left;cursor:pointer;}
+.jx-classicLogo{width:30px;height:30px;object-fit:contain;flex:none;}
+.jx-classicHome > span{min-width:0;}
+.jx-classicHome strong{display:block;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.jx-classicHome small{display:block;font-size:10px;line-height:1.5;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.jx-classicBrand :is(.jx-searchBtn,.jx-collapseBtn) img{width:20px;height:20px;}
+.jx-classicNav{display:flex;flex-direction:column;gap:2px;margin-bottom:12px;}
+.jx-classicNav .jx-navItem{width:100%;}
+.jx-classicSubList{display:flex;flex-direction:column;margin-left:28px;gap:2px;}
+.jx-classicSubItem{min-height:30px;width:100%;text-align:left;border:0;background:transparent;color:var(--color-text-secondary);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:13px;}
+.jx-classicShell :is(.jx-navItem,.jx-classicSubItem).active{background:var(--module-nav-selected);color:var(--module-nav-selected-text);}
+.jx-classicSubItem:hover{background:var(--module-nav-hover);}
+.jx-classicShell .jx-sidebarScrollArea::-webkit-scrollbar-thumb{background:var(--color-border);}
+.jx-classicFooter{display:flex;align-items:center;gap:2px;flex:none;margin-top:12px;}
+.jx-classicFooter > .jx-miniRailBtn{width:30px;height:36px;}
+.jx-classicFooter > .jx-miniRailBtn img{width:18px;height:18px;}
+.jx-classicFooter .jx-classicUser{order:-1;display:flex;align-items:center;gap:8px;flex:1;min-width:0;border:0;padding:4px;background:transparent;color:var(--color-text);cursor:pointer;border-radius:8px;}
+.jx-classicUser span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}
+.jx-classicMini{height:100%;display:flex;flex-direction:column;align-items:center;padding:16px 6px;gap:6px;overflow-y:auto;}
+.jx-classicShell button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;}
+:root[data-theme='dark'] .jx-classicShell img:not(.jx-classicLogo):not(.jx-miniRailAvatar){filter:brightness(0) invert(1);}
+@media(max-width:960px){
+  .jx-appShell > .jx-classicShell.ant-layout-sider{width:min(280px,calc(100vw - 32px))!important;max-width:min(280px,calc(100vw - 32px))!important;}
+  .jx-classicShell--collapsed .jx-classicMini{display:none;}
+  .jx-classicNav :is(.jx-navItem,.jx-classicSubItem){min-height:44px;}
+}
+
+.jx-classicInner .jx-taskSidebar{flex:none;margin-bottom:12px;}
+.jx-classicInner .jx-taskSidebar > .jx-sidebarScrollArea{flex:none;overflow:visible;}
+.jx-classicInner .jx-spaceNavigation{overflow:visible;margin-bottom:12px;}

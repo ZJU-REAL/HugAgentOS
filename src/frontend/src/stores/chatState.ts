@@ -30,6 +30,8 @@ export interface ChatState {
   storeRef: ChatStoreData;
   /** Currently active chat id */
   currentChatId: string;
+  /** Explicit project overview entry; ordinary project drafts stay in chat layout. */
+  projectOverviewChatId: string | null;
   /** Whether the *current* chat is streaming (derived from sendingChatIds) */
   sending: boolean;
   /** Set of chat IDs that are currently streaming responses.

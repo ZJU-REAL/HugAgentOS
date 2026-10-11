@@ -540,6 +540,11 @@ Cloud services continue to handle channel ingress, credentials and message deliv
 Local execution is not fully offline: models and configured cloud tools still use their
 services, and replies and returned files pass through the cloud and channel platform.
 
+WeChat QR confirmation saves the binding. The list shows Connecting until the first valid receive response.
+Credential tests check both HTTP status and WeChat business error codes. A successful test validates
+credentials only; it does not change long-connection health. In multi-worker deployments, the elected
+receiver reconciles bindings about every three seconds. Adding, disabling or deleting a bot requires no restart.
+
 ### Subagent execution details
 
 Subagent invocation rows show a status indicator, the agent avatar, its name and elapsed time. Clicking the row opens that invocation in a dedicated right-side Canvas tab instead of expanding its process beneath the message. The running animation is separate from the avatar. Ordinary tools retain their existing expand/collapse behavior.
@@ -569,6 +574,6 @@ Chat keeps one input box without an additional formatting toolbar. Completed Mar
 
 Shortcuts include Ctrl+B for bold, Ctrl+I for italic, Ctrl+E for inline code, Ctrl+Shift+S for strike-through, Ctrl+Shift+7/8 for ordered/bullet lists, Ctrl+Alt+C for code blocks, Ctrl+Z for undo, and Ctrl+Shift+Z or Ctrl+Y for redo. Use the corresponding Command shortcuts on macOS.
 
-Pasting Markdown or formatted HTML preserves common structures; Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
+Pasting Markdown or formatted HTML preserves common structures. A single paragraph joins the current line at the cursor without extra line breaks or blank lines; original line breaks and multiple paragraphs remain. Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
 
 Shift+Enter continues list/task items; an empty item exits the list. Headings continue as paragraphs and blockquotes continue or exit. Tab/Shift+Tab indent/outdent list items. Tab in the last table cell adds a row. Type pipe table header and delimiter lines followed by Shift+Enter to create a table. Task markers [ ] / [x] followed by a space and Markdown links [text](URL) convert while typing. Standard task-list Markdown also works when pasted or edited.

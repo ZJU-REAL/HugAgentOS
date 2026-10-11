@@ -108,7 +108,7 @@ See [Sandbox](sandbox.md).
 
 `/v1/admin/usage-logs` (`api/routes/v1/admin_usage_logs.py`, `CONFIG_TOKEN`): per-user agent call log queries (token usage, model, error status), summary statistics, distinct model names.
 
-Desktop dual mode preserves the execution target per conversation across ordinary chat, plan generation and execution, autonomous loops, continuation, and cancellation. Local tasks may call models through the cloud gateway while keeping conversations and task logs on the device. Opening cloud `/config` in a browser queries cloud records only; use desktop call logs for local tasks. The execution label does not indicate where the model is hosted, and local conversations are not automatically uploaded.
+Desktop dual mode preserves each conversation's execution target for chat, plans, autonomous loops, continuation, and cancellation. Local tasks may use models through the cloud gateway. Devices synchronize read-only management copies in the background. Cloud `/config` uses one list per skill, agent, conversation, tool, and model log module, combining cloud records with received local records. Runtime labels distinguish Local and Cloud. Each list shares filtering, ordering, and pagination; there is no separate desktop list, task-source selector, or device-sync panel. Received records remain available while devices are offline. Runtime identifies task execution, not model hosting.
 
 > Community Edition users can view their own token usage; organization-wide reports / pricing / cost export are Enterprise Edition.
 

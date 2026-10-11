@@ -50,3 +50,12 @@
     height:calc(100dvh - var(--hugagent-desktop-titlebar-height))!important;
   }
 }
+
+/* Classic navigation keeps its single sidebar beneath the same native safe area. */
+:root[data-desktop-platform] .jx-classicShell .ant-layout-sider-children{border-top-left-radius:var(--radius-md);}
+@media(max-width:960px){
+  :root[data-desktop-platform] .jx-appShell > .jx-classicShell.ant-layout-sider{
+    top:var(--hugagent-desktop-titlebar-height);
+    height:calc(100dvh - var(--hugagent-desktop-titlebar-height))!important;
+  }
+}

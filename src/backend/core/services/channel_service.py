@@ -245,6 +245,7 @@ class ChannelService:
         group_listen_mode: Optional[str] = None,
     ) -> ChannelConnection:
         conn = self._owned(channel_id, owner_id)
+        was_enabled = conn.enabled
         patch: Dict[str, Any] = {}
         if group_listen_mode is not None:
             patch["group_listen_mode"] = _validate_group_listen(
@@ -262,9 +263,10 @@ class ChannelService:
         if patch:
             self.repo.update(channel_id, patch)
         # An enabled change also toggles the long connection
-        if enabled is not None and conn.transport == "long_conn":
+        if enabled is not None and enabled != was_enabled and conn.transport == "long_conn":
             mgr = _manager()
             if enabled:
+                self.repo.set_status(channel_id, "pending")
                 mgr.start_connection(channel_id, conn.channel_type)
             else:
                 mgr.stop_connection(channel_id)
@@ -286,11 +288,10 @@ class ChannelService:
         except Exception as exc:  # noqa: BLE001
             self.repo.set_status(channel_id, "error", last_error=str(exc)[:480])
             raise BadRequestError(f"凭据校验失败：{exc}")
-        # Passing validation counts as healthy: webhook has no persistent connection, and the
-        # long connection's credentials are valid at this moment — uniformly set connected
-        # (the test is a trusted, user-initiated health signal; don't leave the long
-        # connection stuck on stale pending/error)
-        self.repo.set_status(channel_id, "connected")
+        # Credentials and receiver health are separate. Only the receiver can prove
+        # that a long connection is running; an HTTP worker may not own that receiver.
+        if conn.enabled and conn.transport == "webhook":
+            self.repo.set_status(channel_id, "connected")
         return {"ok": True}
 
     # ── WeChat QR-code binding (for qr-mode channels, no credential form) ─
@@ -372,7 +373,7 @@ class ChannelService:
             "config": config,
             "resource_scope": None,
             "agent_id": ctx.get("agent_id"),
-            "status": "connected",
+            "status": "pending",
             "enabled": True,
         })
         self._start_long_conn(channel_id, "weixin")
