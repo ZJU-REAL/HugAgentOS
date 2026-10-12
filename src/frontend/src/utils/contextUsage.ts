@@ -1,9 +1,9 @@
+export { parseContextUsageSnapshot, parseContextCompactionState } from './contextUsageSnapshot';
 import { t } from '../i18n';
 import type {
   ChatMessage,
   ContextCompactionState,
   ContextUsageSnapshot,
-  ContextUsageSource,
   ToolCall,
 } from '../types';
 
@@ -234,8 +234,8 @@ function tokensForMessage(m: ChatMessage): MsgTokens {
   if (cached) return cached;
 
   let tools = 0;
-  let thinking = 0;
-  let files = 0;
+  const thinking = 0;
+  const files = 0;
   const messages = estimateTokens(m.content || '');
   if (m.toolCalls) {
     for (const tc of m.toolCalls) tools += tokensForToolCall(tc);
@@ -265,113 +265,6 @@ export interface BreakdownOptions {
   systemTokens?: number;
   /** Latest server-side compaction checkpoint, when this chat was compacted. */
   compaction?: ContextCompactionState | null;
-}
-
-const CONTEXT_USAGE_SOURCES: ContextUsageSource[] = [
-  'provider',
-  'backend_estimate',
-  'compaction_estimate',
-];
-
-/** Parse and validate the snake_case snapshot returned by API/SSE. */
-export function parseContextUsageSnapshot(value: unknown): ContextUsageSnapshot | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (raw.schema_version !== 'context-usage.v2') return null;
-  const source = typeof raw.source === 'string' && CONTEXT_USAGE_SOURCES.includes(raw.source as ContextUsageSource)
-    ? raw.source as ContextUsageSource
-    : null;
-  const usedTokens = Number(raw.used_tokens);
-  const promptTokens = Number(raw.prompt_tokens);
-  const completionTokens = Number(raw.completion_tokens);
-  const contextWindow = Number(raw.context_window);
-  const modelCallIndex = Number(raw.model_call_index ?? 0);
-  const rawBreakdown = raw.breakdown;
-  if (
-    !source
-    || !Number.isFinite(usedTokens) || usedTokens < 0
-    || !Number.isFinite(promptTokens) || promptTokens < 0
-    || !Number.isFinite(completionTokens) || completionTokens < 0
-    || !Number.isFinite(contextWindow) || contextWindow < 0
-    || !Number.isFinite(modelCallIndex) || modelCallIndex < 0
-    || !rawBreakdown || typeof rawBreakdown !== 'object'
-  ) return null;
-
-  const b = rawBreakdown as Record<string, unknown>;
-  const breakdown: ContextBreakdown = {
-    messages: Number(b.messages),
-    tools: Number(b.tools),
-    thinking: Number(b.thinking),
-    files: Number(b.files),
-    system: Number(b.system),
-    input: Number(b.input),
-    total: 0,
-  };
-  const values = [
-    usedTokens,
-    promptTokens,
-    completionTokens,
-    contextWindow,
-    modelCallIndex,
-    breakdown.messages,
-    breakdown.tools,
-    breakdown.thinking,
-    breakdown.files,
-    breakdown.system,
-    breakdown.input,
-  ];
-  if (values.some((n) => !Number.isSafeInteger(n) || n < 0)) return null;
-  const categoryValues = values.slice(5);
-  breakdown.total = categoryValues.reduce((sum, n) => sum + n, 0);
-  if (breakdown.total !== usedTokens || promptTokens + completionTokens !== usedTokens) return null;
-
-  return {
-    source,
-    exact: raw.exact === true && source === 'provider',
-    usedTokens: Math.floor(usedTokens),
-    promptTokens: Math.floor(promptTokens),
-    completionTokens: Math.floor(completionTokens),
-    contextWindow: Math.floor(contextWindow),
-    modelName: typeof raw.model_name === 'string' ? raw.model_name : undefined,
-    modelProviderId: typeof raw.model_provider_id === 'string' ? raw.model_provider_id : undefined,
-    modelCallIndex: Math.floor(modelCallIndex),
-    breakdown: {
-      ...breakdown,
-      total: Math.floor(breakdown.total),
-    },
-  };
-}
-
-/** Parse the snake_case checkpoint projection returned by the API/SSE. */
-export function parseContextCompactionState(value: unknown): ContextCompactionState | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  const checkpointId = typeof raw.checkpoint_id === 'string' ? raw.checkpoint_id : '';
-  const checkpointCreatedAt = typeof raw.checkpoint_created_at === 'string'
-    ? Date.parse(raw.checkpoint_created_at)
-    : Number.NaN;
-  const coveredMessageCount = Number(raw.covered_message_count);
-  const replacementTokens = Number(raw.replacement_tokens);
-  const contextUsage = parseContextUsageSnapshot(raw.context_usage);
-  if (
-    !checkpointId
-    || !Number.isFinite(coveredMessageCount)
-    || coveredMessageCount < 0
-    || !Number.isFinite(replacementTokens)
-    || replacementTokens < 0
-  ) {
-    return null;
-  }
-  return {
-    checkpointId,
-    checkpointTs: Number.isNaN(checkpointCreatedAt) ? 0 : checkpointCreatedAt,
-    coveredThroughMessageId: typeof raw.covered_through_message_id === 'string'
-      ? raw.covered_through_message_id
-      : undefined,
-    coveredMessageCount: Math.floor(coveredMessageCount),
-    replacementTokens: Math.floor(replacementTokens),
-    ...(contextUsage ? { contextUsage } : {}),
-  };
 }
 
 /** Distinguish a newly committed checkpoint from an older polling baseline. */

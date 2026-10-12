@@ -301,7 +301,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     async def fake_summary(history, *, timeout):
         return "plugin-aware summary"
 
-    monkeypatch.setattr(compaction, "_summarize", fake_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
     with ppl_env.Session() as db:
         # Keep a real older turn beyond the protected verbatim tail.
         ChatService(db).add_message(CHAT, "user", "earlier context " * 20000)

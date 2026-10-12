@@ -1,4 +1,3 @@
-
 #[test]
 fn update_attempts_preserve_offer_on_cancel_or_error_and_allow_retry() {
     use super::*;
@@ -52,7 +51,7 @@ fn native_update_progress_window_loads_and_renders() {
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         if done_rx
-            .recv_timeout(std::time::Duration::from_secs(40))
+            .recv_timeout(std::time::Duration::from_secs(60))
             .is_err()
         {
             eprintln!("FAIL: update progress test exceeded its native event-loop budget");
@@ -85,11 +84,43 @@ fn native_update_progress_window_loads_and_renders() {
                     });
                     let check = (|| -> Result<(), String> {
                         let window = build_progress_window(&app, port)?;
-                        window.eval(
-                            "window.__set(42,4.2,10);                              if(document.getElementById('p').textContent==='42%' &&                                 typeof window.__done==='function' && typeof window.__fail==='function')                              fetch('/rendered');"
-                        ).map_err(|error| error.to_string())?;
-                        let result = rendered_rx.recv_timeout(std::time::Duration::from_secs(10))
-                            .map_err(|_| "Progress JavaScript did not render the download percentage".to_string());
+                        let result = (|| -> Result<(), String> {
+                            if window.is_always_on_top().map_err(|e| e.to_string())?
+                                || !window.is_minimizable().map_err(|e| e.to_string())?
+                            {
+                                return Err("Update progress must be minimizable and not always on top".into());
+                            }
+                            let wait_minimized = |expected| -> Result<(), String> {
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                                loop {
+                                    if window.is_minimized().map_err(|e| e.to_string())? == expected {
+                                        return Ok(());
+                                    }
+                                    if std::time::Instant::now() >= deadline {
+                                        return Err(format!("Window did not reach minimized={expected}"));
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(20));
+                                }
+                            };
+                            window.minimize().map_err(|e| e.to_string())?;
+                            wait_minimized(true)?;
+                            window.eval(
+                                "window.__set(42,4.2,10); if(document.getElementById('p').textContent==='42%') fetch('/rendered');"
+                            ).map_err(|e| e.to_string())?;
+                            rendered_rx.recv_timeout(std::time::Duration::from_secs(10))
+                                .map_err(|_| "Progress did not update while minimized".to_string())?;
+                            if !window.is_minimized().map_err(|e| e.to_string())? {
+                                return Err("Progress update restored the window".into());
+                            }
+                            window.unminimize().map_err(|e| e.to_string())?;
+                            wait_minimized(false)?;
+                            window.eval(
+                                "if(document.getElementById('p').textContent==='42%' && document.getElementById('s').textContent==='4.2 / 10.0 MB' && typeof window.__done==='function' && typeof window.__fail==='function') fetch('/rendered');"
+                            ).map_err(|e| e.to_string())?;
+                            rendered_rx.recv_timeout(std::time::Duration::from_secs(10))
+                                .map_err(|_| "Restored window lost the current progress".to_string())?;
+                            Ok(())
+                        })();
                         let _ = window.close();
                         result
                     })();

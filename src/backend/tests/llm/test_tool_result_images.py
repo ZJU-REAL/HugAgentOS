@@ -186,7 +186,6 @@ async def test_large_image_does_not_trigger_false_context_compaction(
 ):
     import core.config.settings as settings_module
     from core.config.settings import settings
-    from core.services import compaction_service
 
     buffer = io.BytesIO()
     Image.frombytes("RGB", (512, 512), random.Random(1).randbytes(512 * 512 * 3)).save(
@@ -208,7 +207,7 @@ async def test_large_image_does_not_trigger_false_context_compaction(
         "settings",
         replace(settings, compaction=replace(settings.compaction, enabled=compaction_enabled)),
     )
-    monkeypatch.setattr(compaction_service, "_summarize", unexpected_summary)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", unexpected_summary)
     monkeypatch.setattr("core.llm.tools.read_image_tool._read_path_bytes", read_bytes)
     model = CaptureModel()
     monkeypatch.setattr(model, "generate_structured_output", unexpected_summary)
@@ -228,7 +227,7 @@ async def test_large_image_does_not_trigger_false_context_compaction(
 
 def test_history_estimate_and_summary_do_not_treat_image_as_text():
     from core.llm import compaction as C
-    from core.services.compaction_service import estimate_history_tokens
+    from core.services.compaction_budget import estimate_history_tokens
 
     encoded = "A" * 800_000
     history = [

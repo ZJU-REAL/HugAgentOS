@@ -86,8 +86,8 @@ export interface SystemConfigGroup {
 /* ───── Config platform types ───── */
 
 export interface UsageLogEntry {
-  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
-  origin?: 'cloud' | 'local';
+  /** 混合架构：该行来自云端、本机执行面还是经 API Key 认证的调用。 */
+  origin?: 'cloud' | 'local' | 'api';
   message_id: string;
   chat_id: string;
   user_id: string;

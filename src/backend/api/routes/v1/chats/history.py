@@ -11,7 +11,7 @@ from core.chat.display_bounds import bound_result_for_display
 from core.db.history_projection import tool_calls_for_history as _tool_calls_for_history
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.responses import paginated_response, success_response
-from core.services.compaction_service import get_compaction_context_state
+from core.services.context_usage_projection import get_chat_context_state
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -126,10 +126,9 @@ def list_messages(
     # Keep the complete transcript visible, while exposing the active
     # checkpoint baseline separately so context-usage estimates do not keep
     # counting messages that the model now sees only through the summary.
-    response["data"]["context_compaction"] = get_compaction_context_state(chat_service, chat_id)
-    from core.llm.context_usage import latest_persisted_context_usage
-
-    response["data"]["context_usage"] = latest_persisted_context_usage(chat_service, chat_id)
+    response["data"].update(get_chat_context_state(chat_service, chat_id))
+    from core.services.compaction_progress import read_progress
+    response["data"]["compaction_progress"] = read_progress(chat_service, chat_id)
     return response
 
 
@@ -144,14 +143,11 @@ def get_context_usage(
     if chat_service.get_session_with_access(chat_id, str(user.user_id)) is None:
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
-    from core.llm.context_usage import latest_persisted_context_usage
-
-    return success_response(
-        data={
-            "context_usage": latest_persisted_context_usage(chat_service, chat_id),
-            "context_compaction": get_compaction_context_state(chat_service, chat_id),
-        }
-    )
+    from core.services.compaction_progress import read_progress
+    return success_response(data={
+        **get_chat_context_state(chat_service, chat_id),
+        "compaction_progress": read_progress(chat_service, chat_id),
+    })
 
 
 @router.get(

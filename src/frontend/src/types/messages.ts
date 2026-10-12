@@ -121,10 +121,13 @@ export interface ThinkingBlock {
  * 之类的辅助字段反推。正文片段内联，思考与工具卡片按下标引用 `thinking` /
  * `tool_calls` 两列，长推理不会被存两份。
  */
+import type { CompactionProgress } from '../utils/compactionProgress';
+
 export type StoredSegment =
   | { type: 'text'; text: string }
   | { type: 'thinking'; index: number }
-  | { type: 'tool'; index: number };
+  | { type: 'tool'; index: number }
+  | { type: 'compaction'; progress: CompactionProgress };
 
 export interface OntologyActivationSummary {
   pack_id?: string;
@@ -235,7 +238,8 @@ export interface OntologyGovernanceSummary {
 
 /** Records the order of a message's elements (text/tool calls/thinking) for inline interleaved rendering */
 export interface MessageSegment {
-  type: 'text' | 'tool' | 'thinking' | 'plan';
+  type: 'text' | 'tool' | 'thinking' | 'plan' | 'compaction';
+  compaction?: CompactionProgress;
   content?: string;    // used for 'text' and 'thinking' types
   toolIndex?: number;  // used for 'tool' type; refers to toolCalls[toolIndex]
   planData?: {         // used for 'plan' type

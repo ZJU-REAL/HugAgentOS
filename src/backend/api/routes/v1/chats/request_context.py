@@ -186,7 +186,10 @@ def _build_user_extra_data(
     request: ChatRequest,
     model_provider_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    extra: Dict[str, Any] = {"timestamp": chat_context.now_iso()}
+    extra: Dict[str, Any] = {
+        "timestamp": chat_context.now_iso(),
+        **request.model_dump(include={"mode_slug", "chat_mode"}, exclude_none=True),
+    }
     if model_provider_id:
         extra["model_provider_id"] = model_provider_id
     if request.attachments:

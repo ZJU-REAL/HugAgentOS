@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import { applyContextStateResponse, captureContextState } from '../src/utils/contextStateResponse';
+import { createStore } from 'zustand/vanilla';
+import { createChatRunActions } from '../src/stores/chatRunActions';
+import { createChatInitialState } from '../src/stores/chatInitialState';
+import type { ChatState } from '../src/stores/chatState';
 
 import type { ChatMessage } from '../src/types';
 import {
@@ -134,4 +139,71 @@ assert.equal(parseContextUsageSnapshot({
   );
 }
 
+
+
+// A delayed history request must not roll a live measurement back to an older checkpoint.
+{
+  const store = createStore<ChatState>((set, get) => ({
+    ...createChatInitialState(),
+    ...createChatRunActions({ set, get }),
+  } as ChatState));
+  const newer = { ...provider!, capturedAtMs: 3000 };
+  store.getState().setContextUsage('audit', newer);
+  store.getState().setContextCompaction('audit', {
+    checkpointId: 'older', checkpointTs: 2000, coveredMessageCount: 2,
+    replacementTokens: 10, contextUsage: { ...provider!, source: 'compaction_estimate', exact: false, capturedAtMs: 2000 },
+  });
+  assert.equal(store.getState().contextUsages.audit.capturedAtMs, 3000);
+  store.getState().setContextUsage('audit', { ...provider!, capturedAtMs: 1000 });
+  assert.equal(store.getState().contextUsages.audit.capturedAtMs, 3000);
+}
+
+// SQLite's naive timestamp is UTC, regardless of the browser timezone.
+assert.equal(parseContextCompactionState({
+  checkpoint_id: 'utc', checkpoint_created_at: '2026-01-01T00:00:00',
+  covered_message_count: 1, replacement_tokens: 1,
+})?.checkpointTs, 1767225600000);
+
+// Empty history may finish after the live run has already ended.
+{
+  const store = createStore<ChatState>((set, get) => ({
+    ...createChatInitialState(), ...createChatRunActions({ set, get }),
+  } as ChatState));
+  const request = captureContextState(store.getState(), 'audit');
+  store.getState().setContextUsage('audit', { ...provider!, capturedAtMs: 3000 });
+  store.getState().setContextCompaction('audit', {
+    checkpointId: 'new', checkpointTs: 4000, coveredMessageCount: 2, replacementTokens: 10,
+  });
+  applyContextStateResponse(store.getState(), 'audit', request, {
+    context_usage: null, context_compaction: null,
+  });
+  assert.equal(store.getState().contextUsages.audit.capturedAtMs, 3000);
+  assert.equal(store.getState().contextCompactions.audit.checkpointId, 'new');
+}
+
+// Editing invalidates every context request accepted before the truncation.
+{
+  const store = createStore<ChatState>((set, get) => ({
+    ...createChatInitialState(), ...createChatRunActions({ set, get }),
+  } as ChatState));
+  const request = captureContextState(store.getState(), 'audit');
+  store.setState({ contextUsageEpochs: { audit: 1 } });
+  assert.equal(applyContextStateResponse(store.getState(), 'audit', request, {
+    context_usage: null, context_compaction: {
+      checkpoint_id: 'deleted', checkpoint_created_at: '2026-01-01T00:00:00Z',
+      covered_message_count: 2, replacement_tokens: 100,
+    },
+  }), false);
+  assert.equal(store.getState().contextCompactions.audit, undefined);
+}
+
+// Checkpoint counters are discrete: reject fractions, overflow and invalid values.
+for (const count of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity]) {
+  assert.equal(parseContextCompactionState({
+    checkpoint_id: 'invalid', covered_message_count: count, replacement_tokens: 1,
+  }), null);
+  assert.equal(parseContextCompactionState({
+    checkpoint_id: 'invalid', covered_message_count: 1, replacement_tokens: count,
+  }), null);
+}
 console.log('context usage tests passed');

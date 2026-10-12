@@ -198,3 +198,18 @@ All three marketplaces support entry selection and selecting all filtered result
 Delete Selected asks for confirmation of eligible entries. Preset entries are skipped. Only listings are removed; installed instances remain. Failures show entry names and reasons and retain selection for retry. Selection survives pagination and resets on search/category changes or reopening the marketplace.
 
 The plugin marketplace selection count, Select All and bulk actions remain above the scrollable list. Only plugin entries scroll; the toolbar stays visible.
+
+### Agent API call origin
+
+User usage logs and tool call logs share one list with local, cloud, and API origins.
+Both lists support origin filtering. The backend derives API origin from the authenticated
+API key; clients cannot set it in the request body. Streaming and non-streaming agent
+requests share the same logging path. Tool records retain their actual execution status,
+owner, and conversation. Pagination and summary statistics use the selected origin
+without copying records or counting tokens twice.
+
+Historical agent-specific API calls with saved server admission records are recognized as API calls.
+Older personal API-key calls without saved provenance cannot reliably be distinguished
+from web calls and remain labeled cloud. New requests store origin per call, so an API
+request does not relabel web calls in the same conversation. Model gateway requests
+remain in gateway call logs; agent API requests do not enter those logs.

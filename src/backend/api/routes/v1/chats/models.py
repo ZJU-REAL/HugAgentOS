@@ -2,6 +2,8 @@
 
 from typing import List, Optional
 
+from api.schemas import ChatMode
+
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from pydantic import BaseModel, Field
 
@@ -47,7 +49,15 @@ class UserQuestionAnswerBody(BaseModel):
     answers: List[UserQuestionAnswerItem] = Field(..., min_length=1, max_length=USER_QUESTION_MAX)
 
 
-class RegenerateRequest(BaseModel):
+class RerunOptions(BaseModel):
+    """Optional current composer selection; omitted fields replay the saved turn."""
+
+    model_provider_id: Optional[str] = Field(None, min_length=1, max_length=64)
+    mode_slug: Optional[str] = Field(None, min_length=1, max_length=64)
+    chat_mode: Optional[ChatMode] = None
+
+
+class RegenerateRequest(RerunOptions):
     """Request body for regenerating an assistant response."""
 
     message_index: int = Field(
@@ -55,7 +65,7 @@ class RegenerateRequest(BaseModel):
     )
 
 
-class EditAndResendRequest(BaseModel):
+class EditAndResendRequest(RerunOptions):
     """Request body for editing a user message and regenerating."""
 
     message_index: int = Field(..., description="0-based index of the user message in the chat")

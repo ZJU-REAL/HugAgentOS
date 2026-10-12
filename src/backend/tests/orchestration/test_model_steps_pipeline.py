@@ -22,7 +22,7 @@ from core.db.models import ChatMessage, ChatSession
 from core.harness.hooks import HookBus
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.model_steps import assistant_row_replay
-from core.services.compaction_service import _normalize_rows
+from core.services.compaction_history import normalize_rows
 from orchestration import chat_run_executor as executor
 from orchestration.memory_integration import SessionMemory
 from sqlalchemy import create_engine
@@ -279,7 +279,7 @@ async def test_executor_persists_the_step_record_and_history_replays_it(run_env,
 
     with run_env() as db:
         stored = db.get(ChatMessage, run.message_id)
-        rows = _normalize_rows([db.get(ChatMessage, run.message_id)])
+        rows = normalize_rows([db.get(ChatMessage, run.message_id)])
     assert [s["kind"] for s in stored.model_steps] == ["assistant", "tool_result", "assistant"]
     assert stored.content == "答案" and stored.thinking == [{"content": "先想"}]
     assert [r["role"] for r in rows] == ["assistant", "tool", "assistant"]
@@ -356,7 +356,7 @@ async def test_cancelling_mid_tool_closes_the_dangling_call_in_the_record(run_en
 
     with run_env() as db:
         stored = db.get(ChatMessage, run.message_id)
-        rows = _normalize_rows([stored])
+        rows = normalize_rows([stored])
     assert [s["kind"] for s in stored.model_steps] == ["assistant", "tool_result"]
     assert stored.model_steps[1]["blocks"][0]["state"] == "interrupted"
     assert [r["role"] for r in rows] == ["assistant", "tool", "assistant"]
@@ -656,7 +656,7 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
         return
     with run_env() as db:
         row = db.get(ChatMessage, run.message_id)
-        replay = _normalize_rows([row])
+        replay = normalize_rows([row])
         assert [step["kind"] for step in row.model_steps] == ["assistant", "tool_result"]
         assert row.model_steps[1]["blocks"][0]["output"] == "Plan updated: 1 in progress"
     assert [row["role"] for row in replay] == ["assistant", "tool"]

@@ -35,6 +35,7 @@ export function composeCommandMessage(text: string, command?: { message: string 
 /** 会话标题取首条消息的前 18 个字——但命令原文当标题等于没标题（历史列表里躺着一条叫
  *  「/init」的对话，不知道是哪个项目、干了什么）。命令开头的会话按命令本身命名。 */
 export function seedChatTitle(message: string, fallback: string): string {
+  if (message.trim() === '/compact') return t('压缩上下文');
   if (isProjectInitCommand(message)) return t('初始化项目指令');
   return message.slice(0, 18) || fallback;
 }

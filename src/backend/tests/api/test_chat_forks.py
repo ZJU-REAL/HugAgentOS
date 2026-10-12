@@ -293,16 +293,17 @@ def test_long_history_is_not_limited_to_ui_page(fork_env, monkeypatch):
     import asyncio
     from dataclasses import replace
 
+    from core.config import settings as config_settings
     from core.db import engine as engine_module
     from core.services import compaction_service as compaction
 
     monkeypatch.setattr(engine_module, "SessionLocal", sessions)
     monkeypatch.setattr(
-        compaction,
+        config_settings,
         "settings",
         replace(
-            compaction.settings,
-            compaction=replace(compaction.settings.compaction, keep_recent_tokens=0),
+            config_settings.settings,
+            compaction=replace(config_settings.settings.compaction, keep_recent_tokens=0),
         ),
     )
 
@@ -310,7 +311,7 @@ def test_long_history_is_not_limited_to_ui_page(fork_env, monkeypatch):
         assert "item 121" not in str(history)
         return "fork prefix summary"
 
-    monkeypatch.setattr(compaction, "_summarize", summarize)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
     with sessions() as db:
         history = load_session_history(ChatService(db), cid, "owner")
     history, compacted = asyncio.run(
@@ -384,10 +385,12 @@ def test_same_request_cannot_reuse_other_source_or_deleted_branch(fork_env):
 def test_next_turn_collects_inherited_attachment_context(fork_env, monkeypatch):
     from core.chat.context import collect_historical_attachments
     from core.db import engine as engine_module
-    from core.db.models import Artifact
+    from core.db.models import Artifact, UserFolder, UserShadow
 
     client, sessions, _ = fork_env
     with sessions() as db:
+        UserShadow.__table__.create(db.get_bind())
+        UserFolder.__table__.create(db.get_bind())
         Artifact.__table__.create(db.get_bind())
         db.add(
             Artifact(
@@ -418,14 +421,14 @@ def test_next_turn_collects_inherited_attachment_context(fork_env, monkeypatch):
 def test_branching_does_not_change_usage_or_billing_reports(fork_env):
     from api.deps import require_config
     from api.routes.v1 import admin_billing, admin_usage_logs, me_logs
-    from core.db.models import ModelPricing, UserShadow
+    from core.db.models import DesktopRecord, ModelPricing, UserShadow
 
     client, sessions, _ = fork_env
     client.app.dependency_overrides[require_config] = lambda: None
     for module in (admin_billing, admin_usage_logs, me_logs):
         client.app.include_router(module.router)
     with sessions() as db:
-        for model in (UserShadow, ModelPricing):
+        for model in (UserShadow, ModelPricing, DesktopRecord):
             model.__table__.create(db.get_bind())
         db.add(UserShadow(user_id="owner", username="Owner"))
         db.commit()

@@ -126,7 +126,7 @@ async def test_user_cancel_before_any_output_persists_nothing(cancel_env, monkey
 
 def test_cancelled_turn_is_marked_in_replayed_context():
     """继续会话时，被停掉那轮要带上"被中断"的标注，否则模型以为自己已经说完了。"""
-    from core.services.compaction_service import _normalize_rows
+    from core.services.compaction_history import normalize_rows
 
     rows = [
         SimpleNamespace(role="user", content="帮我查一下", extra_data={}, tool_calls=None),
@@ -138,7 +138,7 @@ def test_cancelled_turn_is_marked_in_replayed_context():
         ),
     ]
 
-    replayed = _normalize_rows(rows)
+    replayed = normalize_rows(rows)
 
     assert replayed[0] == {"role": "user", "content": "帮我查一下"}
     assert replayed[1]["role"] == "assistant"
@@ -148,11 +148,11 @@ def test_cancelled_turn_is_marked_in_replayed_context():
 
 
 def test_normal_turn_carries_no_interruption_marker():
-    from core.services.compaction_service import _normalize_rows
+    from core.services.compaction_history import normalize_rows
 
     rows = [SimpleNamespace(role="assistant", content="查完了", extra_data={}, tool_calls=None)]
 
-    assert _normalize_rows(rows) == [
+    assert normalize_rows(rows) == [
         {"role": "assistant", "content": [{"type": "text", "text": "查完了"}]}
     ]
 

@@ -69,10 +69,9 @@ async def regenerate_message(
             site_chat=bool((_sess.extra_data or {}).get("site_chat")),
             message=user_content,
             model_name="qwen",
-            enable_thinking=user_extra.get("enable_thinking", False),
             quoted_follow_up=user_extra.get("quoted_follow_up"),
             attachments=attachment_items,
-            model_provider_id=user_extra.get("model_provider_id"),
+            **chat_rerun_metadata._restore_rerun_options(user_extra, body),
             **chat_rerun_metadata._restore_invocation(user_extra),
         )
         regen_request, _, execution_message, explicit_subagent_command = (
@@ -144,6 +143,17 @@ async def regenerate_message(
                 delete_from_message_id=target_msg.message_id,
                 delete_from_chat_seq=target_msg.chat_seq,
                 request_payload=request_payload,
+                model=actual_model_name,
+                user_extra_patch={
+                    **regen_request.model_dump(
+                        include={"mode_slug", "chat_mode"}, exclude_none=True
+                    ),
+                    **(
+                        {"model_provider_id": selected_model_provider_id}
+                        if selected_model_provider_id
+                        else {}
+                    ),
+                },
             )
         except ChatBusyError as exc:
             raise chat_admission.chat_busy_http_exception(exc) from exc
@@ -218,7 +228,7 @@ async def edit_and_resend(
             model_name="qwen",
             attachments=attachment_items,
             quoted_follow_up=saved_quoted_follow_up,
-            model_provider_id=target_extra.get("model_provider_id"),
+            **chat_rerun_metadata._restore_rerun_options(target_extra, body),
             **saved_invocation,
         )
         edit_request, _, execution_message, explicit_subagent_command = (
@@ -248,7 +258,11 @@ async def edit_and_resend(
         _user_settings = chat_services.UserService(db).get_user_settings(db_user_id)
 
         # Persist the edited user message
-        _edit_extra: Dict[str, Any] = {"timestamp": chat_context.now_iso(), **saved_invocation}
+        _edit_extra: Dict[str, Any] = {
+            "timestamp": chat_context.now_iso(),
+            **saved_invocation,
+            **edit_request.model_dump(include={"mode_slug", "chat_mode"}, exclude_none=True),
+        }
         if edit_request.agent_id:
             _edit_extra["agent_id"] = edit_request.agent_id
             if getattr(edit_request, "_resolved_agent_profile", None):

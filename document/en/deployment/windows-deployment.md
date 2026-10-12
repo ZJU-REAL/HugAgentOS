@@ -365,6 +365,8 @@ a signed updater archive and a manifest; uploading a DMG for manual installation
 
 In hybrid mode, the File menu contains New Chat, Open Folder, and Quit. Selecting a folder opens a new conversation bound to that local project. Cancelling leaves the current conversation unchanged.
 
+The download progress window stays at the normal window level. Use the system minimize button to put it away, then restore it from the taskbar or Dock. Downloading continues while minimized. Progress updates do not take focus or restore the window; restoring it shows the current progress. Installation and restart follow the existing update flow.
+
 Check for Updates and About show the running desktop version. A background startup check discovers updates; when one is available, the sidebar help icon becomes a download button. Clicking it shows the current and target versions and release notes. Confirmation starts a download progress card, followed by installation and automatic restart. Cancelled or failed attempts can be retried. Windows uses silent installation without an installer window; the app and progress card close when replacement begins, then the updated app opens automatically. Any required system permission prompt remains controlled by the operating system.
 
 These interactions ship in the desktop package. Existing clients must first upgrade to a version that includes them.

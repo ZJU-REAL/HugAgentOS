@@ -844,9 +844,8 @@ def make_chat_model(
     - Not passed (None) → resolve the real context_length from the Config admin model
       configuration by model name; if unconfigured a ``ValueError`` is raised, forcing the
       configuration to be completed;
-    - Explicitly passed a positive number → used directly. Restricted to two caller kinds:
-      connectivity tests / tool-type LLMs (which never enter the agent compaction loop, so the
-      value participates in no computation) and the placeholder dummy model.
+    - Explicitly passed a positive number → use the resolved provider's configured window.
+      Connectivity tests and the placeholder dummy model also pass their own window.
     """
     # Keep legacy provider/agent settings from restoring shorter stream timeouts.
     timeout = 600
@@ -938,7 +937,7 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
     disable_thinking = mode in ("fast", "turbo")
     from core.llm.reasoning_effort import resolve_reasoning_effort
     reasoning_effort = resolve_reasoning_effort(resolved.extra, mode)
-    return make_chat_model(
+    model = make_chat_model(
         model=resolved.model_name.replace("openai:", ""),
         temperature=resolved.temperature,
         max_tokens=resolved.max_tokens,
@@ -949,6 +948,7 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
         provider_extra=resolved.provider_extra,
         disable_thinking=disable_thinking,
         reasoning_effort=reasoning_effort,
+        context_size=resolved.context_length or None,
         stream=stream,
         structured_reasoning=(
             True if (resolved.extra or {}).get("structured_reasoning") else None
@@ -956,6 +956,9 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
         api_protocol=(resolved.extra or {}).get("api_protocol"),
         reasoning_effort_is_wire="reasoning_effort_levels" in (resolved.extra or {}),
     )
+
+    model.resolved_model_provider_id = resolved.provider_id
+    return model
 
 
 def get_default_model(
@@ -966,30 +969,9 @@ def get_default_model(
 ) -> ChatModelBase:
     cfg = cfg or ModelConfig()
     resolved = _resolve_or_dummy("main_agent")
-    if resolved and not disable_thinking:
-        return build_model_for_mode(resolved, mode=reasoning_effort, stream=stream)
     if resolved:
-        return make_chat_model(
-            model=resolved.model_name,
-            temperature=resolved.temperature,
-            max_tokens=resolved.max_tokens,
-            timeout=resolved.timeout,
-            base_url=resolved.base_url,
-            api_key=resolved.api_key,
-            provider=resolved.provider,
-            provider_extra=resolved.provider_extra,
-            disable_thinking=disable_thinking,
-            reasoning_effort=reasoning_effort,
-            stream=stream,
-            # Per-model admin flag: the upstream delivers reasoning via the separate
-            # reasoning_content channel (never inline <think>). The SSE layer then sends
-            # the structured_reasoning protocol marker at stream start, so on turns where
-            # the model skips thinking the frontend still streams the answer instead of
-            # buffering it as presumed reasoning until round end.
-            structured_reasoning=(
-                True if (resolved.extra or {}).get("structured_reasoning") else None
-            ),
-            api_protocol=(resolved.extra or {}).get("api_protocol"),
+        return build_model_for_mode(
+            resolved, mode="fast" if disable_thinking else reasoning_effort, stream=stream
         )
     return make_chat_model(
         model="dummy-model",

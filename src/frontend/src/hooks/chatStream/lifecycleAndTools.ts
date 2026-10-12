@@ -1,4 +1,6 @@
 import { t } from '../../i18n';
+import { parseCompactionProgress, upsertCompactionSegment } from '../../utils/compactionProgress';
+import { scheduleCompactionExpiry } from '../compactionProgressStore';
 import { useCanvasStore,useChatStore,useUIStore } from '../../stores';
 import type { CitationItem } from '../../types';
 import {
@@ -57,12 +59,22 @@ if (eventType === 'vision_progress') {
     useChatStore.getState().setVisionReading(s.chatId, running ? count : 0);
     return true;
 }
+if (eventType === 'compaction_progress') {
+    const progress = parseCompactionProgress(eventObj);
+    if (progress && progress.chat_id === s.chatId) {
+        progress.message_id = s.metaMessageId;
+        scheduleCompactionExpiry(s.chatId, [progress]);
+        s.segments = upsertCompactionSegment(s.segments, progress);
+        appendOrUpdate(s, true);
+    }
+    return true;
+}
 if (eventType === 'compaction_notice') {
     // Earlier context was compacted in the background after the previous turn ended;
     // the backend notifies once in this turn's first frame
     // → ChatArea shows a dismissible notice bar
     const chatStore = useChatStore.getState();
-    chatStore.setCompactionNotice(s.chatId);
+    // The compression lifecycle is displayed in the tool-call shell.
     const contextCompaction = parseContextCompactionState(eventObj.context_compaction);
     if (contextCompaction)
         chatStore.setContextCompaction(s.chatId, contextCompaction);
