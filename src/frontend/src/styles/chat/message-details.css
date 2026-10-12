@@ -1,0 +1,408 @@
+/* ── Edit message ──────────────────────────────────────────────── */
+
+.jx-editMessage {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--color-fill-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.jx-editMessage-input {
+  font-size: 13px;
+  resize: vertical;
+}
+
+.jx-editMessage-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── 消息内展开块（编辑框 / 点踩表单）：lazy-keep-mounted + jx-expandWrap 切类 ──
+   外层 margin 收到 wrap 上随展开过渡；收起态 visibility:hidden 防 Tab 聚焦到隐藏控件 */
+
+.jx-msgExpand{
+  visibility:hidden;
+  margin-top:0;
+  transition:grid-template-rows var(--expand-dur,.25s) var(--motion-ease-brand-out),
+             opacity calc(var(--expand-dur,.25s) - .05s) var(--motion-ease-standard),
+             margin-top var(--expand-dur,.25s) var(--motion-ease-standard),
+             visibility 0s linear var(--expand-dur,.25s);
+}
+
+.jx-msgExpand.jx-expandWrap--open{
+  visibility:visible;
+  margin-top:8px;
+  transition-delay:0s;
+}
+
+.jx-msgExpand > .jx-editMessage,
+.jx-msgExpand > .jx-dislikeFeedback{
+  min-height:0;
+  overflow:hidden;
+  margin-top:0;
+}
+
+/* ── legacy 思考块 chevron：单图标 rotate 过渡（替代双图标硬切） ── */
+
+.jx-thinkingBlockHeader .jx-expandIcon{
+  /* 与执行卡 / 折叠摘要行的箭头同口径：留位不留形，悬浮或键盘聚焦才淡入 */
+  opacity:0;
+  transition:transform var(--motion-duration-fast) var(--motion-ease-brand-out), opacity .15s ease;
+}
+
+.jx-thinkingBlockHeader:hover .jx-expandIcon,
+.jx-thinkingBlockHeader:focus-visible .jx-expandIcon{
+  opacity:1;
+}
+
+.jx-thinkingBlockHeader .jx-expandIcon--open{
+  transform:rotate(180deg);
+}
+
+/* ── Chat area skeleton screen ── */
+
+.jx-chatSkeleton {
+  justify-content: center;
+}
+
+.jx-chatSkeletonCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 840px;
+  max-width: 100%;
+  gap: 24px;
+}
+
+.jx-chatSkeletonHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0 8px;
+}
+
+.jx-chatSkeletonTitle {
+  width: 280px;
+  height: 48px;
+  border-radius: 12px !important;
+}
+
+.jx-chatSkeletonSubtitle {
+  width: 200px;
+  height: 20px;
+  border-radius: 999px !important;
+}
+
+.jx-chatSkeletonInput {
+  width: 100%;
+  height: 148px;
+  border-radius: 20px !important;
+}
+
+.jx-chatSkeletonCards {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.jx-chatSkeletonCard {
+  width: 80px;
+  height: 80px;
+  border-radius: 14px !important;
+  flex-shrink: 0;
+}
+
+.jx-messageRenderError {
+  margin: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 13px;
+}
+
+/* ── Run-target switcher（混合架构：对话框上方的 云端/本机 胶囊）──────────── */
+
+.jx-runTargetRow { display: flex; align-items: center; gap: 8px; justify-content: flex-start; padding: 0 4px; }
+
+/* ── 对话框上方：模式选择位 ──
+   照参考稿的 AgentPresetSeat：平时透明，只有标识 + 当前模式名 + 箭头，hover /
+   展开才浮出底色。它比工具条里的 chip 高一层（决定整段对话的工具面和提示词），
+   所以摆在框外常驻，但视觉重量刻意压得比输入框轻。 */
+
+.jx-modeSeat{ position:relative; margin-bottom:6px; }
+
+.jx-modeSeatBtn{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  max-width:min(100%, 260px);
+  min-height:28px;
+  padding:0 8px;
+  border:none;
+  border-radius:16px;
+  background:transparent;
+  color:color-mix(in srgb, var(--color-text) 75%, transparent);
+  font-size:13px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+  cursor:pointer;
+  transition:background-color .14s ease, color .14s ease;
+}
+
+.jx-modeSeatBtn:hover,
+.jx-modeSeatBtn.open{
+  background:rgba(15,23,42,.055);
+  color:color-mix(in srgb, var(--color-text) 92%, transparent);
+}
+
+.jx-modeSeatBtn:focus-visible{ outline:none; box-shadow:0 0 0 2px rgba(18,109,255,.28); }
+
+.jx-modeSeatIcon{ flex:none; color:currentColor; }
+
+.jx-modeSeatLabel{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+
+/* 非标准模式：标识走暖色，一眼看出"这段对话不在默认档上" */
+
+.jx-modeSeatBtn.turbo{ color:color-mix(in srgb, var(--color-text) 88%, transparent); }
+
+.jx-modeSeatBtn.turbo .jx-modeSeatIcon{ color:var(--color-warning, var(--color-warning)); }
+
+.jx-modeSeatBtn svg.jx-modeArrow{ color:currentColor; opacity:.45; transition:transform .16s ease, opacity .14s ease; }
+
+.jx-modeSeatBtn:hover svg.jx-modeArrow{ opacity:.65; }
+
+.jx-modeSeatBtn.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.8; }
+
+/* 菜单向上弹：对话页里这一位贴着屏幕底部的输入框，向下弹会伸出视口、
+   把列表尾部的模式裁掉（模式一多必现）。向上空间永远够——上面是整个消息区；
+   首页空态它会盖住欢迎语一角，可接受。 */
+
+.jx-modeSeatMenu{
+  position:absolute;
+  left:0;
+  bottom:calc(100% + 6px);
+  z-index:30;
+  display:flex;
+  flex-direction:column;
+  width:max(280px, 100%);
+  max-height:min(360px, 60vh);
+  overflow-y:auto;
+  padding:4px;
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius:14px;
+  background:var(--color-bg-container);
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+}
+
+/* 模式描述是选择依据，不像模型名那样能省——允许折行 */
+
+.jx-modeSeatMenu .jx-menuOption-desc{ white-space:normal; }
+
+/* 私有模式的「我的」角标：和官方模式区分开，但不喧宾夺主 */
+
+.jx-modeSeatTag{
+  margin-left:6px;
+  padding:0 5px;
+  border-radius:4px;
+  background:rgba(18,109,255,.10);
+  color:var(--color-primary-active);
+  font-size:11px;
+  line-height:16px;
+  font-weight:500;
+  vertical-align:1px;
+}
+
+.jx-runTargetRow .jx-deploySwitcher { margin: 0 0 6px; justify-content: flex-start; }
+
+/* 胶囊在对话框上方：菜单向上弹，避免遮住输入框 */
+
+.jx-runTargetRow .jx-deploySwitcherMenu { top: auto; bottom: calc(100% + 6px); left: 0; transform: none; }
+
+.jx-deploySwitcherItem:disabled { opacity: .55; cursor: not-allowed; }
+
+.jx-deploySwitcher { display: flex; justify-content: center; position: relative; margin: 2px 0 8px; }
+
+.jx-deploySwitcherPill {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 28px; padding: 0 8px; border-radius: 16px;
+  border: none; background: transparent;
+  color: color-mix(in srgb, var(--color-text) 75%, transparent);
+  font-size: 13px; cursor: pointer; line-height: 1; transition: background .15s, color .15s;
+}
+
+.jx-deploySwitcherPill:hover { background: rgba(15,23,42,.055); color: color-mix(in srgb, var(--color-text) 92%, transparent); }
+
+.jx-deploySwitcherIcon { font-size: 13px; display: inline-flex; color: currentColor; }
+
+.jx-deploySwitcherLabel { font-weight: 400; }
+
+.jx-deploySwitcherMenu {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  min-width: 288px; z-index: 50; padding: 6px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.14);
+}
+
+.jx-deploySwitcherGroup {
+  padding: 6px 10px 2px; font-size: 12px; color: var(--color-text-tertiary, #86909c);
+}
+
+.jx-deploySwitcherItem {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+  padding: 8px 10px; border: 0; background: transparent; border-radius: 8px;
+  cursor: pointer; text-align: left; color: var(--color-text, #1d2129);
+}
+
+.jx-deploySwitcherItem:hover { background: var(--color-fill-hover); }
+
+.jx-deploySwitcherItemIcon { font-size: 16px; line-height: 1.2; margin-top: 2px; color: var(--color-text-secondary, #4e5969); }
+
+.jx-deploySwitcherItemBody { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+
+.jx-deploySwitcherItemTitle { font-size: 14px; font-weight: 500; }
+
+.jx-deploySwitcherItemDesc { font-size: 12px; color: var(--color-text-secondary, #86909c); }
+
+.jx-deploySwitcherCheck { align-self: center; }
+
+.jx-deploySwitcherDivider { height: 1px; margin: 6px 8px; background: var(--color-border, #e5e6eb); }
+
+.jx-deploySwitcherItem--action .jx-deploySwitcherItemIcon { color: var(--color-primary, #165dff); font-weight: 700; }
+
+.jx-deploySwitcherFooter { width: 100%; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; font-size: 13px; color: var(--color-text-secondary, #4e5969); }
+
+.jx-deploySwitcherFooter:hover { background: var(--color-fill-hover); }
+
+/* Local permissions modal (ticket #06) */
+
+.jx-localPermOverlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+
+.jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-elevated); color: var(--color-text); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
+
+.jx-localPermHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--color-border, #e5e6eb); }
+
+.jx-localPermClose { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--color-text-tertiary, #86909c); }
+
+.jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, var(--color-border)); }
+
+.jx-localPermSectionTitle { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+
+.jx-localPermHint { font-size: 12px; color: var(--color-text-secondary, #86909c); margin-bottom: 10px; }
+
+.jx-localPermEmpty { font-size: 13px; color: var(--color-text-tertiary, #86909c); padding: 6px 0; }
+
+.jx-localPermRow { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+
+.jx-localPermPath { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.jx-localPermMode { font-size: 12px; color: var(--color-text-secondary, #86909c); }
+
+.jx-localPermRemove { border: 0; background: transparent; color: var(--color-error, #f53f3f); cursor: pointer; font-size: 12px; }
+
+.jx-localPermAdd { margin-top: 8px; border: 1px dashed var(--color-border, #c9cdd4); background: transparent; color: var(--color-primary, #165dff); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+
+.jx-localPermPolicyRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
+
+.jx-localPermPolicyLabel { font-size: 13px; }
+
+.jx-localPermSelect { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-container); color: var(--color-text); }
+
+/* 项目框旁的本机操作权限档胶囊（桌面壳本机模式） */
+
+.jx-approvalPillBtn .jx-approvalPillIcon { font-size: 13px; line-height: 1; flex-shrink: 0; }
+
+.jx-approvalMenu .ant-dropdown-menu { min-width: 248px; }
+
+.jx-approvalMenu .ant-dropdown-menu-item-group-title { font-size: 12px; color: color-mix(in srgb, var(--color-text) 45%, transparent); padding: 6px 12px 2px; }
+
+.jx-approvalDetailEntry { font-size: 13px; color: color-mix(in srgb, var(--color-text) 62%, transparent); }
+
+.jx-cloudPrompt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border, #e5e6eb); background: var(--color-bg-layout); font-size: 13px; }
+
+.jx-cloudPromptText { color: var(--color-text-secondary, #4e5969); }
+
+.jx-cloudPromptYes, .jx-cloudPromptNo { border: 0; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
+
+.jx-cloudPromptYes { background: var(--color-primary, #165dff); color: var(--color-text-white); }
+
+.jx-cloudPromptNo { background: transparent; color: var(--color-text, #1d2129); border: 1px solid var(--color-border, #c9cdd4); }
+
+/* 更早的消息：滚到顶自动续拉时的占位提示（哨兵本身，见 ChatArea 的 IntersectionObserver）。
+   刻意做得很轻——它只是"上面还有"的一行注脚，不该抢正文的注意力。 */
+
+.jx-olderLoader{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  padding:8px 12px;
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  user-select:none;
+}
+
+/* Keep the centered 760px chat column while allowing it to shrink in split view. */
+
+.jx-chatWrap { min-width:0; }
+
+/* Keep document text readable when the preview takes part of the window. */
+
+.jx-msg,
+.jx-msgText,
+.jx-composerWrap { min-width:0; max-width:100%; }
+
+.jx-msg .jx-bubble { overflow-wrap:anywhere; }
+
+.jx-msg .jx-bubble :not(pre) > code {
+  white-space:normal;
+  padding-inline:0;
+  overflow-wrap:anywhere;
+  box-decoration-break:clone;
+  -webkit-box-decoration-break:clone;
+}
+
+.jx-msg .jx-bubble pre { max-width:100%; overflow-x:auto; }
+
+.jx-composerBar .jx-modelEffort { flex:0 1 auto; min-width:0; }
+
+.jx-composerBar .jx-modelEffortBtn { width:100%; max-width:100%; }
+
+.jx-composerBar .jx-modelEffortStatic { flex-shrink:1; overflow:hidden; }
+
+.jx-composerBar .jx-composerSpacer { min-width:0; }
+
+@container conversation-pane (max-width: 600px) {
+  .jx-panel { padding:16px 16px 12px; }
+  .jx-content { scrollbar-gutter:stable; }
+  .jx-chatTopbar { gap:6px; }
+  .jx-chatTopbarProject { max-width:32%; }
+  .jx-composerBar { gap:3px; padding-inline:8px; }
+  .jx-composerBar .jx-modelEffort { max-width:160px; }
+}
+
+@container (max-width: 400px) {
+  .jx-composerBar .jx-modelEffort { max-width:112px; }
+  .jx-composerBar .jx-modelEffortAside { display:none; }
+}
+
+.jx-spaceImportLoadMore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.jx-spaceImportLoadMore-hint {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+}

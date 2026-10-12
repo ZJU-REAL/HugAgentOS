@@ -22,6 +22,8 @@ The data canvas is a slide-out panel on the right of the chat UI (`src/frontend/
 
 Panel state is managed by `stores/canvasStore.ts` (`openCanvas` / `closeCanvas` / `updateArtifact`; `openSeq` distinguishes "new file opened" from "same file refreshed after save").
 
+File actions in preview headers and cards reserve enough width for their labels. Long filenames use ellipsis while download and open controls remain on one line. On phones, the space import dialog stacks the file list above the preview, with separate scrolling areas.
+
 ### Large-file preview protection
 
 Online preview limits are lower than upload limits because an Office archive can

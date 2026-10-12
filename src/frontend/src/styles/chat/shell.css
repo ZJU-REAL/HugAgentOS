@@ -1,0 +1,282 @@
+.jx-topbar{
+  position:sticky;top:0;z-index:5;
+  background:color-mix(in srgb, var(--color-bg-container) 55%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 2px rgba(17,24,39,.04),
+    0 6px 20px rgba(17,24,39,.05);
+}
+
+.jx-topbar .ant-btn-text{
+  border-radius:10px;
+  transition: all 0.2s ease;
+}
+
+.jx-topbar .ant-btn-text:hover{
+  background:rgba(18,109,255,.10);
+  color:var(--color-primary);
+}
+
+.jx-topbar .ant-btn-text:focus,
+.jx-topbar .ant-btn-text:focus-visible,
+.jx-topbar .ant-btn-text:active{
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* ── Chat-only minimal topbar ── */
+
+.jx-chatTopbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 58px 8px 16px;
+  flex-shrink:0;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  /* 顶栏不铺自己的底色：它压在 .jx-primaryPane 上，铺 --color-bg-container 会比
+     聊天面板的 --color-bg-chat 亮一档，顶部横出一条异色带。transparent 直接吃下方
+     面板底色，聊天页/其他页、深浅档都自动同色。 */
+  background:transparent;
+}
+
+.jx-appMainLayout{
+  container:chat-workspace / inline-size;
+  position:relative;
+  flex-direction:row;
+  min-width:0;
+}
+
+.jx-primaryPane{
+  container:conversation-pane / inline-size;
+  position:relative;
+  display:flex;
+  flex:1 1 0;
+  min-width:0;
+  height:100%;
+  flex-direction:column;
+  overflow:hidden;
+  /* 推荐横幅位于 .jx-content 外；两层共用容器底色，避免横幅周围形成整条异色背景。 */
+  background:var(--color-bg-container);
+  transition:flex-basis var(--motion-duration-slow) var(--motion-ease-brand-out),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-primaryPane.is-chatSurface,
+.jx-content.jx-content--chatSurface{
+  background:var(--color-bg-chat);
+}
+
+.jx-primaryPane.is-canvasOpen .jx-chatTopbar{
+  padding-right:16px;
+}
+
+.jx-appMainLayout.is-canvasFullscreen .jx-primaryPane{
+  width:0;
+  flex:0 0 0;
+  opacity:0;
+  pointer-events:none;
+}
+
+.jx-rightSidebarToggle.ant-btn{
+  position:absolute;
+  top:7px;
+  right:12px;
+  z-index:12;
+  display:grid;
+  width:32px;
+  height:32px;
+  padding:0;
+  place-items:center;
+  border:1px solid transparent;
+  border-radius:9px;
+  color:var(--color-text-tertiary);
+  font-size:16px;
+  box-shadow:none;
+}
+
+.jx-rightSidebarToggle.ant-btn:hover,
+.jx-rightSidebarToggle.ant-btn.is-open{
+  border-color:var(--color-border);
+  background:var(--color-bg-gray);
+  color:var(--color-text);
+}
+
+.jx-rightSidebarToggle.ant-btn:focus-visible{
+  outline:2px solid var(--color-primary-disabled);
+  outline-offset:2px;
+}
+
+.jx-chatTopbarTitle{
+  flex:1;
+  min-width:0;
+  font-size:14px;
+  font-weight:700;
+  color:var(--color-text);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* 会话头部「项目名 / 标题」面包屑 —— 项目名段（弱化为灰阶，hover 加深，去掉蓝色强调） */
+
+.jx-chatTopbarProject{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  max-width:40%;
+  flex-shrink:0;
+  font-size:14px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
+  cursor:pointer;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  transition:color .15s ease;
+}
+
+.jx-chatTopbarProject:hover{ color:var(--color-text); }
+
+.jx-chatTopbarProjectSep{
+  color:var(--color-text-placeholder);
+  font-weight:600;
+}
+
+/* jx-mainRow: flex 行容器，Header 下方，撑满剩余高度 */
+
+.jx-mainRow{
+  display:flex;
+  flex-direction:row;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
+}
+
+.jx-content{
+  flex:1;
+  min-width:0;
+  height:100%;
+  display:flex;
+  justify-content:center;
+  overflow-y:auto;
+  overflow-x:hidden;
+  /* 滚动条槽位常驻：面板入场动画 translateY(6px) 会让满高面板瞬时溢出，
+   * 这里临时长出的滚动条会把居中的 .jx-panel 挤左又弹回（每次切换面板都水平抖一下）。
+   * 预留两侧槽位后滚动条出现/消失不再改变布局宽度。 */
+  scrollbar-gutter: stable both-edges;
+  background:var(--color-bg-container);
+}
+
+.jx-panel{
+  width:100%;
+  max-width:1400px;
+  min-height:100%;
+  height:auto;
+  padding:16px 24px 18px;
+}
+
+.jx-scroll{
+  min-height:0;
+  overflow:auto;
+}
+
+/* ── ChatGPT/DeepSeek 风格：居中对话列，无头像，AI 无气泡 ── */
+
+.jx-chatWrap{
+  position:relative;
+  height:100%;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-width:none;
+  margin:0 auto;
+  width:100%;
+  padding-bottom:12px;
+}
+
+.jx-content--messageSurface{overflow:hidden;}
+
+.jx-content--messageSurface > .jx-panel{height:100%; min-height:0;}
+
+.jx-chatViewportFrame{position:relative; flex:1; min-height:0;}
+
+.jx-chatViewport{height:100%; overflow:auto; overscroll-behavior-y:contain;}
+
+.jx-chatList{min-height:100%; width:100%; max-width:760px; margin:0 auto; padding:4px 0 6px;}
+
+.jx-shareSelectionBar{
+  position:sticky;
+  top:8px;
+  z-index:4;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 16px;
+  border:1px solid rgba(18,109,255,.14);
+  background:rgba(237,244,255,.94);
+  border-radius:16px;
+  box-shadow:0 8px 24px rgba(15,23,42,.06);
+}
+
+.jx-shareSelectionInfo{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.jx-shareSelectionTitle{
+  font-size:15px;
+  font-weight:600;
+  color:var(--color-text);
+}
+
+.jx-shareSelectionCount{
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.jx-shareSelectionActions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.jx-shareSelectionPrimaryBtn,
+.jx-shareSelectionSecondaryBtn{
+  appearance:none;
+  border:none;
+  border-radius:12px;
+  height:40px;
+  padding:0 16px;
+  font-size:14px;
+  cursor:pointer;
+  transition:all .18s ease;
+}
+
+.jx-shareSelectionPrimaryBtn{
+  background:var(--color-primary);
+  color:var(--color-text-white);
+  font-weight:600;
+}
+
+.jx-shareSelectionPrimaryBtn:hover:not(:disabled){
+  background:var(--color-primary-active);
+}
+
+.jx-shareSelectionPrimaryBtn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+.jx-shareSelectionSecondaryBtn{
+  background:var(--color-bg-container);
+  color:var(--color-text);
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+
+.jx-shareSelectionSecondaryBtn:hover{
+  background:var(--color-bg-layout);
+}

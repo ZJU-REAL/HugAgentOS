@@ -34,7 +34,12 @@ export function SidebarUtilities({ onSetPanel, classic = false, expanded = false
     && !(key === 'my_space' && mode === 'local_only')) : [];
   const footerSettingsMenu: MenuProps = {
     items: [
-      { key: 'settings', label: t('设置'), onClick: () => onSetPanel('settings') },
+      {
+        key: 'settings',
+        label: t('设置'),
+        icon: <img src="/home/settings.svg" alt="" style={{ width: 16, height: 16 }} />,
+        onClick: () => onSetPanel('settings'),
+      },
       ...extraMenu.map(key => ({ key, label: LAYOUT_ITEMS[key].label,
         icon: <img src={LAYOUT_ITEMS[key].icon} alt="" style={{ width: 16, height: 16 }} />,
         ...(LAYOUT_ITEMS[key].children?.length ? {

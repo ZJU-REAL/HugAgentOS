@@ -175,7 +175,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
 
           <div className={`jx-mainRow${showProjectOverview ? ' jx-mainRow--project' : ''}`}>
-            <Content ref={handleContentRef} className={`jx-content${chatSurface ? ' jx-content--chatSurface' : ''}`}>
+            <Content className={`jx-content${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}`}>
               {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}
@@ -203,6 +203,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                     editAndResend={editAndResendFollow}
                     inputRef={inputRef}
                     fileInputRef={fileInputRef}
+                    onViewportMount={handleContentRef}
                     chatListRef={chatListRef}
                     messagesEndRef={messagesEndRef}
                   />

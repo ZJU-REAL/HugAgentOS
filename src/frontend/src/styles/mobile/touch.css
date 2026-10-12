@@ -1,0 +1,354 @@
+/* Short phones and landscape browser windows need a denser vertical rhythm.
+ * Width-only breakpoints cannot account for their much smaller visible height. */
+
+@media (max-width:960px) and (max-height:700px){
+  .jx-mobileHeader{
+    flex-basis:54px;
+    height:54px;
+    padding:6px 16px;
+  }
+
+  .jx-emptyPage--main .jx-heroBg{
+    margin-top:clamp(12px, 4dvh, 28px);
+  }
+
+  .jx-mobileHeroText h1{
+    font-size:40px;
+  }
+
+  .jx-mobileHeroText p{
+    margin-top:8px;
+    font-size:14px;
+  }
+
+  .jx-emptyPage--main .jx-homeInput .jx-composer,
+  .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
+    height:auto !important;
+    min-height:42px !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   移动端打磨：安全区落地 / iOS 聚焦缩放 / 触摸热区 / 触屏交互态
+   ──────────────────────────────────────────────────────────────────────
+   上面的样式解决的是「排得下」，这一段解决的是「用得顺」。四类问题都属于
+   桌面端不存在、因此在桌面上开发时拿不到任何反馈信号的盲区：
+
+   1. 安全区：iPhone 的 Home 条会盖住贴底元素。全站用得最多的输入口——对话输入区——
+      实测底边距视口仅 10px，发送键正落在 Home 条的上滑手势区里。
+   2. iOS 聚焦缩放：输入控件字号 < 16px 时 Safari 会放大整个视口，且失焦不还原，
+      用户只能手动双指缩回。实测输入框是 15px，差 1px 就触发。
+   3. 触摸热区：移动断点内的控件是照桌面尺寸「压小」的（28–38px），低于 Apple HIG
+      的 44pt 下限——这正是「看着适配了、点着老是点不中」的来源。做法是保留视觉尺寸、
+      只用 ::after 把可点区域撑到 44px，不让界面变胖。
+   4. 触屏交互态：hover 态在触屏上按下即粘住不散；系统默认的点击高亮方块会在圆角
+      控件外画出直角色块，与本站自己的 :active 反馈重复。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. 安全区落地 ───────────────────────────────────────────────────── */
+
+@media (max-width: 960px){
+  /* Keep the safe-area inset inside the footer, leaving the sibling message
+     viewport the remaining height and the footer background under the home bar. */
+  .jx-chatWrap{
+    padding-bottom:0;
+  }
+
+  .jx-chatFooter{
+    padding-bottom:max(10px, var(--jx-safe-b));
+  }
+
+  /* 横屏时刘海在左/右侧，贴边的正文与输入区都要让开 */
+  .jx-chatWrap{
+    padding-right:max(12px, var(--jx-safe-r));
+    padding-left:max(12px, var(--jx-safe-l));
+  }
+
+  /* 侧栏抽屉铺满整屏高，上下都要避让；左缘贴屏幕边要让开横屏刘海 */
+}
+
+/* ── 2. iOS 聚焦自动缩放 ─────────────────────────────────────────────
+   iOS Safari 的规则很硬：聚焦时控件计算字号 < 16px 就缩放整个视口，且失焦后
+   不还原。所以移动断点内所有可聚焦的文本控件一律 ≥16px。这不是审美选择，
+   是平台约束——改小回去就会复发。 */
+
+@media (max-width: 960px){
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [contenteditable="true"],
+  .ant-input,
+  .ant-input-number-input,
+  .ant-select-selection-search-input{
+    font-size:16px;
+  }
+
+  /* 首页空态的输入框在前面被 !important 锁到 15px，必须同权覆盖 */
+  .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder::before{
+    font-size:16px !important;
+  }
+
+  .jx-composerEditor,
+  .jx-composerPlaceholder{
+    font-size:16px;
+  }
+}
+
+/* ── 3. 触摸热区 44pt ────────────────────────────────────────────────
+   统一手法：视觉尺寸不动，用 ::after 铺一张不可见的命中层撑到 44px。
+   横向扩张量按「控件宽 + gap」的节距取，相邻按钮的命中层正好相接不重叠——
+   重叠会让后一个按钮偷走前一个的边缘，比不扩还糟。 */
+
+@media (max-width: 960px){
+  .jx-attachBtn,
+  .jx-promptHubBtn,
+  .jx-planModeBtn,
+  .jx-projectDropBtn,
+  .jx-modelEffortBtn,
+  .jx-modeSeatBtn,
+  .jx-searchBtn,
+  .jx-collapseBtn,
+  .jx-helpBtn,
+  .jx-msgActionBtn{
+    position:relative;
+  }
+
+  .jx-attachBtn::after,
+  .jx-promptHubBtn::after,
+  .jx-planModeBtn::after,
+  .jx-projectDropBtn::after,
+  .jx-modelEffortBtn::after,
+  .jx-modeSeatBtn::after,
+  .jx-searchBtn::after,
+  .jx-collapseBtn::after,
+  .jx-helpBtn::after,
+  .jx-msgActionBtn::after{
+    content:'';
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:max(100%, var(--jx-touch-min));
+    height:var(--jx-touch-min);
+    transform:translate(-50%, -50%);
+    /* 纯命中层：不画任何东西，也不吃掉宿主按钮自己的 hover/active 反馈 */
+    background:transparent;
+    border-radius:inherit;
+  }
+
+  /* 命中层撑到 44px 后控件之间要留够节距，否则相邻命中层互相蚕食
+     （后一个按钮会偷走前一个的边缘）。40px 视觉宽 + 6px 间距 = 46px 节距 > 44。 */
+
+  .jx-composerBar{
+    gap:6px;
+    padding-top:4px;
+    padding-bottom:4px;
+  }
+
+  .jx-attachBtn,
+  .jx-promptHubBtn,
+  .jx-planModeBtn{
+    width:40px;
+    min-width:40px;
+    height:40px;
+    min-height:40px;
+    flex:0 0 40px;
+  }
+
+  .jx-projectDropBtn,
+  .jx-emptyPage--main .jx-homeInput .jx-projectDropBtn{
+    width:40px;
+    min-width:40px;
+    height:40px;
+    min-height:40px;
+    flex:0 0 40px;
+  }
+
+  /* chat.css 用 `.jx-composerBar .jx-<x>Btn{overflow:hidden}` 裁文字做省略号，
+     这个 hidden 会连命中层一起裁掉——实测热区被压回按钮自身的 40×40。
+     解法是把裁剪下移到内部的文字 span：省略号照旧，命中层不再被裁。
+     选择器必须同为 0,2,0 才压得住原规则。 */
+  .jx-composerBar .jx-projectDropBtn,
+  .jx-composerBar .jx-modelEffortBtn{
+    overflow:visible;
+  }
+
+  .jx-composerBar .jx-modelEffortBtn .jx-composerChip-label{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .jx-modelEffortBtn{
+    height:40px;
+    min-height:40px;
+  }
+
+  .jx-modeSeatBtn{
+    min-height:40px;
+  }
+
+  /* 发送键的视觉是里面的图标、按钮本身透明——直接撑到 44 不改观感 */
+  .jx-sendBtn{
+    width:var(--jx-touch-min);
+    height:var(--jx-touch-min);
+    flex:0 0 var(--jx-touch-min);
+  }
+
+  /* 消息底部的复制/赞踩/分享一排图标此前 26px，是全站最难点中的一处。
+     38px 宽 + 6px 间距 = 44px 节距，命中层刚好相接不互相蚕食。 */
+  .jx-msgActions{
+    gap:6px;
+  }
+
+  .jx-msgActionBtn{
+    width:38px;
+    min-width:38px;
+    height:34px;
+    min-height:34px;
+  }
+
+  /* 追问建议卡片：39px 高，差一点点 */
+  .jx-followUpBtn{
+    min-height:var(--jx-touch-min);
+  }
+
+  /* 「思考过程 / 已调用 xxx」这排折叠开关只有 23px 高。它们是竖直堆叠的，
+     命中层撑到 44 会互相蚕食，所以给真实高度而不是命中层。 */
+  .jx-inlineSummary{
+    min-height:34px;
+  }
+
+  /* 侧栏抽屉：导航项与历史项是主要触摸目标，直接给足高度而不是靠命中层——
+     抽屉里纵向空间不紧张，撑高的同时节奏也更接近原生列表 */
+  .jx-appShell > .jx-sider .jx-navItem{
+    height:44px;
+    border-radius:14px;
+  }
+
+
+  .jx-appShell > .jx-sider .jx-newChatBtn{
+    height:44px;
+  }
+
+  /* 触屏历史行同时放大固定高度与最小高度，覆盖 sidebar-history.css 的 36px。 */
+  .jx-appShell > .jx-sider .jx-historyItem{
+    height:44px;
+    min-height:44px;
+    flex-shrink:0;
+  }
+
+  /* 分组折叠标题原 26px。它横向很长（267px），纵向补到 40 就足以稳稳点中，
+     再往上加会让三个分组头把历史列表挤出屏幕。 */
+  .jx-appShell > .jx-sider .jx-historyGroupHeader{
+    min-height:40px;
+  }
+
+
+
+  /* 对话页顶栏是 flex 容器，标题一长就把汉堡键压窄（实测被压到 30px）。
+     width 会被压缩，min-width 不会——两个都要写。 */
+  .jx-mobileMenuBtn{
+    width:var(--jx-touch-min);
+    min-width:var(--jx-touch-min);
+    height:var(--jx-touch-min);
+    min-height:var(--jx-touch-min);
+    flex:0 0 var(--jx-touch-min);
+  }
+
+  .jx-searchBtn,
+  .jx-collapseBtn,
+  .jx-helpBtn{
+    width:36px;
+    min-width:36px;
+    height:36px;
+    min-height:36px;
+  }
+
+}
+
+/* ── 4. 触屏交互态 ───────────────────────────────────────────────────
+   用 `hover:none` 命中真触屏设备，而不是按视口宽度判断——窄窗口的桌面浏览器
+   不受影响，iPad 这类宽屏触摸设备也能覆盖到。 */
+
+@media (hover: none){
+  /* 系统默认的灰色点击方块与本站自研的 :active 缩放反馈重复，且会在圆角控件外
+     画出直角色块。关掉它，交互反馈全部交给 :active。 */
+  a,
+  button,
+  [role="button"],
+  .jx-navItem,
+  .jx-historyItem,
+  .jx-msgActionBtn{
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* 触屏上没有真正的 hover：手指按下会让 :hover 生效并一直粘住，直到点了别处
+     才散——表现为「点过的按钮一直亮着」。放大类的 hover 变换尤其明显
+     （发送键点完卡在放大态），统一还原。 */
+  .jx-sendBtn:hover,
+  .jx-projectCard:hover{
+    transform:none;
+  }
+}
+
+/* ── 5. 抽屉滚动不串联 ──────────────────────────────────────────────
+   抽屉里的历史列表滚到头后，手势会继续传给底下的页面（滚动链），在 iOS 上
+   表现为整个抽屉跟着橡皮筋位移。contain 把滚动关在容器里。 */
+
+@media (max-width: 960px){
+  .jx-appShell > .jx-sider .jx-moduleSidebar{
+    overscroll-behavior:contain;
+  }
+}
+
+/* ── 6. 首屏空态的纵向配比 ──────────────────────────────────────────
+   hero 若只用固定 margin-top 贴顶，富余空间会全部堆成它下方的一个空洞
+   （393×852 实测约 370px，占屏高 43%），视觉上像没加载完。
+
+   改成让 hero 自己吃掉上下两侧的富余空间（auto 上 + auto 下各分一半），标题
+   就落在空白区的视觉中心，与下方的建议问题、输入框形成三段式节奏。
+
+   守卫条件用朝向而不是高度：横屏本来就没有富余空间（上面另有一套 max-height:700px
+   的紧凑规则在管），去动它只会把内容挤出屏幕；而 360×640 这类矮的竖屏机同样会命中
+   那条高度规则，却是实打实需要这次配比修正的——所以这里按 orientation 判断。 */
+
+@media (max-width: 960px) and (orientation: portrait){
+  .jx-emptyPage--main .jx-heroBg{
+    /* 上下各分一半富余空间；clamp 退居为「空间不够时的最小上边距」 */
+    margin-top:auto;
+    margin-bottom:auto;
+    padding-top:clamp(16px, 4dvh, 44px);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   定时任务页（侧边栏一级面板 automation）
+   ──────────────────────────────────────────────────────────────────────
+   这一页此前完全没做窄屏适配——automation.css 里只有一段「把搜索框压窄」的微调，
+   治标不治本。实测 393×659 下的四处硬伤，都是「桌面一行排得下」的布局原样搬到
+   手机的结果：
+
+   ① 页头「标题 | 搜索 + 新建定时任务」是一整行，按钮右边缘落在 431px（屏幕才 393），
+      主操作被切在屏幕外，点不到；
+   ② 推荐任务是鼠标翻页轮播：卡片固定 260px、靠左右 28px 箭头翻页，触屏既点不中箭头，
+      第二张卡还被屏幕右缘硬切一半，像渲染坏了；
+   ③ 「我的定时任务 / 执行记录」两个 Tab 与 150px 的排序下拉挤一行，Tab 文字被压成
+      两行；
+   ④ 详情页字段区是写死的两列 grid，窄屏下「任务类型」这种短字段独占左半格、右半空着；
+      任务名与状态徽标、运行开关同处一行，名字被挤到只剩两三个字（「每...」）。
+
+   处理原则与本文件其余部分一致：视觉尺寸尽量不动，只改「排不下」的排布，
+   可点区域一律对齐 --jx-touch-min。
+
+   ⚠️ 这一节的选择器都多挂了一个 `body`，不是手抖——本文件「最后一个 import 所以同
+   特异性下赢」的前提在这一页**不成立**：automation.css 不在 styles/index.ts 里，而是
+   由 `components/lab/AutomationPanel.tsx` 自己 import，打包后它排在 mobile.css
+   **之后**。实测现象是页头的两级选择器规则生效、单类规则（如 presetsNav 的
+   display:none）被 automation.css 原样盖回。`body ` 把特异性抬到 0,1,1 即可稳赢。
+   同样由组件自行 import 的还有 sites.css / skill-distill.css / automation-timeline.css，
+   以后给这几页写移动端规则要一并注意。
+   ══════════════════════════════════════════════════════════════════════ */

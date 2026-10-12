@@ -1,0 +1,379 @@
+/* ── / command and @ mention candidate menus ── */
+
+.jx-mentionPopup,
+.jx-slashPopup {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  width: min(520px, calc(100% - 32px));
+  min-width: min(300px, calc(100% - 32px));
+  max-height: 320px;
+  padding: 4px;
+  margin-bottom: 8px;
+  overflow-y: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-dropdown);
+  z-index: 50;
+}
+
+/* 上方空间不足时翻转到输入框下方（usePopupFlip 驱动） */
+
+.jx-mentionPopup--below,
+.jx-slashPopup--below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 8px;
+}
+
+.jx-commandPopup-groupTitle {
+  min-height: 26px;
+  padding: 7px 10px 3px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.jx-commandPopup-groupTitle:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--color-border);
+}
+
+.jx-mentionPopup-item,
+.jx-slashPopup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-text);
+  text-align: left;
+  transition: background-color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+.jx-mentionPopup-item:hover,
+.jx-mentionPopup-item.active,
+.jx-slashPopup-item:hover,
+.jx-slashPopup-item.active {
+  background: var(--color-primary-light);
+}
+
+.jx-mentionPopup-at {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.jx-mentionPopup-icon {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+}
+
+.jx-mentionPopup-icon--files { color: var(--color-primary); }
+
+.jx-mentionPopup-icon--agents { color: var(--color-tint-purple); }
+
+.jx-mentionPopup-icon--plan,
+.jx-mentionPopup-icon--workflow { color: var(--color-tint-teal); }
+
+.jx-mentionPopup-icon--batch { color: var(--color-warning); }
+
+.jx-mentionPopup-icon--loop { color: var(--color-primary); }
+
+.jx-mentionPopup-state {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  font-size: 12px;
+}
+
+.jx-mentionPopup-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.jx-mentionPopup-back:hover { background: var(--color-primary-light); }
+
+.jx-mentionPopup-empty {
+  padding: 12px 10px 16px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.jx-mentionPopup-name,
+.jx-slashPopup-name {
+  flex: 0 1 38%;
+  min-width: 72px;
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.jx-commandPopup-description {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-slashPopup-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+}
+
+.jx-slashPopup-icon--command { color: var(--color-tint-green); }
+
+.jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
+
+.jx-slashPopup-icon--skill { color: var(--color-warning); }
+
+/* ── ContentEditable editor — replaces textarea ── */
+
+.jx-composerEditor {
+  position: relative;
+  min-height: 50px;
+  max-height: 150px;
+  padding: 16px 16px 12px;
+  font-size: 16px;
+  color: var(--color-text);
+  line-height: 1.5715;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  /* 关闭浏览器滚动锚定，避免内容变化时浏览器擅自移动光标位置 */
+  overflow-anchor: none;
+  cursor: text;
+}
+
+/* Keep placeholder rendering outside contentEditable so IME composition never
+   causes React to mutate the editor element itself. */
+
+.jx-composerBody { position:relative; min-width:0; }
+
+.jx-composerPlaceholder {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 16px 16px 12px;
+  font-size: 16px;
+  line-height: 1.5715;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
+  color: var(--color-text-placeholder);
+  pointer-events: none;
+}
+
+.jx-composerPlaceholder::before {
+  content: attr(data-placeholder);
+}
+
+/* ── Inline chips inside the editor (same text flow) ── */
+
+.jx-editorChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: baseline;
+  cursor: default;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.jx-editorChip--mention {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.jx-editorChip--skill {
+  background: var(--color-tint-cyan-bg);
+  color: var(--color-primary);
+}
+
+/* 插件 chip 与技能 chip 视觉区分：紫色底 */
+
+.jx-editorChip--plugin {
+  background: var(--color-tint-purple-bg);
+  color: var(--color-tint-purple);
+}
+
+/* 命令 chip（/init 这类）：绿色底（青/紫/teal/蓝已被技能/插件/连接器/会话引用占用） */
+
+.jx-editorChip--command {
+  background: var(--color-tint-green-bg);
+  color: var(--color-tint-green);
+}
+
+.jx-editorChip--connector {
+  background: var(--color-tint-teal-bg);
+  color: var(--color-tint-teal);
+}
+
+/* 会话引用 chip：蓝色底（青/紫/teal 已被技能/插件/连接器占用），前缀是气泡图标而非字符 */
+
+.jx-editorChip--chat {
+  background: var(--color-tint-blue-bg);
+  color: var(--color-tint-blue);
+}
+
+.jx-editorChip--chat .jx-editorChip-prefix,
+.jx-msgChip--chat .jx-msgChip-prefix {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 3px;
+}
+
+.jx-editorChip-prefix {
+  font-weight: 700;
+}
+
+.jx-editorChip-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Message chip badges (user bubble) ── */
+
+.jx-msgChipBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.jx-msgChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.jx-msgChip--mention {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.jx-msgChip--skill {
+  background: var(--color-tint-cyan-bg);
+  color: var(--color-primary);
+}
+
+/* 插件 chip 与技能 chip 视觉区分：紫色底 */
+
+.jx-msgChip--plugin {
+  background: var(--color-tint-purple-bg);
+  color: var(--color-tint-purple);
+}
+
+.jx-msgChip--connector {
+  background: var(--color-tint-teal-bg);
+  color: var(--color-tint-teal);
+}
+
+.jx-msgChip--chat {
+  background: var(--color-tint-blue-bg);
+  color: var(--color-tint-blue);
+}
+
+.jx-msgChip-prefix {
+  font-weight: 700;
+}
+
+/* ── Attach dropdown menu ── */
+
+/* 卡片外壳走上面工具条浮层的统一规则；这里只调它自己的行密度与图标。 */
+
+.jx-attachMenu .ant-dropdown-menu {
+  min-width: 200px;
+}
+
+.jx-attachMenu .ant-dropdown-menu-item,
+.jx-attachMenu .ant-dropdown-menu-submenu-title {
+  border-radius: 10px;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--color-text) 82%, transparent);
+  gap: 10px;
+  padding: 8px 10px;
+  transition: background-color .12s ease;
+}
+
+.jx-attachMenu .ant-dropdown-menu-item:hover,
+.jx-attachMenu .ant-dropdown-menu-submenu-title:hover {
+  background: rgba(15,23,42,.05);
+  color: var(--color-text);
+}
+
+.jx-attachMenu .ant-dropdown-menu-item .anticon,
+.jx-attachMenu .ant-dropdown-menu-submenu-title .anticon {
+  font-size: 15px;
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+
+/* 「自主循环」菜单项：名称在左、开关贴右 */
+
+/* 子菜单浮层（技能 / 添加到项目）单独挂载，不继承 overlayClassName。
+ * 限高 + 内部滚动，避免项目/技能很多时浮层超出视口。 */
+
+.ant-dropdown-menu-submenu-popup .ant-dropdown-menu {
+  max-height: 60vh;
+  overflow-y: auto;
+  min-width: 180px;
+}

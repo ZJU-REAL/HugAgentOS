@@ -1,0 +1,381 @@
+/* ── 输入框底部操作栏 ── */
+
+/* The toolbar is a layout row outside the editor scroll viewport. */
+
+.jx-composerBar{
+  position:relative;
+  flex-shrink:0;
+  display:flex;
+  align-items:center;
+  /* chip 自带左右内衬，间距靠内衬撑开即可；gap 再给 8 会把工具条拉得松散 */
+  gap:4px;
+  height:50px;
+  padding:8px 12px 12px;
+  background:var(--color-bg-container);
+  border-bottom-left-radius:16px;
+  border-bottom-right-radius:16px;
+  pointer-events:none;
+  z-index:2;
+}
+
+.jx-composerBar > *{
+  pointer-events:auto;
+}
+
+/* 窄容器（项目页 composer）防溢出：长文本下拉可收缩省略，附件/发送钮永不被顶出框外。
+   容器查询而不是媒体查询：同一个 composer 在首页/对话页/项目页宽度差很多，
+   要按"这条工具栏自己有多宽"降级，而不是按视口宽度。 */
+
+.jx-composerBar{ min-width:0; container-type:inline-size; }
+
+.jx-composerBar .jx-modelEffortBtn,
+.jx-composerBar .jx-projectDropBtn{ flex-shrink:1; min-width:0; overflow:hidden; }
+
+.jx-composerBar .jx-projectDropName{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* 逐级降级：先收「提示词中心」的字，再收项目名与模式名——这几个都有图标顶着，
+   功能一个不少，只是不再抢横向空间。模型/思考强度位是唯一没有图标可替代的
+   （名字本身就是它的值），所以只压缩不隐藏。 */
+
+@container (max-width: 620px){
+  .jx-promptHubBtn .jx-composerChip-label{ display:none; }
+  .jx-promptHubBtn{ padding:0 7px; }
+}
+
+@container (max-width: 500px){
+  .jx-projectDropBtn .jx-composerChip-label,
+  .jx-planModeBtn .jx-composerChip-label{ display:none; }
+  .jx-projectDropBtn svg.jx-modeArrow{ display:none; }
+  .jx-projectDropBtn,
+  .jx-planModeBtn{ padding:0 7px; }
+  .jx-modelEffortBtn{ max-width:150px; }
+}
+
+@container (max-width: 400px){
+  .jx-modelEffortAside{ display:none; }
+  .jx-modelEffortBtn{ max-width:112px; }
+}
+
+/* ── 工具条 chip 基座 ────────────────────────────────────────────────
+   参考无边框 chip 体系：默认只有文字 + 图标，hover / 展开才浮出一块底色；
+   "选中/开启"用淡色块填充表达，而不是给每个按钮描一圈 1px 边框——一排方框
+   会把输入框底部切成生硬的控件条，chip 化之后整条工具栏读起来是一个整体。*/
+
+.jx-composerBar{
+  --jx-chip-h:28px;
+  --jx-chip-fg:color-mix(in srgb, var(--color-text) 60%, transparent);
+  --jx-chip-fg-strong:color-mix(in srgb, var(--color-text) 88%, transparent);
+  --jx-chip-hover:color-mix(in srgb, var(--color-text) 5.5%, transparent);
+  --jx-chip-active-bg:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --jx-chip-active-hover:color-mix(in srgb, var(--color-primary) 16%, transparent);
+  --jx-chip-active-fg:var(--color-primary-active);
+}
+
+.jx-composerChip{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  flex-shrink:0;
+  min-width:0;
+  max-width:220px;
+  height:var(--jx-chip-h, 28px);
+  min-height:var(--jx-chip-h, 28px);
+  padding:0 6px 0 8px;
+  border:none;
+  border-radius:999px;
+  background:transparent;
+  color:var(--jx-chip-fg, color-mix(in srgb, var(--color-text) 60%, transparent));
+  font-size:13px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+  cursor:pointer;
+  outline:none;
+  transition:background-color .14s ease, color .14s ease;
+}
+
+.jx-composerChip-label{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.jx-composerChip:hover,
+.jx-composerChip.open{
+  background:var(--jx-chip-hover, rgba(15,23,42,.055));
+  color:var(--jx-chip-fg-strong, color-mix(in srgb, var(--color-text) 88%, transparent));
+}
+
+.jx-composerChip:focus-visible{
+  box-shadow:0 0 0 2px rgba(18,109,255,.28);
+}
+
+.jx-composerChip:disabled{ opacity:.5; cursor:default; }
+
+/* 选中 / 开启态：淡蓝色块 + 主色文字，同一套质感覆盖项目绑定、计划模式、
+   批量执行、自主循环、提示词中心——用户一眼能扫出"哪几个是开着的"。 */
+
+.jx-composerChip.active,
+.jx-composerChip.bound{
+  background:var(--jx-chip-active-bg, rgba(18,109,255,.10));
+  color:var(--jx-chip-active-fg, var(--color-primary-active));
+}
+
+.jx-composerChip.active:hover,
+.jx-composerChip.bound:hover,
+.jx-composerChip.bound.open{
+  background:var(--jx-chip-active-hover, rgba(18,109,255,.16));
+  color:var(--jx-chip-active-fg, var(--color-primary-active));
+}
+
+/* 箭头跟随 chip 文字色（inline SVG，currentColor），展开时翻转 180° ——
+   让"按钮亮起 + 箭头朝上 + 浮层展开"是同一个动作的三个面。 */
+
+.jx-modeArrow{ width:12px; height:12px; flex-shrink:0; }
+
+img.jx-modeArrow{ opacity:1; filter:brightness(0) saturate(100%) invert(80%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(90%); }
+
+svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease, opacity .14s ease; }
+
+.jx-composerChip:hover svg.jx-modeArrow{ opacity:.7; }
+
+.jx-composerChip.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.85; }
+
+.jx-dispatchDropBtn{
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid var(--color-border);
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  color:color-mix(in srgb, var(--color-text) 62%, transparent);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:border-color .18s ease;
+}
+
+.jx-dispatchDropBtn:hover{
+  border-color:color-mix(in srgb, var(--color-text) 22%, transparent);
+}
+
+.jx-dispatchOptionHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-width:96px;
+}
+
+/* ── ➕ 附件/能力入口（工具条最左）──
+   参考稿把 add 放在输入区左下角、发送放右下角，两端各一个圆钮把工具条框住。
+   实心浅底（不是 hover 才出现）——它是这排里唯一的"加东西"入口，值得一直有形。 */
+
+.jx-attachBtn{
+  appearance:none;
+  border:none;
+  padding:0;
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  background:var(--jx-chip-hover, rgba(15,23,42,.055));
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  margin-right:4px;
+  transition:background-color .14s ease;
+}
+
+.jx-attachBtn:hover,
+.jx-attachBtn.open{ background:color-mix(in srgb, var(--color-text) 11%, transparent); }
+
+.jx-attachIcon{
+  width:16px;
+  height:16px;
+  opacity:.85;
+  transition:opacity .14s ease;
+  filter:brightness(0) saturate(100%) invert(13%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(13%) contrast(90%);
+}
+
+.jx-attachBtn:hover .jx-attachIcon,
+.jx-attachBtn.open .jx-attachIcon{ opacity:1; }
+
+/* 图标是 SVG 资产靠 filter 上色（基础滤镜压成近黑），深色下反转为浅色 */
+
+:root[data-theme='dark'] .jx-attachIcon{
+  filter:brightness(0) saturate(100%) invert(92%);
+}
+
+/* ── 模型 + 思考强度位（工具条右侧，两级菜单）── */
+
+.jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
+
+.jx-modelEffortBtn{ max-width:320px; flex:0 1 auto; }
+
+/* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
+
+.jx-modelEffortAside{
+  flex:0 0 auto;
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
+  font-weight:400;
+}
+
+.jx-composerChip.open .jx-modelEffortAside{ color:color-mix(in srgb, var(--color-text) 55%, transparent); }
+
+/* 极速模式下没有可挑的模型/强度时的只读占位：不给 hover 反馈，别装成能点 */
+
+.jx-modelEffortStatic{
+  cursor:default;
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
+  font-weight:400;
+}
+
+.jx-modelEffortStatic:hover{ background:transparent; color:color-mix(in srgb, var(--color-text) 42%, transparent); }
+
+.jx-modelEffortStaticIcon{ font-size:13px; color:var(--color-warning, var(--color-warning)); }
+
+.jx-modelEffortMenu{
+  position:absolute;
+  right:0;
+  bottom:calc(100% + 8px);
+  z-index:20;
+  display:flex;
+  flex-direction:column;
+  width:max(240px, 100%);
+  max-height:min(360px, 60vh);
+  overflow:hidden;
+  padding:4px;
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius:14px;
+  background:var(--color-bg-container);
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+}
+
+/* 一级 cell：左标签 + 右当前值 + 右尖角，一行说清"这是什么、现在是什么" */
+
+.jx-menuCell{
+  appearance:none;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  height:40px;
+  padding:0 10px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  font-size:14px;
+  line-height:22px;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color .12s ease;
+}
+
+.jx-menuCell:hover:not(:disabled){ background:rgba(15,23,42,.05); }
+
+.jx-menuCell:disabled{ cursor:default; color:color-mix(in srgb, var(--color-text) 35%, transparent); }
+
+.jx-menuCell-label{ flex:1 1 auto; min-width:0; white-space:nowrap; }
+
+.jx-menuCell-value{
+  flex:0 1 auto;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.jx-menuCell-chevron{ flex:0 0 auto; font-size:11px; color:color-mix(in srgb, var(--color-text) 35%, transparent); }
+
+/* 二级返回行：尖角左转，读起来是"退回上一层" */
+
+.jx-menuBack{
+  appearance:none;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  width:100%;
+  padding:6px 10px 5px;
+  border:none;
+  background:transparent;
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+  text-align:left;
+  cursor:pointer;
+  border-radius:8px;
+}
+
+.jx-menuBack:hover{ background:rgba(15,23,42,.04); color:color-mix(in srgb, var(--color-text) 70%, transparent); }
+
+.jx-menuBack-chevron{ font-size:10px; transform:rotate(180deg); }
+
+/* 单层形态（没有可退回的上一级）：同一行位置改成纯标题，不做成可点的返回 */
+
+.jx-menuPaneTitle{
+  padding:7px 10px 4px;
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+}
+
+.jx-menuPaneList{ min-height:0; overflow-y:auto; }
+
+.jx-menuOption{
+  appearance:none;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  min-height:38px;
+  padding:6px 10px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color .12s ease;
+}
+
+.jx-menuOption:hover{ background:rgba(15,23,42,.05); }
+
+.jx-menuOption-copy{ display:flex; flex-direction:column; flex:1; min-width:0; gap:2px; }
+
+/* 单行行式（模型列表）：标题直接占满，不套 copy 列 */
+
+.jx-menuOption--oneLine{ min-height:34px; }
+
+.jx-menuOption--oneLine > .jx-menuOption-title{ flex:1; }
+
+.jx-menuOption-title{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:14px;
+  line-height:20px;
+  font-weight:500;
+  color:var(--color-text);
+}
+
+.jx-menuOption-desc{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  line-height:18px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+}

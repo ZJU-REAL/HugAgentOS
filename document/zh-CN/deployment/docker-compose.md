@@ -224,3 +224,26 @@ make migrate-new msg="describe change"
 builder 已存在时直接复用。构建结束后停止专用 builder，保留缓存供下次使用。
 应用托管部署仍需叠加 docker-compose.application-hosting.yml。
 不要同时运行完整构建和多组浏览器测试。WSL 上限应结合其他容器及编辑器的实际占用设置。
+
+## 模型网关启动与排障（商业版 EE）
+
+模型网关使用独立的 `litellm` 服务和 `gateway` profile。仅设置
+`MODEL_GATEWAY_ENABLED=true` 不会启动该容器。需要网关时，在 `.env` 的
+现有 `COMPOSE_PROFILES` 列表中追加 `gateway`，保留其他 profile。
+后端管理地址使用同一 Docker 网络中的 `http://litellm:4000`。
+
+已有网关数据库和密钥的环境可按以下步骤恢复服务：
+
+```bash
+docker compose --profile gateway up -d --no-deps litellm
+docker compose ps litellm
+docker compose exec backend getent hosts litellm
+```
+
+上述恢复命令要求 PostgreSQL 已健康运行。等待 LiteLLM 完成启动迁移并变为
+healthy，再在管理台验证用量统计和调用日志。保留原有 `litellm` 数据库与
+`LITELLM_MASTER_KEY`，不要通过清空数据或换钥恢复连接。
+
+出现 `Name or service not known` 时，先核查容器是否存在、是否与后端处于
+同一网络，以及 `LITELLM_ADMIN_URL` 是否正确。缺失的服务名可能被外部 DNS
+返回代理地址；能解析出地址并不代表网关容器存在。

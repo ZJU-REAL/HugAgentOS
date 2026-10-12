@@ -1,0 +1,420 @@
+/* Apple-inspired mobile visual system. Navigation and primary controls use
+ * restrained translucent material; content stays opaque and high-contrast. */
+
+@media (max-width: 960px){
+  :root{
+    --jx-mobile-canvas:var(--color-bg-layout);
+    --jx-mobile-surface:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
+    --jx-mobile-material:color-mix(in srgb, var(--color-bg-container) 76%, transparent);
+    --jx-mobile-line:color-mix(in srgb, var(--color-text) 7.5%, transparent);
+    --jx-mobile-label:var(--color-text);
+    --jx-mobile-secondary:var(--color-text-tertiary);
+    --jx-mobile-radius:22px;
+    --jx-mobile-control-radius:18px;
+    --jx-mobile-shadow:0 12px 34px rgba(42,61,94,.075),0 1px 2px rgba(15,23,42,.035);
+  }
+
+  html,
+  body,
+  #root,
+  .jx-appShell.ant-layout,
+  .jx-appShell > .jx-appMainLayout.ant-layout{
+    background:var(--jx-mobile-canvas) !important;
+  }
+
+  body,
+  button,
+  input,
+  textarea,
+  select{
+    font-family:var(--font-family);
+  }
+
+  body{
+    color:var(--jx-mobile-label);
+    letter-spacing:-.01em;
+    text-rendering:optimizeLegibility;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  .jx-content{
+    background:var(--jx-mobile-canvas);
+  }
+
+  .jx-mobileHeader{
+    z-index:40;
+    flex-basis:68px;
+    height:calc(68px + var(--jx-safe-t));
+    padding:calc(14px + var(--jx-safe-t)) max(20px, var(--jx-safe-r)) 8px max(20px, var(--jx-safe-l));
+    /* rgba(245,247,251) 正是浅色档的 --color-bg-layout，换成令牌后浅色像素不变、
+       深色不再是一条白板（原来暗底上顶着一条刺眼浅色横条）。 */
+    background:color-mix(in srgb, var(--color-bg-layout) 86%, transparent);
+    border-bottom:0;
+    backdrop-filter:saturate(180%) blur(22px);
+    -webkit-backdrop-filter:saturate(180%) blur(22px);
+  }
+
+  .jx-mobileMenuBtn{
+    width:42px;
+    height:42px;
+    flex:0 0 42px;
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 86%, transparent);
+    border-radius:50%;
+    background:var(--jx-mobile-material);
+    color:var(--color-text);
+    font-size:21px;
+    box-shadow:0 7px 20px rgba(42,61,94,.07),inset 0 0 0 .5px rgba(15,23,42,.045);
+    backdrop-filter:saturate(180%) blur(18px);
+    -webkit-backdrop-filter:saturate(180%) blur(18px);
+    transition:transform var(--motion-duration-instant) var(--motion-ease-standard),background var(--motion-duration-fast) var(--motion-ease-standard);
+  }
+
+  .jx-mobileMenuBtn:active{
+    background:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
+    transform:scale(.96);
+  }
+
+  .jx-chatTopbar{
+    min-height:calc(64px + var(--jx-safe-t));
+    padding:calc(10px + var(--jx-safe-t)) max(16px, var(--jx-safe-r)) 10px max(16px, var(--jx-safe-l));
+    /* 同 .jx-mobileHeader：浅色档 --color-bg-layout 就是 rgb(245,247,251)，改令牌后深色跟随 */
+    background:color-mix(in srgb, var(--color-bg-layout) 84%, transparent);
+    border-bottom:1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
+    backdrop-filter:saturate(180%) blur(22px);
+    -webkit-backdrop-filter:saturate(180%) blur(22px);
+  }
+
+  .jx-chatTopbarTitle{
+    color:var(--jx-mobile-label);
+    font-size:15px;
+    font-weight:600;
+    letter-spacing:-.01em;
+  }
+
+  .ant-dropdown .ant-dropdown-menu,
+  .ant-popover .ant-popover-inner{
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 82%, transparent);
+    border-radius:16px;
+    background:color-mix(in srgb, var(--color-bg-container) 90%, transparent);
+    box-shadow:var(--shadow-dropdown);
+    backdrop-filter:saturate(180%) blur(24px);
+    -webkit-backdrop-filter:saturate(180%) blur(24px);
+  }
+}
+
+@media (max-width: 768px){
+  .jx-panel:not([data-panel="chat"]){
+    color:var(--jx-mobile-label);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentPage,
+  .jx-sk-page,
+  .jx-mcp-page{
+    font-family:var(--font-family);
+  }
+}
+
+@media (max-width: 768px){
+
+  /* 底距原为 max(56px, safe-b)：这些页面并没有悬浮在底部的控件要避让，56px 只是
+     凭经验留的余量，实测在站点这种「列表不长」的页面上，滚到底后屏幕最下方空出
+     一条明显的白带，看着像给对话输入框留的位置。收敛到 24px + 安全区。 */
+}
+
+@media (max-width: 768px){
+  .jx-agentPage{
+    padding:12px 20px max(24px, var(--jx-safe-b));
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentPage-header{
+    margin-bottom:22px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentPage-title{
+    color:var(--jx-mobile-label);
+    font-size:26px;
+    font-weight:700;
+    line-height:1.18;
+    letter-spacing:-.035em;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentPage-subtitle{
+    margin-top:8px;
+    color:var(--jx-mobile-secondary);
+    font-size:15px;
+    line-height:1.55;
+    letter-spacing:0;
+  }
+}
+
+@media (max-width: 768px){
+
+  .ant-btn{
+    font-weight:500;
+    box-shadow:none;
+  }
+}
+
+@media (max-width: 768px){
+
+  /* :not(.ant-btn-background-ghost) 是必须的：ghost 主按钮（如站点卡片的「打开」）
+     带的正是 .ant-btn-primary，无条件刷上主色底就成了「蓝底蓝字」——按钮整个变成
+     一块看不出内容的色块。ghost 的底必须留给它自己的透明。 */
+}
+
+@media (max-width: 768px){
+  .ant-btn-primary:not(.ant-btn-background-ghost){
+    border-color:var(--color-primary);
+    background:var(--color-primary);
+  }
+}
+
+@media (max-width: 768px){
+
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-select-selector,
+  .ant-input-number,
+  textarea.ant-input{
+    border-color:color-mix(in srgb, var(--color-text) 10.5%, transparent);
+    background:color-mix(in srgb, var(--color-bg-container) 88%, transparent);
+    box-shadow:none !important;
+  }
+}
+
+@media (max-width: 768px){
+
+  .ant-input-affix-wrapper:focus,
+  .ant-input-affix-wrapper-focused,
+  .ant-select-focused .ant-select-selector{
+    border-color:rgba(18,109,255,.55) !important;
+    box-shadow:0 0 0 3px rgba(18,109,255,.11) !important;
+  }
+}
+
+@media (max-width: 768px){
+
+  .ant-modal-content,
+  .ant-drawer-content{
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 78%, transparent);
+    border-radius:22px;
+    background:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
+    box-shadow:0 24px 70px rgba(28,43,68,.18);
+    backdrop-filter:saturate(170%) blur(24px);
+    -webkit-backdrop-filter:saturate(170%) blur(24px);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-header{
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:22px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-title{
+    display:block;
+    font-size:clamp(32px,9vw,38px);
+    font-weight:720;
+    line-height:1.12;
+    letter-spacing:-.055em;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-subtitle{
+    max-width:34em;
+    margin-top:10px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-headerRight{
+    display:flex;
+    width:100%;
+    flex-direction:row;
+    align-items:center;
+    gap:4px;
+    padding:4px;
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 90%, transparent);
+    border-radius:24px;
+    background:var(--jx-mobile-material);
+    box-shadow:0 10px 30px rgba(42,61,94,.065),inset 0 0 0 .5px rgba(15,23,42,.045);
+    backdrop-filter:saturate(180%) blur(22px);
+    -webkit-backdrop-filter:saturate(180%) blur(22px);
+    box-sizing:border-box;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-search.ant-input-affix-wrapper{
+    width:auto;
+    min-width:0;
+    height:48px;
+    flex:1 1 auto;
+    padding-inline:14px 8px;
+    border:0;
+    border-radius:20px;
+    background:transparent;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-search.ant-input-affix-wrapper-focused{
+    background:color-mix(in srgb, var(--color-bg-container) 72%, transparent);
+    box-shadow:none !important;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-search .ant-input{
+    min-width:0;
+    background:transparent;
+    color:var(--jx-mobile-label);
+    font-size:15px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-createBtn.ant-btn{
+    height:48px;
+    min-width:142px;
+    flex:0 0 auto;
+    margin:0;
+    padding-inline:16px;
+    border-radius:20px;
+    font-size:14px;
+    box-shadow:0 7px 18px rgba(18,109,255,.2);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentPage-grid{
+    display:block;
+    overflow:hidden;
+    border:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+    border-radius:var(--jx-mobile-radius);
+    background:var(--jx-mobile-surface);
+    box-shadow:var(--jx-mobile-shadow);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard{
+    position:relative;
+    padding:20px 18px;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard + .jx-agentCard{
+    border-top:1px solid var(--jx-mobile-line);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard:hover,
+  .jx-agentLibraryPage .jx-agentCard:active{
+    border-color:transparent;
+    background:rgba(18,109,255,.035);
+    box-shadow:none;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-head{
+    align-items:flex-start;
+    gap:12px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-iconWrap{
+    width:52px;
+    height:52px;
+    border:0;
+    border-radius:16px;
+    background:var(--color-primary-light);
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-iconWrap img{
+    width:52px !important;
+    height:52px !important;
+    border-radius:16px !important;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-nameRow{
+    align-items:flex-start;
+    align-content:flex-start;
+    gap:6px;
+    padding-top:2px;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-name{
+    flex:1 1 100%;
+    color:var(--jx-mobile-label);
+    font-size:18px;
+    font-weight:650;
+    line-height:1.35;
+    letter-spacing:-.025em;
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    word-break:break-word;
+  }
+}
+
+@media (max-width: 768px){
+
+  .jx-agentLibraryPage .jx-agentCard-badge{
+    padding:2px 8px;
+    border-radius:999px;
+    background:var(--color-bg-gray);
+    color:var(--color-text-tertiary);
+    font-size:11px;
+    line-height:18px;
+  }
+}

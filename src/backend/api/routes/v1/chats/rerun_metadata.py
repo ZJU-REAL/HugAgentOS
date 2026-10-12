@@ -33,3 +33,14 @@ def _restore_attachments(saved: List[Dict]) -> List[AttachmentItem]:
         for a in saved
         if a.get("file_id")
     ]
+
+
+def _restore_rerun_options(extra: Dict[str, Any], body: Any) -> Dict[str, Any]:
+    """Current selections override saved model/mode without changing attachments."""
+    values = {
+        key: extra[key] for key in ("model_provider_id", "mode_slug", "chat_mode") if extra.get(key)
+    }
+    values.update(
+        body.model_dump(include={"model_provider_id", "mode_slug", "chat_mode"}, exclude_none=True)
+    )
+    return values

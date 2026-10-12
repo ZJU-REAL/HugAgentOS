@@ -76,6 +76,7 @@ export interface ChatAreaProps {
   editAndResend?: (messageIndex: number, newContent: string) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onViewportMount?: (element: HTMLDivElement | null) => void;
   chatListRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -83,7 +84,7 @@ export interface ChatAreaProps {
 export function ChatArea({
   send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, exportChatRecord, createChatShare, handleFileSelect, removeFile,
   regenerate, editAndResend,
-  inputRef, fileInputRef, chatListRef, messagesEndRef,
+  inputRef, fileInputRef, chatListRef, messagesEndRef, onViewportMount,
 }: ChatAreaProps) {
   type ShareExpiryOption = '3d' | '15d' | '3m' | 'permanent';
   const shareExpiryOptions = [
@@ -107,6 +108,11 @@ export function ChatArea({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   // Shared-session access level: read-only sessions disable the input box.
   const [shareAccessLevel, setShareAccessLevel] = useState<'admin' | 'edit' | 'read' | null>(null);
+  const [viewportEl, setViewportEl] = useState<HTMLDivElement | null>(null);
+  const mountViewport = useCallback((element: HTMLDivElement | null) => {
+    setViewportEl(element);
+    onViewportMount?.(element);
+  }, [onViewportMount]);
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
@@ -114,7 +120,7 @@ export function ChatArea({
     (state) => (state.pendingUserQuestions[currentChatId]?.length ?? 0) > 0,
   );
   useEffect(() => {
-    const content = document.querySelector<HTMLElement>('.jx-content');
+    const content = viewportEl;
     if (!content) return;
     const handleScroll = () => {
       setShowScrollToBottom(distanceFromBottom(content) > SCROLL_TO_BOTTOM_BTN_THRESHOLD);
@@ -127,7 +133,7 @@ export function ChatArea({
       content.removeEventListener('scroll', handleScroll);
       ro?.disconnect();
     };
-  }, []);
+  }, [viewportEl]);
 
   // 这四个回调在上层是每次渲染重新定义的普通函数。不稳住身份，MessageBubble 的
   // memo 就完全不起作用——模型每吐一个字，整条对话的所有气泡都要重渲染一遍。
@@ -145,7 +151,7 @@ export function ChatArea({
   const hasOlderMessages = !!messagePaging?.hasOlder;
   useEffect(() => {
     const sentinel = olderSentinelRef.current;
-    const scroller = document.querySelector<HTMLElement>('.jx-content');
+    const scroller = viewportEl;
     if (!sentinel || !scroller || !hasOlderMessages) return;
     let disposed = false;
     const observer = new IntersectionObserver(async (entries) => {
@@ -169,14 +175,12 @@ export function ChatArea({
       disposed = true;
       observer.disconnect();
     };
-  }, [currentChatId, hasOlderMessages]);
+  }, [currentChatId, hasOlderMessages, viewportEl]);
 
   const scrollToBottom = () => {
-    const content = document.querySelector<HTMLElement>('.jx-content');
+    const content = viewportEl;
     if (content) {
       scrollElementToBottom(content, true);
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   };
 
@@ -396,54 +400,58 @@ export function ChatArea({
           </button>
         </div>
       )}
-      <div className="jx-chatList" ref={chatListRef}>
-        {messagePaging?.hasOlder && (
-          <div className="jx-olderLoader" ref={olderSentinelRef} role="status">
-            {messagePaging.loading ? t('正在加载更早的消息…') : t('向上滚动查看更早的消息')}
-          </div>
-        )}
-        {(chat.messages || []).map((m, idx) => (
-          <ContentErrorBoundary
-            key={m.uid}
-            resetKey={`${currentChatId}:${m.uid}`}
-            fallback={(
-              <div className="jx-messageRenderError" role="alert">
-                {t('这条消息包含无法显示的旧格式数据，已跳过异常内容。')}
+      <div className="jx-chatViewportFrame">
+        <div className="jx-chatViewport" ref={mountViewport}>
+          <div className="jx-chatList" ref={chatListRef}>
+            {messagePaging?.hasOlder && (
+              <div className="jx-olderLoader" ref={olderSentinelRef} role="status">
+                {messagePaging.loading ? t('正在加载更早的消息…') : t('向上滚动查看更早的消息')}
               </div>
             )}
-          >
-            <MessageBubble
-              m={m}
-              messageIndex={idx}
-              currentChatId={currentChatId}
-              send={stableSend}
-              exportChatRecord={stableExportChatRecord}
-              regenerate={stableRegenerate}
-              editAndResend={stableEditAndResend}
-            />
-          </ContentErrorBoundary>
-        ))}
-        <BatchPanelsForChat chatId={currentChatId} />
-        <div ref={messagesEndRef} />
+            {(chat.messages || []).map((m, idx) => (
+              <ContentErrorBoundary
+                key={m.uid}
+                resetKey={`${currentChatId}:${m.uid}`}
+                fallback={(
+                  <div className="jx-messageRenderError" role="alert">
+                    {t('这条消息包含无法显示的旧格式数据，已跳过异常内容。')}
+                  </div>
+                )}
+              >
+                <MessageBubble
+                  m={m}
+                  messageIndex={idx}
+                  currentChatId={currentChatId}
+                  send={stableSend}
+                  exportChatRecord={stableExportChatRecord}
+                  regenerate={stableRegenerate}
+                  editAndResend={stableEditAndResend}
+                />
+              </ContentErrorBoundary>
+            ))}
+            <BatchPanelsForChat chatId={currentChatId} />
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+        <AnimatePresence initial={false}>
+          {showScrollToBottom && (
+            <motion.button
+              key="scrollToBottom"
+              type="button"
+              className="jx-scrollToBottomBtn"
+              onClick={scrollToBottom}
+              aria-label={t('回到底部')}
+              title={t('回到底部')}
+              initial={SCROLL_BTN_INITIAL}
+              animate={SCROLL_BTN_ANIMATE}
+              exit={SCROLL_BTN_EXIT}
+              transition={SCROLL_BTN_TRANSITION}
+            >
+              <img src="/home/arrow-down.svg" alt="" className="jx-scrollToBottomIcon" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
-      <AnimatePresence initial={false}>
-        {showScrollToBottom && (
-          <motion.button
-            key="scrollToBottom"
-            type="button"
-            className="jx-scrollToBottomBtn"
-            onClick={scrollToBottom}
-            aria-label={t('回到底部')}
-            title={t('回到底部')}
-            initial={SCROLL_BTN_INITIAL}
-            animate={SCROLL_BTN_ANIMATE}
-            exit={SCROLL_BTN_EXIT}
-            transition={SCROLL_BTN_TRANSITION}
-          >
-            <img src="/home/arrow-down.svg" alt="" className="jx-scrollToBottomIcon" />
-          </motion.button>
-        )}
-      </AnimatePresence>
       <div className="jx-chatFooter">
         {!planMode && <PlanProgressStrip chatId={currentChatId} />}
         {/* 后台作业状态条：工作流模式下作业跑在后台，没有它就完全看不出在不在跑 */}

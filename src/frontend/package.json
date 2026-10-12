@@ -71,7 +71,12 @@
     "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs",
     "lint:desktop": "node scripts/check-desktop-lint.mjs",
     "test:desktop-highlight-browser": "node scripts/test-desktop-highlight-browser.mjs",
-    "test:composer-drafts-browser": "node scripts/test-composer-drafts-browser.mjs"
+    "test:composer-drafts-browser": "node scripts/test-composer-drafts-browser.mjs",
+    "test:context-compaction-refresh": "esbuild scripts/test-context-compaction-refresh.ts --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-context-compaction-refresh.mjs && node node_modules/.tmp/test-context-compaction-refresh.mjs",
+    "test:context-gauge": "esbuild scripts/test-context-gauge.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-context-gauge.mjs && node node_modules/.tmp/test-context-gauge.mjs",
+    "test:compaction-progress": "esbuild scripts/test-compaction-progress.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-compaction-progress.mjs && node node_modules/.tmp/test-compaction-progress.mjs",
+    "test:composer-clipboard-browser": "node scripts/test-composer-clipboard-browser.mjs",
+    "test:composer-scroll-browser": "node scripts/test-composer-scroll-browser.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

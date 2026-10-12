@@ -20,7 +20,7 @@ export function groupExecutionRuns(m: ChatMessage, dispatchProcessVisible: boole
   const canStartRun = (idx: number): boolean => {
     const s = segs[idx];
     if (!s) return false;
-    if (s.type === 'tool') return true;
+    if (s.type === 'tool' || s.type === 'compaction') return true;
     // Only ON mode lets a thinking segment anchor a run; OFF mode
     // keeps standalone ThinkingInline as before.
     if (dispatchProcessVisible && s.type === 'thinking') return true;
@@ -45,6 +45,11 @@ export function groupExecutionRuns(m: ChatMessage, dispatchProcessVisible: boole
           steps.push({ kind: 'tool', tool: t, key: `${m.uid}-seg-${i}` });
           tools.push(t);
         }
+        if (i !== anchor) suppressedIdx.add(i);
+        endIdx = i;
+        i++;
+      } else if (sk.type === 'compaction') {
+        if (sk.compaction) steps.push({ kind: 'compaction', progress: sk.compaction, key: `${m.uid}-seg-${i}` });
         if (i !== anchor) suppressedIdx.add(i);
         endIdx = i;
         i++;

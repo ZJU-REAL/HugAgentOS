@@ -239,3 +239,28 @@ Create a dedicated BuildKit builder from the WSL project directory:
 Reuse the builder if it already exists. Stop it after builds; its cache remains available.
 Application hosting still requires the application-hosting Compose overlay.
 Avoid running full builds alongside several browser test suites. Size WSL memory limits for other containers and editor processes too.
+
+## Model gateway startup and troubleshooting (EE)
+
+The model gateway uses the separate `litellm` service and the `gateway` profile.
+Setting `MODEL_GATEWAY_ENABLED=true` alone does not start the container. Append
+`gateway` to the existing `COMPOSE_PROFILES` list in `.env`, preserving other
+profiles. The backend admin URL is `http://litellm:4000` on the shared Docker network.
+
+To restore a deployment with an existing gateway database and key:
+
+```bash
+docker compose --profile gateway up -d --no-deps litellm
+docker compose ps litellm
+docker compose exec backend getent hosts litellm
+```
+
+PostgreSQL must already be healthy. Wait for LiteLLM startup migrations and its
+healthy status, then verify usage statistics and call logs in the console.
+Preserve the existing `litellm` database and `LITELLM_MASTER_KEY`; do not clear
+data or rotate keys to restore connectivity.
+
+For `Name or service not known`, check that the container exists, shares the
+backend network, and matches `LITELLM_ADMIN_URL`. External DNS may return a proxy
+address for a missing service name, so successful resolution alone does not
+prove that the gateway container exists.

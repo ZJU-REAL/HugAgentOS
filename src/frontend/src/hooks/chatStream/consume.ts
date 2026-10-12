@@ -125,6 +125,11 @@ if (!s.streamEnded && s.runId && !(s.aborted && isRunCancelledByUser(s.runId))) 
 // 识图状态必须在这里兜底清掉：中止或异常时那个 status=done 事件永远不会到，
 // 留着的话下一轮会一直显示「图像理解中」。
 useChatStore.getState().setVisionReading(s.chatId, 0);
+if (s.aborted || s.thrown) {
+    s.segments = s.segments.map(segment => segment.type === 'compaction' && segment.compaction?.status === 'running'
+        ? { ...segment, compaction: { ...segment.compaction, status: 'interrupted', ended_at: Date.now() } }
+        : segment);
+}
 finalizeRunningTools(s);
 if (s.parseBuffer) {
     if (s.thinkingPhaseActive && s.sawThinkCloseTag) {
@@ -171,9 +176,10 @@ useChatStore.getState().updateStore((prev) => {
     const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs, updatedAt: Date.now() };
     return { chats: { ...prev.chats, [s.chatId]: nextChat }, order: [s.chatId, ...(prev.order || []).filter((x) => x !== s.chatId)] };
 });
-if (s.compactionPending && !s.aborted && !s.thrown) {
+if ((s.compactionPending || s.segments.some(segment => segment.type === 'compaction')) && !s.aborted && !s.thrown) {
     const previousCheckpointId = useChatStore.getState().contextCompactions[s.chatId]?.checkpointId || '';
-    void refreshContextAfterCompaction(s.chatId, previousCheckpointId, s.bubbleStartedAt, s.metaMessageId);
+    void refreshContextAfterCompaction(s.chatId, previousCheckpointId, s.bubbleStartedAt, s.metaMessageId,
+      s.compactionPending ? 'post_turn' : s.segments.find(segment => segment.type === 'compaction')?.compaction?.phase);
 }
 // Settle the plan bar: if this turn produced an agent plan, mark it done so
 // the bar renders as settled (it clears on the next send).

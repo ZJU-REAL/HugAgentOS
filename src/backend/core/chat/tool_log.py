@@ -45,9 +45,9 @@ class SegmentRecorder:
         self._pending_text = ""
         self._placed_tools = 0
 
-    def reset(self) -> None:
+    def reset(self, *, preserve_compaction: bool = False) -> None:
         """Start a fresh assistant message (steer split, or a redrafted body)."""
-        self._segments = []
+        self._segments = [s for s in self._segments if preserve_compaction and s.get("type") == "compaction"]
         self._pending_text = ""
         self._placed_tools = 0
 
@@ -73,6 +73,14 @@ class SegmentRecorder:
         for index in range(self._placed_tools, len(tool_calls_log)):
             self._segments.append({"type": "tool", "index": index})
         self._placed_tools = len(tool_calls_log)
+
+    def add_compaction(self, event: Dict[str, Any]) -> None:
+        self._flush_text()
+        for index, segment in enumerate(self._segments):
+            if segment.get("type") == "compaction" and segment.get("progress", {}).get("id") == event["id"]:
+                self._segments[index] = {"type": "compaction", "progress": dict(event)}
+                return
+        self._segments.append({"type": "compaction", "progress": dict(event)})
 
     def payload(self) -> Optional[List[Dict[str, Any]]]:
         self._flush_text()

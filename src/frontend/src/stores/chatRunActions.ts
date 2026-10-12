@@ -1,3 +1,4 @@
+import { isOlderContextUsage } from '../utils/contextUsageSnapshot';
 import { saveChatStoreDebounced } from '../storage';
 import type { ChatStore as ChatStoreData } from '../types';
 import { saveQueuedMessages } from './chatSupport';
@@ -72,13 +73,19 @@ export function createChatRunActions({ set, get }: ChatActionsContext): Pick<Cha
         const next = { ...s.contextCompactions };
         if (state) next[chatId] = state;
         else delete next[chatId];
+        const previous = s.contextCompactions[chatId];
+        if (state && previous && state.checkpointTs < previous.checkpointTs) return {};
         if (!state?.contextUsage) return { contextCompactions: next };
+        if (isOlderContextUsage(state.contextUsage, s.contextUsages[chatId])) {
+          return { contextCompactions: next };
+        }
         return {
           contextCompactions: next,
           contextUsages: { ...s.contextUsages, [chatId]: state.contextUsage },
         };
       }),
     setContextUsage: (chatId, state) => set((s) => {
+        if (state && isOlderContextUsage(state, s.contextUsages[chatId])) return {};
         const next = { ...s.contextUsages };
         if (state) next[chatId] = state;
         else delete next[chatId];
@@ -98,7 +105,12 @@ export function createChatRunActions({ set, get }: ChatActionsContext): Pick<Cha
         };
         const nextUsages = { ...get().contextUsages };
         delete nextUsages[chatId];
-        set({ store: next, storeRef: next, contextUsages: nextUsages });
+        const nextCompactions = { ...get().contextCompactions };
+        delete nextCompactions[chatId];
+        set({
+          store: next, storeRef: next, contextUsages: nextUsages, contextCompactions: nextCompactions,
+          contextUsageEpochs: { ...get().contextUsageEpochs, [chatId]: (get().contextUsageEpochs[chatId] || 0) + 1 },
+        });
         saveChatStoreDebounced(get().currentUserId, next);
       },
     setPlanProgress: (chatId, p) => set((s) => ({

@@ -157,6 +157,8 @@ async def _start_response_run(
             approval_mode=settings.get("tool_approval_mode"),
         )
         payload = request.model_dump(exclude_none=True)
+        # Authentication owns provenance; never accept a client-supplied origin.
+        payload["request_origin"] = "api" if user.api_key_id else "cloud"
         if command:
             explicit_command = {
                 "agent_id": command.agent_id,

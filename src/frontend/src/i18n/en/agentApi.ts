@@ -1,4 +1,5 @@
 export const AGENT_API_DICT: Record<string, string> = {
+  '调用来源': 'Call origin',
   '需要处理': 'Needs attention',
   '筛选密钥': 'Filter by key',
   '全部密钥': 'All keys',

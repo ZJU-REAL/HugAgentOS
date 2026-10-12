@@ -206,8 +206,47 @@
   "src/styles/catalog.css": {
     "css-literal-color": 115
   },
-  "src/styles/chat.css": {
-    "css-literal-color": 89
+  "src/styles/chat/attachments.css": {
+    "css-literal-color": 12
+  },
+  "src/styles/chat/composer-editor.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/chat/composer-layout.css": {
+    "css-literal-color": 9
+  },
+  "src/styles/chat/import-browser.css": {
+    "css-literal-color": 3
+  },
+  "src/styles/chat/message-actions.css": {
+    "css-literal-color": 12
+  },
+  "src/styles/chat/message-details.css": {
+    "css-literal-color": 8
+  },
+  "src/styles/chat/messages.css": {
+    "css-literal-color": 9
+  },
+  "src/styles/chat/prompt-hub.css": {
+    "css-literal-color": 7
+  },
+  "src/styles/chat/prompt-library.css": {
+    "css-literal-color": 4
+  },
+  "src/styles/chat/rich-content.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/chat/shell.css": {
+    "css-literal-color": 5
+  },
+  "src/styles/chat/toolbar-controls.css": {
+    "css-literal-color": 5
+  },
+  "src/styles/chat/toolbar-popovers.css": {
+    "css-literal-color": 3
+  },
+  "src/styles/chat/welcome.css": {
+    "css-literal-color": 7
   },
   "src/styles/common.css": {
     "css-literal-color": 8
@@ -221,9 +260,21 @@
   "src/styles/mcp.css": {
     "css-literal-color": 3
   },
-  "src/styles/mobile.css": {
-    "css-literal-color": 24,
-    "css-var-literal-color": 1
+  "src/styles/mobile/chat.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/mobile/controls.css": {
+    "css-literal-color": 2
+  },
+  "src/styles/mobile/shell.css": {
+    "css-literal-color": 3
+  },
+  "src/styles/mobile/surfaces.css": {
+    "css-var-literal-color": 1,
+    "css-literal-color": 7
+  },
+  "src/styles/mobile/workspaces.css": {
+    "css-literal-color": 8
   },
   "src/styles/myspace.css": {
     "css-literal-color": 37

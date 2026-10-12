@@ -1,4 +1,6 @@
 import { useChatStore } from '../../stores';
+import type { CompactionProgress } from '../../utils/compactionProgress';
+import { reduceLifecycleAndTools } from './lifecycleAndTools';
 import type { CitationItem,ToolCall } from '../../types';
 import { reduceControls } from './controls';
 import { activateStructuredReasoning,appendLateStructuredThinkContent,appendThinkContent,claimPersistedBubble,finalizeRunningTools,processTextChunk,rearmInlineReasoning } from './messageReducer';
@@ -12,7 +14,7 @@ interface RunProjection {
   started_at: number | null;
   event_offset: number;
   last_event_ts?: number;
-  blocks: Array<{ kind: 'text' | 'thinking' | 'tool' | 'protocol' | 'phase' | 'answer'; content?: string; structured?: boolean; index?: number }>;
+  blocks: Array<{ kind: 'text' | 'thinking' | 'tool' | 'protocol' | 'phase' | 'answer' | 'compaction'; progress?: CompactionProgress; content?: string; structured?: boolean; index?: number }>;
   tools: ToolCall[];
   signals: Record<string, Record<string, unknown>>;
   citations?: CitationItem[];
@@ -61,6 +63,10 @@ export function installRunSnapshot(state: ChatStreamState, value: unknown) {
   claimPersistedBubble(state);
   for (const block of projection.blocks) {
     if (block.kind === 'text') processTextChunk(state, block.content ?? '');
+    else if (block.kind === 'compaction' && block.progress) {
+      reduceLifecycleAndTools(state, block.progress as unknown as Record<string, unknown>,
+        block.progress as unknown as Record<string, unknown>, 'compaction_progress', false);
+    }
     else if (block.kind === 'phase') rearmInlineReasoning(state);
     else if (block.kind === 'answer') reduceControls(state, { content: block.content }, { content: block.content }, 'content_replace');
     else if (block.kind === 'protocol') activateStructuredReasoning(state);

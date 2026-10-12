@@ -173,7 +173,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
 
                 if (runByAnchor.has(segIdx)) {
                   const run = runByAnchor.get(segIdx)!;
-                  if (dispatchProcessVisible) {
+                  if (dispatchProcessVisible || run.steps.some(step => step.kind === 'compaction')) {
                     return (
                       <ToolRunShell
                         key={segKey}

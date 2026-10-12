@@ -110,6 +110,9 @@ export type ContextUsageSource = 'provider' | 'backend_estimate' | 'compaction_e
  * Estimates are explicit fallbacks used before an upstream measurement exists.
  */
 export interface ContextUsageSnapshot {
+  /** Server capture time, independent of browser clock and request arrival order. */
+  capturedAtMs?: number;
+  chatSeq?: number;
   source: ContextUsageSource;
   exact: boolean;
   usedTokens: number;

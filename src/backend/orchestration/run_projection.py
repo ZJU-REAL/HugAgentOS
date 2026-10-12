@@ -113,6 +113,14 @@ def fold_projection(previous, event):
                      started_at=event.get("server_ts"))
     elif kind in {"content", "ai_message", "text", "delta"}:
         _text(state, "text", str(event.get("delta") or event.get("content") or event.get("text") or ""))
+    elif kind == "compaction_progress":
+        block = {"kind": "compaction", "progress": dict(event)}
+        index = next((i for i, b in enumerate(state["blocks"])
+                      if b["kind"] == "compaction" and b.get("progress", {}).get("id") == event.get("id")), -1)
+        if index >= 0:
+            state["blocks"][index] = block
+        else:
+            state["blocks"].append(block)
     elif kind == "thinking":
         if event.get("structured_reasoning") is True and not state.get("structured_reasoning"):
             state["blocks"].append({"kind": "protocol", "structured": True})

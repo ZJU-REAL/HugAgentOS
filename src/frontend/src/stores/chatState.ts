@@ -127,6 +127,7 @@ export interface ChatState {
   contextCompactions: Record<string, ContextCompactionState>;
   /** chatId → latest provider measurement or explicit backend fallback. */
   contextUsages: Record<string, ContextUsageSnapshot>;
+  contextUsageEpochs: Record<string, number>;
   /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
    *  Fed by the agent's update_plan tool (plan_update SSE) and by manual plan-mode execution. */
   planProgress: Record<string, PlanProgressState | null>;

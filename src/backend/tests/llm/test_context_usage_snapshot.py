@@ -165,7 +165,7 @@ def test_auxiliary_call_can_restore_primary_context_snapshot():
 def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
     from datetime import datetime, timezone
 
-    from core.services.compaction_service import get_compaction_context_state
+    from core.services.context_usage_projection import get_chat_context_state
 
     compacted = build_compaction_context_usage(
         {
@@ -184,6 +184,7 @@ def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
             "replacement_manifest": {"replacement_context_usage": compacted},
         },
     )
+    compacted.pop("captured_at_ms", None)
     rows = [SimpleNamespace(chat_seq=10, extra_data={"context_usage": compacted})]
     repo = SimpleNamespace(
         list_recent_by_chat=lambda chat_id, limit, metadata_only: rows,
@@ -195,14 +196,19 @@ def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
         message_repo=repo,
     )
 
-    assert get_compaction_context_state(service, "chat-1")["context_usage"] == compacted
+    assert (
+        get_chat_context_state(service, "chat-1")["context_compaction"]["context_usage"][
+            "used_tokens"
+        ]
+        == compacted["used_tokens"]
+    )
 
     rows.append(SimpleNamespace(chat_seq=11, extra_data={"context_usage": compacted}))
-    assert "context_usage" not in get_compaction_context_state(service, "chat-1")
+    assert "context_usage" not in get_chat_context_state(service, "chat-1")["context_compaction"]
 
 
 def test_latest_persisted_snapshot_uses_newest_assistant_measurement():
-    from core.llm.context_usage import latest_persisted_context_usage
+    from core.services.context_usage_projection import get_chat_context_state
 
     older = build_context_usage_snapshot(
         _agent(), prompt_tokens=100, completion_tokens=10, model_call_index=1
@@ -225,9 +231,10 @@ def test_latest_persisted_snapshot_uses_newest_assistant_measurement():
         ),
     ]
     service = SimpleNamespace(
+        get_latest_compaction_checkpoint=lambda chat_id: None,
         message_repo=SimpleNamespace(
             list_recent_by_chat=lambda chat_id, limit, metadata_only: rows,
-        )
+        ),
     )
 
-    assert latest_persisted_context_usage(service, "chat-1") == newer
+    assert get_chat_context_state(service, "chat-1")["context_usage"] == {**newer, "chat_seq": 0}

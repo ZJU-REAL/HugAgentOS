@@ -201,6 +201,8 @@ class ChatSequencer:
         request_payload: Dict[str, Any],
         delete_from_message_id: Optional[str] = None,
         delete_from_chat_seq: Optional[int] = None,
+        user_extra_patch: Optional[Dict[str, Any]] = None,
+        model: Optional[str] = None,
     ) -> AcceptedChatRun:
         """Accept a run anchored to an existing user message.
 
@@ -249,6 +251,12 @@ class ChatSequencer:
                 )
                 if not deleted:
                     raise ValueError("rewrite boundary no longer exists")
+            # Persist the effective rerun selection in the same admission
+            # transaction; a busy writer rolls back both metadata and deletion.
+            if user_extra_patch:
+                user_message.extra_data = {**(user_message.extra_data or {}), **user_extra_patch}
+            if model:
+                user_message.model = model
             run = ChatRun(
                 run_id=run_id,
                 chat_id=chat_id,

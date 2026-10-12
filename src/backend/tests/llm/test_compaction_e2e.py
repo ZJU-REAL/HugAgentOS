@@ -9,6 +9,7 @@ Uses a SQLite test DB + a fake summarizer to reproduce the original bug scenario
 - Rebuilt-history token count is squeezed down; the summary carries into later turns and is not re-compacted.
 """
 
+from core.config import settings as config_settings
 import contextlib
 
 import pytest
@@ -39,10 +40,8 @@ def patched_sessionlocal(db_session, monkeypatch):
     import core.db.engine as engine
 
     monkeypatch.setattr(engine, "SessionLocal", _fake_sessionlocal)
-    real = S.settings
-    monkeypatch.setattr(
-        S,
-        "settings",
+    real = config_settings.settings
+    monkeypatch.setattr(config_settings, "settings",
         dataclasses.replace(real, compaction=dataclasses.replace(real.compaction, keep_recent_tokens=0)),
     )
     return db_session
@@ -112,7 +111,7 @@ async def test_full_compaction_cycle(patched_sessionlocal, monkeypatch):
     async def _fake_summarize(history, *, timeout):
         return "已完成 developer 表插入 nbacheng/dromara；待办：无；关键数据：nbacheng粉丝219"
 
-    monkeypatch.setattr(S, "_summarize", _fake_summarize)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
 
     # ── Drive the real compaction ──
     ok = await S.run_post_turn_compaction(CHAT_ID)
@@ -162,7 +161,7 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
             assert any(C.is_summary_message(t) for t in texts)
         return f"summary-v{calls['n']}"
 
-    monkeypatch.setattr(S, "_summarize", _fake_summarize)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
 
     await S.run_post_turn_compaction(CHAT_ID)
     _u(svc, 2, "q2")
@@ -201,7 +200,7 @@ async def test_compaction_commits_when_the_hook_bus_is_active(
     async def _fake_summarize(history, *, timeout):
         return "已完成两轮；待办：无"
 
-    monkeypatch.setattr(S, "_summarize", _fake_summarize)
+    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
 
     ok = await S.run_post_turn_compaction(CHAT_ID, run_id="run_hooked_1")
     assert ok is True, "hook bus 激活时压缩必须仍能成功落库"

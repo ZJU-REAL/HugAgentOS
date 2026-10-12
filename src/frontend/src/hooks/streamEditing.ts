@@ -1,6 +1,9 @@
 import { Modal, message } from 'antd';
+import { requestChatRerun } from '../api/chatReruns';
+import { readComposer, chatDraftKey } from '../stores/composerStore';
+import { composeCommandMessage } from '../utils/projectCommands';
 import { t } from '../i18n';
-import { authFetch, regenerateMessage, editAndRegenerate, cancelChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi } from '../api';
+import { authFetch, cancelChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi } from '../api';
 import { useChatStore, useAuthStore, useBatchStore } from '../stores';
 import { isThinkingMode } from '../stores/chatStore';
 import { markRunCancelledByUser } from './chatStream';
@@ -32,7 +35,7 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
         truncateMessagesFrom(streamChatId, targetMsg);
       }
 
-      const r = await regenerateMessage(streamChatId, messageIndex, abortController.signal);
+      const r = await requestChatRerun(streamChatId, messageIndex, abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
       await ctx.processRegenerateStream(r, streamChatId, {
@@ -120,7 +123,7 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
         };
       });
 
-      const r = await editAndRegenerate(streamChatId, messageIndex, newContent.trim(), abortController.signal);
+      const r = await requestChatRerun(streamChatId, messageIndex, abortController.signal, newContent.trim());
       if (!r.ok || !r.body) throw new Error(await r.text());
 
       await ctx.processRegenerateStream(r, streamChatId, {
@@ -140,9 +143,18 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
 
   async function smartSend(directMessage?: string, invocationOverride?: ChatInvocationContext) {
     const { planMode, loopMode, sending } = useChatStore.getState();
+    const draft = readComposer(chatDraftKey(useChatStore.getState().currentChatId));
+    const compactCommand = (directMessage?.trim() || composeCommandMessage(draft.input, draft.activeCommand)) === '/compact';
+    if (sending && compactCommand) {
+      void message.info(t('请等待当前回复结束后再压缩上下文'));
+      return;
+    }
     if (sending) {
       ctx.queueDuringRun(directMessage, invocationOverride);
       return;
+    }
+    if (compactCommand) {
+      return ctx.send(directMessage, invocationOverride);
     }
     if (planMode) {
       return sendPlanMode(ctx.effectiveApiUrl, ctx.abortControllersRef, ctx.generateSummary, directMessage);

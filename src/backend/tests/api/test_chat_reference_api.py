@@ -162,7 +162,7 @@ def test_send_time_and_replay_render_the_same_reference_block(db_factory):
     """引用名片在发送时落库，重放时按落库的快照渲染——两边必须完全一致。"""
     from api.schemas import ChatRequest
     from core.chat.context import build_effective_user_message
-    from core.services.compaction_service import _normalize_rows
+    from core.services.compaction_history import normalize_rows
 
     _seed(db_factory)
 
@@ -182,7 +182,7 @@ def test_send_time_and_replay_render_the_same_reference_block(db_factory):
 
     sent = build_effective_user_message(request.message, None, block)
 
-    replayed = _normalize_rows(
+    replayed = normalize_rows(
         [
             SimpleNamespace(
                 role="user",

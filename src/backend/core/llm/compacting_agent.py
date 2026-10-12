@@ -246,7 +246,7 @@ class CompactingAgent(ManifestBoundAgent):
                 trailing = None
                 self._jx_observation = None
             if trailing is not None:
-                from core.services.compaction_service import estimate_history_tokens
+                from core.services.compaction_budget import estimate_history_tokens
 
                 return obs.tokens + (estimate_history_tokens(trailing) if trailing else 0)
         return self._estimate_prompt_tokens()
@@ -259,7 +259,7 @@ class CompactingAgent(ManifestBoundAgent):
         units as the observed one above — both reserve media instead of billing
         its transport bytes.
         """
-        from core.services.compaction_service import estimate_context_budget
+        from core.services.compaction_budget import estimate_context_budget
 
         system_prompt, tool_schema = frozen_prompt_surface(self)
         return estimate_context_budget(
@@ -320,9 +320,27 @@ class CompactingAgent(ManifestBoundAgent):
 
         history = self._history_for_summary()
         try:
-            from core.services.compaction_service import run_mid_turn_compaction
+            from core.llm.compaction import CompactionPhase
+            from core.services.compaction_service import run_compaction, run_mid_turn_compaction
 
-            replacement = await run_mid_turn_compaction(chat_id, history)
+            if chat_id:
+                system_prompt, tool_schema = frozen_prompt_surface(self)
+                replacement = await run_compaction(
+                    chat_id,
+                    history,
+                    phase=CompactionPhase.MID_TURN,
+                    budget_inputs={
+                        "system_prompt": system_prompt,
+                        "tool_schema": tool_schema,
+                        "context_window": int(getattr(self.model, "context_size", 0) or 0),
+                        "model_name": str(getattr(self.model, "model", "") or ""),
+                        "model_provider_id": str(
+                            getattr(self.state, "model_provider_id", "") or ""
+                        ),
+                    },
+                )
+            else:
+                replacement = await run_mid_turn_compaction(chat_id, history)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[compaction] mid-turn engine failed: %r", exc)
             replacement = None
@@ -359,6 +377,10 @@ class CompactingAgent(ManifestBoundAgent):
         # SDK 2.0 updates summary BEFORE offloading, but removes old messages
         # AFTER it. A write failure would otherwise leave summary + full history
         # together. Let the SDK commit compression, then publish a safe notice.
+        import asyncio
+        from core.services.compaction_progress import start_progress, finish_progress
+        chat_id = str(getattr(self.state, "chat_id", "") or "")
+        progress = await start_progress(chat_id, "", "mid_turn") if chat_id else None
         before = self.state.context
         offloader = self.offloader
         self.offloader = None
@@ -366,6 +388,10 @@ class CompactingAgent(ManifestBoundAgent):
             await Agent.compress_context(self, cfg)
         finally:
             self.offloader = offloader
+            if progress is not None:
+                task = asyncio.current_task()
+                await finish_progress(progress, "completed" if self.state.context is not before else
+                                      "interrupted" if task and task.cancelling() else "failed")
         # The SDK replaces the list on successful compression, including when
         # it splits blocks inside one Msg without changing the message count.
         # Archive the complete pre-compression snapshot to retain that boundary.

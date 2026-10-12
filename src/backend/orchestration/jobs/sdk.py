@@ -17,12 +17,18 @@ import random
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 JOB_ID = os.environ.get("JOB_ID", "")
 JOB_TOKEN = os.environ.get("JOB_TOKEN", "")
 BASE = (os.environ.get("JOB_CALLBACK_URL") or "").rstrip("/")
+# Internal loopback callbacks must not use Windows system proxies. Keep proxy
+# discovery unchanged for non-loopback URLs and for the user's own HTTP code.
+_callback_opener = None
+if urllib.parse.urlsplit(BASE).hostname in ("127.0.0.1", "localhost", "::1"):
+    _callback_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 __all__ = ["ledger", "agent", "job", "log", "JobError"]
 
@@ -67,7 +73,8 @@ def _post(path, payload, timeout=180):
     # 次数太少等于没退避，所以给限流单独一条更长的重试预算。
     for attempt in range(6):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            open_url = _callback_opener.open if _callback_opener is not None else urllib.request.urlopen
+            with open_url(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8") or "{}"
             data = json.loads(raw)
             # 错误一律以 HTTP 4xx/5xx 返回（见后端 HTTPException），这里只拆信封
