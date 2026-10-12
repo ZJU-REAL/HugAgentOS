@@ -223,7 +223,6 @@ def test_ce_launcher_and_catalog_cover_core_mcp_servers():
     expected = {
         "retrieve_dataset_content": 9100,
         "internet_search": 9102,
-        "generate_chart_tool": 9104,
         "web_fetch": 9106,
         "batch_runner": 9107,
     }
@@ -244,7 +243,6 @@ def test_ce_fresh_database_seeds_core_mcp_servers_enabled(db_session):
     expected = {
         "retrieve_dataset_content",
         "internet_search",
-        "generate_chart_tool",
         "web_fetch",
         "batch_runner",
     }

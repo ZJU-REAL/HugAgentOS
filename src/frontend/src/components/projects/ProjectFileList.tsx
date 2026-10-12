@@ -71,7 +71,9 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
       titleRender={(node) => {
         const file = node.file;
         if (!file) return (
-          <span className="jx-projectRail-groupHeader">
+          <span className="jx-projectRail-groupHeader"
+            onFocus={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}>
             <FolderOutlined />
             <span className="jx-projectRail-groupName" title={String(node.title)}>{node.title as string}</span>
             <span className="jx-projectRail-groupCount">{node.fileCount}</span>
@@ -88,7 +90,11 @@ export default memo(function ProjectFileList({ files, canEdit, onPreview, onDele
           </span>
         );
         return (
-          <div className="jx-projectRail-fileItem">
+          // Inner buttons own focus and keyboard input. Letting those events reach
+          // Tree activates its first row and scrolls the file away before click.
+          <div className="jx-projectRail-fileItem"
+            onFocus={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}>
             <button type="button" className="jx-projectRail-fileInfo jx-projectRail-filePreview"
               onClick={() => onPreview(file)} title={file.name}>
               <span className="jx-projectRail-fileName">{leafName(file)}</span>

@@ -167,16 +167,7 @@ export function renderToolOutputBody(
   if (toolName === 'retrieve_local_kb') return renderRetrieveLocalKB(out, setDetailModal);
   if (toolName === 'internet_search') return renderInternetSearch(out);
 
-  // ── Chart/export/scrape and similar tools ──────────────────────────────────────────
-  if (toolName === 'generate_chart_tool') {
-    return (
-      <div className="jx-tr-skillBadge">
-        <CheckCircleOutlined style={{ color: '#02B589', fontSize: 14 }} />
-        <span>{t('图表已生成')}</span>
-      </div>
-    );
-  }
-
+  // ── Export/scrape and similar tools ──────────────────────────────────────────
   if (
     toolName === 'word_create_from_markdown' ||
     toolName === 'export_report_to_docx' ||

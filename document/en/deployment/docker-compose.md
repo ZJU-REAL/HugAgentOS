@@ -15,7 +15,7 @@ All HugAgentOS services are orchestrated by a single `docker-compose.yml` at the
 | `postgres` | hugagent-postgres | `postgres:15-alpine` | `${POSTGRES_HOST_PORT:-5432}:5432` | Primary relational DB (business data, content_blocks, usage logs) |
 | `redis` | hugagent-redis | `redis:7-alpine` | `${REDIS_HOST_PORT:-6380}:6379` | Session store, streaming follower (Redis Streams), rate limiting |
 | `backend` | hugagent-backend | `docker/Dockerfile` (target `production`) | `${BACKEND_HOST_PORT:-3001}:${BACKEND_PORT:-3001}` | FastAPI app; runs alembic migrations automatically at startup |
-| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | none exposed | CE starts 9 general MCP servers; EE also starts commercial MCP servers such as database query. The backend calls them at `http://mcp:91XX/mcp/` |
+| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | none exposed | CE starts the general MCP processes; EE also starts commercial MCP servers such as database query. The backend calls them at `http://mcp:91XX/mcp/` |
 | `frontend` | hugagent-frontend | `src/frontend/Dockerfile` | `${FRONTEND_PORT:-3002}:80` | nginx serving the frontend static bundle + `/api` reverse proxy to the backend |
 
 `BACKEND_PORT` is the container-internal listen port used by nginx, MCP, and the health check, and should normally remain `3001`. If host ports are occupied, adjust only `BACKEND_HOST_PORT`, `POSTGRES_HOST_PORT`, or `REDIS_HOST_PORT`; do not change the container-internal ports. For example, publish the backend on `13003` while keeping its internal port at `3001`.

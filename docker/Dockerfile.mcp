@@ -5,8 +5,7 @@
 # Office document *editing* (docx / xlsx / pptx / pdf) no longer lives here —
 # it moved to the word / excel / pdf / ppt skills that run in the opensandbox
 # container (each skill vendors its own engine). This image therefore only
-# carries what the remaining MCP servers actually import:
-#   - matplotlib / Pillow → generate_chart_tool_mcp
+# uses the shared backend dependency set.
 # No LibreOffice / .NET / Node / Chromium — those were only used by the
 # office tooling that has since moved to the sandbox.
 
@@ -25,11 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install backend deps + the chart dependencies the MCP servers still use.
-COPY requirements.txt docker/requirements-mcp.txt ./
-RUN pip install --no-cache-dir --user \
-    -r requirements.txt \
-    -r requirements-mcp.txt
+# Install shared backend dependencies.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────
 FROM python:3.11-slim AS production
@@ -40,12 +37,9 @@ WORKDIR /app
 
 # Runtime deps:
 #   - curl — HEALTHCHECK probe
-#   - fonts-wqy-zenhei + fontconfig — CJK glyphs for matplotlib chart rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     tzdata \
-    fontconfig \
-    fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
@@ -54,8 +48,7 @@ COPY --from=builder /root/.local /home/appuser/.local
 # Mount points / writable dirs. /app/storage is shared with backend so
 # artifacts saved by save_artifact_bytes are visible across both containers.
 RUN mkdir -p /app/src/backend /app/storage /app/logs && \
-    chown -R appuser:appuser /app/src/backend /app/storage /app/logs && \
-    rm -rf /home/appuser/.cache/matplotlib
+    chown -R appuser:appuser /app/src/backend /app/storage /app/logs
 
 ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PYTHONPATH=/app/src/backend
@@ -70,7 +63,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 USER appuser
 
-# Expose the full MCP port range (9100 = KB, 9101–9111 = others).
-EXPOSE 9100 9101 9102 9103 9104 9105 9106 9107 9108 9109 9110 9111
+# Expose active MCP ports; retired assignments remain reserved.
+EXPOSE 9100 9101 9102 9103 9106 9107 9108 9112 9113 9114 9115 9116 9117
 
 CMD ["python", "-m", "mcp_servers._launcher"]

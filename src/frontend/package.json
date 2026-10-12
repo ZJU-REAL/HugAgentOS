@@ -67,6 +67,7 @@
     "test:desktop-proxy-browser": "node scripts/test-desktop-proxy-browser.mjs",
     "test:desktop-chrome": "node scripts/test-desktop-chrome-browser.mjs",
     "test:markdown-composer-browser": "node scripts/test-markdown-composer-browser.mjs",
+    "test:project-file-preview-browser": "node scripts/test-project-file-preview-browser.mjs",
     "test:project-bootstrap-browser": "node scripts/test-project-bootstrap-browser.mjs",
     "test:project-bootstrap-production": "node scripts/test-project-bootstrap-production.mjs",
     "lint:desktop": "node scripts/check-desktop-lint.mjs",

@@ -84,6 +84,12 @@ Every sent message creates a `ChatRun` and a background task (`orchestration/cha
 
 Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (keeps nginx `proxy_read_timeout` and other proxies from cutting the stream); an inactivity watchdog fails the run if the workflow produces no meaningful output for 600 s (`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`); internal heartbeats keep that watchdog alive only while the backend registry contains a real pending human interaction; a periodic reaper collects over-age and quiet running runs; `recover_orphan_runs()` cleans up leftovers at startup.
 
+### Continue after cancellation
+
+Stopping a reply preserves the displayed answer, reasoning, and tool records. Reloaded history shows reasoning separately, including replies stopped before any answer text appeared. Sending “continue” starts a new turn with the previous answer text, recorded tool results, and an interruption marker.
+
+Completed reasoning with a compatible origin is replayed through its native protocol. Reasoning with an unknown or incompatible origin remains available for history display and is excluded from assistant answer text. Incomplete reasoning is not replayed as a completed native block; displayed partial answer text remains available for continuation. History replay does not execute tools. Calls without recorded results retain an explicit unknown-outcome result.
+
 ### Model-initiated user questions
 
 Regular top-level chats register `ask_user_question`. The model may use it only for a user preference, authorization decision, or material ambiguity that context and available tools cannot resolve, and should consolidate one decision point into one concise round. Turbo, plan execution, automation, sub-agent, and other unattended/non-top-level paths do not register it, so background work cannot wait indefinitely for a UI.

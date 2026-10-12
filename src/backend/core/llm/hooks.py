@@ -562,7 +562,7 @@ def _ai_source() -> str:
 # files, skill scripts) all share this responsibility, and the model
 # (especially smaller / flash variants under long contexts) often forgets
 # the pin step — see trace aeb643c6-5a8f-4874-a4b4-3d472c581fa6 where 6
-# generate_chart_tool + excel_create_workbook + pdf_create + excel_export_pdf
+# excel_create_workbook + pdf_create + excel_export_pdf
 # produced 8 file_ids, all delivered to the user as exactly zero files.
 #
 # This `post_acting` hook scans every tool result for `"file_id"` mentions,

@@ -12,7 +12,7 @@ class GatewayMCPTool(ToolBase):
     is_mcp = True
     is_state_injected = False
     is_external_tool = False
-    is_concurrency_safe = False
+    is_concurrency_safe = True
 
     def __init__(
         self,

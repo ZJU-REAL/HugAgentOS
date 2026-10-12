@@ -55,8 +55,7 @@ def register_pin_to_workspace(
         项目文件展示原文件引用；当前会话工作目录文件自动登记后交付。
         已绑定项目时相对路径以项目目录为准，交付会话文件请传绝对路径。
         其他模式用 ``file_ids``，不要把路径放进 ID 列表。ID 来源：
-        沙盒文件先 ``sandbox_get_artifact`` 登记；``generate_chart_tool`` 与
-        word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``space_list_myspace_files``。
+        沙盒文件先 ``sandbox_get_artifact`` 登记；word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``space_list_myspace_files``。
 
         Args:
             file_ids (`List[str]`):

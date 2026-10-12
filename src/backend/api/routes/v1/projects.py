@@ -19,7 +19,6 @@
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import mimetypes
 import os
@@ -32,9 +31,21 @@ from core.config.local_mode import local_mode_enabled
 from core.db.engine import get_db
 from core.db.models import Artifact
 from core.infra.responses import created_response, paginated_response, success_response
+from core.infra.time import utc_now
+from core.project_environment.config import ProjectEnvironment
+from core.services.project_environment import ProjectEnvironmentService
 from core.services.project_file_service import ProjectFileService
 from core.services.project_service import ProjectService
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -54,6 +65,7 @@ class CreateProjectBody(BaseModel):
     # kind=local（桌面本地模式）：绑定的本机真实文件夹绝对路径 + 机器标识
     local_path: Optional[str] = None
     local_machine: Optional[str] = None
+    environment: Optional[ProjectEnvironment] = None
 
 
 class UpdateProjectBody(BaseModel):
@@ -105,26 +117,31 @@ async def create_project(
     """
     svc = ProjectService(db)
     user_id = str(user.user_id)
-    if body.kind == "local":
-        if not local_mode_enabled():
-            raise HTTPException(status_code=403, detail="本地项目仅在桌面本地模式下可用")
-        if not body.local_path:
-            raise HTTPException(status_code=400, detail="本地项目必须指定文件夹路径")
-        project = svc.create_local(
-            user_id,
-            body.name,
-            body.local_path,
-            description=body.description,
-            machine=body.local_machine,
-        )
-    else:
-        project = svc.create_personal(
-            user_id,
-            body.name,
-            body.description,
-            linked_folder_id=body.linked_folder_id,
-        )
-    return created_response(data=svc.get(project.project_id, user_id))
+    environment_service = ProjectEnvironmentService(db)
+    environment = environment_service.validate(
+        user_id, body.environment.model_dump() if body.environment else {}
+    )
+    with environment_service.creation_metadata(user_id, environment):
+        if body.kind == "local":
+            if not local_mode_enabled():
+                raise HTTPException(status_code=403, detail="本地项目仅在桌面本地模式下可用")
+            if not body.local_path:
+                raise HTTPException(status_code=400, detail="本地项目必须指定文件夹路径")
+            project = svc.create_local(
+                user_id,
+                body.name,
+                body.local_path,
+                description=body.description,
+                machine=body.local_machine,
+            )
+        else:
+            project = svc.create_personal(
+                user_id,
+                body.name,
+                body.description,
+                linked_folder_id=body.linked_folder_id,
+            )
+        return created_response(data=svc.get(project.project_id, user_id))
 
 
 # ── Detail / Update / Delete ─────────────────────────────────────────────
@@ -322,7 +339,6 @@ def _local_project_file_path(path: str, access: ProjectAccess) -> str:
     if not os.path.isfile(full):
         raise HTTPException(status_code=404, detail="文件已移动或删除")
     return full
-
 
 
 @router.post("/{project_id}/files/upload", summary="直传文件到项目（写入挂钩文件夹）")

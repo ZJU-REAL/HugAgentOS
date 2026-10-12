@@ -28,7 +28,6 @@
     ],
     "mcp_server_ids": [
       "database_query",
-      "generate_chart_tool",
       "retrieve_dataset_content"
     ],
     "plugin_ids": [],

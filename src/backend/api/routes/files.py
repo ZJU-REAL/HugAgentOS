@@ -336,7 +336,6 @@ def download_file(
 
     **文件来源**:
     - 由文档编辑技能生成的 docx 文件
-    - 由 `generate_chart_tool` 生成的图表文件
     - 其他 Agent 生成的附件
     """
     item = _load_artifact_item(file_id, db)

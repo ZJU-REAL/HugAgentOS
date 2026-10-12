@@ -247,18 +247,6 @@
       }
     },
     {
-      "id": "generate_chart_tool",
-      "kind": "mcp_server",
-      "name": "数据可视化",
-      "description": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
-      "desc": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
-      "enabled": true,
-      "version": "1",
-      "config": {
-        "server": "generate_chart_tool"
-      }
-    },
-    {
       "id": "web_fetch",
       "kind": "mcp_server",
       "name": "网站信息抓取",

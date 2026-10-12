@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from agentscope.message import ContentBlock, Msg, TextBlock, ThinkingBlock
+from agentscope.message import ContentBlock, Msg, ThinkingBlock
 
 if TYPE_CHECKING:  # 类型上它确实是个 formatter；运行时刻意不继承（见类文档）
     from agentscope.formatter import FormatterBase as _MixinBase
@@ -55,22 +55,19 @@ class ReasoningReplayMixin(_MixinBase):
                             "Anthropic reasoning from the current model is missing its signature"
                         )
                     blocks.append(block)
-                elif block.thinking:
-                    # Explicit historical reference, never a native reasoning
-                    # block or a signature fabricated for the target provider.
-                    blocks.append(
-                        TextBlock(
-                            text="[Historical reasoning from another or unknown model]\n"
-                            + block.thinking
-                        )
-                    )
+                # Foreign or unknown reasoning stays in stored/display history.
+                # Promoting it to assistant text makes private reasoning appear
+                # to be a previous answer and invites the next model to repeat it.
             if blocks:
                 out.append(msg.model_copy(update={"content": blocks}))
         return out
 
     async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
         # Concrete SDK formatter follows this mixin in each bound class MRO.
-        return await super().format(self.prepare_replay(msgs))  # type: ignore[safe-super]
+        return cast(
+            list[dict[str, Any]],
+            await super().format(self.prepare_replay(msgs)),  # type: ignore[safe-super]
+        )
 
 
 def stamp_reasoning_origin(content: Any, model: Any) -> None:

@@ -19,7 +19,7 @@ SAMPLE = {
     "system_prompt": "你是一名数据分析师。\n\n## 职责\n- 清洗数据",
     "welcome_message": "你好，我可以帮你分析数据",
     "suggested_questions": ["帮我清洗CSV", "画个图"],
-    "mcp_server_ids": ["database_query", "generate_chart_tool"],
+    "mcp_server_ids": ["database_query", "web_fetch"],
     "skill_ids": ["data-analyst-cn"],
     "plugin_ids": ["chart-plugin"],
     "kb_ids": [],

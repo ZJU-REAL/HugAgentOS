@@ -15,7 +15,7 @@ HugAgentOS 的全部服务由根目录 `docker-compose.yml` 一个文件编排�
 | `postgres` | hugagent-postgres | `postgres:15-alpine` | `${POSTGRES_HOST_PORT:-5432}:5432` | 主关系库（业务数据、content_blocks、用量日志） |
 | `redis` | hugagent-redis | `redis:7-alpine` | `${REDIS_HOST_PORT:-6380}:6379` | 会话存储、流式 follower（Redis Streams）、限流 |
 | `backend` | hugagent-backend | `docker/Dockerfile`（target `production`） | `${BACKEND_HOST_PORT:-3001}:${BACKEND_PORT:-3001}` | FastAPI 应用；启动时自动跑 alembic 迁移 |
-| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | 无对外端口 | CE 启动 9 个通用 MCP；EE 另启动数据库查询等商业 MCP。backend 经 `http://mcp:91XX/mcp/` 调用 |
+| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | 无对外端口 | CE 启动通用 MCP 进程；EE 另启动数据库查询等商业 MCP。backend 经 `http://mcp:91XX/mcp/` 调用 |
 | `frontend` | hugagent-frontend | `src/frontend/Dockerfile` | `${FRONTEND_PORT:-3002}:80` | nginx 托管前端静态资源 + `/api` 反代到 backend |
 
 `BACKEND_PORT` 是容器内的监听端口，nginx、MCP 和健康检查都依赖它，通常保持 `3001`。如果宿主机端口已被占用，只调整 `BACKEND_HOST_PORT`、`POSTGRES_HOST_PORT` 或 `REDIS_HOST_PORT`，不要改容器内端口。例如可将后端公开到 `13003`，同时保持容器内的 `3001`。

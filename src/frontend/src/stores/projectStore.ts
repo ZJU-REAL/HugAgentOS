@@ -1,3 +1,4 @@
+import { createEnvironmentProject, type ProjectEnvironment } from "../api/projectEnvironment";
 import { create } from 'zustand';
 import type { UploadProgress } from '../components/common/UploadProgressBar';
 import type {
@@ -7,7 +8,6 @@ import type {
   ProjectKind,
 } from '../types';
 import {
-  createProject as apiCreateProject,
   deleteProject as apiDeleteProject,
   getProject as apiGetProject,
   listProjects,
@@ -75,7 +75,7 @@ interface ProjectStoreState {
   closeCurrentProject: () => void;
 
 
-  createPersonal: (name: string, description?: string, linkedFolderId?: string) => Promise<string>;
+  createPersonal: (name: string, description?: string, linkedFolderId?: string, environment?: ProjectEnvironment) => Promise<string>;
 
   updateProject: (patch: Parameters<typeof apiUpdateProject>[1]) => Promise<void>;
   updateInstructions: (instructions: string, revision?: string) => Promise<void>;
@@ -231,8 +231,9 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     });
   },
 
-  createPersonal: async (name, description, linkedFolderId) => {
-    const proj = await apiCreateProject({
+  createPersonal: async (name, description, linkedFolderId, environment) => {
+    const proj = await createEnvironmentProject({
+      environment,
       name,
       description,
       kind: 'personal',

@@ -44,8 +44,8 @@ _PORT_OFFSET = _parse_port_offset(os.getenv("HUGAGENT_LOCAL_MCP_PORT_OFFSET"))
 _BASE_PORTS: dict[str, int] = {
     "retrieve_dataset_content": 9100,  # historical KB port
     "internet_search": 9102,
-    "generate_chart_tool": 9104,
     # 9105 reserved (retired report_export_mcp; document export now uses skills)
+    # 9104 reserved (retired chart MCP; charts use sandbox skills)
     "web_fetch": 9106,
     "batch_runner": 9107,
     "automation_task": 9108,  # 定时任务管理（插件市场可装卸；身份走 X-Current-User-Id 头）

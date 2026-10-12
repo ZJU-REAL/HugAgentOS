@@ -55,6 +55,7 @@ async def skill_registration(
         and not capabilities_enabled()
         and _api_scope is None
         and _eval_scope is None
+        and request.project_environment is None
     ):
         from core.agent_skills.config import (
             get_enabled_skill_sources,
@@ -82,7 +83,7 @@ async def skill_registration(
         # File tools may read exactly this run's revisions, never the entire
         # capability root (which contains other accounts and business data).
         allowed_skill_dirs = [
-            os.path.realpath(loader.get_skill_dir(name)) for name in _prepared_capabilities.bindings
+            os.path.realpath(loader.get_skill_dir(name)) for name in (skill_ids_to_register or [])
         ]
 
     return (

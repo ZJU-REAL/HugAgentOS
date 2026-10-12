@@ -35,7 +35,8 @@ async def server_selection(
                 # main agent. The explicit enabled_mcp_ids list below remains
                 # the final allowlist, so unrelated private MCPs are not loaded.
                 enabled_only=not (
-                    request.user_agent is not None
+                    request.project_environment is not None
+                    or request.user_agent is not None
                     or skill_bound_mcp_ids
                     or required.connector_ids
                     or required.plugin_mcp_ids

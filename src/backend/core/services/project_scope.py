@@ -145,6 +145,8 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
             files = []
     return {
         "project_id": project_id,
+        "project_environment_config": (project.extra_data or {}).get("environment")
+        or {"mode": "all"},
         "project_name": project.name,
         "project_instructions": ProjectInstructionsService(db).read(project)["instructions"],
         "project_folder_name": folder_name,
@@ -194,7 +196,7 @@ def project_memory_policy(
 
 
 def edition_project_context_keys() -> tuple[str, ...]:
-    return ()
+    return ("project_environment_config", "project_environment_effective")
 
 
 __all__ = [

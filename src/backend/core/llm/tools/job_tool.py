@@ -77,6 +77,7 @@ def register_run_job(
     allowed_tools: Optional[List[str]] = None,
     model_name: Optional[str] = None,
     model_provider_id: Optional[str] = None,
+    project_ctx: Optional[Dict[str, Any]] = None,
 ) -> None:
     """注册 run_job。
 
@@ -206,6 +207,7 @@ def register_run_job(
                         "allowed_tools": list(allowed_tools or []),
                         "model_name": model_name,
                         "model_provider_id": model_provider_id,
+                        "project_ctx": project_ctx,
                         # wait=False 时作业跑完没人叫醒本会话 → 打标，让驱动在终态入队一轮续跑
                         "wake_on_finish": not wait,
                         # 中途进度播报间隔（秒）；0 = 只在终态叫一次

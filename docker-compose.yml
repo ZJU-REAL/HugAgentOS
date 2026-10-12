@@ -249,10 +249,6 @@ services:
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
       STORAGE_PATH: /app/storage
-      MODEL_URL: ${MODEL_URL:-}
-      API_KEY: ${API_KEY:-}
-      BASE_MODEL_NAME: ${BASE_MODEL_NAME:-}
-      QWEN_MODEL_NAME: ${QWEN_MODEL_NAME:-}
       KNOWLEDGE_BASE: ${KNOWLEDGE_BASE:-}
       DIFY_URL: ${DIFY_URL:-}
       DIFY_API_KEY: ${DIFY_API_KEY:-}

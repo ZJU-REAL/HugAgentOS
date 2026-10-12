@@ -133,7 +133,6 @@ SKIP_TOOLS = frozenset(
         "Glob",
         "Grep",
         # 产物/发布/批量
-        "generate_chart_tool",
         "batch_plan",
         "publish_site",
         # 定时任务写操作

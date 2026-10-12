@@ -677,7 +677,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '记忆提取 (mem0)': 'Memory Extraction (mem0)',
   '文本向量化': 'Text Embedding',
   '搜索结果重排序': 'Search Result Reranking',
-  '图表代码生成': 'Chart Code Generation',
   '计划模式推理': 'Plan Mode Reasoning',
   '代码执行推理': 'Code Execution Reasoning',
   '搜索引擎密钥、文件解析等个人使用相关的服务配置；保存后约 30 秒内生效，无需重启。':

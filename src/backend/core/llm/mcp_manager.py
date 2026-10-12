@@ -140,6 +140,9 @@ class BareNameMCPClient(MCPClient):
     async def get_tool(self, name: str) -> MCPTool:
         tool = await super().get_tool(name)
         tool.name = tool._tool.name
+        # Use AgentScope's concurrent batch executor for every MCP call.
+        # Permission checks remain independent of the execution policy.
+        tool.is_concurrency_safe = True
         return tool
 
     async def list_tools(self) -> List[MCPTool]:

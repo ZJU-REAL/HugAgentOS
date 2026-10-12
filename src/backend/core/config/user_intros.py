@@ -377,22 +377,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 信息时效标注（发布时间）
 - 来源可靠性提示（官媒 / 自媒体 / 论坛等）
 """,
-    "generate_chart_tool": """\
-## 用途
-根据查询到的数据，直接生成柱状图、折线图、饼图等可视化图表，作为图片嵌入到回答中，无需再额外导出。
-
-## 适用场景
-- "把这组数据画成趋势图"
-- "用饼图展示行业占比"
-- "对比各区数据画柱状图"
-- "近三年增速做成折线图"
-
-## 输出示例
-- 嵌入回答的图表图片（PNG）
-- 自动配色 + 标题 + 坐标轴标注
-- 支持柱状 / 折线 / 饼图 / 堆叠图等常见类型
-- 数据标签清晰可读
-""",
     # Word / Excel / PPT capability has migrated to the officecli-* skills
     # (see src/backend/skill_bundles/default/officecli-*), which drive the
     # pre-installed `officecli` binary through Bash — word_mcp / excel_mcp /

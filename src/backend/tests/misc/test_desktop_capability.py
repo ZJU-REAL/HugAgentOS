@@ -373,7 +373,7 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
 
 
 @pytest.mark.parametrize(
-    "server_id", ["automation-automation_task", "batch_runner", "generate_chart_tool"]
+    "server_id", ["automation-automation_task", "batch_runner", "web_fetch"]
 )
 def test_cloud_tool_remains_available_without_local_launcher(monkeypatch, server_id):
     _activate_bridge(monkeypatch, [_cloud_server(server_id, None, "test_tool")])
@@ -392,7 +392,7 @@ def test_legacy_environment_cannot_hide_authorized_cloud_tools(monkeypatch, lega
         for i, sid in enumerate(
             [
                 "batch_runner",
-                "generate_chart_tool",
+                "web_fetch",
                 "automation-automation_task",
                 "sites-site_publish",
                 "custom_connector",

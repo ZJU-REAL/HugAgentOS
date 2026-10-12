@@ -27,7 +27,6 @@
       "funnel-analyzer"
     ],
     "mcp_server_ids": [
-      "generate_chart_tool",
       "database_query"
     ],
     "plugin_ids": [],

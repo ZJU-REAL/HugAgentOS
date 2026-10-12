@@ -28,7 +28,6 @@ _DEFAULT_MCP_ICONS: Dict[str, str] = {
     "query_database": "/home/mcp/database.svg",
     "retrieve_dataset_content": "/home/mcp/knowledge.svg",
     "internet_search": "/home/mcp/internet.svg",
-    "generate_chart_tool": "/home/mcp/data.svg",
     "web_fetch": "/home/mcp/source.svg",
     **edition_mcp_icons(),
 }

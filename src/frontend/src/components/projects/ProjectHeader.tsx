@@ -1,6 +1,7 @@
+import ProjectEnvironmentModal from "./ProjectEnvironmentModal";
 import { useState } from 'react';
 import { Button, Dropdown, Modal, Tag, Tooltip, message } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, MoreOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SettingOutlined, EditOutlined, MoreOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { useProjectStore } from '../../stores/projectStore';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { t } from '../../i18n';
@@ -9,6 +10,7 @@ import EditProjectModal from './EditProjectModal';
 export default function ProjectHeader({ projectId }: { projectId: string }) {
   const project = useProjectStore(s => s.currentProject);
   const [editOpen, setEditOpen] = useState(false);
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
   if (!project || project.project_id !== projectId) return null;
   const canAdmin = project.permission === 'admin';
   const canEdit = canAdmin || project.permission === 'edit';
@@ -49,6 +51,13 @@ export default function ProjectHeader({ projectId }: { projectId: string }) {
             <Button type="text" icon={<EditOutlined />} aria-label={t('编辑项目信息')} onClick={() => setEditOpen(true)} />
           </Tooltip>
         )}
+        {canAdmin && (
+          <Dropdown trigger={['click']} menu={{ items: [
+            { key: 'environment', label: t('绑定环境'), onClick: () => setEnvironmentOpen(true) },
+          ] }}>
+            <Button type="text" icon={<SettingOutlined />} aria-label={t('项目设置')} />
+          </Dropdown>
+        )}
         {canDelete && (
           <Dropdown
             menu={{
@@ -68,6 +77,7 @@ export default function ProjectHeader({ projectId }: { projectId: string }) {
     )}
 
 
+    {environmentOpen && <ProjectEnvironmentModal projectId={projectId} open onClose={() => setEnvironmentOpen(false)} />}
     <EditProjectModal open={editOpen} onClose={() => setEditOpen(false)} />
   </section>;
 }

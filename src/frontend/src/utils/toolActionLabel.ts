@@ -44,7 +44,6 @@ const TOOL_ACTIONS: Record<string, ToolAction> = {
   space_delete: SPACE_FILE,
   sandbox_put_artifact: SPACE_FILE,
   sandbox_get_artifact: SPACE_FILE,
-  generate_chart_tool: { running: t('正在生成图表'), done: t('生成了图表') },
   word_create_from_markdown: WORD_DOC,
   export_report_to_docx: WORD_DOC,
   export_table_to_excel: { running: t('正在导出 Excel 表格'), done: t('导出了 Excel 表格') },

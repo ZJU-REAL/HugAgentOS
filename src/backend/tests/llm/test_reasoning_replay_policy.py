@@ -31,8 +31,8 @@ async def test_foreign_reasoning_is_not_an_anthropic_thinking_block():
     )
     wire = await native("anthropic", "claude-test").formatter.format([msg])
     assert not any(b.get("type") == "thinking" for row in wire for b in row["content"])
-    assert "old reasoning" in str(wire)
-    assert "Historical reasoning" in str(wire)
+    assert "old reasoning" not in str(wire)
+    assert "Historical reasoning" not in str(wire)
     assert msg.content[0].type == "thinking"
 
 
@@ -68,13 +68,12 @@ async def test_same_anthropic_model_preserves_signature():
         },
     ],
 )
-async def test_unknown_or_other_model_reasoning_becomes_explicit_reference(origin):
+async def test_unknown_or_other_model_reasoning_is_excluded(origin):
     block = ThinkingBlock(thinking="reason", **origin)
     wire = await native("anthropic", "claude-test").formatter.format(
         [Msg(name="assistant", role="assistant", content=[block])]
     )
-    assert wire[0]["content"][0]["type"] == "text"
-    assert "Historical reasoning" in str(wire)
+    assert wire == []
     assert "foreign-signature" not in str(wire)
 
 
@@ -142,4 +141,5 @@ async def test_other_protocol_does_not_reuse_native_reasoning():
         [Msg(name="assistant", role="assistant", content=[block, TextBlock(text="answer")])]
     )
     assert "reasoning_content" not in wire[0]
-    assert "Historical reasoning" in str(wire[0]["content"])
+    assert "Historical reasoning" not in str(wire[0]["content"])
+    assert "reason" not in str(wire[0]["content"])

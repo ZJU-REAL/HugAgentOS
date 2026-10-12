@@ -257,6 +257,7 @@ async def native_tools(
                 chat_id=request.chat_id,
                 sandbox_session_id=_sbx_sess,
                 allowed_tools=sorted(enabled_mcp_keys or []),
+                project_ctx=request.project_ctx,
                 model_name=request.model_name,
                 model_provider_id=request.model_provider_id,
             )

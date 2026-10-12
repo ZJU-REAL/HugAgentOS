@@ -182,7 +182,7 @@ execution, consolidation and reuse. Optional components are enabled as needed.
 | 💬 **Conversation and plan mode** | SSE streaming, ReAct tool orchestration, deep thinking, plan mode, citations, resumable runs |
 | 📚 **Private knowledge base RAG** | Document chunking, hybrid vector and keyword retrieval, optional reranking, per-user isolation |
 | 🤝 **Personal sub-agents** | Sub-agents with distinct roles, reached by automatic routing or an `@` mention |
-| 🔧 **MCP tool ecosystem** | Built-in web search, page fetch, knowledge retrieval, charts, reports, batch runs, automation, skill management |
+| 🔧 **MCP tool ecosystem** | Built-in web search, page fetch, knowledge retrieval, batch runs, automation, skill management |
 | 🧩 **Agent Skills** | Extend the agent with standardised skill definitions and scripts — built-in, marketplace and personal |
 | ⚙️ **Automation and batch runs** | Create scheduled tasks in natural language; run one process across an Excel sheet, a Word file or a file list |
 | 💬 **Group chat channels** | Feishu / DingTalk / WeCom bots, with optional group listening and history retrieval so the agent can see the conversation around it |
