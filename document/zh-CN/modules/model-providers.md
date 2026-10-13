@@ -107,7 +107,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 | `GET/POST/PUT/DELETE /v1/models/providers...` | 供应商 CRUD；保存前做**真实连通性预校验**（按类型分别打 `/chat/completions`、`/embeddings`、`/rerank`），失败返回 400；base_url 自动规范为 `…/v1`；响应中 api_key 脱敏 |
 | `POST /v1/models/providers/{id}/test`、`POST /v1/models/providers/test` | 已保存 / 未保存配置的连通性测试 |
 | `GET /v1/models/roles`、`PUT/DELETE /v1/models/roles/{role_key}` | 角色分配（校验供应商类型与角色匹配；被引用的供应商禁删） |
-| `GET /v1/models/export`、`POST /v1/models/import` | 模型配置跨环境迁移 |
+| `GET /v1/models/export`、`POST /v1/models/import` | 模型配置跨环境迁移；导出不包含 api_key 或供应商密钥。导入缺少密钥的配置时保留已有密钥；新增供应商的密钥为空，需另行配置 |
 | `GET /v1/models/capabilities` | **公开端点**：暴露主模型与可选模型的非敏感能力，包括思考档位、默认档位和上下文窗口 |
 
 所有模型配置写操作与数据库版本号在同一事务提交。各进程下一次解析时检查版本，重新装载同一快照中的角色、供应商与故障切换候选；无需等待 TTL 或重启。模型实例按事件循环隔离，已运行任务继续使用启动时的模型。

@@ -185,6 +185,8 @@ The actual gating, verified against each route file's dependencies:
 
 Keys look like `sk-jx-...` and can be used as a Bearer token to call business APIs **in every AUTH_MODE** (external programmatic callers usually have no cookies). Validation (enabled / not revoked / not expired / user flag still on) is centralized in `core/services/api_key_service.py::resolve_api_key`.
 
+Disabling or revoking an API key rejects new requests and cancels its admitted chat tasks that are pending, running, or awaiting attention. Cancellation stops background execution and terminates the SSE stream; completed external tool effects cannot be undone. Re-enabling the key does not resume cancelled tasks. Call duration stays fixed after execution stops, including the needs-attention state.
+
 ## Teams & invite codes (Enterprise Edition)
 
 Teams and registration codes are multi-tenant capabilities (license feature `multi_tenancy`), administered from the Config system console:

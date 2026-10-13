@@ -408,6 +408,11 @@ async def _lease_heartbeat(
     """Renew ownership and fence the local coroutine immediately on lease loss."""
     interval = _RUN_LEASE_HEARTBEAT_SEC
     try:
+        run = await asyncio.to_thread(get_run, run_id)
+        payload = (run.request_payload or {}) if run else {}
+        if payload.get("api_key_id") or payload.get("agent_api_scope"):
+            # A revoke handled by another worker must also stop a silent model call.
+            interval = min(interval, 1.0)
         while True:
             await asyncio.sleep(interval)
             # ``renew`` is a synchronous UPDATE on chat_runs. Run it off the
@@ -3810,7 +3815,9 @@ async def _run_plan_generate_workflow(
 # ─── Cancellation ──────────────────────────────────────────────────────
 
 
-async def cancel_run(run_id: str, *, user_id: str) -> bool:
+async def cancel_run(
+    run_id: str, *, user_id: str, stop_terminal_worker: bool = False
+) -> bool:
     """Mark status=cancelled. Idempotent on terminal runs.
 
     For chat-run kinds (regular chat / plan-generate) we forcefully cancel the
@@ -3830,10 +3837,11 @@ async def cancel_run(run_id: str, *, user_id: str) -> bool:
         raise ChatRunNotFound(f"chat run {run_id} not found")
     if run.user_id != user_id:
         raise ChatRunPermissionDenied(f"run {run_id} owned by another user")
-    if run.status not in _LIVE_STATUSES:
+    already_cancelled = stop_terminal_worker and run.status == "cancelled"
+    if run.status not in _LIVE_STATUSES and not already_cancelled:
         return False
 
-    if not _journal().cancel(run_id, reason="user cancelled"):
+    if not already_cancelled and not _journal().cancel(run_id, reason="user cancelled"):
         # Race: the worker/reaper just beat us to writing the terminal state — treat as "no longer running".
         return False
 

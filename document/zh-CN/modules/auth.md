@@ -176,6 +176,8 @@ POST /mock-sso/ticket/exchange  → 校验 ticket，返回用户信息
 
 Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用业务 API（外部程序化调用通常没有 Cookie）。校验逻辑（启用 / 未撤销 / 未过期 / 用户权限位仍开启）集中在 `core/services/api_key_service.py::resolve_api_key`。
 
+禁用或撤销 API Key 会拒绝新请求，并取消该 Key 已接收且仍在等待、运行或暂停待处理的对话任务。取消会停止后台执行并结束 SSE 流；已完成的外部工具操作不会撤回。重新启用 Key 不会恢复已取消任务。调用记录进入“需要处理”等停止状态后，耗时固定在停止时间。
+
 ## 团队与邀请码（商业版 EE）
 
 团队与注册码属多租户能力（License 能力位 `multi_tenancy`），管理端在 Config 系统管理台：

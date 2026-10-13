@@ -97,8 +97,8 @@ try {
   previewFailures = false;
   await environment.getByRole('button',{name:/重\s*试/}).click();
   await environment.locator('.jx-projectEnvironment-resource').nth(1).getByText('数据分析插件',{exact:true}).waitFor();
-  await environment.locator('.jx-projectEnvironment-resource').nth(2).getByText('图表绘制',{exact:true}).waitFor();
-  await environment.locator('.jx-projectEnvironment-resource').nth(3).getByText('企业数据连接器',{exact:true}).waitFor();
+  await environment.locator('.jx-projectEnvironment-resource').nth(2).getByText('图表绘制',{exact:true}).waitFor({state:'hidden'});
+  await environment.locator('.jx-projectEnvironment-resource').nth(3).getByText('企业数据连接器',{exact:true}).waitFor({state:'hidden'});
   await page.waitForFunction(()=> {
     const button=Array.from(document.querySelectorAll('.ant-modal button'))
       .find(el=>el.textContent.replace(/\s/g,'')==='保存环境');
@@ -115,7 +115,7 @@ try {
   await page.getByTitle('产业分析师',{exact:true}).click();
   await environment.getByText('自定义项目环境',{exact:true}).click();
   await resources.nth(1).getByText('数据分析插件',{exact:true}).waitFor();
-  await resources.nth(3).getByText('企业数据连接器',{exact:true}).waitFor();
+  await resources.nth(3).getByText('企业数据连接器',{exact:true}).waitFor({state:'hidden'});
   await page.waitForTimeout(300);
   await environment.screenshot({path:resolve(output,'settings-custom.png')});
   // Market installation returns to the same unsaved selection and binds the resource.
@@ -149,7 +149,7 @@ try {
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'项目设置',exact:true}).click();
   await page.getByText('绑定环境',{exact:true}).click();
-  await page.getByRole('dialog',{name:'绑定项目环境'}).getByText('企业数据连接器',{exact:true}).waitFor();
+  await page.getByRole('dialog',{name:'绑定项目环境'}).getByText('数据分析插件',{exact:true}).waitFor();
   await page.screenshot({path:resolve(output,'settings-mobile.png'),fullPage:true});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);

@@ -121,11 +121,17 @@ class ApiKeyService:
                 UserApiKey.agent_id == agent_id,
                 UserApiKey.revoked_at.is_(None),
             )
+            .populate_existing()
+            .with_for_update()
             .first()
         )
         if not row:
             return None
         row.enabled = enabled
+        if not enabled:
+            from core.services.api_key_runs import cancel_key_runs
+
+            cancel_key_runs(self.db, key_id, user_id, _now())
         self.db.commit()
         self.db.refresh(row)
         return row
@@ -140,12 +146,17 @@ class ApiKeyService:
                 UserApiKey.agent_id == agent_id,
                 UserApiKey.revoked_at.is_(None),
             )
+            .populate_existing()
+            .with_for_update()
             .first()
         )
         if not row:
             return False
         row.revoked_at = _now()
         row.enabled = False
+        from core.services.api_key_runs import cancel_key_runs
+
+        cancel_key_runs(self.db, key_id, user_id, row.revoked_at)
         self.db.commit()
         return True
 

@@ -48,7 +48,7 @@ const SettingsPage = lazy(() => import('./settings/SettingsModal').then(m => ({ 
 const SitesPanel = lazy(() => import('./sites/SitesPanel').then(m => ({ default: m.SitesPanel })));
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
-  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, conversationProjectId, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
+  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
   const showProjectOverview = !!overviewProjectId;
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
@@ -156,7 +156,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
           {/* Chat empty state: closable recommend banner (full-width); on close the height collapses so the content below moves up smoothly */}
           <CollapseHeight
-            show={chatSurface && !conversationProjectId && isEmptyChat && recommendBarVisible}
+            show={chatSurface && isEmptyChat && recommendBarVisible}
             motionKey="recommend-banner"
             duration={0.2}
             style={{ flex: 'none' }}

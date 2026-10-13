@@ -915,13 +915,9 @@ async def _require_model_export_access(
     db: Session = Depends(get_db),
     user: Optional[UserContext] = Depends(require_auth(False)),
 ) -> None:
-    """模型导出访问闸。
+    """Default to config access; optionally allow authenticated desktop sync.
 
-    默认等同 ``require_config``（CONFIG_TOKEN / can_system_config）。桌面双模式的
-    壳会用**普通用户会话**拉取本端点、把配置下发到该用户的本机执行面——部署方
-    显式设置 ``DESKTOP_MODEL_SYNC_SCOPE=authenticated`` 后放行任何已登录用户。
-    ⚠️ 导出含明文 api_key：authenticated 档等于把模型密钥分发到登录用户的桌面
-    本机，是否开启由部署方自行权衡；不设或设其它值行为与既有 require_config 一致。
+    Exports contain model settings only, without API keys or vendor credentials.
     """
     scope = (os.getenv("DESKTOP_MODEL_SYNC_SCOPE") or "").strip().lower()
     if scope == "authenticated" and user is not None:
@@ -934,11 +930,9 @@ def export_endpoint(
     _: None = Depends(_require_model_export_access),
     db: Session = Depends(get_db),
 ):
-    """导出全部模型配置（供应商 + 角色分配），用于备份或跨环境迁移。
+    """Export model settings and role assignments without credentials.
 
-    ⚠️ 导出内容含**明文 api_key**（供跨环境迁移原样重导入）。默认要求
-    ``require_config``；云端设 ``DESKTOP_MODEL_SYNC_SCOPE=authenticated`` 时放行
-    任何已登录用户（桌面双模式把云端模型配置下发到本机执行面所需）。import 不放宽。
+    Imports retain existing keys; new providers require credentials to be configured.
     """
     return success_response(data=export_all(db))
 

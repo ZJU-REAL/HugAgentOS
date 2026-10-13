@@ -107,7 +107,7 @@ Resolution order:
 | `GET/POST/PUT/DELETE /v1/models/providers...` | Provider CRUD; saving performs a **real connectivity pre-check** (hits `/chat/completions`, `/embeddings`, or `/rerank` by type) and returns 400 on failure; base_url is normalized to `…/v1`; api_key is masked in responses |
 | `POST /v1/models/providers/{id}/test`, `POST /v1/models/providers/test` | Connectivity test for saved / unsaved configs |
 | `GET /v1/models/roles`, `PUT/DELETE /v1/models/roles/{role_key}` | Role assignment (validates provider type matches the role; referenced providers cannot be deleted) |
-| `GET /v1/models/export`, `POST /v1/models/import` | Cross-environment migration of model config |
+| `GET /v1/models/export`, `POST /v1/models/import` | Cross-environment model config migration; exports omit api_key and vendor credentials. Imports preserve existing credentials when omitted; new providers have an empty key and require separate credential setup |
 | `GET /v1/models/capabilities` | **Public endpoint**: exposes non-secret capabilities for the main and selectable models, including thinking levels, defaults, and context windows |
 
 Every model configuration write commits a database revision in the same transaction. Each worker checks that revision on its next lookup and reloads roles, providers, and failover candidates from one SQL snapshot. No TTL wait or restart is required. Model instances are isolated per event loop; running tasks retain their starting model.
