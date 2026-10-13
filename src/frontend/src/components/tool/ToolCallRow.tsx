@@ -16,7 +16,6 @@ import {
   ThunderboltOutlined,
   RobotOutlined,
   FolderOutlined,
-  BarChartOutlined,
   FileWordOutlined,
   FileExcelOutlined,
 } from '@ant-design/icons';
@@ -106,7 +105,6 @@ function getRowLabel(
         const fn = fp ? String(fp).split('/').pop() || '' : '';
         return { prefix: t('读取文件：'), value: fn };
       }
-      case 'generate_chart_tool': return { prefix: t('生成图表'), value: '' };
       case 'word_create_from_markdown': return { prefix: t('生成 Word 文档'), value: '' };
       case 'export_report_to_docx': return { prefix: t('导出 Word 报告'), value: '' };
       case 'export_table_to_excel': return { prefix: t('导出 Excel 表格'), value: '' };
@@ -209,7 +207,6 @@ const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   ...EDITION_STEP_ICONS,
   sandbox_put_artifact: FolderOutlined,
   sandbox_get_artifact: FolderOutlined,
-  generate_chart_tool: BarChartOutlined,
   word_create_from_markdown: FileWordOutlined,
   export_report_to_docx: FileWordOutlined,
   export_table_to_excel: FileExcelOutlined,

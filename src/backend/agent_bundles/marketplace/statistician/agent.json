@@ -26,9 +26,7 @@
       "csv-pipeline",
       "officecli-xlsx"
     ],
-    "mcp_server_ids": [
-      "generate_chart_tool"
-    ],
+    "mcp_server_ids": [],
     "plugin_ids": [],
     "kb_ids": []
   }

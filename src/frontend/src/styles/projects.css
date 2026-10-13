@@ -184,3 +184,22 @@
 .jx-projectConversationHistory-title { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .jx-projectConversationHistory-title .ant-tag { margin-left:8px; }
 .jx-projectConversationHistory-meta { font-size:12px; color:var(--color-text-secondary); overflow-wrap:anywhere; }
+
+.jx-projectEnvironment { display: flex; flex-direction: column; gap: 14px; }
+.jx-projectEnvironment-modes { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.jx-projectEnvironment-modes .ant-radio-wrapper {
+  margin: 0; padding: 12px; border: 1px solid var(--color-border);
+  border-radius: 10px; align-items: flex-start;
+}
+.jx-projectEnvironment-modes .ant-radio-wrapper-checked {
+  border-color: var(--color-primary); background: var(--color-primary-light);
+}
+.jx-projectEnvironment-modes strong { display: block; margin-bottom: 4px; }
+.jx-projectEnvironment-modes span:not(.ant-radio):not(.ant-radio-inner):not(.ant-radio-input) {
+  font-size: 13px;
+}
+.jx-projectEnvironment-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.jx-projectEnvironment-label label { font-weight: 600; }
+.jx-projectEnvironment-hint {
+  font-size: 13px; color: var(--color-text-secondary); line-height: 1.7;
+}

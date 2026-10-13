@@ -62,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 **第 2c 步（可选）· 重排模型（reranker）**——对知识库混合检索结果做重排增强，检索更准。填 reranker 端点（`base_url` / 模型名 / `api_key`），直接回车跳过（不配则检索照常、只是不重排）。
 
-> HugAgentOS 共有 9 个模型角色：7 个对话角色（主智能体 / 摘要 / 追问 / 记忆 / 图表 / 计划 / 代码执行，共用上面的对话模型）+ 向量（embedding）+ 重排（reranker）。onboard 覆盖全部三类；登录后还可在网页「设置 → 系统管理 → 模型服务」为单个角色指派不同模型。
+> HugAgentOS 包含对话模型角色（主智能体 / 摘要 / 追问 / 记忆 / 计划 / 代码执行，共用上面的对话模型）+ 向量（embedding）+ 重排（reranker）。onboard 覆盖全部三类；登录后还可在网页「设置 → 系统管理 → 模型服务」为单个角色指派不同模型。
 
 **第 3 步 · 插件初始化**——全新安装会自动安装并启用
 `automation`（定时任务）、`skill-manager`（技能管理）和 `sites`

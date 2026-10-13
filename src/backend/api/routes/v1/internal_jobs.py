@@ -71,6 +71,7 @@ def _auth(job_id: str, token: Optional[str]):
             "allowed_tools": list(start_params.get("allowed_tools") or []),
             "model_name": start_params.get("model_name"),
             "model_provider_id": start_params.get("model_provider_id"),
+            "project_ctx": start_params.get("project_ctx"),
         }
 
 
@@ -157,6 +158,7 @@ async def _run_light_agent(
     journal_owner: str,
     model_name: Optional[str],
     model_provider_id: Optional[str],
+    project_ctx: Optional[dict] = None,
 ) -> tuple[str, bool]:
     """无历史、无沙箱、无技能、无子智能体的一次性子作业。
 
@@ -180,6 +182,7 @@ async def _run_light_agent(
         model_name=model_name,
         model_provider_id=model_provider_id,
         current_user_id=user_id,
+        project_ctx=project_ctx,
         chat_id=chat_id,
         run_id=run_id,
         journal_owner=journal_owner,
@@ -298,6 +301,8 @@ async def job_agent(
                     recovery_snapshot={
                         "worker_args": {
                             "context": {
+                                **(ctx.get("project_ctx") or {}),
+                                "project_ctx": ctx.get("project_ctx"),
                                 "mcp_ids": list(tools),
                                 "skill_ids": [],
                                 "model_name": body.model or ctx["model_name"],
@@ -320,6 +325,7 @@ async def job_agent(
                         journal_owner=binding.owner,
                         model_name=body.model or ctx["model_name"],
                         model_provider_id=ctx["model_provider_id"],
+                        project_ctx=ctx.get("project_ctx"),
                     )
             except Exception as exc:  # noqa: BLE001
                 from core.services.tool_effect_ledger import find_tool_outcome_unknown

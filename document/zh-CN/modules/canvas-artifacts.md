@@ -22,6 +22,8 @@
 
 面板状态由 `stores/canvasStore.ts` 管理（`openCanvas` / `closeCanvas` / `updateArtifact`，`openSeq` 用于区分「打开新文件」与「同文件保存后刷新」）。
 
+预览标题栏和文件卡片中的操作按钮按文字内容保留宽度。长文件名使用省略号，下载或打开操作保持单行。手机端的空间导入弹窗上下排列文件列表与预览，两个区域分别滚动。
+
 ### 大文件预览保护
 
 在线预览上限低于上传上限，因为 Office 压缩包解压并转成 DOM 或画布对象后，
@@ -94,16 +96,10 @@ Web Worker 中执行，并按真实存在的单元格稀疏转换，不遍历工
 
 分享内容是消息**快照**，存储在 Redis（`chat_share:*` 三组 Key），Redis 不可用时退化为进程内字典。访问端是独立的轻量页面 `src/frontend/src/SharePreviewApp.tsx`——`main.tsx` 检测到 URL 带 `?share=<share_id>` 参数即渲染分享视图而非主应用。分享记录管理页在 `src/frontend/src/components/share/ShareRecordsPage.tsx`。
 
-## 图表生成如何落到产物
+## 图表产物
 
-MCP 工具 `generate_chart_tool`（`src/backend/mcp_servers/generate_chart_tool_mcp/`）用 matplotlib 按数据 + 指令绘图（折线 / 柱状 / 饼图等），生成的 PNG 通过 `core/artifacts/store.py::save_artifact_bytes` 直接落为产物，返回：
-
-```json
-{"ok": true, "file_id": "<artifact id>", "url": "/files/<file_id>",
- "name": "chart_xxx.png", "mime_type": "image/png"}
-```
-
-图表立即出现在聊天附件区，可在画布中预览、在我的空间收纳。工具描述中强制「先取数后绘图」，禁止凭空编数据。若要把图表插入沙箱里正在生成的 Word/PPT，需先用 `sandbox_put_artifact` 把 `file_id` 拷进沙箱再由 CLI 引用沙箱路径——artifact 存储与沙箱文件系统是两个世界。
+图表由沙箱中的绘图脚本或数据分析技能生成。使用 `sandbox_get_artifact`
+登记图片，再用 `pin_to_workspace` 交付。模型管理无需配置专用图表生成角色。
 
 ## 文档导出如何落到产物
 
@@ -118,7 +114,7 @@ officecli-xlsx、officecli-pptx 三个基座技能（以及它们之上的表单
 > 用户：「查一下近五年新能源汽车产量，画成柱状图，再把分析导出成 Word。」
 
 1. 智能体先用搜索 / 数据工具取数；
-2. 调 `generate_chart_tool` 生成柱状图 → artifact A（PNG，附件区可见，画布可预览）；
+2. 在沙箱中生成柱状图，通过 `sandbox_get_artifact` 登记 → artifact A（PNG，附件区可见，画布可预览）；
 3. 撰写分析文本后调用 officecli-docx 技能生成 artifact B（docx）；
 4. 两个产物随 `meta` 事件钉入工作区、由 `persist_artifacts` 落库，出现在「我的空间」；
 5. 用户点击 docx 在画布预览，满意后 `POST /v1/chat-shares` 生成 15 天有效的分享链接发给同事。
@@ -134,7 +130,6 @@ officecli-xlsx、officecli-pptx 三个基座技能（以及它们之上的表单
 | 文件下载 / 预览 | `src/backend/api/routes/files.py` |
 | 会话分享 API | `src/backend/api/routes/v1/chat_shares.py` |
 | 分享前端 | `src/frontend/src/SharePreviewApp.tsx`、`src/frontend/src/components/share/ShareRecordsPage.tsx` |
-| 图表生成 MCP | `src/backend/mcp_servers/generate_chart_tool_mcp/server.py`、`chart.py` |
 | 文档导出技能 | `src/backend/skill_bundles/default/officecli-*/`、`src/backend/skill_bundles/default/pdf-editing/` |
 | 我的空间前端 | `src/frontend/src/components/myspace/`、`src/frontend/src/stores/mySpaceStore.ts` |
 

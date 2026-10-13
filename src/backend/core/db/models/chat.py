@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Computed,
     ForeignKey,
     LargeBinary,
     Index,
@@ -168,6 +169,16 @@ class ChatMessage(Base):
     # 刷新后照着渲染。正文片段内联，思考与工具卡片按下标引用上面两列，长推理不存两份。
     # 缺失 = 段落表上线之前的老消息，展示退化成「正文 + 工具卡片」，不做顺序反推。
     extra_data = Column("metadata", JSONType, default={})
+    usage_is_history = Column(
+        Boolean, Computed("coalesce(CAST(metadata ->> 'forked_history' AS BOOLEAN), false)", persisted=True)
+    )
+    recorded_run_id = Column(
+        String(64), Computed("metadata ->> 'run_id'", persisted=True)
+    )
+    usage_provider_id = Column(
+        String(255), Computed("nullif(trim(metadata ->> 'model_provider_id'), '')", persisted=True)
+    )
+
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
 
     # Relationships
@@ -187,6 +198,7 @@ class ChatMessage(Base):
         Index("idx_chat_messages_chat_created", "chat_id", "created_at"),
         Index("idx_chat_messages_role", "chat_id", "role"),
         Index("idx_chat_messages_created_at", "created_at"),
+        Index("idx_messages_usage", "role", "usage_is_history", "created_at", "message_id"),
         Index(
             "idx_chat_messages_tool_calls_gin",
             "tool_calls",

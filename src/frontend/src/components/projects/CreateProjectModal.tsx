@@ -1,3 +1,5 @@
+import { defaultProjectEnvironment } from "../../api/projectEnvironment";
+import ProjectEnvironmentEditor from "./ProjectEnvironmentEditor";
 import { useEffect, useMemo, useState } from 'react';
 import { FolderOutlined } from '@ant-design/icons';
 import { Input, message, Modal, Radio, TreeSelect } from 'antd';
@@ -39,6 +41,8 @@ export default function CreateProjectModal({ onCreated }: Props) {
   const [linkedFolderId, setLinkedFolderId] = useState<string>();
   const [folders, setFolders] = useState<PersonalFolderNode[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [environment, setEnvironment] = useState(defaultProjectEnvironment);
+  const [environmentReady, setEnvironmentReady] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -47,6 +51,7 @@ export default function CreateProjectModal({ onCreated }: Props) {
       return;
     }
     setName('');
+    setEnvironment(defaultProjectEnvironment());
     setDescription('');
     setFolderMode('auto');
     setLinkedFolderId(undefined);
@@ -71,6 +76,7 @@ export default function CreateProjectModal({ onCreated }: Props) {
         cleanName,
         description.trim() || undefined,
         folderMode === 'existing' ? linkedFolderId : undefined,
+        environment,
       );
       message.success(t('项目已创建'));
       setOpen(false);
@@ -93,8 +99,9 @@ export default function CreateProjectModal({ onCreated }: Props) {
       okText={t('创建项目')}
       cancelText={t('取消')}
       confirmLoading={submitting}
+      okButtonProps={{ disabled: !environmentReady }}
       destroyOnClose
-      width={520}
+      width={640}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
         <div>
@@ -118,6 +125,10 @@ export default function CreateProjectModal({ onCreated }: Props) {
             rows={4}
             maxLength={2000}
           />
+        </div>
+        <div>
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>{t('项目环境')}</div>
+          <ProjectEnvironmentEditor value={environment} onChange={setEnvironment} onReadyChange={setEnvironmentReady} />
         </div>
         <div>
           <div style={{ marginBottom: 6, fontWeight: 600, fontSize: 13 }}>

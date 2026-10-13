@@ -1,0 +1,336 @@
+/* markdown ------------------------------------------------------- */
+
+.jx-spaceImportPreview-md {
+  flex: 1;
+  padding: 20px 28px;
+  overflow: auto;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--color-text);
+}
+
+.jx-spaceImportPreview-md h1,
+.jx-spaceImportPreview-md h2,
+.jx-spaceImportPreview-md h3,
+.jx-spaceImportPreview-md h4 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-spaceImportPreview-md h1 { font-size: 1.6em; border-bottom: 1px solid var(--color-border); padding-bottom: .3em; }
+
+.jx-spaceImportPreview-md h2 { font-size: 1.3em; }
+
+.jx-spaceImportPreview-md h3 { font-size: 1.1em; }
+
+.jx-spaceImportPreview-md p { margin: .6em 0; }
+
+.jx-spaceImportPreview-md code {
+  background: var(--color-bg-gray);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family:var(--font-family-mono);
+  font-size: 12.5px;
+}
+
+.jx-spaceImportPreview-md pre {
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+
+.jx-spaceImportPreview-md pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.jx-spaceImportPreview-md blockquote {
+  margin: .8em 0;
+  padding: .2em 1em;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-text-secondary);
+}
+
+.jx-spaceImportPreview-md ul,
+.jx-spaceImportPreview-md ol {
+  padding-left: 1.6em;
+  margin: .6em 0;
+}
+
+.jx-spaceImportPreview-md table {
+  border-collapse: collapse;
+  margin: .8em 0;
+  font-size: 12.5px;
+}
+
+.jx-spaceImportPreview-md table th,
+.jx-spaceImportPreview-md table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+}
+
+.jx-spaceImportPreview-md table th {
+  background: var(--color-bg-gray);
+  font-weight: 600;
+}
+
+.jx-spaceImportPreview-md img {
+  max-width: 100%;
+  border-radius: var(--radius-xs);
+}
+
+/* csv / xlsx table ---------------------------------------------- */
+
+.jx-spaceImportPreview-tableWrap {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  background: var(--color-bg-container);
+}
+
+.jx-spaceImportPreview-limitNotice {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  margin: -12px -12px 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-warning-bg);
+  background: var(--color-warning-light);
+  color: var(--color-warning-active);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.jx-spaceImportPreview-table,
+.jx-spaceImportPreview-tableWrap table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-family:var(--font-family);
+}
+
+.jx-spaceImportPreview-table th,
+.jx-spaceImportPreview-table td,
+.jx-spaceImportPreview-tableWrap table th,
+.jx-spaceImportPreview-tableWrap table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.jx-spaceImportPreview-table th,
+.jx-spaceImportPreview-tableWrap table th {
+  background: var(--color-bg-gray);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.jx-spaceImportPreview-table tr:nth-child(even) td,
+.jx-spaceImportPreview-tableWrap table tr:nth-child(even) td {
+  background: var(--color-bg-layout);
+}
+
+/* xlsx sheet tabs ----------------------------------------------- */
+
+.jx-spaceImportPreview-xlsx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.jx-spaceImportPreview-sheetTabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-container);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.jx-spaceImportPreview-sheetTab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.jx-spaceImportPreview-sheetTab:hover {
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+.jx-spaceImportPreview-sheetTab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ── Mermaid diagram blocks ────────────────────────────────────── */
+
+.jx-mermaid {
+  margin: 12px 0;
+  padding: 16px;
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  min-height: 60px;
+}
+
+.jx-mermaid--rendered {
+  background: transparent;
+  border-color: transparent;
+  padding: 8px 0;
+  overflow: visible;
+}
+
+/* 渲染完成：svg 淡入（复用全局原语 keyframes） */
+
+.jx-mermaid--rendered .jx-mermaid-svgHost svg {
+  animation: jx-kf-fadeIn var(--motion-duration-normal) var(--motion-ease-standard) both;
+}
+
+.jx-mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+
+.jx-mermaid-zoomButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--color-text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.jx-mermaid-zoomButton:hover:not(:disabled) {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.jx-mermaid-zoomButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.jx-mermaid-zoomButton:disabled {
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.jx-mermaid-zoomValue {
+  min-width: 48px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.jx-mermaid-viewport {
+  width: 100%;
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.jx-mermaid-svgHost {
+  width: 100%;
+  min-width: 0;
+}
+
+.jx-mermaid-svgHost svg {
+  display: block;
+  width: var(--jx-mermaid-width, 100%) !important;
+  max-width: none !important;
+  height: auto;
+  margin: 0 auto;
+}
+
+.jx-mermaid[data-chart] > .jx-mermaid {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.jx-mermaid[data-chart] {
+  overflow: visible;
+}
+
+.jx-mermaid-loading {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.jx-mermaid--error {
+  border-color: var(--color-error);
+  background: rgba(252, 93, 93, 0.04);
+}
+
+.jx-mermaid--error pre {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.jx-mermaid-errorMsg {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-error);
+}
+
+/* ── KaTeX math rendering ──────────────────────────────────────── */
+
+.katex {
+  font-size: 1.05em;
+}
+
+.katex-display {
+  overflow-x: auto;
+  padding: 8px 0;
+  margin: 4px 0;
+}
+
+.katex-display > .katex {
+  font-size: 1.15em;
+}
+
+.jx-katex-error {
+  color: var(--color-error);
+  font-size: 12px;
+}

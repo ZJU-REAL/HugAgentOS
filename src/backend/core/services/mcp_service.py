@@ -357,6 +357,7 @@ from core.services.mcp_builtin_specs import BUILTIN_MCP_SERVERS
 # seed candidate.
 RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {
     "report_export_mcp",
+    "generate_chart_tool",
     *edition_retired_builtin_mcp_server_ids(),
 }
 
@@ -396,6 +397,11 @@ def prune_removed_builtin_mcp_servers(db) -> List[str]:
     never touched.
     """
     from mcp_servers._ports import PORTS
+    from core.db.retire_chart_mcp import retire_chart_mcp
+
+    if retire_chart_mcp(db.connection()):
+        db.commit()
+        McpServerConfigService.get_instance().invalidate_cache()
 
     removed_ids = RETIRED_BUILTIN_MCP_SERVER_IDS | {
         str(spec["server_id"])

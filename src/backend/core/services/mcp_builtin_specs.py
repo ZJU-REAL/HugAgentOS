@@ -38,16 +38,6 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "icon": "/home/mcp/internet.svg",
     },
     {
-        "server_id": "generate_chart_tool",
-        "display_name": "数据可视化",
-        "description": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
-        "user_intro": None,
-        "is_stable": True,
-        "is_enabled": True,
-        "sort_order": 4,
-        "icon": "/home/mcp/data.svg",
-    },
-    {
         "server_id": "web_fetch",
         "display_name": "网站信息抓取",
         "description": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",

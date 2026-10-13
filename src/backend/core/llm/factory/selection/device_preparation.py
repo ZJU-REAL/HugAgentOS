@@ -26,6 +26,10 @@ async def device_preparation(
     sticky: StickyCapabilities,
     enabled_mcp_keys,
 ):
+    if request.project_environment is not None:
+        _mode_plugin_ids = [
+            p for p in _mode_plugin_ids if p in request.project_environment.plugin_ids
+        ]
     _desktop_progressive = None
     if (
         capabilities_enabled()
@@ -109,6 +113,10 @@ async def device_preparation(
         ]
         if required.plugin_id:
             _dependency_plugins.append(required.plugin_id)
+        if request.project_environment is not None:
+            _dependency_plugins = [
+                p for p in _dependency_plugins if p in request.project_environment.plugin_ids
+            ]
         _prepared_capabilities = await asyncio.to_thread(
             capability_runtime.prepare,
             _capability_run_key,

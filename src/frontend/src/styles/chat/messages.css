@@ -1,0 +1,477 @@
+/* 消息行：竖向堆叠（不再是头像+内容横排） */
+
+.jx-msg{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  margin:0 0 20px;
+  gap:0;
+}
+
+/* 入场动画只给新追加的消息（MessageBubble 按 ts 门控加 --fresh）；
+   历史加载 / 切会话灌入的消息不播，避免整列同帧抖动。 */
+
+.jx-msg--fresh{
+  animation:jx-kf-fadeInUp var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
+}
+
+/* 定位消息高亮（jx-anim-flash 原语打在消息行上时加个圆角） */
+
+.jx-msg.jx-anim-flash{
+  border-radius:12px;
+}
+
+.jx-msgInner{
+  width:100%;
+  display:flex;
+  align-items:flex-start;
+  gap:0;
+}
+
+.jx-msgInner.user{
+  justify-content:flex-end;
+}
+
+.jx-msgInner.share-selectable{
+  display:grid;
+  grid-template-columns:20px minmax(0, 1fr);
+  align-items:flex-start;
+  column-gap:10px;
+}
+
+.jx-shareCheckboxWrap{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;
+  min-width:20px;
+  padding-top:8px;
+  animation:jx-kf-fadeIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+
+.jx-shareCheckbox{
+  appearance:none;
+  -webkit-appearance:none;
+  width:18px;
+  height:18px;
+  margin:0;
+  border-radius:5px;
+  border:1px solid var(--color-fill-deep);
+  background:var(--color-bg-container);
+  box-shadow:0 1px 2px rgba(15, 23, 42, .04);
+  cursor:pointer;
+  position:relative;
+  transition:border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.jx-shareCheckbox:hover{
+  border-color:var(--color-fill-deep);
+  background:var(--color-bg-container);
+  box-shadow:0 1px 3px rgba(15, 23, 42, .08);
+}
+
+.jx-shareCheckbox:checked{
+  border-color:var(--color-primary);
+  background:var(--color-primary);
+  box-shadow:0 2px 6px rgba(79, 124, 255, .22);
+}
+
+.jx-shareCheckbox:checked::after{
+  content:'';
+  position:absolute;
+  left:6px;
+  top:2px;
+  width:4px;
+  height:9px;
+  border:solid var(--color-text-white);
+  border-width:0 2px 2px 0;
+  transform:rotate(45deg);
+}
+
+/* 用户消息：右对齐 */
+
+.jx-msg.user{
+  align-items:flex-end;
+}
+
+/* 头像：完全隐藏 */
+
+.jx-avatar{ display:none; }
+
+/* msgContent：Assistant 占满全宽，User 最宽 80% */
+
+.jx-msgContent{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  cursor:text;
+}
+
+.jx-msg.assistant .jx-msgContent{
+  max-width:min(calc(100vw - 136px), 820px);
+}
+
+.jx-msg.user .jx-msgContent{
+  width:auto;
+  max-width:min(calc(100vw - 100px), 680px);
+}
+
+/* ── 基础气泡（仅 user 使用，assistant 无气泡） ── */
+
+.jx-bubble{
+  position:relative;
+  overflow:hidden;
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  cursor:text;
+  padding:10px 14px;
+  border-radius:18px 18px 4px 18px;
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  background:color-mix(in srgb, var(--color-fill-hover) 96%, transparent);
+  line-height:1.74;
+  font-size:14px;
+  white-space:pre-wrap;
+  word-break:break-word;
+  color:color-mix(in srgb, var(--color-text) 80%, transparent);
+  box-shadow:0 1px 3px rgba(15,23,42,.045);
+  display:inline-block;
+  letter-spacing:.003em;
+  font-weight:400;
+}
+
+/* markdown 气泡：HTML 元素间的 \n 不应被 pre-wrap 渲染为换行 */
+
+.jx-bubble.jx-md{
+  white-space:normal;
+  display:block;
+}
+
+/* User bubble 颜色（浅灰 ChatGPT 风格，已在上面默认） */
+
+.jx-bubble.user{
+  background:color-mix(in srgb, var(--color-fill-hover) 92%, transparent);
+  color:color-mix(in srgb, var(--color-text) 78%, transparent);
+  border-color:color-mix(in srgb, var(--color-text) 7.5%, transparent);
+  box-shadow:0 1px 3px rgba(15,23,42,.04);
+  font-size:15px;
+  line-height:1.78;
+}
+
+.jx-userQuote{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:10px;
+  padding:8px 10px;
+  border-radius:12px;
+  background:color-mix(in srgb, var(--color-bg-container) 46%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.jx-userQuoteLabel{
+  font-size:11px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text-tertiary) 88%, transparent);
+  line-height:1;
+}
+
+.jx-userQuoteText{
+  font-size:12px;
+  line-height:1.55;
+  color:color-mix(in srgb, var(--color-text-secondary) 88%, transparent);
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* ── Assistant 消息：无气泡，直接渲染文字 ── */
+
+.jx-msg.assistant .jx-bubble{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+  padding:2px 0 4px;
+  border-radius:0;
+  overflow:visible;
+  display:block;
+  font-family:var(--font-family);
+  font-size:15.5px;
+  line-height:1.82;
+  letter-spacing:.004em;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  font-weight:400;
+  text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-feature-settings:"kern" 1;
+}
+
+.jx-msg.assistant .jx-bubble > :first-child{
+  margin-top:0 !important;
+}
+
+.jx-msg.assistant .jx-bubble > :last-child{
+  margin-bottom:0 !important;
+}
+
+.jx-msg.assistant .jx-bubble::before{
+  display:none;
+}
+
+.jx-msg.assistant .jx-bubble p{
+  margin:0 0 13px;
+  line-height:1.84;
+  letter-spacing:.004em;
+}
+
+.jx-msg.assistant .jx-bubble p:last-child{
+  margin-bottom:0;
+}
+
+.jx-msg.assistant .jx-bubble h1,
+.jx-msg.assistant .jx-bubble h2,
+.jx-msg.assistant .jx-bubble h3,
+.jx-msg.assistant .jx-bubble h4{
+  margin:22px 0 11px;
+  line-height:1.46;
+  letter-spacing:0;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 94%, transparent);
+}
+
+.jx-msg.assistant .jx-bubble h1:first-child,
+.jx-msg.assistant .jx-bubble h2:first-child,
+.jx-msg.assistant .jx-bubble h3:first-child,
+.jx-msg.assistant .jx-bubble h4:first-child{
+  margin-top:0;
+}
+
+.jx-msg.assistant .jx-bubble h1{ font-size:21px; }
+
+.jx-msg.assistant .jx-bubble h2{ font-size:18px; }
+
+.jx-msg.assistant .jx-bubble h3{ font-size:16px; }
+
+.jx-msg.assistant .jx-bubble h4{
+  font-size:14.5px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 74%, transparent);
+}
+
+.jx-msg.assistant .jx-bubble ul,
+.jx-msg.assistant .jx-bubble ol{
+  margin:10px 0 15px;
+  padding-left:1.55em;
+}
+
+.jx-msg.assistant .jx-bubble li{
+  margin:0;
+  line-height:1.8;
+  color:color-mix(in srgb, var(--color-text) 84%, transparent);
+}
+
+.jx-msg.assistant .jx-bubble ul > li + li,
+.jx-msg.assistant .jx-bubble ol > li + li{
+  margin-top:5px;
+}
+
+.jx-msg.assistant .jx-bubble strong{
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 94%, transparent);
+}
+
+.jx-msg.assistant .jx-bubble blockquote{
+  margin:14px 0;
+  padding:10px 14px 10px 15px;
+  border-left-width:2px;
+  border-radius:10px;
+  font-style:normal;
+  color:color-mix(in srgb, var(--color-text-secondary) 80%, transparent);
+}
+
+.jx-msg.assistant .jx-bubble code{
+  font-size:12.5px;
+  font-weight:500;
+}
+
+.jx-msg.assistant .jx-bubble pre{
+  margin:14px 0;
+  border-radius:12px;
+  border-color:color-mix(in srgb, var(--color-text) 7%, transparent);
+  box-shadow:none;
+  background:var(--color-bg-layout);
+}
+
+.jx-msg.assistant .jx-bubble table{
+  margin:14px 0;
+}
+
+.jx-msg.assistant .jx-bubble a{
+  color:color-mix(in srgb, var(--color-text) 86%, transparent);
+  border-bottom-color:color-mix(in srgb, var(--color-text) 18%, transparent);
+}
+
+/* 流式占位：保留三点动画，无外框 */
+
+.jx-msg.assistant .jx-bubble.streaming{
+  padding:2px 0;
+}
+
+.jx-msg.assistant .jx-bubble.streaming::after{
+  display:none;
+}
+
+/* User 气泡流式状态 */
+
+.jx-bubble.user.streaming{
+  border-color:color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+/* ── 流式打字光标：尾随圆点呼吸（非竖线闪烁——markdown 全量重渲染会重置相位，
+   圆点 pulse 对相位不敏感）。.jx-msgText 是 CitationMarkdownBlock 的包装层。 ── */
+
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > :last-child::after,
+/* motion-stop: 流式输出末尾的光标，停在实心态仍是一根光标，不影响判断在不在跑 */
+.jx-msg.assistant .jx-bubble.streaming > span.jx-msgText::after{
+  content:'';
+  display:inline-block;
+  width:8px;
+  height:8px;
+  margin-left:5px;
+  border-radius:50%;
+  background:rgba(15,23,42,.5);
+  vertical-align:-1px;
+  animation:jxStreamCaret 1s var(--motion-ease-standard) infinite;
+}
+
+/* 代码块 / 表格 / 列表 / 图表收尾时不挂圆点（::after 会落到块外独占一行） */
+
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > pre:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > table:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mdTable:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ul:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ol:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mermaid:last-child::after{
+  display:none;
+}
+
+@keyframes jxStreamCaret{
+  0%, 100% { opacity:.35; transform:scale(.8); }
+  50%      { opacity:.9;  transform:scale(1); }
+}
+
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxStreamCaret { from, to { opacity:.35; transform:scale(.8) } }
+}
+
+.jx-msgContent::selection,
+.jx-msgContent *::selection{
+  background:rgba(148,163,184,.30);
+  color:var(--color-text);
+}
+
+.jx-streamingIndicator{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-left:8px;
+  vertical-align:middle;
+}
+
+/* motion-keep: 流式输出中的三点，停下就分不清还在生成还是断流 */
+
+.jx-streamingDot{
+  width:5px;
+  height:5px;
+  border-radius:999px;
+  background:rgba(100,116,139,.55);
+  opacity:1;
+  animation:jxStreamingDot 1.2s ease-in-out infinite;
+}
+
+.jx-streamingDot:nth-child(2){animation-delay:.16s;}
+
+.jx-streamingDot:nth-child(3){animation-delay:.32s;}
+
+@keyframes jxStreamingDot {
+  0%, 80%, 100% { transform:translateY(0); opacity:.35; }
+  40% { transform:translateY(-2px); opacity:1; }
+}
+
+/* ── 轮级运行状态"深度拥抱中…"——首字/首个工具前的 logo 动图 + 灰阶流光文字，
+   代替过早出现的"执行中 / 正在准备调用工具"空壳卡片。
+   灰阶渐变与 .jx-tcr-prefix--shimmer 同一套；字号加大加粗突出轮级地位，
+   与既有"系统在工作"指示器视觉同源 ── */
+
+.jx-turnStatus{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  align-self:flex-start;
+  min-height:26px;
+  padding:2px 0;
+  font-size:14px;
+  font-weight:600;
+  white-space:nowrap;
+}
+
+/* logo 动图与运行中的工具壳同款轻呼吸 */
+
+/* motion-keep: 「正在执行」的品牌动图，停下就只剩一枚静止图标，读起来像卡死 */
+
+.jx-turnStatus .jx-brandLoader{
+  animation:jx-trs-breathe 1.8s ease-in-out infinite;
+}
+
+/* motion-keep: 状态行流光，靠 background-clip 抠字，定格会变成一段忽深忽浅的灰字 */
+
+.jx-turnStatus-label{
+  /* 中灰而非近黑：slate-400 打底、slate-600 做流光高亮，加粗后仍显轻盈 */
+  background:linear-gradient(90deg,
+    rgba(148, 163, 184, 0.70) 0%,
+    rgba(71, 85, 105, 0.90) 50%,
+    rgba(148, 163, 184, 0.70) 100%);
+  background-size:200% 100%;
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  color:transparent;
+  animation:jx-kf-shimmer 2.2s linear infinite;
+}
+
+/* 深色下把流光方向掰回来：上面那条渐变是「slate-400 打底 + slate-600 高光」，
+   靠"把字压暗"做高光——浅色底成立，暗底上就完全反了，高光处 (#475569) 对比度不到 2，
+   于是「深度拥抱中…」会朝着看不见的方向脉动。深色档改成暗→亮，高光才是最亮的一点。 */
+
+:root[data-theme="dark"] .jx-turnStatus-label{
+  background-image:linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 52%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 96%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 52%, transparent) 100%);
+  background-size:200% 100%;
+  /* ⚠️ 必须用 background-image 而不是 background 简写：简写会把 background-clip 一并
+     重置回 border-box，这行字正是靠 clip:text 把渐变裁进字形的，重置后整行会变成一块
+     实心灰方块、文字消失（已踩）。这两行是保险，即便将来改回简写也不至于塌掉。 */
+  -webkit-background-clip:text;
+  background-clip:text;
+}
+
+.jx-turnStatus-clock{
+  margin-left:2px;
+  font-size:12px;
+  font-weight:400;
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text-placeholder);
+}
+
+/* 与折叠摘要同理：placeholder 令牌在深色档只有 2.65 对比度，计时数字看不清 */
+
+:root[data-theme="dark"] .jx-turnStatus-clock{
+  color:var(--color-text-tertiary);
+}

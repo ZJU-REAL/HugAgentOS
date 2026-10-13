@@ -93,6 +93,8 @@ export function useChatViewport(currentChatId: string, hasMessages: boolean, cha
       content.scrollTop = content.scrollHeight;
     });
     ro.observe(list);
+    // Composer growth resizes the sibling message viewport; preserve bottom following.
+    ro.observe(content);
     return () => ro.disconnect();
   }, [chatSurface, currentChatId, hasMessages, contentEl]);
 

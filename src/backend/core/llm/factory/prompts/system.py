@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from core.llm.factory.defaults import _BATCH_MODE_HINT, _WORKFLOW_MODE_HINT
 from core.llm.factory.request import AgentRequest
+from core.llm.project_environment import validate_project_environment
 from core.ontology.validator import render_runtime_prompt
 from core.services.system_config import code_capability_enabled
 from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt
@@ -114,6 +115,8 @@ async def system_prompt(
                 "loader": loader,
                 "chat_id": request.chat_id,
                 "user_id": request.current_user_id,
+                "project_environment": request.project_environment,
+                "project_environment_validate": lambda: validate_project_environment(request),
                 "enabled_kb_ids": request.enabled_kb_ids,
                 "channel_origin": request.channel_origin,
                 "reranker_enabled": request.reranker_enabled,
@@ -318,6 +321,8 @@ async def system_prompt(
                 "loader": loader,
                 "chat_id": request.chat_id,
                 "user_id": request.current_user_id,
+                "project_environment": request.project_environment,
+                "project_environment_validate": lambda: validate_project_environment(request),
                 "enabled_kb_ids": request.enabled_kb_ids,
                 "channel_origin": request.channel_origin,
                 "reranker_enabled": request.reranker_enabled,

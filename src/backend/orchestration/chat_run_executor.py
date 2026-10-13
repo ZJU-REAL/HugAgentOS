@@ -1300,7 +1300,8 @@ async def _run_workflow(
 
     async def _flush_inflight() -> bool:
         nonlocal _flushed_snapshot_key
-        if not (full_response or tool_calls_log or _model_steps):
+        _flush_thinking()
+        if not (full_response or tool_calls_log or _model_steps or _thinking_log):
             return True
         async with _flush_lock:
             # Canonical steps can advance without a user-visible SSE event.
@@ -1351,7 +1352,7 @@ async def _run_workflow(
         message_id 固定，用 upsert 保证重复取消 / 恢复不会留下两条。
         """
         _flush_thinking()
-        if not (full_response or tool_calls_log or _model_steps):
+        if not (full_response or tool_calls_log or _model_steps or _thinking_log):
             return
         # 停下来时还没回结果的工具：不标记的话前端按"缺 status 即成功"渲染，
         # 刷新后一张没跑完的卡片会显示成执行成功。模型侧的记录同样要配平：

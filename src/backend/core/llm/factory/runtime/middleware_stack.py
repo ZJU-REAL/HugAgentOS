@@ -117,6 +117,11 @@ async def middleware_stack(
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
         ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
     ]
+    if request.project_environment is not None:
+        from core.llm.project_environment_middleware import ProjectEnvironmentMiddleware
+
+        _policy_middlewares.insert(0, ProjectEnvironmentMiddleware(request))
+
     # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
     # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
     # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。

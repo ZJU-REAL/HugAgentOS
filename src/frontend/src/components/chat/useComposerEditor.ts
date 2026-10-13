@@ -8,7 +8,6 @@ import type { InstalledPluginItem, ReferencableChat } from '../../types';
 import type { MentionCandidate } from '../agent';
 import type { SlashEntry } from './SkillSlashPopup';
 import { useStableCallback } from '../../hooks/useStableCallback';
-import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useChatFork } from '../../hooks/useChatFork';
 import { classifyForkCommand } from '../../utils/chatForkCommands';
 import { composeCommandMessage, isProjectInitCommand, type ChatCommand } from '../../utils/projectCommands';
@@ -42,7 +41,6 @@ export function useComposerEditor(state: ComposerState, suggestions: ComposerSug
   const currentUserId = useChatStore(s => s.currentUserId);
   const epoch = useComposerStore(s => s.epoch);
   const contextKey = currentUserId + ':' + epoch + ':' + draftKey;
-  useComposerCaretScroll(editorRef, contextKey);
   const composingRef = useRef(false);
   const [composition, setComposition] = useState({ contextKey, active: false });
   const isComposing = composition.contextKey === contextKey && composition.active;

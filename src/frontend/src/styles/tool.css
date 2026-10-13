@@ -1012,7 +1012,7 @@
 }
 /* 单个图标按钮 */
 .jx-imgCard-overlayBtn{
-  width:34px;
+  min-width:34px;
   height:34px;
   border-radius:8px;
   background:rgba(0,0,0,.52);
@@ -1028,6 +1028,8 @@
   transition:background .15s ease, transform .1s ease;
   text-decoration:none;
 }
+button.jx-imgCard-overlayBtn{ width:34px; }
+.jx-imgCard-overlayBtns > .jx-artifactAction{ padding-inline:8px; }
 .jx-imgCard-overlayBtn:hover{
   background:rgba(0,0,0,.75);
   transform:scale(1.08);

@@ -38,6 +38,7 @@ class AgentRequest:
     workspace_id: str = "default"
     sandbox_session_id: Optional[str] = None
     project_ctx: Optional[Dict[str, Any]] = None
+    project_environment: Optional[Any] = None
     channel_origin: Optional[Dict[str, Any]] = None
     automation_run: bool = False
     read_only: bool = False

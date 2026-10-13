@@ -511,7 +511,6 @@
 }
 
 .jx-canvas-actionBtn {
-  width: 30px;
   height: 30px;
   border: none;
   background: none;
@@ -524,13 +523,8 @@
   color: var(--color-text-tertiary);
   transition: background .15s, color .15s;
 }
-/* File actions carry a label; reserve enough room instead of wrapping it inside an icon square. */
-.jx-canvas-header-actions > a.jx-canvas-actionBtn {
-  width: auto;
-  padding-inline: 8px;
-  gap: 4px;
-  white-space: nowrap;
-}
+button.jx-canvas-actionBtn { width: 30px; }
+.jx-canvas-header-actions > .jx-artifactAction { padding-inline: 8px; }
 .jx-canvas-actionBtn:hover {
   background: var(--color-bg-gray);
   color: var(--color-text-secondary);

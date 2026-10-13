@@ -20,7 +20,6 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | `memory` | 记忆抽取（mem0） | chat |
 | `embedding` | 文本向量化（KB / 记忆） | embedding |
 | `reranker` | 检索结果重排序 | reranker |
-| `chart` | 图表代码生成 | chat |
 | `plan_agent` | 计划模式推理（未配置降级 main_agent） | chat |
 | `code_exec` | 代码执行推理（可选运维覆盖，默认不引用） | chat |
 | `loop_reviewer` | 自主循环的评审与规划（未配置降级 main_agent） | chat |
@@ -142,7 +141,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
 | 变量 | 现状 |
 |---|---|
 | `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` | 不再被主链路直接读取；保留在 `core/config/settings.py` 与个别旧路径（如 `internal_batch.py`、`kb_processing.py`）作兜底 |
-| MCP 子进程 | `ModelConfigService.get_mcp_env_overlay()` 把 `main_agent` / `chart` / `embedding` / `reranker` 角色映射回 `MODEL_URL`、`OPENAI_API_KEY`、`MEM0_EMBED_*`、`RERANKER_*` 等旧变量名注入；常驻 MCP 容器内则用 `core/config/runtime_env.py::get_runtime_value()` 先查 DB 再回退 env，保证后台改模型对 MCP 即时生效 |
+| MCP 子进程 | `ModelConfigService.get_mcp_env_overlay()` 把 `main_agent` / `embedding` / `reranker` 角色映射回 `MODEL_URL`、`OPENAI_API_KEY`、`MEM0_EMBED_*`、`RERANKER_*` 等旧变量名注入；常驻 MCP 容器内则用 `core/config/runtime_env.py::get_runtime_value()` 先查 DB 再回退 env，保证后台改模型对 MCP 即时生效 |
 
 完整变量清单见 [环境变量](../deployment/environment-variables.md)。
 

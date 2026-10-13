@@ -1,0 +1,325 @@
+/* The footer is a flex sibling of the message viewport.
+   Its natural height determines the space available for history scrolling. */
+
+/* 团队项目会话共享：顶栏 banner + 只读 footer */
+
+.jx-chatShareBanner{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  background:var(--color-bg-layout);
+  border-bottom:1px solid var(--color-border);
+  font-size:12px;
+  color:var(--color-text-secondary);
+}
+
+.jx-chatShareBanner--owner{
+  justify-content:flex-end;
+}
+
+.jx-chatShareBanner-text{
+  flex:1 1 auto;
+}
+
+.jx-chatShareBanner-owner{
+  color:var(--color-text-tertiary);
+}
+
+.jx-chatShareReadonly{
+  padding:14px 16px;
+  margin-top:8px;
+  text-align:center;
+  background:var(--color-bg-layout);
+  color:var(--color-text-tertiary);
+  border:1px dashed var(--color-border);
+  border-radius:8px;
+  font-size:13px;
+}
+
+/* 上下文压缩提示条：上一轮结束后后台压缩了较早上下文，本轮首帧通知一次（可关闭） */
+
+.jx-compactionNotice{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  background:var(--color-primary-light, var(--color-primary-light));
+  border-bottom:1px solid var(--color-border, var(--color-border));
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+}
+
+.jx-compactionNotice-text{
+  flex:1 1 auto;
+}
+
+.jx-compactionNotice-close{
+  flex:0 0 auto;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  font-size:14px;
+  line-height:1;
+  padding:2px 6px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  border-radius:var(--radius-xs, 4px);
+}
+
+.jx-compactionNotice-close:hover{
+  background:var(--color-primary-bg, var(--color-primary-bg));
+  color:var(--color-text-secondary, var(--color-text-secondary));
+}
+
+.jx-chatFooter{
+  position:relative;
+  flex-shrink:0;
+  max-width:760px;
+  margin:0 auto;
+  z-index:10;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  /* 实色背景防止滚动内容从底部透出；顶部渐变见 ::before */
+  background:var(--color-bg-container);
+}
+
+.jx-primaryPane.is-chatSurface .jx-chatFooter{
+  background:var(--color-bg-chat);
+}
+
+.jx-inputArea{
+  position:relative;
+  padding-top:12px;
+  width:100%;
+}
+
+/* 输入区拖拽上传高亮层：圆角与 composer 一致 */
+
+.jx-inputArea-dropOverlay{
+  border-radius:16px;
+}
+
+.jx-chatFooter::before{
+  content:'';
+  position:absolute;
+  left:0;
+  right:0;
+  top:-24px;
+  height:24px;
+  pointer-events:none;
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-container) 100%);
+}
+
+.jx-primaryPane.is-chatSurface .jx-chatFooter::before{
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-chat) 100%);
+}
+
+/* In empty state, input width matches design */
+
+.jx-emptyWrap .jx-inputArea,
+.jx-empty .jx-inputArea,
+.jx-homeInput .jx-inputArea{
+  position:relative;
+  background:none;
+  padding-top:0;
+  width:100%;
+}
+
+.jx-emptyWrap .jx-inputArea::before,
+.jx-empty .jx-inputArea::before,
+.jx-homeInput .jx-inputArea::before{
+  display:none;
+}
+
+.jx-composerWrap{
+  display:flex;
+  flex-direction:column;
+  position:relative;
+  margin-bottom:10px;
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  border-radius:16px;
+  background:var(--color-bg-container);
+  transition:border-color var(--motion-duration-fast) var(--motion-ease-standard),
+             box-shadow var(--motion-duration-normal) var(--motion-ease-standard);
+}
+
+.jx-composerWrap:focus-within{
+  border-color:rgba(59,130,246,.30);
+  box-shadow:0 0 0 3px rgba(59,130,246,.08);
+}
+
+/* 首页输入框自带常驻投影：聚焦时光环叠加在原投影之上，避免投影被顶掉造成突兀切换 */
+
+.jx-homeInput .jx-composerWrap:focus-within{
+  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15), 0 0 0 3px rgba(59,130,246,.08);
+}
+
+/* 计划模式开启：输入框容器渐变描边光环（transition 已在 .jx-composerWrap 上） */
+
+.jx-composerWrap--plan{
+  border-color:rgba(22,119,255,.45);
+  box-shadow:0 0 0 3px rgba(22,119,255,.10);
+}
+
+.jx-homeInput .jx-composerWrap--plan{
+  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15), 0 0 0 3px rgba(22,119,255,.10);
+}
+
+/* The return button belongs to the message frame, above the separate footer. */
+
+.jx-scrollToBottomBtn{
+  position:absolute;
+  bottom:12px;
+  left:calc(50% - 18px);
+  z-index:11;
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  background:var(--color-bg-container);
+  box-shadow:0 4px 14px rgba(15,23,42,.10);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  margin:0;
+  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease;
+  /* 出入场由 motion（AnimatePresence）接管，CSS 不再播入场，防双播 */
+}
+
+.jx-scrollToBottomBtn:hover{
+  background:var(--color-bg-layout);
+  border-color:color-mix(in srgb, var(--color-text) 22%, transparent);
+  box-shadow:0 6px 16px rgba(15,23,42,.14);
+}
+
+.jx-scrollToBottomIcon{
+  width:16px;
+  height:16px;
+  opacity:.7;
+}
+
+.jx-composerActions{
+  position:absolute;
+  right:10px;
+  bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.jx-composerActions .ant-btn{
+  min-height:32px;
+}
+
+.jx-metaPill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:999px;
+  border:1px solid rgba(17,24,39,.10);
+  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
+  color:color-mix(in srgb, var(--color-text) 74%, transparent);
+  font-size:12px; font-weight:700;
+  outline:none;
+  box-shadow:none;
+}
+
+.jx-statusDot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  flex-shrink:0;
+  outline:none;
+  box-shadow:none;
+}
+
+.jx-statusDot.connected{background:var(--color-success)}
+
+.jx-statusDot.disconnected{background:var(--color-error)}
+
+.jx-headerTopicTag{
+  flex-shrink:0;
+  font-size:13px !important;
+  font-weight:700 !important;
+  padding:4px 12px !important;
+  height:28px !important;
+  line-height:20px !important;
+  border-radius:4px !important;
+  letter-spacing:0.02em;
+  box-shadow:none !important;
+  border:none !important;
+}
+
+/* ── 延伸问题按钮（Follow-up Questions） ── */
+
+.jx-followUpQuestions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+  margin-bottom:4px;
+  max-width:100%;
+}
+
+.jx-followUpBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 14px;
+  border:1px solid var(--color-border);
+  border-radius:20px;
+  background:var(--color-bg-container);
+  color:var(--color-text);
+  font-size:14px;
+  line-height:1.5;
+  cursor:pointer;
+  transition:all .2s ease;
+  text-align:left;
+  width:fit-content;
+  max-width:100%;
+}
+
+.jx-followUpBtn:hover{
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+}
+
+.jx-followUpBtn:active{
+  background:var(--color-primary-bg);
+}
+
+.jx-followUpBtn:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+
+.jx-followUpText{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.jx-followUpArrow{
+  flex-shrink:0;
+  font-size:14px;
+  color:var(--color-text-placeholder);
+  transition:color .2s ease;
+}
+
+.jx-followUpBtn:hover .jx-followUpArrow{
+  color:var(--color-primary);
+}
+
+/* 移动端延伸问题全宽 */
+
+@media(max-width:768px){
+  .jx-followUpBtn{
+    width:100%;
+  }
+  .jx-inputQuote{
+    align-items:flex-start;
+  }
+}

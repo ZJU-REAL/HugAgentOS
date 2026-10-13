@@ -1358,18 +1358,7 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
   flex-shrink:0;
 }
 
-/* One continuous native-open control: text opens the file, arrow opens its menu. */
-.jx-artifactOpen { display: inline-flex; align-items: stretch; gap: 0; padding: 0; white-space: nowrap; }
-.jx-artifactOpen button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; font: inherit; }
-.jx-artifactOpen .jx-artifactOpen-main { padding-right: 4px; }
-.jx-artifactOpen .jx-artifactOpen-menu { padding-left: 4px; padding-right: 10px; }
-.jx-artifactOpen button:disabled { cursor: wait; opacity: .6; }
-.jx-artifactOpen button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .jx-fileCard-nativeAction { border: 0; background: transparent; color: inherit; display: inline-flex; align-items: center; gap: 4px; padding: 2px; font-size: 12px; white-space: nowrap; }
-.jx-artifactOpen.jx-imgCard-overlayBtn { width: auto; min-width: 34px; }
-.jx-imgCard-overlayBtns > a.jx-imgCard-overlayBtn { width: auto; min-width: 34px; padding: 0 8px; white-space: nowrap; gap: 4px; }
-.jx-artifactOpen.jx-spaceImportPreview-headerAction { width: auto; background: transparent; }
-.jx-canvas-header-actions .jx-artifactOpen { width: auto; min-width: 30px; }
 
 .jx-mySpace-uploadStatus {
   flex-shrink: 0;

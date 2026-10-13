@@ -1,0 +1,405 @@
+/* ── 消息操作栏（悬停显示，参考 DeepSeek / Claude 风格） ── */
+
+.jx-msgActions{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 2px;
+  margin-top:-2px;
+  cursor:default;
+}
+
+.jx-msgActions.user{
+  justify-content:flex-end;
+}
+
+/* 操作按钮 & 耗时小字：默认隐藏，hover 消息时淡入（时间小字不参与，始终常驻）。
+ * 用 opacity 而非 display:none，保留占位、避免 hover 时整行抖动。 */
+
+.jx-msgActionBtn,
+.jx-msgDuration{
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .15s ease;
+}
+
+.jx-msg:hover .jx-msgActionBtn,
+.jx-msg:hover .jx-msgDuration{
+  opacity:1;
+  pointer-events:auto;
+}
+
+/* 「重新生成」旁的整体生成耗时小字 */
+
+.jx-msgDuration{
+  display:inline-flex;
+  align-items:center;
+  font-size:12px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+  margin-right:2px;
+  white-space:nowrap;
+  user-select:none;
+}
+
+/* 与操作按钮同一行常驻显示的时间小字（assistant 在最左、user 在最右） */
+
+.jx-msgTime{
+  display:inline-flex;
+  align-items:center;
+  flex:0 0 auto;
+  font-size:11px;
+  color:color-mix(in srgb, var(--color-text) 34%, transparent);
+  white-space:nowrap;
+  user-select:none;
+}
+
+.jx-msgActionBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  border-radius:7px;
+  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
+  backdrop-filter:blur(4px);
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
+  font-size:13px;
+  cursor:pointer;
+  transition:all .15s ease;
+  user-select:none;
+  padding:0;
+}
+
+.jx-msgActionBtn:hover{
+  color:color-mix(in srgb, var(--color-text) 85%, transparent);
+  background:var(--color-bg-container);
+  border-color:color-mix(in srgb, var(--color-text) 18%, transparent);
+  box-shadow:0 2px 8px rgba(15,23,42,.08);
+}
+
+.jx-msgActionBtn.copied{
+  color:var(--color-success);
+  border-color:rgba(2,181,137,.25);
+  background:rgba(2,181,137,.06);
+}
+
+.jx-msgActionBtn.active-like{
+  color:var(--color-primary-hover);
+  border-color:rgba(18,109,255,.30);
+  background:rgba(18,109,255,.06);
+}
+
+.jx-msgActionBtn.active-dislike{
+  color:var(--color-error);
+  border-color:rgba(252,93,93,.30);
+  background:rgba(252,93,93,.06);
+}
+
+.jx-msgActionBtn.active-share{
+  color:var(--color-primary);
+  border-color:rgba(18,109,255,.30);
+  background:rgba(18,109,255,.06);
+}
+
+.jx-selectionToolbar{
+  position:fixed;
+  transform:translate(-50%, -100%);
+  z-index:40;
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  padding:5px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  border-radius:14px;
+  background:color-mix(in srgb, var(--color-bg-container) 96%, transparent);
+  box-shadow:0 10px 24px rgba(15,23,42,.10);
+  backdrop-filter:blur(10px);
+  /* 入场动画必须纯 CSS（portal + fixed，motion transform 祖先会破坏定位）；
+     keyframes 全程保留基础 translate(-50%,-100%) 定位 */
+  animation:jxSelToolbarIn .14s var(--motion-ease-brand-out) both;
+}
+
+@keyframes jxSelToolbarIn{
+  from{ opacity:0; transform:translate(-50%, -100%) translateY(4px) scale(.96); }
+  to{ opacity:1; transform:translate(-50%, -100%); }
+}
+
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxSelToolbarIn { from, to { opacity:1; transform:translate(-50%, -100%) } }
+}
+
+.jx-selectionToolbarBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  min-width:66px;
+  padding:7px 11px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+  transition:background .16s ease, color .16s ease, transform .16s ease;
+}
+
+.jx-selectionToolbarBtn:hover{
+  background:rgba(148,163,184,.08);
+  color:var(--color-text-secondary);
+  transform:translateY(-1px);
+}
+
+.jx-selectionToolbarBtn.copied{
+  color:var(--color-success);
+}
+
+.jx-selectionToolbarIcon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+}
+
+.jx-selectionToolbarLabel{
+  font-size:13px;
+  font-weight:500;
+  line-height:1;
+}
+
+/* dislike 评论弹出框 */
+
+.jx-dislikeFeedback{
+  margin-top:8px;
+  padding:12px 14px;
+  background:var(--color-bg-container);
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  border-radius:10px;
+  box-shadow:0 4px 16px rgba(15,23,42,.08);
+  max-width:480px;
+}
+
+.jx-dislikeFeedback-title{
+  font-size:13px;
+  font-weight:600;
+  color:var(--color-text);
+  margin:0 0 8px 0;
+}
+
+.jx-dislikeFeedback-input{
+  font-size:13px !important;
+  border-radius:8px !important;
+}
+
+.jx-dislikeFeedback-btns{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:10px;
+}
+
+@media (max-width: 960px){
+  .ant-layout{
+    flex-direction:column !important;
+  }
+  .jx-sider{
+    width:100% !important;
+    max-width:none !important;
+    flex:0 0 auto !important;
+    border-right:none;
+    border-bottom:1px solid var(--border);
+  }
+  .jx-panel{
+    padding:12px;
+  }
+  .jx-bubble{
+    max-width:100%;
+  }
+  .jx-manageDetailHeader{
+    padding:14px 16px;
+  }
+  .jx-manageDetailTitle{
+    font-size:17px;
+  }
+  .jx-manageDetailMetaText.ant-typography{
+    font-size:13px;
+    line-height:1.7;
+  }
+  .jx-manageDetailBody{
+    padding:16px;
+    font-size:14px;
+    gap:14px;
+  }
+  .jx-manageDetailBody .jx-md{
+    font-size:14px;
+  }
+  .jx-manageDetailBody .jx-md h1{font-size:21px}
+  .jx-manageDetailBody .jx-md h2{font-size:18px}
+  .jx-manageDetailBody .jx-md h3{font-size:16px}
+  .jx-mcpExplain{
+    padding:14px 16px;
+  }
+  .jx-mcpExplain > div{
+    flex-direction:column;
+    gap:4px;
+  }
+  .jx-mcpExplain strong{
+    min-width:0;
+  }
+  .jx-kv{
+    grid-template-columns:1fr;
+    gap:8px;
+    padding:14px 16px;
+  }
+  .jx-kv .k{
+    padding-top:4px;
+  }
+  .jx-updatesView, .jx-capsView{
+    padding:0 12px 20px;
+  }
+}
+
+@media (max-width: 1180px){
+  .jx-manageGrid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* ── Prompt Hub button (in composer bar) ──
+   基座在 .jx-composerChip；开着提示词中心面板时它自己也进"选中"填充态。 */
+
+.jx-promptHubIcon{
+  width:15px;
+  height:15px;
+  flex-shrink:0;
+  opacity:.85;
+}
+
+.jx-promptHubBtn.active .jx-promptHubIcon{ opacity:1; }
+
+/* ── Plan / 批量 / 自主循环 状态 chip ──
+   基座同样在 .jx-composerChip；带图标（原来桌面端是藏起来的，图标一露出来，
+   "这是个模式而不是普通按钮"才立得住），active 走统一的淡蓝填充。 */
+
+.jx-planModeBtn{ pointer-events:auto; }
+
+.jx-planModeIcon{
+  display:inline-flex;
+  font-size:14px;
+  flex-shrink:0;
+  opacity:.9;
+}
+
+/* 模式 chip 的"开启态"走中性灰而不是主色蓝：它只是告诉你当前在哪个模式，
+   不该比输入的内容还响。就地改写 chip 的三个 active 变量即可，.jx-composerChip.active
+   仍读同一组变量，不用逐条覆盖；✕ 走 currentColor，会跟着一起变灰。 */
+
+.jx-modeChip{
+  --jx-chip-active-bg:color-mix(in srgb, var(--color-text) 6%, transparent);
+  --jx-chip-active-hover:color-mix(in srgb, var(--color-text) 8.5%, transparent);
+  --jx-chip-active-fg:color-mix(in srgb, var(--color-text) 72%, transparent);
+}
+
+/* 模式 chip 是纯状态显示（span，不可点），hover 不该有"能按"的假反馈 */
+
+.jx-modeChip:hover{
+  background:var(--jx-chip-active-bg);
+  color:var(--jx-chip-active-fg);
+}
+
+/* 关闭 ✕：贴在 chip 右上角内侧，不描边、不加投影、不做实心徽标——它是"退出这个
+   模式"的收尾动作，不该比模式名本身还抢眼。静息态压到很淡，hover / 键盘聚焦时
+   才提亮；触屏没有 hover，单独抬一档保证可见。热区比图形大一圈，好点中。 */
+
+.jx-modeChip{
+  position:relative;
+  cursor:default;
+  /* 给右上角的 ✕ 留出自己的留白，避免压在模式名上 */
+  padding-right:16px;
+}
+
+.jx-modeChip-close{
+  position:absolute;
+  top:2px;
+  right:3px;
+  display:grid;
+  place-items:center;
+  width:12px;
+  height:12px;
+  padding:0;
+  border:none;
+  border-radius:50%;
+  background:transparent;
+  color:currentColor;
+  font-size:8px;
+  line-height:1;
+  opacity:.3;
+  cursor:pointer;
+  transition:opacity .18s ease;
+}
+
+.jx-modeChip-close::after{
+  /* 图形 12px、热区 24px */
+  content:'';
+  position:absolute;
+  inset:-6px;
+}
+
+.jx-modeChip:hover .jx-modeChip-close,
+.jx-modeChip-close:focus-visible{ opacity:.75; }
+
+/* 只提亮，不给底色——✕ 本身不该长出一个"按钮"来 */
+
+.jx-modeChip-close:hover{ opacity:1; }
+
+.jx-modeChip-close:focus-visible{ outline:1px solid color-mix(in srgb, var(--color-text) 35%, transparent); outline-offset:1px; }
+
+/* 触屏没有 hover 可依赖 */
+
+@media (pointer:coarse){
+  .jx-modeChip-close{ opacity:.5; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .jx-modeChip-close{ transition:none; }
+}
+
+/* 站点建站空态右上角「我的站点」入口 */
+
+.jx-siteHeroTop{
+  position:absolute;
+  top:16px;
+  right:20px;
+  z-index:2;
+}
+
+.jx-siteHeroTopBtn{
+  appearance:none;
+  height:32px;
+  padding:0 14px;
+  border:1px solid var(--color-border);
+  border-radius:8px;
+  background:var(--color-bg-container);
+  color:var(--color-text-secondary);
+  font-size:13px;
+  font-weight:500;
+  cursor:pointer;
+  transition:border-color .18s ease, color .18s ease;
+}
+
+.jx-siteHeroTopBtn:hover{
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+}
+
+/* 「站点」建站模式标识：蓝色胶囊 @站点（对标 Codex @Sites 蓝色 chip） */
+
+.jx-siteModeBtn.active,
+.jx-siteModeBtn.active:hover{
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+  cursor:default;
+}

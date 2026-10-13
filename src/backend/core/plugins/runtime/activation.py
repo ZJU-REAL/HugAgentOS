@@ -158,6 +158,16 @@ def register_load_plugin(
             if wanted in activated:
                 return _text(f"插件「{wanted}」本会话已加载，无需重复调用。")
             return _text(f"未找到插件「{wanted}」。可加载的插件：{known}。")
+        validate_environment = runtime.get("project_environment_validate")
+        if validate_environment is not None:
+            await asyncio.to_thread(validate_environment)
+        policy = runtime.get("project_environment")
+        if policy is not None and (
+            target.install_id not in policy.plugin_ids
+            or not set(target.skill_ids) <= policy.skill_ids
+            or not set([*target.mcp_ids, *target.bound_mcp_ids]) <= policy.mcp_ids
+        ):
+            return _text("此插件或其依赖未绑定到当前项目。")
         if target.slug in activated:
             return _text(f"插件「{target.name}」本会话已加载，无需重复调用。")
 

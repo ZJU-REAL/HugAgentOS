@@ -17,8 +17,7 @@
     "enabled": [
       "query_database",
       "retrieve_dataset_content",
-      "internet_search",
-      "generate_chart_tool"
+      "internet_search"
     ]
   },
   "tools": {

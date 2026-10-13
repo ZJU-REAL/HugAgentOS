@@ -1,9 +1,8 @@
 """Classify API provenance from server-owned admission records without copying logs."""
 
+from core.db.models import ChatMessage, ChatRun, ChatSession
 from sqlalchemy import case, exists, literal, or_, select
 from sqlalchemy.orm import aliased
-
-from core.db.models import ChatMessage, ChatRun, ChatSession
 
 
 def api_log_predicate(model):
@@ -34,7 +33,7 @@ def api_log_predicate(model):
             .where(
                 message.message_id == model.message_id,
                 message.chat_id == model.chat_id,
-                message.extra_data["run_id"].as_string() == run.run_id,
+                message.recorded_run_id == run.run_id,
             )
             .correlate(model, run)
         )

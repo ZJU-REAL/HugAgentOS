@@ -1,0 +1,413 @@
+/* ══════════════════════════════════════════
+   Empty-state (homepage) — centered layout
+   ══════════════════════════════════════════ */
+
+.jx-emptyPage{
+  position:relative;
+  width:100%;
+  min-height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:0 24px;
+  box-sizing:border-box;
+}
+
+.jx-emptyCenter{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  width:840px;
+  max-width:100%;
+  flex:1;
+  justify-content:center;
+  font-family:var(--font-family);
+}
+
+/* Homepage hero — transparent mark and compact Qwen Office-style greeting. */
+
+.jx-heroBg{
+  position:relative;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  padding:0 0 28px;
+  font-family:var(--font-family);
+}
+
+.jx-homeBrandMark{
+  display:block;
+  width:64px;
+  height:64px;
+  margin:0 0 16px;
+  object-fit:contain;
+  object-position:left center;
+}
+
+.jx-heroTitle{
+  position:relative; z-index:1;
+  font-size:30px; font-weight:700; color:var(--color-text);
+  margin:0; line-height:1.38; text-align:left;
+  letter-spacing:-.02em;
+}
+
+.jx-heroSubtitle{
+  position:relative; z-index:1;
+  font-size:30px; font-weight:700; color:var(--color-text);
+  margin:0; line-height:1.38; text-align:left;
+  letter-spacing:-.02em;
+}
+
+/* Input container: 840×148 */
+
+.jx-homeInput{
+  width:100%; /* inherits 840px from parent */
+  position:relative;
+}
+
+.jx-homeInput .jx-inputArea{
+  position:relative; background:none; padding-top:0; width:100%;
+}
+
+.jx-homeInput .jx-composerWrap{
+  position:relative; width:100%; margin-bottom:0;
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  border-radius:20px;
+  box-shadow:0 1px 2px rgba(15,23,42,.025), 0 14px 42px rgba(15,23,42,.065);
+  background:var(--color-bg-container);
+}
+
+.jx-homeInput .jx-composer{
+  width:100% !important;
+  height:auto !important;
+  min-height:98px !important;
+  border:none !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  background:transparent !important;
+}
+
+.jx-homeInput .jx-composer .ant-input,
+.jx-homeInput .jx-composer textarea,
+.jx-homeInput textarea.jx-composer,
+.jx-homeInput .jx-composer.ant-input,
+.jx-homeInput .jx-composerEditor,
+.jx-homeInput .jx-composerPlaceholder{
+  height:100% !important;
+  padding:16px 16px 12px 16px !important;
+  font-size:16px !important;
+  font-family:var(--font-family) !important;
+  color:var(--color-text) !important;
+  resize:none !important;
+}
+
+.jx-homeInput .jx-composerPlaceholder{
+  color:var(--color-text-placeholder) !important;
+}
+
+.jx-homeInput .jx-composerBar{
+  height:50px;
+  padding:8px 12px 12px;
+  background:var(--color-bg-container);
+  border-bottom-left-radius:20px;
+  border-bottom-right-radius:20px;
+}
+
+/* Quick pills */
+
+.jx-quickPills{
+  display:flex; flex-wrap:wrap; gap:12px;
+  justify-content:center; width:100%; margin-top:20px;
+  max-height:92px; /* 2 rows: 40px + 12px gap + 40px */
+  overflow:hidden;
+}
+
+.jx-quickPill{
+  appearance:none; border:none; background:var(--color-bg-gray);
+  border-radius:12px; height:40px; padding:0 12px;
+  font-size:14px; font-weight:400; color:var(--color-text);
+  cursor:pointer; transition:background .18s;
+  white-space:nowrap; display:flex; align-items:center;
+}
+
+.jx-quickPill:hover{ background:var(--color-fill-hover); }
+
+/* Configurable homepage suggestions — quiet text rows inspired by the Qwen home screen. */
+
+.jx-homeSuggestions{
+  width:100%;
+  margin-top:24px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+.jx-homeSuggestionList{
+  width:min(760px, 100%);
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.jx-homeSuggestion{
+  appearance:none;
+  width:100%;
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 12px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:var(--color-text-secondary);
+  font-size:14px;
+  line-height:22px;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color .16s ease, color .16s ease;
+}
+
+.jx-homeSuggestion:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-text);
+}
+
+.jx-homeSuggestion:focus-visible,
+.jx-homeSuggestionRefresh:focus-visible{
+  outline:2px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
+  outline-offset:2px;
+}
+
+.jx-homeSuggestionIcon{
+  flex:0 0 auto;
+  width:16px;
+  height:16px;
+  color:#c026d3;
+}
+
+.jx-homeSuggestion:nth-child(3n + 2) .jx-homeSuggestionIcon{ color:#ef4444; }
+
+.jx-homeSuggestion:nth-child(3n + 3) .jx-homeSuggestionIcon{ color:#06b6d4; }
+
+.jx-homeSuggestionRefresh{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-top:16px;
+  padding:6px 10px;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:var(--color-text-tertiary);
+  font-size:13px;
+  line-height:20px;
+  cursor:pointer;
+  transition:background-color .16s ease, color .16s ease;
+}
+
+.jx-homeSuggestionRefresh:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-text-secondary);
+}
+
+/* 5 Capability cards — 60px below pills */
+
+.jx-capCards{
+  display:flex; gap:88px; justify-content:center; margin-top:60px;
+}
+
+.jx-capCard{
+  appearance:none; border:none; outline:none; background:transparent;
+  position:relative;
+  display:flex; flex-direction:column; align-items:center;
+  gap:14px; cursor:pointer;
+}
+
+.jx-capCard:hover .jx-capCardIcon{ transform:translateY(-2px); }
+
+.jx-capCardIcon{ width:56px; height:56px; transition:transform .18s; }
+
+.jx-capCardLabel{ font-size:14px; font-weight:400; color:var(--color-text); letter-spacing:0.28px; }
+
+/* AI Disclaimer — at page bottom */
+
+.jx-aiDisclaimer{
+  font-size:12px; color:color-mix(in srgb, var(--color-text) 35%, transparent);
+  text-align:center; padding:16px 0 12px;
+  flex-shrink:0; width:100%;
+}
+
+/* ── Recommend Banner ── */
+
+.jx-recommendBanner{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  height:48px;
+  padding:0 24px;
+  background:var(--color-primary-light);
+  border-radius:8px;
+  margin:12px 16px 0;
+  font-size:14px;
+  color:var(--color-text);
+  font-weight:400;
+  flex-shrink:0;
+}
+
+/* 暗色首页不把推荐文案画成独立色块；它与下方会话区共享同一容器底色。 */
+
+:root[data-theme='dark'] .jx-recommendBanner{
+  background:var(--color-bg-container);
+}
+
+.jx-recommendBanner-icon{
+  font-size:16px;
+  flex-shrink:0;
+}
+
+.jx-recommendBanner-text{
+  flex:1;
+}
+
+.jx-recommendBanner-link{
+  color:var(--color-primary);
+  font-weight:500;
+  cursor:pointer;
+  margin-left:4px;
+  text-decoration:none;
+}
+
+.jx-recommendBanner-link:hover{
+  color:var(--color-primary-hover);
+  text-decoration:underline;
+}
+
+.jx-recommendBanner-close{
+  appearance:none;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  padding:0;
+  width:16px;
+  height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--color-text-tertiary);
+  transition:color .15s;
+  flex-shrink:0;
+}
+
+.jx-recommendBanner-close:hover{
+  color:var(--color-text-secondary);
+}
+
+/* legacy — kept so nothing breaks */
+
+.jx-emptyIntro{
+  text-align:center;
+  font-size:13px;
+  line-height:1.9;
+  color:color-mix(in srgb, var(--color-text) 72%, transparent);
+}
+
+.jx-emptyIntro strong{color:var(--color-primary)}
+
+.jx-emptyGuide{
+  border:1px solid rgba(18,109,255,.16);
+  background:color-mix(in srgb, var(--color-bg-container) 86%, transparent);
+  border-radius:14px;
+  padding:12px;
+}
+
+.jx-emptyGuideTitle{
+  font-size:12px;
+  font-weight:900;
+  color:var(--color-primary);
+  margin-bottom:8px;
+}
+
+.jx-emptyPromptList{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.jx-emptyPromptBtn{
+  border-radius:10px !important;
+  min-height:40px;
+  text-align:left;
+  white-space:normal;
+}
+
+.jx-recommendBar{
+  border-radius:12px;
+  border:1px solid rgba(18,109,255,.20);
+  background:rgba(18,109,255,.06);
+  padding:8px 12px;
+  font-size:12px;
+  color:var(--color-primary);
+  font-weight:700;
+}
+
+.jx-composer{
+  border:none !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+}
+
+.jx-composer:focus,
+.jx-composer.ant-input:focus,
+.jx-composer.ant-input-focused,
+.jx-composer.ant-input-affix-wrapper:focus,
+.jx-composer.ant-input-affix-wrapper-focused{
+  border-color:transparent !important;
+  box-shadow:none !important;
+  outline:none;
+}
+
+.jx-composer .ant-input,
+.jx-composer textarea,
+textarea.jx-composer,
+.jx-composer.ant-input{
+  text-align:left !important;
+  padding-left:16px !important;
+  padding-right:16px !important;
+  padding-top:16px !important;
+  padding-bottom:50px !important; /* 为底部操作栏留空间 */
+  resize:none !important;
+  font-size:16px !important;
+  color:var(--color-text) !important;
+}
+
+.jx-composer .ant-input::placeholder,
+.jx-composer textarea::placeholder,
+textarea.jx-composer::placeholder,
+.jx-composer.ant-input::placeholder{
+  font-size:16px !important;
+  color:var(--color-text-placeholder) !important;
+}
+
+/* 隐藏 textarea 右下角 resize 把手 */
+
+.jx-composer textarea,
+.jx-composer .ant-input textarea,
+textarea.jx-composer{
+  resize:none !important;
+}
+
+.jx-homeInput .jx-composer,
+.jx-homeInput .jx-composer textarea,
+.jx-homeInput textarea.jx-composer{
+  resize:none !important;
+}
+
+/* 覆盖 antd 默认的 resize 角标指示 */
+
+.jx-composerWrap .ant-input-textarea-show-count::after{
+  display:none;
+}

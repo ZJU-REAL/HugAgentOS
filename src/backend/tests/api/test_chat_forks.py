@@ -421,14 +421,14 @@ def test_next_turn_collects_inherited_attachment_context(fork_env, monkeypatch):
 def test_branching_does_not_change_usage_or_billing_reports(fork_env):
     from api.deps import require_config
     from api.routes.v1 import admin_billing, admin_usage_logs, me_logs
-    from core.db.models import DesktopRecord, ModelPricing, UserShadow
+    from core.db.models import DesktopRecord, ModelPricing, ModelProvider, UserShadow
 
     client, sessions, _ = fork_env
     client.app.dependency_overrides[require_config] = lambda: None
     for module in (admin_billing, admin_usage_logs, me_logs):
         client.app.include_router(module.router)
     with sessions() as db:
-        for model in (UserShadow, ModelPricing, DesktopRecord):
+        for model in (UserShadow, ModelPricing, ModelProvider, DesktopRecord):
             model.__table__.create(db.get_bind())
         db.add(UserShadow(user_id="owner", username="Owner"))
         db.commit()

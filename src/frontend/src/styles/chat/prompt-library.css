@@ -1,0 +1,288 @@
+.jx-shareMessageSkeleton{
+  gap:10px;
+}
+
+.jx-shareMessageHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+
+.jx-sharePreviewSkLabel{
+  width:126px;
+  height:11px;
+  border-radius:999px;
+}
+
+.jx-sharePreviewSkTime{
+  width:96px;
+  height:11px;
+  border-radius:999px;
+}
+
+.jx-sharePreviewSkBody{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:18px 20px;
+  border-radius:24px;
+  background:rgba(248,248,248,.96);
+  border:1px solid rgba(241,241,241,.98);
+}
+
+.jx-sharePreviewSkLine{
+  width:86%;
+  height:14px;
+  border-radius:999px;
+}
+
+.jx-sharePreviewSkLineLong{
+  width:100%;
+}
+
+.jx-sharePreviewSkLineShort{
+  width:58%;
+}
+
+.jx-shareMessageLabel{
+  font-size:12px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
+  letter-spacing:.02em;
+}
+
+.jx-shareMessageBody{
+  font-size:14px;
+  line-height:1.78;
+  color:var(--color-text);
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody{
+  font-size:13.5px;
+  line-height:1.9;
+  letter-spacing:.01em;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+}
+
+.jx-shareMessageBody table{
+  display:table;
+  width:100%;
+  max-width:100%;
+  border-collapse:collapse;
+  table-layout:auto;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+
+.jx-shareMessageBody th,
+.jx-shareMessageBody td{
+  vertical-align:top;
+}
+
+.jx-shareMessageBody td{
+  white-space:normal;
+  word-break:break-word;
+}
+
+.jx-shareMessageBody table th:first-child,
+.jx-shareMessageBody table td:first-child{
+  min-width:140px;
+}
+
+.jx-shareMessageBody table th:last-child,
+.jx-shareMessageBody table td:last-child{
+  min-width:220px;
+}
+
+.jx-shareMessageBody h1,
+.jx-shareMessageBody h2,
+.jx-shareMessageBody h3,
+.jx-shareMessageBody h4,
+.jx-shareMessageBody h5,
+.jx-shareMessageBody h6{
+  margin:1em 0 .45em;
+  line-height:1.4;
+  letter-spacing:.015em;
+  color:var(--color-text);
+}
+
+.jx-shareMessageBody h1{
+  font-size:19px;
+  font-weight:680;
+}
+
+.jx-shareMessageBody h2{
+  font-size:17px;
+  font-weight:660;
+}
+
+.jx-shareMessageBody h3{
+  font-size:15px;
+  font-weight:640;
+}
+
+.jx-shareMessageBody h4,
+.jx-shareMessageBody h5,
+.jx-shareMessageBody h6{
+  font-size:14px;
+  font-weight:600;
+}
+
+.jx-shareMessageBody p{
+  margin:.42em 0;
+}
+
+.jx-shareMessageBody ul,
+.jx-shareMessageBody ol{
+  margin:.55em 0;
+  padding-left:1.15em;
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody li{
+  margin:.22em 0;
+  padding-left:.1em;
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody strong{
+  font-weight:630;
+  color:var(--color-text);
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody em{
+  font-style:normal;
+  color:color-mix(in srgb, var(--color-text-secondary) 78%, transparent);
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody blockquote{
+  margin:.75em 0;
+  padding:.2em 0 .2em .85em;
+  border-left:2px solid color-mix(in srgb, var(--color-text-placeholder) 32%, transparent);
+  color:color-mix(in srgb, var(--color-text-secondary) 82%, transparent);
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody code{
+  font-size:.92em;
+  padding:.12em .38em;
+  border-radius:4px;
+  background:rgba(148,163,184,.12);
+  overflow-wrap:anywhere;
+}
+
+.jx-shareMessageBody pre{
+  max-width:100%;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+}
+
+.jx-shareMessageBody img{
+  max-width:100%;
+  height:auto;
+}
+
+.jx-shareMessage.assistant .jx-shareMessageBody hr{
+  border:none;
+  border-top:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  margin:1em 0;
+}
+
+.jx-shareMessageBody.user{
+  padding:12px 14px;
+  border-radius:18px;
+  background:var(--color-fill-hover);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.jx-shareMessageTime{
+  font-size:12px;
+  color:color-mix(in srgb, var(--color-text) 38%, transparent);
+  text-align:right;
+  white-space:nowrap;
+}
+
+@media (max-width: 640px){
+  .jx-shareSelectionBar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .jx-shareSelectionActions{
+    width:100%;
+  }
+  .jx-shareSelectionPrimaryBtn,
+  .jx-shareSelectionSecondaryBtn{
+    flex:1;
+  }
+  .jx-shareCard{
+    padding:18px 14px;
+    border-radius:18px;
+    box-shadow:0 14px 34px rgba(15,23,42,.08);
+  }
+  .jx-shareTitle{
+    font-size:22px;
+    line-height:1.35;
+    margin-top:10px;
+  }
+  .jx-shareHeader{
+    padding-bottom:18px;
+  }
+  .jx-shareHeaderTop{
+    align-items:flex-start;
+  }
+  .jx-shareEyebrow{
+    font-size:12px;
+  }
+  .jx-sharePrintBtn{
+    height:34px;
+    padding:0 12px;
+    font-size:12px;
+    margin-left:auto;
+  }
+  .jx-shareMeta{
+    gap:6px 0;
+    flex-direction:column;
+    align-items:flex-start;
+    font-size:12px;
+    line-height:1.6;
+  }
+  .jx-shareMetaId{
+    width:100%;
+    margin-left:0;
+    text-align:left;
+  }
+  .jx-shareMessages{
+    gap:16px;
+    padding-top:18px;
+  }
+  .jx-shareMessageHeader{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:4px;
+  }
+  .jx-shareMessageTime{
+    text-align:left;
+    white-space:normal;
+  }
+  .jx-shareMessageBody{
+    font-size:13px;
+    line-height:1.8;
+  }
+  .jx-shareMessage.assistant .jx-shareMessageBody{
+    font-size:13px;
+    line-height:1.82;
+  }
+  .jx-shareMessageBody.user{
+    padding:10px 12px;
+    border-radius:16px;
+  }
+  .jx-shareFootnote{
+    margin-top:22px;
+    font-size:11px;
+  }
+  .jx-sharePreviewSkMetaWide{
+    width:148px;
+    margin-left:0;
+  }
+}

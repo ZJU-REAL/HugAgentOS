@@ -22,18 +22,15 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
 
   useEffect(() => {
     const list = chatListRef.current;
-    const scroller = list?.closest<HTMLElement>('.jx-content');
+    const scroller = list?.closest<HTMLElement>('.jx-chatViewport');
     if (!list || !scroller || !anchors) return;
     const anchorUids = anchors.split(',');
     const elements = anchorUids.map(uid => list.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`));
-    const footer = list.parentElement?.querySelector<HTMLElement>('.jx-chatFooter');
     let frame = 0;
     const update = () => {
       frame = 0;
       const rect = scroller.getBoundingClientRect();
-      const footerTop = footer?.getBoundingClientRect().top ?? rect.bottom;
-      const visibleBottom = Math.min(rect.bottom, footerTop);
-      const height = Math.max(0, visibleBottom - rect.top - 32);
+      const height = Math.max(0, rect.height - 32);
       const nextPosition = {
         top: rect.top + 16 + height / 2,
         right: Math.max(0, window.innerWidth - rect.right) + 8,
@@ -68,7 +65,6 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
     const observer = new ResizeObserver(schedule);
     observer.observe(scroller);
     observer.observe(list);
-    if (footer) observer.observe(footer);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -90,7 +86,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
 
   const navigate = (uid: string) => {
     const list = chatListRef.current;
-    const scroller = list?.closest<HTMLElement>('.jx-content');
+    const scroller = list?.closest<HTMLElement>('.jx-chatViewport');
     const target = list?.querySelector<HTMLElement>(`[data-message-uid="${uid}"]`);
     if (!target || !scroller) return;
     setPreviewUid(null);

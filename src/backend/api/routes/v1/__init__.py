@@ -47,6 +47,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("application_transports", "internal_router"),
     ("application_transports", "public_router"),
     ("application_transports", "mcp_router"),
+    ("project_environments", "router"),
     ("projects", "router"),
     ("api_keys", "router"),
     ("me_capabilities", "router"),

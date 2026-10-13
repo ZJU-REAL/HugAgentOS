@@ -8,8 +8,12 @@ import math
 import re
 
 from core.db.models.observability import DesktopRecord, DesktopSyncDevice, utcnow
+from core.services.observability_projection import (
+    counterpart_identity,
+    desktop_counterpart,
+    gateway_counterpart,
+)
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import aliased
 
 KINDS = {"session", "message", "run", "tool", "skill", "agent", "usage", "model"}
 MAX_BATCH_BYTES = 2 * 1024 * 1024
@@ -219,19 +223,12 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
 
 
 def record_query(*, kind=None, user_id=None, device_id=None, chat_id=None, run_id=None):
-    gateway = aliased(DesktopRecord)
-    matched_gateway = (
-        select(gateway.id)
-        .where(
-            gateway.user_id == DesktopRecord.user_id,
-            gateway.device_id == DesktopRecord.device_id,
-            gateway.kind == DesktopRecord.kind,
-            gateway.object_id == DesktopRecord.object_id,
-            gateway.observation == "gateway",
-        )
-        .exists()
+    q = (
+        select(DesktopRecord)
+        .outerjoin(gateway_counterpart, counterpart_identity(gateway_counterpart, "gateway"))
+        .outerjoin(desktop_counterpart, counterpart_identity(desktop_counterpart, "desktop"))
+        .where(or_(DesktopRecord.observation == "gateway", gateway_counterpart.id.is_(None)))
     )
-    q = select(DesktopRecord).where(or_(DesktopRecord.observation == "gateway", ~matched_gateway))
     for column, value in (
         (DesktopRecord.kind, kind),
         (DesktopRecord.user_id, user_id),
@@ -286,7 +283,7 @@ def serialize_records(db, rows):
         )
         if row.observation == "gateway" and local:
             payload = {**local.payload, **{k: v for k, v in row.payload.items() if v is not None}}
-            if not row.payload.get("usage_known") and local.payload.get("usage"):
+            if not row.payload.get("usage_known") and local.payload.get("usage") is not None:
                 payload["usage"] = local.payload["usage"]
                 payload["usage_known"] = local.payload.get("usage_known", False)
             item["payload"] = payload

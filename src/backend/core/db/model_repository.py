@@ -23,7 +23,6 @@ ROLE_DEFINITIONS: dict[str, dict] = {
     "memory": {"label": "记忆提取 (mem0)", "type": "chat"},
     "embedding": {"label": "文本向量化", "type": "embedding"},
     "reranker": {"label": "搜索结果重排序", "type": "reranker"},
-    "chart": {"label": "图表代码生成", "type": "chat"},
     "plan_agent": {"label": "计划模式推理", "type": "chat"},
     "code_exec": {"label": "代码执行推理", "type": "chat"},
     # 自主循环的评审员/规划器共用此角色（后台模型管理页可独立指定；未配置时回落 main_agent）。

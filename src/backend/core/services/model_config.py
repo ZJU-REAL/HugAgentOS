@@ -254,12 +254,6 @@ class ModelConfigService:
             overlay["OPENAI_BASE_URL"] = main.base_url
             overlay["OPENAI_API_KEY"] = main.api_key
 
-        chart = self.resolve("chart") or main
-        if chart:
-            overlay.setdefault("MODEL_URL", chart.base_url)
-            overlay.setdefault("API_KEY", chart.api_key)
-            overlay.setdefault("BASE_MODEL_NAME", chart.model_name)
-
         embed = self.resolve("embedding")
         if embed:
             overlay["MEM0_EMBED_URL"] = embed.base_url

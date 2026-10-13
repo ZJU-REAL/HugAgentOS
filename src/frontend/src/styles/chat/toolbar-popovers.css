@@ -1,0 +1,323 @@
+/* ── Context-usage ring (beside the model selector) ── */
+
+.jx-ctxGauge{
+  position:relative;
+  width:24px;
+  height:24px;
+  padding:0;
+  border:none;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:default;
+  flex-shrink:0;
+}
+
+.jx-ctxGauge-ring{
+  display:block;
+  transform:rotate(-90deg); /* start the arc at 12 o'clock */
+}
+
+.jx-ctxGauge-track{ stroke:var(--color-border); }
+
+.jx-ctxGauge-fill{
+  stroke:var(--color-success, var(--color-success));
+  transition:stroke-dasharray .35s ease, stroke .25s ease;
+}
+
+.jx-ctxGauge[data-level="warn"] .jx-ctxGauge-fill{ stroke:var(--color-warning, var(--color-warning)); }
+
+.jx-ctxGauge[data-level="high"] .jx-ctxGauge-fill{ stroke:var(--color-error, var(--color-error)); }
+
+/* ── Context-usage hover breakdown ── */
+
+.jx-ctxPop{
+  width:250px;
+  font-size:13px;
+  color:var(--color-text-secondary, var(--color-text-secondary));
+}
+
+.jx-ctxPop-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+
+.jx-ctxPop-title{
+  font-size:13px;
+  font-weight:600;
+  color:var(--color-text, var(--color-text));
+}
+
+.jx-ctxPop-model{
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  max-width:132px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.jx-ctxPop-summary{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  margin-bottom:10px;
+}
+
+.jx-ctxPop-big{
+  font-size:22px;
+  font-weight:700;
+  line-height:1;
+  color:var(--color-success, var(--color-success));
+  font-variant-numeric:tabular-nums;
+}
+
+.jx-ctxPop-big[data-level="warn"]{ color:var(--color-warning, var(--color-warning)); }
+
+.jx-ctxPop-big[data-level="high"]{ color:var(--color-error, var(--color-error)); }
+
+.jx-ctxPop-frac{
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  font-variant-numeric:tabular-nums;
+}
+
+.jx-ctxPop-bar{
+  display:flex;
+  height:8px;
+  border-radius:999px;
+  overflow:hidden;
+  background:var(--color-fill-hover);
+  margin-bottom:12px;
+}
+
+.jx-ctxPop-seg{ height:100%; }
+
+.jx-ctxPop-rows{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+
+.jx-ctxPop-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.jx-ctxPop-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  flex-shrink:0;
+}
+
+.jx-ctxPop-label{
+  flex:1;
+  color:var(--color-text-secondary, var(--color-text-secondary));
+}
+
+.jx-ctxPop-val{
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text, var(--color-text));
+  font-weight:500;
+}
+
+.jx-ctxPop-share{
+  width:38px;
+  text-align:right;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  font-variant-numeric:tabular-nums;
+}
+
+.jx-ctxPop-note{
+  margin-top:10px;
+  font-size:11px;
+  color:var(--color-text-placeholder, var(--color-text-placeholder));
+}
+
+/* ── 项目选择下拉（工具栏，提示词中心右侧）──
+   基座在 .jx-composerChip；这里只补项目特有的图标/宽度与"已绑定"的图标配色。*/
+
+.jx-projectDropIcon{ font-size:14px; flex-shrink:0; opacity:.85; }
+
+.jx-projectDropBtn.bound .jx-projectDropIcon{ opacity:1; }
+
+.jx-projectDropName{
+  min-width:0;
+  max-width:140px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* 项目下拉菜单：分组标题「项目」+ 选项行（folder 图标 + 名称 + 选中勾） */
+
+.jx-projectMenu .ant-dropdown-menu{
+  min-width:240px;
+  max-width:300px;
+}
+
+.jx-projectMenu .ant-dropdown-menu-item-group-list{
+  margin:0;
+  max-height:288px;
+  overflow-y:auto;
+}
+
+.jx-projectOption{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.jx-projectOptionIcon{
+  font-size:15px;
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
+  flex-shrink:0;
+}
+
+.jx-projectOptionName{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:14px;
+  color:var(--color-text);
+}
+
+/* ── Send button (SVG is already a 34px blue circle) ── */
+
+.jx-sendBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  transition:opacity .15s, transform .15s;
+}
+
+.jx-sendBtn:hover{ transform:scale(1.06); }
+
+.jx-sendBtn:active:not(:disabled){ transform:scale(.93); transition-duration:.08s; }
+
+.jx-sendBtn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+
+.jx-sendIcon{ width:34px; height:34px; }
+
+/* ── 工具条浮层的统一外壳 ────────────────────────────────────────────
+   模式 / 模型 / 项目 / 权限档四个下拉共用同一张"卡片"：14px 圆角、一层极浅
+   描边 + 两级投影、4px 内衬，行是 10px 圆角的软块。选中不靠底色高亮，只靠
+   行尾一枚勾——这样 hover（临时）和 selected（状态）不会互相打架。 */
+
+.jx-modeMenu .ant-dropdown-menu,
+.jx-projectMenu .ant-dropdown-menu,
+.jx-attachMenu .ant-dropdown-menu{
+  padding:4px;
+  border-radius:14px;
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+  min-width:220px;
+}
+
+.jx-modeMenu .ant-dropdown-menu-item,
+.jx-projectMenu .ant-dropdown-menu-item{
+  min-height:auto;
+  border-radius:10px;
+  font-size:14px;
+  color:color-mix(in srgb, var(--color-text) 82%, transparent);
+  padding:7px 10px;
+  transition:background-color .12s ease;
+}
+
+.jx-modeMenu .ant-dropdown-menu-item:hover,
+.jx-modeMenu .ant-dropdown-menu-item-active,
+.jx-projectMenu .ant-dropdown-menu-item:hover,
+.jx-projectMenu .ant-dropdown-menu-item-active{
+  background:rgba(15,23,42,.05) !important;
+  color:var(--color-text);
+}
+
+.jx-modeMenu .ant-dropdown-menu-item-selected,
+.jx-projectMenu .ant-dropdown-menu-item-selected{
+  background:transparent !important;
+  color:var(--color-text);
+}
+
+/* 分组标题：比选项小一号、弱一档，只做分区不抢视线 */
+
+.jx-modeMenu .ant-dropdown-menu-item-group-title,
+.jx-projectMenu .ant-dropdown-menu-item-group-title{
+  padding:7px 10px 4px;
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
+}
+
+/* 四段选择器：antd v5 自己的分隔线规则是 `.ant-dropdown .ant-dropdown-menu
+   .ant-dropdown-menu-item-divider`（0,3,0），两段写法压不过它 */
+
+.jx-modeMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider,
+.jx-projectMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider,
+.jx-attachMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider{
+  margin:4px 8px;
+  background:rgba(15,23,42,.07);
+}
+
+/* Mode option with description（权限档下拉仍在用） */
+
+.jx-modeOption{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:1px 0;
+}
+
+.jx-modeOptionHead{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.jx-modeOptionTitle{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:500;
+  font-size:14px;
+  line-height:20px;
+  color:var(--color-text);
+}
+
+.jx-modeCheckIcon{ width:14px; height:14px; flex-shrink:0; }
+
+.jx-modeOptionDesc{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  line-height:18px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+/* legacy compat */
+
+.jx-uploadBtn{ display:none; }
+
+.jx-modeDropBtnArrow{ display:none; }
+
+@media (max-width: 640px){
+  .jx-sendIcon{ width:30px; height:30px; }
+}

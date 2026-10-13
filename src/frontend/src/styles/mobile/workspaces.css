@@ -1,0 +1,322 @@
+/* Mobile H5 shell and the approved HugAgentOS empty-chat composition.
+ * Kept in a final stylesheet so legacy broad breakpoints cannot turn the
+ * application layout into a full-width stacked sidebar. */
+
+/* ── 安全区令牌 ──────────────────────────────────────────────────────
+   刘海 / 圆角 / Home 条的避让统一走这四个变量，别在业务规则里裸写 env()：
+   ① 裸写时一旦漏了 viewport-fit=cover（见 index.html）整条规则静默失效，没有任何信号；
+   ② 变量形态可以在这里集中兜底——不支持 env() 的浏览器拿到 0px 而不是整条声明作废。
+   注意 env() 只有在 index.html 声明了 viewport-fit=cover 后才会返回非 0 值。 */
+
+:root{
+  --jx-safe-t:env(safe-area-inset-top, 0px);
+  --jx-safe-r:env(safe-area-inset-right, 0px);
+  --jx-safe-b:env(safe-area-inset-bottom, 0px);
+  --jx-safe-l:env(safe-area-inset-left, 0px);
+  /* 触摸热区下限：Apple HIG 44pt / Material 48dp。视觉尺寸可以更小，
+     但可点区域不得低于它——移动断点内的控件一律对齐这个值。 */
+  --jx-touch-min:44px;
+}
+
+.jx-mobileHeader,
+.jx-mobileMenuBtn,
+.jx-mobileSidebarBackdrop,
+.jx-mobileHeroText{
+  display:none;
+}
+
+/* Apple mobile refinement: skill detail identity row + project workspaces */
+
+@media (max-width:768px){
+  .jx-abilityCenter .jx-sk-detailPage{
+    width:100%;
+    max-width:none;
+  }
+
+  .jx-abilityCenter .jx-sk-stickyHeader{
+    top:8px;
+    flex-wrap:nowrap;
+    gap:10px;
+    min-height:64px;
+    padding:10px 12px;
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 88%, transparent);
+    border-radius:18px;
+    background:color-mix(in srgb, var(--color-bg-container) 84%, transparent);
+    box-shadow:0 10px 28px rgba(42,61,94,.08),inset 0 0 0 .5px rgba(15,23,42,.035);
+    backdrop-filter:saturate(180%) blur(22px);
+    -webkit-backdrop-filter:saturate(180%) blur(22px);
+  }
+
+  .jx-abilityCenter .jx-sk-backBtn--inline{
+    width:36px;
+    height:36px;
+    padding:0;
+    border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+    border-radius:50%;
+    background:color-mix(in srgb, var(--color-bg-container) 82%, transparent);
+    color:var(--color-text-secondary);
+    justify-content:center;
+    box-shadow:0 4px 12px rgba(42,61,94,.055);
+  }
+
+  .jx-abilityCenter .jx-sk-stickyHeaderIdentity{
+    gap:9px;
+    flex:1;
+    min-width:0;
+  }
+
+  .jx-abilityCenter .jx-sk-detailHeading{
+    flex:1;
+    min-width:0;
+  }
+
+  .jx-abilityCenter .jx-sk-detailHeadingMain{
+    gap:6px;
+    min-width:0;
+  }
+
+  .jx-abilityCenter .jx-sk-detailName{
+    flex:1;
+    min-width:0;
+    max-width:none;
+    color:var(--jx-mobile-label);
+    font-size:17px;
+    font-weight:650;
+    line-height:1.3;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .jx-abilityCenter .jx-sk-detailHeading .jx-sk-tag{
+    flex-shrink:0;
+    padding:0 7px;
+    line-height:20px;
+  }
+
+  .jx-abilityCenter .jx-sk-detailHeading .jx-sk-version{
+    margin:2px 0 0;
+    color:var(--color-text-placeholder);
+    font-family:inherit;
+    font-size:12px;
+    line-height:1.2;
+  }
+
+  .jx-abilityCenter .jx-sk-detailHeaderRight{
+    flex:0 0 auto;
+    margin-left:auto;
+  }
+
+  .jx-abilityCenter .jx-sk-enableLabel{
+    display:none;
+  }
+
+  .jx-abilityCenter .jx-sk-stickyBody{
+    padding-top:14px;
+  }
+
+  .jx-abilityCenter .jx-sk-metaCard{
+    margin-bottom:14px;
+    padding:18px 16px;
+    border:1px solid color-mix(in srgb, var(--color-text) 5.5%, transparent);
+    border-radius:18px;
+    background:color-mix(in srgb, var(--color-bg-container) 88%, transparent);
+    box-shadow:0 8px 24px rgba(42,61,94,.055);
+  }
+
+  .jx-abilityCenter .jx-sk-detailBody{
+    padding:4px 2px 32px;
+  }
+
+  .jx-projects{
+    height:100%;
+    padding:10px 20px 56px;
+    overflow-x:hidden;
+    scrollbar-gutter:auto;
+    background:transparent;
+  }
+
+  .jx-projects-shell{
+    width:100%;
+    max-width:none;
+    gap:16px;
+  }
+
+  .jx-projects-header{
+    flex-direction:column;
+    align-items:stretch;
+    gap:16px;
+  }
+
+  .jx-projects-header .jx-agentPage-title{
+    margin:0 0 5px;
+    color:var(--jx-mobile-label);
+    font-size:34px;
+    font-weight:720;
+    line-height:1.18;
+    letter-spacing:-.045em;
+  }
+
+  .jx-projects-header .jx-agentPage-subtitle{
+    color:var(--jx-mobile-secondary);
+    font-size:15px;
+    line-height:1.55;
+  }
+
+  .jx-projects-actions{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    width:100%;
+    gap:8px;
+  }
+
+  .jx-projects-sortLabel{
+    display:none;
+  }
+
+  .jx-projects-actions .ant-select{
+    width:100% !important;
+    min-width:0;
+  }
+
+  .jx-projects-actions .ant-select-selector{
+    min-height:42px !important;
+    padding:5px 12px !important;
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent) !important;
+    border-radius:14px !important;
+    background:color-mix(in srgb, var(--color-bg-container) 82%, transparent) !important;
+    box-shadow:0 4px 14px rgba(42,61,94,.045) !important;
+  }
+
+  .jx-projects-actions .ant-btn{
+    min-height:42px;
+    margin:0;
+    padding-inline:15px;
+    border-radius:14px;
+    box-shadow:0 7px 18px rgba(18,109,255,.18);
+    white-space:nowrap;
+  }
+
+  .jx-projects-searchInput.ant-input-affix-wrapper{
+    width:100%;
+    min-height:44px;
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
+    border-radius:14px;
+    background:color-mix(in srgb, var(--color-bg-container) 84%, transparent);
+    box-shadow:0 5px 16px rgba(42,61,94,.045);
+  }
+
+  .jx-projects-section{
+    gap:8px;
+  }
+
+  .jx-projects-sectionTitle{
+    margin-top:4px;
+    padding:0 4px;
+    color:var(--color-text-tertiary);
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .jx-projects-grid{
+    display:block;
+    overflow:hidden;
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
+    border-radius:20px;
+    background:var(--jx-mobile-surface);
+    box-shadow:var(--jx-mobile-shadow);
+  }
+
+  .jx-projectCard{
+    min-height:0;
+    padding:18px 16px;
+    gap:8px;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+    transform:none;
+  }
+
+  .jx-projectCard + .jx-projectCard{
+    border-top:1px solid var(--jx-mobile-line);
+  }
+
+  .jx-projectCard:hover{
+    border-color:transparent;
+    background:rgba(18,109,255,.025);
+    box-shadow:none;
+    transform:none;
+  }
+
+  .jx-projectCard-header{
+    align-items:flex-start;
+  }
+
+  .jx-projectCard-title{
+    color:var(--jx-mobile-label);
+    font-size:17px;
+    font-weight:650;
+    line-height:1.42;
+    overflow-wrap:anywhere;
+  }
+
+  .jx-projectCard-star{
+    display:flex;
+    width:36px;
+    height:36px;
+    margin:-7px -7px 0 0;
+    align-items:center;
+    justify-content:center;
+    flex:0 0 auto;
+    border-radius:50%;
+  }
+
+  .jx-projectCard-desc{
+    color:var(--jx-mobile-secondary);
+    font-size:14px;
+    line-height:1.62;
+    -webkit-line-clamp:2;
+  }
+
+  .jx-projectCard-footer{
+    color:var(--color-text-placeholder);
+    font-size:12px;
+  }
+
+  .jx-projectRail{
+    gap:12px;
+  }
+
+  .jx-projectRail-card{
+    padding:16px;
+    gap:10px;
+    border-color:color-mix(in srgb, var(--color-text) 6.5%, transparent);
+    border-radius:18px;
+    background:var(--jx-mobile-surface);
+    box-shadow:0 8px 24px rgba(42,61,94,.05);
+  }
+
+  .jx-projectRail-cardTitle{
+    color:var(--jx-mobile-label);
+    font-size:15px;
+    font-weight:650;
+  }
+
+  .jx-projectRail-cardText,
+  .jx-projectRail-cardEmpty,
+  .jx-projectRail-cardSub{
+    color:var(--jx-mobile-secondary);
+    line-height:1.6;
+  }
+
+  .jx-projectRail-fileList{
+    max-height:none;
+  }
+
+  .jx-projectRail-fileItem,
+  .jx-projectRail-groupHeader{
+    min-height:42px;
+    border-radius:10px;
+  }
+}

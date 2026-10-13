@@ -52,7 +52,10 @@ function parseClipboardHtml(editor: Editor, html: string): Fragment {
       + '](' + (image.getAttribute('src') || '') + ')'));
   });
   return DOMParser.fromSchema(editor.schema).parseSlice(host, {
-    preserveWhitespace: 'full', context: editor.state.selection.$from,
+    // HTML source newlines are layout whitespace, not user-authored hard breaks.
+    // Keep spaces; <br>, paragraphs and preformatted code retain their own semantics.
+    preserveWhitespace: host.childElementCount ? true : 'full',
+    context: editor.state.selection.$from,
   }).content;
 }
 

@@ -8,6 +8,13 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 - **故障隔离**——单个工具崩溃由 launcher 自动重启，不影响后端主进程；
 - **生态开放**——管理员可接入任意第三方 MCP Server（stdio / HTTP / SSE），用户也可自助添加私有远程 MCP。
 
+## 工具并发执行
+
+同一轮模型响应中的多个 MCP 工具调用允许并发执行，使用 AgentScope 的并发批次执行器。
+普通 MCP、云端网关 MCP 和管理类 MCP 使用相同策略，平台不新增并发数量限制。
+权限检查和写操作确认仍逐个执行；服务器自身的串行处理或限流仍然生效。
+模型必须在同一轮返回多个调用才能形成并发批次。存在先后依赖的操作应分轮执行。
+
 ## 整体架构
 
 ```
@@ -17,7 +24,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 │ backend │───────▶│streama-│   :9101  query_database（数仓查询，EE）           │
 │ (FastAPI│        │ble-http│   :9102  internet_search（联网搜索）              │
 │  agent) │        │        │   :9103  产业知识中心统一 MCP（插件，EE）       │
-└─────────┘        │        │   :9104  generate_chart_tool（图表生成）          │
+└─────────┘        │        │   :9104  保留（图表 MCP 已退役）                  │
      │             │        │   :9105  保留（原报告导出 MCP）                  │
  MCPConnectionPool │        │   :9106  web_fetch（网页抓取）                    │
  (core/llm/        │        │   :9107  batch_runner（批量计划）                 │
@@ -44,7 +51,6 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 | `query_database_mcp` | 9101 | `query_database` | **商业版 EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | 社区版 CE |
 | `ai_chain_information_mcp` | 9103 | 27 个产业链、企业、资讯、政策、报告、专利与技术工具 | **商业版 EE（产业知识中心插件）** |
-| `generate_chart_tool_mcp` | 9104 | `generate_chart_tool` | 社区版 CE |
 | `web_fetch_mcp` | 9106 | `web_fetch` | 社区版 CE |
 | `batch_runner_mcp` | 9107 | `batch_plan` | 社区版 CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` 等 | 社区版 CE（自动化插件提供） |
@@ -125,10 +131,6 @@ MCP（即使工具同名）也统一使用通用 JSON 卡片展示。两类结�
 
 内部仍审计页面发现的 240 条接口，但能力目录、任意接口调用、地区树、通用实体解析、个人
 资料库、收藏订阅、上游报告工作台和写入操作均不再暴露给智能体。
-
-### generate_chart_tool — 数据可视化（CE）
-
-`generate_chart_tool(data, query)`：接收 JSON 数据与绘图指令，用 matplotlib 渲染折线图/柱状图/饼图等（mcp 容器内置文泉驿 + 方正中文字体保证 CJK 渲染），图片保存为平台 artifact 并返回 `file_id` / 下载 URL。工具描述强制要求"先用数据查询工具拿到真实数据再绘图"，并给出了与沙箱协作的标准链路（`sandbox_put_artifact` 把图表拷入沙箱后再插入 Word/PPT）。
 
 ### web_fetch — 网页抓取（CE）
 

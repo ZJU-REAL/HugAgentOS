@@ -239,6 +239,7 @@ Initially, only root files and first-level folders are visible. Click a folder t
 
 The project file panel uses a fixed-height virtual list that renders only visible rows. Folder expansion, scrolling, preview and deletion remain available. Project instructions have a wider reading area and a larger, vertically resizable editor. A failed file request can be retried without hiding project details or instructions.
 
+After scrolling, clicking a file name or preview button opens that file and preserves the list position. File buttons support Enter and Space. Their focus and keyboard events do not scroll or expand the tree. The tree itself retains keyboard navigation.
 
 ### Unique personal file paths
 
@@ -275,3 +276,13 @@ Favorite-chat tools have been removed; historical chats remain accessible throug
 ### Unified mounted-space synchronization
 
 Personal listeners live in `core/space_sync/`; team adapters live in `edition_ee/services/space_sync/`. Callbacks enqueue in memory, workers batch a durable SQLite journal outside writable mounts, then update database metadata and object storage with authorization and version checks. Native moves retain file/folder IDs. Empty directories, deletion, restart recovery and parsed-cache invalidation share this pipeline. Committed database changes refresh registered mounts; rollback publishes nothing. Conflicts preserve local bytes and fail synchronization barriers. Network transfers and human approval are outside callback latency; measure complete synchronization in the actual deployment.
+
+### Project environment
+
+New projects can use **All available resources** or a **Custom project environment**. All mode follows the current account's available resources, including newly added resources. Local folder projects start in All mode. Project administrators can change this under **Project settings → Bind environment**.
+
+Custom environments bind subagents, plugins, skills and connectors. The main agent remains unchanged. Dependencies appear directly in the corresponding plugin, skill and connector pickers. Removing a parent removes dependencies that are no longer needed, while manually bound resources remain. Each resource picker can acquire resources from its marketplace; acquired resources join the pending bindings and take effect after saving. Connectors use the executing user's authorization. A binding does not share the creator's credentials or permissions with other members.
+
+The backend limits capability registration, explicit invocation, restored session capabilities, subagents and dynamic plugin loading. An empty custom environment never falls back to all resources. Changes apply from the next turn; running responses and their derived jobs keep the original configuration. Conversations outside the project are unaffected. Basic file and conversation tools retain their existing permission rules.
+
+Implementation follows separate responsibilities: `core/project_environment/` validates configuration and resolves dependencies without catalog access. The resource service reads authorized inventory, the environment service saves and previews configuration, and the runtime policy freezes and narrows registration and invocation. The frontend editor composes the interface; `useProjectEnvironment` loads resources, previews dependencies and handles marketplace acquisition. Resource pickers display explicit bindings and inferred dependencies.

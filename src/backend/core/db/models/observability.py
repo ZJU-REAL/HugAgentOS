@@ -43,6 +43,7 @@ class DesktopRecord(Base):
     payload = Column(JSON, nullable=False)
     received_at = Column(String(40), nullable=False, default=utcnow)
     __table_args__ = (
+        Index("idx_desktop_records_identity", "kind", "observation", "user_id", "device_id", "object_id", unique=True),
         Index("idx_desktop_records_user_kind", "user_id", "kind", "received_at"),
         Index("idx_desktop_records_chat", "user_id", "device_id", "chat_id"),
     )

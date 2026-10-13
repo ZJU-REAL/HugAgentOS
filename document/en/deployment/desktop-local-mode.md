@@ -46,3 +46,21 @@ partial failures include separate successful and failed lists.
 A fixed self-signed certificate supports stable upgrade identity without Apple enrollment; Developer ID with notarization is also supported.
 Reuse the same certificate and application identifier to preserve Keychain authorization across rebuilds.
 See [macOS signing and upgrades](macos-signing.md) for build checks, certificate setup and existing-user migration.
+
+## Workflow job callbacks
+
+In local mode, `run_job` reports progress to `http://127.0.0.1:<local backend port>`.
+The port follows the desktop build configuration. Docker service names and host mappings are unnecessary.
+Before starting a job, the script runner probes the backend's `/health` endpoint and refuses to start if it is unreachable.
+
+`JOB_CALLBACK_URL` can explicitly override the callback base URL. Set it only when needed and point it at the current local backend.
+Installed clients need a complete desktop package containing this fix. Updating the cloud backend alone does not update the local service.
+
+Health probes and job progress callbacks connect directly to loopback backends, bypassing system proxies.
+Non-loopback callback URLs and the user's own HTTP code retain their existing proxy behavior.
+Probe execution failures report the exit code and a runtime diagnostic instead of claiming that the backend is unreachable.
+
+For native acceptance, use the desktop's private Python to run `src/backend/tests/integration/job_local_smoke.py --output <new absolute directory>`.
+It uses isolated SQLite data, workspaces and loopback ports to verify real `run_job` startup, partial progress,
+completion callbacks, the disk receipt, a system proxy simulation, expired token rejection and interpreter failure classification.
+It does not package or update the installed client.

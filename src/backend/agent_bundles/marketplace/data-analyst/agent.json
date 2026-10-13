@@ -29,8 +29,7 @@
       "data-analysis-report-generator"
     ],
     "mcp_server_ids": [
-      "database_query",
-      "generate_chart_tool"
+      "database_query"
     ],
     "plugin_ids": [],
     "kb_ids": []

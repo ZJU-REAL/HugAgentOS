@@ -28,6 +28,8 @@ from core.llm.factory.tools.tool_surface import tool_surface
 
 
 async def assemble_agent(request: AgentRequest):
+    from core.llm.project_environment import bind_project_environment
+
     _caps_skill_ids = None
     (
         _api_scope,
@@ -41,6 +43,7 @@ async def assemble_agent(request: AgentRequest):
         _shared_subagent_cfg,
         sticky,
     ) = await entry_policy(request)
+    project_environment = await bind_project_environment(request)
     (
         _subagent_progressive,
         cfg,
@@ -63,11 +66,23 @@ async def assemble_agent(request: AgentRequest):
         required=required,
         sticky=sticky,
     )
+    if project_environment is not None:
+        project_environment.restrict_sticky(sticky)
+        project_environment.restrict(request)
     (
         _progressive,
         skill_bound_mcp_ids,
         skill_ids_for_bindings,
     ) = await progressive_bindings(request, _eval_scope=_eval_scope, _log=_log)
+    if project_environment is not None:
+        project_environment.restrict_sticky(sticky)
+        _progressive = project_environment.restrict_plugins(_progressive, request)
+        _subagent_progressive = project_environment.restrict_plugins(_subagent_progressive, request)
+        project_environment.restrict(request)
+        skill_ids_for_bindings = [
+            s for s in skill_ids_for_bindings if s in project_environment.skill_ids
+        ]
+        skill_bound_mcp_ids = [m for m in skill_bound_mcp_ids if m in project_environment.mcp_ids]
     (
         _manifest_builder,
         profile,
@@ -80,6 +95,11 @@ async def assemble_agent(request: AgentRequest):
         sticky=sticky,
         skill_ids_for_bindings=skill_ids_for_bindings,
     )
+    if project_environment is not None:
+        project_environment.restrict(request)
+        skill_ids_for_bindings = [
+            s for s in skill_ids_for_bindings if s in project_environment.skill_ids
+        ]
     (
         _capability_mcp_resolution,
         asset_bundle,
@@ -98,6 +118,8 @@ async def assemble_agent(request: AgentRequest):
         cfg=cfg,
         skill_bound_mcp_ids=skill_bound_mcp_ids,
     )
+    if project_environment is not None:
+        enabled_mcp_keys = [m for m in enabled_mcp_keys if m in project_environment.mcp_ids]
     (
         _caps_skill_ids,
         _desktop_progressive,
@@ -116,6 +138,10 @@ async def assemble_agent(request: AgentRequest):
         sticky=sticky,
         enabled_mcp_keys=enabled_mcp_keys,
     )
+    if project_environment is not None:
+        _mode_plugin_ids = [p for p in _mode_plugin_ids if p in project_environment.plugin_ids]
+        _desktop_progressive = project_environment.restrict_plugins(_desktop_progressive, request)
+        project_environment.restrict(request)
     (
         _desktop_prepared_servers,
         _prepared_capabilities,

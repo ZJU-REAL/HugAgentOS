@@ -1,0 +1,17 @@
+/* A labelled action sizes to its content. The surrounding filename may shrink. */
+.jx-artifactAction {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  flex-shrink: 0;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* One continuous native-open control: text opens the file, arrow opens its menu. */
+.jx-artifactOpen { display: inline-flex; align-items: stretch; gap: 0; padding: 0; white-space: nowrap; }
+.jx-artifactOpen button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.jx-artifactOpen .jx-artifactOpen-main { padding-right: 4px; }
+.jx-artifactOpen .jx-artifactOpen-menu { padding-left: 4px; padding-right: 10px; }
+.jx-artifactOpen button:disabled { cursor: wait; opacity: .6; }
+.jx-artifactOpen button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }

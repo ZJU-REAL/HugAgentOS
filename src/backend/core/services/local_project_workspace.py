@@ -1,7 +1,7 @@
 """Resolve an explicit local project scope without changing process-global cwd."""
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -42,4 +42,12 @@ def child_project_context(runtime, *, builtin=False):
 
     if local_mode_enabled() and context and context.get("project_is_local"):
         return {key: value for key, value in context.items() if key.startswith("project_")}
+    if context and context.get("project_id") and "project_environment_config" in context:
+        # Environment constraints are inherited even when conversation/file
+        # context remains isolated for a custom cloud subagent.
+        return {
+            key: context[key]
+            for key in ("project_id", "project_environment_config", "project_environment_effective")
+            if key in context
+        }
     return None

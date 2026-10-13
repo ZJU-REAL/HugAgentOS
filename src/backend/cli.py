@@ -234,11 +234,12 @@ def _is_initialized() -> bool:
 def _ensure_schema_and_seed():
     """create_all + built-in catalog seed (mirrors the app's startup hooks)."""
     from core.db.engine import SessionLocal, init_db
-    from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
+    from core.services.mcp_service import prune_removed_builtin_mcp_servers, seed_builtin_mcp_servers_if_empty
 
     init_db()
     db = SessionLocal()
     try:
+        prune_removed_builtin_mcp_servers(db)
         seed_builtin_mcp_servers_if_empty(db)
     finally:
         db.close()
@@ -673,7 +674,7 @@ def cmd_onboard(args) -> int:
         context_length = args.model_context_length
     else:
         print("\n[2] 配置对话模型（主模型，OpenAI 兼容端点）")
-        print("  会指派给全部对话角色（主智能体 / 摘要 / 追问 / 记忆 / 图表 / 计划 / 代码执行）")
+        print("  会指派给全部对话角色（主智能体 / 摘要 / 追问 / 记忆 / 计划 / 代码执行）")
         print("  预设：" + " / ".join(_PRESETS))
         preset = _prompt("  选择预设或直接回车自定义", "").lower()
         pb, pm = _PRESETS.get(preset, ("", ""))

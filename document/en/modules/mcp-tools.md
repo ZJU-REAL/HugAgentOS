@@ -8,6 +8,16 @@ HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://m
 - **Failure isolation** — a crashed tool process is restarted by the launcher without touching the backend;
 - **An open ecosystem** — administrators can plug in any third-party MCP server (stdio / HTTP / SSE), and end users can self-serve private remote MCP servers.
 
+## Concurrent tool execution
+
+Multiple MCP tool calls in one model response can execute concurrently through
+AgentScope's concurrent batch executor. Regular, cloud gateway, and management
+MCP tools use the same policy, without an additional platform concurrency limit.
+Permission checks and write confirmations still apply to each call. Server-side
+serialization and rate limits remain effective. The model must emit multiple
+calls in one response to form a concurrent batch. Operations with dependencies
+must execute in separate rounds.
+
 ## Architecture
 
 ```
@@ -17,7 +27,7 @@ HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://m
 │ backend │───────▶│streama-│   :9101  query_database (data warehouse, EE)    │
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
 │  agent) │        │        │   :9103  unified Industry Knowledge Center (EE)│
-└─────────┘        │        │   :9104  generate_chart_tool                    │
+└─────────┘        │        │   :9104  reserved (retired chart MCP)          │
      │             │        │   :9105  reserved (former report export MCP)   │
  MCPConnectionPool │        │   :9106  web_fetch                              │
  (core/llm/        │        │   :9107  batch_runner                           │
@@ -45,7 +55,6 @@ The single source of truth for port assignment is `src/backend/mcp_servers/_port
 | `query_database_mcp` | 9101 | `query_database` | **Enterprise EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | Community CE |
 | `ai_chain_information_mcp` | 9103 | 27 industry, enterprise, news, policy, report, patent, and technology tools | **Enterprise EE (Industry Knowledge Center plugin)** |
-| `generate_chart_tool_mcp` | 9104 | `generate_chart_tool` | Community CE |
 | `web_fetch_mcp` | 9106 | `web_fetch` | Community CE |
 | `batch_runner_mcp` | 9107 | `batch_plan` | Community CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE (automation plugin) |
@@ -150,10 +159,6 @@ The internal audit still records all 240 endpoints discovered in the web app,
 but capability inventory, arbitrary endpoint invocation, region trees, generic
 entity resolution, personal libraries, collections/subscriptions, report
 workbenches, and upstream write operations are no longer exposed to agents.
-
-### generate_chart_tool — data visualization (CE)
-
-`generate_chart_tool(data, query)`: takes JSON data plus a plotting instruction, renders line/bar/pie charts with matplotlib (the mcp container bundles WenQuanYi and FangZheng fonts for CJK rendering), saves the image as a platform artifact and returns a `file_id` / download URL. The tool description mandates fetching real data first ("never plot from thin air") and documents the standard hand-off to the sandbox (`sandbox_put_artifact` to copy the chart in before embedding it in Word/PPT).
 
 ### web_fetch — web page fetching (CE)
 

@@ -208,53 +208,55 @@ export function InputArea({
           accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml"
           onChange={(e) => selectFiles(e, imageInputRef)} />
 
-        {/* ContentEditable editor — chips and text live on the same layer */}
-        <div
-          ref={editorHostRef}
-          onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
-          onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); queueMicrotask(syncText); }}
-          onKeyDownCapture={(e) => {
-            onKeyDown(e);
-            if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
-              editorHostRef.current?.setAttribute('data-plain-paste', 'true');
-              window.setTimeout(() => editorHostRef.current?.removeAttribute('data-plain-paste'), 1000);
-            }
-          }}
-          onPasteCapture={(e) => {
-            const host = editorHostRef.current;
-            const plain = host?.getAttribute('data-plain-paste') === 'true';
-            host?.removeAttribute('data-plain-paste');
-            const rich = editorRef.current && richEditor(editorRef.current);
-            if (!rich) return;
-            if (plain) {
-              e.preventDefault();
-              e.stopPropagation();
-              pastePlainText(rich, e.clipboardData.getData('text/plain'));
-              return;
-            }
-            const images = extractClipboardImageFiles(e.clipboardData);
-            if (images.length) {
-              e.preventDefault();
-              e.stopPropagation();
-              selectFiles(
-                { target: { files: images } } as unknown as React.ChangeEvent<HTMLInputElement>,
-                imageInputRef,
-              );
-              insertClipboardContent(rich, e.clipboardData);
-            }
-          }}
-          onBlur={() => { setTimeout(() => { setMentionVisible(false); setSlashVisible(false); }, 200); }}
-        />
-        {showPlaceholder && (
+        <div className="jx-composerBody">
+          {/* ContentEditable editor — chips and text live on the same layer */}
           <div
-            className="jx-composerPlaceholder"
-            data-placeholder={placeholder}
-            data-mobile-placeholder={mobilePlaceholder || placeholder}
-            aria-hidden="true"
+            ref={editorHostRef}
+            onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
+            onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); queueMicrotask(syncText); }}
+            onKeyDownCapture={(e) => {
+              onKeyDown(e);
+              if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+                editorHostRef.current?.setAttribute('data-plain-paste', 'true');
+                window.setTimeout(() => editorHostRef.current?.removeAttribute('data-plain-paste'), 1000);
+              }
+            }}
+            onPasteCapture={(e) => {
+              const host = editorHostRef.current;
+              const plain = host?.getAttribute('data-plain-paste') === 'true';
+              host?.removeAttribute('data-plain-paste');
+              const rich = editorRef.current && richEditor(editorRef.current);
+              if (!rich) return;
+              if (plain) {
+                e.preventDefault();
+                e.stopPropagation();
+                pastePlainText(rich, e.clipboardData.getData('text/plain'));
+                return;
+              }
+              const images = extractClipboardImageFiles(e.clipboardData);
+              if (images.length) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectFiles(
+                  { target: { files: images } } as unknown as React.ChangeEvent<HTMLInputElement>,
+                  imageInputRef,
+                );
+                insertClipboardContent(rich, e.clipboardData);
+              }
+            }}
+            onBlur={() => { setTimeout(() => { setMentionVisible(false); setSlashVisible(false); }, 200); }}
           />
-        )}
+          {showPlaceholder && (
+            <div
+              className="jx-composerPlaceholder"
+              data-placeholder={placeholder}
+              data-mobile-placeholder={mobilePlaceholder || placeholder}
+              aria-hidden="true"
+            />
+          )}
 
 
+        </div>
         <ComposerToolbar state={state} editor={editor} options={options} fileInputRef={fileInputRef}
           showStopButton={showStopButton} composerHasContent={composerHasContent} />
       </div>

@@ -2,14 +2,51 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 from core.chat import inflight
 from core.chat.context import build_effective_user_message
 from core.llm import compaction as C
 from core.llm.context_ir import SESSION_CONTEXT_META_KEY
-from core.llm.model_steps import assistant_row_replay
+from core.llm.model_steps import assistant_row_replay, record_assistant_step
 from core.services.chat_reference_service import render_reference_block
+
+
+def _cancelled_steps(steps: Any, content: str) -> Any:
+    """Keep the displayed unfinished answer after the last completed step.
+
+    Completed steps are authoritative for native reasoning and tool pairing.
+    The display projection can additionally contain a text tail from the model
+    call the user cancelled. Never promote that call's incomplete reasoning.
+    """
+    if not isinstance(steps, list) or not steps or not content:
+        return steps
+    step_texts = [
+        "".join(
+            str(block.get("text") or "")
+            for block in step.get("blocks") or []
+            if isinstance(block, Mapping) and block.get("type") == "text"
+        )
+        for step in steps
+        if step.get("kind") == "assistant"
+    ]
+    completed_text = "".join(step_texts)
+    final_text = next((text for text in reversed(step_texts) if text), "")
+    if content.startswith(completed_text):
+        tail = content[len(completed_text) :]
+    elif final_text and content.startswith(final_text):
+        # content_replace resets the display but retains earlier model steps.
+        tail = content[len(final_text) :]
+    else:
+        # A divergent older display record cannot be spliced into native steps.
+        # Keep it explicitly labelled rather than guessing a continuation.
+        tail = "\n[中断前已显示的回答，与完整步骤记录不一致]\n" + content
+    if not tail:
+        return steps
+    return [
+        *steps,
+        record_assistant_step([{"type": "text", "text": tail}], provider="", model="", protocol=""),
+    ]
 
 
 def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
@@ -50,7 +87,11 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
             out.extend(
                 assistant_row_replay(
                     content=content or "",
-                    model_steps=getattr(msg, "model_steps", None),
+                    model_steps=(
+                        _cancelled_steps(getattr(msg, "model_steps", None), content or "")
+                        if extra.get("cancelled")
+                        else getattr(msg, "model_steps", None)
+                    ),
                     thinking=getattr(msg, "thinking", None),
                     tool_calls=getattr(msg, "tool_calls", None),
                     segments=extra.get("segments"),

@@ -84,6 +84,12 @@ Every sent message creates a `ChatRun` and a background task (`orchestration/cha
 
 Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (keeps nginx `proxy_read_timeout` and other proxies from cutting the stream); an inactivity watchdog fails the run if the workflow produces no meaningful output for 600 s (`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`); internal heartbeats keep that watchdog alive only while the backend registry contains a real pending human interaction; a periodic reaper collects over-age and quiet running runs; `recover_orphan_runs()` cleans up leftovers at startup.
 
+### Continue after cancellation
+
+Stopping a reply preserves the displayed answer, reasoning, and tool records. Reloaded history shows reasoning separately, including replies stopped before any answer text appeared. Sending “continue” starts a new turn with the previous answer text, recorded tool results, and an interruption marker.
+
+Completed reasoning with a compatible origin is replayed through its native protocol. Reasoning with an unknown or incompatible origin remains available for history display and is excluded from assistant answer text. Incomplete reasoning is not replayed as a completed native block; displayed partial answer text remains available for continuation. History replay does not execute tools. Calls without recorded results retain an explicit unknown-outcome result.
+
 ### Model-initiated user questions
 
 Regular top-level chats register `ask_user_question`. The model may use it only for a user preference, authorization decision, or material ambiguity that context and available tools cannot resolve, and should consolidate one decision point into one concise round. Turbo, plan execution, automation, sub-agent, and other unattended/non-top-level paths do not register it, so background work cannot wait indefinitely for a UI.
@@ -574,7 +580,7 @@ Chat keeps one input box without an additional formatting toolbar. Completed Mar
 
 Shortcuts include Ctrl+B for bold, Ctrl+I for italic, Ctrl+E for inline code, Ctrl+Shift+S for strike-through, Ctrl+Shift+7/8 for ordered/bullet lists, Ctrl+Alt+C for code blocks, Ctrl+Z for undo, and Ctrl+Shift+Z or Ctrl+Y for redo. Use the corresponding Command shortcuts on macOS.
 
-Pasting Markdown or formatted HTML preserves common structures. A single paragraph joins the current line at the cursor without extra line breaks or blank lines; original line breaks and multiple paragraphs remain. Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
+Pasting Markdown or formatted HTML preserves common structures. A single paragraph joins the current line at the cursor without extra line breaks or blank lines; original line breaks and multiple paragraphs remain. Ctrl+Shift+V pastes literal text. Copying a message supplies both Markdown source and formatted HTML. Layout newlines between HTML tags do not become blank content lines; explicit breaks, empty paragraphs and code indentation remain. User messages, history, shares and re-editing use consistent formatting. HTML examples and image Markdown that is not editable retain their literal content; user Mermaid fences remain visible code. Previously lost formatting cannot be recovered.
 
 Shift+Enter continues list/task items; an empty item exits the list. Headings continue as paragraphs and blockquotes continue or exit. Tab/Shift+Tab indent/outdent list items. Tab in the last table cell adds a row. Type pipe table header and delimiter lines followed by Shift+Enter to create a table. Task markers [ ] / [x] followed by a space and Markdown links [text](URL) convert while typing. Standard task-list Markdown also works when pasted or edited.
 

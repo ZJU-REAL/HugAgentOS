@@ -62,7 +62,7 @@ The chat model is assigned to all 7 chat roles at once. Two more model types can
 
 **Step 2c (optional) · Reranker model** — re-ranks KB hybrid-search results for sharper retrieval. Provide a reranker endpoint (`base_url` / model name / `api_key`); press Enter to skip (retrieval still works, just without re-ranking).
 
-> HugAgentOS has 9 model roles: 7 chat roles (main agent / summarizer / follow-up / memory / chart / planning / code execution — all share the chat model above) + embedding + reranker. Onboard covers all three types; after logging in you can also assign a different model per role under Settings → System → Model Services.
+> HugAgentOS provides chat roles (main agent / summarizer / follow-up / memory / planning / code execution — all share the chat model above) + embedding + reranker. Onboard covers all three types; after logging in you can also assign a different model per role under Settings → System → Model Services.
 
 **Step 3 · Plugin initialization** — a fresh installation automatically
 installs and enables `automation` (scheduled tasks), `skill-manager` (skill

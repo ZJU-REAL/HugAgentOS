@@ -66,7 +66,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-_BATCH_PY = Path(__file__).resolve().parents[2] / "orchestration" / "batch_orchestrator.py"
+_BATCH_PY = Path(__file__).resolve().parents[2] / "orchestration" / "batch_item_executor.py"
 
 
 def _load_source() -> str:

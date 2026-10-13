@@ -11,7 +11,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping, Optional, Tuple
 
-from sqlalchemy import Column, MetaData, inspect
+from sqlalchemy import Column, Computed, MetaData, inspect
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateColumn
@@ -106,7 +106,9 @@ def reconcile_metadata_schema(
                     continue
 
                 server_default = (
-                    column.server_default.arg if column.server_default is not None else None
+                    column.server_default.arg
+                    if column.server_default is not None and column.computed is None
+                    else None
                 )
                 if server_default is None:
                     server_default = defaults.get((table_name, column.name))
@@ -116,9 +118,19 @@ def reconcile_metadata_schema(
                         f"{table_name}.{column.name}"
                     )
 
+                # SQLite cannot ALTER ADD a STORED generated column. A VIRTUAL
+                # projection has the same read semantics and preserves old rows.
+                generated = []
+                if column.computed is not None:
+                    generated.append(Computed(
+                        column.computed.sqltext,
+                        persisted=False if connection.dialect.name == "sqlite"
+                        else column.computed.persisted,
+                    ))
                 migration_column = Column(
                     column.name,
                     column.type,
+                    *generated,
                     nullable=column.nullable,
                     server_default=server_default,
                 )
