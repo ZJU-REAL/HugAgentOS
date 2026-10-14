@@ -7,3 +7,4 @@ export { FavoriteList } from './FavoriteList';
 export { ResourceCard } from './ResourceCard';
 export { NotificationList } from './NotificationList';
 export { MySpaceSkeleton } from './MySpaceSkeleton';
+export { AssetTypeSwitch } from './AssetTypeSwitch';

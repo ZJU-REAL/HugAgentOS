@@ -1,3 +1,4 @@
+import { ARCHIVE_DICT } from './archive';
 import { PROJECT_ENVIRONMENT_DICT } from "./projectEnvironment";
 import MODEL_REASONING_DICT from './modelReasoning';
 /** Community-edition English dictionaries only. */
@@ -21,6 +22,7 @@ import { CE_SHARED_DICT } from './ceShared';
 import { SIDEBAR_LAYOUT_DICT } from './sidebarLayout';
 
 export const EN_DICT: Record<string, string> = {
+  ...ARCHIVE_DICT,
   ...PROJECT_ENVIRONMENT_DICT,
   ...CORE_DICT,
   ...MODEL_REASONING_DICT,
