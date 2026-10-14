@@ -65,3 +65,26 @@ def test_ce_project_credentials_keep_scope_and_register_http_routes(tmp_path, mo
             prepare_project_api_request(db, user, ChatRequest(chat_id="other", message="Hi", project_id="outside"))
         assert db.get(ChatSession, "other") is None
     engine.dispose()
+
+
+def test_ce_desktop_legacy_constraints_upgrade_preserves_rows(tmp_path):
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    from core.db.schema_reconcile import _patch_file_edit_constraints_sqlite
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-checks.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE artifacts (artifact_id TEXT PRIMARY KEY, size_bytes INTEGER CHECK (size_bytes > 0))"))
+        connection.execute(text("CREATE TABLE user_api_keys (id TEXT PRIMARY KEY, agent_id TEXT, project_id TEXT)"))
+        connection.execute(text("INSERT INTO artifacts VALUES ('existing', 7)"))
+        connection.execute(text("INSERT INTO user_api_keys VALUES ('existing', 'agent', NULL)"))
+        assert _patch_file_edit_constraints_sqlite(connection) == ["artifacts", "user_api_keys"]
+        assert _patch_file_edit_constraints_sqlite(connection) == []
+        connection.execute(text("INSERT INTO artifacts VALUES ('empty', 0)"))
+        assert connection.execute(text("SELECT size_bytes FROM artifacts WHERE artifact_id='existing'")).scalar() == 7
+        assert connection.execute(text("SELECT agent_id FROM user_api_keys WHERE id='existing'")).scalar() == "agent"
+        with pytest.raises(IntegrityError):
+            connection.execute(text("INSERT INTO artifacts VALUES ('negative', -1)"))
+        with pytest.raises(IntegrityError):
+            connection.execute(text("INSERT INTO user_api_keys VALUES ('conflict', 'agent', 'project')"))
+    engine.dispose()

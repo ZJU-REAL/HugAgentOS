@@ -62,6 +62,58 @@ def _patch_projects_kind_constraint_sqlite(connection: Connection) -> bool:
     return True
 
 
+def _patch_file_edit_constraints_sqlite(connection: Connection) -> list[str]:
+    """Upgrade desktop checks without rewriting file bytes or credential rows.
+
+    Desktop SQLite startup does not run Alembic. Use the same schema-cookie
+    reload as the legacy project-kind repair, after missing columns are added.
+    Only the two known constraint definitions may change.
+    """
+    import re
+
+    if connection.dialect.name != "sqlite":
+        return []
+    patched = []
+    for table in ("artifacts", "user_api_keys"):
+        row = connection.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not row or not row[0]:
+            continue
+        old_sql = row[0]
+        new_sql = old_sql
+        if table == "artifacts":
+            new_sql = re.sub(r"CHECK\s*\(\s*size_bytes\s*>\s*0\s*\)",
+                             "CHECK (size_bytes >= 0)", old_sql, flags=re.IGNORECASE)
+        else:
+            columns = {item["name"] for item in inspect(connection).get_columns(table)}
+            if not {"agent_id", "project_id"}.issubset(columns):
+                continue
+            if "ck_user_api_keys_single_scope" in old_sql:
+                continue
+            invalid = connection.exec_driver_sql(
+                "SELECT count(*) FROM user_api_keys WHERE agent_id IS NOT NULL AND project_id IS NOT NULL"
+            ).scalar()
+            if invalid:
+                raise RuntimeError("Cannot upgrade API credentials with conflicting resource scopes")
+            if not old_sql.rstrip().endswith(")"):
+                raise RuntimeError("Unsupported SQLite credential table definition")
+            new_sql = old_sql.rstrip()[:-1] + ", CONSTRAINT ck_user_api_keys_single_scope CHECK (agent_id IS NULL OR project_id IS NULL))"
+        if new_sql == old_sql:
+            continue
+        connection.exec_driver_sql("PRAGMA writable_schema=ON")
+        try:
+            connection.exec_driver_sql(
+                "UPDATE sqlite_master SET sql=? WHERE type='table' AND name=?", (new_sql, table)
+            )
+            version = connection.exec_driver_sql("PRAGMA schema_version").scalar()
+            connection.exec_driver_sql(f"PRAGMA schema_version = {int(version) + 1}")
+        finally:
+            connection.exec_driver_sql("PRAGMA writable_schema=OFF")
+        patched.append(table)
+    return patched
+
+
 def reconcile_metadata_schema(
     bind: Engine | Connection,
     metadata: MetaData,
@@ -158,6 +210,8 @@ def reconcile_metadata_schema(
                     report["skipped_indexes"].append(index.name)
                     continue
                 report["indexes"].append(index.name)
+
+        report["constraints"].extend(_patch_file_edit_constraints_sqlite(connection))
 
     for values in report.values():
         values.sort()
