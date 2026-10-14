@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core';
-import { DOMParser, Fragment, Slice, type Node } from '@tiptap/pm/model';
+import { DOMParser, Fragment, Slice, type Node, type Schema, type ResolvedPos } from '@tiptap/pm/model';
 import DOMPurify from 'dompurify';
 
 /** Paste uses open slices so the editor schema joins content at the selection. */
@@ -41,21 +41,23 @@ function openTextBoundary(node: Node | null): number {
     || spec.isolating || spec.code ? 0 : 1;
 }
 
-function parseClipboardHtml(editor: Editor, html: string): Fragment {
+export function parseClipboardHtml(schema: Schema, html: string, context?: ResolvedPos): Fragment {
   const host = document.createElement('div');
   host.innerHTML = DOMPurify.sanitize(html, {
     FORBID_TAGS: ['style', 'script', 'iframe'], FORBID_ATTR: ['style'],
   });
+  // Native browser selections add these boundary sentinels to clipboard HTML.
+  // They describe the selected fragment, not a user-authored <br> in its content.
+  host.querySelectorAll('br.Apple-interchange-newline').forEach(node => node.remove());
   // Remote images remain literal destinations; paste must not fetch them.
   host.querySelectorAll('img').forEach(image => {
     image.replaceWith(document.createTextNode('![' + (image.getAttribute('alt') || '')
       + '](' + (image.getAttribute('src') || '') + ')'));
   });
-  return DOMParser.fromSchema(editor.schema).parseSlice(host, {
-    // HTML source newlines are layout whitespace, not user-authored hard breaks.
-    // Keep spaces; <br>, paragraphs and preformatted code retain their own semantics.
-    preserveWhitespace: host.childElementCount ? true : 'full',
-    context: editor.state.selection.$from,
+  return DOMParser.fromSchema(schema).parseSlice(host, {
+    // Use HTML whitespace semantics. Global preservation converts layout LFs
+    // into hardBreak nodes; <br>, paragraphs and code own their whitespace.
+    context,
   }).content;
 }
 
@@ -69,7 +71,7 @@ export function insertClipboardContent(editor: Editor, data: Pick<DataTransfer, 
   const html = data.getData('text/html');
   if (!html && !text) return;
   const content = html
-    ? parseClipboardHtml(editor, html)
+    ? parseClipboardHtml(editor.schema, html, editor.state.selection.$from)
     : editor.schema.nodeFromJSON(editor.markdown!.parse(text)).content;
   insertClipboardSlice(editor, new Slice(content,
     openTextBoundary(content.firstChild), openTextBoundary(content.lastChild)));

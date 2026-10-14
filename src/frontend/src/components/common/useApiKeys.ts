@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { message } from 'antd';
-import { listAgentApiKeys, type AgentApiKey } from '../../api/agentApi';
+import type { ApiKeyItem } from '../../api';
 import { t } from '../../i18n';
 
-/** All reads and mutations belong to one mounted agent dialog. Closing it cancels
- * requests and suppresses late plaintext, clipboard writes and state updates. */
-export function useAgentApiKeys(agentId: string) {
-  const [keys, setKeys] = useState<AgentApiKey[]>([]);
+/** All reads and mutations belong to one mounted resource dialog. Closing it cancels
+ * requests and suppresses late plaintext, fallback clipboard writes and state updates. */
+export function useApiKeys<T extends ApiKeyItem>(resourceId: string, listKeys: (id: string, signal?: AbortSignal) => Promise<T[]>) {
+  const [keys, setKeys] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pending, setPending] = useState<Set<string>>(new Set());
@@ -21,7 +21,7 @@ export function useAgentApiKeys(agentId: string) {
     setLoading(true);
     setError('');
     try {
-      const items = await listAgentApiKeys(agentId, controller.signal);
+      const items = await listKeys(resourceId, controller.signal);
       if (mounted.current && version === revision.current) setKeys(items);
     } catch (e) {
       if (!controller.signal.aborted && mounted.current && version === revision.current) setError((e as Error).message);
@@ -29,7 +29,7 @@ export function useAgentApiKeys(agentId: string) {
       requests.current.delete(controller);
       if (mounted.current && version === revision.current) setLoading(false);
     }
-  }, [agentId]);
+  }, [resourceId, listKeys]);
 
   useEffect(() => {
     mounted.current = true;
@@ -43,7 +43,7 @@ export function useAgentApiKeys(agentId: string) {
   }, [reload]);
 
   const perform = async <T,>(
-    id: string, action: (signal: AbortSignal) => Promise<T>, onSuccess: (value: T) => void | Promise<void>,
+    id: string, action: (signal: AbortSignal) => Promise<T>, onSuccess: (value: T, signal: AbortSignal) => void | Promise<void>,
   ) => {
     if (locks.current.has(id)) return;
     locks.current.add(id);
@@ -52,7 +52,7 @@ export function useAgentApiKeys(agentId: string) {
     requests.current.add(controller);
     try {
       const value = await action(controller.signal);
-      if (mounted.current && !controller.signal.aborted) await onSuccess(value);
+      if (mounted.current && !controller.signal.aborted) await onSuccess(value, controller.signal);
     } catch (e) {
       if (mounted.current && !controller.signal.aborted) {
         message.error(t('操作失败：{msg}', { msg: (e as Error).message }));

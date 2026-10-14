@@ -65,7 +65,7 @@ class Artifact(ArtifactEditionFields, Base):
 
     __table_args__ = (
         *artifact_edition_table_args(),
-        CheckConstraint("size_bytes > 0", name="artifacts_size_check"),
+        CheckConstraint("size_bytes >= 0", name="artifacts_size_check"),
         CheckConstraint(
             "type IN ('report', 'chart', 'document', 'code', 'other')", name="artifacts_type_check"
         ),

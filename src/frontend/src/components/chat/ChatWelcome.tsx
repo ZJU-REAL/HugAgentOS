@@ -20,6 +20,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
 }) {
   const project = useProjectStore(s => s.currentProject);
   const { overviewProjectId, isAgentChat, isSiteChat, isProjectChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer } = view;
+  const isProjectOverview = !!overviewProjectId;
   const { send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, handleFileSelect, removeFile, inputRef, fileInputRef } = composer;
   const applyQuickScenario = (prompt: string) => {
     readComposer(chatDraftKey(useChatStore.getState().currentChatId)).setInput(prompt);
@@ -41,7 +42,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         </div>
       )}
       <div className="jx-emptyCenter jx-anim-stagger">
-        <div className="jx-heroBg" style={staggerStyle(0)}>
+        {!isProjectOverview && <div className="jx-heroBg" style={staggerStyle(0)}>
           {!isAgentChat && !isSiteChat && showHomepageLogo && homepageLogoUrl && (
             <img
               src={homepageLogoUrl}
@@ -57,7 +58,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
               <p>{t('你的智能任务助手')}</p>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="jx-homeInput" style={staggerStyle(1)}>
           {shareAccessLevel === 'read' ? (
@@ -95,7 +96,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           </div>
         )}
 
-        {!isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
+        {!isProjectOverview && !isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
           <div className="jx-homeSuggestions" style={staggerStyle(2)}>
             <div className="jx-homeSuggestionList">
               {visibleHomepageSuggestions.map((prompt, idx) => {
@@ -128,7 +129,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         )}
 
         {/* Capability cards: plugin-contributed homepage entries (main agent page only) */}
-        {!isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
+        {!isProjectOverview && !isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
           <div className="jx-capCards" style={staggerStyle(2)}>
             {pluginShortcuts.map((card) => (
               <button

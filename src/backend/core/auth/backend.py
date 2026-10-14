@@ -33,6 +33,7 @@ class UserContext(BaseModel):
     avatar_url: Optional[str] = None
     api_key_id: Optional[str] = None
     api_key_agent_id: Optional[str] = None
+    api_key_project_id: Optional[str] = None
 
 
 def _sso_login_url() -> str:
@@ -165,6 +166,7 @@ def _resolve_api_key_context(token: Optional[str], db: Session) -> Optional[User
         avatar_url=user.avatar_url,
         api_key_id=key.id,
         api_key_agent_id=key.agent_id,
+        api_key_project_id=key.project_id,
     )
 
 
@@ -191,6 +193,12 @@ def _require_api_key_context(
         if request is None:
             raise HTTPException(status_code=403, detail="Scoped API key requires route context")
         enforce_agent_api_route(request, db, ctx)
+    if ctx.api_key_project_id is not None:
+        from core.auth.project_api_scope import enforce_project_api_route
+
+        if request is None:
+            raise HTTPException(status_code=403, detail="Scoped API key requires route context")
+        enforce_project_api_route(request, db, ctx)
     return ctx
 
 

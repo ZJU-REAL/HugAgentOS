@@ -51,6 +51,7 @@ from orchestration.streaming import StreamingAgent
 # Project mode: extracted from chats.py's ctx and passed through to agent_factory so the system prompt renders the project section.
 _PROJECT_CTX_KEYS = (
     "project_id",
+    "project_api_scope",
     "project_name",
     "project_instructions",
     "project_init",

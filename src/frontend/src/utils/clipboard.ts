@@ -8,16 +8,18 @@
  *
  * @returns whether the copy succeeded
  */
-export async function copyToClipboard(text: string): Promise<boolean> {
+export async function copyToClipboard(text: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
   // Preferred: the modern Clipboard API under a secure context
   if (window.isSecureContext && navigator.clipboard) {
     try {
       await navigator.clipboard.writeText(text);
-      return true;
+      return !signal?.aborted;
     } catch {
       // Fall through to the execCommand fallback below
     }
   }
+  if (signal?.aborted) return false;
   // Fallback: execCommand (HTTP / older browsers)
   //
   // Use a span + Range selection rather than `textarea.select()`: the latter moves focus to the

@@ -43,3 +43,7 @@ document/
 - `internal/` 是**内部文档**（商业方案、拆分施工图、内部设计稿）：由 `ce/manifest.yaml` 的 `exclude: internal design docs` 保证永不进入社区版派生树。新增内部文档一律放这里。
 
 `zh-CN/`, `en/`, and this index are **public product docs**, shipped with the Community Edition derived tree; EE-only capabilities are explicitly labeled. `internal/` holds **internal documents** (business strategy, split blueprints, design drafts) and is excluded from the CE tree via `ce/manifest.yaml` — put any new internal document there.
+
+云文档在线编辑：Markdown、TXT 和代码文件的编辑、保存、权限与版本冲突处理见
+[我的空间](zh-CN/modules/projects-myspace.md#云文档在线编辑) /
+[Online cloud document editing](en/modules/projects-myspace.md#online-cloud-document-editing)。

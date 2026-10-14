@@ -52,6 +52,8 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 
 ### Project conversations and scheduled tasks
 
+The project panel omits the homepage logo, greeting, subtitle, suggested questions, refresh action, and plugin shortcuts. The project composer and conversation history remain visible.
+
 New project conversations reuse the ordinary chat homepage icon, title, description, recommendation banner, suggested questions, and mobile layout. Both use the same page configuration and visibility settings. The composer continues to show the selected project name.
 
 The project overview, opened from a project card or **Open in project panel**, lists project history below the shared composer. Team projects can filter all, owned, or shared conversations. Selecting a record opens the shared conversation UI and highlights only the conversation, not its parent project. Scheduled runs remain available through the task rail.
@@ -288,3 +290,15 @@ Custom environments bind subagents, plugins, skills and connectors. The main age
 The backend limits capability registration, explicit invocation, restored session capabilities, subagents and dynamic plugin loading. An empty custom environment never falls back to all resources. Changes apply from the next turn; running responses and their derived jobs keep the original configuration. Conversations outside the project are unaffected. Basic file and conversation tools retain their existing permission rules.
 
 Implementation follows separate responsibilities: `core/project_environment/` validates configuration and resolves dependencies without catalog access. The resource service reads authorized inventory, the environment service saves and previews configuration, and the runtime policy freezes and narrows registration and invocation. The frontend editor composes the interface; `useProjectEnvironment` loads resources, previews dependencies and handles marketplace acquisition. Resource pickers display explicit bindings and inferred dependencies.
+
+### Online cloud document editing
+
+Writable Markdown files open as rendered, editable content with headings, bold text, lists and tables. TXT and code files use source editing. There is no Edit or Cancel editing button and no blue outline. Save sits beside Download in the existing header, with no extra action row. Saving keeps the editor open. Read-only files retain their previews. Ctrl/Cmd+S saves the draft. File switches, tab closure and page reload warn about unsaved changes. Failed saves and revision conflicts retain the draft. Copy the draft before reopening the file to merge changes.
+
+Editing accepts UTF-8 text up to 2 MiB, including empty content. Saving preserves the file ID, name, folder and MIME type. Binary files, other encodings, Office files and PDFs do not use this text editor. Team viewers can preview; the server checks write permission again when saving.
+
+GET/PUT `/v1/file/{file_id}/text` reads and saves content. Reads return content, revision and can_edit. Saves require content and the revision from the read. A changed file rejects stale saves with HTTP 409. Saving clears parsing caches; existing knowledge base indexes are not updated automatically.
+
+Apply EE migration `textedit01` or CE migration `ce_0023` before using this feature. They allow zero-byte artifacts without changing existing files or rows. Downgrade stops if empty files exist. Restore their content before downgrading.
+
+HTML opens in a sandboxed preview with Preview (eye) and Source (code) icon buttons beside Save in the header. Switching retains the draft and previews its current content; Save persists it. Excel supports Ctrl/Cmd+S through the same export and upload flow as the header Save button. Space file saves have no success toast or temporary success icon. Failures remain visible and retain edits.

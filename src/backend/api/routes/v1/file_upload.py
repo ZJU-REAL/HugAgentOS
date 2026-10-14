@@ -15,6 +15,7 @@ from core.db.models import Artifact, ChatSession, UserFolder
 from core.services.artifact_service import store_bytes_as_artifact
 from core.storage import get_storage
 from core.services.upload_retry import prepare_upload
+from .file_text import router as text_router
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +179,7 @@ async def overwrite_file(
         "mime_type": artifact.mime_type,
         "download_url": f"/files/{file_id}",
     }
+
+
+# Registered through the existing CE/EE file router entry.
+router.include_router(text_router)

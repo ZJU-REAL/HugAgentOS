@@ -87,6 +87,37 @@ curl http://localhost:3000/api/v1/admin/skills \
 
 子智能体调用在请求体中显式传入 `agent_id`。设置中的个人 API-Key 可指定自己有权访问的子智能体；子智能体详情中创建的专属 Key 仍限定于绑定的 `agent_id` 及该 Key 的 API 会话，缺少或传错 `agent_id` 会被拒绝。智能体在应用中停用后仍可显式通过 API 调用。个人和专属 Key 均受用户的 `can_use_api_key` 权限控制；个人 Key 管理接口不依赖模型网关授权。
 
+### 在项目内调用
+
+
+点击项目页右上角的 **API 图标**。弹窗的 **API-Key** 页支持创建、复制、启停和撤销当前账号的项目专属 Key；**调用示例** 页提供当前项目 ID、接口地址和 JSON/SSE 示例。密钥管理自动路由到项目所在的本机或云端后端。
+
+创建和管理项目 Key 需要项目编辑或管理权限，以及 `can_use_api_key` 权限。密钥的项目绑定不可修改。禁用、撤销、过期、项目删除或失去项目编辑权限后，密钥不可使用。撤销或禁用会取消该 Key 正在执行的任务。
+
+| 接口 | 方法 | 用途 |
+|---|---|---|
+| `/v1/projects/{project_id}/api-keys` | GET / POST | 列出 / 创建项目 Key |
+| `/v1/projects/{project_id}/api-keys/{key_id}/reveal` | GET | 复制完整 Key |
+| `/v1/projects/{project_id}/api-keys/{key_id}` | PATCH / DELETE | 启停 / 撤销 Key |
+
+项目 Key 仅能调用绑定项目的回复接口、该 Key 的 API 会话续播与取消，以及该 API 会话的生成文件。不能访问其他项目、浏览器会话或账号管理接口。创建和复制的响应设置 `Cache-Control: no-store`；列表不返回明文。
+
+`project_id` 未传时自动使用 Key 绑定的项目；传入其他项目返回 403。每个 Key 使用独立的 `chat_id`，重复使用可继续会话。会话引用支持当前项目内可访问的会话，跨项目引用会被拒绝。 项目 API 与页面内的项目对话使用同一套能力配置。Bash、附件、文件工具、记忆和会话模式按项目现有配置运行，不因使用项目 Key 而额外关闭。智能体、插件、连接器和技能按项目配置及用户权限加载。
+
+```bash
+curl -X POST 'https://<HOST>/api/v1/agents/responses' \
+  -H 'Authorization: Bearer <YOUR_PROJECT_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "project-api-demo",
+    "project_id": "<PROJECT_ID>",
+    "message": "Hello",
+    "stream": false
+  }'
+```
+
+`stream: false` 返回完整 `ChatResponse` JSON，回复在 `response` 字段。使用 SSE 时改为 `stream: true`，并给 cURL 加上 `-N`。设置中的个人 Key 仍可显式指定有权访问的项目；子智能体专属 Key 不支持项目调用。
+
 ## SSE 流式协议
 
 流式聊天端点 `POST /v1/agents/responses`（`src/backend/api/routes/v1/agent_responses.py`，`stream: true`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/orchestration/workflow.py` 产出、`src/backend/orchestration/chat_run_executor.py` 序列化上 wire。
@@ -240,6 +271,7 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 | 能力目录 | `agents.py` | `/v1/agents` | `GET/POST /`、`PUT/DELETE /{agent_id}`（个人智能体） | 用户 |
 | 模型 | `models.py` | `/v1/models` | `GET /capabilities`（公开）；`GET/POST /providers`、`PUT /roles/{role_key}` 等管理端点 | 公开 / CONFIG |
 | 文件 | `file_upload.py` | `/v1/file` | `POST /upload`、`PUT /{file_id}` | 用户 |
+| 文件文本 | `file_text.py`（由 file 路由注册） | `/v1/file` | `GET/PUT /{file_id}/text`（UTF-8 正文与版本校验保存） | 用户，保存须有写权限 |
 | 文件 | `file_parse.py` | `/v1/file` | `POST /parse`（文档解析） | 用户 |
 | 内容块 | `content.py` | `/v1/content` | `GET /docs`（公开读）；`PUT /docs/{block_id}`（ADMIN）、`GET /prompts/export` / `POST /prompts/import`（ADMIN 或 CONFIG） | 公开 / ADMIN / CONFIG |
 | 自动化 | `automations.py` | `/v1/automations` | `GET/POST /`、`POST /{task_id}/trigger`、`GET /notifications/list` | 用户 |

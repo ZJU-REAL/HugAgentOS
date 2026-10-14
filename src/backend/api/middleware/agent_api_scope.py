@@ -49,8 +49,12 @@ class AgentApiScopeMiddleware:
                     username=owner.username,
                     api_key_id=key.id,
                     api_key_agent_id=key.agent_id,
+                    api_key_project_id=key.project_id,
                 )
                 enforce_agent_api_route(request, db, context)
+                from core.auth.project_api_scope import enforce_project_api_route
+
+                enforce_project_api_route(request, db, context)
                 return context
 
         try:

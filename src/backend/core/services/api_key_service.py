@@ -1,7 +1,7 @@
-"""Personal and agent-scoped API credential lifecycle.
+"""Personal, agent and project API credential lifecycle.
 
 Only the hash is used for authentication. Encrypted key material supports the
-authenticated reveal action; list responses contain only a prefix. Agent scope
+authenticated reveal action; list responses contain only a prefix. Resource scope
 is immutable and cannot be promoted to a personal credential.
 """
 
@@ -39,13 +39,16 @@ class ApiKeyService:
 
     # ── CRUD ────────────────────────────────────────────────────────────────
 
-    def list_keys(self, user_id: str, agent_id: Optional[str] = None) -> List[UserApiKey]:
+    def list_keys(
+        self, user_id: str, agent_id: Optional[str] = None, *, project_id: Optional[str] = None
+    ) -> List[UserApiKey]:
         """Return all of a user's non-revoked keys (newest first by creation time)."""
         return (
             self.db.query(UserApiKey)
             .filter(
                 UserApiKey.user_id == user_id,
                 UserApiKey.agent_id == agent_id,
+                UserApiKey.project_id == project_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .order_by(UserApiKey.created_at.desc())
@@ -59,11 +62,18 @@ class ApiKeyService:
         expires_in_days: Optional[int] = None,
         *,
         agent_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Tuple[UserApiKey, str]:
         """Generate a new key. Returns (ORM row, plaintext); the plaintext is visible only this once.
 
         ``expires_in_days=None`` means never expires; otherwise it expires N days from the current time.
         """
+        if agent_id is not None and project_id is not None:
+            raise ValueError("API credentials cannot have two resource scopes")
+        if project_id is not None:
+            from core.services.project_api_service import require_project_key_access
+
+            require_project_key_access(self.db, user_id, project_id)
         if agent_id is not None:
             from core.services.agent_api_service import require_agent_manager
 
@@ -80,6 +90,7 @@ class ApiKeyService:
             id=f"ak_{uuid.uuid4().hex[:20]}",
             user_id=user_id,
             agent_id=agent_id,
+            project_id=project_id,
             name=(name or "API Key").strip()[:128],
             key_prefix=prefix,
             key_hash=_hash_key(raw),
@@ -96,7 +107,12 @@ class ApiKeyService:
         return row, raw
 
     def get_key(
-        self, user_id: str, key_id: str, agent_id: Optional[str] = None
+        self,
+        user_id: str,
+        key_id: str,
+        agent_id: Optional[str] = None,
+        *,
+        project_id: Optional[str] = None,
     ) -> Optional[UserApiKey]:
         """Get a single non-revoked key of a user (nonexistent / not theirs / already revoked → None)."""
         return (
@@ -105,13 +121,20 @@ class ApiKeyService:
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
                 UserApiKey.agent_id == agent_id,
+                UserApiKey.project_id == project_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .first()
         )
 
     def set_enabled(
-        self, user_id: str, key_id: str, enabled: bool, agent_id: Optional[str] = None
+        self,
+        user_id: str,
+        key_id: str,
+        enabled: bool,
+        agent_id: Optional[str] = None,
+        *,
+        project_id: Optional[str] = None,
     ) -> Optional[UserApiKey]:
         row = (
             self.db.query(UserApiKey)
@@ -119,6 +142,7 @@ class ApiKeyService:
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
                 UserApiKey.agent_id == agent_id,
+                UserApiKey.project_id == project_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .populate_existing()
@@ -136,7 +160,14 @@ class ApiKeyService:
         self.db.refresh(row)
         return row
 
-    def revoke_key(self, user_id: str, key_id: str, agent_id: Optional[str] = None) -> bool:
+    def revoke_key(
+        self,
+        user_id: str,
+        key_id: str,
+        agent_id: Optional[str] = None,
+        *,
+        project_id: Optional[str] = None,
+    ) -> bool:
         """Soft delete: mark revoked_at. Once revoked, the key is immediately invalid and no longer appears in listings."""
         row = (
             self.db.query(UserApiKey)
@@ -144,6 +175,7 @@ class ApiKeyService:
                 UserApiKey.id == key_id,
                 UserApiKey.user_id == user_id,
                 UserApiKey.agent_id == agent_id,
+                UserApiKey.project_id == project_id,
                 UserApiKey.revoked_at.is_(None),
             )
             .populate_existing()
@@ -222,6 +254,17 @@ def resolve_api_key_identity(db: Session, raw: str) -> Optional[Tuple[UserShadow
 
         try:
             require_agent_manager(db, str(row.user_id), str(row.agent_id))
+        except HTTPException:
+            return None
+
+    if row.project_id is not None:
+        from core.services.project_api_service import require_project_key_access
+        from fastapi import HTTPException
+
+        if row.agent_id is not None:
+            return None
+        try:
+            require_project_key_access(db, str(row.user_id), str(row.project_id))
         except HTTPException:
             return None
 

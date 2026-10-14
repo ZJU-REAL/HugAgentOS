@@ -1,6 +1,7 @@
 import { Collapse, Space, Tag, Typography } from 'antd';
 import { KeyOutlined, LockOutlined } from '@ant-design/icons';
 import { CopyButton } from '../common/CopyButton';
+import { projectApiExample } from '../../utils/projectApiExamples';
 import { t } from '../../i18n';
 const { Text, Paragraph } = Typography;
 
@@ -68,6 +69,10 @@ export function AuthGuide() {
   -H 'Authorization: Bearer sk-jx-<YOUR_API_KEY>' \\
   -H 'Content-Type: application/json' \\
   -d '{"chat_id":"demo","message":"你好","model_name":"qwen","stream":true}'`}</CodeLine>
+
+            <Text strong>{t('在项目内调用')}</Text>
+            <Paragraph>{t('点击项目页右上角的 API 图标，在弹窗中创建项目专属 Key，并复制调用示例。')}</Paragraph>
+            <CodeLine>{projectApiExample('https://<HOST>/api/v1/agents/responses', '<PROJECT_ID>', false)}</CodeLine>
 
             <Paragraph>{t('同一接口通过 stream: true 返回 SSE，通过 stream: false 直接返回 ChatResponse JSON，回复文本位于 response 字段。')}</Paragraph>
             <Paragraph style={{ marginTop: 12, marginBottom: 4 }}>

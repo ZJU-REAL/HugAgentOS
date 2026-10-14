@@ -50,6 +50,21 @@ def require_admission_key(
         or (expiry is not None and expiry <= now)
     ):
         raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
+    project_id = payload.get("project_id")
+    project_scope = payload.get("project_api_scope") or {}
+    if key.project_id is not None:
+        from core.services.project_api_service import require_project_key_access
+
+        require_project_key_access(db, user_id, key.project_id)
+        if (
+            project_id != key.project_id
+            or project_scope.get("project_id") != key.project_id
+            or project_scope.get("api_key_id") != key_id
+            or project_scope.get("owner_user_id") != user_id
+        ):
+            raise HTTPException(status_code=403, detail={"code": "project_key_target_mismatch"})
+    elif project_scope:
+        raise HTTPException(status_code=403, detail={"code": "invalid_project_api_scope"})
     if scope and (
         scope.get("owner_user_id") != user_id
         or scope.get("api_key_id") != key_id

@@ -5,13 +5,14 @@ from __future__ import annotations
 from core.db.models import ChatSession
 from core.llm.agent_api_runtime import apply_api_scope, parse_api_scope
 from core.services.agent_api_service import session_matches_scope
+from core.services.project_api_service import project_session_matches
 
 
 def validate_recovery_context(db, run, context, *, user_id: str, chat_id: str) -> dict:
     """A missing or changed API marker must never restore the owner's context.
 
-    Accepted credentials are not reauthenticated here: revoking a key prevents
-    new requests but does not cancel a run already accepted into the journal.
+    This checks independent durable provenance. The journal separately checks
+    credential validity and cancellation before execution or finalization.
     """
     if run is None or run.user_id != user_id or run.chat_id != chat_id:
         raise ValueError("Recovery run identity is unavailable or inconsistent")
@@ -23,6 +24,31 @@ def validate_recovery_context(db, run, context, *, user_id: str, chat_id: str) -
     metadata = (
         session.extra_data if session is not None and isinstance(session.extra_data, dict) else {}
     )
+    records = (payload, context, metadata)
+    project_marked = any(record.get("project_api_scope") is not None for record in records)
+    if project_marked:
+        scope = payload.get("project_api_scope")
+        if (
+            not isinstance(scope, dict)
+            or scope.get("version") != 1
+            or scope.get("owner_user_id") != user_id
+            or scope.get("chat_id") != chat_id
+            or not isinstance(scope.get("api_key_id"), str)
+            or not scope.get("api_key_id")
+            or payload.get("api_key_id") != scope.get("api_key_id")
+            or payload.get("project_id") != scope.get("project_id")
+            or context.get("project_id") != scope.get("project_id")
+            or context.get("project_api_scope") != scope
+            or metadata.get("project_api_scope") != scope
+            or context.get("user_id") != user_id
+            or context.get("chat_id") != chat_id
+            or context.get("conversation_id") not in (None, "", chat_id)
+            or session is None
+            or not project_session_matches(session, scope)
+            or any(record.get("agent_api_scope") is not None for record in records)
+        ):
+            raise ValueError("Project API recovery scope is missing or inconsistent")
+        return context
     marked = any("agent_api_scope" in record for record in (payload, context, metadata))
     if not marked:
         return context

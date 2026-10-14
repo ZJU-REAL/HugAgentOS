@@ -36,7 +36,7 @@ def validate_current_project(scope, actor, *, write=False):
 def child_project_context(runtime, *, builtin=False):
     """Keep local cwd for custom children without inheriting unrelated context."""
     context = runtime.get("project_ctx")
-    if builtin:
+    if builtin or (context and context.get("project_api_scope")):
         return context
     from core.config.local_mode import local_mode_enabled
 

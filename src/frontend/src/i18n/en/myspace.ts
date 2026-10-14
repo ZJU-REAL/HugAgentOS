@@ -1,5 +1,21 @@
 /** 英文字典（myspace 域）：key 为中文原文，value 为英文译文。 */
 export const MYSPACE_DICT: Record<string, string> = {
+  'HTML视图': 'HTML view',
+  'HTML预览': 'HTML preview',
+  '源码': 'Source',
+
+  '文本文件编辑': 'Text file editing',
+  '文件内容': 'File content',
+  '正在检查编辑权限…': 'Checking edit permissions…',
+  '无法编辑此文件': 'Unable to edit this file',
+  '当前文件只读': 'This file is read-only',
+  '在线编辑最多支持 2 MiB 文本': 'Online editing supports text up to 2 MiB',
+  '在线编辑仅支持 UTF-8 文本': 'Online editing requires UTF-8 text',
+  '二进制文件不支持在线编辑': 'Binary files cannot be edited online',
+  '此格式不支持在线编辑': 'This format cannot be edited online',
+  '文件读取失败，请重试': 'Failed to read the file. Please retry.',
+  '文件已被修改，请保留草稿并重新打开文件后合并': 'The file has changed. Keep your draft, reopen the file and merge the changes.',
+
   '上传中': 'Uploading',
   '上传完成': 'Upload complete',
   '文件夹路径非法或超过 8 级': 'Invalid folder path or more than 8 levels',

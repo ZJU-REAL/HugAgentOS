@@ -26,6 +26,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("chat_shares", "router"),
     ("agent_responses", "router"),
     ("agent_api_keys", "router"),
+    ("project_api_keys", "router"),
     ("agents", "router"),
     ("artifacts", "router"),
     ("plans", "router"),
