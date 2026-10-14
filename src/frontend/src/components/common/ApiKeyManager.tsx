@@ -1,41 +1,51 @@
 import { useState } from 'react';
 import { Alert, Button, Empty, Input, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { createAgentApiKey, revealAgentApiKey, revokeAgentApiKey, toggleAgentApiKey, type AgentApiKey } from '../../api/agentApi';
+import type { ApiKeyItem } from '../../api';
 import { copyToClipboard } from '../../utils/clipboard';
 import { formatDateTime } from '../../utils/date';
 import { CopyButton } from '../common/CopyButton';
-import { useAgentApiKeys } from './useAgentApiKeys';
+import { useApiKeys } from './useApiKeys';
 import { t } from '../../i18n';
 
-export function AgentApiKeys({ agentId }: { agentId: string }) {
-  const { keys, loading, error, pending, reload, perform } = useAgentApiKeys(agentId);
+export interface ApiKeyActions {
+  list: (id: string, signal?: AbortSignal) => Promise<ApiKeyItem[]>;
+  create: (id: string, name: string, expiry: number | null, signal?: AbortSignal) => Promise<ApiKeyItem>;
+  toggle: (id: string, keyId: string, enabled: boolean, signal?: AbortSignal) => Promise<ApiKeyItem>;
+  revoke: (id: string, keyId: string, signal?: AbortSignal) => Promise<void>;
+  reveal: (id: string, keyId: string, signal?: AbortSignal) => Promise<string>;
+}
+
+export function ApiKeyManager({ resourceId, api }: { resourceId: string; api: ApiKeyActions }) {
+  const { keys, loading, error, pending, reload, perform } = useApiKeys(resourceId, api.list);
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<number | 'never'>(30);
   const [plaintext, setPlaintext] = useState('');
-  const create = () => void perform('create', (signal) => createAgentApiKey(
-    agentId, name.trim() || 'API Key', expiry === 'never' ? null : expiry, signal,
+  const create = () => void perform('create', (signal) => api.create(
+    resourceId, name.trim() || 'API Key', expiry === 'never' ? null : expiry, signal,
   ), async (key) => {
     setPlaintext(key.api_key || '');
     setName('');
     message.success(t('API-Key 已创建'));
     await reload();
   });
-  const change = (key: AgentApiKey, enabled: boolean) => void perform(key.id,
-    signal => toggleAgentApiKey(agentId, key.id, enabled, signal), async () => {
+  const change = (key: ApiKeyItem, enabled: boolean) => void perform(key.id,
+    signal => api.toggle(resourceId, key.id, enabled, signal), async () => {
       message.success(t('已更新'));
       await reload();
     });
-  const revoke = (key: AgentApiKey) => perform(key.id,
-    signal => revokeAgentApiKey(agentId, key.id, signal), async () => {
+  const revoke = (key: ApiKeyItem) => perform(key.id,
+    signal => api.revoke(resourceId, key.id, signal), async () => {
       setPlaintext('');
       message.success(t('已撤销'));
       await reload();
     });
-  const reveal = (key: AgentApiKey) => void perform(key.id,
-    signal => revealAgentApiKey(agentId, key.id, signal), async (raw) => {
+  const reveal = (key: ApiKeyItem) => void perform(key.id,
+    signal => api.reveal(resourceId, key.id, signal), async (raw, signal) => {
       if (!raw) { message.warning(t('未能取回密钥明文，请撤销后新建')); return; }
-      if (await copyToClipboard(raw)) message.success(t('已复制到剪贴板'));
+      const copied = await copyToClipboard(raw, signal);
+      if (signal.aborted) return;
+      if (copied) message.success(t('已复制到剪贴板'));
       else {
         setPlaintext(raw);
         message.warning(t('复制失败，请手动选择文本复制'));
@@ -70,12 +80,12 @@ export function AgentApiKeys({ agentId }: { agentId: string }) {
           <Button onClick={() => setPlaintext('')}>{t('我已保存')}</Button>
         </div>} />}
       <div className="jx-agentApi-toolbar">
-        <Typography.Text type="secondary">{t('密钥绑定此智能体，关闭弹窗会清除本次显示的明文。')}</Typography.Text>
+        <Typography.Text strong>API-Key</Typography.Text>
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void reload()}>{t('刷新')}</Button>
       </div>
       {error ? <Alert type="error" showIcon title={t('加载 API-Key 失败：{msg}', { msg: error })}
         action={<Button onClick={() => void reload()}>{t('重试')}</Button>} /> :
-        <Table<AgentApiKey> rowKey="id" size="small" loading={loading} dataSource={keys}
+        <Table<ApiKeyItem> rowKey="id" size="small" loading={loading} dataSource={keys}
           pagination={false} scroll={{ x: 680 }}
           locale={{ emptyText: <Empty description={t('还没有 API-Key')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
           columns={[

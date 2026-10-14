@@ -10,6 +10,9 @@ from core.llm.factory.request import AgentRequest
 
 async def entry_policy(request: AgentRequest):
     """Normalize execution scopes and initialize per-construction capability state."""
+    from core.llm.project_api_runtime import bind_project_api_runtime
+
+    await bind_project_api_runtime(request)
     required = RequiredCapabilities()
     sticky = StickyCapabilities()
     import asyncio

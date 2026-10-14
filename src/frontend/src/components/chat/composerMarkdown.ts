@@ -1,5 +1,6 @@
 import { Node as TiptapNode, nodeInputRule } from '@tiptap/core';
 import { Marked, Lexer, Tokenizer, marked } from 'marked';
+import { markdownAutolinks } from '../../utils/markdownAutolinks';
 
 /**
  * The editor needs an isolated lexer: assistant rendering registers Mermaid/LaTeX
@@ -7,7 +8,7 @@ import { Marked, Lexer, Tokenizer, marked } from 'marked';
  * formatted HTML clipboard content is parsed separately by the editor schema.
  */
 export function editorMarkdownParser(): typeof marked {
-  const instance = new Marked();
+  const instance = new Marked({ tokenizer: markdownAutolinks });
   const parser = Object.assign(instance.parse.bind(instance), marked);
   parser.defaults = instance.defaults;
   parser.lexer = source => instance.lexer(source);

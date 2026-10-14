@@ -4,7 +4,8 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { listAgentApiCalls, type AgentApiCall, type AgentApiCallPage, type AgentApiCallStatus } from '../../api/agentApi';
 import { formatDateTime } from '../../utils/date';
 import { CopyButton } from '../common/CopyButton';
-import { useAgentApiKeys } from './useAgentApiKeys';
+import { useApiKeys } from '../common/useApiKeys';
+import { listAgentApiKeys } from '../../api/agentApi';
 import { t } from '../../i18n';
 
 const statuses: Record<AgentApiCallStatus, { label: string; color: string }> = {
@@ -16,7 +17,7 @@ const statuses: Record<AgentApiCallStatus, { label: string; color: string }> = {
 };
 
 export function AgentApiCalls({ agentId }: { agentId: string }) {
-  const { keys, error: keyError, reload: reloadKeys } = useAgentApiKeys(agentId);
+  const { keys, error: keyError, reload: reloadKeys } = useApiKeys(agentId, listAgentApiKeys);
   const [page, setPage] = useState(1);
   const [keyId, setKeyId] = useState<string>();
   const [status, setStatus] = useState<AgentApiCallStatus>();

@@ -1,0 +1,24 @@
+.jx-fileTextPanel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.jx-fileTextPanel-error { padding: 10px 16px; color: var(--color-error); overflow-wrap: anywhere; }
+.jx-fileTextPanel-editor { flex: 1; min-height: 320px; width: 100%; box-sizing: border-box; resize: none; padding: 16px; border: 0; background: var(--color-bg-container); color: var(--color-text); font: 14px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; white-space: pre; }
+.jx-fileTextPanel-editor:focus, .jx-fileTextPanel-editor:focus-visible { outline: none; box-shadow: none; }
+.jx-fileTextPanel-notice { padding: 8px 16px; color: var(--color-text-secondary); }
+.jx-fileMarkdownHost { flex: 1; min-height: 320px; }
+.jx-fileMarkdownEditor { min-height: 320px; padding: 24px; line-height: 1.8; overflow-wrap: anywhere; color: var(--color-text); }
+.jx-fileMarkdownEditor:focus, .jx-fileMarkdownEditor:focus-visible { outline: none; box-shadow: none; }
+.jx-fileMarkdownEditor h1 { font-size: 1.8em; margin: 0 0 20px; }
+.jx-fileMarkdownEditor h2 { font-size: 1.4em; margin: 24px 0 12px; }
+.jx-fileMarkdownEditor h3 { font-size: 1.15em; margin: 20px 0 10px; }
+.jx-fileMarkdownEditor p { margin: 0 0 12px; }
+.jx-fileMarkdownEditor ul, .jx-fileMarkdownEditor ol { padding-left: 24px; margin: 12px 0; }
+.jx-fileMarkdownEditor table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+.jx-fileMarkdownEditor th, .jx-fileMarkdownEditor td { border: 1px solid var(--color-border); padding: 8px 12px; vertical-align: top; }
+.jx-fileMarkdownEditor th { background: var(--color-bg-layout); font-weight: 600; }
+.jx-fileMarkdownEditor pre { white-space: pre-wrap; background: var(--color-bg-layout); padding: 12px; border-radius: 6px; }
+.jx-fileMarkdownEditor blockquote { border-left: 3px solid var(--color-border); margin: 12px 0; padding-left: 16px; }
+.jx-fileMarkdownEditor ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.jx-fileMarkdownEditor li[data-type="taskItem"] { display: flex; align-items: baseline; gap: 8px; }
+
+
+.jx-fileTextPanel-viewActions { display: flex; gap: 2px; margin-right: 4px; }
+.jx-fileTextPanel-viewActions button[aria-pressed="true"] { color: var(--color-primary); }

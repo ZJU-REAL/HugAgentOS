@@ -20,23 +20,29 @@ export function CopyButton({ text, onCopy, children, ...buttonProps }: CopyButto
   const [copied, setCopied] = useState(false);
   // Do not play the morph animation on first mount; only allow it after a real copy action (prevents all icons popping together when a list renders)
   const [hasCopied, setHasCopied] = useState(false);
+  const copyRequest = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
+    copyRequest.current?.abort();
     if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
 
   const handleClick = async () => {
+    copyRequest.current?.abort();
+    const controller = new AbortController();
+    copyRequest.current = controller;
     let ok = true;
     if (onCopy) {
       ok = await onCopy();
     } else {
       const value = typeof text === 'function' ? text() : (text ?? '');
-      ok = await copyToClipboard(value);
+      ok = await copyToClipboard(value, controller.signal);
+      if (controller.signal.aborted) return;
       if (ok) message.success(t('已复制'));
       else message.error(t('复制失败，请手动复制'));
     }
-    if (!ok) return;
+    if (!ok || controller.signal.aborted) return;
     setHasCopied(true);
     setCopied(true);
     if (timerRef.current) clearTimeout(timerRef.current);

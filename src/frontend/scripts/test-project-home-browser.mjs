@@ -45,7 +45,7 @@ import {useChatStore} from './src/stores/chatStore';
 import {usePageConfigStore} from './src/stores/pageConfigStore';
 const noop=()=>{};
 const chat=(kind)=>({id:'fixture',title:'fixture',createdAt:1,updatedAt:1,messages:[],
-...(kind==='project'?{projectId:'test-project',projectName:'测试项目'}:{}),
+...((kind==='project'||kind==='overview')?{projectId:'test-project',projectName:'测试项目'}:{}),
 ...(kind==='agent'?{agentId:'test-agent',agentName:'测试智能体'}:{}),
 ...(kind==='site'?{siteChat:true}:{}),
 });
@@ -57,7 +57,7 @@ const current=useChatStore(s=>s.store.chats.fixture);
 const [visible,setVisible]=useState(true);
 const [chatSurface,setChatSurface]=useState(true);
 window.fixture={
-select:(kind)=>{useChatStore.setState({store:{chats:{fixture:chat(kind)},order:[]}});setVisible(true);},
+select:(kind)=>{useChatStore.setState({projectOverviewChatId:kind==='overview'?'fixture':undefined,store:{chats:{fixture:chat(kind)},order:[]}});setVisible(true);},
 setSurface:setChatSurface,
 setMessages:()=>useChatStore.setState({store:{chats:{fixture:{...current,messages:[{role:'user',content:'测试'}]}},order:[]}}),
 config:usePageConfigStore,
@@ -119,7 +119,14 @@ const mobileProject=await snapshot();
 await page.evaluate(()=>window.fixture.select('main'));
 await page.waitForTimeout(60);
 assert.deepEqual(await snapshot(),mobileProject,'mobile project and main share the same layout');
+await page.evaluate(()=>window.fixture.select('overview'));
+assert.equal(await page.locator('.jx-heroBg').count(),0,'project overview omits the entire greeting, including mobile text');
+assert.equal(await page.locator('.jx-homeSuggestions').count(),0,'project overview omits suggestions and refresh');
+assert.equal(await page.locator('.jx-capCards').count(),0);
+assert.equal(await page.locator('.jx-homeInput').count(),1,'project overview retains the composer area');
 await page.setViewportSize({width:1440,height:1000});
+assert.equal(await page.locator('.jx-heroBg').count(),0);
+assert.equal(await page.locator('.jx-homeSuggestions').count(),0);
 for(const kind of ['agent','site']){
 await page.evaluate(kind=>window.fixture.select(kind),kind);
 await page.waitForTimeout(60);
@@ -134,5 +141,5 @@ await page.evaluate(()=>{window.fixture.select('project');window.fixture.setSurf
 await page.waitForTimeout(300);
 assert.equal(await page.locator('.jx-recommendBanner').count(),0);
 assert.deepEqual(errors,[]);
-console.log('PASS: actual AppWorkspace banner + ChatWelcome; logo, title, subtitle, suggestions and mobile layout match ordinary homepage; banner close/message/non-chat gating; agent/site semantics preserved; no browser errors.');
+console.log('PASS: actual AppWorkspace banner + ChatWelcome; logo, title, subtitle, suggestions and mobile layout match ordinary homepage; project overview hides greeting and suggestions on desktop/mobile while retaining composer; banner close/message/non-chat gating; agent/site semantics preserved; no browser errors.');
 }finally{await browser.close();}

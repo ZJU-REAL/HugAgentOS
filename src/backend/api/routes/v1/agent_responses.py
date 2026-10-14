@@ -88,6 +88,9 @@ async def _start_response_run(
 
     # Scope and API-session provenance come only from the authenticated key.
     # prepare logs its own rejected scoped requests before it raises.
+    from core.services.project_api_service import prepare_project_api_request
+
+    request = prepare_project_api_request(db, user, request)
     request, scope = prepare_agent_api_request(db, user, request)
     call_id = (
         begin_agent_api_call(db, scope, request.stream, trace_id=trace_id_var.get())
@@ -156,7 +159,13 @@ async def _start_response_run(
             ontology_pack_ids=settings.get("ontology_pack_ids") or None,
             approval_mode=settings.get("tool_approval_mode"),
         )
+        if user.api_key_project_id:
+            from core.services.project_api_service import make_project_api_scope
+
+            context["project_api_scope"] = make_project_api_scope(user, request.chat_id)
         payload = request.model_dump(exclude_none=True)
+        if user.api_key_project_id:
+            payload["project_api_scope"] = make_project_api_scope(user, request.chat_id)
         # Authentication owns provenance; never accept a client-supplied origin.
         payload["request_origin"] = "api" if user.api_key_id else "cloud"
         if user.api_key_id:

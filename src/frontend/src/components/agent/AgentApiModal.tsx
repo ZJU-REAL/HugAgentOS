@@ -1,6 +1,9 @@
 import { Alert, Modal, Tabs } from 'antd';
 import type { UserAgentItem } from '../../stores/agentStore';
-import { AgentApiKeys } from './AgentApiKeys';
+import { ApiKeyManager } from '../common/ApiKeyManager';
+import { listAgentApiKeys, createAgentApiKey, toggleAgentApiKey, revokeAgentApiKey, revealAgentApiKey } from '../../api/agentApi';
+
+const agentKeys = { list: listAgentApiKeys, create: createAgentApiKey, toggle: toggleAgentApiKey, revoke: revokeAgentApiKey, reveal: revealAgentApiKey };
 import { AgentApiGuide } from './AgentApiGuide';
 import { AgentApiCalls } from './AgentApiCalls';
 import { t } from '../../i18n';
@@ -18,7 +21,7 @@ export function AgentApiModal({ agent, open, onClose }: {
         description={t('API 模式不会自动使用个人记忆、我的空间或个人连接器登录；不支持的个人工具与沙箱操作会被拒绝。')} />
       {!agent.is_enabled && <Alert type="info" showIcon title={t('此智能体已停用，但仍可通过 API 单独调用。')} />}
       <Tabs destroyOnHidden items={[
-        { key: 'keys', label: 'API-Key', children: <AgentApiKeys agentId={agent.agent_id} /> },
+        { key: 'keys', label: 'API-Key', children: <ApiKeyManager resourceId={agent.agent_id} api={agentKeys} /> },
         { key: 'guide', label: t('调用方式'), children: <AgentApiGuide agentId={agent.agent_id} /> },
         { key: 'calls', label: t('调用记录'), children: <AgentApiCalls agentId={agent.agent_id} /> },
       ]} />

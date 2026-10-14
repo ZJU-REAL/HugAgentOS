@@ -87,6 +87,37 @@ curl http://localhost:3000/api/v1/admin/skills \
 
 Pass `agent_id` in the request body to call a sub-agent. A personal API key from Settings can target any sub-agent the owner may access. A key created in a sub-agent's details remains limited to its bound `agent_id` and that key's API sessions; a missing or different ID is rejected. An agent disabled in the app remains callable when explicitly selected through the API. Both key types require the user's `can_use_api_key` permission. Managing personal keys does not require the model gateway entitlement.
 
+### Call within a project
+
+
+Click the **API icon** at the top right of a project page. The **API-Key** tab creates, copies, enables, disables, and revokes the current user's project keys. **Request example** provides the project ID, endpoint, and JSON/SSE examples. Key management routes to the project's local or cloud backend.
+
+Key management requires project edit/admin access and the `can_use_api_key` capability. Project binding is immutable. Disabled, revoked, expired keys, deleted projects, and loss of project edit access invalidate the key. Disabling or revoking a key cancels its active runs.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/v1/projects/{project_id}/api-keys` | GET / POST | List / create project keys |
+| `/v1/projects/{project_id}/api-keys/{key_id}/reveal` | GET | Copy the full key |
+| `/v1/projects/{project_id}/api-keys/{key_id}` | PATCH / DELETE | Enable/disable / revoke |
+
+Project keys can access only their bound project's response endpoint, their own API conversation resume/cancel routes, and generated files from those conversations. Other projects, browser conversations, and account management endpoints are blocked. Create/reveal responses use `Cache-Control: no-store`; lists exclude plaintext.
+
+Omitting `project_id` uses the key's bound project. A different project returns 403. Use a separate `chat_id` per key and reuse it to continue a conversation. Conversation references may target accessible conversations within the bound project; references to other projects are rejected. Project API calls use the same capability configuration as in-app project conversations. Bash, attachments, file tools, memory, and conversation modes follow the existing project configuration without additional project-key restrictions. Subagents, plugins, connectors, and skills follow project configuration and user permissions.
+
+```bash
+curl -X POST 'https://<HOST>/api/v1/agents/responses' \
+  -H 'Authorization: Bearer <YOUR_PROJECT_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id": "project-api-demo",
+    "project_id": "<PROJECT_ID>",
+    "message": "Hello",
+    "stream": false
+  }'
+```
+
+`stream: false` returns complete `ChatResponse` JSON; read the reply from `response`. For SSE, set `stream: true` and add `-N` to cURL. Personal keys from Settings may still explicitly target accessible projects. Agent-specific keys do not support project calls.
+
 ## SSE Streaming Protocol
 
 The streaming chat endpoint `POST /v1/agents/responses` (`src/backend/api/routes/v1/agent_responses.py`, `stream: true`) starts a background run after validation, then follows that run over SSE; after a disconnect, the client can resume from any offset via `GET /v1/chats/stream/{run_id}`. Events are produced by `src/backend/orchestration/workflow.py` and serialized to the wire by `src/backend/orchestration/chat_run_executor.py`.
@@ -259,6 +290,7 @@ Auth column legend: "User" = session cookie or personal API key (`get_current_us
 | Capability catalog | `agents.py` | `/v1/agents` | `GET/POST /`, `PUT/DELETE /{agent_id}` (personal agents) | User |
 | Models | `models.py` | `/v1/models` | `GET /capabilities` (public); `GET/POST /providers`, `PUT /roles/{role_key}` and other management endpoints | Public / CONFIG |
 | Files | `file_upload.py` | `/v1/file` | `POST /upload`, `PUT /{file_id}` | User |
+| File text | `file_text.py` (registered by the file router) | `/v1/file` | `GET/PUT /{file_id}/text` (UTF-8 content and revision-aware saving) | User; saving requires write permission |
 | Files | `file_parse.py` | `/v1/file` | `POST /parse` (document parsing) | User |
 | Content blocks | `content.py` | `/v1/content` | `GET /docs` (public read); `PUT /docs/{block_id}` (ADMIN), `GET /prompts/export` / `POST /prompts/import` (ADMIN or CONFIG) | Public / ADMIN / CONFIG |
 | Automation | `automations.py` | `/v1/automations` | `GET/POST /`, `POST /{task_id}/trigger`, `GET /notifications/list` | User |

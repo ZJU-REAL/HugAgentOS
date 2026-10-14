@@ -1,66 +1,19 @@
-import { Editor, InputRule, Node as TiptapNode, mergeAttributes } from '@tiptap/core';
-import StarterKit from '@tiptap/starter-kit';
-import { Markdown } from '@tiptap/markdown';
-import { TaskList, TaskItem } from '@tiptap/extension-list';
-import { TableKit } from '@tiptap/extension-table';
+import { Editor } from '@tiptap/core';
 import DOMPurify from 'dompurify';
 import { closeHistory } from '@tiptap/pm/history';
-import { editorMarkdownParser, MarkdownLiterals } from './composerMarkdown';
 import { DOMSerializer } from '@tiptap/pm/model';
+import { composerExtensions } from './composerExtensions';
 import { insertClipboardContent } from './composerClipboard';
 
 const editors = new WeakMap<HTMLElement, Editor>();
 export function richEditor(element: HTMLElement): Editor | undefined { return editors.get(element); }
-
-const InvocationChip = TiptapNode.create({
-  name: 'invocationChip', inline: true, group: 'inline', atom: true, selectable: true,
-  addAttributes() {
-    return Object.fromEntries(['chip', 'chipName', 'chipId', 'prefix', 'class', 'value', 'prefixIcon'].map(key => [key, { default: '' }]));
-  },
-  parseHTML() { return []; }, // External clipboard HTML cannot activate a capability.
-  renderHTML({ node, HTMLAttributes }) {
-    const icon = document.createElement('span');
-    icon.className = 'jx-editorChip-prefix';
-    if (node.attrs.prefixIcon) icon.innerHTML = DOMPurify.sanitize(node.attrs.prefixIcon);
-    else icon.textContent = node.attrs.prefix;
-    // Capability metadata is internal editor state, never clipboard HTML.
-    const visibleAttributes = { ...HTMLAttributes };
-    delete visibleAttributes.value;
-    delete visibleAttributes.prefixIcon;
-    return ['span', mergeAttributes(visibleAttributes, {
-      'data-chip': node.attrs.chip, 'data-chip-name': node.attrs.chipName, 'data-chip-id': node.attrs.chipId,
-      contenteditable: 'false', class: 'jx-editorChip ' + node.attrs.class,
-    }), icon,
-    ['span', { class: 'jx-editorChip-name' }, node.attrs.chipName]];
-  },
-  renderMarkdown() { return ''; },
-});
-
-const MarkdownTaskItem = TaskItem.extend({
-  addInputRules() {
-    return [
-      new InputRule({
-        find: /^\s*\[([ xX])\]\s$/,
-        handler: ({ range, match, chain }) => {
-          if (!this.editor.isActive('listItem')) return null;
-          chain().deleteRange(range).toggleTaskList()
-            .updateAttributes('taskItem', { checked: match[1].toLowerCase() === 'x' }).run();
-        },
-      }),
-      ...(this.parent?.() ?? []),
-    ];
-  },
-});
 
 export function createRichEditor(element: HTMLElement, onUpdate: () => void): Editor {
   const editor = new Editor({
     element,
     // Clipboard parsing owns formatting; running paste rules again would double-parse it.
     enablePasteRules: false,
-    extensions: [
-      StarterKit.configure({ underline: false, codeBlock: { enableTabIndentation: true }, link: { openOnClick: false, markdownLinks: true } }),
-      TableKit, TaskList, MarkdownTaskItem.configure({ nested: true }), InvocationChip, ...MarkdownLiterals, Markdown.configure({ marked: editorMarkdownParser(), markedOptions: { gfm: true, breaks: true } }),
-    ],
+    extensions: composerExtensions(),
     editorProps: {
       attributes: { class: 'jx-composer jx-composerEditor jx-richComposer', role: 'textbox', 'aria-multiline': 'true' },
       handlePaste(_view, event) {

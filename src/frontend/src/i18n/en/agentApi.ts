@@ -1,4 +1,13 @@
 export const AGENT_API_DICT: Record<string, string> = {
+  '新会话': 'New conversation',
+  '点击项目页右上角的 API 图标，在弹窗中创建项目专属 Key，并复制调用示例。': 'Click the API icon at the top right of a project page to create a project-specific key and copy a request example.',
+  '项目 API': 'Project API',
+  '仅限此项目': 'This project only',
+  '调用示例': 'Request example',
+  'API 调用': 'API calls',
+  '项目 ID': 'Project ID',
+  '复制项目 ID': 'Copy project ID',
+  '在项目内调用': 'Call within a project',
   '调用来源': 'Call origin',
   '需要处理': 'Needs attention',
   '筛选密钥': 'Filter by key',

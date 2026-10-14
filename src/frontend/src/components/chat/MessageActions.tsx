@@ -10,7 +10,7 @@ import { useChatStore } from '../../stores';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
 import { RichTextField } from './RichTextField';
-import { userMarkdownHtml } from '../../utils/userMarkdown';
+import { messageClipboard } from './messageClipboard';
 import { copyHtmlToClipboard } from '../../utils/clipboard';
 import { message } from 'antd';
 import { ForkChatButton } from './ForkChatButton';
@@ -110,16 +110,9 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
   const editExpand = useLazyExpand(isEditing);
   const dislikeExpand = useLazyExpand(isDisliking);
   useExpandFocus(isDisliking, dislikeInputRef);
-  const messagePlainText = m.segments
-    ? m.segments.filter(s => s.type === 'text').map(s => s.content || '').join('\n\n') || m.content
-    : m.content;
-  /** Clipboard carries canonical Markdown and a formatted HTML representation. */
-  const doCopy = async (str: string) => {
-    const host = document.createElement('div');
-    if (m.role === 'user' || m.isMarkdown) host.innerHTML = userMarkdownHtml(str);
-    else host.textContent = str;
-    host.querySelectorAll('button').forEach(node => node.remove());
-    if (!await copyHtmlToClipboard(host.innerHTML, str)) {
+  const doCopy = async () => {
+    const { html, plainText } = messageClipboard(m);
+    if (!await copyHtmlToClipboard(html, plainText)) {
       void message.error(t('复制失败'));
       return;
     }
@@ -163,7 +156,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
           <div className={`jx-msgActions ${m.role === 'user' ? 'user' : ''}`}>
             <button className={`jx-msgActionBtn${copiedMsg === m.uid ? ' copied' : ''}`}
               title={copiedMsg === m.uid ? t('已复制') : t('复制内容')}
-              onClick={() => { void doCopy(messagePlainText); }}>
+              onClick={() => { void doCopy(); }}>
               {copiedMsg === m.uid ? <CheckOutlined /> : <CopyOutlined />}
             </button>
             {m.role === 'user' && editAndResend && (

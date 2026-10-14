@@ -1,0 +1,30 @@
+.jx-projectApi-title { display: flex; align-items: center; gap: 12px; }
+.jx-projectApi-title .ant-typography { font-size: 13px; font-weight: 400; }
+.jx-projectApi-icon {
+  display: grid; place-items: center; width: 42px; height: 42px;
+  border-radius: 12px; background: var(--color-primary-light); color: var(--color-primary);
+  font-size: 22px;
+}
+.jx-projectApi-identity {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 12px 16px; margin: 18px 0 8px; border-radius: 10px;
+  background: var(--color-bg-layout); border: 1px solid var(--color-border);
+}
+.jx-projectApi-identity .ant-typography { overflow-wrap: anywhere; min-width: 0; }
+.jx-projectApi-identity .ant-tag { margin-left: auto; margin-right: 0; }
+.jx-projectApi-guide { display: grid; gap: 16px; padding-bottom: 8px; }
+.jx-projectApi-endpoint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jx-projectApi-endpoint .ant-typography { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.jx-projectApi-codeToolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jx-projectApi-guide .jx-agentApi-code { margin-top: 0; max-height: 420px; }
+.jx-projectApi-modal .jx-agentApi-create {
+  padding: 16px; border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-bg-layout);
+}
+@media (max-width: 600px) {
+  .jx-projectApi-identity { padding: 10px; }
+  .jx-projectApi-identity .ant-tag { margin-left: 0; }
+}
+
+.jx-projectApi-session { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.jx-projectApi-session .ant-input { flex: 1 1 220px; min-width: 0; }
