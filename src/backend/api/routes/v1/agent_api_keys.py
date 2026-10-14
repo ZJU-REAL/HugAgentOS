@@ -129,7 +129,7 @@ def reveal_key(
 
 
 @router.patch("/{agent_id}/api-keys/{key_id}", summary="启停子智能体 API Key")
-def toggle_key(
+async def toggle_key(
     agent_id: str,
     key_id: str,
     body: ToggleAgentApiKeyRequest,
@@ -138,11 +138,16 @@ def toggle_key(
 ):
     _find(db, user, agent_id, key_id)
     row = ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, agent_id)
-    return success_response(data=_dto(row))
+    data = _dto(row)
+    if not body.enabled:
+        from core.services.api_key_runs import stop_cancelled_key_workers
+
+        await stop_cancelled_key_workers(db, key_id, user.user_id)
+    return success_response(data=data)
 
 
 @router.delete("/{agent_id}/api-keys/{key_id}", summary="撤销子智能体 API Key")
-def revoke_key(
+async def revoke_key(
     agent_id: str,
     key_id: str,
     user: UserContext = Depends(_manager),
@@ -150,6 +155,9 @@ def revoke_key(
 ):
     _find(db, user, agent_id, key_id)
     ApiKeyService(db).revoke_key(user.user_id, key_id, agent_id)
+    from core.services.api_key_runs import stop_cancelled_key_workers
+
+    await stop_cancelled_key_workers(db, key_id, user.user_id)
     return success_response(data={"id": key_id, "revoked": True})
 
 

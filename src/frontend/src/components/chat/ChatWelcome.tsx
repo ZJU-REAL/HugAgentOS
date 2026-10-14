@@ -26,7 +26,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
     inputRef.current?.focus();
   };
   return (
-    <div className={`jx-emptyPage${!isAgentChat && !isSiteChat && !isProjectChat ? ' jx-emptyPage--main' : ''}`}>
+    <div className={`jx-emptyPage${!isAgentChat && !isSiteChat ? ' jx-emptyPage--main' : ''}`}>
       {isSiteChat && (
         <div className="jx-siteHeroTop">
           <button
@@ -41,8 +41,8 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         </div>
       )}
       <div className="jx-emptyCenter jx-anim-stagger">
-        {!isProjectChat && <div className="jx-heroBg" style={staggerStyle(0)}>
-          {!isAgentChat && !isSiteChat && !isProjectChat && showHomepageLogo && homepageLogoUrl && (
+        <div className="jx-heroBg" style={staggerStyle(0)}>
+          {!isAgentChat && !isSiteChat && showHomepageLogo && homepageLogoUrl && (
             <img
               src={homepageLogoUrl}
               alt={`${cfgProductName} Logo`}
@@ -51,13 +51,13 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           )}
           <h1 className="jx-heroTitle">{heroTitle}</h1>
           <p className="jx-heroSubtitle">{heroSubtitle}</p>
-          {!isAgentChat && !isSiteChat && !isProjectChat && (
+          {!isAgentChat && !isSiteChat && (
             <div className="jx-mobileHeroText">
               <h1>HugAgentOS</h1>
               <p>{t('你的智能任务助手')}</p>
             </div>
           )}
-        </div>}
+        </div>
 
         <div className="jx-homeInput" style={staggerStyle(1)}>
           {shareAccessLevel === 'read' ? (
@@ -95,7 +95,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           </div>
         )}
 
-        {!isAgentChat && !isSiteChat && !isProjectChat && visibleHomepageSuggestions.length > 0 && (
+        {!isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
           <div className="jx-homeSuggestions" style={staggerStyle(2)}>
             <div className="jx-homeSuggestionList">
               {visibleHomepageSuggestions.map((prompt, idx) => {
@@ -128,7 +128,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
         )}
 
         {/* Capability cards: plugin-contributed homepage entries (main agent page only) */}
-        {!isAgentChat && !isSiteChat && !isProjectChat && pluginShortcuts.length > 0 && (
+        {!isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
           <div className="jx-capCards" style={staggerStyle(2)}>
             {pluginShortcuts.map((card) => (
               <button

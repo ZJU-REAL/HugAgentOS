@@ -3,6 +3,7 @@ import { Alert, Button, Radio, Spin } from 'antd';
 import type { EnvironmentField, ProjectEnvironment } from '../../api/projectEnvironment';
 import ProjectEnvironmentMarkets from './ProjectEnvironmentMarkets';
 import ProjectEnvironmentResourcePicker from './ProjectEnvironmentResourcePicker';
+import { visibleEnvironmentDependencies } from './environmentDependencyDisplay';
 import { useProjectEnvironment } from './useProjectEnvironment';
 import { t } from '../../i18n';
 
@@ -17,6 +18,8 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
   const [market, setMarket] = useState<EnvironmentField | null>(null);
   const { options, loading, error, preview, previewError, ready, load, installed, retryPreview } =
     useProjectEnvironment(value, onChange, projectId);
+
+  const dependencies = visibleEnvironmentDependencies(value, options, preview);
 
   useEffect(() => { onReadyChange?.(ready); }, [ready, onReadyChange]);
 
@@ -41,7 +44,7 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
       <Spin spinning={loading}>
         {fields.map(field => <ProjectEnvironmentResourcePicker key={field}
           field={field} value={value[field]} options={options?.[field]}
-          dependencies={preview?.dependencies || []}
+          dependencies={dependencies}
           onChange={ids => onChange({ ...value, [field]: ids })}
           onMarket={() => setMarket(field)} />)}
       </Spin>

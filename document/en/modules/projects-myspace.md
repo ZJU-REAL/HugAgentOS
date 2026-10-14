@@ -52,6 +52,8 @@ Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logi
 
 ### Project conversations and scheduled tasks
 
+New project conversations reuse the ordinary chat homepage icon, title, description, recommendation banner, suggested questions, and mobile layout. Both use the same page configuration and visibility settings. The composer continues to show the selected project name.
+
 The project overview, opened from a project card or **Open in project panel**, lists project history below the shared composer. Team projects can filter all, owned, or shared conversations. Selecting a record opens the shared conversation UI and highlights only the conversation, not its parent project. Scheduled runs remain available through the task rail.
 
 Selecting a project binds the shared conversation interface. Projects use the main composer, attachment pipeline, modes, and chat history. Switching projects preserves unsent conversation drafts without rebinding existing conversations from other projects.
@@ -281,7 +283,7 @@ Personal listeners live in `core/space_sync/`; team adapters live in `edition_ee
 
 New projects can use **All available resources** or a **Custom project environment**. All mode follows the current account's available resources, including newly added resources. Local folder projects start in All mode. Project administrators can change this under **Project settings → Bind environment**.
 
-Custom environments bind subagents, plugins, skills and connectors. The main agent remains unchanged. Dependencies appear directly in the corresponding plugin, skill and connector pickers. Removing a parent removes dependencies that are no longer needed, while manually bound resources remain. Each resource picker can acquire resources from its marketplace; acquired resources join the pending bindings and take effect after saving. Connectors use the executing user's authorization. A binding does not share the creator's credentials or permissions with other members.
+Custom environments bind subagents, plugins, skills and connectors. The main agent remains unchanged. Dependencies appear in the corresponding resource pickers. Skills and connectors contained inside a bound plugin remain inside that plugin and are not repeated below. Explicitly bound resources remain visible. Removing a parent removes dependencies that are no longer needed, while manually bound resources remain. Each resource picker can acquire resources from its marketplace; acquired resources join the pending bindings and take effect after saving. Connectors use the executing user's authorization. A binding does not share the creator's credentials or permissions with other members.
 
 The backend limits capability registration, explicit invocation, restored session capabilities, subagents and dynamic plugin loading. An empty custom environment never falls back to all resources. Changes apply from the next turn; running responses and their derived jobs keep the original configuration. Conversations outside the project are unaffected. Basic file and conversation tools retain their existing permission rules.
 

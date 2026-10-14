@@ -159,6 +159,8 @@ async def _start_response_run(
         payload = request.model_dump(exclude_none=True)
         # Authentication owns provenance; never accept a client-supplied origin.
         payload["request_origin"] = "api" if user.api_key_id else "cloud"
+        if user.api_key_id:
+            payload["api_key_id"] = str(user.api_key_id)
         if command:
             explicit_command = {
                 "agent_id": command.agent_id,

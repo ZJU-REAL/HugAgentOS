@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from core.db.models import ModelProvider, ModelRoleAssignment
 from core.db.model_config_revision import bump_revision
+from core.llm.providers.registry import get_spec
 
 
 # ── Predefined roles ─────────────────────────────────────────────────────────
@@ -240,7 +241,7 @@ def unassign_role(db: Session, role_key: str) -> bool:
 # ── Export / Import ───────────────────────────────────────────────────────────
 
 def export_all(db: Session) -> dict:
-    """Export both tables as JSON-serialisable dicts."""
+    """Export model settings and role assignments without credentials."""
     providers = list_providers(db)
     assignments = db.query(ModelRoleAssignment).all()
 
@@ -252,12 +253,16 @@ def export_all(db: Session) -> dict:
                 "provider_type": p.provider_type,
                 "provider": getattr(p, "provider", "openai_compatible"),
                 "base_url": p.base_url,
-                "api_key": p.api_key,
                 "model_name": p.model_name,
                 "gateway_group": getattr(p, "gateway_group", None),
                 "weight": getattr(p, "weight", 1),
                 "priority": getattr(p, "priority", 0),
-                "extra_config": p.extra_config or {},
+                "extra_config": {
+                    key: value for key, value in (p.extra_config or {}).items()
+                    if key not in {
+                        field.key for field in get_spec(p.provider).fields if field.secret
+                    }
+                },
                 "is_active": p.is_active,
             }
             for p in providers
@@ -285,7 +290,19 @@ def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
             for key in ("display_name", "provider_type", "provider", "base_url", "api_key",
                         "model_name", "gateway_group", "weight", "priority", "extra_config", "is_active"):
                 if key in p:
-                    setattr(existing, key, p[key])
+                    value = p[key]
+                    if key == "extra_config":
+                        # Config-only imports must retain omitted vendor credentials.
+                        secrets = {
+                            field.key for field in get_spec(existing.provider).fields
+                            if field.secret
+                        }
+                        value = {
+                            **{k: v for k, v in (existing.extra_config or {}).items()
+                               if k in secrets},
+                            **(value or {}),
+                        }
+                    setattr(existing, key, value)
             existing.updated_at = utc_now()
         else:
             db.add(ModelProvider(
@@ -294,7 +311,7 @@ def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
                 provider_type=p["provider_type"],
                 provider=p.get("provider", "openai_compatible"),
                 base_url=p["base_url"],
-                api_key=p["api_key"],
+                api_key=p.get("api_key", ""),
                 model_name=p["model_name"],
                 gateway_group=p.get("gateway_group") or None,
                 weight=p.get("weight", 1),

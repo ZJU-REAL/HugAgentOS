@@ -242,6 +242,8 @@ def list_agent_api_calls(db, user_id, agent_id, *, page=1, page_size=20, key_id=
             outcome = "running" if run.status in ("pending", "running") else run.status
         completed = _utc(row.completed_at or (run.completed_at if run else None))
         created = _utc(row.created_at)
+        if completed is None and outcome not in ("pending", "running"):
+            completed = _utc(run.updated_at if run else row.created_at) or created
         usage = (run.usage or {}) if run else {}
         prompt = int(usage.get("prompt_tokens") or 0)
         completion = int(usage.get("completion_tokens") or 0)

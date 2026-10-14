@@ -276,6 +276,10 @@ class RunJournal:
     ) -> ChatRun:
         """Stage a pending run inside the caller's existing transaction."""
         accepted_at = now or _utcnow()
+        from core.services.api_key_runs import bind_request_key, require_admission_key
+
+        request_payload = bind_request_key(request_payload, user_id)
+        require_admission_key(db, request_payload, user_id, accepted_at)
         snapshot = dict(recovery_snapshot or {})
         row = ChatRun(
             run_id=run_id,
@@ -308,6 +312,10 @@ class RunJournal:
         now = self._clock()
         expires = now + timedelta(seconds=max(1, int(lease_seconds)))
         with self._sessions() as db:
+            from core.services.api_key_runs import authorize_run_execution
+
+            if not authorize_run_execution(db, run_id, now):
+                return False
             affected = (
                 db.query(ChatRun)
                 .filter(
@@ -338,6 +346,10 @@ class RunJournal:
         now = self._clock()
         expires = now + timedelta(seconds=max(1, int(lease_seconds)))
         with self._sessions() as db:
+            from core.services.api_key_runs import authorize_run_execution
+
+            if not authorize_run_execution(db, run_id, now):
+                return False
             affected = (
                 db.query(ChatRun)
                 .filter(
@@ -629,23 +641,29 @@ class RunJournal:
             )
             if row is None or row.status not in LIVE_STATUSES:
                 return False
-            self._append_locked(
-                db,
-                row,
-                owner="system:cancel",
-                operation_type="run_cancelled",
-                phase="cancelled",
-                safety="terminal",
-                payload={"reason": reason},
-            )
-            row.status = "cancelled"
-            row.failure_reason = reason
-            row.completed_at = now
-            row.updated_at = now
-            row.lease_owner = None
-            row.lease_expires_at = None
+            self.cancel_in_session(db, row, reason=reason, now=now)
             db.commit()
             return True
+
+    @staticmethod
+    def cancel_in_session(db: Session, row: ChatRun, *, reason: str, now: datetime) -> None:
+        """Fence a locked live run without committing the caller's transaction."""
+        RunJournal._append_locked(
+            db,
+            row,
+            owner="system:cancel",
+            operation_type="run_cancelled",
+            phase="cancelled",
+            safety="terminal",
+            payload={"reason": reason},
+        )
+        stopped_at = _aware(row.updated_at) if row.status == "needs_attention" else now
+        row.status = "cancelled"
+        row.failure_reason = reason
+        row.completed_at = stopped_at or now
+        row.updated_at = now
+        row.lease_owner = None
+        row.lease_expires_at = None
 
     def release(self, run_id: str, *, owner: str, reason: str) -> bool:
         """Relinquish a live run without declaring an ambiguous operation failed."""

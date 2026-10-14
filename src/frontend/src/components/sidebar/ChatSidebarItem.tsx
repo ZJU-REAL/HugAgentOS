@@ -15,9 +15,9 @@ import { EASE, LAYOUT_ANIM_MAX_ITEMS } from '../../utils/motionTokens';
 import type { SidebarProps } from './sidebarTypes';
 const HISTORY_ITEM_ENTER = { duration: 0.22, ease: EASE.brandOut };
 const HISTORY_ITEM_EXIT = { duration: 0.18, ease: EASE.exit };
-export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, actions }: {
+export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, actions, active, statusChatIds }: {
   item: ChatItem; groupItems: ChatItem[]; scopeKey: string;
-  dragScopeRef: ReturnType<typeof useRef<string | null>>; actions: SidebarProps;
+  dragScopeRef: ReturnType<typeof useRef<string | null>>; actions: SidebarProps; active?: boolean; statusChatIds?: string[];
 }) {
   const { onSelectChat, onCommitRename, onStartRename, onTogglePinned, onToggleFavorite, onExportChat, onDeleteChat } = actions;
   const { editingChatId, setEditingChatId, editingTitle, setEditingTitle, pendingConfirm, pendingDesignPick, pendingUserQuestions } = useUIStore();
@@ -42,8 +42,12 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
   ), [manualOrder.length, resetSidebarOrder]);
 
   const listLen = groupItems.length;
-  const isActive = (panel === 'chat' || panel === 'automation') && chatIdFromPath() === item.id;
+  const isActive = active ?? ((panel === 'chat' || panel === 'automation') && chatIdFromPath() === item.id);
   const isEditing = editingChatId === item.id;
+  const statusIds = statusChatIds ?? [item.id];
+  const waitingForAnswer = statusIds.some(id => (pendingUserQuestions[id]?.length ?? 0) > 0);
+  const running = statusIds.some(id => sendingChatIds.has(id) || remoteRunningChatIds.has(id));
+  const waitingForConfirmation = statusIds.some(id => (pendingConfirm[id]?.length ?? 0) > 0 || !!pendingDesignPick[id]);
 
   const handleClick = async () => {
     if (editingChatId && editingChatId !== item.id) { setEditingChatId(null); setEditingTitle(''); }
@@ -163,18 +167,18 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
           <span className="jx-historyTitle">
             {conversationTitle(item.title) || t('对话')}
           </span>
-          {(pendingUserQuestions[item.id]?.length ?? 0) > 0 ? (
+          {waitingForAnswer ? (
             <>
               <Tooltip title={t('等待你的回答')}>
                 <span className="jx-historyQuestionDot" aria-hidden="true" />
               </Tooltip>
               <span className="jx-visuallyHidden">{t('等待你的回答')}</span>
             </>
-          ) : (sendingChatIds.has(item.id) || remoteRunningChatIds.has(item.id)) ? (
+          ) : running ? (
             <Tooltip title={t('运行中')}>
               <span className="jx-historyRunningDot" />
             </Tooltip>
-          ) : ((pendingConfirm[item.id]?.length ?? 0) > 0 || !!pendingDesignPick[item.id]) ? (
+          ) : waitingForConfirmation ? (
             <Tooltip title={t('有待确认的操作')}>
               <span className="jx-historyConfirmDot" />
             </Tooltip>

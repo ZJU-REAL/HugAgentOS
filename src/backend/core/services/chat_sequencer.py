@@ -136,6 +136,10 @@ class ChatSequencer:
         assistant_message_id = f"msg_{uuid.uuid4().hex[:16]}"
 
         try:
+            from core.services.api_key_runs import bind_request_key, require_admission_key
+
+            request_payload = bind_request_key(request_payload, user_id)
+            require_admission_key(self.db, request_payload, user_id, now)
             # This atomic UPDATE is deliberately the first database statement:
             # it serializes concurrent admission even on the SQLite profile.
             first_seq = reserve_chat_sequences(
@@ -215,6 +219,10 @@ class ChatSequencer:
         run_id = f"run_{uuid.uuid4().hex[:16]}"
         assistant_message_id = f"msg_{uuid.uuid4().hex[:16]}"
         try:
+            from core.services.api_key_runs import bind_request_key, require_admission_key
+
+            request_payload = bind_request_key(request_payload, user_id)
+            require_admission_key(self.db, request_payload, user_id, now)
             assistant_seq = reserve_chat_sequences(
                 self.db,
                 chat_id,
@@ -317,6 +325,10 @@ class ChatSequencer:
         user_message_id = f"msg_{uuid.uuid4().hex[:16]}"
         assistant_message_id = f"msg_{uuid.uuid4().hex[:16]}"
         try:
+            from core.services.api_key_runs import bind_request_key, require_admission_key
+
+            request_payload = bind_request_key(request_payload, user_id)
+            require_admission_key(self.db, request_payload, user_id, now)
             first_seq = reserve_chat_sequences(
                 self.db,
                 chat_id,

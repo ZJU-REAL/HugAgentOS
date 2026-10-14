@@ -75,6 +75,15 @@ class AgentApiScopeMiddleware:
                 status_code=503,
             )
             return await response(scope, receive, send)
+        from core.services.api_key_runs import request_api_key
+
+        credential_token = request_api_key.set((context.user_id, context.api_key_id))
+        try:
+            return await self._authorized(scope, receive, send, request, context)
+        finally:
+            request_api_key.reset(credential_token)
+
+    async def _authorized(self, scope, receive, send, request, context):
         path = request.url.path
         if path.startswith("/api/"):
             path = path[4:]

@@ -1238,6 +1238,10 @@ class ToolEffectJournal:
             if intent is None or self._terminal_row(db, effect_id) is not None:
                 return None
             now = self._clock()
+            from core.services.api_key_runs import authorize_run_execution
+
+            if not authorize_run_execution(db, intent.run_id, now):
+                return None
             expires = now + timedelta(seconds=max(1, lease_seconds))
             run_affected = (
                 db.query(ChatRun)

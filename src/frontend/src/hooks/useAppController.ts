@@ -70,7 +70,6 @@ export function useAppController() {
   const { closeMobileSidebar, openMobileSidebar, authUserId } = useAppBootstrap(chatSurface);
 
   const chat = store.chats[currentChatId];
-  const conversationProjectId = chatSurface ? chat?.projectId : undefined;
   const overviewProjectId = chatSurface ? projectOverviewId(chat) : undefined;
   useProjectResources(overviewProjectId);
   const latestOntologyMessage = [...(chat?.messages || [])]
@@ -311,7 +310,6 @@ export function useAppController() {
     fileInputRef,
     chatListRef,
     messagesEndRef,
-    conversationProjectId,
     overviewProjectId,
     setCatalogPanel,
     toolResultPanel,
