@@ -40,6 +40,8 @@ app.include_router(plugin_ui.router, prefix="/api")
 from api.routes import files
 app.include_router(files.router)
 for route in files.router.routes:
+    if not hasattr(route, "dependant"):
+        continue
     for dependency in route.dependant.dependencies:
         if dependency.name == "user":
             app.dependency_overrides[dependency.call] = app.dependency_overrides[get_current_user]
@@ -180,3 +182,57 @@ async def prewarm_probe():
                 return {"resource_id": row.resource_id, "status": row.status}
         await asyncio.sleep(.05)
     raise HTTPException(500, "sandbox did not produce a warm browser")
+
+
+@app.post("/test/synced-tool/{name}")
+async def synced_tool(name: str, arguments: dict):
+    """Actual cloud package export, device binding and MCP callback; no cloud account."""
+    from core.capabilities import registry, store, device_catalog, skills
+    from core.capabilities.ref import ResourceRef
+    from core.services.desktop_capability_entities import _plugin_files
+    from core.services.desktop_capability_protocol import entity_content_hash
+    from core.llm.factory.tools.mcp_config import _inject_runtime_headers
+    from core.llm.mcp_pool import make_client
+    from core.services import desktop_cloud_bridge as bridge
+    profile = "browser-cloud-fixture"
+    with SessionLocal() as db:
+        row = db.query(models.InstalledPlugin).filter_by(slug="browser-automation").first()
+        files = _plugin_files({"install_id": row.install_id, "slug": row.slug, "name": row.name,
+            "components": row.component_ids, "ui_contributions": row.ui_contributions,
+            "import_report": row.import_report})
+    digest = entity_content_hash(files)
+    comp = store.write_from_files("plugin", profile, "browser-automation", digest[:12], files)
+    sid = next(iter(json.loads(files["plugin.json"])["native_servers"]))
+    inst = registry.upsert(profile_id=profile, ref=ResourceRef("fixture", "account", "plugin", "browser-automation"),
+        content_hash=digest, source="cloud", enabled=True, payload={"components": {"mcp": [sid]}})
+    registry.set_state(inst.install_id, "ready", resolved_revision=comp.revision)
+    skills.current_account_profile = lambda: profile
+    skills.account_authorized_for = lambda uid: uid == "browser-owner"
+    device_catalog._profile = lambda: profile
+    # The cloud side supplies its authorized schema; its URL must never be used.
+    async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
+        async with ClientSession(read, write) as client:
+            await client.initialize()
+            schemas = [t.model_dump() for t in (await client.list_tools()).tools]
+    bridge._bridge_context = lambda: {"state": {"cloud_base": "https://cloud.invalid"},
+        "manifest_revision": "fixture", "profile": profile,
+        "servers": [{"server_id": sid, "tools": schemas, "source_plugin": "browser-automation"}]}
+    cfg = bridge.cloud_gateway_mcp_configs([sid])[sid]
+    assert cfg["execution_scope"] == "local" and "gateway_invoke_url" not in cfg
+    chat_id = arguments.pop("_chat_id", "browser-chat")
+    cfg = _inject_runtime_headers({sid: cfg}, current_user_id="browser-owner", chat_id=chat_id)[sid]
+    client = make_client(sid, cfg, is_stateful=False)
+    result = await (await client.get_tool(name))(**arguments)
+    text = result.content[0].text
+    if "conversation_unavailable" in text:
+        return {"error": "conversation_unavailable"}
+    if result.metadata.get("is_error") or result.metadata.get("isError"):
+        raise HTTPException(409, text)
+    payload = json.loads(text)
+    if name == "browser_open":
+        resource = payload["resource"]
+        assert resource["execution_scope"] == "local" and resource["install_id"] == inst.install_id
+        with SessionLocal() as db:
+            owned = db.get(models.PluginResource, resource["resource_id"])
+            assert owned.user_id == "browser-owner" and owned.chat_id == "browser-chat"
+    return payload

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dropdown, message } from 'antd';
 import { DownOutlined, DownloadOutlined, ExportOutlined, FolderOpenOutlined, LoadingOutlined } from '@ant-design/icons';
-import { artifactOrigin, artifactUrl, openLocalArtifact, type ArtifactLocation } from '../../utils/artifactAccess';
+import { artifactOrigin, artifactUrl, isArchiveMember, openLocalArtifact, type ArtifactLocation } from '../../utils/artifactAccess';
 import { t } from '../../i18n';
 import './ArtifactFileAction.css';
 
@@ -14,7 +14,7 @@ export function ArtifactFileAction({ file, className, onDownload, disabled = fal
   iconOnly?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
-  const local = artifactOrigin(file) === 'local';
+  const local = artifactOrigin(file) === 'local' && !isArchiveMember(file);
   const open = async (folder = false) => {
     if (busy || disabled) return;
     setBusy(true);

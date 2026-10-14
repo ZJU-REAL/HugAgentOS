@@ -196,13 +196,46 @@
   padding-bottom:12px;
 }
 
-.jx-content--messageSurface{overflow:hidden;}
+/* The content column excludes tool results, prompts and project rails.
+   It is the sizing boundary for the full-bleed history viewport. */
+.jx-content--messageSurface{
+  container:chat-content / inline-size;
+  overflow:hidden;
+  scrollbar-gutter:auto;
+}
 
-.jx-content--messageSurface > .jx-panel{height:100%; min-height:0;}
+/* Chat owns a full-width scroll viewport; reading width belongs to the list
+   and composer, not the page panel used by other modules. */
+.jx-content--messageSurface > .jx-panel{
+  max-width:none;
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+  scrollbar-gutter:stable both-edges;
+}
 
-.jx-chatViewportFrame{position:relative; flex:1; min-height:0;}
+/* Bleed only the history viewport to the conversation pane edges. The list
+   and composer keep their existing reading widths and surrounding spacing. */
+.jx-chatViewportFrame{
+  position:relative;
+  flex:1;
+  min-height:0;
+  width:100cqw;
+  align-self:center;
+}
 
-.jx-chatViewport{height:100%; overflow:auto; overscroll-behavior-y:contain;}
+.jx-chatViewport{
+  height:100%;
+  overflow:auto;
+  overscroll-behavior-y:contain;
+  scrollbar-gutter:stable both-edges;
+  padding-left:calc(var(--jx-chat-panel-inline-gutter, 24px) + var(--jx-chat-wrap-left, 0px));
+  padding-right:calc(var(--jx-chat-panel-inline-gutter, 24px) + var(--jx-chat-wrap-right, 0px));
+}
+@media (max-width:960px){
+  .jx-chatViewport,
+  .jx-content--messageSurface > .jx-panel{scrollbar-gutter:auto;}
+}
 
 .jx-chatList{min-height:100%; width:100%; max-width:760px; margin:0 auto; padding:4px 0 6px;}
 

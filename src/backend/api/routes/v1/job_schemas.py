@@ -13,7 +13,7 @@ class AgentBody(BaseModel):
     schema_: Optional[Dict[str, Any]] = Field(default=None, alias="schema")
     tools: List[str] = []
     model: Optional[str] = None
-    max_attempts: int = 2
+    max_attempts: int = 1
     # 必须收 int：业务主键十有八九是行号/序号，脚本自然会写 item_key=it["seq"]。
     # Pydantic v2 不做 int→str 强转，只声明 str 会让整轮作业被 422 挡在门外——
     # 事故里 568 项全军覆没、模型一次都没被调用，就是这个类型洁癖的代价。

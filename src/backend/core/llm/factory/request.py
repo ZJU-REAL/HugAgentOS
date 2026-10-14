@@ -25,6 +25,8 @@ class AgentRequest:
     user_agent: Optional[Any] = None
     visible_subagents: Optional[List[Dict[str, Any]]] = None
     isolated: bool = False
+    derived_main: bool = False
+    capability_source_chat_id: Optional[str] = None
     max_iters: Optional[int] = None
     plan_mode: bool = False
     model_role: Optional[str] = None

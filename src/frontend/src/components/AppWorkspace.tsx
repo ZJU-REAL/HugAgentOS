@@ -32,6 +32,7 @@ import { ToolResultPanel } from './tool';
 
 import type { useAppController } from '../hooks/useAppController';
 import { SlidePanel } from './common/SlidePanel';
+import { usePaneOcclusion } from '../hooks/usePaneOcclusion';
 import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
 import { ProjectsSkeleton } from './projects/ProjectSkeletons';
 const AutomationPanel = lazy(() => import('./automation/AutomationPanel').then(m => ({ default: m.AutomationPanel })));
@@ -50,6 +51,7 @@ const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
   const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
   const showProjectOverview = !!overviewProjectId;
+  const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
       <Sidebar
@@ -81,7 +83,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
       />
 
       <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: 'var(--color-bg-base)', '--jx-canvas-preferred-width': canvasPanelWidth ? `${canvasPanelWidth}px` : undefined } as CSSProperties}>
-        <div className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}${chatSurface ? ' is-chatSurface' : ''}`}>
+        <div ref={paneRef} inert={paneHidden} aria-hidden={paneHidden || undefined} className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}${chatSurface ? ' is-chatSurface' : ''}`}>
           {!showChatHeader && (
             <header className="jx-mobileHeader">
               <button
@@ -190,6 +192,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 )}
                 {chatSurface && (
                   <ChatArea
+                    isPaneHidden={paneHidden}
                     send={send}
                     abort={abort}
                     activateQueuedMessage={activateQueuedMessage}

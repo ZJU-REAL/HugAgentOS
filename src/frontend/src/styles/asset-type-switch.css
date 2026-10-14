@@ -1,0 +1,7 @@
+.jx-assetTypeSwitch { display:inline-flex; flex-shrink:0; padding:2px; min-height:36px; border-radius:999px; background:var(--color-fill-hover); gap:2px; }
+.jx-assetTypeSwitch > button { position:relative; display:flex; align-items:center; justify-content:center; min-width:64px; border:0; border-radius:999px; padding:6px 16px; font:inherit; font-size:12px; color:var(--color-text-secondary); background:transparent; cursor:pointer; }
+.jx-assetTypeSwitch > button[aria-checked="true"] { color:var(--color-text); font-weight:600; }
+.jx-assetTypeSwitch > button:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.jx-assetTypeSwitch-thumb { position:absolute; inset:0; border-radius:inherit; background:var(--color-bg-container); border:1px solid var(--color-border); pointer-events:none; }
+.jx-assetTypeSwitch-label { position:relative; }
+@media (pointer:coarse) { .jx-assetTypeSwitch { min-height:44px; } }

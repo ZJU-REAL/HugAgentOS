@@ -177,7 +177,7 @@ export function applySteerBoundary(s: ChatStreamState, eventObj: Record<string, 
                 role: 'user',
                 content: steerMessage,
                 isMarkdown: false,
-                uid: newMessageUid(),
+                uid: newMessageUid(true),
                 ts: steerMessageTs,
                 messageId: steerMessageId,
             };
@@ -210,7 +210,7 @@ export function applySteerBoundary(s: ChatStreamState, eventObj: Record<string, 
     s.implicitThinkSegIdxs.clear();
     s.sawThinkCloseTag = false;
     s.thinkingPhaseActive = s.enableThinking && !s.structuredReasoning;
-    s.bubbleUid = newMessageUid();
+    s.bubbleUid = newMessageUid(true);
     s.bubbleStartedAt = Math.max(Date.now(), steerMessageTs + 1);
     appendOrUpdate(s, true);
 }

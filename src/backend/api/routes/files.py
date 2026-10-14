@@ -25,7 +25,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
+from api.routes.file_archive import router as archive_router
+
 router = APIRouter(prefix="/files", tags=["files"])
+router.include_router(archive_router)
 POWERPOINT_EXTENSIONS = {".ppt", ".pptx"}
 POWERPOINT_MIME_MARKERS = ("presentationml", "powerpoint")
 WORD_EXTENSIONS = {".doc", ".docx"}
@@ -334,9 +337,6 @@ def download_file(
     curl http://localhost:8000/files/report-20240213-123456?mode=presigned
     ```
 
-    **文件来源**:
-    - 由文档编辑技能生成的 docx 文件
-    - 其他 Agent 生成的附件
     """
     item = _load_artifact_item(file_id, db)
     _authorize_access(

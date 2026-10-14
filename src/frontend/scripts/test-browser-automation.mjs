@@ -56,7 +56,8 @@ createRoot(document.getElementById('root')).render(<RightSidebarPanel/>);
 await writeFile(resolve(output,"index.html"),'<html><head><link rel="stylesheet" href="/fixture.css"></head><body><button id="outside">Chat</button><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>');
 if(process.argv.includes("--prepare")) process.exit(0);
 async function tool(name,body){
- const response=await fetch(backend+'/test/tool/'+name,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+ const route=process.env.BROWSER_E2E_SYNCED==='1'?'/test/synced-tool/':'/test/tool/';
+ const response=await fetch(backend+route+name,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
  const text=await response.text();
  assert.equal(response.status,200,text);
  return JSON.parse(text);
@@ -78,13 +79,21 @@ try{
  const proofProbe=await fetch(backend+'/test/cloud-proof',{method:'POST'});
  assert.equal(proofProbe.status,200,await proofProbe.text());
  checks.push('Real cloud gateway replaces a different-key device proof; native HTTP request hook and internal resource callback verify it');
- const warmResponse=await fetch(backend+'/test/prewarm',{method:'POST'});
- assert.equal(warmResponse.status,200);
- const warm=await warmResponse.json();
+ let warm;
+ if(process.env.BROWSER_E2E_SYNCED!=='1'){
+  const warmResponse=await fetch(backend+'/test/prewarm',{method:'POST'});
+  assert.equal(warmResponse.status,200);
+  warm=await warmResponse.json();
+ }
  const openingStarted=performance.now();
  const opened=await tool('browser_open',{});
- assert.equal(opened.resource.resource_id,warm.resource_id);
- checks.push('Sandbox startup prewarms real Chromium; browser_open adopts its exact resource ('+Math.round(performance.now()-openingStarted)+' ms through MCP)');
+ if(warm){
+  assert.equal(opened.resource.resource_id,warm.resource_id);
+  checks.push('Sandbox startup prewarms real Chromium; browser_open adopts its exact resource ('+Math.round(performance.now()-openingStarted)+' ms through MCP)');
+ }else{
+  assert.equal(opened.resource.execution_scope,'local');
+  checks.push('Synced account plugin exports its worker and Canvas assets; local MCP binds the exact account installation to the device conversation');
+ }
 
  const id=opened.resource.resource_id;
  assert.ok(id);

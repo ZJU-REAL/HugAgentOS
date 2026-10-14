@@ -72,6 +72,7 @@ def _auth(job_id: str, token: Optional[str]):
             "model_name": start_params.get("model_name"),
             "model_provider_id": start_params.get("model_provider_id"),
             "project_ctx": start_params.get("project_ctx"),
+            "parent_runtime": start_params.get("parent_runtime"),
         }
 
 
@@ -122,118 +123,7 @@ def _schema_hint(schema: Dict[str, Any]) -> str:
     )
 
 
-# ── 轻量子作业执行 ──────────────────────────────────────────────────────
-
-
-# 工具级基础设施故障的特征串。命中时这一项不能被当成业务结论（"查无"），
-# 必须作为可重试的失败抛回脚本——否则环境故障会被固化成数据。
-# （实测踩过：搜索配额打爆后 337/354 项被写成"未查询到公开展品信息"并标 done。）
-_INFRA_FAILURE_MARKERS = (
-    "用量限制",
-    "quota",
-    "rate limit",
-    "too many requests",
-    "调用失败",
-    "connection error",
-    "timeout",
-    "timed out",
-    "503",
-    "502",
-    "429",
-)
-
-
-def _looks_like_infra_failure(text: str) -> bool:
-    low = (text or "").lower()
-    return any(m in low for m in _INFRA_FAILURE_MARKERS)
-
-
-async def _run_light_agent(
-    prompt: str,
-    *,
-    tools: List[str],
-    user_id: str,
-    chat_id: str,
-    run_id: str,
-    journal_owner: str,
-    model_name: Optional[str],
-    model_provider_id: Optional[str],
-    project_ctx: Optional[dict] = None,
-) -> tuple[str, bool]:
-    """无历史、无沙箱、无技能、无子智能体的一次性子作业。
-
-    这正是「去掉共享上下文 / 流式回灌 / 历史累积」后的执行路径：每次调用的上下文只有
-    这一条 prompt，成本与工作项总数无关。
-    """
-    from core.llm.factory import create_agent_executor
-    from core.llm.mcp_manager import close_clients
-    from orchestration.streaming import StreamingAgent
-
-    agent, clients = await create_agent_executor(
-        enabled_skill_ids=[],
-        enabled_mcp_ids=list(tools or []),
-        enabled_kb_ids=[],
-        disable_tools=not tools,
-        chat_mode="fast",
-        isolated=True,
-        allow_bash=False,
-        read_only=True,
-        max_iters=6,
-        model_name=model_name,
-        model_provider_id=model_provider_id,
-        current_user_id=user_id,
-        project_ctx=project_ctx,
-        chat_id=chat_id,
-        run_id=run_id,
-        journal_owner=journal_owner,
-        top_level_chat=False,
-    )
-    text = ""
-    tool_calls = 0
-    tool_failures = 0
-    infra_failure = False
-    try:
-        sa = StreamingAgent(agent, clients)
-        async for et, payload in sa.stream(
-            [{"role": "user", "content": prompt}],
-            {
-                "user_id": user_id,
-                "chat_id": chat_id,
-                "run_id": run_id,
-                "journal_owner": journal_owner,
-                "enable_thinking": False,
-                "chat_mode": "fast",
-            },
-        ):
-            if et == "text_delta":
-                text += payload
-            elif et == "tool_result":
-                tool_calls += 1
-                content = str((payload or {}).get("content") or "")
-                failed = str((payload or {}).get("status") or "") in (
-                    "error",
-                    "denied",
-                    "interrupted",
-                )
-                if failed or _looks_like_infra_failure(content):
-                    tool_failures += 1
-                    if _looks_like_infra_failure(content):
-                        infra_failure = True
-            elif et == "error":
-                logger.warning("[job-agent] sub-agent error: %s", payload)
-                infra_failure = True
-                break
-    finally:
-        await close_clients(clients)
-
-    # 声明了工具却每一次都失败 → 这一轮没有任何证据，结论不可信
-    if tools and tool_calls > 0 and tool_failures == tool_calls:
-        infra_failure = True
-    # 模型自己在正文里如实说了"工具调用失败/超限"，同样不能当业务结论
-    if _looks_like_infra_failure(text):
-        infra_failure = True
-    return text, infra_failure
-
+from orchestration.jobs.agent import run_derived_agent, run_with_job_fence
 
 # ── 端点 ──────────────────────────────────────────────────────────────
 
@@ -245,6 +135,15 @@ async def job_agent(
     x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
 ):
     ctx = _auth(job_id, x_job_token)
+    if not isinstance(ctx.get("parent_runtime"), dict):
+        raise HTTPException(409, "作业缺少主智能体运行配置，请重新提交工作流")
+
+    def validate_execution():
+        _auth(job_id, x_job_token)
+        with SessionLocal() as db:
+            remaining = JobService(db).budget_left(job_id)
+        if remaining["seconds_left"] <= 0 or remaining["calls_left"] <= 0:
+            raise HTTPException(429, "作业执行预算已用尽")
 
     with SessionLocal() as db:
         left = JobService(db).budget_left(job_id)
@@ -266,7 +165,6 @@ async def job_agent(
     if schema:
         prompt = prompt + _schema_hint(schema)
 
-    attempts = max(1, min(int(body.max_attempts or 2), 4))
     started = time.monotonic()
     last_text = ""
     result: Any = None
@@ -287,38 +185,40 @@ async def job_agent(
     gate = _gate(job_id, left.get("concurrency", 8))
     infra_failed = False
     async with _GLOBAL_GATE, gate:
-        for i in range(attempts):
-            _auth(job_id, x_job_token)  # Queued callbacks must recheck cancellation.
-            try:
-                from core.services.run_journal import durable_run_binding
+        _auth(job_id, x_job_token)
+        try:
+            from core.services.run_journal import durable_run_binding
 
-                async with durable_run_binding(
-                    user_id=ctx["user_id"],
-                    chat_id=ctx["chat_id"],
-                    kind="internal_job_agent",
-                    external_id=f"{job_id}:{body.item_key or 'adhoc'}:{i}",
-                    request_payload={"job_id": job_id, "item_key": body.item_key},
-                    recovery_snapshot={
-                        "worker_args": {
-                            "context": {
-                                **(ctx.get("project_ctx") or {}),
-                                "project_ctx": ctx.get("project_ctx"),
-                                "mcp_ids": list(tools),
-                                "skill_ids": [],
-                                "model_name": body.model or ctx["model_name"],
-                                "model_provider_id": ctx["model_provider_id"],
-                                "chat_mode": "fast",
-                            }
+            async with durable_run_binding(
+                user_id=ctx["user_id"],
+                chat_id=None,
+                kind="internal_job_agent",
+                external_id=f"{job_id}:{body.item_key or 'adhoc'}",
+                request_payload={
+                    "job_id": job_id,
+                    "item_key": body.item_key,
+                    "parent_chat_id": ctx["chat_id"],
+                },
+                recovery_snapshot={
+                    "worker_args": {
+                        "context": {
+                            **(ctx.get("project_ctx") or {}),
+                            "project_ctx": ctx.get("project_ctx"),
+                            "mcp_ids": list(ctx["parent_runtime"].get("enabled_mcp_ids") or []),
+                            "skill_ids": list(ctx["parent_runtime"].get("enabled_skill_ids") or []),
+                            "tool_approval_mode": "full",
+                            "model_name": body.model or ctx["model_name"],
+                            "model_provider_id": ctx["model_provider_id"],
+                            "chat_mode": ctx["parent_runtime"].get("chat_mode"),
                         }
-                    },
-                ) as binding:
-                    last_text, infra_failed = await _run_light_agent(
-                        (
-                            prompt
-                            if i == 0
-                            else prompt + "\n\n上一次输出无法解析为合法 JSON，请只输出 JSON。"
-                        ),
-                        tools=tools,
+                    }
+                },
+            ) as binding:
+                last_text, infra_failed = await run_with_job_fence(
+                    run_derived_agent(
+                        prompt,
+                        parent_runtime=ctx["parent_runtime"],
+                        tools=tools if declared else None,
                         user_id=ctx["user_id"],
                         chat_id=binding.chat_id,
                         run_id=binding.run_id,
@@ -326,30 +226,24 @@ async def job_agent(
                         model_name=body.model or ctx["model_name"],
                         model_provider_id=ctx["model_provider_id"],
                         project_ctx=ctx.get("project_ctx"),
-                    )
-            except Exception as exc:  # noqa: BLE001
-                from core.services.tool_effect_ledger import find_tool_outcome_unknown
+                    ),
+                    validate_execution,
+                )
+        except HTTPException as exc:
+            if exc.status_code == 429:
+                raise HTTPException(409, "作业预算已耗尽，本项已停止，不自动重试") from exc
+            raise
+        except Exception as exc:
+            from core.services.tool_effect_ledger import find_tool_outcome_unknown
 
-                if find_tool_outcome_unknown(exc) is not None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="工具调用结果尚待安全恢复，本项已暂停，不能自动重试",
-                    ) from exc
-                logger.warning("[job-agent] job=%s attempt=%d failed: %s", job_id, i, exc)
-                last_text, infra_failed = "", True
-                continue
-            # 工具全挂/配额打爆：这一轮没有任何证据，**不能**把它当成业务结论回给脚本，
-            # 否则"搜不到"会被固化进数据。抛可重试错误，让该项留在台账里待续跑。
-            if infra_failed:
-                logger.warning("[job-agent] job=%s attempt=%d infra failure", job_id, i)
-                continue
-            if not schema:
-                result = last_text
-                break
-            parsed = _parse_schema(last_text, schema)
-            if parsed is not None:
-                result = parsed
-                break
+            if find_tool_outcome_unknown(exc) is not None:
+                raise HTTPException(
+                    409, "工具调用结果尚待安全恢复，本项已暂停，不能自动重试"
+                ) from exc
+            logger.warning("[job-agent] job=%s failed: %s", job_id, exc)
+            last_text, infra_failed = "", True
+        if not infra_failed:
+            result = _parse_schema(last_text, schema) if schema else last_text
 
     duration_ms = int((time.monotonic() - started) * 1000)
     ok = result is not None
@@ -387,15 +281,15 @@ async def job_agent(
                 logger.warning("[job-agent] job=%s post-mark failed key=%s", job_id, body.item_key)
     if not ok:
         if infra_failed:
-            # 503 = 可重试：SDK 会退避重试，仍失败则该项记 failed 留在台账等续跑，
-            # 而不是被写成"查无"。环境故障绝不能变成业务结论。
+            # A full agent may have already changed external state before failing.
+            # Return a non-retryable error rather than silently repeating its actions.
             raise HTTPException(
-                status_code=503,
-                detail=f"工具不可用（配额/连接/超时），本项未取得证据：{(last_text or '')[:200]}",
+                status_code=409,
+                detail=f"本项执行失败，请检查已有操作后再决定是否续跑：{(last_text or '')[:200]}",
             )
         raise HTTPException(
             status_code=422,
-            detail=f"子作业未产出合法结果（{attempts} 次尝试）：{(last_text or '')[:200]}",
+            detail=f"派生智能体输出格式无效，完整任务不自动重跑：{(last_text or '')[:200]}",
         )
     return success_response(data=result)
 

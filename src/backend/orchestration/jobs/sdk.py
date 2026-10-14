@@ -5,7 +5,7 @@ SDK_SOURCE = r'''"""hugagent_job —— 作业脚本 SDK（由 Job Runtime 注�
 暴露三类能力，其余一切（HTTP 抓取、解析、并发、写文件）都用标准 Python 做：
 
     ledger.seed / pending / update / stats     工作项台账（按业务主键幂等）
-    agent(prompt, schema=…, tools=…)           派一个子智能体；凭据在后端，脚本看不到
+    agent(prompt, schema=…, tools=…)           派生一个主智能体；凭据在后端，脚本看不到
     job.map / job.budget / log                 并发、预算、进度
 
 断点续跑：重跑同一脚本时 ledger.pending() 自动跳过已完成项，不必重放调用序列。
@@ -92,8 +92,12 @@ def _post(path, payload, timeout=180):
             # 连 runner 上报终态的那一发也被 429 拒，作业于是永远停在 running。
             if 400 <= exc.code < 500 and exc.code != 429:
                 raise JobError("callback %s -> HTTP %s %s" % (path, exc.code, detail))
+            if path == "agent" and exc.code != 429:
+                raise JobError("agent callback failed; inspect existing effects before retry: %s" % detail)
             last = exc
         except Exception as exc:
+            if path == "agent":
+                raise JobError("agent result unknown; inspect existing effects before retry: %s" % exc)
             last = exc
         # 指数退避 + 抖动：等步长退避会让被同一次限流弹回的并发项整齐地再撞一次
         time.sleep(min(1.5 * (2 ** attempt), 30.0) + random.uniform(0, 0.5))
@@ -312,9 +316,14 @@ class _Job:
         return results
 
 
-def agent(prompt, schema=None, tools=(), model=None, timeout=180, max_attempts=2,
+def agent(prompt, schema=None, tools=(), model=None, timeout=180, max_attempts=1,
           item_key=None):
-    """派一个无历史子智能体。schema 非空时强制结构化输出并校验。
+    """派生一个独立主智能体，继承提交者的技能、工具、知识库和子智能体能力。
+
+    派生实例及其子智能体直接放行，共用工作区，不复制聊天历史。
+    tools 非空时选择初始 MCP 工具；不传时继承主智能体的 MCP。
+    schema 非空时强制结构化输出并校验。完整任务只执行一次，不因格式或网络错误自动重跑；
+    max_attempts 保留为请求字段，不再允许它重放完整任务。
 
     凭据在后端，脚本永远拿不到模型端点或 key。
 

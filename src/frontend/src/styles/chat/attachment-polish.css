@@ -1,0 +1,16 @@
+.jx-fileCard .jx-fileCard-name { display:flex; min-width:0; }
+.jx-fileCard-basename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jx-fileCard-extension { flex-shrink:0; }
+.jx-fileCard.jx-fileCard--compact { width:156px; min-width:156px; max-width:156px; min-height:104px; box-sizing:border-box; padding:12px; flex-direction:column; align-items:flex-start; gap:8px; border-radius:var(--radius-sm); box-shadow:none; }
+.jx-fileCard--compact .jx-fileCard-icon { width:24px; height:24px; }
+.jx-fileCard--compact .jx-fileCard-imgThumb { width:24px; height:24px; }
+.jx-fileCard--compact .jx-fileCard-info { width:100%; flex:0 0 auto; margin-top:auto; padding-right:0; }
+.jx-fileCard .jx-fileCard-close { top:4px; right:4px; width:28px; height:28px; border:0; border-radius:var(--radius-xs); background:transparent; color:var(--color-text-tertiary); z-index:2; }
+.jx-fileCard .jx-fileCard-close:hover { background:var(--color-fill-hover); color:var(--color-text); }
+.jx-fileCard--compact .jx-fileCard-download { position:absolute; top:4px; right:32px; padding:4px; }
+.jx-fileCard.jx-fileCard--error { border-color:var(--color-error); }
+.jx-fileCard-error { position:relative; z-index:2; display:flex; flex-wrap:wrap; gap:4px; width:100%; font-size:12px; color:var(--color-error); }
+.jx-fileCard-error > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.jx-fileCard-error > button { padding:2px 6px; border:1px solid var(--color-border); border-radius:var(--radius-xs); color:var(--color-text); background:var(--color-bg-container); font:inherit; cursor:pointer; }
+.jx-fileCard-error > button:focus-visible, .jx-fileCard .jx-fileCard-close:focus-visible { outline:2px solid var(--color-primary); outline-offset:1px; }
+@media (pointer:coarse) { .jx-fileCard .jx-fileCard-close { width:32px; height:32px; } .jx-fileCard-error > button { min-height:32px; } }

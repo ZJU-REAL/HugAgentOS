@@ -61,8 +61,10 @@
 
   /* 横屏时刘海在左/右侧，贴边的正文与输入区都要让开 */
   .jx-chatWrap{
-    padding-right:max(12px, var(--jx-safe-r));
-    padding-left:max(12px, var(--jx-safe-l));
+    --jx-chat-wrap-right:max(12px, var(--jx-safe-r));
+    --jx-chat-wrap-left:max(12px, var(--jx-safe-l));
+    padding-right:var(--jx-chat-wrap-right);
+    padding-left:var(--jx-chat-wrap-left);
   }
 
   /* 侧栏抽屉铺满整屏高，上下都要避让；左缘贴屏幕边要让开横屏刘海 */

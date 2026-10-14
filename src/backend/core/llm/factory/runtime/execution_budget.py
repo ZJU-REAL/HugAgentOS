@@ -116,7 +116,7 @@ async def execution_budget(
         _max_iters = request.user_agent.max_iters or (
             _DEFAULT_SUBAGENT_ITERS if request.isolated else _UNBOUNDED_ITERS
         )
-    elif request.isolated:
+    elif request.isolated and not request.derived_main:
         _max_iters = _DEFAULT_SUBAGENT_ITERS
     else:
         # Both main-agent caps are opt-in and absent by default: the built-in

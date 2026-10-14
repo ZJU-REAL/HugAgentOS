@@ -1,10 +1,13 @@
 import type { CanvasArtifact } from '../../stores/canvasStore';
 
+import { isArchiveFile } from '../../utils/archiveBrowser';
+
 function getFileExt(name: string): string {
   return (name.split('.').pop() || '').toLowerCase();
 }
 
-export function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'ppt' | 'image' | 'markdown' | 'text' | 'html' | 'unknown' {
+export function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'ppt' | 'image' | 'markdown' | 'text' | 'html' | 'archive' | 'unknown' {
+  if (isArchiveFile(artifact)) return 'archive';
   const ext = getFileExt(artifact.name);
   const mime = artifact.mime_type || '';
   if (ext === 'docx' || ext === 'doc' || mime.includes('wordprocessingml')) return 'docx';

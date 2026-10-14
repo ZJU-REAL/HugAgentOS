@@ -76,7 +76,7 @@ export async function sendPlanMode(
   const enabledKbIds = (catalog.kb || []).filter(x => x.enabled).map(x => String(x.id).trim()).filter(Boolean);
 
   const userMsg: ChatMessage = {
-    role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
+    role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(true), ts: Date.now(),
     ...(attachments.length > 0 && {
       attachments: attachments.map(a => ({
         name: a.name, mime_type: a.mime_type, file_id: a.file_id, download_url: a.download_url, origin: a.origin,
@@ -96,7 +96,7 @@ export async function sendPlanMode(
     });
   }
 
-  const bubbleUid = newMessageUid();
+  const bubbleUid = newMessageUid(true);
   const appendAssistant = makePlanAppender(currentChatId, bubbleUid);
   appendAssistant('', true);
 

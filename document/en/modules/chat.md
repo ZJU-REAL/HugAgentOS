@@ -19,11 +19,24 @@ Each conversation, new conversation, and project keeps its own unsent draft. Swi
 The scheduled-task setup template is inserted only when its conversation is created. Editing or clearing it is preserved across navigation. In-flight uploads stay with their originating draft, including when a project draft becomes a new conversation on its first send. Drafts remain in the current page's memory and are cleared on refresh or logout.
 
 
+## Messages and reasoning
+
+User messages use rounded bubbles. Only newly sent messages play the entrance animation. History loading and returning to a conversation do not replay it. Message actions remain available on hover, keyboard focus, and touch devices.
+
+Standalone reasoning retains its original inline summary. Reasoning within tool steps retains the timeline style. Click the summary or press Enter / Space while focused to expand or collapse it. Streaming updates preserve this choice.
+
+Composer attachments use compact cards that retain filename extensions and omit the bottom file-type label. Failed uploads keep an inline error and a Retry action. Removing an attachment or switching drafts during an upload cannot place the result in another draft. Completed attachments retain preview and download actions. The document/image filter in My Space supports arrow keys, Home / End, and selected-state feedback.
+
+
 ## Uploaded attachment previews
 
 Once an upload completes, click its attachment card above the composer or in a sent message to preview it in the right-hand Canvas; images display directly. Canvas uses the existing document viewers and offers a download fallback for unsupported formats. Uploading or failed files do not open a preview. The download icon on message attachments and the Canvas download button remain available.
 
 ## Navigation within a conversation
+
+When tool results, prompts, or project resources occupy part of the workspace, the scroll viewport and turn navigation follow the actual chat content column. Fullscreen or narrow-screen Canvas overlays remove the hidden chat from keyboard focus and hide turn navigation; collapsing the panel restores focus to the chat toggle.
+
+The chat scrollbar sits at the right edge of the conversation pane, with turn navigation beside it. Messages and the composer retain their existing dimensions and centered positions. A closed side panel reserves no Canvas space, and completing a reply does not change the layout.
 
 The short marks on the right of the conversation represent loaded user turns. Hover or focus a mark to preview the question and answer; click to jump to that part of the same conversation. A longer, darker mark identifies the current turn. Arrow keys and Home / End move focus, Enter / Space jump, and Escape dismisses the preview. With reduced motion enabled, navigation jumps immediately.
 

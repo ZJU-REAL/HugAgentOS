@@ -78,11 +78,12 @@ def register_run_job(
     model_name: Optional[str] = None,
     model_provider_id: Optional[str] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
+    parent_runtime: Optional[Dict[str, Any]] = None,
 ) -> None:
     """注册 run_job。
 
-    ``allowed_tools`` 是本次会话解析出来的可用 MCP 工具面；作业脚本声明的工具会与它取
-    交集，脚本不能提权到会话本身没有的能力。
+    ``parent_runtime`` 保存主智能体的能力配置；每个 agent() 使用独立上下文派生实例。
+    ``allowed_tools`` 保留脚本显式选择 MCP 的权限检查。
     """
 
     async def run_job(
@@ -208,6 +209,7 @@ def register_run_job(
                         "model_name": model_name,
                         "model_provider_id": model_provider_id,
                         "project_ctx": project_ctx,
+                        "parent_runtime": parent_runtime,
                         # wait=False 时作业跑完没人叫醒本会话 → 打标，让驱动在终态入队一轮续跑
                         "wake_on_finish": not wait,
                         # 中途进度播报间隔（秒）；0 = 只在终态叫一次

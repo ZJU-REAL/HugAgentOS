@@ -22,6 +22,11 @@ async def sticky_capabilities(
     required: RequiredCapabilities,
     sticky: StickyCapabilities,
 ):
+    inherited_skills = set(request.enabled_skill_ids or [])
+    inherited_mcps = set(request.enabled_mcp_ids or [])
+    capability_chat = (
+        request.capability_source_chat_id if request.derived_main else None
+    ) or request.chat_id
     if (
         capabilities_enabled()
         and not request.disable_tools
@@ -88,7 +93,7 @@ async def sticky_capabilities(
     if (
         not request.disable_tools
         and request.current_user_id
-        and request.chat_id
+        and capability_chat
         and _eval_scope is None
         and (not request.turbo_mode or _mode_manual_invoke)
     ):
@@ -100,12 +105,12 @@ async def sticky_capabilities(
                 asyncio.to_thread(
                     _sticky_plugins.resolve_sticky_plugin_capabilities,
                     user_id=str(request.current_user_id),
-                    chat_id=request.chat_id,
+                    chat_id=capability_chat,
                 ),
                 asyncio.to_thread(
                     _sticky_direct.resolve_session_activated_capabilities,
                     user_id=str(request.current_user_id),
-                    chat_id=request.chat_id,
+                    chat_id=capability_chat,
                 ),
             )
             sticky.plugin_ids = list(_sticky.install_ids)
@@ -149,4 +154,14 @@ async def sticky_capabilities(
                 raise  # a saved source must not silently disappear or change account
             _log.warning("[factory] sticky capability restore failed: %s", exc)
 
+    if request.derived_main:
+        # A fork rechecks parent activation authority but never gains later grants.
+        for name in ("direct_skill_ids", "plugin_skill_ids"):
+            setattr(sticky, name, [s for s in getattr(sticky, name) if s in inherited_skills])
+        for name in ("direct_mcp_ids", "plugin_mcp_ids"):
+            setattr(sticky, name, [m for m in getattr(sticky, name) if m in inherited_mcps])
+        request.enabled_skill_ids = [
+            s for s in request.enabled_skill_ids or [] if s in inherited_skills
+        ]
+        request.enabled_mcp_ids = [m for m in request.enabled_mcp_ids or [] if m in inherited_mcps]
     return (sticky,)

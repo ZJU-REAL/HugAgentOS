@@ -33,7 +33,7 @@ _WORKFLOW_MODE_HINT = (
     "   - `ledger.seed(items)` 建台账（每项给 key 与 payload 两个字段），按 key 幂等；\n"
     "   - `job.map(items, fn, concurrency=8)` 并发跑，**fn 返回 dict 会自动逐项落账**"
     "（返回 None 表示你自己 update 过了；抛异常自动记 failed）；\n"
-    "   - `agent(prompt, schema=..., tools=[...], item_key=...)` 派子智能体做每项的模型判断；\n"
+    "   - `agent(prompt, schema=..., tools=[...], item_key=...)` 派生独立主智能体处理每项；继承技能、工具、知识库和子智能体，直接执行，无需审批；\n"
     "   - `ledger.pending()` / `ledger.stats()` / `job.budget()` / `log(...)`。\n"
     "\n"
     "   **照这个骨架写**——最常踩的坑是 seed 和 map 用了两份不同的列表：\n"

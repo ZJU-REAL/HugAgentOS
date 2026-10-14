@@ -265,7 +265,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
 
                 if (seg.type === 'text') {
                   const textContent = seg.content || '';
-                  if (!textContent && !m.isStreaming) return null;
+                  if (!textContent && (!m.isStreaming || !isLastSeg)) return null;
                   const effectiveCitations = conversationCitations;
                   // OFF mode keeps the inline StreamWaitIndicator under the
                   // text bubble; ON mode handles waits inside the shell so

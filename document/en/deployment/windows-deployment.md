@@ -546,3 +546,10 @@ A failed load offers Retry. A failed save preserves the current layout and shows
 Both layouts share conversations, projects, feature permissions and configured navigation entries.
 
 Rebuild and distribute desktop packages to deliver this change. Updating the website does not update installed clients.
+
+
+### Browser tools in local conversations
+
+Browser tools in local conversations execute on the device. Plugins still come from the current cloud account. Worker and Canvas files share the synchronized content hash; execution location does not change plugin ownership.
+The local MCP binds resources to the local user, conversation and selected installation. Missing or mismatched conversations, disabled plugins and invalid packages stop execution without falling back to a cloud browser.
+Existing definition-only snapshots require another capability sync. Update both the cloud bundle exporter and the bundled desktop backend; updating only the cloud or website does not replace the old client's invocation path.

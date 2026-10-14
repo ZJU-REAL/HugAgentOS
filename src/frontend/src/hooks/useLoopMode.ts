@@ -110,7 +110,7 @@ export async function sendLoopMode(
   if (!directMessage) draft.consume(draft, ['text']);
 
   // 1) Optimistically render the user objective (the assistant placeholder bubble is created by the unified stream processor)
-  const userMsg: ChatMessage = { role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now() };
+  const userMsg: ChatMessage = { role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(true), ts: Date.now() };
   updateStore((prev) => {
     const c = prev.chats[currentChatId];
     const nextChat: ChatItem = {

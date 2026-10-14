@@ -128,7 +128,7 @@
   user-select:text !important;
   cursor:text;
   padding:10px 14px;
-  border-radius:18px 18px 4px 18px;
+  border-radius:var(--radius-md);
   border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
   background:color-mix(in srgb, var(--color-fill-hover) 96%, transparent);
   line-height:1.74;
@@ -136,7 +136,7 @@
   white-space:pre-wrap;
   word-break:break-word;
   color:color-mix(in srgb, var(--color-text) 80%, transparent);
-  box-shadow:0 1px 3px rgba(15,23,42,.045);
+  box-shadow:none;
   display:inline-block;
   letter-spacing:.003em;
   font-weight:400;
@@ -155,7 +155,7 @@
   background:color-mix(in srgb, var(--color-fill-hover) 92%, transparent);
   color:color-mix(in srgb, var(--color-text) 78%, transparent);
   border-color:color-mix(in srgb, var(--color-text) 7.5%, transparent);
-  box-shadow:0 1px 3px rgba(15,23,42,.04);
+  box-shadow:none;
   font-size:15px;
   line-height:1.78;
 }
@@ -474,4 +474,17 @@
 
 :root[data-theme="dark"] .jx-turnStatus-clock{
   color:var(--color-text-tertiary);
+}
+
+/* Fresh user messages enter once; history and streaming text keep their layout. */
+.jx-msg.user.jx-msg--fresh {
+  animation:jx-userBubbleEnter var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
+  transform-origin:right top;
+}
+@keyframes jx-userBubbleEnter {
+  from { opacity:0; transform:translateY(6px) scale(.96); }
+  to { opacity:1; transform:none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-userBubbleEnter { from, to { opacity:1; transform:none; } }
 }

@@ -29,6 +29,8 @@ async def create_agent_executor(
     user_agent: Optional[Any] = None,
     visible_subagents: Optional[List[Dict[str, Any]]] = None,
     isolated: bool = False,
+    derived_main: bool = False,
+    capability_source_chat_id: Optional[str] = None,
     max_iters: Optional[int] = None,
     plan_mode: bool = False,
     # model_role: 指定按「模型管理 → 角色分配」的哪个角色解析默认模型（如
@@ -144,6 +146,8 @@ async def create_agent_executor(
         user_agent=user_agent,
         visible_subagents=visible_subagents,
         isolated=isolated,
+        derived_main=derived_main,
+        capability_source_chat_id=capability_source_chat_id,
         max_iters=max_iters,
         plan_mode=plan_mode,
         model_role=model_role,

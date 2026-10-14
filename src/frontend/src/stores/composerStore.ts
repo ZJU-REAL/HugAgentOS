@@ -27,6 +27,7 @@ export interface ComposerDraft {
   uploadedFiles: File[];
   uploadedArtifacts: Map<File, UploadedAttachment>;
   uploadingFiles: Set<File>;
+  uploadErrors: Map<File, string>;
   importedSpaceFiles: ImportedSpaceFile[];
   uploads: Map<File, Promise<UploadedAttachment>>;
 }
@@ -35,7 +36,7 @@ function emptyDraft(): ComposerDraft {
     input: '', document: null, quotedFollowUp: null,
     activeSkill: null, activePlugin: null, activeConnector: null, activeMention: null,
     activeCommand: null, referencedChats: [], uploadedFiles: [], uploadedArtifacts: new Map(),
-    uploadingFiles: new Set(), importedSpaceFiles: [], uploads: new Map(),
+    uploadingFiles: new Set(), uploadErrors: new Map(), importedSpaceFiles: [], uploads: new Map(),
   };
 }
 let nextDraftId = 0;
@@ -108,11 +109,18 @@ export function composerActions(ownerId: string, epoch = useComposerStore.getSta
     removeReferencedChat: (id: string) => patch(d => ({ referencedChats: d.referencedChats.filter(c => c.chat_id !== id) })),
     setUploadedFiles: (uploadedFiles: File[]) => patch(d => ({
       uploadedFiles, uploadedArtifacts: new Map([...d.uploadedArtifacts].filter(([f]) => uploadedFiles.includes(f))),
+      uploadErrors: new Map([...d.uploadErrors].filter(([f]) => uploadedFiles.includes(f))),
     })),
     setUploadedArtifact: (file: File, artifact: UploadedAttachment) => patch(d => ({
       uploadedArtifacts: d.uploadedFiles.includes(file) ? new Map(d.uploadedArtifacts).set(file, artifact) : d.uploadedArtifacts,
     })),
-    addUploadingFile: (file: File) => patch(d => ({ uploadingFiles: new Set(d.uploadingFiles).add(file) })),
+    setUploadError: (file: File, error: string) => patch(d => ({
+      uploadErrors: d.uploadedFiles.includes(file) ? new Map(d.uploadErrors).set(file, error) : d.uploadErrors,
+    })),
+    addUploadingFile: (file: File) => patch(d => {
+      const uploadErrors = new Map(d.uploadErrors); uploadErrors.delete(file);
+      return { uploadingFiles: new Set(d.uploadingFiles).add(file), uploadErrors };
+    }),
     removeUploadingFile: (file: File) => patch(d => {
       const uploadingFiles = new Set(d.uploadingFiles); uploadingFiles.delete(file);
       return { uploadingFiles };
@@ -133,6 +141,7 @@ export function composerActions(ownerId: string, epoch = useComposerStore.getSta
         referencedChats: parts.includes('references') ? d.referencedChats.filter(c => !snapshot.referencedChats.includes(c)) : d.referencedChats,
         uploadedFiles,
         uploadedArtifacts: new Map([...d.uploadedArtifacts].filter(([f]) => uploadedFiles.includes(f))),
+        uploadErrors: new Map([...d.uploadErrors].filter(([f]) => uploadedFiles.includes(f))),
         uploadingFiles: parts.includes('attachments') ? new Set([...d.uploadingFiles].filter(f => !snapshot.uploadedFiles.includes(f))) : d.uploadingFiles,
         importedSpaceFiles: parts.includes('attachments') ? d.importedSpaceFiles.filter(f => !snapshot.importedSpaceFiles.includes(f)) : d.importedSpaceFiles,
       };

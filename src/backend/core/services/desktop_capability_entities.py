@@ -184,8 +184,7 @@ def _agent_files(serialized: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
-    if installed.get("_uploaded_files") is not None:
-        return dict(installed["_uploaded_files"])
+    uploaded = installed.get("_uploaded_files")
     definition = {
         "install_id": installed["install_id"],
         "slug": installed["slug"],
@@ -202,7 +201,19 @@ def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
         "import_report": installed.get("import_report") or {},
     }
     definition.update(_public_declarations(installed))
-    return {"plugin.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2)}
+    if uploaded is not None:
+        definition = json.loads(uploaded["plugin.json"])
+    from core.services.desktop_resource_plugins import package_files
+    assets, native = package_files(installed)
+    if uploaded is not None and not native:
+        return dict(uploaded)
+    if native:
+        definition["native_servers"] = native
+    return {
+        **(uploaded or {}),
+        "plugin.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2),
+        **assets,
+    }
 
 
 def _user_agents(user_id: str) -> List[Dict[str, Any]]:
