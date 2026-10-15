@@ -38,6 +38,7 @@ def state(db):
                 ContentBlock.id.startswith("workbench.", autoescape=True),
             ),
             ContentBlock.id.notin_([RECEIPT, "workbench_namespace_lock"]),
+            ~ContentBlock.id.startswith("workbench_lock:", autoescape=True),
         )
         .order_by(ContentBlock.id)
     }
