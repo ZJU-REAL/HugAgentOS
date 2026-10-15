@@ -91,7 +91,11 @@ def issue_asset_ticket(resource_id: str, request: Request, user: UserContext = D
     row = service.authorized(db, resource_id, str(user.user_id))
     from core.plugins.resources.installation import resolve
     from core.plugins.ui.contract import find_module
-    selected = resolve(db, row.slug, str(user.user_id), row.install_id)
+    if row.application_key is not None:
+        from core.plugins.resources.owners import resolve_installation
+        selected = resolve_installation(db, row, str(user.user_id))
+    else:
+        selected = resolve(db, row.slug, str(user.user_id), row.install_id)
     module = find_module(selected.ui, row.module_id)
     if module is None:
         raise HTTPException(404, "resource_module_unavailable")
@@ -109,7 +113,13 @@ async def resource_asset(execution_scope: str, ticket: str, asset_path: str, db:
     row = service.authorized(db, resource_id, user_id)
     if row.scope != execution_scope:
         raise HTTPException(409, "execution_scope_mismatch")
-    response = web_asset_response(db, row.slug, user_id, asset_path, row.install_id)
+    if row.application_key is not None:
+        from core.plugins.resources.owners import resolve_installation
+        selected = resolve_installation(db, row, user_id)
+        response = web_asset_response(db, row.slug, user_id, asset_path, row.install_id,
+                                      _installation=selected)
+    else:
+        response = web_asset_response(db, row.slug, user_id, asset_path, row.install_id)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Access-Control-Allow-Origin"] = "null"
     return response

@@ -1,0 +1,209 @@
+/* ══════════════════════════════════════════════════════════════════
+   Agent Page — pixel-matched to UI design spec screenshot
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-agentPage {
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 28px 24px 80px;
+  container:agent-page / inline-size;
+}
+
+/* ── Header: title left, search right ────────────────────────── */
+
+.jx-agentPage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap:wrap;
+  gap:12px;
+}
+
+.jx-agentPage-headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.jx-agentPage-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 6px;
+}
+
+.jx-agentPage-subtitle {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  font-weight: 400;
+  margin: 0;
+}
+
+.jx-agentPage-search {
+  width: 224px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.jx-agentPage-createBtn.ant-btn {
+  height: 36px;
+  border-radius: 8px;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.jx-agentPage-search .ant-input {
+  font-size: 14px;
+}
+
+.jx-agentPage-empty {
+  text-align: center;
+  padding: 64px 0;
+  color: var(--color-text-placeholder);
+  font-size: 14px;
+}
+
+/* ── Card Grid (exactly 2 cols) ──────────────────────────────── */
+
+.jx-agentPage-grid {
+  display: grid;
+  /* minmax(0,1fr)：防止卡片里不可折行的长名字把整列轨道撑爆（同 .jx-sk-grid） */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 20px;
+}
+
+/* ── Card ─────────────────────────────────────────────────────── */
+
+/* hover 抬升/按压由 .jx-card-lift（motion.css）提供 */
+
+.jx-agentCard {
+  padding: 16px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-container);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.jx-agentCard:hover {
+  border-color: var(--color-fill);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.jx-agentCard--disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Card body: flex col gap-2 */
+
+.jx-agentCard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Head row: icon  [name+badge]  [ops] */
+
+.jx-agentCard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 28px circle icon */
+
+.jx-agentCard-iconWrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* name + badge sub-row */
+
+.jx-agentCard-nameRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.jx-agentCard-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-agentCard-badge {
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
+  line-height: 1.4;
+  transition: var(--motion-transition-hover);
+}
+
+.jx-agentCard-badge--builtin {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* 编辑/删除按钮的皮肤（显形时机由共用的 .jx-cardTailActions 统一管，见文件末尾）。
+   这里用原生 button 而非 antd Button，所以皮肤要限定在智能体卡片内，别外溢到其他卡片。 */
+
+.jx-agentCard .jx-cardTailActions button {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 4px 5px;
+  border-radius: 4px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  transition: color .12s, background .12s;
+}
+
+.jx-agentCard .jx-cardTailActions button:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.jx-agentCard .jx-cardTailActions button.danger:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
+}
+
+/* Description */
+
+.jx-agentCard-desc {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  line-height: 1.65;
+  margin: 0;
+  text-align: justify;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

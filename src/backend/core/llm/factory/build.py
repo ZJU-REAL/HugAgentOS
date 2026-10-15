@@ -15,6 +15,8 @@ from orchestration.registry import AgentSpec
 @close_factory_clients_on_error
 async def create_agent_executor(
     agent_spec: Optional[AgentSpec] = None,
+    profile: Optional[str] = None,
+    profile_ref: Optional[str] = None,
     user_query: Optional[str] = None,
     disable_tools: bool = False,
     enabled_skill_ids: Optional[list[str]] = None,
@@ -37,17 +39,16 @@ async def create_agent_executor(
     # "loop_reviewer"）。优先级低于用户显式选择的 model_provider_id/model_name，
     # 高于 main_agent 兜底；plan_mode=True 等价于 model_role="plan_agent"。
     model_role: Optional[str] = None,
-    batch_mode: bool = False,
     # workflow_mode: 工作流模式（用户显式触发：斜杠命令 /workflow 或 + 菜单选「工作流模式」）。
-    # 只有它为 True 才注册 run_job 并注入作业脚本写法——与计划模式/批量执行同属"用户触发的
+    # 只有它为 True 才注册 run_job 并注入作业脚本写法——与计划模式同属"用户触发的
     # 模式"，不触发就完全不存在，普通问答不会被无关的批量规则干扰。
     workflow_mode: bool = False,
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
     # True explicitly after determining (has chat_id, not
-    # channel/automation/batch/plan_chat). The update_plan tool is
+    # channel/automation/plan_chat). The update_plan tool is
     # registered ONLY on this positive signal. All derived/non-interactive paths
-    # (plan generation, plan-execute steps, subagents, batch, autonomous loop,
+    # (plan generation, plan-execute steps, subagents, autonomous loop,
     # channels, non-streaming…) default to False → they naturally never get the
     # tool, eliminating "plan within plan" nesting and all kinds of context
     # leaks at the root.
@@ -131,6 +132,8 @@ async def create_agent_executor(
     agent_api_scope: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     request = AgentRequest(
+        profile=profile,
+        profile_ref=profile_ref,
         agent_spec=agent_spec,
         user_query=user_query,
         disable_tools=disable_tools,
@@ -151,7 +154,6 @@ async def create_agent_executor(
         max_iters=max_iters,
         plan_mode=plan_mode,
         model_role=model_role,
-        batch_mode=batch_mode,
         workflow_mode=workflow_mode,
         top_level_chat=top_level_chat,
         chat_id=chat_id,

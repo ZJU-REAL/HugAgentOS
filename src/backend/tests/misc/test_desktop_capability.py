@@ -118,7 +118,7 @@ def _activate_bridge(monkeypatch, servers):
         lambda: {
             "internet_search",
             "retrieve_dataset_content",
-            "batch_runner",
+            "web_fetch",
             "sites-site_publish",
             "skill-manager-skill_manager",
         },
@@ -164,19 +164,19 @@ _CLOUD_SERVERS = [
         ),
     },
     _cloud_server("skill-manager-skill_manager", "skill-manager", "skill_manager"),
-    # 云端站点和批量工具与其它连接器使用相同的来源解析规则
+    # 云端站点和网页工具与其它连接器使用相同的来源解析规则
     _cloud_server("sites-site_publish", "sites", "site_publish"),
-    _cloud_server("batch_runner", None, "run_batch"),
+    _cloud_server("web_fetch", None, "fetch_webpage"),
 ]
 
 
 def test_apply_merges_cloud_and_suppresses_local(monkeypatch):
     _activate_bridge(monkeypatch, _CLOUD_SERVERS)
     out = bridge.apply_to_enabled_mcp_ids(
-        ["internet_search", "batch_runner", "sites-site_publish", "skill-manager-skill_manager"]
+        ["internet_search", "web_fetch", "sites-site_publish", "skill-manager-skill_manager"]
     )
     # 同名连接器默认选中当前账号的云端绑定
-    assert "batch_runner" in out
+    assert "web_fetch" in out
     assert "sites-site_publish" in out
     # 云端 id 注入
     assert "industry-knowledge-center-ai_chain_information_mcp" in out
@@ -188,7 +188,7 @@ def test_apply_merges_cloud_and_suppresses_local(monkeypatch):
 
 def test_apply_noop_when_bridge_inactive(monkeypatch):
     monkeypatch.setattr(bridge, "bridge_enabled", lambda: False)
-    ids = ["internet_search", "batch_runner"]
+    ids = ["internet_search", "web_fetch"]
     assert bridge.apply_to_enabled_mcp_ids(list(ids)) == ids
     assert bridge.apply_to_enabled_mcp_ids(None) is None
 
@@ -202,7 +202,7 @@ def test_apply_noop_when_manifest_missing(monkeypatch):
 
 def test_apply_is_idempotent(monkeypatch):
     _activate_bridge(monkeypatch, _CLOUD_SERVERS)
-    once = bridge.apply_to_enabled_mcp_ids(["internet_search", "batch_runner"])
+    once = bridge.apply_to_enabled_mcp_ids(["internet_search", "web_fetch"])
     twice = bridge.apply_to_enabled_mcp_ids(list(once))
     assert once == twice
 
@@ -221,7 +221,7 @@ def test_cloud_gateway_configs_shape(monkeypatch):
     assert cfg["manifest_tools"][0]["name"] == "ai_chain_information"
     assert cfg["schema_hash"]
     # 同名本机候选不再阻止已选中的云端配置
-    assert cfgs["batch_runner"]["schema_source"] == "cloud_manifest"
+    assert cfgs["web_fetch"]["schema_source"] == "cloud_manifest"
     # 正式站点只能云端托管，因此必须生成网关配置并标出提供它的插件。
     assert cfgs["sites-site_publish"]["gateway_plugin"] == "sites"
 
@@ -373,7 +373,7 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
 
 
 @pytest.mark.parametrize(
-    "server_id", ["automation-automation_task", "batch_runner", "web_fetch"]
+    "server_id", ["automation-automation_task", "web_fetch"]
 )
 def test_cloud_tool_remains_available_without_local_launcher(monkeypatch, server_id):
     _activate_bridge(monkeypatch, [_cloud_server(server_id, None, "test_tool")])
@@ -391,7 +391,6 @@ def test_legacy_environment_cannot_hide_authorized_cloud_tools(monkeypatch, lega
         _cloud_server(sid, None, "tool_" + str(i))
         for i, sid in enumerate(
             [
-                "batch_runner",
                 "web_fetch",
                 "automation-automation_task",
                 "sites-site_publish",

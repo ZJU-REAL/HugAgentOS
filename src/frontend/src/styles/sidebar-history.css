@@ -245,45 +245,6 @@
 }
 .jx-historyItem:hover .jx-historyTypeIcon{ color:color-mix(in srgb, var(--color-text) 55%, transparent); }
 
-/* ── Running indicator (pulse dot) ── */
-/* motion-keep: 会话「正在运行」小圆点 */
-.jx-historyRunningDot{
-  flex-shrink:0;
-  width:7px; height:7px;
-  margin-left:6px;
-  border-radius:50%;
-  background:var(--color-primary);
-  animation: jx-pulse 1.4s ease-in-out infinite;
-}
-@keyframes jx-pulse{
-  0%,100%{ opacity:.35; transform:scale(.85); }
-  50%{ opacity:1; transform:scale(1.1); }
-}
-
-/* ── §13 待确认指示（稳定蓝点，区别于运行中的脉冲点）── */
-.jx-historyConfirmDot{
-  flex-shrink:0;
-  width:7px; height:7px;
-  margin-left:6px;
-  border-radius:50%;
-  background:var(--color-primary);
-  box-shadow:0 0 0 3px var(--color-primary-light);
-  /* 一次性挂载弹入（复用 motion.css 的 jx-kf-statusIn 原语），落定后保持静止 */
-  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
-}
-
-/* Assistant question waiting state: amber and stationary, so it remains
- * distinct from both the blue running pulse and write-confirm indicator. */
-.jx-historyQuestionDot{
-  flex-shrink:0;
-  width:8px; height:8px;
-  margin-left:6px;
-  border-radius:50%;
-  background:var(--color-warning);
-  box-shadow:0 0 0 3px color-mix(in srgb, var(--color-warning) 20%, transparent);
-  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
-}
-
 .jx-visuallyHidden{
   position:absolute;
   width:1px;

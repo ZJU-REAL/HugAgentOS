@@ -18,7 +18,6 @@ export const STORES_DICT: Record<string, string> = {
   // mySpaceStore — error
   '当前作用域不支持上传': 'Upload is not supported in the current scope',
 
-  // batchStore — error fallbacks
   '流式连接异常': 'Streaming connection error',
 
   // projectStore — error
@@ -28,8 +27,6 @@ export const STORES_DICT: Record<string, string> = {
     'Describe a complex task and the AI will break it into steps and execute them, ideal for data analysis, report generation, and policy interpretation.',
   '设置定时或周期性 AI 任务，支持自然语言提示词和计划模式的自动执行，适用于定期报告、数据监控等场景':
     'Set up scheduled or recurring AI tasks with natural-language prompts or plan mode, ideal for periodic reports and data monitoring.',
-  '对一组对象（Excel 行 / 多份文档 / 文本枚举）批量执行同一任务，AI 自动生成可确认的执行计划并逐条处理':
-    'Run the same task on a set of items (Excel rows, documents, or text lists). The AI generates a confirmable execution plan and processes each item.',
   // homepage shortcut labels / capability cards
   '知识检索': 'Knowledge Search',
   '政策对比': 'Policy Comparison',

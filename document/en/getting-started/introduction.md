@@ -18,7 +18,6 @@ The platform ships in two editions: the **Community Edition (CE, open source)** 
 | Memory system | mem0 three-layer memory: L1 user profile, L2 vector memory (Milvus), L3 knowledge graph (Neo4j), with cross-session injection and background extraction | CE (memory audit: EE) |
 | Knowledge-base RAG | Document upload, chunking, hybrid vector + keyword retrieval, and private knowledge bases; EE can add public and external Dify knowledge bases | CE (public KB and Dify integration: EE) |
 | Automation | Scheduled tasks / cron scheduling / prompt & plan automation / failure retry (`orchestration/schedulers/`) | CE |
-| Batch execution | Excel / Word / list templates with placeholder substitution, batch plan generation and execution (batch_runner MCP) | CE (team quota billing: EE) |
 | Data canvas | Online spreadsheet editing built on Univer | CE for personal editing; real-time multi-user collaboration: EE |
 | Projects / My Space | Personal projects (file capacity quota), personal drive (myspace), favorites, conversation sharing | CE (team folders / permission matrix: EE) |
 | Admin consoles | `/admin` content management (skills, capability center, release notes) + `/config` system console (prompt version pool, models, users/teams, billing, audit, security) | CE basics; full console (users/teams/billing/audit/security): EE |

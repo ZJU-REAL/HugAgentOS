@@ -47,7 +47,6 @@ _BASE_PORTS: dict[str, int] = {
     # 9105 reserved (retired report_export_mcp; document export now uses skills)
     # 9104 reserved (retired chart MCP; charts use sandbox skills)
     "web_fetch": 9106,
-    "batch_runner": 9107,
     "automation_task": 9108,  # 定时任务管理（插件市场可装卸；身份走 X-Current-User-Id 头）
     "skill_manager": 9112,  # 技能管理（skill-manager 插件；搜/装/创建/上架/删；身份走 X-Current-User-Id 头）
     "site_publish": 9113,  # 对话建站发布（sites 插件；把沙箱静态站发布为托管站点；身份走 X-Current-User-Id / X-Conversation-Id 头）

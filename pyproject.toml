@@ -30,7 +30,7 @@ dev = [
 # Console entry for the no-Docker local profile: `hugagent` (onboard / serve /
 # doctor). CE and EE share this technical identifier.
 [project.scripts]
-hugagent = "cli:main"
+hugagent = "hugagent_cli.main:main"
 
 # ── Packaging: src/backend is the import root ────────────────────────────────
 # The project has always run with PYTHONPATH=src/backend (top-level `api`,
@@ -47,7 +47,7 @@ dependencies = {file = ["requirements.txt"]}
 where = ["src/backend"]
 include = [
     "api*", "core*", "orchestration*", "prompts*", "mcp_servers*",
-    "services*", "agent_bundles*", "plugin_bundles*", "skill_bundles*",
+    "hugagent_cli*", "services*", "agent_bundles*", "plugin_bundles*", "skill_bundles*",
 ]
 # alembic migrations / tests / uploads / scripts are not import-time runtime deps.
 exclude = ["tests*", "alembic*", "uploads*", "scripts*"]

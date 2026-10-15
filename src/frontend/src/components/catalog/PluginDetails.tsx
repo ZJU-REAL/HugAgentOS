@@ -1,3 +1,4 @@
+import { PluginUpgradeCard } from '../../workbench/PluginUpgradeCard';
 import { sourceLabel } from './pluginLabels';
 import { motion } from 'motion/react';
 import { Switch, Tag, Typography, Button, Popconfirm, Alert } from 'antd';
@@ -107,11 +108,12 @@ export function PluginComponentDetail({component, navDir, backToPlugin, setToolD
 
 }
 
-export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handleToggle, handleUninstall, openComponent}: {
+export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handleToggle, handleUninstall, openComponent, onUpgradeChanged}: {
   pluginDetail: InstalledPluginDetail; navDir: NavDir; backToList: () => void; isCE: boolean;
   handleToggle: (id: string, enabled: boolean) => Promise<void>;
   handleUninstall: (id: string, name: string) => Promise<void>;
   openComponent: (component: SelectedComponent) => void;
+  onUpgradeChanged?: () => Promise<void>;
 }) {
     const d = pluginDetail;
     const skills: PluginSkillComponent[] = d.skills;
@@ -153,6 +155,8 @@ export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handle
             <p className="jx-sk-metaDesc">{stripMarkdown(d.description) || t('暂无描述')}</p>
             {d.category && <Tag>{d.category}</Tag>}
           </div>
+
+          {!d.is_global && <PluginUpgradeCard installId={d.install_id} onChanged={onUpgradeChanged} />}
 
           {d.slug === 'feishu-cli' && <LarkAppInitCard />}
 

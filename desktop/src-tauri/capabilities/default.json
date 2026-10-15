@@ -8,14 +8,6 @@
   ],
   "permissions": [
     "core:default",
-    "opener:default",
-    "opener:allow-open-url",
-    "deep-link:default",
-    "dialog:default",
-    "notification:default",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
-    "updater:default"
+    "deep-link:default"
   ]
 }

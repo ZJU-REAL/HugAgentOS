@@ -1,5 +1,10 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '应用 ID': 'Application ID',
+  '应用名称': 'Application name',
+  '应用简介': 'Application description',
+  '跳转 URL': 'Destination URL',
+  '应用 ID 已存在': 'Application ID already exists',
   '下载失败': 'Download failed',
   '团队文件夹': 'Team Folder',
   '发布': 'Publish',
@@ -346,6 +351,4 @@ export const CE_SHARED_DICT: Record<string, string> = {
   '端口': 'Port',
   '（未启用）': ' (disabled)',
   '请输入字段名': 'Enter column name',
-  '已发布': 'Published',
-  '未发布': 'Unpublished',
 };

@@ -1,0 +1,390 @@
+/* ── Knowledge Base ── */
+
+.jx-kbView{
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  min-height:calc(100dvh - 98px);
+  max-width:980px;
+  margin:0 auto;
+  padding:24px 24px 44px;
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  background:transparent;
+  container:knowledge-view / inline-size;
+}
+
+/* 内嵌在「我的空间 → 知识库」Tab 里：外层 shell 已经限宽 980 并自带滚动，
+   这里去掉自身的限宽/左右内边距/整屏最小高度，跟其它 Tab 的内容左右缘对齐。 */
+
+/* 顶部留 20px：让「公共/私有知识库」Tab 条与上方那句说明文案拉开距离，
+   与「文件资产」Tab 里 .jx-mySpace-assetBar 的 24px 上边距保持同一套竖向节奏。 */
+
+.jx-kbView--embedded{
+  min-height:0;
+  max-width:none;
+  margin:0;
+  padding:20px 0 24px;
+}
+
+.jx-kbHero{
+  background:var(--color-bg-container);
+  border:1px solid var(--color-border);
+  border-radius:18px;
+  padding:28px 30px;
+  box-shadow:0 10px 26px color-mix(in srgb, var(--color-primary) 3.5%, transparent);
+}
+
+.jx-kbHeroTitle{
+  margin:0;
+  font-size:22px;
+  line-height:1.25;
+  font-weight:700;
+  color:var(--color-text);
+}
+
+.jx-kbHeroDesc{
+  margin:10px 0 0;
+  font-size:14px;
+  line-height:1.65;
+  color:var(--color-text-secondary);
+}
+
+.jx-kbTabsWrap{
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  margin-bottom:4px;
+}
+
+.jx-kbTabs{
+  display:flex;
+  align-items:flex-end;
+  gap:18px;
+  position:relative;
+}
+
+.jx-kbTab{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:2px 2px 14px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  position:relative;
+  font-size:15px;
+  line-height:1.2;
+  font-weight:500;
+  color:var(--color-text);
+  cursor:pointer;
+}
+
+.jx-kbTab::after{
+  display:none;
+}
+
+.jx-kbTabIndicator{
+  position:absolute;
+  left:0;
+  bottom:-1px;
+  height:3px;
+  border-radius:999px 999px 0 0;
+  background:var(--color-primary);
+  opacity:0;
+  pointer-events:none;
+  transition:transform .32s cubic-bezier(.22,1,.36,1), width .32s cubic-bezier(.22,1,.36,1), opacity .18s ease;
+}
+
+.jx-kbTabIndicator.is-ready{
+  opacity:1;
+}
+
+.jx-kbTabCount{
+  min-width:22px;
+  height:22px;
+  padding:0 6px;
+  border-radius:3px;
+  background:var(--color-primary-bg);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:500;
+  color:var(--color-primary);
+}
+
+.jx-kbToolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px 18px;
+  flex-wrap:wrap;
+}
+
+.jx-kbToolbarSearch{
+  width:min(260px,100%);
+}
+
+.jx-kbToolbarSearch.ant-input-affix-wrapper{
+  height:44px;
+  border-radius:12px;
+  border-color:var(--color-border);
+  box-shadow:none;
+  padding-inline:12px;
+  background:var(--color-bg-container);
+}
+
+.jx-kbToolbarSearch .ant-input{
+  font-size:14px;
+}
+
+.jx-kbToolbarMeta{
+  display:flex;
+  align-items:center;
+  gap:10px 14px;
+  flex-wrap:wrap;
+  font-size:13px;
+  color:var(--color-text-secondary);
+}
+
+.jx-kbToolbarMeta .ant-btn{
+  height:40px;
+  border-radius:12px;
+  font-size:14px;
+  font-weight:500;
+  box-shadow:none;
+}
+
+.jx-kbLibraryGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap:12px;
+  align-items:stretch;
+}
+
+.jx-kbLibraryCard{
+  min-width:0;
+  overflow-wrap:anywhere;
+  width:100%;
+  appearance:none;
+  border:1px solid var(--color-border);
+  border-radius:14px;
+  background:var(--color-bg-container);
+  padding:16px 16px 12px;
+  text-align:left;
+  cursor:pointer;
+  box-shadow:0 10px 30px color-mix(in srgb, var(--color-primary) 4%, transparent);
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+
+.jx-kbLibraryCard:hover{
+  transform:translateY(-1px);
+  border-color:color-mix(in srgb, var(--color-primary) 24%, transparent);
+  box-shadow:0 10px 24px color-mix(in srgb, var(--color-primary) 4.5%, transparent);
+}
+
+.jx-kbLibraryCardTop{
+  display:grid;
+  grid-template-columns:62px minmax(0,1fr);
+  align-items:flex-start;
+}
+
+.jx-kbLibraryIcon{
+  width:44px;
+  height:44px;
+  min-width:44px;
+  min-height:44px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  align-self:flex-start;
+}
+
+.jx-kbDetailIcon{
+  width:36px;
+  height:36px;
+  min-width:36px;
+  min-height:36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  align-self:flex-start;
+}
+
+.jx-kbLibraryMain{
+  min-width:0;
+}
+
+.jx-kbLibraryTitleRow{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+
+.jx-kbLibraryTitle{
+  margin:0;
+  flex:1;
+  min-width:0;
+  font-size:15px;
+  line-height:1.4;
+  font-weight:500;
+  color:var(--color-text);
+}
+
+.jx-kbLibraryDesc{
+  margin:6px 0 0;
+  color:var(--color-text-secondary);
+  font-size:13px;
+  font-weight:400;
+  line-height:1.7;
+  display:block;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  overflow:hidden;
+}
+
+.jx-kbLibraryTags{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:12px;
+}
+
+.jx-kbPill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:26px;
+  padding:0 10px;
+  border-radius:8px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  background:var(--color-bg-container);
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  font-weight:400;
+  line-height:1.2;
+}
+
+.jx-kbPill-blue{
+  background:var(--color-primary-light);
+  border-color:var(--color-primary-bg);
+  color:var(--color-primary);
+}
+
+.jx-kbPill-green{
+  background:var(--color-tint-green-bg);
+  border-color:color-mix(in srgb, var(--color-tint-green) 30%, transparent);
+  color:var(--color-tint-green);
+}
+
+.jx-kbPill-orange{
+  background:var(--color-tint-amber-bg);
+  border-color:color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
+  color:var(--color-tint-amber);
+}
+
+.jx-kbEnabledTag.ant-tag{
+  margin:0;
+  font-size:12px;
+  font-weight:400;
+  border-radius:4px;
+  padding:1px 4px;
+  line-height:18px;
+  transition:var(--motion-transition-hover);
+}
+
+.jx-kbEnableRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+
+.jx-kbEnableLabel{
+  font-size:14px;
+  color:var(--color-text);
+}
+
+.jx-kbLibraryDocCount{
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  font-weight:400;
+  white-space:nowrap;
+  margin-left:auto;
+}
+
+.jx-kbLibraryLoading,
+.jx-kbDocLoading{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:14px 8px;
+  color:var(--color-text-placeholder);
+  font-size:13px;
+}
+
+.jx-kbLibraryCardSkeleton{
+  pointer-events:none;
+  background:color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  border-color:color-mix(in srgb, var(--color-bg-container) 95%, transparent);
+  box-shadow:none;
+}
+
+.jx-kbDocLoadingWrap{
+  display:flex;
+  flex-direction:column;
+}
+
+.jx-kbDocRowSkeleton{
+  pointer-events:none;
+}
+
+.jx-kbSkIcon{
+  width:48px;
+  height:48px;
+  border-radius:14px;
+}
+
+.jx-kbSkTitle{
+  width:min(220px,68%);
+  height:16px;
+  border-radius:999px;
+}
+
+.jx-kbSkArrow{
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  margin-left:auto;
+}
+
+.jx-kbSkDesc{
+  width:min(320px,90%);
+  height:11px;
+  border-radius:999px;
+  margin-top:8px;
+}
+
+.jx-kbSkTag{
+  width:58px;
+  height:24px;
+  border-radius:6px;
+}
+
+.jx-kbSkMeta{
+  width:88px;
+  height:12px;
+  border-radius:999px;
+  margin-left:auto;
+}
+
+.jx-kbLibraryEmpty{
+  grid-column:1 / -1;
+  background:var(--color-bg-container);
+  border:1px solid var(--color-border);
+  border-radius:16px;
+  padding:36px 20px;
+}

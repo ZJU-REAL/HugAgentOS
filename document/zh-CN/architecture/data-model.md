@@ -116,7 +116,6 @@ core/db/
 |---|---|
 | `scheduled_tasks` | 自动化定时任务（cron 表达式、重试策略） |
 | `scheduled_task_runs` | 定时任务执行记录 |
-| `batch_plans` | 批量执行计划（batch_plan MCP 工具生成，确认后由 BatchOrchestrator 执行） |
 | `distillation_runs`（商业版 EE） | 技能蒸馏任务队列 + 审计（每 chat_id 至多一行） |
 
 ### 记忆（models/memory.py）

@@ -4,7 +4,7 @@ toFileConfirmInfo,
 toUserQuestionRequest
 } from '../../api';
 import { t } from '../../i18n';
-import { useBatchStore,useChatStore,useUIStore } from '../../stores';
+import { useChatStore,useUIStore } from '../../stores';
 import type { CitationItem,EvolutionSummary,OntologyGovernanceSummary } from '../../types';
 import {
 parseContextUsageSnapshot
@@ -73,30 +73,6 @@ if (eventType === 'meta') {
     }
     appendArtifactsToStreamToolCalls(s, Array.isArray(eventObj.artifacts) ? eventObj.artifacts : []);
     appendOrUpdate(s, true, s.allCitations);
-    return true;
-}
-if (eventType === 'batch_confirm') {
-    // batch_runner MCP returned a plan; backend has paused the agent.
-    // Open the confirmation modal so the user can review/edit the
-    // prompt template before any item executes.
-    const planId = typeof eventObj.plan_id === 'string' ? eventObj.plan_id : '';
-    if (planId) {
-        useBatchStore.getState().setPendingConfirm({
-            plan_id: planId,
-            total: typeof eventObj.total === 'number' ? eventObj.total : 0,
-            source_type: (eventObj.source_type || 'text_list') as 'xlsx' | 'word_files' | 'text_list',
-            preview: Array.isArray(eventObj.preview)
-                ? (eventObj.preview as Record<string, unknown>[]) : [],
-            default_template: typeof eventObj.default_template === 'string'
-                ? eventObj.default_template : '',
-            placeholder_keys: Array.isArray(eventObj.placeholder_keys)
-                ? (eventObj.placeholder_keys as string[]) : [],
-            chat_id: typeof eventObj.chat_id === 'string'
-                ? eventObj.chat_id : undefined,
-            warnings: Array.isArray(eventObj.warnings)
-                ? (eventObj.warnings as string[]) : undefined,
-        });
-    }
     return true;
 }
 if (eventType === 'file_confirm') {

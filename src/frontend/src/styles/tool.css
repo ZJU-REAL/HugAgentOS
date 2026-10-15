@@ -2819,15 +2819,6 @@ button.jx-imgCard-overlayBtn{ width:34px; }
   .jx-askQ-checkbox::before{ transition:none; }
 }
 
-/* ══ 批量执行（BatchConfirmModal / BatchProgressPanel）══ */
-/* 占位符 Tag 点击按压反馈 */
-.jx-batch-phTag{
-  transition:transform var(--motion-duration-instant) var(--motion-ease-standard);
-}
-.jx-batch-phTag:active{
-  transform:scale(.94);
-}
-
 /* 展开工具卡时按需回取完整结果的过渡提示（见 ToolCallRow 的 fetchFullOutput）。 */
 .jx-tcr-loadingFull{
   padding:6px 0;

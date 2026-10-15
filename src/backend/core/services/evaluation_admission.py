@@ -16,7 +16,7 @@ async def authorize(request, user_id, *, agent_scoped=False):
         "quoted_follow_up", "enabled_mcps", "enabled_skills", "skill_id",
         "enabled_kbs", "connector_id", "plugin_id", "mention_agent_id",
         "mention_name", "enabled_agents",
-        "plan_chat", "batch_chat", "workflow_chat", "site_chat",
+        "plan_chat", "workflow_chat", "site_chat",
     )
     if agent_scoped or any(getattr(request, field, None) for field in forbidden):
         raise HTTPException(403, detail="evaluation_personal_context_forbidden")

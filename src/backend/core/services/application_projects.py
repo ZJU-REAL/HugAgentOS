@@ -130,7 +130,7 @@ class ApplicationProjectService:
         if chat.user_id != owner or chat.deleted_at is not None:
             raise HTTPException(403, "MCP editing requires your own active conversation")
         if any(
-            (chat.extra_data or {}).get(key) for key in ("plan_chat", "batch_chat", "workflow_chat")
+            (chat.extra_data or {}).get(key) for key in ("plan_chat", "workflow_chat")
         ):
             return
         if chat.project_id not in (None, project.project_id):

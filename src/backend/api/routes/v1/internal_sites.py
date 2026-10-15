@@ -10,7 +10,7 @@ requires sandbox access — only the **backend container** has it. So the MCP si
     (blocking symlinks / path traversal) → ``SiteService.publish`` writes each file to storage +
     persists to DB → returns the ``/site/<slug>/`` hosted URL.
 
-Auth uses the same shared secret ``X-Internal-Token`` as ``internal_batch`` (fail-closed if
+Auth uses the shared secret ``X-Internal-Token`` (fail-closed if
 unconfigured in production). The user identity / conversation id are parsed by the MCP side from
 the ``X-Current-User-Id`` / ``X-Conversation-Id`` headers and placed into the body; this endpoint
 trusts only the body (already behind the internal-token gate).

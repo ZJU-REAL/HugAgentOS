@@ -1,4 +1,6 @@
-import { DeleteOutlined, EditOutlined, EllipsisOutlined, ExportOutlined, PushpinFilled, PushpinOutlined, SortAscendingOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
+import { TaskStatusDot } from './TaskStatusDot';
+import { taskIndicator, useTaskNotificationStore } from '../../stores/taskNotificationStore';
+import { DeleteOutlined, EditOutlined, EllipsisOutlined, ExportOutlined, PushpinFilled, PushpinOutlined, RobotOutlined, SortAscendingOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { Dropdown, Input, Tooltip, message, type MenuProps } from 'antd';
 import { motion } from 'motion/react';
 import { useMemo, useRef, type DragEvent as ReactDragEvent } from 'react';
@@ -44,10 +46,17 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
   const listLen = groupItems.length;
   const isActive = active ?? ((panel === 'chat' || panel === 'automation') && chatIdFromPath() === item.id);
   const isEditing = editingChatId === item.id;
+  const notices = useTaskNotificationStore(s => s.notices);
   const statusIds = statusChatIds ?? [item.id];
   const waitingForAnswer = statusIds.some(id => (pendingUserQuestions[id]?.length ?? 0) > 0);
   const running = statusIds.some(id => sendingChatIds.has(id) || remoteRunningChatIds.has(id));
   const waitingForConfirmation = statusIds.some(id => (pendingConfirm[id]?.length ?? 0) > 0 || !!pendingDesignPick[id]);
+  const indicator = taskIndicator(statusIds.flatMap(id => {
+    const notice = notices['chat:' + id];
+    // A newly admitted run supersedes a previous verdict before the next poll arrives.
+    return notice && (!(sendingChatIds.has(id) || remoteRunningChatIds.has(id)) || notice.status === 'waiting' || notice.status === 'running') ? [notice] : [];
+  }), running, waitingForAnswer || waitingForConfirmation);
+
 
   const handleClick = async () => {
     if (editingChatId && editingChatId !== item.id) { setEditingChatId(null); setEditingTitle(''); }
@@ -159,6 +168,10 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
             <Tooltip title={item.agentName}>
               <img src="/home/new-icons/agent.svg" alt={t('智能体')} className="jx-historyTypeIcon jx-historyTypeIcon--agent" style={{ width: 14, height: 14 }} />
             </Tooltip>
+          ) : item.personalAgentTask ? (
+            <Tooltip title={t('由 Personal Agent 创建')}>
+              <RobotOutlined className="jx-historyTypeIcon" aria-label={t('由 Personal Agent 创建')} />
+            </Tooltip>
           ) : item.planChat ? (
             <Tooltip title={t('计划模式')}>
               <img src="/home/new-icons/plan.svg" alt={t('计划模式')} className="jx-historyTypeIcon jx-historyTypeIcon--plan" style={{ width: 14, height: 14 }} />
@@ -167,22 +180,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
           <span className="jx-historyTitle">
             {conversationTitle(item.title) || t('对话')}
           </span>
-          {waitingForAnswer ? (
-            <>
-              <Tooltip title={t('等待你的回答')}>
-                <span className="jx-historyQuestionDot" aria-hidden="true" />
-              </Tooltip>
-              <span className="jx-visuallyHidden">{t('等待你的回答')}</span>
-            </>
-          ) : running ? (
-            <Tooltip title={t('运行中')}>
-              <span className="jx-historyRunningDot" />
-            </Tooltip>
-          ) : waitingForConfirmation ? (
-            <Tooltip title={t('有待确认的操作')}>
-              <span className="jx-historyConfirmDot" />
-            </Tooltip>
-          ) : null}
+          <TaskStatusDot {...indicator} />
         </div>
       )}
       <div className="jx-historyActions">

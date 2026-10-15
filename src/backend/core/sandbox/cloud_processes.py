@@ -18,6 +18,13 @@ from .process_sessions import ProcessSessionError, ProcessSessions
 from .errors import SandboxError
 
 
+def _module_owned(session_id) -> bool:
+    """A module's dedicated sandbox never receives the platform's extra credentials."""
+    from core.extensions import sandbox_route
+
+    return sandbox_route(str(session_id or "")) is not None
+
+
 class CloudProcesses:
     def __init__(self, provider):
         self.provider = provider
@@ -130,7 +137,7 @@ class CloudProcesses:
                 working_directory=WORKSPACE,
                 uid=SANDBOX_RUN_UID,
                 gid=SANDBOX_RUN_GID,
-                envs={**_EXECD_BASH_ENVS, **_dws_extra_envs(), **_firecrawl_extra_envs()},
+                envs=({**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **_dws_extra_envs(), **_firecrawl_extra_envs()}),
             )
             execution = await sess.sandbox.commands.run(command, opts=opts)
             if not execution.id:
@@ -147,7 +154,7 @@ class CloudProcesses:
                 background=True,
                 cwd=WORKSPACE,
                 user="root",
-                envs={**_dws_extra_envs(), **_firecrawl_extra_envs()} or None,
+                envs=({"EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_dws_extra_envs(), **_firecrawl_extra_envs()} or None),
                 stdin=False,
                 timeout=0,
                 request_timeout=provider._request_timeout_s,

@@ -1,61 +1,3 @@
-/* ── 输入框底部操作栏 ── */
-
-/* The toolbar is a layout row outside the editor scroll viewport. */
-
-.jx-composerBar{
-  position:relative;
-  flex-shrink:0;
-  display:flex;
-  align-items:center;
-  /* chip 自带左右内衬，间距靠内衬撑开即可；gap 再给 8 会把工具条拉得松散 */
-  gap:4px;
-  height:50px;
-  padding:8px 12px 12px;
-  background:var(--color-bg-container);
-  border-bottom-left-radius:16px;
-  border-bottom-right-radius:16px;
-  pointer-events:none;
-  z-index:2;
-}
-
-.jx-composerBar > *{
-  pointer-events:auto;
-}
-
-/* 窄容器（项目页 composer）防溢出：长文本下拉可收缩省略，附件/发送钮永不被顶出框外。
-   容器查询而不是媒体查询：同一个 composer 在首页/对话页/项目页宽度差很多，
-   要按"这条工具栏自己有多宽"降级，而不是按视口宽度。 */
-
-.jx-composerBar{ min-width:0; container-type:inline-size; }
-
-.jx-composerBar .jx-modelEffortBtn,
-.jx-composerBar .jx-projectDropBtn{ flex-shrink:1; min-width:0; overflow:hidden; }
-
-.jx-composerBar .jx-projectDropName{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-/* 逐级降级：先收「提示词中心」的字，再收项目名与模式名——这几个都有图标顶着，
-   功能一个不少，只是不再抢横向空间。模型/思考强度位是唯一没有图标可替代的
-   （名字本身就是它的值），所以只压缩不隐藏。 */
-
-@container (max-width: 620px){
-  .jx-promptHubBtn .jx-composerChip-label{ display:none; }
-  .jx-promptHubBtn{ padding:0 7px; }
-}
-
-@container (max-width: 500px){
-  .jx-projectDropBtn .jx-composerChip-label,
-  .jx-planModeBtn .jx-composerChip-label{ display:none; }
-  .jx-projectDropBtn svg.jx-modeArrow{ display:none; }
-  .jx-projectDropBtn,
-  .jx-planModeBtn{ padding:0 7px; }
-  .jx-modelEffortBtn{ max-width:150px; }
-}
-
-@container (max-width: 400px){
-  .jx-modelEffortAside{ display:none; }
-  .jx-modelEffortBtn{ max-width:112px; }
-}
-
 /* ── 工具条 chip 基座 ────────────────────────────────────────────────
    参考无边框 chip 体系：默认只有文字 + 图标，hover / 展开才浮出一块底色；
    "选中/开启"用淡色块填充表达，而不是给每个按钮描一圈 1px 边框——一排方框
@@ -115,7 +57,7 @@
 .jx-composerChip:disabled{ opacity:.5; cursor:default; }
 
 /* 选中 / 开启态：淡蓝色块 + 主色文字，同一套质感覆盖项目绑定、计划模式、
-   批量执行、自主循环、提示词中心——用户一眼能扫出"哪几个是开着的"。 */
+   自主循环、提示词中心——用户一眼能扫出"哪几个是开着的"。 */
 
 .jx-composerChip.active,
 .jx-composerChip.bound{
@@ -219,7 +161,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 
 .jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
 
-.jx-modelEffortBtn{ max-width:320px; flex:0 1 auto; }
+
 
 /* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
 

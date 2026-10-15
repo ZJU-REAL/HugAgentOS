@@ -157,7 +157,6 @@ curl -N http://localhost:3000/api/v1/agents/responses \
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | `confirm_id`、`op`、`logical_path`、`message`、`expired`；流不结束，用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后续跑 |
 | `user_question` | 智能体调用 `ask_user_question` 并原地等待 | `request_id`、`questions[]`、`created_at`、`expires_at`、`chat_id` |
 | `user_question_resolved` | 服务端已接受答案、取消或超时 | `request_id`、`outcome`（`answered` / `cancelled` / `timeout`）、`chat_id` |
-| `batch_confirm` | 批量执行计划等待用户确认 | `plan_id`、`total`、`preview`、`default_template`、`placeholder_keys`；确认走 `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | 回答结束的收尾帧 | `route`、`sources`、`artifacts`、`citations`、`warnings`、`is_markdown`、`message_id`、`workspace_files` |
 | `error` | 流式异常 | `error`（用户可读消息）、`chat_id` |
 
@@ -228,7 +227,7 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 
 ### 其他 SSE 端点
 
-其余 SSE 端点复用同一 wire 格式：`GET /v1/batch/{plan_id}/stream`（批量执行进度）、计划模式相关流会额外出现 `plan_generated` / `plan_error` 等事件。同一端点传 `stream: false`（默认值）时返回完整 `ChatResponse` JSON，字段为 `chat_id`、`response`、`timestamp`、`is_markdown`、`route`、`sources`、`artifacts`、`warnings`，不额外包裹 `data` 信封。
+其余 SSE 端点复用同一 wire 格式：计划模式相关流会额外出现 `plan_generated` / `plan_error` 等事件。同一端点传 `stream: false`（默认值）时返回完整 `ChatResponse` JSON，字段为 `chat_id`、`response`、`timestamp`、`is_markdown`、`route`、`sources`、`artifacts`、`warnings`，不额外包裹 `data` 信封。
 
 ## 健康检查
 
@@ -275,8 +274,6 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 | 文件 | `file_parse.py` | `/v1/file` | `POST /parse`（文档解析） | 用户 |
 | 内容块 | `content.py` | `/v1/content` | `GET /docs`（公开读）；`PUT /docs/{block_id}`（ADMIN）、`GET /prompts/export` / `POST /prompts/import`（ADMIN 或 CONFIG） | 公开 / ADMIN / CONFIG |
 | 自动化 | `automations.py` | `/v1/automations` | `GET/POST /`、`POST /{task_id}/trigger`、`GET /notifications/list` | 用户 |
-| 批量执行 | `batch.py` | `/v1/batch` | `GET /active`、`POST /{plan_id}/confirm`、`GET /{plan_id}/stream`（SSE） | 用户 |
-| 批量执行 | `internal_batch.py` | `/v1/internal/batch` | `POST /resolve`（服务间内部接口） | BACKEND_INTERNAL_TOKEN |
 | 计划模式 | `plans.py` | `/v1/plans` | `POST /generate`、`POST /{plan_id}/execute`、`POST /{plan_id}/cancel` | 用户 |
 | 系统信息 | `config.py` | `/v1/config` | `GET /tool-names`（工具显示名映射，公开） | 公开 |
 | 系统信息 | `meta.py` | `/v1/meta` | `GET /edition`（版本/模式/能力位布尔表，公开探针，绝不暴露 license 详情） | 公开 |

@@ -106,9 +106,16 @@ def create_chat(
     The session is automatically associated with the current authenticated user.
     """
     chat_service = chat_services.ChatService(db)
+    if request.project_id:
+        from core.services.project_access import require_visible_project
+
+        require_visible_project(db, user.user_id, request.project_id)
 
     session = chat_service.create_session(
-        user_id=user.user_id, title=request.title, extra_data=request.metadata
+        user_id=user.user_id,
+        title=request.title,
+        extra_data=request.metadata,
+        project_id=request.project_id,
     )
 
     return created_response(

@@ -11,6 +11,7 @@ import { CanvasPanel } from './CanvasPanel';
 import { CanvasTabBar } from './CanvasTabBar';
 import { OntologySidebarPanel } from './OntologySidebarPanel';
 import { PluginCanvasPanel } from './PluginCanvasPanel';
+import { canvasRenderer } from './customCanvasRegistry';
 
 export function RightSidebarPanel() {
   const launcherOpen = useCanvasLauncherStore(s => s.open);
@@ -49,6 +50,7 @@ function SidebarContent() {
     );
   }
   if (activeView === 'plugin') return <PluginCanvasPanel key={activeTabId} />;
+  if (activeView === 'custom') return <CustomCanvasPanel key={activeTabId} />;
   // No evolution view: what a turn learned is now shown, and edited, inline on
   // the card itself. A side panel could only restate it one click further away.
   if (activeView === 'ontology') {
@@ -79,6 +81,20 @@ function SidebarContent() {
           <strong>{t('暂无可展示内容')}</strong>
           <span>{t('预览文件或运行本体校验后，内容会显示在这里。')}</span>
         </div>
+      </div>
+    </aside>
+  );
+}
+
+function CustomCanvasPanel() {
+  const target = useCanvasStore((state) => state.customTarget);
+  const View = target ? canvasRenderer(target.renderer)?.component : undefined;
+  return (
+    <aside className="jx-rightSidebar jx-rightSidebar--custom" aria-label={target?.title}>
+      <CanvasTabBar />
+      <div className="jx-rightSidebar-body">
+        {View ? <ContentErrorBoundary resetKey={target?.renderer || ''} fallback={<div className="jx-rightSidebar-empty">{t('内容暂时无法显示')}</div>}><View /></ContentErrorBoundary>
+          : <div className="jx-rightSidebar-empty">{t('内容暂时无法显示')}</div>}
       </div>
     </aside>
   );

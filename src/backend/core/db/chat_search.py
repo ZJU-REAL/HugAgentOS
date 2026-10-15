@@ -9,6 +9,7 @@ until after the authorized page has been selected.
 from sqlalchemy import Text, and_, case, func, or_, select, null
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import FunctionElement
+from core.db.reserved_chats import ordinary_chat_filter
 from core.db.models import ChatMessage, ChatSession
 
 
@@ -88,6 +89,7 @@ def search_sessions(db, user_id, query, page=1, page_size=20, scope="title"):
     eligible = db.query(ChatSession).filter(
         ChatSession.user_id == user_id,
         ChatSession.deleted_at.is_(None),
+        ordinary_chat_filter(ChatSession.chat_id),
         or_(title_match, exists) if scope == "all" else title_match,
     )
     total = eligible.count()

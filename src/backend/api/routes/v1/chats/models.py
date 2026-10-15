@@ -13,6 +13,9 @@ class CreateChatRequest(BaseModel):
 
     title: Optional[str] = Field("新对话", description="Chat session title")
     metadata: Optional[dict] = Field(default_factory=dict, description="Additional metadata")
+    project_id: Optional[str] = Field(
+        None, max_length=64, description="Create the chat inside this project"
+    )
 
 
 class UpdateChatRequest(BaseModel):

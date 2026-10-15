@@ -1,0 +1,16 @@
+/* A static colored dot and accessible label retain status when motion is reduced. */
+.jx-taskStatus{--task-status-color:var(--color-primary);display:inline-flex;position:relative;align-items:center;justify-content:center;flex-shrink:0;width:8px;height:8px;margin-left:6px;border-radius:50%;background:var(--task-status-color);animation:jx-taskBreathe 2.4s ease-in-out infinite}
+.jx-taskStatus--completed{--task-status-color:var(--color-success);animation-duration:2.8s}
+.jx-taskStatus--waiting{--task-status-color:var(--color-warning)}
+.jx-taskStatus--failed{--task-status-color:var(--color-error)}
+.jx-taskStatus--completed:not(.jx-taskStatus--seen)::after{content:"";position:absolute;inset:-3px;border-radius:50%;background:var(--task-status-color);opacity:.13}
+.jx-taskStatus--seen{animation:none}
+.jx-personalStatus{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;margin-left:auto}
+.jx-personalUnread{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:6px;background:var(--color-success-bg);color:var(--color-success);font-size:11px;font-variant-numeric:tabular-nums}
+.jx-personalNavName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes jx-taskBreathe{0%,100%{opacity:.4;transform:scale(.9)}50%{opacity:1;transform:scale(1.08)}}
+@media(prefers-reduced-motion:reduce){@keyframes jx-taskBreathe{from,to{opacity:1;transform:scale(1)}}}
+
+.jx-personalStatus--compact{position:absolute;inset:0;pointer-events:none}
+.jx-personalStatus--compact .jx-taskStatus{position:absolute;top:3px;right:3px;width:6px;height:6px;margin:0}
+.jx-personalStatus--compact .jx-personalUnread{position:absolute;bottom:0;right:0;min-width:15px;height:15px;padding:0 2px}

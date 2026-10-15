@@ -1,0 +1,112 @@
+/* One geometry for startup, standalone reasoning, and the execution header.
+   Keep the mark slot fixed; only the image inside it breathes. */
+.jx-turnStatusRow,
+.jx-inlineSummary.jx-turnStatusRow,
+.jx-trs-head.jx-turnStatusRow{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  box-sizing:border-box;
+  min-height:28px;
+  max-width:100%;
+  padding:2px 0;
+  margin:0;
+  font-family:var(--font-family);
+  font-size:14px;
+  font-weight:400;
+  line-height:22.4px;
+  letter-spacing:normal;
+  color:var(--color-text-secondary);
+}
+.jx-turnStatus{align-self:flex-start;}
+.jx-trs.jx-trs--turnStatus{margin:0;animation:none;}
+
+.jx-turnStatusMark,
+.jx-trs-mark.jx-turnStatusMark{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 18px;
+  width:18px;
+  height:18px;
+}
+.jx-trs--turnStatus .jx-trs-mark--running::before{display:none;}
+
+/* motion-keep: Fixed-size status marks breathe while a request is active. */
+.jx-turnStatusMark .jx-brandLoader:not(.jx-brandLoader--done){
+  animation:jxTurnStatusBreathe 2.4s ease-in-out infinite;
+}
+
+.jx-turnStatusText,
+.jx-inlineSummary .jx-inlineSummaryText.jx-turnStatusText,
+.jx-trs .jx-trs-title.jx-turnStatusText{
+  font-family:var(--font-family);
+  font-size:14px;
+  font-weight:400;
+  line-height:22.4px;
+  letter-spacing:normal;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.jx-trs--turnStatus .jx-trs-steps,
+.jx-trs--turnStatus .jx-trs-dur{white-space:nowrap;flex-shrink:0;}
+
+/* One stable text surface shares the scan across title, timer and count.
+   Timer ticks and title changes do not remount or restart this surface. */
+.jx-trs .jx-trs-summary{
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+  max-width:100%;
+}
+.jx-trs-summary--live .jx-trs-title{
+  animation:none;
+}
+
+/* Shared reference shimmer for startup, thinking, tool calls and execution.
+   Match the actual label classes with enough specificity to beat tool.css's
+   historical entrance/static rules; completed labels lose their live class. */
+/* motion-keep: Text scanning is an activity signal while a request is running. */
+.jx-turnStatus-label.jx-turnStatusText,
+.jx-tcr .jx-tcr-prefix.jx-tcr-prefix--shimmer,
+.jx-inlineFold .jx-inlineSummary .jx-inlineSummaryText--live,
+.jx-trs .jx-trs-summary.jx-trs-summary--live{
+  background-image:linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 0%,
+    var(--color-text-secondary) 35%,
+    color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-bg-chat)) 50%,
+    var(--color-text-secondary) 65%,
+    color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 100%);
+  background-size:250% 100%;
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  color:transparent;
+  animation:jxTurnStatusShine 2.8s linear infinite;
+}
+
+.jx-turnStatus-clock{
+  flex-shrink:0;
+  margin-left:2px;
+  font-size:12px;
+  font-weight:400;
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text-secondary);
+}
+
+@keyframes jxTurnStatusBreathe{
+  0%,100%{opacity:.8;transform:scale(.94);}
+  50%{opacity:1;transform:scale(1.06);}
+}
+
+@keyframes jxTurnStatusShine{
+  0%,15%{
+    background-position:83.333% 0;
+    animation-timing-function:cubic-bezier(.714,.121,.211,.888);
+  }
+  85%,100%{background-position:16.667% 0;}
+}

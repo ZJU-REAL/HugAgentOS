@@ -27,8 +27,6 @@ export const HOOKS_DICT: Record<string, string> = {
   // useStreaming — regenerate / edit errors
   '重新生成失败：{msg}': 'Regeneration failed: {msg}',
   '编辑重发失败：{msg}': 'Edit & resend failed: {msg}',
-  // useStreaming — cancel batch error
-  '取消批量并继续失败：{msg}': 'Cancel batch & resume failed: {msg}',
   // usePlanMode — plan card status
   '执行中...': 'Running...',
   '执行出错': 'Execution error',

@@ -168,7 +168,6 @@ RAG 则提供支撑决策所需的文档与证据。
 | `tool_call` | 工具参数完整、即将执行 | `core/chat/tool_log.py` |
 | `tool_result` | 工具执行结果（含引用、产物卡片载荷） | `core/chat/tool_log.py` + `orchestration/tool_payloads.py` |
 | `tool_progress` | 长工具的进度上报 | `chats.py` |
-| `batch_confirm` / `file_confirm` | 批量执行确认、「我的空间」写操作确认（真挂起门控） | `chats.py` |
 | `meta` | 末尾元信息：路由、引用源、产物列表等 | `orchestration/workflow.py` |
 | `error` | 错误事件（随后立即 `[DONE]`） | `chats.py` |
 

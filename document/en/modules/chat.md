@@ -2,7 +2,7 @@
 
 > Last updated: September 9, 2026
 
-The frontend shows a startup label only while a new reply has no text, reasoning, or tool execution records. After output begins, pauses before further content or tool calls add no waiting text or timer.
+The frontend shows “Working…” only while a new reply has no text, reasoning, or tool execution records. The label uses regular-weight 14px text, a gently breathing brand mark, and a text shimmer. Startup, inline reasoning, and execution headers share an 18px mark slot, 9px gap, and 28px minimum row height, without vertical entrance motion on handoff. Image processing uses its specific label; waits longer than 15 seconds show elapsed time. After output begins, pauses before further content or tool calls add no waiting text or timer.
 
 Regular code blocks have an always-visible Copy button in the top right. It copies only the code text, preserving indentation and line breaks; during streaming it copies the content currently displayed. On success, the button shows a checkmark and Copied in the original button color for two seconds before resetting. Failures appear in the button as Copy failed, without a top-of-page notification.
 
@@ -184,7 +184,6 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
-| `batch_confirm` | Batch plan generated, awaiting user confirmation (human gate) | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
 | `user_question` | `ask_user_question` is suspended awaiting the chat owner's answer | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | The server settled an answer, cancellation, or timeout | `request_id`, `outcome`, `chat_id` |
@@ -303,7 +302,6 @@ Plan Mode splits complex tasks into "generate plan → user reviews/edits → ex
 - **Frontend presentation and title**: manual Plan Mode keeps plan previews and execution progress in the in-conversation plan card instead of duplicating them in the compact strip above the composer (that strip is reserved for model-driven `update_plan` progress in regular chats). A model-generated conversation title is requested as soon as the preview is ready, with a first-task title used as the temporary fallback.
 - **History is separate from the active mode**: the chat's `planChat` marker and `plan_snapshot` only preserve its sidebar classification and historical plan cards; an independent per-chat composer state decides whether the next message uses Plan Mode. Turning Plan Mode off keeps prior plans and reports visible, while later requests (for example, generating a presentation from a report) run as ordinary chat and stay that way after refresh or re-entry.
 - **Model role**: plan mode prefers the `plan_agent` role and falls back to `main_agent` (the `_mode_role` branch in `agent_factory.py`).
-- Unattended modes (plan execution / automation) remove `batch_runner` from the toolkit, since `batch_plan`'s confirmation dialog has no UI in those contexts (`workflow.py::_resolve_batch_runner_visibility`).
 
 ## Sub-agents
 
@@ -486,7 +484,7 @@ Storage is Redis (`chat_share:*` key groups + TTL) with an in-process memory fal
 
 ## Other entry points
 
-The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false`, batch execution (`orchestration/batch_orchestrator.py`, see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
+The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false` (`orchestration/batch_orchestrator.py`, see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
 
 ## Source map
 
@@ -621,3 +619,30 @@ assistant message when available. A byte estimate cannot veto that measurement.
 The window and provider identity follow the endpoint actually called, including
 the default model and failover. Streaming saves and final commits serialize on
 the same run record so a delayed save cannot overwrite final usage.
+
+
+## Standalone chat links for projects and agents
+
+Open a project or agent API dialog and select **Enable public chat**. The resource gets a dedicated URL with copy, open, and disable controls. Publishing requires API management permission for that resource.
+
+Anyone with the link can chat without signing in. The page reuses the main conversation renderer and displays the resource name. Its sidebar contains only the current visitor's conversations for that entry. Visitor identity is kept in the current browser; clearing browser storage or switching browsers loses access to the earlier visitor's history. Visitor conversations are isolated.
+
+The standalone page accepts text and omits account navigation, project switching, personal-space imports, and agent switching. Usage is charged to the publisher. Disabling the link rejects new requests and cancels active runs for the link. Runtime capabilities, project context, and tool configuration follow the existing project or agent API behavior, without additional capability restrictions.
+
+
+## Personal Agent conversation and cloud computer (EE)
+
+The message scrollbar sits at the conversation area's right edge while the transcript and composer keep a centered, limited width. When a canvas opens, the scrollbar follows the remaining conversation area.
+
+The cloud computer distinguishes waiting to start, preparing, recovering, connection failure with retry, and connected states. It can be opened only when connected. Its dedicated controller uses its own authenticated address and server routing information; ordinary sandbox endpoint acceleration must preserve both.
+
+Standalone chat pages reuse file/image uploads, model and reasoning controls, tool approval presets, and approval prompts from the main chat. Available models follow the same admin configuration. Each link visitor has separate approval preferences; changing them does not change the publisher’s account settings.
+
+
+## Sidebar task reminders
+
+Conversation rows use a blue breathing dot while running, green for completed unread results, amber when input or approval is required, and red for failures. A pending user decision takes priority over the running state. Cancelling a task does not produce a success reminder.
+
+When the conversation is visible and focused, scrolling to its loaded final reply acknowledges that result. The completion indicator disappears without leaving a check icon; a viewed failure retains a static red dot. Reminders continue to update while navigating to other pages. Failed network requests preserve the existing state; disconnection never implies completion. Reduced-motion mode displays static indicators.
+
+Read acknowledgements are stored in this browser per account and backend, and synchronized between same-browser tabs. Cross-device read synchronization is not provided. On first use or upgrade, existing results are acknowledged once as history; only later completions create new unread reminders. Active tasks and tasks needing attention retain their status.

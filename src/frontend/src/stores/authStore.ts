@@ -1,3 +1,4 @@
+import {logoutViaHostPlatform} from '../desktop/shellLogout';
 import { create } from 'zustand';
 import { rememberDesktopRequest, showDesktopApproval } from './desktopLogin';
 import { message } from 'antd';
@@ -124,6 +125,10 @@ function inDesktopShell(): boolean {
 /** Desktop logout: have the shell clear the local token and switch the window back to the native login page.
  * Returns true on success (the caller must NOT `window.location`-redirect to external SSO — that blanks the screen). */
 async function logoutViaDesktopShell(): Promise<boolean> {
+  try {
+    const native=await logoutViaHostPlatform();
+    if(native!==null)return native;
+  } catch {return false;}
   if (!inDesktopShell()) return false;
   try {
     const core = (window as unknown as {

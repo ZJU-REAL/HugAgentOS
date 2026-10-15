@@ -57,7 +57,6 @@ function sessionItem(session: ChatForkSession, source: ChatItem | undefined, loc
     thinkingEffort: source?.thinkingEffort,
     // A historical plan card must never implicitly re-enter an execution mode.
     planModeActive: false,
-    batchModeActive: false,
     workflowModeActive: false,
   };
 }

@@ -151,7 +151,21 @@ if (initial.isDesktop && typeof EventSource !== 'undefined') {
           useDeploymentModeStore.setState({ desktopUpdate: status.update });
         }
       }
-      if (initial.provisionMode !== 'dual') return;
+      if (initial.provisionMode !== 'dual') {
+        if (initial.provisionMode === 'local_only') {
+          const service = status.service ?? status;
+          const localService: LocalServiceState = {
+            phase: service.phase || '', message: service.message || '',
+            progress: service.progress ?? 0, ready: !!service.ready,
+          };
+          const previous = useDeploymentModeStore.getState().localService;
+          if (localService.phase !== previous?.phase || localService.message !== previous?.message ||
+              localService.progress !== previous?.progress || localService.ready !== previous?.ready) {
+            useDeploymentModeStore.setState({localService, localReady:localService.ready});
+          }
+        }
+        return;
+      }
       const localReady = !!status.bridge?.identity_ready;
       const capabilitiesReady = !!status.bridge?.capabilities_ready;
       const modelsReady = !!status.bridge?.models_ready;

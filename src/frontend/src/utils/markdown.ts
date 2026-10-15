@@ -1,4 +1,5 @@
 import { marked, type Tokens } from 'marked';
+import DOMPurify from 'dompurify';
 import { highlightSyntax, lazyHighlightedHtml } from './syntaxHighlight';
 import { wrapTablesWithCopy } from './tableCopy';
 import { wrapCodeWithCopy } from './codeCopy';
@@ -161,7 +162,10 @@ export function stripMarkdown(md: string | null | undefined): string {
 }
 
 export function mdToHtml(md: string): string {
-  return marked.parse(md) as string;
+  const html = marked.parse(md) as string;
+  // Browser output can contain model-authored HTML. Node callers only
+  // serialize markup; DOMPurify has no DOM there and marks itself unsupported.
+  return DOMPurify.isSupported ? DOMPurify.sanitize(html, { ADD_ATTR: ['target'] }) : html;
 }
 
 /**

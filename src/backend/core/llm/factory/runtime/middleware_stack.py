@@ -138,7 +138,11 @@ async def middleware_stack(
     # The legacy guard directly pins ids found in arbitrary tool output. API
     # delivery must go through the scoped tool's ownership check and persistence.
     if _api_scope is None and _eval_scope is None:
-        _policy_middlewares.append(FinishPinGuardMiddleware(batch_mode=request.batch_mode))
+        _policy_middlewares.append(FinishPinGuardMiddleware())
+    if request.profile:
+        from core.extensions import agent_profile
+
+        _policy_middlewares.extend(agent_profile(request.profile).middlewares(request))
     # The Agent sees one framework adapter. Transitional AgentScope policies
     # execute inside its compatibility chain and can be deleted one by one as
     # their neutral HookSpec replacements reach parity.

@@ -31,12 +31,9 @@ export function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
     agentId: meta.agent_id || undefined,
     agentName: meta.agent_name || undefined,
     planChat: meta.plan_chat === true ? true : undefined,
+    personalAgentTask: typeof meta.personal_agent_task_id === 'string' ? true : undefined,
     ...(typeof prior?.planModeActive === 'boolean'
       ? { planModeActive: prior.planModeActive }
-      : {}),
-    batchChat: meta.batch_chat === true ? true : undefined,
-    ...(typeof prior?.batchModeActive === 'boolean'
-      ? { batchModeActive: prior.batchModeActive }
       : {}),
     workflowChat: meta.workflow_chat === true ? true : undefined,
     ...(typeof prior?.workflowModeActive === 'boolean'
@@ -57,7 +54,6 @@ export function sessionToChatItem(s: any, prior?: ChatItem): ChatItem {
       ? meta.thinking_effort : prior?.thinkingEffort,
     ...(inherited ? {
       planModeActive: prior?.planModeActive ?? false,
-      batchModeActive: prior?.batchModeActive ?? false,
       workflowModeActive: prior?.workflowModeActive ?? false,
     } : {}),
     ...(prior?.runTarget ? { runTarget: prior.runTarget } : {}),

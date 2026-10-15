@@ -16,6 +16,7 @@ import core.infra.responses as responses
 import core.services as chat_services
 from api.schemas import ChatRequest
 from core.auth.backend import UserContext
+from core.db.reserved_chats import reserved_chat_error, reserved_chat_owner
 from core.infra.exceptions import ResourceNotFoundError
 from core.services.chat_reference_service import render_reference_block
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,6 +34,9 @@ async def regenerate_message(
     db: Session = Depends(db_engine.get_db),
 ):
     """Delete the target assistant message and all subsequent, then re-stream."""
+
+    if reserved_chat_owner(chat_id):
+        raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
     def prepare():
         chat_session_context._ensure_main_model_configured()
@@ -191,6 +195,9 @@ async def edit_and_resend(
     db: Session = Depends(db_engine.get_db),
 ):
     """Delete the target user message and all subsequent, then re-stream with new content."""
+
+    if reserved_chat_owner(chat_id):
+        raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
     def prepare():
         chat_session_context._ensure_main_model_configured()

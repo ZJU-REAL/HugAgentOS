@@ -3,7 +3,7 @@
 # Stage 1: Build
 FROM node:22-alpine as builder
 
-WORKDIR /build
+WORKDIR /build/src/frontend
 
 # Accept build arguments
 ARG VITE_API_BASE_URL=
@@ -22,13 +22,17 @@ ENV VITE_UPLOAD_MAX_MB=$VITE_UPLOAD_MAX_MB
 ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 
 # Copy package files
-COPY package*.json ./
+COPY src/frontend/package*.json ./
+COPY packages/workbench-protocol /build/packages/workbench-protocol
+COPY packages/workbench-sdk /build/packages/workbench-sdk
 
 # Install dependencies (including dev dependencies for build)
-RUN npm install
+RUN npm ci
 
 # Copy source code
-COPY . .
+COPY src/frontend/ .
+COPY scripts/sync-workbench-schema.mjs scripts/build-workbench.mjs scripts/workbench-build-contract.mjs /build/scripts/
+COPY src/backend/core/applications/schemas /build/src/backend/core/applications/schemas
 
 # Build production bundle
 RUN npm run build
@@ -46,17 +50,17 @@ ENV BACKEND_PORT=3001
 ENV UPLOAD_MAX_MB=50
 
 # Copy base nginx config (includes conf.d/)
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY src/frontend/nginx.conf /etc/nginx/nginx.conf
 
 # Copy server block template (rendered at startup via entrypoint)
-COPY default.conf.template /etc/nginx/templates/default.conf.template
+COPY src/frontend/default.conf.template /etc/nginx/templates/default.conf.template
 
 # Copy built assets from builder
-COPY --from=builder /build/dist /usr/share/nginx/html
+COPY --from=builder /build/src/frontend/dist /usr/share/nginx/html
 
 # 清掉 macOS AppleDouble 边车（`._index.html` 这类 163 字节的元数据文件）。
 # 走上面 builder 阶段时 dist 是 Linux 里生成的，不会有这种东西 —— 这行防的是另一条路：
-# 有些环境（比如 npm install 拉包慢到不可用的测试机）改用「本机 Mac 构建 dist + 只保留本阶段
+# 有些环境（比如 npm ci 拉包慢到不可用的测试机）改用「本机 Mac 构建 dist + 只保留本阶段
 # 的薄镜像」来部署，而 macOS 的 tar 只要没设 `COPYFILE_DISABLE=1`（或误用 `--no-xattrs`）
 # 就会把扩展属性打包成 AppleDouble 成员，在 Linux 侧解出一堆 `._*`。这坑真发生过：
 # HugAgentOS 测试机的 nginx 容器里一度攒了 357 个。更坑的是 macOS 的 `tar tzf` 列归档

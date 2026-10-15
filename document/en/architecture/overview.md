@@ -179,7 +179,6 @@ Each event is `data: {json}\n\n` with a `type` discriminator; the stream termina
 | `tool_call` | Tool arguments are complete and execution is about to start | `core/chat/tool_log.py` |
 | `tool_result` | Tool execution result (with citations, artifact card payloads) | `core/chat/tool_log.py` + `orchestration/tool_payloads.py` |
 | `tool_progress` | Progress reports from long-running tools | `chats.py` |
-| `batch_confirm` / `file_confirm` | Batch-execution confirmation; MySpace write confirmation (hard-pause gate) | `chats.py` |
 | `meta` | Trailing metadata: route, citation sources, artifact list, etc. | `orchestration/workflow.py` |
 | `error` | Error event (immediately followed by `[DONE]`) | `chats.py` |
 

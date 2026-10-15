@@ -119,3 +119,14 @@ async def test_non_positive_ttl_is_rejected_the_same_way(state):
     ):
         with pytest.raises(ValueError, match="positive"):
             await write()
+
+
+@pytest.mark.asyncio
+async def test_release_checks_owner_and_allows_immediate_reacquisition(state):
+    assert await state.hold("desktop", "first", ttl=60)
+    assert not await state.release("desktop", "other")
+    assert await state.get("desktop") == "first"
+    assert await state.release("desktop", "first")
+    assert await state.hold("desktop", "second", ttl=60)
+    assert not await state.release("desktop", "first")
+    assert await state.get("desktop") == "second"

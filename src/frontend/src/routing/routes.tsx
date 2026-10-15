@@ -20,6 +20,8 @@ const routes = [
           { path: `${slug}/:sub/:sub2`, element: null },
         ]),
       ]),
+      { path: 'apps/:applicationKey/*', element: null },
+      { path: 'apps', element: null },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

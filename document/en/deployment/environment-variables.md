@@ -193,8 +193,8 @@ the database has no value.
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | (empty) | Data-warehouse call parameters | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | (sample values) | Industry-chain information API | EE (industry tool) |
 | `COMPANY_API_URL` / `COMPANY_AUTH_TOKEN` | (empty) | Company-profile API | EE (industry tool) |
-| `BACKEND_INTERNAL_URL` | `http://backend:3001` | Internal address for MCP servers (e.g. batch_runner) to call back into the backend | CE |
-| `BACKEND_INTERNAL_TOKEN` | (**required for batch execution**) | MCP → backend callback token | CE |
+| `BACKEND_INTERNAL_URL` | `http://backend:3001` | Internal address for MCP servers (e.g. site and browser tools) to call back into the backend | CE |
+| `BACKEND_INTERNAL_TOKEN` | (**required for internal service calls**) | MCP → backend callback token | CE |
 | `HUGAGENT_USER_SKILLS_DIR` / `HUGAGENT_PROJECT_SKILLS_DIR` | `~/.hugagent/skills` / `.hugagent/skills` | Skill directory overrides | CE |
 | `HUGAGENT_DISABLE_USER_SKILLS` / `HUGAGENT_DISABLE_PROJECT_SKILLS` | `0` | Disable user / project skills | CE |
 
@@ -379,3 +379,9 @@ Builtin MCP invocations, including browser automation, require the same `BACKEND
 | BROWSER_CHROMIUM_SANDBOX | Defaults true; known failures retry only in host-verified isolated containers |
 
 Hosting remains opt-in. See [application deployment](../modules/application-hosting.md) and [browser deployment](../modules/browser-automation.md). Cloud site writes require shared Redis; missing or unavailable Redis rejects writes.
+
+<!-- End Personal Agent settings -->
+
+`PERSONAL_AGENT_CLI_SERVER` (EE): The backend address reachable from the cloud computer. Default: `http://backend:3001`. No credentials. When the sandbox runs on another server, use a reachable application address such as `http://<application private address>/api`.
+
+`PERSONAL_AGENT_CLI_ALLOW_HTTP` (EE): Whether the cloud-computer CLI may reach the backend over plain HTTP. Default: `true` (suits private networks). Set `false` to require HTTPS.

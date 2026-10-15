@@ -1,0 +1,32 @@
+{
+  "protocolVersion": "1.0.0",
+  "uiVersion": 3,
+  "capabilities": [
+    "applications",
+    "workspace",
+    "host.info",
+    "workspace.navigate",
+    "data.query",
+    "canvas.open",
+    "canvas.new_tab",
+    "chat.send",
+    "clipboard.write",
+    "file.save",
+    "resource.attach",
+    "resource.command",
+    "state.load",
+    "state.save",
+    "lifecycle.setDirty",
+    "file.pick",
+    "chat.compose",
+    "navigation.open",
+    "platform.runtimeCapabilities",
+    "platform.openExternal",
+    "badge.update",
+    "notification.show",
+    "background",
+    "resource.open",
+    "resource.lease",
+    "resource.close"
+  ]
+}

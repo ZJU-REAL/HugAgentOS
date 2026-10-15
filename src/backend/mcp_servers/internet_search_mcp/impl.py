@@ -65,7 +65,13 @@ class SearchService:
             raise RuntimeError("Search capacity is busy; retry later")
         engine = (get_runtime_value("INTERNET_SEARCH_ENGINE") or "tavily").strip().lower()
         if engine not in KEY_NAMES:
-            raise ValueError("Unsupported internet search engine")
+            # A stale or mistyped setting must not disable search when another engine has a key.
+            usable = sorted((name for name, key in KEY_NAMES.items() if (get_runtime_value(key) or "").strip()),
+                            key=lambda name: name != "tavily")
+            if not usable:
+                raise ValueError("Unsupported internet search engine")
+            logger.warning("Unsupported search engine %r; using %s", engine, usable[0])
+            engine = usable[0]
         key = (get_runtime_value(KEY_NAMES[engine]) or "").strip()
         if not key:
             raise RuntimeError(f"{KEY_NAMES[engine]} is not configured")

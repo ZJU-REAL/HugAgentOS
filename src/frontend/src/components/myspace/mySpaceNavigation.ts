@@ -7,6 +7,8 @@ export interface NarrowTab {
   tab: MySpaceTab | 'search';
   scope?: 'personal' | 'team';
   kb?: KbTabKey;
+  /** 仅商业版（个人智能体） */
+  ee?: boolean;
 }
 
 export const TABS: NarrowTab[] = [

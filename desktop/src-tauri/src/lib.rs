@@ -16,6 +16,7 @@ mod menu;
 mod notify;
 mod prefs;
 mod proxy;
+mod workbench_platform;
 mod update;
 mod update_monitor;
 mod window_events;

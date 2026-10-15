@@ -9,6 +9,7 @@ import {
   disconnectEmail,
   type EmailStatus,
   type EmailServerOverrides,
+  type RequestTarget,
 } from '../../api';
 import { t } from '../../i18n';
 
@@ -30,7 +31,16 @@ const SECURITY_OPTS = [
  * -> backend writes config.toml and does a real IMAP connect to validate -> connected / error. Credentials
  * are persisted in a backend per-user volume and survive across sessions.
  */
-export function EmailConnect() {
+interface EmailConnectProps {
+  /** Pin requests to one plane (Personal Agent uses the cloud account). */
+  target?: RequestTarget;
+  /** Hide the logo/title header when embedded under another heading. */
+  compact?: boolean;
+  /** Called after the account was connected or disconnected. */
+  onChange?: (status: EmailStatus) => void;
+}
+
+export function EmailConnect({ target, compact, onChange }: EmailConnectProps = {}) {
   const [status, setStatus] = useState<EmailStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -45,13 +55,13 @@ export function EmailConnect() {
   const refresh = useCallback(async (probe = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setStatus(await getEmailStatus(probe));
+      setStatus(await getEmailStatus(probe, target));
     } catch {
       if (!silent) message.error(t('获取邮箱连接状态失败'));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [target]);
 
   useEffect(() => { refresh(true); }, [refresh]);
 
@@ -70,8 +80,9 @@ export function EmailConnect() {
         secret,
         display_name: displayName.trim() || undefined,
         server_overrides: Object.keys(overrides).length ? overrides : undefined,
-      });
+      }, target);
       setStatus(s);
+      onChange?.(s);
       if (s.status === 'connected') {
         message.success(t('邮箱已连接'));
         setSecret('');
@@ -88,7 +99,9 @@ export function EmailConnect() {
 
   const onDisconnect = async () => {
     try {
-      setStatus(await disconnectEmail());
+      const s = await disconnectEmail(target);
+      setStatus(s);
+      onChange?.(s);
       message.success(t('已断开邮箱连接'));
     } catch {
       message.error(t('断开失败'));
@@ -159,8 +172,8 @@ export function EmailConnect() {
   );
 
   return (
-    <div className="jx-conn jx-conn--email">
-      <div className="jx-conn-head">
+    <div className={'jx-conn jx-conn--email' + (compact ? ' jx-conn--compact' : '')}>
+      {!compact && <div className="jx-conn-head">
         <div className="jx-conn-logo jx-conn-logo--email">
           <svg viewBox="0 0 1024 1024" width="22" height="22" aria-hidden>
             <path fill="currentColor" d="M192 224h640a64 64 0 0 1 64 64v448a64 64 0 0 1-64 64H192a64 64 0 0 1-64-64V288a64 64 0 0 1 64-64zm20 96 300 232 300-232H212zm-20 80v336h640V400L512 632 192 400z"/>
@@ -172,7 +185,7 @@ export function EmailConnect() {
             {t('绑定你的邮箱账号后，智能体可在「电子邮箱」技能里以你的身份收发和管理邮件（含附件）。凭据安全保存在服务端，仅你本人可用。')}
           </div>
         </div>
-      </div>
+      </div>}
 
       <div className="jx-conn-statusBar">
         <div className="jx-conn-statusLeft">

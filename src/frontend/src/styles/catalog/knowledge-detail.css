@@ -1,0 +1,322 @@
+.jx-kbDetailHeader{
+  background:var(--color-bg-container);
+  border:1px solid var(--color-border);
+  border-radius:14px;
+  padding:16px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  flex-wrap:wrap;
+  box-shadow:0 10px 30px color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.jx-kbDetailHeaderMain{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+  flex:1;
+}
+
+.jx-kbBackBtn.ant-btn{
+  width:32px;
+  min-width:32px;
+  height:32px;
+  border-radius:8px;
+  padding:0;
+  font-size:16px;
+  color:var(--color-text-secondary);
+  border:none;
+  background:transparent;
+  box-shadow:none;
+}
+
+.jx-kbBackBtn.ant-btn:hover,
+.jx-kbBackBtn.ant-btn:focus{
+  color:var(--color-text);
+  background:var(--color-bg-layout);
+}
+
+.jx-kbDetailDivider{
+  width:1px;
+  align-self:stretch;
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.jx-kbDetailIntro{
+  min-width:0;
+  flex:0 1 680px;
+  max-width:680px;
+}
+
+.jx-kbDetailTitleRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.jx-kbDetailTitle{
+  margin:0;
+  font-size:20px;
+  line-height:1.3;
+  font-weight:600;
+  color:var(--color-text);
+}
+
+.jx-kbDetailDesc{
+  margin:0;
+  font-size:13px;
+  line-height:1.6;
+  color:var(--color-text-secondary);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  flex:1;
+  min-width:0;
+}
+
+.jx-kbDetailDesc.is-expanded{
+  white-space:normal;
+  overflow:visible;
+  text-overflow:unset;
+}
+
+.jx-kbDetailDescRow{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  min-width:0;
+  margin-top:6px;
+}
+
+.jx-kbDetailDescToggle.ant-btn{
+  padding:0;
+  height:auto;
+  min-width:auto;
+  color:var(--color-primary);
+  font-size:12px;
+  font-weight:500;
+  box-shadow:none;
+  flex-shrink:0;
+  line-height:1.6;
+}
+
+.jx-kbDetailDescToggle.ant-btn:hover,
+.jx-kbDetailDescToggle.ant-btn:focus{
+  color:var(--color-primary);
+}
+
+.jx-kbDetailActions{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  flex-shrink:0;
+  margin-left:28px;
+}
+
+.jx-kbSyncInline{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:7px 10px;
+  border-radius:12px;
+  border:none;
+  background:color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  box-shadow:none;
+}
+
+.jx-kbSyncInlineRow{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+
+.jx-kbSyncInlineLabel{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  font-weight:500;
+  color:var(--color-text-secondary);
+}
+
+.jx-kbSyncInlineStatus{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:0 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+  border:1px solid transparent;
+}
+
+.jx-kbSyncInlineStatus.is-active{
+  color:var(--color-tint-amber);
+  background:var(--color-tint-amber-bg);
+  border-color:color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
+}
+
+.jx-kbSyncInlineStatus.is-inactive{
+  color:var(--color-tint-amber);
+  background:color-mix(in srgb, var(--color-warning-bg) 92%, transparent);
+  border-color:color-mix(in srgb, var(--color-warning) 14%, transparent);
+}
+
+.jx-kbSyncInlineHintRow{
+  gap:6px;
+  flex-wrap:nowrap;
+}
+
+.jx-kbSyncInlineHint{
+  font-size:12px;
+  line-height:1.45;
+  color:var(--color-text-tertiary);
+  flex:0 1 auto;
+  min-width:0;
+}
+
+.jx-kbSyncInlineHint span{
+  display:inline-flex;
+  align-items:baseline;
+  gap:0;
+  font-size:inherit;
+  line-height:inherit;
+}
+
+.jx-kbSyncInlineLink{
+  display:inline;
+  font-size:inherit;
+  line-height:inherit;
+  font-weight:inherit;
+  color:inherit;
+  vertical-align:baseline;
+  background:transparent;
+  outline:none;
+  text-decoration:none;
+  cursor:pointer;
+}
+
+.jx-kbSyncInlineLink:hover,
+.jx-kbSyncInlineLink:focus,
+.jx-kbSyncInlineLink:active,
+.jx-kbSyncInlineLink:focus-visible{
+  color:inherit;
+  background:transparent;
+  outline:none;
+  text-decoration:none;
+}
+
+.jx-kbDetailBadge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:0 14px;
+  height:36px;
+  border-radius:10px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  background:var(--color-bg-container);
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  font-weight:400;
+}
+
+.jx-kbDetailActions .ant-btn{
+  height:38px;
+  border-radius:10px;
+  font-size:13px;
+  font-weight:500;
+  box-shadow:none;
+}
+
+.jx-kbDetailActions .jx-kbSyncInlineLink{
+  font-size:12px;
+  font-weight:400;
+  line-height:1.45;
+}
+
+.jx-kbRuleTrigger{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:18px;
+  height:18px;
+  font-size:14px;
+  line-height:1;
+  color:var(--color-text-placeholder);
+  cursor:pointer;
+  flex:0 0 auto;
+}
+
+.jx-kbRuleTrigger:hover{
+  color:var(--color-text-tertiary);
+}
+
+.jx-kbRulesPopover .ant-popover-inner{
+  border-radius:14px;
+  border:1px solid color-mix(in srgb, var(--color-warning) 16%, transparent);
+  box-shadow:0 14px 30px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.jx-kbRulesPopoverBody{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:2px 0;
+}
+
+.jx-kbRulesPopoverTitle{
+  font-size:13px;
+  line-height:1.4;
+  font-weight:600;
+  color:var(--color-tint-amber);
+  margin-bottom:2px;
+}
+
+.jx-kbRulesPopoverItem{
+  font-size:12px;
+  line-height:1.6;
+  color:var(--color-tint-amber);
+  white-space:nowrap;
+}
+
+.jx-kbDetailIconGroup{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-left:2px;
+}
+
+.jx-kbEditIconBtn.ant-btn,
+.jx-kbDeleteIconBtn.ant-btn{
+  width:34px;
+  min-width:34px;
+  height:34px !important;
+  padding:0;
+  border-radius:9px;
+}
+
+.jx-kbEditIconBtn.ant-btn{
+  color:var(--color-text-placeholder);
+}
+
+.jx-kbDeleteIconBtn.ant-btn{
+  color:var(--color-text-placeholder);
+}
+
+.jx-kbEditIconBtn.ant-btn:hover,
+.jx-kbEditIconBtn.ant-btn:focus,
+.jx-kbDeleteIconBtn.ant-btn:hover,
+.jx-kbDeleteIconBtn.ant-btn:focus{
+  color:var(--color-text-tertiary);
+  background:var(--color-bg-layout);
+}

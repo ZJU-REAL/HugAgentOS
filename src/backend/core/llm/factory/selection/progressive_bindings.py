@@ -27,7 +27,9 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
     # ── Progressive plugin loading（渐进式插件加载）────────────────────────
     # Main-path only: a sub-agent's plugin binding is the owner's deliberate
     # configuration and a restricted mode's plugin set is the admin's deliberate
-    # narrowing — both stay eager. Here, installed plugins' components are
+    # narrowing — both stay eager. So does a module's dedicated agent profile:
+    # its explicit lists are its whole surface and its tool filter would hide
+    # `load_plugin`, leaving deferred plugins unreachable. Here, installed plugins' components are
     # removed from this run's enabled sets and replaced by a one-line directory
     # entry + a `load_plugin` activation tool (see core/plugins/runtime/__init__.py).
     # Deferral happens BEFORE the skill-bound-MCP merge below so a deferred
@@ -37,6 +39,7 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
         not request.disable_tools
         and not request.turbo_mode
         and request.user_agent is None
+        and not request.profile
         and request.current_user_id
         and _eval_scope is None
     ):

@@ -1,79 +1,37 @@
-import { Badge, Layout, Tooltip } from 'antd';
-import { useState } from 'react';
-import { usePageConfig, usePageConfigAll } from '../../hooks/usePageConfig';
+import { useLocation } from 'react-router';
+import { useApplicationEntries } from '../../applicationEntries';
+import { useApplicationOpen } from '../../applicationOpen';
+import { ClassicNavigation } from './ClassicNavigation';
+import { ClassicModuleSidebar } from './ClassicModuleSidebar';
+import { applicationRoute } from '../../workbench/workspaceNavigation';
+import { Layout, Tooltip } from 'antd';
+import { usePageConfig } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
-import { abilitySlug, useAbilityTab } from '../../routing/subPages';
 import { usePanel } from '../../routing/usePanel';
-import { loadJsonPref, saveJsonPref } from '../../storage';
-import { useAuthStore, useMySpaceStore, useUIStore } from '../../stores';
-import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { DEFAULT_SIDEBAR_ITEMS } from '../../utils/pageConfigDefaults';
+import { useMySpaceStore, useUIStore } from '../../stores';
 import { ChatSidebar } from './ChatSidebar';
-import { AutomationSidebar } from '../automation/AutomationSidebar';
-import { MySpaceRail } from '../myspace/MySpaceRail';
-import { LAYOUT_ITEMS } from './items';
 import type { SidebarProps } from './sidebarTypes';
 import { SidebarUtilities } from './SidebarUtilities';
 import '../../styles/classic-sidebar.css';
 
-const COLLAPSED_KEY = 'hugagent_ui_nav_collapsed_v1';
-
 export function ClassicSidebar(actions: SidebarProps) {
+  const count = useMySpaceStore(s => s.notifUnreadCount);
+  const { pinned, entries } = useApplicationEntries();
+  const { open, feedback } = useApplicationOpen(actions.onSetPanel);
+  const location = useLocation();
+  const panel = usePanel();
+  const currentKey = applicationRoute(location.pathname, location.search, location.hash)?.applicationKey || 'builtin:' + panel;
+  const navigation = (expanded: boolean) => <ClassicNavigation entries={entries} pinned={pinned}
+    currentKey={currentKey} expanded={expanded} count={count} onOpen={open} />;
   const collapsed = useUIStore(s => s.siderCollapsed);
   const setCollapsed = useUIStore(s => s.setSiderCollapsed);
   const openSearch = useUIStore(s => s.openSearchModal);
-  const authUser = useAuthStore(s => s.authUser);
-  const mode = useDeploymentModeStore(s => s.provisionMode);
-  const count = useMySpaceStore(s => s.notifUnreadCount);
-  const panel = usePanel();
-  const abilityTab = useAbilityTab();
-  const config = usePageConfigAll();
   const name = usePageConfig('branding.product_name', 'HugAgentOS');
   const subtitle = usePageConfig('branding.product_subtitle', '');
   const logo = usePageConfig('branding.logo_url', '/home/logo.svg');
-  const configured = usePageConfig<string[]>('navigation.sidebar_items', DEFAULT_SIDEBAR_ITEMS);
-  const items = [...new Set(configured)].filter(key => LAYOUT_ITEMS[key]
-    && key !== 'settings'
-    && (!LAYOUT_ITEMS[key].requiresLab || authUser?.lab_enabled !== false)
-    && !(key === 'my_space' && mode === 'local_only'));
-  const [groups, setGroups] = useState(() => loadJsonPref<Record<string, boolean>>(COLLAPSED_KEY, {}));
-  const select: SidebarProps['onSetPanel'] = (target, sub) => {
-    actions.onSetPanel(target, sub);
-  };
-  const renderIcon = (key: string, className: string) => {
-    const icon = <img src={LAYOUT_ITEMS[key].icon} alt="" className={className} />;
-    return key === 'my_space' && count > 0 ? <Badge count={count} size="small">{icon}</Badge> : icon;
-  };
-  const navigation = <nav className="jx-classicNav" aria-label={t('导航')}>
-    {items.map(key => {
-      const meta = LAYOUT_ITEMS[key];
-      const isCollapsed = !!groups[key];
-      const active = meta.activePanels?.includes(panel) || panel === meta.targetPanel;
-      return <div key={key}>
-        <button type="button" className={`jx-navItem${active && (!meta.children?.length || isCollapsed) ? ' active' : ''}`}
-          aria-expanded={meta.children?.length ? !isCollapsed : undefined}
-          onClick={() => {
-            if (!meta.children?.length) { select(meta.targetPanel); return; }
-            const next = { ...groups, [key]: !isCollapsed };
-            setGroups(next);
-            saveJsonPref(COLLAPSED_KEY, next);
-            if (isCollapsed) select(meta.targetPanel);
-          }}>
-          {renderIcon(key, 'jx-navItemIcon')}<span>{meta.label}</span>
-        </button>
-        {!!meta.children?.length && !isCollapsed && <div className="jx-classicSubList">
-          {meta.children.map(child => <button type="button" key={child.key}
-            className={`jx-classicSubItem${active && abilityTab === child.key ? ' active' : ''}`}
-            aria-current={active && abilityTab === child.key ? 'page' : undefined}
-            onClick={() => select(meta.targetPanel, abilitySlug(child.key))}>
-            {t(config.navigation.panel_titles[child.key] || child.label)}
-          </button>)}
-        </div>}
-      </div>;
-    })}
-  </nav>;
-  return <Layout.Sider width={280} collapsedWidth={56} collapsed={collapsed} theme="light"
-    className={`jx-sider jx-classicShell${collapsed ? ' jx-classicShell--collapsed' : ''}`}>
+
+  return <><Layout.Sider width={280} collapsedWidth={56} collapsed={collapsed} theme="light"
+    className={'jx-sider jx-classicShell' + (collapsed ? ' jx-classicShell--collapsed' : '')}>
     {collapsed ? <div className="jx-classicMini">
       <Tooltip title={t('展开侧边栏并返回首页')} placement="right">
         <button className="jx-miniRailBtn" aria-label={t('展开侧边栏并返回首页')}
@@ -88,12 +46,8 @@ export function ClassicSidebar(actions: SidebarProps) {
       <Tooltip title={t('搜索对话')} placement="right">
         <button className="jx-miniRailBtn" aria-label={t('搜索对话')} onClick={openSearch}><img src="/home/search.svg" alt="" className="jx-miniRailIcon" /></button>
       </Tooltip>
-      {items.map(key => <Tooltip key={key} title={LAYOUT_ITEMS[key].label} placement="right">
-        <button className="jx-miniRailBtn" aria-label={LAYOUT_ITEMS[key].label} onClick={() => select(LAYOUT_ITEMS[key].targetPanel)}>
-          {renderIcon(key, 'jx-miniRailIcon')}
-        </button>
-      </Tooltip>)}
-      <SidebarUtilities onSetPanel={select} classic />
+      {navigation(false)}
+      <SidebarUtilities onSetPanel={actions.onSetPanel} classic />
     </div> : <aside className="jx-classicInner" aria-label={t('导航')}>
       <header className="jx-classicBrand">
         <button className="jx-classicHome" title={t('回到首页')} onClick={actions.onNewChat}>
@@ -103,12 +57,11 @@ export function ClassicSidebar(actions: SidebarProps) {
         <button className="jx-searchBtn" aria-label={t('搜索对话')} onClick={openSearch}><img src="/home/search.svg" alt="" /></button>
         <button className="jx-collapseBtn" aria-label={t('收起侧边栏')} onClick={() => setCollapsed(true)}><img src="/home/expand.svg" alt="" /></button>
       </header>
-      <ChatSidebar actions={actions}>
-        {navigation}
-        {panel === 'my_space' && <MySpaceRail />}
-        {panel === 'automation' && <AutomationSidebar actions={actions} />}
-      </ChatSidebar>
-      <SidebarUtilities onSetPanel={select} classic expanded />
+      <ChatSidebar actions={actions} navigation={navigation(true)} />
+      <SidebarUtilities onSetPanel={actions.onSetPanel} classic expanded />
     </aside>}
-  </Layout.Sider>;
+    <span className="jx-applicationFeedback" role="status">{feedback}</span>
+  </Layout.Sider>
+    {(panel === 'automation' || panel === 'my_space') && <ClassicModuleSidebar key={panel} actions={actions} panel={panel} />}
+  </>;
 }

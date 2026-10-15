@@ -377,3 +377,33 @@
   overflow-y: auto;
   min-width: 180px;
 }
+
+/* Capability submenus render in separate portals; share typography across all four lists. */
+.jx-capabilityMenu .ant-dropdown-menu-item {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  gap: 10px;
+}
+
+.jx-capabilityMenu .ant-dropdown-menu-title-content {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.jx-capabilityMenu .jx-capabilityMenuIcon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Match connector glyphs inside the shared 20px avatar frame. */
+.jx-capabilityMenu .jx-skillAvatar > svg {
+  width: 16px;
+  height: 16px;
+}

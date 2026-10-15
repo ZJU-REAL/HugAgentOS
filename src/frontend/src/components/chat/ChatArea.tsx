@@ -1,3 +1,5 @@
+import { useChatResultRead } from '../../hooks/useChatResultRead';
+import { usePublicChat } from '../../public-chat/PublicChatContext';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Select, message } from 'antd';
 import { AnimatePresence, motion } from 'motion/react';
@@ -8,7 +10,7 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useUIStore, isLocalDraftChat } from '../../stores';
+import { useChatStore, useUIStore, isLocalDraftChat } from '../../stores';
 import { loadOlderMessages } from '../../hooks/useChatInit';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { t } from '../../i18n';
@@ -35,28 +37,7 @@ import { ChatWelcome } from './ChatWelcome';
 import { useChatWelcome } from './useChatWelcome';
 import { getChatDetail } from '../../api';
 import { chatAccessLevel } from '../../chatEdition';
-import { BatchProgressPanel } from '../batch';
 import { ContentErrorBoundary } from '../common';
-
-/** Render any active or recently-finished batch plans associated with the
- *  current chat. Plans without a chat_id (legacy) match any chat so the
- *  user still sees their progress. */
-function BatchPanelsForChat({ chatId }: { chatId: string }) {
-  const plans = useBatchStore((s) => s.plans);
-  const items = Object.values(plans).filter((p) => {
-    if (p.status === 'awaiting_confirm') return false;
-    const planChat = p.meta.chat_id;
-    return !planChat || planChat === chatId;
-  });
-  if (items.length === 0) return null;
-  return (
-    <>
-      {items.map((p) => (
-        <BatchProgressPanel key={p.meta.plan_id} planId={p.meta.plan_id} />
-      ))}
-    </>
-  );
-}
 
 export interface ChatAreaProps {
   isPaneHidden?: boolean;
@@ -87,6 +68,7 @@ export function ChatArea({
   regenerate, editAndResend,
   inputRef, fileInputRef, chatListRef, messagesEndRef, onViewportMount, isPaneHidden = false,
 }: ChatAreaProps) {
+  const publicChat = usePublicChat();
   type ShareExpiryOption = '3d' | '15d' | '3m' | 'permanent';
   const shareExpiryOptions = [
     { value: '3d', label: t('3天') },
@@ -117,6 +99,7 @@ export function ChatArea({
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
+  useChatResultRead(currentChatId, chat?.messages || [], viewportEl, isPaneHidden || !!publicChat);
   const hasPendingUserQuestion = useUIStore(
     (state) => (state.pendingUserQuestions[currentChatId]?.length ?? 0) > 0,
   );
@@ -187,7 +170,7 @@ export function ChatArea({
 
   useEffect(() => {
     useChatStore.getState().clearShareSelection();
-  }, [currentChatId]);
+  }, [currentChatId, publicChat]);
 
   // Stable identity on purpose: ChatShareBanner rebuilds its loader whenever this
   // prop changes and refetches on that loader, so an inline arrow here made the
@@ -204,7 +187,7 @@ export function ChatArea({
   // is not mounted because it hit the hasNoMessages early-return branch, we still need to know the read level to hide the input box.
   useEffect(() => {
     // 只在浏览器里存在、还没发过一句话的新对话：服务端没有它，问详情必然 404。
-    if (!currentChatId || isLocalDraftChat(currentChatId)) {
+    if (publicChat || !currentChatId || isLocalDraftChat(currentChatId)) {
       setShareAccessLevel(null);
       return;
     }
@@ -218,7 +201,7 @@ export function ChatArea({
       }
     })();
     return () => { aborted = true; };
-  }, [currentChatId]);
+  }, [currentChatId, publicChat]);
 
   useEffect(() => {
     if (!pendingScrollMessageTs) return;
@@ -381,11 +364,11 @@ export function ChatArea({
           </motion.div>
         )}
       </AnimatePresence>
-      <ChatForkBanner chatId={currentChatId} />
-      <ChatShareBanner
+      {!publicChat && <ChatForkBanner chatId={currentChatId} />}
+      {!publicChat && <ChatShareBanner
         chatId={currentChatId}
         onLevelChange={handleShareLevelChange}
-      />
+      />}
       {!!compactionNotices[currentChatId] && (
         <div className="jx-compactionNotice" role="status">
           <span className="jx-compactionNotice-text">
@@ -430,7 +413,6 @@ export function ChatArea({
                 />
               </ContentErrorBoundary>
             ))}
-            <BatchPanelsForChat chatId={currentChatId} />
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -456,7 +438,7 @@ export function ChatArea({
       <div className="jx-chatFooter">
         {!planMode && <PlanProgressStrip chatId={currentChatId} />}
         {/* 后台作业状态条：工作流模式下作业跑在后台，没有它就完全看不出在不在跑 */}
-        <JobProgressStrip chatId={currentChatId} />
+        {!publicChat && <JobProgressStrip chatId={currentChatId} />}
         <FileConfirmBar />
         <DesignPickerCard />
         {shareAccessLevel === 'read' ? (

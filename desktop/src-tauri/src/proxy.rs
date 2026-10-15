@@ -70,7 +70,12 @@ pub const BRIDGE_SECRET_HEADER: &str = "x-desktop-bridge";
 pub const BRIDGE_USER_HEADER: &str = "x-desktop-bridge-user";
 
 /// 在 127.0.0.1 随机端口起反代，返回实际端口。axum serve 在后台 task 常驻。
-pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> {
+pub async fn serve(
+    state: ProxyState,
+    web_dir: PathBuf,
+    native: crate::workbench_platform::NativePlatform,
+) -> std::io::Result<u16> {
+    native.watch_session(state.session.clone());
     let bound_port = state.bound_port.clone();
     let index = web_dir.join("index.html");
     // SPA 首页注入平台标题栏；macOS 保留原生菜单与交通灯，只叠加轻量工具栏。
@@ -79,32 +84,29 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     // The SPA learns the desktop shape from the document itself: no probe, no race
     // between the first API calls and the routing switch.
     let boot = format!(
-        "<script>window.__HG_DESKTOP__={};</script>",
+        "<script>window.__HG_DESKTOP__={};if(window.top===window.self)window.__HG_PLATFORM__={};</script>",
         serde_json::json!({
             "provision_mode": state.provision_mode,
             "active_local": state.active_local,
             "server_base": state.server_base,
             "local_base": state.local_base,
-        })
+        }).to_string().replace('<', "\\u003c"),
+        serde_json::json!({"platform":"tauri","key":native.key})
     );
     let injected_index = inject_after_body(
         &raw_index,
         &format!("{boot}{}", platform_titlebar_block(true)),
     );
-    let injected_path =
-        std::env::temp_dir().join(format!("hugagent-shell-index-{}.html", std::process::id()));
-    if let Err(error) = std::fs::write(&injected_path, injected_index.as_bytes()) {
-        eprintln!("[proxy] 写入桌面标题栏首页失败，回退原始 index: {error}");
-    }
-    let spa_index = if injected_path.is_file() {
-        injected_path
-    } else {
-        index
-    };
+    // Keep the host bootstrap secret in a private temporary file for this listener only.
+    let mut injected_file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut injected_file, injected_index.as_bytes())?;
+    let injected_guard = injected_file.into_temp_path();
+    let spa_index = injected_guard.to_path_buf();
     // SPA：静态资源命中即返回，未命中回落注入后的 index.html。
     let serve_dir = ServeDir::new(&web_dir).fallback(ServeFile::new(&spa_index));
 
     let app = Router::new()
+        .merge(native.router())
         .route("/__desktop/login", get(login_page))
         .route("/__desktop/login/status", get(login_status))
         .route("/__desktop/close-confirm", get(close_confirm_page))
@@ -123,7 +125,10 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
             "/__desktop/update/status",
             get(|| async { Json(crate::update::status()) }),
         )
-        .route("/api/v1/plugin-resources/:resource_id/stream", get(websocket::upgrade))
+        .route(
+            "/api/v1/plugin-resources/:resource_id/stream",
+            get(websocket::upgrade),
+        )
         .route("/api", any(proxy_handler))
         .route("/api/*rest", any(proxy_handler))
         // nginx-free desktop mode still needs the backend-owned public paths:
@@ -148,6 +153,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     bound_port.store(port, std::sync::atomic::Ordering::Relaxed);
 
     tokio::spawn(async move {
+        let _injected_guard = injected_guard;
         if let Err(e) = axum::serve(listener, app).await {
             eprintln!("[proxy] axum serve 退出: {e}");
         }

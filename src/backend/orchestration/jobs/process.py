@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,7 +114,7 @@ async def launch(row):
     provider = get_sandbox_provider()
     execution = row["meta"]["execution"]
     attempt = execution["attempt_id"]
-    directory = _job_directory(row["session_id"], row["job_id"]) + "/" + attempt
+    directory = attempt_directory(row["session_id"], row["job_id"], attempt)
     callback = await resolve_callback_base(session_id=row["session_id"], user_id=row["user_id"])
     config = {
         "JOB_ID": row["job_id"],
@@ -154,6 +155,20 @@ async def launch(row):
         await managed.stop()
         raise
     return managed
+
+
+def attempt_directory(session_id, job_id, attempt_id, *, windows_local=None):
+    """Keep Windows SDK imports within MAX_PATH without shortening attempt identity."""
+    if windows_local is None:
+        from core.config.local_mode import local_mode_enabled
+
+        windows_local = sys.platform == "win32" and local_mode_enabled()
+    base = _job_directory(session_id, job_id)
+    if windows_local:
+        # The globally unique 128-bit attempt id already isolates each execution.
+        # One less directory avoids SDK filenames crossing MAX_PATH in desktop data roots.
+        base = base.rsplit("/", 1)[0]
+    return base + "/" + attempt_id
 
 
 async def recover(row):

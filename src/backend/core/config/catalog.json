@@ -259,18 +259,6 @@
       }
     },
     {
-      "id": "batch_runner",
-      "kind": "mcp_server",
-      "name": "批量执行",
-      "description": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
-      "desc": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
-      "enabled": true,
-      "version": "1",
-      "config": {
-        "server": "batch_runner"
-      }
-    },
-    {
       "id": "skill_manager",
       "kind": "mcp_server",
       "name": "skill_manager",

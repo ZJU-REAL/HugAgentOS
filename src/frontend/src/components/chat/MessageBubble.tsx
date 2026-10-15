@@ -1,3 +1,4 @@
+import { usePublicChat } from '../../public-chat/PublicChatContext';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileAttachmentCard } from '../file';
@@ -34,6 +35,7 @@ interface MessageBubbleProps {
  * 且 messages 只订到本条为止。
  */
 export const MessageBubble = memo(function MessageBubble({ m, messageIndex, currentChatId, send, exportChatRecord, regenerate, editAndResend }: MessageBubbleProps) {
+  const publicChat = usePublicChat();
   const { contentRef, onMouseDown, onMouseUp, selectionMenu } = useMessageSelection(m, currentChatId);
   const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
   const selectedShareMessageUids = useChatStore((s) => s.selectedShareMessageUids);
@@ -145,9 +147,9 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         )}
 
         {inherited && <MessageInheritedCards m={m} />}
-        {selectionMenu}
-        <MessageActions m={m} messageIndex={messageIndex} currentChatId={currentChatId}
-          exportChatRecord={exportChatRecord} regenerate={regenerate} editAndResend={editAndResend} />
+        {!publicChat && selectionMenu}
+        {!publicChat && <MessageActions m={m} messageIndex={messageIndex} currentChatId={currentChatId}
+          exportChatRecord={exportChatRecord} regenerate={regenerate} editAndResend={editAndResend} />}
       </div>
       </div>
     </div>

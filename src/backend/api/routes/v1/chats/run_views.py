@@ -1,11 +1,14 @@
 """Active-run discovery and authorized durable SSE replay endpoints."""
 
+from typing import Annotated
+
 import api.routes.v1.chats.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
 import core.infra.responses as responses
 from core.auth.backend import UserContext
+from core.db.reserved_chats import reserved_chat_owner
 from core.infra.logging import quiet_access_log
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,6 +22,10 @@ router = APIRouter()
 def list_active_chat_runs(
     user: UserContext = Depends(auth_backend.get_current_user),
     db: Session = Depends(db_engine.get_db),
+    include_status: bool = False,
+    recent_seconds: Annotated[
+        int, Query(ge=0, description="recent_chat_ids 列出这段时间内起过 run 的会话")
+    ] = 0,
 ):
     """一次性返回当前用户还在跑的会话，供侧边栏点亮「运行中」。
 
@@ -31,9 +38,14 @@ def list_active_chat_runs(
     db_user_id = chat_context.resolve_db_user_id(
         db, chat_session_context._authenticated_user_id(user)
     )
-    runs = chat_run_executor.list_active_runs_for_user(db_user_id)
+    runs, recent_chat_ids = chat_run_executor.list_active_runs_for_user(
+        db_user_id, recent_seconds
+    )
+    from core.services.sidebar_status import sidebar_run_statuses
+
     return success_response(
         data={
+            **({"statuses": sidebar_run_statuses(db, db_user_id)} if include_status else {}),
             "items": [
                 {
                     "chat_id": run.chat_id,
@@ -42,7 +54,8 @@ def list_active_chat_runs(
                     "started_at": run.started_at.isoformat() if run.started_at else None,
                 }
                 for run in runs
-            ]
+            ],
+            "recent_chat_ids": recent_chat_ids,
         }
     )
 
@@ -64,7 +77,8 @@ def chat_stream_resume(
         db, chat_session_context._authenticated_user_id(user)
     )
     run = chat_run_executor.get_run(run_id)
-    if run is None:
+    # A module-owned chat's run is replayed by its module, not as an ordinary chat.
+    if run is None or reserved_chat_owner(run.chat_id):
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != db_user_id:
         raise HTTPException(status_code=403, detail="无权访问该 run")

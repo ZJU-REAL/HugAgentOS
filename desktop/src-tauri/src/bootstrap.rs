@@ -174,8 +174,12 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
         bridge_secret: bridge_secret.clone(),
         bound_port: std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0)),
     };
-    let port =
-        tauri::async_runtime::block_on(proxy::serve(pstate, web_dir)).expect("启动本地反代失败");
+    let port = tauri::async_runtime::block_on(proxy::serve(
+        pstate,
+        web_dir,
+        crate::workbench_platform::NativePlatform::new(handle.clone()),
+    ))
+    .expect("启动本地反代失败");
 
     // 复用菜单的动作分发：动作 id → 档位变化只在 menu.rs 定义一处。
     let zoom_app = app.handle().clone();
@@ -189,6 +193,7 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     // Grant remote IPC only to the proxy listener created by this process.
     let mut capability: serde_json::Value =
         serde_json::from_str(include_str!("../capabilities/default.json"))?;
+    capability["permissions"] = serde_json::json!(["core:default", "deep-link:default"]);
     capability["identifier"] = serde_json::json!("session-proxy");
     capability["windows"] = serde_json::json!(["main", "main-*", "quickask"]);
     capability["remote"] = serde_json::json!({"urls": [format!("http://127.0.0.1:{port}")]});

@@ -247,7 +247,7 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
     ...(m.role === 'assistant' && !inherited && m.in_flight && {
       isStreaming: true,
       inFlight: {
-        ...(typeof m.in_flight.event_offset === 'number' && { eventOffset: m.in_flight.event_offset as number }),
+        ...(typeof m.in_flight.event_offset === 'number' && { eventOffset: m.in_flight.event_offset as number, textSnapshotOffset: m.in_flight.event_offset as number }),
       },
     }),
     ...(m.role === 'assistant' && m.error && typeof m.error.error === 'string' && { error: m.error.error as string }),

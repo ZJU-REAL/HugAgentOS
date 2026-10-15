@@ -625,7 +625,7 @@ class SandboxSettings:
     # core.services.system_config.code_capability_enabled). The env is retired.
     # Hard safety for user confirmation of MySpace write operations (docs §13).
     # true (default): Write/Edit/Delete/Move on /myspace must pass out-of-band
-    # user confirmation; non-interactive mode (batch/sub-agent) rejects writes
+    # user confirmation; non-interactive mode (sub-agent) rejects writes
     # outright. Ops can set false to disable (trusted-path policy soft
     # constraint). With code_capability enabled this is the key protection
     # against the main agent accidentally modifying the user's private drive.
@@ -638,7 +638,7 @@ class SandboxSettings:
     # creates/edits/deletes cron tasks via the automation plugin
     # (automation_task MCP), out-of-band user confirmation is required in web
     # interactive chats; channel (IM bot) runs and non-interactive modes
-    # (batch/sub-agent/plan execution/scheduler-triggered) skip the prompt and
+    # (sub-agent/plan execution/scheduler-triggered) skip the prompt and
     # pass directly. Set false to disable.
     automation_write_confirm: bool = field(
         default_factory=lambda: _bool(_env("AUTOMATION_WRITE_CONFIRM", "true"))

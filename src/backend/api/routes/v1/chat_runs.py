@@ -113,3 +113,11 @@ async def withdraw_chat_run_steer(
         raise HTTPException(status_code=403, detail="无权操作该 run")
     removed = await remove_pending_steer(run_id, steer_id)
     return success_response(data={"run_id": run_id, "steer_id": steer_id, "removed": removed})
+
+
+@router.get("/{run_id}", summary="获取后台运行状态")
+async def get_chat_run(run_id: str, user: UserContext = Depends(get_current_user)):
+    run = chat_run_executor.get_run(run_id)
+    if run is None or run.user_id != user.user_id:
+        raise HTTPException(404, "Run not found")
+    return success_response(data={"run_id":run.run_id,"chat_id":run.chat_id,"message_id":run.message_id,"status":run.status})

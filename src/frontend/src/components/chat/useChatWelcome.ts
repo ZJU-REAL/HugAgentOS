@@ -1,16 +1,17 @@
+import { usePublicChat } from '../../public-chat/PublicChatContext';
 import { useMemo, useState } from 'react';
 import { useEditionStore, usePluginUiStore } from '../../stores';
 import { resolveText } from '../../plugin-ui';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
 import { projectOverviewId } from '../../stores/chatStore';
-import { resolveBatchModeActive } from '../../utils/chatMode';
 import { t } from '../../i18n';
 import type { ChatItem } from '../../types';
 
 const HOME_SUGGESTIONS_PER_PAGE = 3;
 
 export function useChatWelcome(chat: ChatItem | undefined) {
+  const publicChat = usePublicChat();
   const [page, setPage] = useState<{ questions?: string[]; show?: boolean; index: number }>({ index: 0 });
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const pluginContributions = usePluginUiStore((s) => s.items);
@@ -78,14 +79,19 @@ export function useChatWelcome(chat: ChatItem | undefined) {
       ? (agentDetail?.description || agentDetail?.welcome_message || t('专业智能体'))
       : cfgHeroSubtitle;
   const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
-  const isBatchChat = resolveBatchModeActive(chat);
   const inputPlaceholder = isSiteChat
     ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
     : isAgentChat
       ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
-      : isBatchChat
-        ? t('描述要批量处理的对象与任务，例如："分别用一句话评价阿里、腾讯、字节"')
-        : isProjectChat ? t('在「{name}」内开始新对话，Enter 发送，Shift+Enter 换行', { name: chat.projectName || t('项目') }) : cfgInputPlaceholder;
+      : isProjectChat ? t('在「{name}」内开始新对话，Enter 发送，Shift+Enter 换行', { name: chat.projectName || t('项目') }) : cfgInputPlaceholder;
 
+  if (publicChat) return {
+    overviewProjectId: undefined, isAgentChat: true, isSiteChat: false, isProjectChat: publicChat.kind === 'projects',
+    showHomepageLogo: false, homepageLogoUrl, cfgProductName: publicChat.name,
+    heroTitle: publicChat.name, heroSubtitle: publicChat.description || t('有什么可以帮你？'),
+    inputPlaceholder: t('向{name}提问...', { name: publicChat.name }),
+    suggestedQuestions: publicChat.suggested_questions, visibleHomepageSuggestions: [],
+    suggestionPageCount: 1, setSuggestionPage, pluginShortcuts: [], cfgDisclaimer: '',
+  };
   return { overviewProjectId: projectOverviewId(chat), isAgentChat, isSiteChat, isProjectChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer };
 }

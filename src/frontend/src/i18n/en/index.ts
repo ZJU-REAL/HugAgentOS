@@ -1,3 +1,5 @@
+import { WORKBENCH_DICT } from './workbench';
+import { WORKBENCH_AUTH_DICT } from './workbenchAuth';
 import { ARCHIVE_DICT } from './archive';
 import { PROJECT_ENVIRONMENT_DICT } from "./projectEnvironment";
 import MODEL_REASONING_DICT from './modelReasoning';
@@ -22,6 +24,8 @@ import { CE_SHARED_DICT } from './ceShared';
 import { SIDEBAR_LAYOUT_DICT } from './sidebarLayout';
 
 export const EN_DICT: Record<string, string> = {
+  ...WORKBENCH_DICT,
+  ...WORKBENCH_AUTH_DICT,
   ...ARCHIVE_DICT,
   ...PROJECT_ENVIRONMENT_DICT,
   ...CORE_DICT,

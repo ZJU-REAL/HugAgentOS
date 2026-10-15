@@ -34,11 +34,15 @@ class AgentApiScopeMiddleware:
             return await self.app(scope, receive, send)
         request = Request(scope)
         raw = api_key_token_from_header(request.headers.get("authorization", ""))
-        if raw is None:
+        public = request.headers.get("x-public-chat") is not None
+        if raw is None and not public:
             return await self.app(scope, receive, send)
 
         def authorize():
             with SessionLocal() as db:
+                if public:
+                    from core.auth.public_chat import authenticate_public_chat
+                    return authenticate_public_chat(request, db)
                 identity = resolve_api_key_identity(db, raw)
                 if identity is None:
                     raise HTTPException(status_code=401, detail="Invalid or expired API key")

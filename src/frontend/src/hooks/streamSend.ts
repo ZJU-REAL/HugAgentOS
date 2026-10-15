@@ -5,7 +5,7 @@ import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch, getFollowUpQuestions, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { inferBusinessTopic } from '../utils/history';
-import { resolveBatchModeActive, resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
+import { resolveSiteModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
 import { composeCommandMessage, seedChatTitle } from '../utils/projectCommands';
 import { useChatStore, useCatalogStore, useChatModeStore, useUIStore, useModelCapabilitiesStore } from '../stores';
 import { isThinkingMode } from '../stores/chatStore';
@@ -33,7 +33,6 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
           ...(chat.agentId ? { agent_id: chat.agentId } : {}),
           ...(chat.agentName ? { agent_name: chat.agentName } : {}),
           ...(chat.planChat ? { plan_chat: true } : {}),
-          ...(chat.batchChat ? { batch_chat: true } : {}),
           ...(chat.workflowChat ? { workflow_chat: true } : {}),
           title_manually_set: true,
         },
@@ -182,7 +181,6 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
 
       const currentChat = useChatStore.getState().store.chats[currentChatId];
       const agentId = currentChat?.agentId || undefined;
-      const batchChat = resolveBatchModeActive(currentChat);
       const workflowChat = resolveWorkflowModeActive(currentChat);
       const modelCaps = useModelCapabilitiesStore.getState();
       const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
@@ -232,7 +230,6 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
           } : {}),
           ...(agentId ? { agent_id: agentId } : {}),
           ...chatInvocationRequestFields(currentInvocation),
-          ...(batchChat ? { batch_chat: true } : {}),
           ...(workflowChat ? { workflow_chat: true } : {}),
           ...(siteMode ? { site_chat: true } : {}),
           // Project scope comes from the conversation that owns this send.

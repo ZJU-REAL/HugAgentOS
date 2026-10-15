@@ -30,12 +30,17 @@ pub(super) fn is_same_origin(headers: &HeaderMap, port: u16) -> bool {
 }
 
 pub(super) fn is_module_asset_request(method: &Method, path: &str) -> bool {
-    if *method != Method::GET && *method != Method::HEAD { return false; }
+    if *method != Method::GET && *method != Method::HEAD {
+        return false;
+    }
     let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
-    parts.len() >= 6 && parts[..3] == ["api", "v1", "plugin-resource-assets"]
+    parts.len() >= 6
+        && parts[..3] == ["api", "v1", "plugin-resource-assets"]
         && ["local", "cloud"].contains(&parts[3])
         && parts[4].len() == 43
-        && parts[4].bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+        && parts[4]
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
 
 /// 正式站点及其管理接口只认云端：本机既不再托管站点，也不接受旧客户端遗留的
@@ -64,7 +69,8 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
     if !is_same_origin(
         &headers,
         state.bound_port.load(std::sync::atomic::Ordering::Relaxed),
-    ) && !is_module_asset_request(&method, uri.path()) {
+    ) && !is_module_asset_request(&method, uri.path())
+    {
         return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
     }
 
@@ -82,8 +88,9 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
                 .query()
                 .map(|q| q.split('&').any(|kv| kv == "hg_target=local"))
                 .unwrap_or(false)
-            || uri.path().starts_with("/api/v1/plugin-resource-assets/local/")
-);
+            || uri
+                .path()
+                .starts_with("/api/v1/plugin-resource-assets/local/"));
     let expected_epoch = state.session.epoch.current();
     let session = state.session.snapshot().await;
     let bridge_user = session.bridge_user;
@@ -140,7 +147,8 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
                 // content-length / connection 交给 reqwest / axum 自管。
                 "host" | "cookie" | "accept-encoding" | "content-length" | "connection" => continue,
                 // 路由标记不透传；桥接头只能由壳注入——WebView 带来的一律剥离（防伪造）。
-                TARGET_HEADER | BRIDGE_SECRET_HEADER | BRIDGE_USER_HEADER => continue,
+                TARGET_HEADER | BRIDGE_SECRET_HEADER | BRIDGE_USER_HEADER
+                | "x-workbench-native" => continue,
                 _ => {
                     rb = rb.header(name, value);
                 }
@@ -216,6 +224,18 @@ pub(super) async fn proxy_handler(State(state): State<ProxyState>, req: Request<
                 }
             }
 
+            // Upstream HTML is untrusted even when routed through the loopback origin.
+            if upstream
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.to_ascii_lowercase().contains("text/html"))
+            {
+                builder = builder.header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "sandbox allow-scripts allow-forms allow-popups",
+                );
+            }
             // bytes_stream 逐帧产出，SSE 不被缓冲。
             let stream = upstream.bytes_stream();
             match builder.body(Body::from_stream(stream)) {
@@ -232,12 +252,21 @@ mod resource_asset_tests {
     use super::*;
     #[test]
     fn opaque_asset_exception_is_capability_scoped_and_read_only() {
-        let path = format!("/api/v1/plugin-resource-assets/local/{}/browser/channel.js", "A".repeat(43));
+        let path = format!(
+            "/api/v1/plugin-resource-assets/local/{}/browser/channel.js",
+            "A".repeat(43)
+        );
         assert!(is_module_asset_request(&Method::GET, &path));
         assert!(is_module_asset_request(&Method::HEAD, &path));
         assert!(!is_module_asset_request(&Method::POST, &path));
         assert!(!is_module_asset_request(&Method::GET, "/api/v1/me"));
-        assert!(!is_module_asset_request(&Method::GET, &path.replace("local", "unknown")));
-        assert!(!is_module_asset_request(&Method::GET, &path.replace(&"A".repeat(43), "short")));
+        assert!(!is_module_asset_request(
+            &Method::GET,
+            &path.replace("local", "unknown")
+        ));
+        assert!(!is_module_asset_request(
+            &Method::GET,
+            &path.replace(&"A".repeat(43), "short")
+        ));
     }
 }

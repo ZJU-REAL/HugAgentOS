@@ -67,7 +67,10 @@ useAutomationChatStore.setState({
     { run_id: 'run-old', task_id: 'task', status: 'success', chat_id: 'old', started_at: '2026-10-12T10:00:00Z' },
   ] },
 });
+// Run selection publishes the current route even in this server-rendered fixture.
+Object.assign(globalThis, { window: { location: { pathname: '/automation/task/conversations/latest', search: '' } } });
 useAutomationChatStore.getState().selectRun('run-old');
+Reflect.deleteProperty(globalThis, 'window');
 assert.equal(destination, '/automation/task/conversations/old');
 assert.equal(useAutomationChatStore.getState().selectedRunId, 'run-old');
 assert.equal(buildAutomationSidebarEntries(Object.values(useChatStore.getState().store.chats)).length, 1);
@@ -76,4 +79,4 @@ console.log('PASS: distinct tasks, hybrid IDs, setup chats and legacy runs remai
 useChatStore.setState({ remoteRunningChatIds: new Set(['latest']) });
 Object.assign(useChatStore.getInitialState(), useChatStore.getState());
 const runningMarkup = renderToString(<MemoryRouter initialEntries={['/automation/task/conversations/latest']}><AutomationSidebar actions={actions} /></MemoryRouter>);
-assert.match(runningMarkup, /jx-historyRunningDot/, 'the grouped task shows the newest running execution');
+assert.match(runningMarkup, /data-task-status="running"/, 'the grouped task shows the newest running execution');

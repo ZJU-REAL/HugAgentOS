@@ -7,6 +7,12 @@ Handles implement poll(), interrupt(), close(), and optionally log_paths.
 from __future__ import annotations
 
 import asyncio
+import math
+
+if __package__:
+    from .process_deadlines import NativeDeadline
+else:
+    from process_deadlines import NativeDeadline
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -43,6 +49,8 @@ class Entry:
     omitted_chars: int = 0
     exit_code: int | None = None
     error: str | None = None
+    deadline_timer: NativeDeadline | None = None
+    deadline_binding: str | None = None
 
     def append(self, stream: str, text: str) -> None:
         pending = getattr(self, stream) + text
@@ -158,16 +166,29 @@ class ProcessSessions:
             entry.exit_code = -1
         finally:
             entry.cleaning = True
-            cleanup = asyncio.create_task(asyncio.wait_for(entry.handle.close(), timeout=15))
-            try:
+            # Keep the owner handle and hard watchdog until the complete native group stops.
+            while True:
+                cleanup = asyncio.create_task(asyncio.wait_for(entry.handle.close(), timeout=15))
                 try:
-                    await asyncio.shield(cleanup)
-                except asyncio.CancelledError:
-                    # Closing a conversation must not interrupt an already
-                    # running cleanup (nor leak a detached cleanup task).
-                    await asyncio.shield(cleanup)
-            except Exception as exc:
-                entry.error = entry.error or f"Process cleanup failed: {exc}"
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        await asyncio.shield(cleanup)
+                    cleaned = True
+                except Exception as exc:
+                    entry.error = entry.error or f"Process cleanup failed: {exc}"
+                    cleaned = False
+                if entry.deadline_timer is None:
+                    break  # Ordinary chat lifetime retains its original cleanup behavior.
+                stopped = getattr(entry.handle, "deadline_stopped", None)
+                if callable(stopped) and stopped():
+                    entry.deadline_timer.cancel()
+                    entry.deadline_timer = None
+                    break
+                if cleaned:
+                    entry.error = entry.error or "Native process cleanup not confirmed"
+                # Charged, still-owned cleanup is retryable; never discard a live handle.
+                await asyncio.sleep(0.1)
             entry.handle = None
             entry.finished = time.monotonic()
             entry.done.set()
@@ -222,6 +243,45 @@ class ProcessSessions:
             entry.output_ready.clear()
             entry.omitted_chars = 0
             return result
+
+    def set_deadline(self, session_id: str, owner: tuple[str, str], binding: str,
+                     expires_at: float, absolute_deadline: float | None = None) -> bool:
+        """Trusted owner lease; hard process-group cleanup starts inside its budget."""
+        entry = self.entries.get(session_id)
+        if entry is None or entry.owner != owner or not owner[0].startswith("workbench-"):
+            raise ProcessSessionError("Unknown application process for this owner")
+        if (not isinstance(binding, str) or len(binding) != 64
+                or any(c not in "0123456789abcdef" for c in binding)):
+            raise ProcessSessionError("Invalid application deadline binding")
+        if entry.deadline_binding not in (None, binding):
+            raise ProcessSessionError("Application deadline binding changed")
+        if not math.isfinite(expires_at) or expires_at > time.time() + 91:
+            raise ProcessSessionError("Invalid application deadline")
+        if not entry.ready.is_set() or entry.done.is_set() or entry.cleaning:
+            raise ProcessSessionError("Application process is not running")
+        entry.deadline_binding = binding
+        if entry.deadline_timer is None:
+            stop = getattr(entry.handle, "prepare_deadline", None)
+            if not callable(stop):
+                raise ProcessSessionError("Native deadline handle unavailable")
+            native_stop = stop()
+            if native_stop is None:
+                return False
+            loop = asyncio.get_running_loop()
+            def cancel_after_native_stop():
+                if entry.task and not entry.cleaning:
+                    entry.task.cancel()
+            def expire():
+                try:
+                    native_stop()  # Actual OS stop does not wait for the event loop.
+                finally:
+                    loop.call_soon_threadsafe(cancel_after_native_stop)
+            entry.deadline_timer = NativeDeadline(expire)
+        try:
+            entry.deadline_timer.renew(expires_at, absolute_deadline)
+        except ValueError as error:
+            raise ProcessSessionError("Invalid or closed application deadline") from error
+        return True
 
     async def close_owner(self, sandbox_session_id: str) -> None:
         task = self.closing_owners.get(sandbox_session_id)

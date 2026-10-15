@@ -26,6 +26,7 @@ from core.config.settings import settings as _jx_settings
 from core.db.engine import get_db
 from core.infra.responses import error_response, success_response
 from core.memory.context import MemoryContext
+from core.memory.access import authorized_memory_context
 from core.memory.graph import delete_graph_relation, list_graph_relations
 from core.memory.profile import delete_field as profile_delete_field
 from core.memory.profile import get as profile_get
@@ -163,7 +164,12 @@ async def list_memories(
     scope_user_id = str(user.user_id)
     if project_id:
         from core.services.project_scope import project_memory_policy
+        from core.auth.permissions_iface import resolve_project_access
+        from core.db.models import Project
 
+        project = db.query(Project).filter_by(project_id=project_id, deleted_at=None).first()
+        if project is None or resolve_project_access(db, scope_user_id, project).level == "none":
+            return error_response(code=40401, message="项目不存在", status_code=404)
         policy = project_memory_policy(db, project_id, scope_user_id)
         if policy is None:
             return success_response(data={"enabled": False, "items": [], "count": 0})
@@ -219,7 +225,7 @@ def _flatten_fact_metadata(item: dict) -> dict:
         "applies_to": meta.get("applies_to") or "",
         "strength": meta.get("strength") or "",
         # Reinforcement bookkeeping: how many turns restated this rule, and when
-        # it stops being recalled (mem0 native expiry; absent on legacy rows).
+        # it stops being recalled (L2 expiry metadata; absent on legacy rows).
         "seen_count": meta.get("seen_count"),
         "expiration_date": meta.get("expiration_date"),
         "author_user_id": meta.get("author_user_id") or meta.get("user_id"),
@@ -321,12 +327,12 @@ async def edit_memory(
     user: UserContext = Depends(get_current_user),
 ):
     """改写单条 L2 记忆的正文，保留其 id 与元数据。"""
-    ctx = MemoryContext(
-        user_id=str(user.user_id),
-        write_enabled=True,
-        actor=str(user.user_id),
-        message_id=body.message_id,
-    )
+    from dataclasses import replace
+
+    ctx = await authorized_memory_context(memory_id, str(user.user_id))
+    if ctx is None:
+        return error_response(code=40401, message="记忆不存在", status_code=404)
+    ctx = replace(ctx, message_id=body.message_id)
     from core.memory.outbox import consume_outbox_job, enqueue_memory_edit_job, kick_outbox_drain
 
     job_id = enqueue_memory_edit_job(ctx, memory_id, body.text, operation_id=body.operation_id)
@@ -349,7 +355,9 @@ async def remove_memory(
     message_id: Optional[str] = Query(None, description="上报该记忆的消息 id"),
     user: UserContext = Depends(get_current_user),
 ):
-    """删除单条记忆。"""
+    """删除当前用户有写入权限的单条记忆。"""
+    if await authorized_memory_context(memory_id, str(user.user_id)) is None:
+        return error_response(code=40401, message="记忆不存在", status_code=404)
     ok = await delete_memory(memory_id)
     if not ok:
         return error_response(code=50001, message="删除失败", status_code=500)

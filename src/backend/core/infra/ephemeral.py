@@ -52,6 +52,9 @@ class EphemeralState(Protocol):
     async def compare_exchange(self, key: str, expected: str, value: str, *, ttl: int) -> bool:
         """Replace an existing value only if it still equals expected."""
 
+    async def release(self, key: str, token: str) -> bool:
+        """Remove a mutex only while it is owned by this token."""
+
     async def get(self, key: str) -> Optional[str]:
         """Read a value, or None when absent/expired."""
 
@@ -99,6 +102,16 @@ class RedisEphemeralState:
                 return True
             except WatchError:
                 return False
+
+    async def release(self, key: str, token: str) -> bool:
+        async with get_redis().pipeline() as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.get(key) != token: return False
+                pipe.multi(); pipe.delete(key)
+                await pipe.execute()
+                return True
+            except WatchError: return False
 
     async def get(self, key: str) -> Optional[str]:
         return await get_redis().get(key)
@@ -205,6 +218,14 @@ class LocalEphemeralState:
         expired = [k for k, (exp, _) in self._entries.items() if exp <= now]
         for key in expired:
             self._entries.pop(key, None)
+
+    async def release(self, key: str, token: str) -> bool:
+        with self._lock:
+            self._prune(time.time())
+            entry = self._entries.get(key)
+            if entry is None or entry[1] != token: return False
+            self._entries.pop(key)
+            return True
 
     async def get(self, key: str) -> Optional[str]:
         return self._read(key)

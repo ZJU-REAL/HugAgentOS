@@ -153,30 +153,32 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   // the shell + step-row + title entrance animations (see tool.css), so
   // switching chats or reloading never replays the whole run card.
   return (
-    <div className={`jx-trs jx-trs--${status}${isStreaming ? '' : ' jx-trs--static'}`}>
+    <div className={`jx-trs jx-trs--turnStatus jx-trs--${status}${isStreaming ? '' : ' jx-trs--static'}`}>
       <button
         type="button"
-        className={`jx-trs-head${open ? ' jx-trs-head--open' : ''}`}
+        className={`jx-trs-head jx-turnStatusRow${open ? ' jx-trs-head--open' : ''}`}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className={`jx-trs-mark jx-trs-mark--${status}`} aria-hidden="true">
+        <span className={`jx-trs-mark jx-turnStatusMark jx-trs-mark--${status}`} aria-hidden="true">
           {!running && lastCompaction && ['failed', 'interrupted'].includes(lastCompaction.status) ? <CloseOutlined /> : <BrandLoader
             size={18}
             done={status === 'success'}
             label={title}
           />}
         </span>
-        {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
-        <span key={title} className={`jx-trs-title${running ? ' jx-trs-title--live' : ''}`} aria-live="polite">{title}</span>
-        <ShellTimer startTs={startTs} endTs={endTs} running={running} />
-        {runningNote && <span className="jx-trs-note">{runningNote}</span>}
-        {/* 折叠态下用户最关心的是"到底动了多少次手"，所以有工具就直接报工具数；
-            只有纯思考、没有工具的批次才退回步骤数。 */}
-        <span className="jx-trs-steps">
-          {tools.length > 0
-            ? t('{n} 个工具', { n: tools.length })
-            : t('{n} 个步骤', { n: steps.length })}
+        <span className={`jx-trs-summary${running ? ' jx-trs-summary--live' : ''}`}>
+          {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
+          <span key={title} className="jx-trs-title jx-turnStatusText" aria-live="polite">{title}</span>
+          <ShellTimer startTs={startTs} endTs={endTs} running={running} />
+          {runningNote && <span className="jx-trs-note">{runningNote}</span>}
+          {/* 折叠态下用户最关心的是"到底动了多少次手"，所以有工具就直接报工具数；
+              只有纯思考、没有工具的批次才退回步骤数。 */}
+          <span className="jx-trs-steps">
+            {tools.length > 0
+              ? t('{n} 个工具', { n: tools.length })
+              : t('{n} 个步骤', { n: steps.length })}
+          </span>
         </span>
         <span className={`jx-trs-chev${open ? ' jx-trs-chev--open' : ''}`} aria-hidden="true" />
       </button>

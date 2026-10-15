@@ -1,0 +1,16 @@
+{
+  "name": "workbench-example",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "validate": "workbench validate dist/plugin.json --assets dist",
+    "preview": "workbench preview dist",
+    "test": "npm run build && npm run validate"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3"
+  }
+}

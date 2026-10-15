@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
+from core.db.reserved_chats import ordinary_chat_filter, reserved_chat_error, reserved_chat_owner
 from core.db.models import ChatMessage, ChatSession
 from core.db.models.chat import reserve_chat_message_sequences
 from sqlalchemy import and_, desc, func, or_, select
@@ -66,6 +67,9 @@ class ChatSessionRepository:
             ChatSession.user_id == user_id, ChatSession.deleted_at.is_(None)
         )
 
+        # Conversations owned by a dedicated module surface stay out of ordinary history.
+        query = query.filter(ordinary_chat_filter(ChatSession.chat_id))
+
         if pinned_only:
             query = query.filter(ChatSession.pinned == True)
         if favorite_only:
@@ -111,6 +115,8 @@ class ChatSessionRepository:
     ) -> Optional[ChatSession]:
         """Update chat session."""
         session = self.get_by_id(chat_id)
+        if reserved_chat_owner(chat_id):
+            raise ValueError(reserved_chat_error(chat_id))
         if not session:
             return None
 
@@ -125,6 +131,8 @@ class ChatSessionRepository:
     def soft_delete(self, chat_id: str) -> bool:
         """Soft delete a chat session."""
         session = self.get_by_id(chat_id)
+        if reserved_chat_owner(chat_id):
+            raise ValueError(reserved_chat_error(chat_id))
         if not session:
             return False
 

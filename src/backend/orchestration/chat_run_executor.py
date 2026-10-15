@@ -44,6 +44,7 @@ from core.llm.model_steps import close_dangling_calls, replace_final_text
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatRun
+from core.db.reserved_chats import ordinary_chat_filter
 from core.harness.hooks import HookPaused, find_hook_paused
 from core.infra.logging import get_logger
 from core.llm import human_interaction
@@ -210,7 +211,7 @@ def _is_first_response(item: Any) -> bool:
         return bool(item.get("content"))
     return kind in {
         "tool_call_start", "tool_call_delta", "tool_call", "tool_result",
-        "tool_pending", "batch_confirm", "file_confirm", "plan_update", "compaction_progress",
+        "tool_pending", "file_confirm", "plan_update", "compaction_progress",
     }
 
 
@@ -1472,12 +1473,6 @@ async def _run_workflow(
         except Exception as _cn_exc:  # noqa: BLE001
             logger.debug("compaction_notice_failed", chat_id=chat_id, error=str(_cn_exc))
 
-        # When the agent kicks off a batch_plan flow we want to suppress
-        # follow-up question generation for THIS turn — the assistant's
-        # message body is empty (just the batch_plan tool call), so the
-        # follow-ups would either be nonsense or anchor to the user's
-        # original prompt instead of the upcoming batch results.
-        seen_batch_confirm = False
 
         # Evidence-plane join keys (GCE ticket 04). Injected here rather than at
         # every context construction site: this is the one place that owns both
@@ -1888,27 +1883,6 @@ async def _run_workflow(
             elif chunk_type == "user_question_resolved":
                 await _emit(build_user_question_resolved_event(chunk, chat_id))
 
-            elif chunk_type == "batch_confirm":
-                # Forward the batch-execution confirmation event to the frontend —
-                # triggered by the batch_runner MCP tool; workflow.py has already
-                # broken out of the current agent loop. After the user confirms in
-                # the dialog, the frontend calls POST /v1/batch/{id}/confirm and
-                # opens a separate SSE stream.
-                seen_batch_confirm = True
-                await _emit(
-                    {
-                        "type": "batch_confirm",
-                        "chat_id": chat_id,
-                        "plan_id": chunk.get("plan_id"),
-                        "total": chunk.get("total"),
-                        "preview": chunk.get("preview", []),
-                        "default_template": chunk.get("default_template", ""),
-                        "placeholder_keys": chunk.get("placeholder_keys", []),
-                        "source_type": chunk.get("source_type"),
-                        "warnings": chunk.get("warnings", []),
-                    }
-                )
-
             elif chunk_type == "plan_update":
                 # The main agent updated its lightweight plan checklist via the
                 # update_plan tool. Forward full-state to the frontend, which
@@ -2117,15 +2091,7 @@ async def _run_workflow(
                         terminal=True,
                     )
 
-                # Generate follow-ups in the background (same as the original
-                # behavior — doesn't block stream close). Skipped in the batch
-                # execution scenario though: the assistant message is empty
-                # (just the batch_plan tool call), and the real answers come in
-                # the per-item batch results. The right time to regenerate
-                # follow-ups is when the batch finishes, on the final entry, by
-                # the frontend — so skip here to avoid popping the question list
-                # at the wrong moment.
-                if not seen_batch_confirm and not chunk.get("manual_compaction"):
+                if not chunk.get("manual_compaction"):
                     _spawn_followup_task(
                         run_id=run_id,
                         chat_id=chat_id,
@@ -4513,13 +4479,12 @@ async def run_stale_reaper_loop() -> None:
 
 
 # Runs the chat UI never represents as "this conversation is busy": background
-# jobs that own their own surface (automation panel, batch panel, internal job
+# jobs that own their own surface (automation panel, internal job
 # agents) plus the retired legacy stream.
 _BACKGROUND_RUN_KINDS = frozenset(
     {
         "automation_plan",
         "automation_prompt",
-        "batch_item",
         "internal_job_agent",
         "legacy_chat_stream",
     }
@@ -4565,30 +4530,49 @@ def is_local_run(run_id: str) -> bool:
     return run_id in _active_runs
 
 
-def list_active_runs_for_user(user_id: str) -> List[ChatRun]:
-    """Backing query for GET /v1/chats/active-runs — one live run per chat.
+# A tab hidden longer than this catches up through the session list on reload.
+MAX_RECENT_RUN_SECONDS = 86400
 
-    Only genuinely live rows (``pending`` / ``running``) qualify. The per-chat
-    probe additionally accepts a lingering ``writer_slot`` so a reconnecting
-    client can clean its own zombie UI up; this listing feeds the sidebar's
-    "still running" dot, where a terminal row must not light anything.
+
+def list_active_runs_for_user(
+    user_id: str, recent_seconds: int = 0
+) -> Tuple[List[ChatRun], List[str]]:
+    """Backing query for GET /v1/chats/active-runs, in one query.
+
+    Returns one live run per chat: only genuinely live rows (``pending`` /
+    ``running``) qualify. The per-chat probe additionally accepts a lingering
+    ``writer_slot`` so a reconnecting client can clean its own zombie UI up;
+    this listing feeds the sidebar's "still running" dot, where a terminal row
+    must not light anything.
+
+    With ``recent_seconds`` it also returns the chats whose runs started in that
+    window, newest first, so a page finds a chat started elsewhere (Personal
+    Agent, API, another device) even when its run ended between two checks.
     """
+    live = ChatRun.status.in_(_LIVE_STATUSES)
+    since = _utcnow() - timedelta(seconds=min(recent_seconds, MAX_RECENT_RUN_SECONDS))
     with SessionLocal() as db:
         rows = (
             db.query(ChatRun)
             .filter(
                 ChatRun.user_id == user_id,
-                ChatRun.status.in_(_LIVE_STATUSES),
+                (live | (ChatRun.created_at >= since)) if recent_seconds else live,
+                # Module-owned chats (Personal Agent) never belong in the ordinary sidebar.
+                ordinary_chat_filter(ChatRun.chat_id),
             )
             .order_by(ChatRun.created_at.desc())
             .all()
         )
     latest_per_chat: Dict[str, ChatRun] = {}
+    recent: Dict[str, None] = {}
     for row in rows:
         if _run_kind(row) in _BACKGROUND_RUN_KINDS:
             continue
-        latest_per_chat.setdefault(row.chat_id, row)
-    return list(latest_per_chat.values())
+        if row.status in _LIVE_STATUSES:
+            latest_per_chat.setdefault(row.chat_id, row)
+        if recent_seconds and row.created_at >= since:
+            recent.setdefault(row.chat_id)
+    return list(latest_per_chat.values()), list(recent)
 
 
 # ─── SSE wire wrapper (shared by the chats / plans routes) ─────────────

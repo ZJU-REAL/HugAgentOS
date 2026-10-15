@@ -125,12 +125,12 @@ def get_plugin_web_asset(
     return web_asset_response(db, slug, str(user.user_id), asset_path, install_id)
 
 
-def web_asset_response(db, slug, user_id, asset_path, install_id=None):
+def web_asset_response(db, slug, user_id, asset_path, install_id=None, *, _installation=None):
     """Serve authenticated or ticket-authorized static files with identical isolation."""
     from core.services.site_service import guess_site_mime
 
     from core.plugins.resources.installation import resolve, safe_path
-    selected = resolve(db, slug, user_id, install_id)
+    selected = _installation or resolve(db, slug, user_id, install_id)
     target = safe_path(selected.package / "web", asset_path)
     if not target.is_file():
         raise ResourceNotFoundError("plugin_web_asset", f"{slug}/{asset_path}")

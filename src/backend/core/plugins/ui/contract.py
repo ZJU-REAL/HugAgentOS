@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.applications.protocol import UI_VERSION, validate_contributions
+
 from .declarations import (
     _canvas_views,
     _data_sources,
@@ -59,11 +61,11 @@ def normalize_ui(manifest_ui: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         dropper.drop("ui", "version", "ui.version 必须是 >= 1 的整数")
         return None, dropper.dropped
-    if version > SUPPORTED_UI_VERSION:
+    if version > UI_VERSION:
         dropper.drop(
             "ui",
             f"version={version}",
-            f"契约版本高于当前平台支持的 {SUPPORTED_UI_VERSION}，已整块忽略（请升级 HugAgentOS）",
+            f"契约版本高于当前平台支持的 {UI_VERSION}，已整块忽略（请升级 HugAgentOS）",
         )
         return None, dropper.dropped
 
@@ -72,15 +74,62 @@ def normalize_ui(manifest_ui: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[
         dropper.drop("ui", "contributes", "缺少 contributes 对象")
         return None, dropper.dropped
 
+    workbench = None
+    if version == UI_VERSION:
+        workbench = validate_contributions(raw_contributes, {"source": "plugin"})
+        for issue in workbench["errors"]:
+            dropper.drop("applications", issue["path"], issue["message"])
     contributes: Dict[str, Any] = {}
     for kind, parser in _KIND_PARSERS.items():
-        parsed = parser(raw_contributes.get(kind), dropper)
+        drop_start = len(dropper.dropped)
+        if workbench is not None and kind == "modules":
+            parsed = []
+            for index, module in enumerate(workbench["modules"]):
+                try:
+                    parsed.extend(_modules([module], dropper, allow_workspace=True))
+                except (AttributeError, TypeError, ValueError):
+                    dropper.drop("modules", f"/modules/{index}", "Invalid module fields")
+        elif workbench is not None:
+            parsed = []
+            entries = raw_contributes.get(kind)
+            if isinstance(entries, list):
+                for entry in entries[:200]:
+                    try:
+                        parsed.extend(parser([entry], dropper))
+                    except (AttributeError, TypeError, ValueError):
+                        dropper.drop(kind, "/contributes/" + kind, "Invalid UI contribution")
+        else:
+            parsed = parser(raw_contributes.get(kind), dropper)
+        if version == UI_VERSION:
+            for report in dropper.dropped[drop_start:]:
+                report.update(name="/contributes/" + kind, reason="Invalid UI contribution")
         if parsed:
             contributes[kind] = parsed
 
-    unknown = [k for k in raw_contributes if k not in _KIND_PARSERS]
+    if workbench is not None:
+        # Check against surviving declarations after legacy normalization.
+        final = validate_contributions(
+            {**contributes, "applications": workbench["applications"]}, {"source": "plugin"}
+        )
+        for issue in final["errors"]:
+            dropper.drop("applications", issue["path"], issue["message"])
+        if final["modules"]:
+            contributes["modules"] = final["modules"]
+        else:
+            contributes.pop("modules", None)
+        if final["applications"]:
+            contributes["applications"] = final["applications"]
+    unknown = [
+        k
+        for k in raw_contributes
+        if k not in _KIND_PARSERS and not (k == "applications" and workbench is not None)
+    ]
     for key in unknown[:16]:
-        dropper.drop("ui", str(key)[:64], "未知的贡献点类型，已忽略")
+        dropper.drop(
+            "ui",
+            "/contributes" if version == UI_VERSION else str(key)[:64],
+            "未知的贡献点类型，已忽略",
+        )
 
     if not contributes:
         return None, dropper.dropped
@@ -102,7 +151,7 @@ def public_contributions(stored: Any, *, slug: str) -> Dict[str, Any]:
         return {}
     out: Dict[str, Any] = {}
     for kind, entries in contributes.items():
-        if kind not in _KIND_PARSERS or not isinstance(entries, list):
+        if (kind not in _KIND_PARSERS and kind != "applications") or not isinstance(entries, list):
             continue
         if kind == "data_sources":
             out[kind] = [
@@ -116,6 +165,8 @@ def public_contributions(stored: Any, *, slug: str) -> Dict[str, Any]:
                 for e in entries
                 if isinstance(e, dict) and e.get("id")
             ]
+        elif kind == "modules" and stored.get("version") == UI_VERSION:
+            out[kind] = [{k: v for k, v in e.items() if k != "resource"} for e in entries]
         else:
             out[kind] = entries
     return {

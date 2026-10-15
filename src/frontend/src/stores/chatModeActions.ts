@@ -34,17 +34,15 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
               favorite: false,
               pinned: false,
               businessTopic: '综合咨询',
-              // New chats inherit the source chat's project binding, keeping plan/batch under the current project
+              // New chats inherit the source chat's project binding, keeping plan/workflow under the current project
               ...(existing?.projectId
                 ? { projectId: existing.projectId, projectName: existing.projectName }
                 : {}),
             };
         const nextChat: ChatItem = { ...base, id: targetId, updatedAt: now };
-        // Plan / batch / workflow 三者互斥：进入一个就清掉另外两个的标记
+        // Plan / workflow 二者互斥：进入一个就清掉另一个的标记
         delete nextChat.planChat;
         delete nextChat.planModeActive;
-        delete nextChat.batchChat;
-        delete nextChat.batchModeActive;
         delete nextChat.workflowChat;
         delete nextChat.workflowModeActive;
         if (mode === 'plan') {
@@ -53,9 +51,6 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
         } else if (mode === 'workflow') {
           nextChat.workflowChat = true;
           nextChat.workflowModeActive = true;
-        } else {
-          nextChat.batchChat = true;
-          nextChat.batchModeActive = true;
         }
         const next: ChatStoreData = {
           chats: { ...store.chats, [targetId]: nextChat },
@@ -68,8 +63,8 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
         set({
           currentChatId: targetId,
           planMode: planChat,
-          // Plan / batch and the autonomous loop are mutually exclusive: leaving loopMode on would
-          // keep a stale composer intent that resurfaces the moment plan/batch is closed again.
+          // Plan / workflow and the autonomous loop are mutually exclusive: leaving loopMode on would
+          // keep a stale composer intent that resurfaces the moment plan/workflow is closed again.
           loopMode: false,
           currentPlanId: null,
           toolResultPanel: null,
@@ -86,8 +81,7 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
         const { currentChatId, currentUserId, store } = get();
         const chat = store.chats[currentChatId];
         if (!chat) return;
-        const patch =
-          mode === 'workflow' ? { workflowModeActive: false } : { batchModeActive: false };
+        const patch = { workflowModeActive: false };
         const next: ChatStoreData = {
           ...store,
           chats: {
@@ -130,12 +124,10 @@ export function createChatModeActions({ set, get, initializeDraftRunTarget, sync
               pinned: false,
               businessTopic: '综合咨询',
             };
-        // Site building is mutually exclusive with plan / batch
+        // Site building is mutually exclusive with plan / workflow
         const nextChat: ChatItem = { ...base, id: targetId, updatedAt: now, siteChat: true };
         delete nextChat.planChat;
         delete nextChat.planModeActive;
-        delete nextChat.batchChat;
-        delete nextChat.batchModeActive;
         // Bind the site source-code project → messages are sent with project_id automatically, and agent file tools operate inside the project folder.
         if (projectId) {
           nextChat.projectId = projectId;

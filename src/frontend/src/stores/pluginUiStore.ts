@@ -1,4 +1,7 @@
+import { invalidateWorkbenchDirectory } from '../workbench/invalidation';
 import { create } from 'zustand';
+import type {ValidationIssue} from '@hugagent/workbench-protocol';
+import {validatePluginContributions} from '../workbench/pluginContributions';
 
 import { listPluginUiContributions, pluginWebAssetUrl } from '../api';
 import type {
@@ -39,6 +42,7 @@ export interface CanvasTarget {
 
 interface PluginUiState {
   items: PluginContributions[];
+  diagnostics: ValidationIssue[];
   loaded: boolean;
   loading: boolean;
   fetchContributions: (force?: boolean) => Promise<void>;
@@ -108,6 +112,7 @@ function search<T>(
 
 export const usePluginUiStore = create<PluginUiState>((set, get) => ({
   items: [],
+  diagnostics: [],
   loaded: false,
   loading: false,
 
@@ -115,8 +120,14 @@ export const usePluginUiStore = create<PluginUiState>((set, get) => ({
     if ((get().loaded && !force) || get().loading) return;
     set({ loading: true });
     try {
-      const items = (await listPluginUiContributions()).map(resolveIcons);
-      set({ items, loaded: true, loading: false });
+      const diagnostics: ValidationIssue[] = [];
+      const items = (await listPluginUiContributions()).flatMap((raw, index) => {
+        const {item, errors} = validatePluginContributions(raw);
+        diagnostics.push(...errors.map(error => ({...error, path: "/items/" + index + error.path})));
+        return item ? [resolveIcons(item)] : [];
+      });
+      set({ items, diagnostics, loaded: true, loading: false });
+      if (force) invalidateWorkbenchDirectory();
     } catch {
       // Non-fatal: without contributions every tool falls back to the host's
       // built-in renderers and the generic card, exactly as before.

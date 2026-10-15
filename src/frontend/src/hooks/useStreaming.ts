@@ -50,18 +50,9 @@ generateClassification: (chatId: string) => Promise<void>
 
   const RUN_WATCH_EVERY_MS = 20_000;
 
-  /** 侧边栏「别处在跑」快照的刷新间隔（每 3 拍看门狗一次）。
-   *
-   *  别处（另一台设备 / 另一个标签页）跑完时本标签页收不到任何事件，没人来灭灯。
-   *  切窗口会立刻刷新（见 useChatInit），这一发管的是"人一直待在这个窗口里"的情形。
-   *  复用看门狗的定时器，不另起一个。 */
-  const REMOTE_RUNNING_REFRESH_MS = RUN_WATCH_EVERY_MS * 3;
-
   /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
   const reconcilingRef = useRef<Set<string>>(new Set());
 
-  /** 上一次刷新「别处在跑」快照的时刻。 */
-  const lastRemoteRunningRefreshRef = useRef(0);
   const queue = createStreamQueue({
     abortControllersRef,
     smartSend: (...args) => editing.smartSend(...args)
@@ -114,13 +105,6 @@ generateClassification: (chatId: string) => Promise<void>
       if (currentChatId && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
         void recovery.attachServerStartedRun(currentChatId);
       }
-      // 同上，只在前台刷「别处在跑」的快照：人不在这个窗口前时灯亮不亮没人看。
-      if (typeof document !== 'undefined' && document.visibilityState !== 'hidden'
-          && now - lastRemoteRunningRefreshRef.current >= REMOTE_RUNNING_REFRESH_MS) {
-        lastRemoteRunningRefreshRef.current = now;
-        void useChatStore.getState().refreshRemoteRunningChats()
-          .catch(() => { /* 灯保持原样，下一拍再问 */ });
-      }
     }, RUN_WATCH_EVERY_MS);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,7 +121,6 @@ generateClassification: (chatId: string) => Promise<void>
     regenerate: editing.regenerate,
     editAndResend: editing.editAndResend,
     resumeRunIfAny: recovery.resumeRunIfAny,
-    cancelAndResumeBatch: editing.cancelAndResumeBatch,
     continueLoop: editing.continueLoop,
   };
 }

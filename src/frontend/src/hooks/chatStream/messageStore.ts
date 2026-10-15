@@ -18,14 +18,13 @@ export function commitUpdate(s: ChatStreamState, streaming: boolean, cits?: Cita
         const body = (!s.full && streaming && s.toolCalls.length === 0 && s.thinking.length === 0
             ? (s.pendingNotice || '')
             : s.full);
-        const isMd = body.includes('\n') || body.includes('```') || body.includes('**') || /^\s*#\s/m.test(body);
         const updatedMsg: Partial<ChatMessage> & {
             content: string;
             isMarkdown: boolean;
             isStreaming: boolean;
         } = {
             content: body,
-            isMarkdown: isMd,
+            isMarkdown: true,
             toolCalls: s.toolCalls.length > 0 ? [...s.toolCalls] : undefined,
             thinking: s.thinking.length > 0 ? [...s.thinking] : undefined,
             evolution: s.evolutionSummary,
@@ -45,7 +44,7 @@ export function commitUpdate(s: ChatStreamState, streaming: boolean, cits?: Cita
                 : undefined,
             segments: s.segments.length > 0 ? [...s.segments] : undefined,
             isStreaming: streaming,
-            inFlight: streaming && s.runId ? { eventOffset: s.eventOffset } : undefined,
+            inFlight: streaming && s.runId ? { eventOffset: s.eventOffset, textSnapshotOffset: s.textSnapshotOffset } : undefined,
             toolPending: streaming && s.toolPending,
             // Persisted activity stamp — anchors the "正在准备调用工具…" timer so
             // it survives a session switch / refresh remount (see useStallDetector).
@@ -193,6 +192,7 @@ export function applySteerBoundary(s: ChatStreamState, eventObj: Record<string, 
     });
     // The queue card has now become a real chronological user message.
     useChatStore.getState().setQueuedMessage(s.chatId, null);
+    s.textSnapshotOffset = undefined;
     s.full = '';
     s.toolCalls = [];
     s.thinking.length = 0;

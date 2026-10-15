@@ -7,7 +7,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useModelCapabilitiesStore } from '../../stores/modelCapabilitiesStore';
 import { createLocalProject, getProject } from '../../api';
 import type { ProjectDetail } from '../../types';
-import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
+import { resolveWorkflowModeActive } from '../../utils/chatMode';
 import { canInitializeProject } from '../../utils/projectCommands';
 import type { ComposerOptions } from './composerTypes';
 
@@ -28,7 +28,6 @@ export function useComposerState({
   const allowedApps = useAuthStore((s) => s.authUser?.allowed_apps ?? null);
   const isAppAllowed = (id: string) => !Array.isArray(allowedApps) || allowedApps.includes(id);
   const planModeAllowed = !Array.isArray(allowedApps) || allowedApps.includes('plan_mode');
-  const batchRunnerAllowed = !Array.isArray(allowedApps) || allowedApps.includes('batch_runner');
   // Skill list (for the skills submenu of the "+" menu)
   const skills = useCatalogStore((s) => s.catalog.skills);
   // Enabled MCP servers are user-facing "connectors" in the composer.
@@ -65,16 +64,13 @@ export function useComposerState({
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
-  // Batch mode as the composer currently runs it — the persistent batchChat marker is only its
-  // default, so a chat the user took out of batch mode no longer counts as one here.
-  const batchModeOn = resolveBatchModeActive(_currentChat);
   const workflowModeOn = resolveWorkflowModeActive(_currentChat);
   const isSiteChat = !!_currentChat?.siteChat;
-  // Whether the "autonomous loop" entry is shown: normal chat (not plan/batch/project page)
+  // Whether the "autonomous loop" entry is shown: normal chat (not plan/project page)
   // + has the loop capability bit + has lab permission. When eligible it no longer occupies
   // the toolbar but is tucked into the "+" attachment menu, visible to lab users only.
   const showLoopEntry =
-    !planMode && !batchModeOn && loopCapEnabled !== false && labEnabled !== false;
+    !planMode && loopCapEnabled !== false && labEnabled !== false;
   // 当前部署能否读图：主模型原生多模态，或后台配了「图像理解（视觉桥）」角色。
   // 未加载完成时按 true 处理，避免首屏闪出一句「不识图」又立刻收回。
   const canReadImage = useModelCapabilitiesStore(
@@ -138,7 +134,7 @@ export function useComposerState({
     busy: sending,
     hasCapability: !!(activeSkill || activePlugin || activeConnector || activeMention
       || _currentChat?.agentId),
-    specialMode: !!(planMode || batchModeOn || workflowModeOn || loopMode),
+    specialMode: !!(planMode || workflowModeOn || loopMode),
   });
 
   // ── Project binding (toolbar "Project" selector dropdown, to the right of the Prompt Hub) ──
@@ -152,17 +148,16 @@ export function useComposerState({
     bindChatProject(currentChatId, projectId, projectName);
   }
 
-  function isModeOn(mode: 'plan' | 'batch' | 'workflow') {
+  function isModeOn(mode: 'plan' | 'workflow') {
     if (mode === 'plan') return planMode;
-    if (mode === 'workflow') return workflowModeOn;
-    return batchModeOn;
+    return workflowModeOn;
   }
 
-  function onEnterMode(mode: 'plan' | 'batch' | 'workflow') {
+  function onEnterMode(mode: 'plan' | 'workflow') {
     enterChatMode(mode, { inPlace: true });
   }
 
-  function onCloseMode(mode: 'plan' | 'batch' | 'workflow') {
+  function onCloseMode(mode: 'plan' | 'workflow') {
     // 关掉计划模式的同时得真的把正在跑的计划停下来。原来这里只翻了个
     // planModeActive 标志位：后端的计划和 run 继续跑，卡片也一直挂在「执行中」，
     // 用户以为已经关掉了（问题 31）。abort() 会取消 run、取消计划、并把卡片落成已中断。
@@ -180,10 +175,10 @@ export function useComposerState({
     setActiveMention, activeCommand, setActiveCommand, planMode, loopMode, setLoopMode,
     currentChatId, bindChatProject, unbindChatProject, queuedMessages, updateQueuedMessage,
     activeRuns, referencedChats, addReferencedChat, removeReferencedChat,
-    isAppAllowed, planModeAllowed, batchRunnerAllowed, skills, connectors, projects,
+    isAppAllowed, planModeAllowed, skills, connectors, projects,
     fetchProjects, setProjectCreateModalOpen, agents, fetchAgents, installedPlugins,
     sending, uploadedFiles, uploadingFiles, importedSpaceFiles, promptHubOpen, setPromptHubOpen,
-    isCE, _currentChat, batchModeOn, workflowModeOn, isSiteChat, showLoopEntry, canReadImage,
+    isCE, _currentChat, workflowModeOn, isSiteChat, showLoopEntry, canReadImage,
     imageInputRef, mySpaceImportOpen, setMySpaceImportOpen, projectOpen, setProjectOpen,
     attachOpen, setAttachOpen, activeLocalMode, isDesktopShell, canCreateCloudProject,
     canCreateLocalProject, canInitProject, boundProjectId, boundProjectName,

@@ -224,7 +224,6 @@ def test_ce_launcher_and_catalog_cover_core_mcp_servers():
         "retrieve_dataset_content": 9100,
         "internet_search": 9102,
         "web_fetch": 9106,
-        "batch_runner": 9107,
     }
     assert expected.items() <= PORTS.items()
     assert {
@@ -244,7 +243,6 @@ def test_ce_fresh_database_seeds_core_mcp_servers_enabled(db_session):
         "retrieve_dataset_content",
         "internet_search",
         "web_fetch",
-        "batch_runner",
     }
     seeded = set(seed_builtin_mcp_servers_if_empty(db_session))
     rows = {

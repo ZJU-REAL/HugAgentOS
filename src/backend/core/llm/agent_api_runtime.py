@@ -20,6 +20,7 @@ class AgentApiExecutionScope:
     chat_id: str
     sandbox_user_id: str
     sandbox_session_id: str
+    public_chat_visitor: str | None = None
 
 
 def parse_api_scope(
@@ -30,10 +31,13 @@ def parse_api_scope(
         return None
     if not isinstance(value, dict) or value.get("version") != 1:
         raise ValueError("Invalid agent API execution scope")
-    fields = tuple(AgentApiExecutionScope.__dataclass_fields__)
+    fields = tuple(name for name in AgentApiExecutionScope.__dataclass_fields__ if name != "public_chat_visitor")
     if any(not isinstance(value.get(name), str) or not value[name] for name in fields):
         raise ValueError("Incomplete agent API execution scope")
-    scope = AgentApiExecutionScope(**{name: value[name] for name in fields})
+    visitor = value.get("public_chat_visitor")
+    if visitor is not None and (not isinstance(visitor, str) or not re.fullmatch(r"[a-f0-9]{64}", visitor)):
+        raise ValueError("Invalid public chat visitor")
+    scope = AgentApiExecutionScope(**{name: value[name] for name in fields}, public_chat_visitor=visitor)
     if (scope.owner_user_id, scope.chat_id, scope.agent_id) != (
         str(owner_user_id), str(chat_id), str(agent_id),
     ):
@@ -67,7 +71,7 @@ def apply_api_scope(context: dict) -> dict:
         project_name=None, project_instructions=None, project_files=None,
         project_folder_id=None, project_folder_kind=None, project_folder_name=None,
         project_local_path=None, project_is_local=False,
-        plan_chat=False, batch_chat=False, workflow_chat=False, site_chat=False,
+        plan_chat=False, workflow_chat=False, site_chat=False,
         ontology_enabled=False, ontology_runtime={},
     )
     return result
@@ -118,7 +122,7 @@ def artifact_in_scope(file_id: str, scope: AgentApiExecutionScope) -> bool:
     from core.services.agent_api_service import session_matches_scope
     with SessionLocal() as db:
         session = db.get(ChatSession, scope.chat_id)
-        if not session or not session_matches_scope(session, {"version": 1, **asdict(scope)}):
+        if not session or not session_matches_scope(session, {"version": 1, **{key: value for key, value in asdict(scope).items() if value is not None}}):
             return False
         artifact = db.get(Artifact, file_id)
         if artifact is not None:

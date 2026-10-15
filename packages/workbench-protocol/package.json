@@ -1,0 +1,37 @@
+{
+  "name": "@hugagent/workbench-protocol",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "schemas",
+    "fixtures",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./legacy": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
+    "./schemas/*": "./schemas/*",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node test/protocol.test.mjs && node test/fixtures.test.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "ajv": "6.12.6",
+    "esbuild": "0.27.3"
+  },
+  "private": true
+}

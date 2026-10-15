@@ -38,7 +38,12 @@ def get_tool_approval_mode(
     db: Session = Depends(get_db),
 ):
     settings = UserService(db).get_user_settings(str(user.user_id))
-    return success_response(data={"mode": normalize_approval_mode(settings.get(_METADATA_KEY))})
+    if user.public_chat_visitor:
+        from core.services.public_chat_service import visitor_approval_mode
+        mode = visitor_approval_mode(db, user, settings.get(_METADATA_KEY))
+    else:
+        mode = normalize_approval_mode(settings.get(_METADATA_KEY))
+    return success_response(data={"mode": mode})
 
 
 @router.put("", summary="设置工具执行权限档")
@@ -48,5 +53,9 @@ def set_tool_approval_mode(
     db: Session = Depends(get_db),
 ):
     mode = normalize_approval_mode(body.mode)
-    UserService(db).update_user_metadata(user_id=str(user.user_id), patch={_METADATA_KEY: mode})
+    if user.public_chat_visitor:
+        from core.services.public_chat_service import set_visitor_approval_mode
+        set_visitor_approval_mode(db, user, mode)
+    else:
+        UserService(db).update_user_metadata(user_id=str(user.user_id), patch={_METADATA_KEY: mode})
     return success_response(data={"mode": mode}, message="已切换权限档")

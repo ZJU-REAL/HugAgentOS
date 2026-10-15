@@ -11,6 +11,7 @@ pendingNotice: string | undefined;
 onEvent: ((ev: Record<string, unknown>, api: ChatStreamApi) => boolean) | undefined;
 runId: string;
 eventOffset: number;
+textSnapshotOffset?: number;
 decoder: TextDecoder;
 sseBuffer: string;
 full: string;
@@ -46,5 +47,4 @@ streamingUpdateTimer: number | null;
 lastStreamingCommitAt: number;
 hookApi: ChatStreamApi;
 thrown: unknown;
-isMd: boolean;
 }

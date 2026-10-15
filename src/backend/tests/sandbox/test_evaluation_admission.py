@@ -48,7 +48,7 @@ async def test_valid_owner_activates_exact_binding():
     {"enabled_kbs": ["private"]}, {"enabled_agents": ["private"]},
     {"skill_id": "private"}, {"connector_id": "private"}, {"plugin_id": "private"},
     {"mention_agent_id": "private"}, {"mention_name": "Private Agent"},
-    {"plan_chat": True}, {"batch_chat": True}, {"workflow_chat": True}, {"site_chat": True},
+    {"plan_chat": True}, {"workflow_chat": True}, {"site_chat": True},
 ])
 async def test_private_context_is_rejected_before_activation(updates):
     item = await binding.create("owner", "container", 60)

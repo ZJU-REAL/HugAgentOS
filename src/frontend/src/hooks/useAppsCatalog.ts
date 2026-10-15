@@ -1,27 +1,34 @@
 import { useEffect, useState } from 'react';
-import { API_BASE } from '../utils/adminApi';
+import { CONFIG_STORAGE_KEY, configFetch } from '../utils/adminApi';
 import { BUILTIN_APPS, type AppItem } from '../stores/pageConfigStore';
+import { applicationText } from '../workbench/externalApi';
+import type { CatalogItem } from '../workbench/catalog';
 
-/**
- * Loads the merged catalog of "built-in apps + backend external apps", shared by the
- * app-visibility-scope selectors across Config's permission panels (user management /
- * team management / role permissions). Fetches once on mount.
+/** Permission selectors use the protected administrative catalog, not the user's projection.
+ * Existing permission-only entries such as prompt_hub retain their original IDs and behavior.
  */
 export function useAppsCatalog(): AppItem[] {
-  const [appsCatalog, setAppsCatalog] = useState<AppItem[]>([]);
+  const [appsCatalog, setAppsCatalog] = useState<AppItem[]>(BUILTIN_APPS);
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/v1/content/docs`);
-        const body = await res.json();
-        const list = Array.isArray(body?.data?.app_config?.apps) ? body.data.app_config.apps : [];
-        const builtinIds = new Set(BUILTIN_APPS.map((a) => a.id));
-        const externals = (list as AppItem[]).filter((a) => !builtinIds.has(a.id));
-        if (!cancelled) setAppsCatalog([...BUILTIN_APPS, ...externals]);
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
+    const controller = new AbortController();
+    configFetch(localStorage.getItem(CONFIG_STORAGE_KEY) || '', '/v1/workbench/admin/catalog', {
+      signal: controller.signal,
+    }).then(body => {
+      const builtinIds = new Set(BUILTIN_APPS.map(a => a.id));
+      const ids = new Set(builtinIds);
+      const externals = (body.data.items as CatalogItem[]).filter(item => {
+        if (!['external:', 'plugin:'].some(prefix => item.applicationKey.startsWith(prefix)) && !item.legacy) return false;
+        const id = item.applicationKey.startsWith('plugin:') ? item.applicationKey : item.declaration.id;
+        if (ids.has(id)) return false;
+        ids.add(id); return true;
+      }).map(item => ({
+        id:item.applicationKey.startsWith('plugin:') ? item.applicationKey : item.declaration.id, enabled:item.enabled, name:applicationText(item.declaration.title),
+        description:applicationText(item.declaration.description), icon:'',
+        url:item.declaration.target.kind === 'external' ? item.declaration.target.url : '',
+      }));
+      if (!controller.signal.aborted) setAppsCatalog([...BUILTIN_APPS, ...externals]);
+    }).catch(() => { /* Preserve known builtins when the administrator request fails. */ });
+    return () => controller.abort();
   }, []);
   return appsCatalog;
 }

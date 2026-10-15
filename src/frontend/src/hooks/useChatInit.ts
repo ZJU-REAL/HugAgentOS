@@ -9,11 +9,12 @@ import type { ChatItem,UpdateEntry } from '../types';
 import { preservedChatsOnRebuild } from '../utils/sessionRebuild';
 import { inflightMsgLoads,MSG_LOAD_MAX_RETRIES,msgLoadRetryCounts,reloadChatHistory } from './chatHistoryLoader';
 import { isLocalSidebarChat,mergeLocalSessions,sessionToChatItem } from './chatSessionMapping';
-import { useChatBatchHydration } from './useChatBatchHydration';
 
 export { ensureFullMessages,loadOlderMessages,MESSAGE_PAGE_SIZE,reloadChatHistory } from './chatHistoryLoader';
 export { parseHistoryMessage } from './chatHistoryMessage';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
+/** 人在窗口前时「别处在跑」与新会话的对账间隔。 */
+const RUNNING_REFRESH_MS = 15_000;
 
 export function useChatInit() {
   const { authUser, authExpiredUrl, authChecking, initAuth } = useAuthStore();
@@ -158,11 +159,9 @@ export function useChatInit() {
             const mergedServerChats: Record<string, ChatItem> = {};
             for (const [id, serverChat] of Object.entries(chats)) {
               const active = prev.chats[id]?.planModeActive;
-              const batchActive = prev.chats[id]?.batchModeActive;
               mergedServerChats[id] = {
                 ...serverChat,
                 ...(typeof active === 'boolean' ? { planModeActive: active } : {}),
-                ...(typeof batchActive === 'boolean' ? { batchModeActive: batchActive } : {}),
               };
             }
             // 保留判定看**来源**（见 utils/sessionRebuild）：本机会话不在云端名单里
@@ -253,20 +252,22 @@ export function useChatInit() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveApiUrl, authUserId, authChecking]);
 
-  // 窗口重新切回前台时再问一次"哪些会话还在跑"。
+  // 「别处在跑」对账的唯一入口：切回前台立刻问一次，人在窗口前时每 RUNNING_REFRESH_MS 再问。
   //
-  // 这盏灯反映的是别处（另一台设备 / 另一个标签页）的进度，本标签页收不到它的
-  // 事件，所以跑完之后得有人来灭灯。挂在"切回前台"上而不是定时轮询：人不在这个
-  // 窗口前时灯亮不亮没人看，没必要为此持续给服务端加压。
+  // 这盏灯反映的是别处（另一台设备 / 另一个标签页 / Personal Agent）的进度，本标签页
+  // 收不到它的事件，所以跑完之后得有人来灭灯；别处新开的会话也借这份运行列表并进侧边栏。
+  // 隐藏的标签页不请求：人不在窗口前时灯亮不亮没人看。
   useEffect(() => {
     if (authChecking || !authUserId) return;
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
-      useChatStore.getState().refreshRemoteRunningChats().catch(() => { /* 下次切回来再试 */ });
+      useChatStore.getState().refreshRemoteRunningChats().catch(() => { /* 下一次再问 */ });
     };
+    const timer = window.setInterval(refresh, RUNNING_REFRESH_MS);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
     return () => {
+      window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     };
@@ -400,7 +401,6 @@ export function useChatInit() {
     return () => { cancelled = true; };
   }, [currentChatId, effectiveApiUrl, authUser, authChecking, sessionLoadEpoch]);
 
-  useChatBatchHydration(currentChatId);
   useChatResourceRecovery(currentChatId, authChecking ? null : authUserId);
 
   return {

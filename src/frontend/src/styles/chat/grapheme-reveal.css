@@ -1,0 +1,24 @@
+.jx-graphemeText {
+  --jx-reveal-duration:350ms;
+  --jx-reveal-stagger:65ms;
+  --jx-reveal-backlog:600ms;
+  --jx-reveal-blur:3px;
+  --jx-reveal-ease:ease-out;
+}
+
+.jx-grapheme {
+  animation:jxGraphemeReveal var(--jx-reveal-duration) var(--jx-reveal-ease) both;
+  animation-delay:var(--jx-reveal-delay,0ms);
+}
+
+@keyframes jxGraphemeReveal {
+  from { opacity:0; filter:blur(var(--jx-reveal-blur)); }
+  to { opacity:1; filter:blur(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxGraphemeReveal {
+    from, to { opacity:1; filter:none; }
+  }
+  .jx-grapheme { animation:none; }
+}

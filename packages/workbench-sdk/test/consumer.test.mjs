@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {mkdirSync,mkdtempSync,cpSync,writeFileSync,readFileSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+const scratch=resolve(process.env.WB21_CONSUMER_ROOT || process.env.HOME+'/.scratch/workbench-21');
+mkdirSync(scratch,{recursive:true});
+const consumer=mkdtempSync(join(scratch,'consumer-'));
+const run=(command,args,cwd=consumer)=>{
+ const result=spawnSync(command,args,{cwd,encoding:'utf8',env:{...process.env,npm_config_audit:'false',npm_config_fund:'false'}});
+ assert.equal(result.status,0,result.stdout+result.stderr);return result.stdout;
+};
+const packageRoot=resolve('.');
+const packed=JSON.parse(run('npm',['pack','--ignore-scripts','--json','--pack-destination',consumer],packageRoot))[0];
+cpSync(join(packageRoot,'examples/workspace'),consumer,{recursive:true});
+run('npm',['install','--offline','--ignore-scripts',join(consumer,packed.filename)]);
+run('npm',['run','build']);run('npm',['run','validate']);
+const bundle=readFileSync(join(consumer,'dist/web/index.html'),'utf8');
+assert.ok(!bundle.includes('@hugagent/workbench-sdk'));
+assert.ok(!bundle.includes('src/frontend'));
+assert.ok(bundle.includes('workbench:hello'));
+writeFileSync(join(consumer,'check.mjs'),"import {connect} from '@hugagent/workbench-sdk'; if(typeof connect!=='function')throw Error();");
+run(process.execPath,['check.mjs']);
+console.log(JSON.stringify({kind:'independent-consumer',consumer,tarball:join(consumer,packed.filename),dist:join(consumer,'dist')}));

@@ -349,13 +349,7 @@
   }
 }
 
-@media (max-width: 768px){
 
-  .jx-emptyPage--main .jx-homeInput .jx-composerBar{
-    border-bottom-left-radius:24px;
-    border-bottom-right-radius:24px;
-  }
-}
 
 @media (max-width: 768px){
 

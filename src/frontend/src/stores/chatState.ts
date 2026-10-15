@@ -153,6 +153,7 @@ export interface ChatState {
   remoteRunningChatIds: Set<string>;
   /** 重新问一次服务端"我还有哪些会话在跑"。失败不改现状：宁可灯保持上一次的样子，
    *  也不要因为一次网络抖动把正在跑的灯全灭掉。 */
+  /** Lights chats running elsewhere, and adds chats started elsewhere that this page never listed. */
   refreshRemoteRunningChats: () => Promise<void>;
   toggleThinking: (id: string) => void;
   setChatMode: (v: ChatMode) => void;
@@ -181,20 +182,20 @@ export interface ChatState {
   setCurrentPlanId: (id: string | null) => void;
   /** Update/clear the plan bar state for a chat (null clears it) */
   setPlanProgress: (chatId: string, p: PlanProgressState | null) => void;
-  /** Enter plan / batch-execution mode (shared by the composer "+" menu and the app center).
-   *  Plan and batch are mutually exclusive.
+  /** Enter plan / workflow mode (shared by the composer "+" menu and the app center).
+   *  Plan and workflow are mutually exclusive.
    *  - `opts.inPlace` (composer "+" menu): always switch the **current chat** to that mode in
    *    place — no new chat, no navigation — avoiding "the whole chat jumping back to home".
    *  - Default (app center): reuse the current chat in place if it's empty, otherwise create a
    *    new chat in that mode. */
-  enterChatMode: (mode: 'plan' | 'batch' | 'workflow', opts?: { inPlace?: boolean }) => void;
-  /** Leave plan / batch mode on the current chat and continue as an ordinary conversation.
-   *  The historical planChat / batchChat classification is kept (plan cards and batch history
+  enterChatMode: (mode: 'plan' | 'workflow', opts?: { inPlace?: boolean }) => void;
+  /** Leave plan / workflow mode on the current chat and continue as an ordinary conversation.
+   *  The historical planChat / workflowChat classification is kept (plan cards and workflow history
    *  stay recognisable); only the composer/routing flag is turned off. */
-  exitChatMode: (mode: 'plan' | 'batch' | 'workflow') => void;
+  exitChatMode: (mode: 'plan' | 'workflow') => void;
   /** Enter "site building" mode (Lab → Sites): create a new siteChat session and switch to the
    *  main chat, fully reusing the main-chat composer (attachments / projects / "+" menu).
-   *  Mutually exclusive with plan / batch. */
+   *  Mutually exclusive with plan / workflow. */
   /** Enter a site-building chat; automatically sets the installed "sites" plugin as activePlugin
    *  (injecting the site-builder skill + site_publish tool). Returns whether the plugin is
    *  installed — when not installed the caller should guide the user to the plugin marketplace.

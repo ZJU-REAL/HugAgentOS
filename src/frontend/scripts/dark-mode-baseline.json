@@ -68,9 +68,6 @@
   "src/components/apidoc/ApiDocPanel.tsx": {
     "js-inline-color": 6
   },
-  "src/components/batch/BatchProgressPanel.tsx": {
-    "js-inline-color": 1
-  },
   "src/components/catalog/CatalogPanel.tsx": {
     "js-inline-color": 2
   },

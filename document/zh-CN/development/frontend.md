@@ -47,7 +47,7 @@ src/frontend/src/
 │                        # usePageConfig / useDelayedFlag / useStallDetector
 ├── stores/              # 18 个 Zustand store（authStore、chatStore、catalogStore、
 │                        # editionStore、uiStore、settingsStore、fileStore、kbStore、
-│                        # agentStore、automationStore、batchStore、canvasStore、
+│                        # agentStore、automationStore、canvasStore、
 │                        # mySpaceStore、projectStore、skillDistillStore、…）+ index.ts
 ├── utils/               # citations / markdown / segments / constants / apiError / adminApi …
 └── styles/              # 按功能域拆分的 CSS（variables.css 为变量单一真源）
@@ -162,3 +162,19 @@ const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenan
 全站界面、聊天正文及组件库共用 `--font-family`。入口在首次渲染前设置 `data-font-platform`：Apple 平台优先苹方 SC，Windows 优先 Microsoft YaHei UI / Microsoft YaHei，其他平台使用可用的思源、Noto 和系统字体。代码保留等宽字体，数字字体的中文回退复用全站字体。
 
 侧边栏项目和会话标题统一为 14px、20px 行高、常规字重 400，选中项为 500；新建对话为 14px / 500。历史列表的布局、标题及操作样式仅由 `sidebar-history.css` 管理；不要在聊天正文或模块导航样式中重复定义标题字重。
+
+### 用户应用导航
+
+页面设置中的置顶和排序先保留为草稿。用户点击下方“应用”并确认后，导航写入当前用户的数据库，随后刷新页面或重启客户端。经典模式在侧栏上方显示置顶应用，其余应用直接显示在底部设置菜单。“恢复默认”也需要点击“应用”后生效。同一账号在同一服务和运行环境下跨浏览器、跨设备读取相同导航。
+
+经典模式的能力中心保留智能体、技能、连接器和插件四个可折叠子栏。打开定时任务时，任务导航在主侧栏右侧的独立侧栏显示，可独立收起；主侧栏继续保留项目和普通会话。
+
+经典模式中，“我的空间”也使用主侧栏右侧的独立模块侧栏，保留云文档、知识库、会话收藏、分享记录与消息通知导航。能力中心的四个子栏文字与父级标题文字左边缘对齐。
+
+经典模式的“新建对话”按钮位于品牌标题下方、应用导航上方。
+
+### 聊天动效
+
+流式正文按字素从 3px 模糊淡入，持续 350ms、使用 ease-out，正常字素间隔为 65ms。网络突发内容的入场等待不超过 600ms；结束或取消时立即显示已收到的正文。历史消息、恢复快照、代码和公式不逐字重播。
+
+新助手消息从下方 10px 淡入；新用户气泡从 scale(.92)、下移 6px 入场。骨架屏以 1.6 秒倾斜高光扫过。开始处理、思考和工具执行中的文字共用 2.8 秒扫光，使用 cubic-bezier(.714,.121,.211,.888)，并在周期首尾停留。扫光以次级文字色为底，高光混入 45% 聊天背景色，主色作 20% 轻微染色；完成后移除运行态扫光。耗时、工具数量与执行标题共用同一条扫光，秒数更新不会重启动画。减弱动效时正文和消息直接显示，加载及运行状态继续提供活动提示。

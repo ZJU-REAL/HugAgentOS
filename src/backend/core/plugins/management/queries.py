@@ -162,6 +162,10 @@ def list_installed(
         callable_now = any(
             s in callable_skills for s in (plugin_sources._component_keys(cids, "skills"))
         ) or any(m in callable_mcps for m in (plugin_sources._component_keys(cids, "mcp")))
+        from core.plugins.ui.workspace_enabled import enabled as workspace_enabled, workspace_only
+
+        enabled = enabled or workspace_enabled(db, r, owner_user_id)
+        callable_now = callable_now or workspace_only(r)
         item = _installed_to_dict(r, enabled=enabled, callable_now=callable_now)
         item["tools"] = sorted(
             {name for mid in item["mcp"] for name in component_tools.get(mid, [])}

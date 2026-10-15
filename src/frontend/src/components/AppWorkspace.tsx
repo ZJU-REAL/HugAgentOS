@@ -1,5 +1,13 @@
+import {WorkspaceRuntime} from '../workbench/WorkspaceRuntime';
+import {ActivityPanel} from '../workbench/ActivityPanel';
+import {navigateTo} from '../routing/navigation';
+import { useLocation } from 'react-router';
+import { WorkspaceApplication } from '../workbench/WorkspaceApplication';
+import { ApplicationAccess } from '../workbench/ApplicationAccess';
 import { chatDraftKey } from '../stores/composerStore';
 import { useChatStore } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
+import { usePersonalAgentAvailable } from '../personalAgentEdition';
 import {
   CloseOutlined,
   InsertRowRightOutlined,
@@ -14,16 +22,17 @@ import {
   Typography
 } from 'antd';
 import 'highlight.js/styles/github.css';
-import { lazy, Suspense, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, type CSSProperties } from 'react';
 import { t } from '../i18n';
 
 /* styles loaded via styles/index.ts in main.tsx */
 import { useProjectStore } from '../stores/projectStore';
 import { resolvePlanModeActive } from '../utils/chatMode';
 import { TOPIC_TAG_COLORS } from '../utils/constants';
-import { BatchConfirmModal } from './batch';
 import { RightSidebarPanel } from './canvas';
-import { ChatArea, PromptHubPanel } from './chat';
+import { PromptHubPanel } from './chat';
+import { builtinPages } from '../applicationComposition';
+import { WorkbenchPage } from '../workbench/WorkbenchPage';
 import { AuthExpiredModal, ImagePreview } from './common';
 import { CollapseHeight } from './common/CollapseHeight';
 import { CreateKBModal, ReindexModal } from './kb';
@@ -35,22 +44,20 @@ import { SlidePanel } from './common/SlidePanel';
 import { usePaneOcclusion } from '../hooks/usePaneOcclusion';
 import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
 import { ProjectsSkeleton } from './projects/ProjectSkeletons';
-const AutomationPanel = lazy(() => import('./automation/AutomationPanel').then(m => ({ default: m.AutomationPanel })));
 const RunTimelinePanel = lazy(() => import('./automation/RunTimelinePanel').then(m => ({ default: m.RunTimelinePanel })));
-const AbilityCenterPage = lazy(() => import('./catalog/AbilityCenterPage').then(m => ({ default: m.AbilityCenterPage })));
-const AppCenterPanel = lazy(() => import('./docs/AppCenterPanel').then(m => ({ default: m.default })));
-const DocsPanel = lazy(() => import('./docs/DocsPanel').then(m => ({ default: m.default })));
-const LabPanel = lazy(() => import('./lab/LabPanel').then(m => ({ default: m.default })));
-const MySpacePanel = lazy(() => import('./myspace/MySpacePanel').then(m => ({ default: m.MySpacePanel })));
-const ProjectsPanel = lazy(() => import('./projects/ProjectsPanel').then(m => ({ default: m.default })));
 const ProjectHeader = lazy(() => import('./projects/ProjectHeader'));
 const ProjectWorkspaceRail = lazy(() => import('./projects/ProjectWorkspaceRail'));
-const SettingsPage = lazy(() => import('./settings/SettingsModal').then(m => ({ default: m.default })));
-const SitesPanel = lazy(() => import('./sites/SitesPanel').then(m => ({ default: m.SitesPanel })));
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
-  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, handleContentRef, panel, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, createChatShare, handleFileSelect, removeFile, regenerate, editAndResendFollow, inputRef, fileInputRef, chatListRef, messagesEndRef, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog, cancelAndResumeBatch } = state;
-  const showProjectOverview = !!overviewProjectId;
+  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, panel, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog } = state;
+  const personalAgentAvailable = usePersonalAgentAvailable();
+  const authUserLoaded = useAuthStore(s => s.authUser != null);
+  useEffect(() => {
+    // Preserve the module's own permission contract and existing revoked-route fallback.
+    if (panel === 'personal_agent' && authUserLoaded && !personalAgentAvailable) handleSetPanel('chat');
+  }, [panel, authUserLoaded, personalAgentAvailable, handleSetPanel]);
+  const generic = useLocation().pathname.startsWith('/apps');
+  const showProjectOverview = !generic && !!overviewProjectId;
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
@@ -181,6 +188,8 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}
+              <ActivityPanel onOpen={key=>navigateTo('/apps/'+encodeURIComponent(key))}/>
+              <WorkspaceRuntime />
               <div
                 key={panel}
                 className="jx-panel jx-anim-fadeInUp"
@@ -190,38 +199,14 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 {overviewProjectId && (
                   <Suspense fallback={null}><ProjectHeader key={overviewProjectId} projectId={overviewProjectId} /></Suspense>
                 )}
-                {chatSurface && (
-                  <ChatArea
-                    isPaneHidden={paneHidden}
-                    send={send}
-                    abort={abort}
-                    activateQueuedMessage={activateQueuedMessage}
-                    discardQueuedMessage={discardQueuedMessage}
-                    continueLoop={continueLoop}
-                    exportChatRecord={exportChatRecord}
-                    createChatShare={createChatShare}
-                    handleFileSelect={handleFileSelect}
-                    removeFile={removeFile}
-                    regenerate={regenerate}
-                    editAndResend={editAndResendFollow}
-                    inputRef={inputRef}
-                    fileInputRef={fileInputRef}
-                    onViewportMount={handleContentRef}
-                    chatListRef={chatListRef}
-                    messagesEndRef={messagesEndRef}
-                  />
-                )}
-                <Suspense fallback={panel === 'projects' ? <ProjectsSkeleton /> : <PanelLoadingSkeleton />}>
-                {panel === 'ability_center' && <AbilityCenterPage />}
-                {panel === 'docs' && <DocsPanel />}
-                {panel === 'app_center' && <AppCenterPanel />}
-                {panel === 'automation' && !chatSurface && <AutomationPanel />}
-                {panel === 'sites' && <SitesPanel />}
-                {panel === 'lab' && <LabPanel />}
-                {panel === 'settings' && <SettingsPage />}
-                {panel === 'my_space' && <MySpacePanel />}
-                {panel === 'projects' && <ProjectsPanel onOpenProject={(pid) => { void useProjectStore.getState().openProject(pid); }} />}
-                </Suspense>
+                {generic ? <WorkspaceApplication /> : <ApplicationAccess id={chatSurface ? 'chat' : panel}>
+                <WorkbenchPage
+                  registry={builtinPages}
+                  applicationId={chatSurface ? 'chat' : panel}
+                  context={{ state, paneHidden }}
+                  fallback={panel === 'projects' ? <ProjectsSkeleton /> : <PanelLoadingSkeleton />}
+                />
+                </ApplicationAccess>}
               </div>
             </Content>
 
@@ -273,7 +258,6 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
       <CreateKBModal onCreated={() => void refreshCatalog()} />
       <ReindexModal />
       <AuthExpiredModal />
-      <BatchConfirmModal onCancelResume={cancelAndResumeBatch} />
     </Layout>
   );
 }

@@ -7,16 +7,6 @@ from typing import Dict
 from core.config.settings import settings as _settings
 from mcp_servers._ports import PORTS as _MCP_PORTS
 
-_BATCH_MODE_HINT = (
-    "\n\n## 批量执行模式（用户已主动进入）\n"
-    "用户从「应用中心 → 批量执行」入口进入了本会话，明确希望以批量方式处理任务。\n"
-    "当用户的请求涉及对一组对象（公司/文件/文本项/行项目等）做同一件事时，\n"
-    "**必须优先调用 `batch_plan` 工具**生成可确认的执行计划，不要尝试自己循环回答。\n"
-    "调用 `batch_plan` 后立即结束本回合，等待用户在弹窗中确认；\n"
-    "确认后系统会自动逐条执行并把结果实时推送给用户，无需你重复调用。\n"
-    "若请求确实只针对单一对象/单一概念，再走普通回答即可。\n"
-)
-
 _WORKFLOW_MODE_HINT = (
     "\n\n## 工作流模式（用户已主动进入）\n"
     "用户显式进入了工作流模式，明确希望用**批量作业**的方式处理任务。你有 `run_job` 工具。\n"

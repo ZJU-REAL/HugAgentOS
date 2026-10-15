@@ -1,6 +1,19 @@
 import { finishSubagentToolCall } from "../src/utils/streamSegments";
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+
+// Follow the actual CSS entry imports while retaining every visual assertion.
+function readStylesheet(file: string, ancestors = new Set<string>()): string {
+  const absolute = resolve(file);
+  assert.ok(!ancestors.has(absolute), 'CSS imports must not contain cycles');
+  const next = new Set(ancestors).add(absolute);
+  return readFileSync(absolute, 'utf8').replace(
+    /@import\s+['"]([^'"]+)['"]\s*;/g,
+    (_statement, target: string) => readStylesheet(resolve(dirname(absolute), target), next),
+  );
+}
+
 
 import { hasActiveSelectionIn, nextFollowState, SCROLL_RESUME_THRESHOLD, type FollowScrollState } from '../src/utils/scroll';
 import { morphChildren } from '../src/utils/domPatch';
@@ -141,7 +154,7 @@ import type { ChatItem, ChatMessage } from '../src/types';
 // ── 问题五：侧边栏项目名使用浏览器默认按钮字体，与下方对话标题不一致 ──
 {
   const sidebarCss = readFileSync('src/styles/sidebar.css', 'utf8') + '\n' + readFileSync('src/styles/sidebar-history.css', 'utf8');
-  const chatCss = readFileSync('src/styles/chat.css', 'utf8');
+  const chatCss = readStylesheet('src/styles/chat.css');
   const resolveDeclarations = (selector: string, sources: string[]) => {
     const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const rulePattern = new RegExp(`(?:^|})\\s*${escapedSelector}\\s*\\{([^}]*)\\}`, 'g');
@@ -183,7 +196,7 @@ import type { ChatItem, ChatMessage } from '../src/types';
 // ── 首页与具体对话页使用同一层近白背景，避免切换会话时底色跳变 ──
 {
   const variablesCss = readFileSync('src/styles/variables.css', 'utf8');
-  const chatCss = readFileSync('src/styles/chat.css', 'utf8');
+  const chatCss = readStylesheet('src/styles/chat.css');
   const appSource = readFileSync('src/components/AppWorkspace.tsx', 'utf8') + '\n' + readFileSync('src/hooks/useChatViewport.ts', 'utf8');
 
   assert.match(
@@ -303,11 +316,15 @@ import type { ChatItem, ChatMessage } from '../src/types';
     /document\.querySelector<HTMLElement>\('\.jx-content'\)/,
     '不许再用挂载时的一次性 querySelector 找滚动容器：认证闸放行前它还不存在',
   );
+  const viewportSource = readFileSync('src/applicationPages.tsx', 'utf8');
   assert.match(
-    appSource,
-    /<Content ref=\{handleContentRef\}/,
+    viewportSource,
+    /onViewportMount=\{state.handleContentRef\}/,
     '滚动容器必须通过回调 ref 交给 state，元素出现后依赖它的 effect 才会重跑',
   );
+  const chatAreaSource = readFileSync('src/components/chat/ChatArea.tsx', 'utf8');
+  assert.match(chatAreaSource, /className="jx-chatViewport" ref=\{mountViewport\}/, '真实聊天滚动容器必须提供挂载回调');
+  assert.match(chatAreaSource, /onViewportMount\?\.\(element\)/, '滚动容器挂载必须传递给父级状态');
   for (const dep of [
     /content\.addEventListener\('wheel'[\s\S]{0,900}?\}, \[contentEl\]\);/,
     /new ResizeObserver\([\s\S]{0,600}?\}, \[chatSurface, currentChatId, hasMessages, contentEl\]\);/,
@@ -327,7 +344,7 @@ import type { ChatItem, ChatMessage } from '../src/types';
   assert.equal(resolveSiteModeActive({ siteChat: true }, '/init'), false);
   assert.equal(resolveSiteModeActive({ siteChat: true }, ' /初始化指令 '), false);
 
-  const streamingSource = readFileSync('src/hooks/useStreaming.ts', 'utf8');
+  const streamingSource = readFileSync('src/hooks/useStreaming.ts', 'utf8') + '\n' + readFileSync('src/hooks/streamSend.ts', 'utf8');
   assert.doesNotMatch(
     streamingSource,
     /\[系统提示/,

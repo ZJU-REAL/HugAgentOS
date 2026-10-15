@@ -1,6 +1,9 @@
 /* 消息行：竖向堆叠（不再是头像+内容横排） */
 
 .jx-msg{
+  --motion-duration-message-enter:350ms;
+  --motion-duration-user-bubble-enter:300ms;
+  --motion-ease-message-enter:ease-out;
   display:flex;
   flex-direction:column;
   align-items:flex-start;
@@ -8,11 +11,12 @@
   gap:0;
 }
 
-/* 入场动画只给新追加的消息（MessageBubble 按 ts 门控加 --fresh）；
+/* 入场动画只给新追加的消息（MessageBubble 按消息身份门控加 --fresh）；
    历史加载 / 切会话灌入的消息不播，避免整列同帧抖动。 */
 
-.jx-msg--fresh{
-  animation:jx-kf-fadeInUp var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
+.jx-msg.assistant.jx-msg--fresh{
+  --fadeInUp-distance:10px;
+  animation:jx-kf-fadeInUp var(--motion-duration-message-enter) var(--motion-ease-message-enter) backwards;
 }
 
 /* 定位消息高亮（jx-anim-flash 原语打在消息行上时加个圆角） */
@@ -331,45 +335,6 @@
   border-color:color-mix(in srgb, var(--color-text) 14%, transparent);
 }
 
-/* ── 流式打字光标：尾随圆点呼吸（非竖线闪烁——markdown 全量重渲染会重置相位，
-   圆点 pulse 对相位不敏感）。.jx-msgText 是 CitationMarkdownBlock 的包装层。 ── */
-
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > :last-child::after,
-/* motion-stop: 流式输出末尾的光标，停在实心态仍是一根光标，不影响判断在不在跑 */
-.jx-msg.assistant .jx-bubble.streaming > span.jx-msgText::after{
-  content:'';
-  display:inline-block;
-  width:8px;
-  height:8px;
-  margin-left:5px;
-  border-radius:50%;
-  background:rgba(15,23,42,.5);
-  vertical-align:-1px;
-  animation:jxStreamCaret 1s var(--motion-ease-standard) infinite;
-}
-
-/* 代码块 / 表格 / 列表 / 图表收尾时不挂圆点（::after 会落到块外独占一行） */
-
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > pre:last-child::after,
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > table:last-child::after,
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mdTable:last-child::after,
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ul:last-child::after,
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ol:last-child::after,
-.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mermaid:last-child::after{
-  display:none;
-}
-
-@keyframes jxStreamCaret{
-  0%, 100% { opacity:.35; transform:scale(.8); }
-  50%      { opacity:.9;  transform:scale(1); }
-}
-
-/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
-
-@media (prefers-reduced-motion: reduce) {
-  @keyframes jxStreamCaret { from, to { opacity:.35; transform:scale(.8) } }
-}
-
 .jx-msgContent::selection,
 .jx-msgContent *::selection{
   background:rgba(148,163,184,.30);
@@ -404,85 +369,13 @@
   40% { transform:translateY(-2px); opacity:1; }
 }
 
-/* ── 轮级运行状态"深度拥抱中…"——首字/首个工具前的 logo 动图 + 灰阶流光文字，
-   代替过早出现的"执行中 / 正在准备调用工具"空壳卡片。
-   灰阶渐变与 .jx-tcr-prefix--shimmer 同一套；字号加大加粗突出轮级地位，
-   与既有"系统在工作"指示器视觉同源 ── */
-
-.jx-turnStatus{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  align-self:flex-start;
-  min-height:26px;
-  padding:2px 0;
-  font-size:14px;
-  font-weight:600;
-  white-space:nowrap;
-}
-
-/* logo 动图与运行中的工具壳同款轻呼吸 */
-
-/* motion-keep: 「正在执行」的品牌动图，停下就只剩一枚静止图标，读起来像卡死 */
-
-.jx-turnStatus .jx-brandLoader{
-  animation:jx-trs-breathe 1.8s ease-in-out infinite;
-}
-
-/* motion-keep: 状态行流光，靠 background-clip 抠字，定格会变成一段忽深忽浅的灰字 */
-
-.jx-turnStatus-label{
-  /* 中灰而非近黑：slate-400 打底、slate-600 做流光高亮，加粗后仍显轻盈 */
-  background:linear-gradient(90deg,
-    rgba(148, 163, 184, 0.70) 0%,
-    rgba(71, 85, 105, 0.90) 50%,
-    rgba(148, 163, 184, 0.70) 100%);
-  background-size:200% 100%;
-  -webkit-background-clip:text;
-  background-clip:text;
-  -webkit-text-fill-color:transparent;
-  color:transparent;
-  animation:jx-kf-shimmer 2.2s linear infinite;
-}
-
-/* 深色下把流光方向掰回来：上面那条渐变是「slate-400 打底 + slate-600 高光」，
-   靠"把字压暗"做高光——浅色底成立，暗底上就完全反了，高光处 (#475569) 对比度不到 2，
-   于是「深度拥抱中…」会朝着看不见的方向脉动。深色档改成暗→亮，高光才是最亮的一点。 */
-
-:root[data-theme="dark"] .jx-turnStatus-label{
-  background-image:linear-gradient(90deg,
-    color-mix(in srgb, var(--color-text) 52%, transparent) 0%,
-    color-mix(in srgb, var(--color-text) 96%, transparent) 50%,
-    color-mix(in srgb, var(--color-text) 52%, transparent) 100%);
-  background-size:200% 100%;
-  /* ⚠️ 必须用 background-image 而不是 background 简写：简写会把 background-clip 一并
-     重置回 border-box，这行字正是靠 clip:text 把渐变裁进字形的，重置后整行会变成一块
-     实心灰方块、文字消失（已踩）。这两行是保险，即便将来改回简写也不至于塌掉。 */
-  -webkit-background-clip:text;
-  background-clip:text;
-}
-
-.jx-turnStatus-clock{
-  margin-left:2px;
-  font-size:12px;
-  font-weight:400;
-  font-variant-numeric:tabular-nums;
-  color:var(--color-text-placeholder);
-}
-
-/* 与折叠摘要同理：placeholder 令牌在深色档只有 2.65 对比度，计时数字看不清 */
-
-:root[data-theme="dark"] .jx-turnStatus-clock{
-  color:var(--color-text-tertiary);
-}
-
 /* Fresh user messages enter once; history and streaming text keep their layout. */
-.jx-msg.user.jx-msg--fresh {
-  animation:jx-userBubbleEnter var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
-  transform-origin:right top;
+.jx-msg.user.jx-msg--fresh .jx-bubble.user {
+  animation:jx-userBubbleEnter var(--motion-duration-user-bubble-enter) var(--motion-ease-message-enter) backwards;
+  transform-origin:right bottom;
 }
 @keyframes jx-userBubbleEnter {
-  from { opacity:0; transform:translateY(6px) scale(.96); }
+  from { opacity:0; transform:scale(.92) translateY(6px); }
   to { opacity:1; transform:none; }
 }
 @media (prefers-reduced-motion: reduce) {

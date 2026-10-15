@@ -52,6 +52,8 @@ class KindSpec:
     desc: str
     visible: bool = True
     preview: str | None = None
+    #: 兜底 md 的绝对目录。可选模块的提示词随模块代码放（不进 CE），不在 prompt_text/ 下。
+    root: Path | None = None
 
 
 #: 内置 kind：各自对应一段固定的运行时装配位置，有文件系统兜底，不可删。
@@ -111,7 +113,17 @@ KIND_SPECS: Dict[str, KindSpec] = {
     ),
 }
 
+#: 核心内置 kind。可选模块启用时经 :func:`register_kind` 往 KIND_SPECS 追加自己的 kind，
+#: 运行时判断一律查 KIND_SPECS，这个元组只列核心那批。
 BUILTIN_KINDS = tuple(KIND_SPECS)
+
+
+def register_kind(key: str, spec: KindSpec) -> None:
+    """可选模块注册自己的内置 kind（模块关闭时不注册，Config 台就不出现这个 tab）。
+
+    须在启动播种（``seed_from_filesystem``）之前调用，即放在模块的 ``setup()`` 里。
+    """
+    KIND_SPECS[key] = spec
 
 #: 兼容别名。历史上这个名字既是"内置清单"也是"合法性白名单"；自定义 kind 出现后
 #: 两者分家了——校验一律走 :func:`is_valid_kind`，这里只保留内置那批。
@@ -131,7 +143,7 @@ def list_custom_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip()
-        if key and key not in BUILTIN_KINDS:
+        if key and key not in KIND_SPECS:
             out.append({"key": key, "label": str(item.get("label") or key)})
     return out
 
@@ -144,7 +156,7 @@ def all_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
 
 
 def is_valid_kind(kind: str, db: Optional[Session] = None) -> bool:
-    if kind in BUILTIN_KINDS:
+    if kind in KIND_SPECS:
         return True
     return any(c["key"] == kind for c in list_custom_kinds(db))
 
@@ -162,7 +174,7 @@ def create_custom_kind(
     ).strip("-_")
     if not cleaned:
         raise ValueError("kind key required")
-    if cleaned in BUILTIN_KINDS:
+    if cleaned in KIND_SPECS:
         raise ValueError(f"「{cleaned}」是内置 kind，不能重复创建")
     payload = _clone(_load_payload(db))
     customs = payload.setdefault("custom_kinds", [])
@@ -196,7 +208,7 @@ def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
     注意：绑了这个 kind 的对话模式会退回默认提示词装配（``render_kind_segment(fs_fallback=False)``
     取不到就返回空串，装配侧按"没配提示词"处理），不会让对话起不来。
     """
-    if key in BUILTIN_KINDS:
+    if key in KIND_SPECS:
         raise ValueError("内置 kind 不可删除")
     payload = _clone(_load_payload(db))
     customs = payload.get("custom_kinds") or []
@@ -231,6 +243,8 @@ def _fs_dir(kind: str) -> Path:
     spec = KIND_SPECS.get(kind)
     if spec is None:
         raise ValueError(f"unknown kind: {kind}")
+    if spec.root is not None:
+        return spec.root
     return _backend_root().joinpath("prompts", "prompt_text", *spec.subdir)
 
 
@@ -695,7 +709,7 @@ def seed_from_filesystem(
     # 每个内置 kind 的默认版本：没有就按文件系统建；已有就把**新增**的 md 文件补进去。
     # 补这一步是因为默认版本只在首次冷启动时从文件系统建一次，之后新加的 *.system.md
     # 再也进不了已建库的部署。已有 part 的正文原样保留，管理员改过的不会被覆盖。
-    for kind in BUILTIN_KINDS:
+    for kind in list(KIND_SPECS):
         if not exists(kind, DEFAULT_VERSION_ID):
             default_row = _default_version_for_kind(kind, DEFAULT_VERSION_ID)
             versions.append(default_row)

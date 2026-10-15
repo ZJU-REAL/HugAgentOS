@@ -11,7 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { InputArea } from './src/components/chat/InputArea';
 import { RightSidebarPanel } from './src/components/canvas/RightSidebarPanel';
 import { useCanvasStore } from './src/stores/canvasStore';
-import { useChatStore } from './src/stores/chatStore';
+
 import { useModelCapabilitiesStore } from './src/stores/modelCapabilitiesStore';
 import './src/styles/variables.css';
 import './src/styles/common.css';
@@ -20,7 +20,7 @@ import './src/styles/tool.css';
 import './src/styles/myspace.css';
 import './src/styles/canvas.css';
 import './src/styles/mobile.css';
-useChatStore.setState({input:'继续优化报告'});
+
 useModelCapabilitiesStore.setState(s => ({capabilities:{...s.capabilities,user_model_switch_enabled:true,user_selectable_models:[{provider_id:'long',display_name:'DeepSeek-V4.1-Flash-Long-Model-Name',is_default:true}]}}));
 const file={file_id:'report', name:'项目知识体系与人工智能技术标准体系_导读.txt',url:'/files/report',mime_type:'text/plain'};
 function Fixture(){
@@ -60,7 +60,7 @@ try {
   const dimensions=await page.evaluate(()=>{
    const pane=document.querySelector('.jx-primaryPane'), bar=document.querySelector('.jx-composerBar');
    const bounds=bar.getBoundingClientRect();
-   const escaped=[...bar.children].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.left<bounds.left-1||r.right>bounds.right+1);}).map(el=>el.className);
+   const escaped=[...bar.querySelectorAll('button, [role=button], .jx-modelEffortStatic')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.left<bounds.left-1||r.right>bounds.right+1);}).map(el=>el.className);
    const text=document.querySelector('.jx-bubble');
    return {width:pane.getBoundingClientRect().width,escaped,textWidth:text.clientWidth,textScroll:text.scrollWidth,screen:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth};
   });
@@ -83,6 +83,7 @@ try {
  await page.getByRole('button',{name:'收起右侧面板',exact:true}).click();
  await page.locator('.jx-canvas').waitFor({state:'detached'});
  await page.setViewportSize({width:760,height:820});await check('narrow-chat',false);
+ await page.locator('.tiptap').fill('继续优化报告');
  await page.getByRole('button',{name:'发送',exact:true}).click();
  assert.equal(await page.locator('html').getAttribute('data-sent'),'true');
  await page.getByRole('button',{name:'切换模型与思考强度'}).click();

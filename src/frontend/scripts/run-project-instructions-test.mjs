@@ -2,6 +2,12 @@ import { build } from 'esbuild';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
+const values = new Map();
+const browserStorage = {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key)};
+globalThis.localStorage = browserStorage;
+globalThis.document = {documentElement: {}, addEventListener() {}, removeEventListener() {}};
+globalThis.window = {location: {pathname: '/', origin: 'http://localhost'}, localStorage: browserStorage, sessionStorage: browserStorage, addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout};
+
 // Exercise the real Zustand store; replace only its browser/API boundaries.
 globalThis.projectTestApi = {};
 const apiNames = ['createProject', 'deleteProject', 'listProjects',
@@ -26,9 +32,9 @@ await build({
           : args.path === '../routing/navigation' ? 'export const navigateTo=()=>{}; export const pathForPanel=()=>"/projects/p1";'
           : args.path === '../editionApi' ? 'export const listMyTeamsForProjects=async()=>[];'
           : args.path === '../storage' ? 'export const registerUnboundProject=()=>{};'
-          : args.path === './chatStore' ? 'export const useChatStore={getState:()=>({})};'
+          : args.path === './chatStore' ? `export { useChatStore, isAddressableChat, isLocalDraftChat } from ${JSON.stringify(resolve('src/stores/chatStore.ts'))};`
           : 'export const t=(value)=>value;',
-        loader: 'js',
+        loader: 'js', resolveDir: process.cwd(),
       }));
     },
   }],

@@ -1,0 +1,39 @@
+{
+  "name": "@hugagent/workbench-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "API.md",
+    "VERSIONS.md",
+    "examples",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
+    "test": "npm run build && node test/install.test.mjs && node test/capabilities.test.mjs",
+    "test:tooling": "npm run build && node test/tooling.test.mjs",
+    "test:consumer": "npm run build && node test/consumer.test.mjs",
+    "test:preview": "node test/preview.test.mjs",
+    "test:host": "node test/host.test.mjs"
+  },
+  "devDependencies": {
+    "@hugagent/workbench-protocol": "file:../workbench-protocol",
+    "typescript": "5.9.3",
+    "esbuild": "0.27.3"
+  },
+  "bin": {
+    "workbench": "./dist/tooling/cli.mjs"
+  }
+}

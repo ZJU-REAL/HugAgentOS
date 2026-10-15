@@ -157,7 +157,6 @@ async def bind_project_environment(request):
             policy.custom
             and request.user_agent is None
             and not request.isolated
-            and not request.batch_mode
         ):
             request.enabled_skill_ids = sorted(policy.skill_ids)
             request.enabled_mcp_ids = sorted(policy.mcp_ids)

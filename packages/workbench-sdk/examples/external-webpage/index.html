@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>External weather application</title>
+<h1>External weather application</h1>
+<p>This is an independent browser page. It does not receive a host token or a native bridge.</p>
+<p>Deploy this page to your approved HTTPS origin. Configure that URL in the Workbench external declaration.</p>
+<p>Your service must implement its own login or a separately approved identity integration.</p>
+<label>City <input id="city" value="Beijing" maxlength="100"></label>
+<button id="apply">Apply view filter</button>
+<p id="selection" role="status">Selected city: Beijing</p>
+<script>
+document.querySelector('#apply').onclick=()=>{
+  document.querySelector('#selection').textContent='Selected city: '+document.querySelector('#city').value;
+};
+</script>
+</html>

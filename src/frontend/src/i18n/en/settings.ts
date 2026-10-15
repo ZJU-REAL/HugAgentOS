@@ -147,7 +147,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '界面语言': 'Display Language',
   '切换界面显示语言，切换后页面将自动刷新': 'Switch display language. The page will reload automatically.',
   '个人信息': 'Profile',
-  '会话设置': 'Chat Settings',
+  '页面设置': 'Page Settings',
   '记忆设置': 'Memory Settings',
   '本体校验': 'Ontology Validation',
   '强制构建时本体校验': 'Enforce Build-time Ontology Validation',
@@ -721,7 +721,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   'LangSearch Web Search API 服务密钥': 'LangSearch Web Search API service key',
   '主智能体代码执行能力': 'Main Agent Code Execution',
   '开启后主/计划/批量/智能体默认具备文件工具+沙箱+我的空间访问；关闭则仅 Lab 入口可用。本开关为唯一控制源，保存后 ≤30s 生效、无需重启。':
-    'When enabled, main, plan, batch, and agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',
+    'When enabled, main, plan, workflow, and agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',
   '轮内压缩触发比例': 'In-turn Compression Threshold',
   '上下文估算 token 超过「模型窗口 × 该值」时触发轮内压缩（0.5~0.95）。计数用字节估算：中文会被高估（实际触发比标称晚）、英文/代码接近真实。调大=更晚压缩（上下文更完整，但英文/代码密集会话有触顶风险）；调小=更早压缩。':
     'Trigger in-turn compression when estimated tokens exceed the model context window multiplied by this value (0.5–0.95). Higher values compress later; lower values compress earlier.',

@@ -1,3 +1,4 @@
+import { usePublicMediaUrl } from '../../hooks/usePublicMediaUrl';
 import { useEffect, useMemo, useState } from 'react';
 import { Spin } from 'antd';
 import { t } from '../../i18n';
@@ -70,9 +71,12 @@ function useFetchText(item: ResourceItem, maxBytes: number) {
 // ─── viewer leaves ─────────────────────────────────────────────────
 
 export function ImageViewer({ src, name }: { src: string; name: string }) {
+  const media = usePublicMediaUrl(src);
+  if (media.error) return <PreviewError msg={media.error} />;
+  if (!media.url) return <PreviewLoading />;
   return (
     <div className="jx-spaceImportPreview-image">
-      <img src={src} alt={name} />
+      <img src={media.url} alt={name} />
     </div>
   );
 }
@@ -80,10 +84,13 @@ export function ImageViewer({ src, name }: { src: string; name: string }) {
 export function FrameViewer({ src }: { src: string }) {
   // iframe forbids transform: after onLoad, only ramp opacity to full (CSS .is-loaded)
   const [loaded, setLoaded] = useState(false);
+  const media = usePublicMediaUrl(src);
+  if (media.error) return <PreviewError msg={media.error} />;
+  if (!media.url) return <PreviewLoading />;
   return (
     <iframe
       className={`jx-spaceImportPreview-frame${loaded ? ' is-loaded' : ''}`}
-      src={src}
+      src={media.url}
       title={t('文件预览')}
       onLoad={() => setLoaded(true)}
     />
@@ -91,20 +98,26 @@ export function FrameViewer({ src }: { src: string }) {
 }
 
 export function VideoViewer({ src }: { src: string }) {
+  const media = usePublicMediaUrl(src);
+  if (media.error) return <PreviewError msg={media.error} />;
+  if (!media.url) return <PreviewLoading />;
   return (
     <div className="jx-spaceImportPreview-media">
-      <video src={src} controls playsInline preload="metadata" />
+      <video src={media.url} controls playsInline preload="metadata" />
     </div>
   );
 }
 
 export function AudioViewer({ src, name }: { src: string; name: string }) {
+  const media = usePublicMediaUrl(src);
+  if (media.error) return <PreviewError msg={media.error} />;
+  if (!media.url) return <PreviewLoading />;
   const initial = (name || '?').slice(0, 1).toUpperCase();
   return (
     <div className="jx-spaceImportPreview-audio">
       <div className="jx-spaceImportPreview-audioCover">{initial}</div>
       <div className="jx-spaceImportPreview-audioName" title={name}>{name}</div>
-      <audio src={src} controls preload="metadata" />
+      <audio src={media.url} controls preload="metadata" />
     </div>
   );
 }

@@ -53,7 +53,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | [项目空间与我的空间](modules/projects-myspace.md) | 项目工作区、个人/团队文件夹、文件入上下文 |
 | [认证与权限](modules/auth.md) | AUTH_MODE 三模式、SSO、权限位、管理凭证 |
 | [管理台](modules/admin-console.md) | /admin 与 /config 双管理台、19 组管理路由 |
-| [自动化与批量执行](modules/automation.md) | 定时任务调度、计划模式、批量编排 |
+| [自动化与计划模式](modules/automation.md) | 定时任务调度、计划模式 |
 | [数据画布与产物](modules/canvas-artifacts.md) | Univer 画布、代码产物、Artifact 中心、会话分享 |
 
 ## API 参考

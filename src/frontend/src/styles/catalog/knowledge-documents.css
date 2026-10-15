@@ -1,0 +1,473 @@
+.jx-kbDocFilterTabs{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  flex-shrink:0;
+}
+
+.jx-kbDocFilterTab{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  height:32px;
+  padding:0 14px;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:var(--color-text-secondary);
+  font-size:14px;
+  font-weight:500;
+  line-height:1;
+  cursor:pointer;
+  transition:background-color .18s ease, color .18s ease;
+  white-space:nowrap;
+}
+
+.jx-kbDocFilterTab:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-text);
+}
+
+.jx-kbDocFilterTab.is-active{
+  background:var(--color-primary-light);
+  color:var(--color-primary);
+}
+
+.jx-kbDocFilterTab.is-active:hover{
+  background:var(--color-primary-bg);
+}
+
+.jx-kbDocFilterTabLabel{
+  font-weight:500;
+}
+
+.jx-kbDocFilterTabCount{
+  color:var(--color-text-placeholder);
+  font-size:13px;
+  font-weight:500;
+}
+
+.jx-kbDocFilterTab.is-active .jx-kbDocFilterTabCount{
+  color:var(--color-primary);
+}
+
+.jx-kbDocPanel{
+  background:var(--color-bg-container);
+  border:1px solid var(--color-border);
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 10px 30px color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.jx-kbDocPanelHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:16px 18px;
+  border-bottom:1px solid var(--color-border);
+  flex-wrap:wrap;
+}
+
+.jx-kbDocPanelTools{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:nowrap;
+  flex:1;
+  justify-content:flex-end;
+  min-width:0;
+}
+
+.jx-kbDocSearch{
+  width:min(260px,100%);
+  flex:0 1 260px;
+  min-width:220px;
+}
+
+.jx-kbDocSearch.ant-input-affix-wrapper{
+  height:40px;
+  border-radius:12px;
+  border-color:var(--color-border);
+  padding-inline:12px;
+  box-shadow:none;
+}
+
+.jx-kbDocPanelTools .ant-btn{
+  height:40px;
+  border-radius:12px;
+  font-size:14px;
+  font-weight:500;
+  box-shadow:none;
+}
+
+.jx-kbDocTable{
+  width:100%;
+  --jx-kb-doc-cols:minmax(0,1.45fr) 88px 112px 88px 104px;
+}
+
+.jx-kbDocPagination{
+  display:flex;
+  justify-content:flex-end;
+  padding:14px 18px 18px;
+  border-top:1px solid var(--color-border);
+  background:linear-gradient(180deg, var(--color-bg-layout) 0%, var(--color-bg-container) 55%);
+}
+
+.jx-kbDocPagination .ant-pagination{
+  margin:0;
+}
+
+.jx-kbPager{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:var(--color-text-tertiary);
+}
+
+.jx-kbPager .ant-pagination-total-text{
+  margin-inline-end:8px;
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  font-weight:400;
+  letter-spacing:.02em;
+}
+
+.jx-kbPager .ant-pagination-prev,
+.jx-kbPager .ant-pagination-next,
+.jx-kbPager .ant-pagination-item{
+  min-width:34px;
+  height:34px;
+  line-height:32px;
+  border-radius:10px;
+  border:1px solid var(--color-border);
+  background:var(--color-bg-container);
+  box-shadow:none;
+  transition:all .18s ease;
+}
+
+.jx-kbPager .ant-pagination-prev:hover,
+.jx-kbPager .ant-pagination-next:hover,
+.jx-kbPager .ant-pagination-item:hover{
+  border-color:var(--color-fill);
+  background:var(--color-bg-layout);
+}
+
+.jx-kbPager .ant-pagination-item a{
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  font-weight:500;
+}
+
+.jx-kbPager .ant-pagination-item-active{
+  border-color:var(--color-primary-light);
+  background:var(--color-bg-layout);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.jx-kbPager .ant-pagination-item-active a{
+  color:var(--color-primary);
+  font-weight:600;
+}
+
+.jx-kbPager .ant-pagination-disabled{
+  opacity:.5;
+  background:var(--color-bg-layout);
+}
+
+.jx-kbPager .ant-pagination-disabled:hover{
+  border-color:var(--color-border);
+  background:var(--color-bg-layout);
+}
+
+.jx-kbPager .ant-pagination-options{
+  margin-inline-start:6px;
+}
+
+.jx-kbPager .ant-pagination-options-size-changer{
+  min-width:108px;
+}
+
+.jx-kbPager .ant-select-selector{
+  height:36px !important;
+  padding:0 12px !important;
+  border-radius:12px !important;
+  border:1px solid var(--color-border) !important;
+  background:color-mix(in srgb, var(--color-bg-container) 94%, transparent) !important;
+  box-shadow:none !important;
+}
+
+.jx-kbPager .ant-select-selection-item{
+  line-height:34px !important;
+  font-size:12px;
+  font-weight:500;
+  color:var(--color-text-tertiary);
+}
+
+.jx-kbPager .ant-select-arrow{
+  color:var(--color-text-placeholder);
+  font-size:11px;
+}
+
+.jx-kbPagerSizeDropdown{
+  padding:10px;
+  border-radius:16px;
+  background:color-mix(in srgb, var(--color-bg-container) 96%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  box-shadow:0 18px 40px color-mix(in srgb, var(--color-primary) 10%, transparent), 0 6px 16px color-mix(in srgb, var(--color-primary) 6%, transparent);
+  backdrop-filter:blur(12px);
+}
+
+.jx-kbPagerSizeDropdown .ant-select-item-option{
+  padding:2px 0;
+}
+
+.jx-kbPagerSizeDropdown .ant-select-item{
+  min-height:40px;
+  padding:0 14px;
+  border-radius:12px;
+  color:var(--color-text-secondary);
+  font-size:12px;
+  font-weight:500;
+  display:flex;
+  align-items:center;
+}
+
+.jx-kbPagerSizeDropdown .ant-select-item-option-active{
+  background:var(--color-bg-layout);
+  color:var(--color-text-secondary);
+}
+
+.jx-kbPagerSizeDropdown .ant-select-item-option-selected{
+  background:var(--color-primary-light);
+  color:var(--color-primary);
+  font-weight:500;
+}
+
+.jx-kbDocTableHead,
+.jx-kbDocRow{
+  display:grid;
+  grid-template-columns:var(--jx-kb-doc-cols);
+  align-items:center;
+  column-gap:18px;
+  row-gap:12px;
+  padding:10px 18px;
+}
+
+.jx-kbDocTableHead{
+  color:var(--color-text-placeholder);
+  font-size:13px;
+  font-weight:400;
+}
+
+.jx-kbDocRow{
+  border-top:1px solid var(--color-border);
+}
+
+.jx-kbDocTableHead > :not(:first-child){
+  white-space:nowrap;
+}
+
+.jx-kbDocTableHead > :nth-child(1),
+.jx-kbDocRow > :nth-child(1){
+  padding-right:18px;
+}
+
+.jx-kbDocTableHead > :nth-child(2),
+.jx-kbDocRow > :nth-child(2){
+  padding-left:10px;
+}
+
+.jx-kbDocTableHead > :nth-child(4),
+.jx-kbDocRow > :nth-child(4){
+  padding-left:12px;
+}
+
+.jx-kbDocTableHead > :nth-child(5){
+  justify-self:stretch;
+  text-align:center;
+}
+
+.jx-kbDocRow > :nth-child(5){
+  justify-self:stretch;
+}
+
+.jx-kbDocNameCell{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  overflow:hidden;
+}
+
+.jx-kbDocType{
+  width:20px;
+  height:20px;
+  flex-shrink:0;
+  object-fit:contain;
+}
+
+.jx-kbDocNameMain{
+  min-width:0;
+  overflow:hidden;
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+.jx-kbDocName{
+  font-size:13px;
+  line-height:1.4;
+  font-weight:400;
+  color:var(--color-text);
+  word-break:break-word;
+}
+
+.jx-kbDocDesc{
+  margin-top:1px;
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  line-height:1.35;
+}
+
+.jx-kbDocCellMuted{
+  color:var(--color-text-placeholder);
+  font-size:13px;
+  font-weight:400;
+  font-variant-numeric:tabular-nums;
+}
+
+.jx-kbStatusPill{
+  min-height:24px;
+  padding:0 10px;
+  border-radius:6px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-size:11px;
+  font-weight:500;
+  transition:background-color .4s var(--motion-ease-standard),
+    border-color .4s var(--motion-ease-standard),
+    color .4s var(--motion-ease-standard);
+}
+
+.jx-kbSkDocType{
+  width:40px;
+  height:40px;
+  border-radius:12px;
+}
+
+.jx-kbSkDocName{
+  width:min(260px,72%);
+  height:15px;
+  border-radius:999px;
+}
+
+.jx-kbSkDocDesc{
+  width:min(180px,52%);
+  height:11px;
+  border-radius:999px;
+  margin-top:6px;
+}
+
+.jx-kbSkDocMeta{
+  width:54px;
+  height:11px;
+  border-radius:999px;
+}
+
+.jx-kbSkDocStatus{
+  width:82px;
+  height:28px;
+  border-radius:6px;
+}
+
+.jx-kbSkDocAction{
+  width:30px;
+  height:30px;
+  border-radius:8px;
+}
+
+.jx-kbStatusPill-success{
+  background:var(--color-tint-green-bg);
+  border-color:color-mix(in srgb, var(--color-tint-green) 30%, transparent);
+  color:var(--color-tint-green);
+}
+
+.jx-kbStatusPill-processing{
+  background:var(--color-primary-light);
+  border-color:var(--color-primary-bg);
+  color:var(--color-primary);
+}
+
+.jx-kbStatusPill-failed{
+  background:var(--color-tint-red-bg);
+  border-color:color-mix(in srgb, var(--color-tint-red) 30%, transparent);
+  color:var(--color-tint-red);
+}
+
+.jx-kbDocActions{
+  display:grid;
+  grid-template-columns:repeat(3, 28px);
+  align-items:center;
+  gap:6px;
+  justify-content:center;
+  width:100%;
+  padding-right:0;
+  box-sizing:border-box;
+  min-width:0;
+}
+
+.jx-kbDocActionSlot{
+  width:28px;
+  height:28px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.jx-kbDocActionPlaceholder{
+  width:28px;
+  height:28px;
+  display:block;
+  visibility:hidden;
+}
+
+.jx-kbDocActions .ant-btn{
+  border-radius:8px;
+  color:var(--color-text-placeholder);
+  width:28px;
+  min-width:28px;
+  height:28px;
+  padding:0;
+  flex-shrink:0;
+}
+
+.jx-kbDocActions .ant-btn:hover,
+.jx-kbDocActions .ant-btn:focus{
+  color:var(--color-text-tertiary);
+  background:var(--color-bg-layout);
+}
+
+.jx-kbDocEmpty{
+  padding:28px 18px;
+}
+
+.jx-kbDocModalTitle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding-right:32px;
+}
+
+.jx-kbDocModalBody{
+  /* 60vh 是「正文区」的高度，但弹窗还有标题栏、Tab 栏与 footer，加起来会超过一屏，
+     底部的「关闭」就被挤出视口。配合 centered 把上限收到 52vh，整个弹窗才装得下。 */
+  max-height:52vh;
+  overflow:auto;
+  border:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-radius:10px;
+  background:color-mix(in srgb, var(--color-bg-container) 60%, transparent);
+}

@@ -3,11 +3,12 @@ import { AnimatePresence } from 'motion/react';
 import { useRef, useState, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores';
+import { PersonalAgentSidebarEntry } from '../../personalAgentEdition';
 import { ChatSidebarItem } from './ChatSidebarItem';
 import { ProjectSidebarGroup } from './ProjectSidebarGroup';
 import type { SidebarProps } from './sidebarTypes';
 import { useSidebarHistory } from './useSidebarHistory';
-export function ChatSidebar({ actions, children }: { actions: SidebarProps; children?: ReactNode }) {
+export function ChatSidebar({ actions, children, navigation }: { actions: SidebarProps; children?: ReactNode; navigation?: ReactNode }) {
   const { projectGroups, groupedHistoryList } = useSidebarHistory();
   const loading = useChatStore(s => s.chatsLoading);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -15,6 +16,8 @@ export function ChatSidebar({ actions, children }: { actions: SidebarProps; chil
   const groups = [{ key: 'projects', label: t('项目') }, ...groupedHistoryList];
   return <>
     <button className="jx-newChatBtn" onClick={actions.onNewChat}><img src="/home/new-chat.svg" alt="" className="jx-newChatIcon" /><span>{t('新建对话')}</span></button>
+    {navigation}
+    <PersonalAgentSidebarEntry onOpen={() => actions.onSetPanel('personal_agent')} />
     <div className="jx-sidebarScrollArea">
       {children}
       {loading && <div className="jx-historySkeletonList" aria-busy="true" aria-label={t('加载中')}>

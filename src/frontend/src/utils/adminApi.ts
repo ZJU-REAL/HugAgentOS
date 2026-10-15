@@ -1,6 +1,7 @@
 import { createEditionAccessError } from '../editionAccessError';
 import { createApiResponseError, readErrorMessage } from './apiError';
 import { t } from '../i18n';
+import { invalidateWorkbenchDirectory } from '../workbench/invalidation';
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
@@ -66,7 +67,11 @@ function createAuthFetch(storageKey: string, expiredEvent: string) {
       if (editionError) throw editionError;
       throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
     }
-    return res.json();
+    const body = await res.json();
+    if (init?.method && !['GET', 'HEAD'].includes(init.method.toUpperCase())
+      && (path.startsWith('/v1/workbench/') || path === '/v1/content/docs/app_config'))
+      invalidateWorkbenchDirectory();
+    return body;
   };
 }
 

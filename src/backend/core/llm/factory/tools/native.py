@@ -46,6 +46,11 @@ async def native_tools(
     toolkit,
     _progressive=None,
 ):
+    if request.profile:
+        from core.extensions import agent_profile
+
+        agent_profile(request.profile).register_tools(toolkit, request, loader=loader)
+        return
     if (
         not request.disable_tools
         and (not request.turbo_mode or _turbo_code_exec)
@@ -243,7 +248,7 @@ async def native_tools(
 
         # ── Phase 3.85: run_job（工作流模式的作业编排面） ──
         # **用户显式触发才注册**（workflow_mode）：斜杠命令 /workflow 或 + 菜单选「工作流
-        # 模式」。与计划模式/批量执行同属用户触发的模式——不触发就完全不存在，普通问答的
+        # 模式」。与计划模式同属用户触发的模式——不触发就完全不存在，普通问答的
         # 工具面与提示词一点都不受影响。
         # 触发之后它才是这段对话的原生能力（不走 catalog 开关、关不掉）：面对 N 个同构
         # 工作项时，主循环逐项处理会让每一轮重发全部历史（成本随进度二次方增长，做不完

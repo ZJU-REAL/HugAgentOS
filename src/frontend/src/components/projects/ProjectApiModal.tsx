@@ -1,3 +1,4 @@
+import { StandaloneLinkCard } from '../common/StandaloneLinkCard';
 import { Modal, Tabs, Tag, Typography } from 'antd';
 import { ApiOutlined } from '@ant-design/icons';
 import { listProjectApiKeys, createProjectApiKey, toggleProjectApiKey, revokeProjectApiKey, revealProjectApiKey } from '../../api/projectApi';
@@ -30,6 +31,7 @@ export default function ProjectApiModal({ projectId, onClose }: {
         <CopyButton text={projectId} aria-label={t('复制项目 ID')} />
         <Tag>{t('仅限此项目')}</Tag>
       </div>
+      <StandaloneLinkCard kind="projects" resourceId={projectId} canManage={canEdit && canUseApiKey} />
       <Tabs destroyOnHidden items={[
         ...(canEdit && canUseApiKey ? [{ key: 'keys', label: 'API-Key', children: <ApiKeyManager resourceId={projectId} api={projectKeys} /> }] : []),
         { key: 'guide', label: t('调用示例'), children: <ProjectApiGuide projectId={projectId} /> },

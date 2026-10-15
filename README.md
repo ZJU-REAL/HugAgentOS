@@ -236,7 +236,7 @@ is physically absent from the Community tree.
 | Agentic chat, Plan Mode, and personal sub-agents | Teams, organization agents, and permission matrices |
 | 8 general MCP tools, personal skills, and a skill marketplace | Industry data tools, organization governance, and skill review |
 | Private knowledge bases and three-tier personal memory | Public knowledge administration and memory auditing |
-| Automation, batch execution, and a personal data canvas | Organization billing, usage reports, and canvas collaboration |
+| Automation, and a personal data canvas | Organization billing, usage reports, and canvas collaboration |
 | Lightweight sandbox and local file storage | Persistent sandboxes, cloud storage, and offline delivery |
 | Local accounts and branding with Powered-by attribution | SSO, compliance auditing, and full white-labeling |
 

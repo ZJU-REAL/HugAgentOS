@@ -259,7 +259,7 @@ export function PluginsPage() {
   }
 
   if (level === 'component' && component) return <PluginComponentDetail component={component} navDir={navDir} backToPlugin={backToPlugin} setToolDetail={setToolDetail} />;
-  if (level === 'plugin' && pluginDetail) return <PluginDetailView pluginDetail={pluginDetail} navDir={navDir} backToList={backToList} isCE={isCE} handleToggle={handleToggle} handleUninstall={handleUninstall} openComponent={openComponent} />;
+  if (level === 'plugin' && pluginDetail) return <PluginDetailView pluginDetail={pluginDetail} navDir={navDir} backToList={backToList} isCE={isCE} handleToggle={handleToggle} handleUninstall={handleUninstall} openComponent={openComponent} onUpgradeChanged={async () => { await afterChange(); setPluginDetail(await getInstalledPluginDetail(pluginDetail.install_id)); }} />;
 
   // ════════════ List (first level) ════════════
   return (

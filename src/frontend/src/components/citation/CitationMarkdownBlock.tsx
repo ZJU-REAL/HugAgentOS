@@ -1,12 +1,12 @@
 import { useSyntaxHighlighting } from '../../utils/syntaxHighlighting';
-import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import CitationHtmlBlock, { type CitationMarker } from './CitationHtmlBlock';
 import { mdToHtml, ensureKatexLoaded, hasLatex, hasMermaid } from '../../utils/markdown';
 import { MermaidBlock, extractMermaidCharts } from '../chat/MermaidBlock';
 import type { CitationItem } from '../../types';
 import { citationMarkerParts, citationMarkerRe } from '../../utils/citations';
-import { patchHtml } from '../../utils/domPatch';
+import '../../styles/chat/grapheme-reveal.css';
 
 // 引用标记正则与解析都取自 utils/citations 的唯一真源 —— 这里曾经维护过一份副本，
 // 两边一旦不同步就会出现「一处认得、另一处不认」的漏标记。
@@ -26,21 +26,11 @@ function markerParts(m: RegExpExecArray | RegExpMatchArray): { id: string; label
   return { id, label: BADGE_LABELS.has(label.toLowerCase()) ? '' : label };
 }
 
-const EMPTY_MERMAID: Array<{ element: HTMLElement; chart: string }> = [];
-
-/** 正文容器：首帧交给 React，之后每次增量走 patchHtml 就地改（__html 冻住不变）。 */
-function PatchedHtml({ html }: { html: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const appliedHtml = useRef(html);
-  const [initialProp] = useState(() => ({ __html: html }));
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || appliedHtml.current === html) return;
-    appliedHtml.current = html;
-    patchHtml(el, html);
-  }, [html]);
-  return <div ref={ref} dangerouslySetInnerHTML={initialProp} />;
+function escapeText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+const EMPTY_MERMAID: Array<{ element: HTMLElement; chart: string }> = [];
 
 function sameCitation(a: CitationItem, b: CitationItem): boolean {
   return a.id === b.id
@@ -71,6 +61,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   isMarkdown,
   citations,
   messageIsStreaming,
+  streamingSnapshot,
   onCitationAction,
   className,
 }: {
@@ -78,11 +69,12 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   isMarkdown: boolean;
   citations: CitationItem[];
   messageIsStreaming?: boolean;
+  streamingSnapshot?: number;
   onCitationAction?: (citation: CitationItem) => void;
   className?: string;
 }) {
   const highlightRevision = useSyntaxHighlighting();
-  const containerRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mermaidCharts, setMermaidCharts] = useState(EMPTY_MERMAID);
   const [latexReady, setLatexReady] = useState(false);
 
@@ -106,7 +98,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   // Select the citation representation before parsing: a streamed frame only
   // pays for Markdown/highlighting once. Reparse when lazy KaTeX becomes ready.
   const { html: renderedHtml, markers } = useMemo(() => {
-    if (!hasCit) return { html: isMarkdown ? mdToHtml(normalizedText) : '', markers: [] as CitationMarker[] };
+    if (!hasCit) return { html: isMarkdown ? mdToHtml(normalizedText) : escapeText(normalizedText), markers: [] as CitationMarker[] };
     const markers: CitationMarker[] = [];
     const tokenPrefix = 'JXCITTOKEN';
     const tokenSuffix = 'JXCITEND';
@@ -114,7 +106,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
       markers.push(markerParts([match, groups[0], groups[1], groups[2], groups[3]] as unknown as RegExpMatchArray));
       return `${tokenPrefix}${markers.length - 1}${tokenSuffix}`;
     });
-    const htmlBase = isMarkdown ? mdToHtml(withTokens) : withTokens;
+    const htmlBase = isMarkdown ? mdToHtml(withTokens) : escapeText(withTokens);
     const html = htmlBase.replace(
       new RegExp(`${tokenPrefix}(\\d+)${tokenSuffix}`, 'g'),
       (_m: string, idx: string) =>
@@ -151,62 +143,26 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     return () => clearTimeout(timer);
   }, [normalizedText, shouldRenderMermaid]);
 
-  if (!hasCit) {
-    if (isMarkdown) {
-      return (
-        <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
-          <PatchedHtml html={renderedHtml} />
-          {visibleMermaidCharts.map((mc, i) =>
-            createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <span className={className} ref={containerRef as RefObject<HTMLSpanElement>}>
-        {normalizedText}
-        {visibleMermaidCharts.map((mc, i) =>
-          createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
-        )}
-      </span>
-    );
-  }
-
-
-  if (isMarkdown) {
-    return (
-      <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
-        <CitationHtmlBlock
-          html={renderedHtml}
-          markers={markers}
-          citations={citations}
-          onCitationAction={onCitationAction}
-        />
-        {visibleMermaidCharts.map((mc, i) =>
-          createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
-        )}
-      </div>
-    );
-  }
-
   return (
-    <span className={className} ref={containerRef as RefObject<HTMLSpanElement>}>
+    <div className={`jx-graphemeText ${className ?? ''}`} ref={containerRef}>
       <CitationHtmlBlock
         html={renderedHtml}
         markers={markers}
         citations={citations}
+        streaming={!!messageIsStreaming}
+        snapshot={streamingSnapshot}
         onCitationAction={onCitationAction}
       />
       {visibleMermaidCharts.map((mc, i) =>
         createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
       )}
-    </span>
+    </div>
   );
 }, (prevProps, nextProps) =>
   prevProps.text === nextProps.text
   && prevProps.isMarkdown === nextProps.isMarkdown
   && prevProps.messageIsStreaming === nextProps.messageIsStreaming
+  && prevProps.streamingSnapshot === nextProps.streamingSnapshot
   && prevProps.className === nextProps.className
   && prevProps.onCitationAction === nextProps.onCitationAction
   && sameCitations(prevProps.citations, nextProps.citations)

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { handleComposerNewline } from './composerEditingKeys';
 import { createRichEditor, disposeRichEditor } from './composerRichText';
 import type { Editor } from '@tiptap/core';
@@ -12,10 +12,11 @@ interface RichTextFieldProps {
   active?: boolean;
   className?: string;
   label: string;
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 /** Editing a saved or queued message uses the same Markdown semantics as the composer. */
-export function RichTextField({ value, onChange, onSubmit, onCancel, active = true, className, label }: RichTextFieldProps) {
+export function RichTextField({ value, onChange, onSubmit, onCancel, active = true, className, label, inputRef }: RichTextFieldProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const callbacks = useRef({ onChange, onSubmit, onCancel });
@@ -30,8 +31,11 @@ export function RichTextField({ value, onChange, onSubmit, onCancel, active = tr
     });
     editor.chain().setContent(lastValue.current, { contentType: 'markdown', emitUpdate: false }).setMeta('addToHistory', false).run();
     editorRef.current = editor;
-    return () => { editorRef.current = null; disposeRichEditor(editor); };
-  }, []);
+    const externalRef = inputRef as RefObject<HTMLElement | null> | undefined;
+    if (externalRef) externalRef.current = editor.view.dom;
+    editor.view.dom.setAttribute('aria-label', label);
+    return () => { if (externalRef) externalRef.current = null; editorRef.current = null; disposeRichEditor(editor); };
+  }, [inputRef, label]);
   useLayoutEffect(() => {
     if (value === lastValue.current) return;
     lastValue.current = value;

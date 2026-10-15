@@ -2,7 +2,6 @@ import { isProjectInitCommand } from './projectCommands';
 import type { ChatItem } from '../types';
 
 type PlanModeChat = Pick<ChatItem, 'planChat' | 'planModeActive'>;
-type BatchModeChat = Pick<ChatItem, 'batchChat' | 'batchModeActive'>;
 type WorkflowModeChat = Pick<ChatItem, 'workflowChat' | 'workflowModeActive'>;
 type SiteModeChat = Pick<ChatItem, 'siteChat'>;
 
@@ -11,14 +10,6 @@ export function resolvePlanModeActive(chat?: PlanModeChat): boolean {
   if (!chat) return false;
   if (typeof chat.planModeActive === 'boolean') return chat.planModeActive;
   return chat.planChat === true;
-}
-
-/** Resolve batch-execution routing the same way: the historical batchChat marker is only the
- *  default, an explicit batchModeActive === false means the user closed the mode. */
-export function resolveBatchModeActive(chat?: BatchModeChat): boolean {
-  if (!chat) return false;
-  if (typeof chat.batchModeActive === 'boolean') return chat.batchModeActive;
-  return chat.batchChat === true;
 }
 
 /** 工作流模式（批量作业）同理：历史标记只是默认值，显式 workflowModeActive === false 表示用户关掉了。

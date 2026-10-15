@@ -114,13 +114,3 @@ async def test_missing_artifact_metadata_skipped(monkeypatch, reset_pin_state):
     mw = FinishPinGuardMiddleware()
     await _drive(mw, events=[])
     assert reset_pin_state == []
-
-
-@pytest.mark.asyncio
-async def test_batch_mode_noop(reset_pin_state):
-    """When batch_mode=True, never auto-pin."""
-    from core.llm.hooks import _get_pin_hint_state
-    _get_pin_hint_state()["seen"].add("abc123")
-    mw = FinishPinGuardMiddleware(batch_mode=True)
-    await _drive(mw, events=[])
-    assert reset_pin_state == []

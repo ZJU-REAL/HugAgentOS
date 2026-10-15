@@ -25,7 +25,6 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
     # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
     #  none of them goes by an MCP tool name any more)
     "web_fetch": "网站信息抓取",
-    "batch_runner": "批量执行",
     **edition_mcp_server_display_names(),
 }
 
@@ -38,7 +37,6 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
     #  none of them goes by an MCP tool name any more)
     "web_fetch": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
-    "batch_runner": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
     **edition_mcp_server_descriptions(),
 }
 
@@ -70,8 +68,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     #  binary through Bash, so word_mcp / excel_mcp / ppt_mcp no longer exist.)
     # (PDF capability migrated to the pdf-editing skill, see src/backend/skill_bundles/default/pdf-editing/)
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
-    # Batch execution
-    "batch_plan": "批量执行计划",
     # Built-in tools
     "ask_user_question": "询问用户",
     "get_skills": "查询可用技能",

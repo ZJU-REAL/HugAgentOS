@@ -1,3 +1,4 @@
+import { refreshTaskVerdict } from '../refreshTaskVerdict';
 import { processSseBlock } from './framing';
 import {
 listChatJobs
@@ -57,6 +58,7 @@ s.bubbleStartedAt = Date.now();
 s.lastEventTs = Date.now();
 s.seed = opts.seedFrom;
 if (s.seed) {
+    s.textSnapshotOffset = s.eventOffset;
     s.bubbleUid = s.seed.uid;
     s.bubbleStartedAt = s.seed.ts;
     s.metaMessageId = s.seed.messageId;
@@ -150,7 +152,6 @@ liftTrailingSegmentsAboveFinalText(s.segments);
 // 收尾直接写 store（不走 appendOrUpdate），所以必须先撤掉还挂着的合并写定时器 ——
 // 否则它会在收尾之后补一帧 isStreaming:true，把气泡永久钉在"生成中"。
 cancelStreamingUpdate(s);
-s.isMd = /\n|```|\*\*|^\s*#\s/m.test(s.full);
 useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[s.chatId];
     const msgs = adoptPersistedBubble(s, [...(c?.messages || [])]);
@@ -159,7 +160,7 @@ useChatStore.getState().updateStore((prev) => {
         msgs[idx] = {
             ...msgs[idx],
             content: s.full,
-            isMarkdown: s.isMd,
+            isMarkdown: true,
             toolCalls: s.toolCalls.length > 0 ? s.toolCalls : undefined,
             thinking: s.thinking.length > 0 ? s.thinking : undefined,
             ontologyGovernance: s.ontologyGovernance,
@@ -211,6 +212,7 @@ if ((s.compactionPending || s.segments.some(segment => segment.type === 'compact
         }
     }
 }
+void refreshTaskVerdict(s.chatId,s.runId);
 if (s.thrown)
     throw s.thrown;
 return { settled: true, full: s.full, bubbleUid: s.bubbleUid, metaMessageId: s.metaMessageId, metaFollowUps: s.metaFollowUps, aborted: s.aborted, queuedRun: s.queuedRun };

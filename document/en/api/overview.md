@@ -157,7 +157,6 @@ The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` an
 | `file_confirm` | A tool is suspended awaiting user confirmation of a "My Space" write | `confirm_id`, `op`, `logical_path`, `message`, `expired`; the stream stays open — the user confirms out-of-band via `POST /v1/chats/{chat_id}/file-confirm` and the tool resumes |
 | `user_question` | The model called `ask_user_question` and is suspended in place | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | The server accepted an answer, cancellation, or timeout | `request_id`, `outcome` (`answered` / `cancelled` / `timeout`), `chat_id` |
-| `batch_confirm` | A batch-execution plan awaits user confirmation | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys`; confirm via `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | Final wrap-up frame of an answer | `route`, `sources`, `artifacts`, `citations`, `warnings`, `is_markdown`, `message_id`, `workspace_files` |
 | `error` | Streaming failure | `error` (user-readable message), `chat_id` |
 
@@ -247,7 +246,7 @@ wait is controlled by `HUMAN_INTERACTION_MAX_WAIT_SECONDS`.
 
 ### Other SSE endpoints
 
-The remaining SSE endpoints reuse the same wire format: `GET /v1/batch/{plan_id}/stream` (batch execution progress); plan-mode streams additionally emit `plan_generated` / `plan_error` events. The same endpoint with `stream: false` (the default) returns a complete `ChatResponse` JSON object with `chat_id`, `response`, `timestamp`, `is_markdown`, `route`, `sources`, `artifacts`, and `warnings`; it is not wrapped in a `data` envelope.
+The remaining SSE endpoints reuse the same wire format: plan-mode streams additionally emit `plan_generated` / `plan_error` events. The same endpoint with `stream: false` (the default) returns a complete `ChatResponse` JSON object with `chat_id`, `response`, `timestamp`, `is_markdown`, `route`, `sources`, `artifacts`, and `warnings`; it is not wrapped in a `data` envelope.
 
 ## Health Checks
 
@@ -294,8 +293,6 @@ Auth column legend: "User" = session cookie or personal API key (`get_current_us
 | Files | `file_parse.py` | `/v1/file` | `POST /parse` (document parsing) | User |
 | Content blocks | `content.py` | `/v1/content` | `GET /docs` (public read); `PUT /docs/{block_id}` (ADMIN), `GET /prompts/export` / `POST /prompts/import` (ADMIN or CONFIG) | Public / ADMIN / CONFIG |
 | Automation | `automations.py` | `/v1/automations` | `GET/POST /`, `POST /{task_id}/trigger`, `GET /notifications/list` | User |
-| Batch execution | `batch.py` | `/v1/batch` | `GET /active`, `POST /{plan_id}/confirm`, `GET /{plan_id}/stream` (SSE) | User |
-| Batch execution | `internal_batch.py` | `/v1/internal/batch` | `POST /resolve` (service-to-service internal endpoint) | BACKEND_INTERNAL_TOKEN |
 | Plan mode | `plans.py` | `/v1/plans` | `POST /generate`, `POST /{plan_id}/execute`, `POST /{plan_id}/cancel` | User |
 | System info | `config.py` | `/v1/config` | `GET /tool-names` (tool display-name map, public) | Public |
 | System info | `meta.py` | `/v1/meta` | `GET /edition` (edition/mode/feature-flag booleans; public probe, never exposes license details) | Public |

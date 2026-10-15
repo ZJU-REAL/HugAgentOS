@@ -1,3 +1,4 @@
+import { publicChatHeaders } from './publicChatTransport';
 /**
  * API Client for HugAgentOS Backend.
  *
@@ -129,6 +130,12 @@ export interface HealthResponse {
 }
 
 export const getApiUrl = () => import.meta.env.VITE_API_BASE_URL || '/api';
+/** Absolute ws:// or wss:// URL for an API path, matching the page's protocol. */
+export function webSocketUrl(path: string): string {
+  const url = new URL(getApiUrl() + path, window.location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
 
 // ── Hybrid routing（桌面双模式：云端为主 + 本机执行本地项目）─────────────────
 // 桌面壳的 Rust 反代按请求头分流：带 `x-hugagent-target: local` → 本机执行面
@@ -380,13 +387,12 @@ function toChatItem(raw: JsonObject): ChatItem {
     agentId: typeof metadata.agent_id === 'string' ? metadata.agent_id : undefined,
     agentName: typeof metadata.agent_name === 'string' ? metadata.agent_name : undefined,
     planChat: metadata.plan_chat === true ? true : undefined,
-    batchChat: metadata.batch_chat === true ? true : undefined,
+    personalAgentTask: typeof metadata.personal_agent_task_id === "string" ? true : undefined,
     workflowChat: metadata.workflow_chat === true ? true : undefined,
     planProgress: toPlanProgress(metadata.plan_progress),
     modeSlug: typeof metadata.mode_slug === 'string' ? metadata.mode_slug : undefined,
     thinkingEffort: typeof metadata.thinking_effort === 'string' && ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'].includes(metadata.thinking_effort) ? metadata.thinking_effort as ChatItem['thinkingEffort'] : undefined,
     planModeActive: typeof metadata.plan_mode_active === 'boolean' ? metadata.plan_mode_active : undefined,
-    batchModeActive: typeof metadata.batch_mode_active === 'boolean' ? metadata.batch_mode_active : undefined,
     workflowModeActive: typeof metadata.workflow_mode_active === 'boolean' ? metadata.workflow_mode_active : undefined,
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
@@ -439,6 +445,7 @@ export async function apiRequest<T>(
   const url = `${getApiUrl()}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...publicChatHeaders(),
     // 混合路由：显式声明本地目标时打头（web / 非双模式下反代忽略该头）。
     ...(target === 'local' ? localHeader() : {}),
     ...(target === 'cloud' ? {} : capabilityTargetHeaders(path)),
@@ -1010,35 +1017,45 @@ export interface ActiveChatRunSummary {
   run_id: string;
   status: string;
   started_at: string | null;
+  /** 'local' when the run belongs to this computer's execution side (dual desktop mode). */
+  target?: 'local';
 }
+
+/** A chat whose run started within the requested window; it may already have ended. */
+export type RecentRunChat = Pick<ActiveChatRunSummary, 'chat_id' | 'target'>;
 
 /**
  * 当前用户所有还在跑的会话。
  *
  * 单会话的 ``getActiveChatRun`` 只回答"我正打开的这段在不在跑"，换设备登录时
  * 侧边栏对没点开过的会话一无所知。这个接口一次问完，供侧边栏点亮小圆点。
+ * ``recentSeconds`` 另要这段时间内起过 run 的会话，让别处发起、两次对账之间
+ * 就已跑完的会话也能被发现。
  */
-export async function listActiveChatRuns(): Promise<ActiveChatRunSummary[]> {
+export async function listActiveChatRuns(
+  recentSeconds = 0,
+): Promise<{ items: ActiveChatRunSummary[]; recent: RecentRunChat[] }> {
   // 双模式下侧边栏同时挂着本机执行面的会话，那边跑起来的 run 云端并不知道，两边都要问。
   const targets: Array<'local' | undefined> = isHybridDual() ? [undefined, 'local'] : [undefined];
   const responses = await Promise.allSettled(
     targets.map((target) =>
-      apiRequest<{ items?: ActiveChatRunSummary[] }>('/v1/chats/active-runs', undefined, target),
+      apiRequest<unknown>(`/v1/chats/active-runs?recent_seconds=${recentSeconds}`, undefined, target),
     ),
   );
   // 调用方把返回值当成服务端权威快照，没列进来的会话会被灭灯——所以任一面查询失败就整体
   // 抛错，让调用方保留现有状态等下一轮，绝不能把查不到的一面当成「那边没有在跑的了」。
   const failed = responses.find((response) => response.status === 'rejected');
   if (failed?.status === 'rejected') throw failed.reason;
-  const out: ActiveChatRunSummary[] = [];
-  for (const response of responses) {
-    if (response.status !== 'fulfilled') continue;
-    const { items } = unwrapData<{ items?: ActiveChatRunSummary[] }>(response.value);
-    for (const item of Array.isArray(items) ? items : []) {
-      if (item?.chat_id) out.push(item);
-    }
-  }
-  return out;
+  const items: ActiveChatRunSummary[] = [];
+  const recent: RecentRunChat[] = [];
+  responses.forEach((response, index) => {
+    if (response.status !== 'fulfilled') return;
+    const target = targets[index];
+    const data = unwrapData<{ items?: ActiveChatRunSummary[]; recent_chat_ids?: string[] }>(response.value);
+    for (const item of data.items ?? []) if (item?.chat_id) items.push({ ...item, target });
+    for (const chatId of data.recent_chat_ids ?? []) recent.push({ chat_id: chatId, target });
+  });
+  return { items, recent };
 }
 
 /**
@@ -2479,6 +2496,8 @@ export interface AuthUser extends EditionAuthUserFields {
   can_switch_model?: boolean;
   /** Whether the user may configure and use ontology validation (default false) */
   can_use_ontology_validation?: boolean;
+  /** Whether Personal Agent is available: module enabled on the server and permission granted (default false) */
+  can_use_personal_agent?: boolean;
   /** Whether the user may enter the /config system settings console without a token (default false) */
   can_system_config?: boolean;
   /** Whether the user may enter the /admin content management console without a token (default false) */
@@ -2682,7 +2701,7 @@ export async function logout(): Promise<string | undefined> {
 export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = input instanceof Request ? input : undefined;
   const url = request?.url ?? String(input);
-  const headers = new Headers(inferTargetHeadersFromUrl(url));
+  const headers = new Headers({ ...inferTargetHeadersFromUrl(url), ...publicChatHeaders() });
   new Headers(init?.headers ?? request?.headers).forEach((value, key) => headers.set(key, value));
   for (const [key, value] of Object.entries(capabilityTargetHeaders(url))) {
     headers.set(key, value);
@@ -2770,7 +2789,7 @@ export async function uploadFile(
   if (chatId) formData.append('chat_id', chatId);
   if (folderId) formData.append('folder_id', folderId);
 
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     method: 'POST',
     credentials: 'include',
     headers: origin ? { [LOCAL_TARGET_HEADER]: origin } : {},
@@ -2779,7 +2798,6 @@ export async function uploadFile(
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    if (origin !== 'local') throwIfSessionExpired(response.status, payload);
     throw createApiResponseError(response.status, payload, `Upload failed: ${response.status}`, response.headers.get("Retry-After"));
   }
 
@@ -3300,135 +3318,6 @@ export async function deleteNotifications(ids: string[]): Promise<void> {
 
 // ── Skill Distillation (Lab personal skill distillation) ────────────────
 
-
-// ── Batch execution API ────────────────────────────────────────────────────
-
-export interface BatchPlanDetail {
-  plan_id: string;
-  chat_id?: string | null;
-  source_type: 'xlsx' | 'word_files' | 'text_list';
-  instruction?: string | null;
-  items_total: number;
-  items_preview: Record<string, unknown>[];
-  placeholder_keys: string[];
-  prompt_template: string;
-  max_retries: number;
-  status: string;
-  progress: { done: number; success: number; failed: number };
-  /** Only populated by GET /v1/batch/{plan_id} (not the listing endpoint).
-   *  Each entry mirrors a batch_item_done event payload. */
-  item_results?: Array<{
-    index: number;
-    status: 'success' | 'skipped';
-    content?: string;
-    error?: string;
-    retry_count: number;
-    item_summary?: string;
-    tool_calls?: unknown[];
-    artifacts?: unknown[];
-    citations?: unknown[];
-  }>;
-  created_at?: string | null;
-  updated_at?: string | null;
-  expires_at?: string | null;
-}
-
-export async function getBatchPlan(planId: string): Promise<BatchPlanDetail> {
-  const wrapped = await apiRequest<unknown>(`/v1/batch/${encodeURIComponent(planId)}`);
-  return unwrapData<BatchPlanDetail>(wrapped);
-}
-
-export async function listActiveBatchPlans(chatId: string): Promise<BatchPlanDetail[]> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/batch/active?chat_id=${encodeURIComponent(chatId)}`,
-  );
-  const data = unwrapData<{ plans: BatchPlanDetail[] }>(wrapped);
-  return data.plans || [];
-}
-
-export async function confirmBatchPlan(
-  planId: string,
-  payload: { prompt_template: string; max_retries?: number },
-): Promise<BatchPlanDetail> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/batch/${encodeURIComponent(planId)}/confirm`,
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    },
-  );
-  return unwrapData<BatchPlanDetail>(wrapped);
-}
-
-export async function cancelBatchPlan(planId: string): Promise<void> {
-  await apiRequest<unknown>(
-    `/v1/batch/${encodeURIComponent(planId)}/cancel`,
-    { method: 'POST' },
-  );
-}
-
-/** Open the SSE batch execution stream. Calls back with each parsed event.
- *  Returns an AbortController so callers can cancel mid-stream.
- */
-export function openBatchStream(
-  planId: string,
-  onEvent: (event: Record<string, unknown>) => void,
-  onError?: (err: Error) => void,
-): AbortController {
-  const ctrl = new AbortController();
-  const url = `${getApiUrl()}/v1/batch/${encodeURIComponent(planId)}/stream`;
-
-  (async () => {
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { Accept: 'text/event-stream' },
-        signal: ctrl.signal,
-      });
-      if (!resp.ok || !resp.body) {
-        throw new Error(`batch stream failed: ${resp.status}`);
-      }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-      try {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx = buffer.indexOf('\n\n');
-          while (idx >= 0) {
-            const block = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            const dataLine = block.split('\n').find(l => l.startsWith('data: '));
-            if (dataLine) {
-              const payload = dataLine.slice(6).trim();
-              if (payload === '[DONE]') return;
-              try {
-                onEvent(JSON.parse(payload));
-              } catch {
-                // skip malformed event
-              }
-            }
-            idx = buffer.indexOf('\n\n');
-          }
-        }
-      } finally {
-        // Always release the underlying body reader on early return /
-        // abort / error so the connection isn't kept open for the
-        // browser to GC later.
-        try { await reader.cancel(); } catch { /* already closed */ }
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      onError?.(err as Error);
-    }
-  })();
-
-  return ctrl;
-}
 
 // ─── Projects (Claude-style workspaces) ───────────────────────────────────
 
@@ -4010,8 +3899,9 @@ function _coerceEmailStatus(data: JsonObject): EmailStatus {
   };
 }
 
-export async function getEmailStatus(probe = false): Promise<EmailStatus> {
-  const wrapped = await apiRequest<unknown>(`/v1/integrations/email/status${probe ? '?probe=true' : ''}`);
+// `target` pins the account to one plane — Personal Agent always reads the cloud account.
+export async function getEmailStatus(probe = false, target?: RequestTarget): Promise<EmailStatus> {
+  const wrapped = await apiRequest<unknown>(`/v1/integrations/email/status${probe ? '?probe=true' : ''}`, undefined, target);
   return _coerceEmailStatus(unwrapData<JsonObject>(wrapped));
 }
 
@@ -4020,16 +3910,16 @@ export async function connectEmail(body: {
   secret: string;
   display_name?: string;
   server_overrides?: EmailServerOverrides;
-}): Promise<EmailStatus> {
+}, target?: RequestTarget): Promise<EmailStatus> {
   const wrapped = await apiRequest<unknown>('/v1/integrations/email/connect', {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  }, target);
   return _coerceEmailStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function disconnectEmail(): Promise<EmailStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/email/disconnect', { method: 'POST' });
+export async function disconnectEmail(target?: RequestTarget): Promise<EmailStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/email/disconnect', { method: 'POST' }, target);
   return _coerceEmailStatus(unwrapData<JsonObject>(wrapped));
 }
 

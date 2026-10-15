@@ -1,0 +1,78 @@
+{
+  "name": "workbench-example",
+  "version": "1.0.0",
+  "description": "Workspace developer example",
+  "extensions": {
+    "org.hugagent": {
+      "ui": {
+        "version": 3,
+        "contributes": {
+          "modules": [
+            {
+              "id": "main",
+              "title": "Reports",
+              "surface": "workspace",
+              "entry": "web/index.html",
+              "grants": [
+                "data.query",
+                "data_source:sample",
+                "file.pick",
+                "file.save"
+              ]
+            }
+          ],
+          "applications": [
+            {
+              "schemaVersion": "1.0.0",
+              "id": "reports",
+              "title": {
+                "en": "Reports",
+                "zh-CN": "报表"
+              },
+              "target": {
+                "kind": "plugin",
+                "moduleId": "main"
+              },
+              "views": [
+                {
+                  "id": "overview",
+                  "title": "Overview",
+                  "path": "overview"
+                },
+                {
+                  "id": "files",
+                  "title": "Files",
+                  "path": "files"
+                }
+              ],
+              "compatibility": {
+                "protocolVersion": "1.0.0",
+                "requiredCapabilities": [
+                  "host.info",
+                  "workspace.navigate"
+                ],
+                "optionalCapabilities": [
+                  "data.query",
+                  "file.pick",
+                  "file.save"
+                ]
+              }
+            }
+          ],
+          "data_sources": [
+            {
+              "id": "sample",
+              "method": "GET",
+              "url": "https://example.org/api/weather",
+              "params_schema": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

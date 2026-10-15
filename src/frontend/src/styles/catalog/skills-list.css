@@ -1,0 +1,267 @@
+/* ══════════════════════════════════════════════════════════════════
+   Skills Page — flat list + full-page detail
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-sk-page {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 32px 24px 60px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+
+.jx-sk-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.jx-sk-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 6px;
+}
+
+.jx-sectionTitleCount {
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--color-text-tertiary);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  transform: translateY(-1px);
+  white-space: nowrap;
+}
+
+.jx-sk-subtitle {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  font-weight: 400;
+  margin: 0;
+}
+
+.jx-mcp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.jx-mcp-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 6px;
+}
+
+.jx-mcp-subtitle {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  font-weight: 400;
+  margin: 0;
+}
+
+.jx-mcp-headerRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.jx-sk-headerRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.jx-sk-iconBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--color-text-secondary);
+  padding: 6px;
+  border-radius: 6px;
+  transition: color .15s, background .15s;
+}
+
+.jx-sk-iconBtn:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.jx-sk-searchInput {
+  width: 200px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.jx-sk-uploadBtn.ant-btn {
+  border-radius: 6px;
+  font-size: 13px;
+  border-color: var(--color-border);
+  color: var(--color-primary);
+}
+
+.jx-sk-uploadBtn.ant-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* ── List section ───────────────────────────────────────────────── */
+
+.jx-sk-list {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-container);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.jx-sk-item {
+  padding: 20px 28px;
+  cursor: pointer;
+  transition: background .12s;
+}
+
+.jx-sk-item:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.jx-sk-item:hover {
+  background: var(--color-bg-layout);
+}
+
+.jx-sk-itemNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.jx-sk-itemName {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.jx-sk-tag.ant-tag {
+  margin: 0;
+  font-size: 12px;
+  border-radius: 4px;
+  padding: 0 8px;
+  line-height: 22px;
+  font-weight: 500;
+  transition: var(--motion-transition-hover);
+}
+
+.jx-sk-itemDesc {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  line-height: 1.72;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Card grid (块展示，风格对齐 MCP 工具库) ───────────────────── */
+
+.jx-sk-grid {
+  display: grid;
+  /* minmax(0,1fr)：1fr 的隐含最小宽度是内容 min-content，
+     卡片里 nowrap 的长英文技能名会把整列轨道撑爆，必须显式压到 0 */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 20px;
+}
+
+.jx-sk-grid--agents {
+  margin-top: 20px;
+}
+
+/* hover 抬升/按压由 .jx-card-lift（motion.css）提供 */
+
+.jx-sk-card {
+  padding: 16px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-container);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-sk-card:hover {
+  border-color: var(--color-fill);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.jx-sk-cardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-sk-iconWrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-fill-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.jx-sk-cardNameGroup {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.jx-sk-cardName {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-sk-cardDesc {
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: justify;
+}
+
+.jx-sk-pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}

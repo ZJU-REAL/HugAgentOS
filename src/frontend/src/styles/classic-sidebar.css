@@ -8,12 +8,6 @@
 .jx-classicHome strong{display:block;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .jx-classicHome small{display:block;font-size:10px;line-height:1.5;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .jx-classicBrand :is(.jx-searchBtn,.jx-collapseBtn) img{width:20px;height:20px;}
-.jx-classicNav{display:flex;flex-direction:column;gap:2px;margin-bottom:12px;}
-.jx-classicNav .jx-navItem{width:100%;}
-.jx-classicSubList{display:flex;flex-direction:column;margin-left:28px;gap:2px;}
-.jx-classicSubItem{min-height:30px;width:100%;text-align:left;border:0;background:transparent;color:var(--color-text-secondary);border-radius:8px;padding:4px 8px;cursor:pointer;font-size:13px;}
-.jx-classicShell :is(.jx-navItem,.jx-classicSubItem).active{background:var(--module-nav-selected);color:var(--module-nav-selected-text);}
-.jx-classicSubItem:hover{background:var(--module-nav-hover);}
 .jx-classicShell .jx-sidebarScrollArea::-webkit-scrollbar-thumb{background:var(--color-border);}
 .jx-classicFooter{display:flex;align-items:center;gap:2px;flex:none;margin-top:12px;}
 .jx-classicFooter > .jx-miniRailBtn{width:30px;height:36px;}
@@ -26,9 +20,28 @@
 @media(max-width:960px){
   .jx-appShell > .jx-classicShell.ant-layout-sider{width:min(280px,calc(100vw - 32px))!important;max-width:min(280px,calc(100vw - 32px))!important;}
   .jx-classicShell--collapsed .jx-classicMini{display:none;}
-  .jx-classicNav :is(.jx-navItem,.jx-classicSubItem){min-height:44px;}
 }
 
-.jx-classicInner .jx-taskSidebar{flex:none;margin-bottom:12px;}
-.jx-classicInner .jx-taskSidebar > .jx-sidebarScrollArea{flex:none;overflow:visible;}
-.jx-classicInner .jx-spaceNavigation{overflow:visible;margin-bottom:12px;}
+.jx-classicApplicationsMenu > .ant-dropdown-menu{max-height:min(70vh,560px);overflow-y:auto;overscroll-behavior:contain;}
+.jx-classicApplicationsMenu .jx-applicationIcon{width:16px;height:16px;font-size:16px;}
+
+.jx-classicNav{flex:none;max-height:35vh;overflow-y:auto;margin:0 0 8px;}
+.jx-classicNav .jx-navItem{width:100%;gap:10px;}
+.jx-classicNav .jx-applicationIcon{width:20px;height:20px;flex:none;}
+.jx-classicMiniNav{display:flex;flex-direction:column;align-items:center;gap:6px;}
+
+.jx-classicSubList{display:flex;flex-direction:column;gap:2px;padding:2px 0 4px;}
+.jx-classicSubList .jx-msRail-subItem{padding-inline-start:34px;}
+.jx-classicModuleShell .ant-layout-sider-children{height:100%;overflow:hidden;background:var(--module-sidebar-bg);border-right:1px solid var(--module-border);}
+.jx-classicModuleInner{height:100%;min-height:0;display:flex;flex-direction:column;padding:14px 12px;}
+.jx-classicModuleInner .jx-moduleSidebarHeader strong{font-size:16px;}
+.jx-classicModuleInner .jx-navItem{width:100%;}
+.jx-classicModuleInner .jx-taskSidebar > .jx-sidebarScrollArea{flex:1;min-height:0;}
+.jx-classicModuleShell.ant-layout-sider-collapsed .ant-layout-sider-children{display:flex;justify-content:center;padding-top:14px;}
+.jx-classicModuleShell button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;}
+:root[data-theme='dark'] .jx-classicModuleShell img{filter:brightness(0) invert(1);}
+@media(max-width:960px){
+  .jx-classicModuleShell:not(.ant-layout-sider-collapsed){position:absolute;inset:0 auto 0 0;z-index:1001;box-shadow:var(--shadow-dropdown);}
+}
+
+.jx-classicModuleInner .jx-spaceNavigation{flex:1;min-height:0;overflow-y:auto;}

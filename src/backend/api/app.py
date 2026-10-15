@@ -29,6 +29,8 @@ from api.routes.v1 import (
     mock_sso_router,
 )
 from core.config.settings import settings
+from core.extensions import load_extensions
+from core.extensions import routers as extension_routers
 from core.infra.logging import get_logger
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -58,6 +60,7 @@ SERVICE = "service"
 EXECUTION_PLANE = "execution_plane"
 _ALL_ROLES = frozenset({SERVICE, EXECUTION_PLANE})
 _SERVICE_ONLY = frozenset({SERVICE})
+_EXECUTION_PLANE_ONLY = frozenset({EXECUTION_PLANE})
 
 
 def _runtime_role() -> str:
@@ -119,6 +122,8 @@ def _startup_steps():
         (_startup_backfill_api_protocol, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_local_sidecars, _shutdown_local_sidecars, True, _ALL_ROLES, _SINGLETON),
         (_startup_recover_chat_runs, None, True, _ALL_ROLES, _SINGLETON),
+        (_startup_device_link, _shutdown_device_link, False, _EXECUTION_PLANE_ONLY, _SINGLETON),
+        (_startup_extensions, _shutdown_extensions, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_resume_loops, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_recover_jobs, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_orphan_job_reaper, _shutdown_orphan_job_reaper, False, _ALL_ROLES, _SINGLETON),
@@ -277,6 +282,7 @@ async def lifespan(app: FastAPI):
         deferred.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await deferred
+    await _shutdown_extensions()
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()
     await _shutdown_desktop_observability()
@@ -579,6 +585,10 @@ for _name, _router, _feature in iter_edition_routers(EE_ROUTERS):
         _router,
         dependencies=edition_router_dependencies(_feature),
     )
+# Optional modules mount their routers only when switched on.
+load_extensions()
+for _router, _feature in extension_routers():
+    app.include_router(_router, dependencies=edition_router_dependencies(_feature))
 
 # Register static site catch-all after specific application data routes.
 app.include_router(sites_serve_router)
@@ -972,6 +982,19 @@ async def _shutdown_local_sidecars():
         await stop_local_sidecars()
     except Exception as exc:
         logger.warning("[shutdown] local sidecars stop failed: %s", exc)
+
+
+async def _startup_device_link():
+    """Serve this computer's Personal Agent mailbox (desktop execution plane only)."""
+    from core.device_link.runner import runner
+
+    runner.start()
+
+
+async def _shutdown_device_link():
+    from core.device_link.runner import runner
+
+    await runner.stop()
 
 
 async def _startup_seed_mcp_servers():
@@ -1656,3 +1679,17 @@ async def _shutdown_channel_desktop():
 
 if __name__ == "__main__":
     main()
+
+
+async def _startup_extensions():
+    from core.extensions import lifecycle_hooks
+
+    for start, _ in lifecycle_hooks():
+        await start()
+
+
+async def _shutdown_extensions():
+    from core.extensions import lifecycle_hooks
+
+    for _, stop in reversed(lifecycle_hooks()):
+        await stop()

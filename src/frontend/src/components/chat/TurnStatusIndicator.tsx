@@ -34,11 +34,13 @@ export function TurnStatusIndicator({ startTs, label }: TurnStatusIndicatorProps
   }, []);
 
   const showClock = now - startTs >= CLOCK_AFTER_MS;
-  const text = label || t('正在开始执行任务...');
+  const text = label || t('正在处理…');
   return (
-    <div className="jx-turnStatus" role="status" aria-live="polite">
-      <BrandLoader size={18} done={false} label={text} />
-      <span className="jx-turnStatus-label">{text}</span>
+    <div className="jx-turnStatus jx-turnStatusRow" role="status" aria-live="polite">
+      <span className="jx-turnStatus-mark jx-turnStatusMark" aria-hidden="true">
+        <BrandLoader size={18} done={false} label={text} />
+      </span>
+      <span className="jx-turnStatus-label jx-turnStatusText">{text}</span>
       {showClock && <ElapsedTimer startTs={startTs} className="jx-turnStatus-clock" />}
     </div>
   );

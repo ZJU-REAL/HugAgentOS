@@ -32,7 +32,7 @@ export interface ArtifactRef extends ArtifactLocation {
 /** Render a set of artifact (file) cards — images get inline previews with
  *  copy/download overlay buttons, other files get a download/preview card.
  *  Same primitives the regular chat bubble renders for assistant outputs;
- *  shared so the batch panel and chat list stay visually consistent. */
+ *  shared across chat artifact views. */
 export function ArtifactCardList({ artifacts, chatId }: { artifacts: ArtifactRef[]; chatId?: string }) {
   const setPreviewImage = useUIStore((s) => s.setPreviewImage);
   const openCanvas = useCanvasStore((s) => s.openCanvas);

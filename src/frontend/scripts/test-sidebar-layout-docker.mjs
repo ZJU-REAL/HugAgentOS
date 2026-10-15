@@ -89,14 +89,18 @@ try {
   assert.equal(await second.getByRole('radio', { name: /经典模式/ }).isChecked(), true);
   assert.ok(!(await fresh.storageState()).origins.flatMap(origin => origin.localStorage).some(item => /sidebar[_-]layout/i.test(item.name)));
   results.push('new browser context with empty storage restores database choice; layout is not in browser storage');
-  await second.locator('.jx-classicNav').getByRole('button', { name: '定时任务', exact: true }).click();
+  await second.getByRole('button', { name: '用户菜单', exact: true }).click();
+  await second.getByRole('menuitem', { name: '定时任务', exact: true }).click();
   await second.locator('.jx-taskSidebar').waitFor();
-  await second.locator('.jx-classicNav').getByRole('button', { name: '我的空间', exact: true }).click();
+  await second.getByRole('button', { name: '用户菜单', exact: true }).click();
+  await second.getByRole('menuitem', { name: '我的空间', exact: true }).click();
   await second.locator('.jx-spaceNavigation').waitFor();
   for (const name of ['个人文件夹', '公共知识库', '私有知识库', '会话收藏', '分享记录', '消息通知']) {
     await second.locator('.jx-spaceNavigation').getByRole('button', { name: new RegExp(name) }).waitFor();
   }
-  await second.locator('.jx-classicNav').getByRole('button', { name: '智能体', exact: true }).click();
+  await second.getByRole('button', { name: '用户菜单', exact: true }).click();
+  await second.getByRole('menuitem', { name: '能力中心', exact: true }).hover();
+  await second.getByRole('menuitem', { name: '智能体', exact: true }).click();
   await second.waitForURL('**/ability-center/agents');
   await second.getByRole('button', { name: '用户菜单' }).click();
   await second.getByRole('menuitem', { name: '项目', exact: true }).click();

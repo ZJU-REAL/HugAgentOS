@@ -17,7 +17,7 @@ import core.services as chat_services
 import pytest
 from core.auth.backend import UserContext
 from core.db.engine import Base
-from core.db.models import BatchPlan, ChatMessage, ChatRun, ChatSession
+from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.services.chat_sequencer import ChatSequencer
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -297,63 +297,4 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
     assert edited.extra_data["connector_name"] == "内网检索"
     assert edited.extra_data["plugin_name"] == "办公套件"
     assert edited.extra_data["mention_name"] == "研究员"
-    engine.dispose()
-
-
-def test_batch_resume_busy_does_not_delete_triggering_turn(monkeypatch, tmp_path):
-    import api.routes.v1.batch as batch
-    import core.chat.context as chat_context
-    import core.services as services
-    from core.services.chat_service import ChatService
-
-    engine, Session = _route_database(tmp_path, "batch-resume.db")
-    Base.metadata.create_all(engine, tables=[BatchPlan.__table__])
-    with Session() as db:
-        service = ChatService(db)
-        service.add_message(chat_id="chat-1", role="user", content="batch question")
-        service.add_message(
-            chat_id="chat-1",
-            role="assistant",
-            content="",
-            tool_calls=[{"name": "batch_plan", "output": {"plan_id": "plan-1"}}],
-        )
-        db.add(
-            BatchPlan(
-                plan_id="plan-1",
-                user_id="user-1",
-                chat_id="chat-1",
-                source_type="text_list",
-                items=[],
-                prompt_template="{item}",
-                status="running",
-            )
-        )
-        db.commit()
-        winner = ChatSequencer(db).accept_main_run(
-            chat_id="chat-1",
-            user_id="user-1",
-            user_content="already running",
-            request_payload={"kind": "stream"},
-        )
-
-    _patch_common_chat_route(monkeypatch)
-    monkeypatch.setattr(db_engine, "SessionLocal", Session)
-    monkeypatch.setattr(
-        chat_context, "resolve_enabled_capabilities", lambda *_args: (None, None, None)
-    )
-    monkeypatch.setattr(services, "UserService", chat_services.UserService)
-
-    with Session() as db:
-        with pytest.raises(HTTPException) as raised:
-            asyncio.run(batch.cancel_and_resume("plan-1", user=_user(), db=db))
-
-    assert raised.value.status_code == 409
-    assert raised.value.detail["active_run"]["run_id"] == winner.run.run_id
-    with Session() as db:
-        assert [row.content for row in db.query(ChatMessage).order_by(ChatMessage.chat_seq)] == [
-            "batch question",
-            "",
-            "already running",
-            "",
-        ]
     engine.dispose()

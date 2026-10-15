@@ -55,6 +55,11 @@ def upload_user_file(
 
     user_id = str(user.user_id)
 
+    public_meta = {}
+    if user.public_chat_visitor:
+        from core.services.public_chat_service import prepare_visitor_upload
+        public_meta = prepare_visitor_upload(db, user, chat_id, folder_id)
+
     # Verify the chat_id already exists in the database (the session may not yet be created at upload time)
     db_chat_id: Optional[str] = None
     if chat_id:
@@ -104,7 +109,7 @@ def upload_user_file(
             user_folder_id=db_folder_id,
             source="user_upload",
             artifact_id=artifact_id,
-            extra=retry_meta,
+            extra={**retry_meta, **public_meta},
         )
     except HTTPException:
         db.rollback()

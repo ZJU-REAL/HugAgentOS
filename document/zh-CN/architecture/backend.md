@@ -155,7 +155,6 @@ src/backend/
 | `registry.py` | Agent 注册表 |
 | `tool_payloads.py` | SSE tool_result 载荷构建（产物卡片、技能加载等专用形状） |
 | `tool_callbacks.py` | 工具调用软告警（仅观测，不阻断） |
-| `batch_orchestrator.py` | 批量执行编排（batch 流程 Phase 2） |
 | `subagents/plan_mode.py` | 计划模式子智能体：生成并执行结构化计划 |
 | `schedulers/automation_scheduler.py` | 自动化调度器：轮询 DB 到期任务并触发 |
 | `schedulers/distillation_cron_scheduler.py`（商业版 EE） | 技能蒸馏每日 cron |
@@ -186,7 +185,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 
 ## mcp_servers/ 与 sidecar
 
-`mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`batch_runner_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（mcp 容器内按 `_ports.py` 端口表拉起全部进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
+`mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（mcp 容器内按 `_ports.py` 端口表拉起全部进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
 
 `services/script_runner_service/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
 

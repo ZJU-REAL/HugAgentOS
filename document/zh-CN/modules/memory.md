@@ -237,3 +237,10 @@ RERANKER_API_KEY=...
 | `src/frontend/src/components/settings/SettingsModal.tsx` | 记忆设置 + 分层记忆弹窗 |
 | `src/frontend/src/components/memory/FactsList.tsx` | L2 做法列表组件（可编辑/删除） |
 | `docker-compose.yml`（`mem0` profile） | Milvus / etcd / MinIO / Neo4j |
+
+
+### L2 到期与修改权限
+
+L2 把到期日期存入记忆 metadata。检索、列表和近重复匹配在 UTC 到期当天隐藏该条目，后台清理再删除实体。旧条目继续使用 `ttl_days` 与更新时间计算到期日期。普通编辑保留原 ID、工作空间、到期日期和写入回执；强化延长到期日期。
+
+单条修改和删除使用服务器读取的记忆作用域校验身份。团队项目只允许当前有编辑权限的成员修改记忆。持久队列重放前重新核对权限；旧写入回执不因内容到期而消失，避免崩溃重放重复新增。

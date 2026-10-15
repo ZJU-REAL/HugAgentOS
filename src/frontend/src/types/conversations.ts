@@ -70,7 +70,7 @@ export interface ChatMessage {
   isStreaming?: boolean;
   /** Set on an assistant row the backend is still writing: the last SSE event
    *  it folded in. Resuming follows the run stream from there. */
-  inFlight?: { eventOffset?: number };
+  inFlight?: { eventOffset?: number; textSnapshotOffset?: number };
   /** Terminal error recorded on the row when its run failed. */
   error?: string;
   /** Total generation duration of this agent answer (ms): total wall-clock time from
@@ -164,6 +164,8 @@ export interface ChatItem {
    *  Kept for sidebar/header markers and persisted plan-card reconstruction; it does not
    *  determine how the next composer message is sent. */
   planChat?: boolean;
+  /** Created by a Personal Agent task through the session CLI. */
+  personalAgentTask?: boolean;
   /** Explicit composer preference for this chat. Undefined preserves the legacy default
    *  (plan chats start with plan mode enabled); false records that the user switched back
    *  to ordinary conversation while retaining the historical plan cards. */
@@ -175,15 +177,7 @@ export interface ChatItem {
   /** 这段对话选中的思考强度档（chatMode）。undefined = 没显式选过，恢复时沿用当前
    *  会话档位（刷新则回管理端默认）。与 modeSlug 同一套持久化机制。 */
   thinkingEffort?: 'turbo' | 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-  /** Historical classification: this chat was created/used via the batch-execution ("批量执行")
-   *  entry. Like planChat it survives the user leaving the mode, so batch history stays
-   *  recognisable; it does not by itself decide how the next message is sent. */
-  batchChat?: boolean;
-  /** Explicit composer preference for this chat. Undefined preserves the legacy default
-   *  (batch chats start in batch mode); false records that the user closed the mode from
-   *  the composer chip / "+" menu and continues as an ordinary conversation. */
-  batchModeActive?: boolean;
-  /** 历史标记：这段对话用过「工作流模式」（批量作业）。与 planChat/batchChat 同性质——
+  /** 历史标记：这段对话用过「工作流模式」（批量作业）。与 planChat 同性质——
    *  用户离开模式后仍保留，便于在列表里认出这类会话；它本身不决定下一条消息怎么发。 */
   workflowChat?: boolean;
   /** 这段对话当前的工作流模式开关（用户在 / 命令或「+」菜单里选的）。undefined 走历史默认，

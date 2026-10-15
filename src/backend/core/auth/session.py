@@ -38,7 +38,9 @@ def remember_ttl_seconds() -> int:
         raw = SystemConfigService.get_instance().get("auth.remember_me_days", "30")
         if raw:
             days = float(raw)
-    except Exception:  # noqa: BLE001 — on config unavailable, silently fall back to the default value, don't block login
+    except (
+        Exception
+    ):  # noqa: BLE001 — on config unavailable, silently fall back to the default value, don't block login
         days = 30.0
     if days <= 0:
         days = 30.0
@@ -63,7 +65,8 @@ def _use_memory_store() -> bool:
 def _prune_expired_memory_sessions() -> None:
     now = datetime.now(timezone.utc)
     expired = [
-        key for key, value in _MEMORY_SESSIONS.items()
+        key
+        for key, value in _MEMORY_SESSIONS.items()
         if value.get("expires_at") and value["expires_at"] <= now
     ]
     for key in expired:
@@ -117,7 +120,9 @@ async def create_session(
         return token
 
     r = get_redis()
-    await r.set(f"{SESSION_KEY_PREFIX}{token_hash}", json.dumps(payload, ensure_ascii=False), ex=ttl)
+    await r.set(
+        f"{SESSION_KEY_PREFIX}{token_hash}", json.dumps(payload, ensure_ascii=False), ex=ttl
+    )
 
     logger.info("session_created", user_id=payload["user_id"], ttl=ttl)
     return token
@@ -192,13 +197,28 @@ async def revoke_session(token: str) -> bool:
         True if a session was actually deleted.
     """
     token_hash = _hash_token(token)
+    data = await find_session_by_hash(token_hash)
     if _use_memory_store():
-        return _MEMORY_SESSIONS.pop(token_hash, None) is not None
-
-    r = get_redis()
-    deleted = await r.delete(f"{SESSION_KEY_PREFIX}{token_hash}")
+        deleted = _MEMORY_SESSIONS.pop(token_hash, None) is not None
+    else:
+        deleted = bool(await get_redis().delete(f"{SESSION_KEY_PREFIX}{token_hash}"))
     if deleted:
         logger.info("session_revoked", token_hash=token_hash[:8])
+        if data and data.get("user_id"):
+            from core.applications.revocation import revoke_user_workbench
+            from core.db.engine import SessionLocal
+
+            try:
+                with SessionLocal() as db:
+                    await revoke_user_workbench(db, data["user_id"], token_hash)
+            except Exception as exc:
+                # The credential is already revoked. Preserve successful logout;
+                # expired workers stay denied while the resource janitor retries.
+                logger.warning(
+                    "workbench_logout_cleanup_pending",
+                    user_id=data["user_id"],
+                    error_type=type(exc).__name__,
+                )
     return bool(deleted)
 
 

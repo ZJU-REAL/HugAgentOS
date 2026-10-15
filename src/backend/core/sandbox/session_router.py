@@ -1,4 +1,4 @@
-"""Route reserved evaluation sessions without altering normal provider lifecycle."""
+"""Route reserved sandbox sessions without altering normal provider lifecycle."""
 from .errors import SandboxError
 
 
@@ -10,6 +10,11 @@ class SessionSandboxRouter:
         return getattr(self._ordinary, name)
 
     def _for(self, session_id):
+        from core.extensions import sandbox_route
+
+        module_provider = sandbox_route(str(session_id or ""))
+        if module_provider is not None:
+            return module_provider()
         if str(session_id or "").startswith("eval_"):
             from core.config.settings import settings
             from .evaluation_provider import get_evaluation_provider
@@ -19,8 +24,10 @@ class SessionSandboxRouter:
         return self._ordinary
 
     async def _authorized_for(self, session_id, user_id):
+        from core.extensions import sandbox_route
+
         provider = self._for(session_id)
-        if str(session_id or "").startswith("eval_"):
+        if str(session_id or "").startswith("eval_") or sandbox_route(str(session_id or "")) is not None:
             return provider
         if getattr(provider, "name", "") in ("script_runner", "cube"):
             import asyncio

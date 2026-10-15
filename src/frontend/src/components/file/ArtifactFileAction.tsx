@@ -1,3 +1,5 @@
+import { authFetch, getApiUrl } from '../../api';
+import { isPublicChat } from '../../publicChatTransport';
 import { useState } from 'react';
 import { Dropdown, message } from 'antd';
 import { DownOutlined, DownloadOutlined, ExportOutlined, FolderOpenOutlined, LoadingOutlined } from '@ant-design/icons';
@@ -27,6 +29,18 @@ export function ArtifactFileAction({ file, className, onDownload, disabled = fal
       onClick={(event) => {
         event.stopPropagation();
         if (onDownload) { event.preventDefault(); onDownload(); }
+        else if (isPublicChat() && new URL(artifactUrl(file), window.location.href).origin === new URL(getApiUrl(), window.location.href).origin) {
+          event.preventDefault();
+          if (busy) return;
+          setBusy(true);
+          void authFetch(artifactUrl(file)).then(async response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const blobUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement('a');
+            link.href = blobUrl; link.download = file.name || 'download'; link.click();
+            window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+          }).catch(error => { message.error(String(error)); }).finally(() => setBusy(false));
+        }
       }}><DownloadOutlined /> {!iconOnly && t('下载')}</a>;
   }
   return <span className={`jx-artifactAction jx-artifactOpen ${className || ''}`} onClick={(event) => event.stopPropagation()}>

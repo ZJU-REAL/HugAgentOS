@@ -1,0 +1,112 @@
+/* ── App Center placeholder ── */
+
+.jx-appCenterPanel{
+  min-height:calc(100dvh - 98px);
+  padding:24px 20px 28px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  box-sizing:border-box;
+}
+
+.jx-appCenterApps{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap:16px;
+  max-width:640px;
+  width:100%;
+  padding-top:40px;
+  animation:jx-appCenterFadeIn .5s ease-out both;
+}
+
+.jx-appCenterCard{
+  display:flex;
+  gap:14px;
+  align-items:flex-start;
+  padding:20px;
+  border:1px solid var(--color-border, var(--color-border));
+  border-radius:12px;
+  background:var(--color-bg-container);
+  cursor:pointer;
+  transition:border-color .18s, box-shadow .18s;
+}
+
+.jx-appCenterCard:hover{
+  border-color:var(--color-primary, var(--color-primary));
+  box-shadow:0 2px 12px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.jx-appCenterCard--disabled{
+  opacity:.5;
+  cursor:not-allowed;
+  pointer-events:none;
+}
+
+.jx-appCenterCardIcon{
+  font-size:28px;
+  flex-shrink:0;
+  line-height:1;
+}
+
+.jx-appCenterCardBody{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.jx-appCenterCardTitle{
+  font-size:15px;
+  font-weight:600;
+  color:var(--color-text, var(--color-text));
+}
+
+.jx-appCenterCardDesc{
+  font-size:13px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  line-height:1.5;
+}
+
+.jx-appCenterPlaceholder{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  text-align:center;
+  padding:24px;
+  transform:translateY(-56px);
+  animation:jx-appCenterFadeIn .5s ease-out both;
+}
+
+.jx-appCenterTitle{
+  font-size:18px;
+  line-height:1.6;
+  font-weight:500;
+  color:color-mix(in srgb, var(--color-text) 56%, transparent);
+  letter-spacing:.08em;
+}
+
+.jx-appCenterDesc{
+  margin:0;
+  font-size:13px;
+  line-height:1.9;
+  color:color-mix(in srgb, var(--color-text) 38%, transparent);
+}
+
+@keyframes jx-appCenterFadeIn{
+  from{
+    opacity:0;
+    transform:translateY(-48px);
+  }
+  to{
+    opacity:1;
+    transform:translateY(-56px);
+  }
+}
+
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-appCenterFadeIn { from, to { opacity:1;
+    transform:translateY(-56px) } }
+}

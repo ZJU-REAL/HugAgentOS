@@ -5,20 +5,21 @@ from core.infra.time import utc_now
 import asyncio
 import json
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Optional
 from core.memory.context import Confidentiality
 from core.memory.executor import run_effect
+from core.memory.ttl_sweeper import memory_entry_expired
 
 logger = logging.getLogger(__name__)
 from . import backend
 
 
 def _expiration_from_ttl(ttl_days: int) -> Optional[str]:
-    """YYYY-MM-DD expiry for mem0's native expiration, or None for no expiry."""
+    """UTC expiry date owned by L2; mem0 stores it as ordinary metadata."""
     if not ttl_days or ttl_days <= 0:
         return None
-    return (date.today() + timedelta(days=int(ttl_days))).isoformat()
+    return (utc_now().date() + timedelta(days=int(ttl_days))).isoformat()
 
 
 async def find_similar_procedure(
@@ -61,7 +62,7 @@ async def find_similar_procedure(
     items = result.get("results", []) if isinstance(result, dict) else result
     best: Optional[dict] = None
     for m in items if isinstance(items, list) else []:
-        if not isinstance(m, dict):
+        if not isinstance(m, dict) or memory_entry_expired(m):
             continue
         meta = m.get("metadata") or {}
         if meta.get("layer") != "L2":
@@ -197,7 +198,8 @@ async def reinforce_procedure_entry(
     which also refreshes the retrieval-side time decay.
     """
     memory_id = similar.get("id")
-    if not memory_id:
+    content = similar.get("memory") or similar.get("text") or ""
+    if not memory_id or not content:
         return False
 
     loop = asyncio.get_running_loop()
@@ -213,6 +215,7 @@ async def reinforce_procedure_entry(
         "strength": "strong",
         "ttl_days": int(ttl),
         "last_reinforced_at": utc_now().isoformat(timespec="seconds"),
+        "expiration_date": _expiration_from_ttl(ttl),
     }
     if effect_id:
         receipts = list(meta.get("outbox_effect_ids") or [])
@@ -242,8 +245,8 @@ async def reinforce_procedure_entry(
         await run_effect(
             lambda: memory.update(
                 memory_id,
-                metadata=patch,
-                expiration_date=_expiration_from_ttl(ttl),
+                content,
+                metadata={**meta, **patch},
             ),
         )
         logger.info(
@@ -327,6 +330,7 @@ async def save_procedure_entry(
         # The real author is written into metadata; the mem0.user_id field is already occupied
         # by the scope (under team projects it's "team:<tid>"), so author_user_id separately records "who wrote it"
         "author_user_id": ctx.user_id,
+        "expiration_date": _expiration_from_ttl(ttl_days),
     }
 
     # mem0 Memory.add(messages, user_id, metadata=...) interface; content is wrapped as an assistant message
@@ -355,10 +359,6 @@ async def save_procedure_entry(
                     user_id=mem0_user_id,
                     metadata=metadata,
                     infer=False,
-                    # Native expiry: an expired entry stops being recalled without
-                    # waiting for the sweeper to physically remove it. ttl_days
-                    # stays in metadata as the display/extension source of truth.
-                    expiration_date=_expiration_from_ttl(ttl_days),
                 ),
             )
             if milvus_breaker is not None:

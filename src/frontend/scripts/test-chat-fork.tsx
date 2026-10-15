@@ -108,7 +108,7 @@ const discoveredMessages = [{ role: 'assistant' as const, uid: 'continued-reply'
 const discovered = useChatStore.getState();
 discovered.updateStore((store) => ({ ...store, order: [discoveredId, ...store.order], chats: { ...store.chats,
   [discoveredId]: { id: discoveredId, title: 'Renamed branch', titleManuallySet: true, createdAt: 1, updatedAt: 2,
-    messages: discoveredMessages, planModeActive: true, batchModeActive: true, workflowModeActive: true,
+    messages: discoveredMessages, planModeActive: true, workflowModeActive: true,
     modeSlug: 'custom-mode', thinkingEffort: 'max', pinned: true, favorite: true,
   },
 } }));
@@ -123,7 +123,6 @@ const recovered = useChatStore.getState().store.chats[discoveredId];
 assert.equal(recovered.messages, discoveredMessages, 'idempotent recovery must preserve the independently continued branch');
 assert.equal(recovered.title, 'Renamed branch');
 assert.equal(recovered.planModeActive, true);
-assert.equal(recovered.batchModeActive, true);
 assert.equal(recovered.workflowModeActive, true);
 assert.equal(recovered.modeSlug, 'custom-mode');
 assert.equal(recovered.thinkingEffort, 'max');

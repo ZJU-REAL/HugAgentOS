@@ -106,14 +106,6 @@
   color:var(--color-text-placeholder) !important;
 }
 
-.jx-homeInput .jx-composerBar{
-  height:50px;
-  padding:8px 12px 12px;
-  background:var(--color-bg-container);
-  border-bottom-left-radius:20px;
-  border-bottom-right-radius:20px;
-}
-
 /* Quick pills */
 
 .jx-quickPills{

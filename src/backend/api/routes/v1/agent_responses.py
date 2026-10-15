@@ -48,18 +48,15 @@ async def _read_preferences(request: ChatRequest, user_id: str):
 
 
 def _check_project(db: Session, request: ChatRequest, user_id: str) -> None:
-    if not request.project_id:
-        return
-    from core.auth.permissions_iface import resolve_project_permission
-    from core.db.models import Project
+    """A chat bound to a project always runs in that project, whichever client sends to it."""
+    from core.services.project_access import require_visible_project
 
-    project = (
-        db.query(Project)
-        .filter(Project.project_id == request.project_id, Project.deleted_at.is_(None))
-        .first()
-    )
-    if project is None or resolve_project_permission(db, user_id, project) == "none":
-        raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
+    if request.chat_id:
+        pair = chat_services.ChatService(db).get_session_with_access(request.chat_id, user_id)
+        if pair is not None and pair[0].project_id:
+            request.project_id = pair[0].project_id
+    if request.project_id:
+        require_visible_project(db, user_id, request.project_id)
 
 
 def _link_attachments(db: Session, request: ChatRequest, user_id: str) -> None:
@@ -92,6 +89,9 @@ async def _start_response_run(
 
     request = prepare_project_api_request(db, user, request)
     request, scope = prepare_agent_api_request(db, user, request)
+    if user.public_chat_visitor:
+        from core.services.public_chat_service import validate_visitor_attachments
+        validate_visitor_attachments(db, user, request.attachments)
     call_id = (
         begin_agent_api_call(db, scope, request.stream, trace_id=trace_id_var.get())
         if scope
@@ -129,6 +129,9 @@ async def _start_response_run(
         provider_id = chat_session_context._resolve_selected_model_provider_id(db, request, user_id)
         model_name = chat_session_context._resolve_actual_chat_model_name(request, provider_id)
         (skills, agents, mcps), settings = await _read_preferences(request, user_id)
+        if user.public_chat_visitor:
+            from core.services.public_chat_service import visitor_approval_mode
+            settings["tool_approval_mode"] = visitor_approval_mode(db, user, settings.get("tool_approval_mode"))
         _check_project(db, request, user_id)
         service = chat_services.ChatService(db)
         chat_session_context._ensure_chat_session(
@@ -139,7 +142,6 @@ async def _start_response_run(
             agent_id=request.agent_id,
             agent_name=agent_name,
             plan_chat=request.plan_chat,
-            batch_chat=request.batch_chat,
             workflow_chat=request.workflow_chat,
             site_chat=request.site_chat,
             project_id=request.project_id,
@@ -195,6 +197,14 @@ async def _start_response_run(
                 user_extra_data=chat_request_context._build_user_extra_data(request, provider_id),
                 request_payload=payload,
             ) as accepted:
+                if user.public_chat_visitor:
+                    from core.db.models import ChatSession
+
+                    session = db.get(ChatSession, request.chat_id)
+                    if session and not (session.extra_data or {}).get("public_chat_title_set"):
+                        session.title = request.message.strip().split("\n", 1)[0][:80] or session.title
+                        session.extra_data = {**(session.extra_data or {}), "public_chat_title_set": True}
+                        db.flush()
                 # No history or attachment mutation before writer admission.
                 messages = chat_session_context._load_session_messages(
                     service, request.chat_id, user_id

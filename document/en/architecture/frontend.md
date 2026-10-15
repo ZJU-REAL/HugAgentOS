@@ -32,7 +32,7 @@ App.tsx connects useAppController, AppAuthGate, and AppWorkspace. useAppBootstra
 - **Envelope unwrapping**: the backend uniformly returns `{ code, message, data, trace_id, timestamp }`; `isApiEnvelope` + `unwrapData<T>` extract `data` automatically, so callers receive plain business types;
 - **Auth integration**: `onUnauthorized(handler)` registers the 401 callback; `authStore` uses it to centralize the login redirect;
 - **Friendly errors**: helpers like `uploadErrorMessage` recognize non-JSON failures such as Nginx 413 (`client_max_body_size` exceeded) and produce readable messages;
-- **Domain functions**: hundreds of named functions — session CRUD / streaming and resume / message feedback / knowledge base / artifacts / automation / batch / projects / memories / capability center — each typed against the shared definitions in `types.ts`.
+- **Domain functions**: hundreds of named functions — session CRUD / streaming and resume / message feedback / knowledge base / artifacts / automation / projects / memories / capability center — each typed against the shared definitions in `types.ts`.
 
 SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from `fetch` streams by `hooks/useStreaming.ts`.
 
@@ -44,7 +44,6 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `agent/` | Sub-agent creation page, forms, @-mention popup, panel |
 | `apidoc/` | API documentation panel |
 | `automation/` | Scheduled-task list, creation, details, setup conversations, and run timeline |
-| `batch/` | Batch-execution confirmation modal and progress panel |
 | `canvas/` | Data canvas: Univer online-spreadsheet panel |
 | `catalog/` | Capability center: skills / MCP pages, catalog panel, skill-marketplace modal, icon picker |
 | `chat/` | The chat core: message bubbles, input area, artifact cards, thinking panels, plan cards, skill slash-popup, file-confirm bar |
@@ -77,7 +76,6 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `kbStore` | KB spaces / documents / chunks |
 | `mySpaceStore` | MySpace resource tree and favorites |
 | `projectStore` | Project list, detail, in-project sessions |
-| `batchStore` | Batch-plan state (keyed by plan_id, tracks the pending-confirmation modal) |
 | `automationStore` / `automationChatStore` | Automation task list / automation chat run state |
 | `canvasStore` | Data-canvas document state |
 | `skillDistillStore` | Personal skill-distillation job state |
@@ -129,7 +127,7 @@ useStreaming.send
    │ parses data: {json} line by line
    │ ├─ content/thinking → appended into segments (utils/segments.ts)
    │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → update the tool timeline in place by tool_id (components/tool/)
-   │ ├─ file_confirm/batch_confirm → confirm bar / modal (hard pause)
+   │ ├─ file_confirm → confirm bar / modal (hard pause)
    │ └─ meta → citation sources and artifact list written onto the message
    ▼
 chatStore update → MessageBubble re-render
@@ -166,3 +164,15 @@ The frontend's edition awareness is concentrated in two places:
 | Shared types | `src/frontend/src/types.ts` |
 | Build config | `src/frontend/vite.config.ts` |
 | Nginx config | `src/frontend/default.conf.template`, `src/frontend/nginx.conf` |
+
+## Streaming text presentation
+
+Assistant text uses Markdown from its first frame. Plain paragraphs, formatted text, and cited text share CitationHtmlBlock; later characters no longer switch the body between plain-text and Markdown containers. SSE parsing and background runs own reception and recovery. GraphemeReveal only presents newly received text.
+
+New text fades in by complete grapheme, including combining accents and ZWJ emoji. styles/chat/grapheme-reveal.css defines the parameters in one place: 90ms, cubic-bezier(.215,.61,.355,1), and blur from 6px to 0. The normal stagger is 30ms. Large bursts shorten the stagger to bound pending presentation to 600ms. Existing text and citation portal nodes stay in place. Completed animations merge temporary text nodes so long messages do not retain per-character DOM.
+
+Code, math, copy buttons, and chart components are not split. Completion or cancellation immediately displays all received text. Recovery snapshots show existing text without replay; subsequent deltas animate normally. Reduced-motion mode displays text immediately.
+
+Markdown HTML uses DOMPurify to remove executable attributes and URLs while retaining new-tab behavior for external links.
+
+Run npm run test:grapheme-reveal for browser component coverage. For full-app coverage, scripts/grapheme-e2e-environment.py creates an isolated Docker network, Redis, temporary SQLite, test model, and Nginx; then run npm run test:grapheme-reveal-app. The environment does not read the real .env. Its down command removes only containers carrying the test label.

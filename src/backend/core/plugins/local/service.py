@@ -132,7 +132,34 @@ def _prepare(user_id, root, key=None, *, skill_ids=None, server_ids=None):
     digest = entity_content_hash(
         {n: encode_upload(n, v) if isinstance(v, bytes) else v for n, v in files.items()}
     )
+    existing = registry.get(registry.install_id("plugin", LOCAL_PROFILE, key))
+    previous = (
+        store.get("plugin", LOCAL_PROFILE, key, existing.resolved_revision)
+        if existing and existing.state != "removed" and existing.resolved_revision
+        else None
+    )
+    from core.capabilities.plugins import load_manifest
+    old_ui = load_manifest(previous).get("ui_contributions") if previous else None
+    candidate = bool(existing and existing.state != "removed" and (
+        (np.ui or {}).get("version") == 3 or (old_ui or {}).get("version") == 3))
+    if candidate:
+        if existing.payload.get("owner_user_id") != user_id:
+            raise PermissionError("plugin ownership conflict")
+        from core.applications.plugin_candidate_storage import local_reserve
+        if revision_for_hash(digest) != existing.resolved_revision:
+            local_reserve(existing, revision_for_hash(digest), files)
     comp = store.write_from_files("plugin", LOCAL_PROFILE, key, revision_for_hash(digest), files)
+    if not candidate:
+        children = _prepare_children(user_id, np, comp, skill_ids, server_ids)
+    return np, key, definition, digest, comp, children
+
+
+
+def _prepare_children(user_id, np, comp, skill_ids, server_ids):
+    children = []
+    from core.agent_skills.registry import _load_skill_metadata_from_str
+    for child in np.skills:
+        _load_skill_metadata_from_str(child.skill_content, child.name)
     with tempfile.TemporaryDirectory(prefix="plugin-skills-") as tmp:
         for child in np.skills:
             child_key = skill_ids[child.name]
@@ -151,11 +178,22 @@ def _prepare(user_id, root, key=None, *, skill_ids=None, server_ids=None):
                 ),
             )
             children.append(skill_service._prepare(user_id, directory, child_key))
-    return np, key, definition, digest, comp, children
+    return children
 
 
 def _publish(user_id, prepared, db, *, legacy_source=None):
     np, key, definition, digest, comp, children = prepared
+    # Validate every component owner before materializing any approved child.
+    for child_key in definition["component_identity_map"]["skills"].values():
+        previous_child = registry.get(registry.install_id("skill", LOCAL_PROFILE, child_key), db=db)
+        if previous_child and (
+            previous_child.source_plugin not in (key, legacy_source)
+            or previous_child.payload.get("owner_user_id") != user_id
+        ):
+            raise ValueError("component ownership conflict")
+    if np.skills and not children:
+        ids = definition["component_identity_map"]
+        children = _prepare_children(user_id, np, comp, ids["skills"], ids["mcp"])
     iid = registry.install_id("plugin", LOCAL_PROFILE, key)
     old_edges = registry.components_of(iid, db=db)
     new_edges = component_install_ids(LOCAL_PROFILE, definition)
@@ -193,6 +231,19 @@ def _publish(user_id, prepared, db, *, legacy_source=None):
     for cid in old_edges.keys() - new_edges.keys():
         registry.mark_removed(cid, db=db)
     previous = registry.get(iid, db=db)
+    if previous and previous.state == "removed":
+        from datetime import timedelta
+        from core.infra.time import as_utc, utc_now
+
+        # A retained removed row is a new installation when installed again.
+        # Preserve upgrade identity; invalidate grants/keys from the old install.
+        now = utc_now()
+        stamp = (
+            max(now, as_utc(previous.created_at) + timedelta(microseconds=1))
+            if previous.created_at
+            else now
+        )
+        db.get(DeviceCapabilityInstallation, iid).created_at = stamp
     registry.upsert(
         profile_id=LOCAL_PROFILE,
         ref=local_ref("plugin", key),
@@ -270,6 +321,10 @@ def update(user_id, install_id, source_path, expected_revision):
     with registry._session() as db:
         current = _owned(user_id, install_id, db)
         _claim(db, current, expected_revision)
+        from core.applications.local_plugin_upgrades import prepare as prepare_upgrade
+        pending = prepare_upgrade(db, current, prepared)
+        if pending is not None:
+            return pending
         _publish(user_id, prepared, db)
     skill_service._invalidate()
     return get(user_id, install_id)

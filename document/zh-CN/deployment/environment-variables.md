@@ -191,8 +191,8 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | （空） | 数仓查询调用参数 | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | （示例值） | 产业链信息 API | EE（行业工具） |
 | `COMPANY_API_URL` / `COMPANY_AUTH_TOKEN` | （空） | 企业画像 API | EE（行业工具） |
-| `BACKEND_INTERNAL_URL` | `http://backend:3001` | batch_runner 等 MCP 回调后端的内部地址 | CE |
-| `BACKEND_INTERNAL_TOKEN` | （**批量执行必填**） | MCP → 后端回调令牌 | CE |
+| `BACKEND_INTERNAL_URL` | `http://backend:3001` | 站点、浏览器等 MCP 回调后端的内部地址 | CE |
+| `BACKEND_INTERNAL_TOKEN` | （内部服务调用必填） | MCP → 后端回调令牌 | CE |
 | `HUGAGENT_USER_SKILLS_DIR` / `HUGAGENT_PROJECT_SKILLS_DIR` | `~/.hugagent/skills` / `.hugagent/skills` | 技能目录覆盖 | CE |
 | `HUGAGENT_DISABLE_USER_SKILLS` / `HUGAGENT_DISABLE_PROJECT_SKILLS` | `0` | 禁用用户 / 项目技能 | CE |
 
@@ -373,3 +373,9 @@ License 细节见 [License 机制](../editions/license.md)。
 | BROWSER_CHROMIUM_SANDBOX | 默认 true；仅宿主确认隔离的容器允许对明确沙箱错误安全回退 |
 
 应用托管仍需显式启用。参见[应用部署](../modules/application-hosting.md)和[浏览器部署](../modules/browser-automation.md)。云端站点写入依赖共享 Redis，未配置或不可用时拒绝写入。
+
+<!-- End Personal Agent settings -->
+
+`PERSONAL_AGENT_CLI_SERVER` (EE): 云电脑访问后台的地址。默认 `http://backend:3001`。不保存凭据。沙盒与应用分机部署时改为应用的可访问地址，例如 `http://<应用内网地址>/api`。
+
+`PERSONAL_AGENT_CLI_ALLOW_HTTP` (EE): 是否允许云电脑 CLI 用 HTTP 访问后台。默认 `true`（适合内网部署）。设为 `false` 时只接受 HTTPS。

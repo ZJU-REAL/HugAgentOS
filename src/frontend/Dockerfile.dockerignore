@@ -1,0 +1,25 @@
+# Frontend uses the root context for its local protocol dependency.
+**
+!src/
+!src/frontend/
+!src/frontend/**
+!src/backend/
+!src/backend/core/
+!src/backend/core/applications/
+!src/backend/core/applications/schemas/
+!src/backend/core/applications/schemas/**
+!packages/
+!packages/workbench-protocol/
+!packages/workbench-protocol/**
+!packages/workbench-sdk/
+!packages/workbench-sdk/**
+!scripts/
+!scripts/sync-workbench-schema.mjs
+!scripts/build-workbench.mjs
+!scripts/workbench-build-contract.mjs
+**/node_modules/
+**/dist/
+**/.env*
+**/.git/
+**/*.tgz
+packages/workbench-protocol/src/*-schema.ts
