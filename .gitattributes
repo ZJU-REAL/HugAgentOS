@@ -31,3 +31,6 @@ requirements-desktop-windows-py311.lock text eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+
+# Tauri rewrites this manifest during native builds; keep its checkout in LF.
+desktop/src-tauri/Cargo.toml text eol=lf
