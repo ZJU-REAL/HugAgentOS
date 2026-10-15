@@ -1,5 +1,9 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '上传失败，请重试': 'Upload failed. Retry.',
+  '移除文件 {name}': 'Remove file {name}',
+  '重试上传 {name}': 'Retry upload {name}',
+
   '正在压缩上下文': 'Compacting context',
   '上下文已压缩': 'Context compacted',
   '上下文压缩已中断': 'Context compaction interrupted',

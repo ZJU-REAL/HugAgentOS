@@ -105,7 +105,7 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
       // the backend replays the original turn's attachments and its skill / plugin /
       // connector / @agent selection, so the local echo has to keep showing them.
       const userMsg: ChatMessage = {
-        role: 'user', content: newContent.trim(), isMarkdown: false, uid: newMessageUid(), ts: Date.now(),
+        role: 'user', content: newContent.trim(), isMarkdown: false, uid: newMessageUid(true), ts: Date.now(),
         ...(targetMsg?.attachments?.length ? { attachments: targetMsg.attachments } : {}),
         ...(targetMsg?.quotedFollowUp ? { quotedFollowUp: targetMsg.quotedFollowUp } : {}),
         ...(targetMsg?.skillId ? { skillId: targetMsg.skillId } : {}),

@@ -24,7 +24,9 @@
 }
 
 .jx-msg:hover .jx-msgActionBtn,
-.jx-msg:hover .jx-msgDuration{
+.jx-msg:hover .jx-msgDuration,
+.jx-msg:focus-within .jx-msgActionBtn,
+.jx-msg:focus-within .jx-msgDuration{
   opacity:1;
   pointer-events:auto;
 }
@@ -402,4 +404,8 @@
   color:var(--color-primary);
   background:var(--color-primary-light);
   cursor:default;
+}
+
+@media (hover:none) {
+  .jx-msg .jx-msgActionBtn, .jx-msg .jx-msgDuration { opacity:1; pointer-events:auto; }
 }

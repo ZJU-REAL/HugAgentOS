@@ -44,6 +44,7 @@ async def native_tools(
     loader,
     skill_ids_to_register,
     toolkit,
+    _progressive=None,
 ):
     if (
         not request.disable_tools
@@ -250,6 +251,7 @@ async def native_tools(
         # 脚本因此拿不到任何 key。isolated=True 的子作业不注册，杜绝 job 套 job。
         if request.workflow_mode and not request.isolated and _sbx_sess:
             from core.llm.tools.job_tool import register_run_job
+            from orchestration.jobs.agent import snapshot_parent_runtime
 
             register_run_job(
                 toolkit,
@@ -260,6 +262,13 @@ async def native_tools(
                 project_ctx=request.project_ctx,
                 model_name=request.model_name,
                 model_provider_id=request.model_provider_id,
+                parent_runtime=snapshot_parent_runtime(
+                    request,
+                    skill_ids=skill_ids_to_register,
+                    mcp_ids=enabled_mcp_keys,
+                    sandbox_session_id=_sbx_sess,
+                    progressive=_progressive,
+                ),
             )
 
         # ── Phase 3.9: get_data_context (the "data dictionary" tool for direct-DB data retrieval) ──

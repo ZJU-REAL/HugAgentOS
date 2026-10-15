@@ -12,6 +12,7 @@ export type PreviewKind =
   | 'csv'
   | 'video'
   | 'audio'
+  | 'archive'
   | 'unknown';
 
 const MB = 1024 * 1024;
@@ -25,6 +26,7 @@ const MB = 1024 * 1024;
  * can stream them without materialising the complete file in JavaScript.
  */
 const PREVIEW_LIMIT_BYTES: Partial<Record<PreviewKind, number>> = {
+  archive: 100 * MB,
   docx: 20 * MB,
   xlsx: 8 * MB,
   pdf: 30 * MB,

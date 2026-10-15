@@ -35,31 +35,37 @@ export function useComposerFiles(effectiveApiUrl: string) {
     const { setUploadedFiles, uploadedFiles } = owner;
     setUploadedFiles([...uploadedFiles, ...newFiles]);
 
-    const curApiUrl = effectiveApiUrl ?? '';
-    const curChatId = useChatStore.getState().currentChatId;
-    const curProjectId = useChatStore.getState().store.chats[curChatId]?.projectId;
+    for (const file of newFiles) startUpload(file, draftKey);
+  }
 
-    for (const file of newFiles) {
-      const { addUploadingFile, removeUploadingFile } = owner;
-      addUploadingFile(file);
-      const promise = uploadFileToOSS(file, curApiUrl, curChatId, curProjectId)
-        .then((res) => {
-          // uploadFileToOSS 失败时返回空 file_id 而不是抛错。以前这里不看返回值，
-          // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
-          if (!res.file_id) {
-            message.error(t('「{name}」上传失败，请重试', { name: file.name }));
-          } else {
-            owner.setUploadedArtifact(file, res);
-          }
-          return res;
-        })
-        .catch(() => {
-          message.error(t('「{name}」上传失败，请重试', { name: file.name }));
-          return { file_id: '', download_url: '' };
-        })
-        .finally(() => { removeUploadingFile(file); });
-      owner.uploads.set(file, promise);
-    }
+  function startUpload(file: File, draftKey: string) {
+    const owner = readComposer(draftKey);
+    if (!owner.uploadedFiles.includes(file) || owner.uploadingFiles.has(file)) return;
+    const epoch = useComposerStore.getState().epoch;
+    const chat = useChatStore.getState();
+    const chatId = chat.currentChatId;
+    const projectId = chat.store.chats[chatId]?.projectId;
+    owner.addUploadingFile(file);
+    // The promise identity also guards removal/retry and draft transfer while I/O is pending.
+    const current = () => useComposerStore.getState().epoch === epoch && owner.uploads.get(file) === pending;
+    const pending = uploadFileToOSS(file, effectiveApiUrl, chatId, projectId)
+      .then(result => {
+        if (current()) {
+          if (result.file_id) owner.setUploadedArtifact(file, result);
+          else owner.setUploadError(file, t('上传失败，请重试'));
+        }
+        return result;
+      })
+      .catch(() => {
+        if (current()) owner.setUploadError(file, t('上传失败，请重试'));
+        return { file_id: '', download_url: '' };
+      })
+      .finally(() => { if (current()) owner.removeUploadingFile(file); });
+    owner.uploads.set(file, pending);
+  }
+
+  function retryFile(file: File, draftKey = useComposerStore.getState().activeKey) {
+    startUpload(file, draftKey);
   }
 
   function removeFile(index: number, draftKey = useComposerStore.getState().activeKey) {
@@ -73,5 +79,5 @@ export function useComposerFiles(effectiveApiUrl: string) {
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
   }
 
-  return { handleFileSelect, removeFile };
+  return { handleFileSelect, removeFile, retryFile };
 }

@@ -390,6 +390,7 @@ async def system_prompt(
                 "model_name": request.model_name,
                 "model_provider_id": request.model_provider_id,
                 "chat_mode": request.chat_mode,
+                "approval_mode": request.approval_mode,
                 "chat_id": request.chat_id,
                 "sandbox_session_id": _sbx_sess,
                 "project_ctx": request.project_ctx,

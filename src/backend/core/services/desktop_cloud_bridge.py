@@ -709,6 +709,12 @@ def cloud_gateway_mcp_configs(
         sid = s["server_id"]
         if f"mcp:{ctx['profile']}:{sid}" not in chosen:
             continue
+        from core.services.desktop_resource_plugins import local_config
+        from core.capabilities.skills import current_local_user_id
+        native = local_config(s, current_local_user_id(), ctx["profile"])
+        if native is not None:
+            configs[sid] = native
+            continue
         invoke_url = f"{st['cloud_base']}/api/v1/desktop/capability/gateway/{sid}/call"
         configs[sid] = {
             "transport": "streamable_http",

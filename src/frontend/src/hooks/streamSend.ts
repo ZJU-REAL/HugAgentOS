@@ -113,7 +113,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       role: 'user',
       content: msg,
       isMarkdown: false,
-      uid: newMessageUid(),
+      uid: newMessageUid(true),
       ts: Date.now(),
       ...(quotedFollowUp && {
         quotedFollowUp: {

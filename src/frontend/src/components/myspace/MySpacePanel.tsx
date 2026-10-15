@@ -1,3 +1,4 @@
+import { AssetTypeSwitch } from './AssetTypeSwitch';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Variants } from 'motion/react';
@@ -379,26 +380,7 @@ export function MySpacePanel() {
           {tab === 'assets' && (
             <>
               <div className="jx-mySpace-assetBar">
-                <div className="jx-mySpace-filterTabs" role="tablist" aria-label={t('类型筛选')}>
-                  {([
-                    { key: 'document', label: t('文档') },
-                    { key: 'image', label: t('图片') },
-                  ] as const).map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={assetFilter === item.key}
-                      className={`jx-mySpace-filterTab${assetFilter === item.key ? ' active' : ''}`}
-                      onClick={() => { navDirection.current = 0; setAssetFilter(item.key); }}
-                    >
-                      {item.label}
-                      {assetFilter === item.key && (
-                        <motion.span layoutId="jx-mySpace-filterTabInk" className="jx-mySpace-tabInk jx-mySpace-tabInk--filter" transition={SPRING.ink} />
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <AssetTypeSwitch value={assetFilter} onChange={value => { navDirection.current = 0; setAssetFilter(value); }} />
                 <div className="jx-mySpace-filterTools">
                   {selectedScope.folderId !== null && (
                     <Button

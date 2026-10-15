@@ -7,12 +7,13 @@ import { buildConversationTurns } from '../../utils/conversationNavigation';
 import '../../styles/conversationNavigation.css';
 
 interface ConversationNavigationProps {
+  hidden?: boolean;
   messages: readonly ChatMessage[];
   chatListRef: RefObject<HTMLDivElement | null>;
 }
 
 /** Mounted per chat so preview/focus state cannot leak to another conversation. */
-export function ConversationNavigation({ messages, chatListRef }: ConversationNavigationProps) {
+export function ConversationNavigation({ messages, chatListRef, hidden = false }: ConversationNavigationProps) {
   const turns = useMemo(() => buildConversationTurns(messages), [messages]);
   const anchors = turns.map((turn) => turn.uid).join(',');
   const [activeUid, setActiveUid] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
   const railRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    if (hidden) return;
     const list = chatListRef.current;
     const scroller = list?.closest<HTMLElement>('.jx-chatViewport');
     if (!list || !scroller || !anchors) return;
@@ -71,7 +73,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
       scroller.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };
-  }, [anchors, chatListRef]);
+  }, [anchors, chatListRef, hidden]);
 
   useEffect(() => {
     const rail = railRef.current;
@@ -101,7 +103,7 @@ export function ConversationNavigation({ messages, chatListRef }: ConversationNa
     target.classList.add('jx-anim-flash');
   };
 
-  if (!turns.length || !position || position.height < 44) return null;
+  if (hidden || !turns.length || !position || position.height < 44) return null;
 
   return createPortal(
     <nav

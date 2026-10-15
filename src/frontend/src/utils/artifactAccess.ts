@@ -16,6 +16,10 @@ function sourceUrl(file: ArtifactLocation): string {
   return file.url || file.download_url || (file.file_id ? `/files/${encodeURIComponent(file.file_id)}` : '');
 }
 
+export function isArchiveMember(file: ArtifactLocation): boolean {
+  return /\/archive\/member(?:[/?]|$)/.test(sourceUrl(file));
+}
+
 function externalUrl(url: string): boolean {
   return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url);
 }
@@ -46,9 +50,17 @@ export function artifactUrl(
   try { parsedSource = new URL(source, 'http://artifact.invalid'); }
   catch { return ''; }
   if (parsedSource.pathname.startsWith('/__desktop/')) return '';
-  if (externalUrl(source)) return /^(https?:)?\/\//i.test(source) ? source : '';
-  if (!/^(?:\/api)?\/(?:files\/|v1\/projects\/)/.test(parsedSource.pathname)) return '';
   const base = getApiUrl().replace(/\/$/, '');
+  if (externalUrl(source)) {
+    // Our API may be configured as an absolute URL; its file links still need
+    // inline/preview and desktop routing options. Other hosts remain external.
+    const api = new URL(base || '/', 'http://artifact.invalid');
+    const apiPrefix = api.pathname.replace(/\/$/, '') + '/';
+    const ownApi = externalUrl(base) && parsedSource.origin === api.origin
+      && parsedSource.pathname.startsWith(apiPrefix);
+    if (!ownApi) return /^(https?:)?\/\//i.test(source) ? source : '';
+  }
+  if (!/^(?:\/api)?\/(?:files\/|v1\/projects\/)/.test(parsedSource.pathname)) return '';
   const raw = source.startsWith(`${base}/`) ? source : `${base}${source.startsWith('/') ? '' : '/'}${source}`;
   const url = new URL(raw, 'http://artifact.invalid');
   if (options.preview) url.pathname += '/preview';
@@ -73,6 +85,7 @@ export async function openLocalArtifact(
   folder = false,
   navigate: (url: string) => void = (url) => { window.location.href = url; },
 ): Promise<void> {
+  if (isArchiveMember(file)) throw new Error(t('包内文件请下载后打开'));
   if (artifactOrigin(file) !== 'local') throw new Error(t('此文件不在本机'));
   const source = new URL(sourceUrl(file), 'http://artifact.invalid');
   const projectFile = source.pathname.match(/^(?:\/api)?(\/v1\/projects\/[^/]+\/local-files)\/raw$/);

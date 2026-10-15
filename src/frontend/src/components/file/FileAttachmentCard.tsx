@@ -1,4 +1,5 @@
 import { LoadingOutlined, DownloadOutlined, CloseOutlined } from '@ant-design/icons';
+import '../../styles/chat/attachment-polish.css';
 import { getFileIconSrc } from '../../utils/fileIcon';
 import { t } from '../../i18n';
 import { artifactUrl } from '../../utils/artifactAccess';
@@ -14,6 +15,9 @@ export default function FileAttachmentCard({
   loading,
   previewUrl,
   artifact,
+  compact = false,
+  error,
+  onRetry,
 }: {
   name: string;
   downloadHref?: string;
@@ -21,25 +25,22 @@ export default function FileAttachmentCard({
   loading?: boolean;
   previewUrl?: string;
   artifact?: CanvasArtifact;
+  compact?: boolean;
+  error?: string;
+  onRetry?: () => void;
 }) {
   const openCanvas = useCanvasStore((s) => s.openCanvas);
-  const canPreview = !!artifact && !loading;
+  const canPreview = !!artifact && !loading && !error;
   if (artifact) {
     downloadHref = artifactUrl(artifact);
     if (previewUrl) previewUrl = artifactUrl(artifact, { params: { inline: 'true' } });
   }
   const ext = (name.split('.').pop() ?? '').toLowerCase();
   const isImage = IMAGE_EXTS.has(ext);
-
-  let label = t('文档');
-  if (ext === 'pdf')                           { label = t('PDF 文档'); }
-  else if (ext === 'docx' || ext === 'doc')    { label = t('Word 文档'); }
-  else if (ext === 'xlsx' || ext === 'xls')    { label = t('Excel 表格'); }
-  else if (ext === 'pptx' || ext === 'ppt')    { label = t('PPT 幻灯片'); }
-  else if (ext === 'wps')                      { label = t('WPS 文档'); }
-  else if (ext === 'csv')                      { label = t('CSV 表格'); }
-  else if (ext === 'txt')                      { label = t('文本文件'); }
-  else if (isImage)                            { label = t('图片'); }
+  const className = `jx-fileCard${compact ? ' jx-fileCard--compact' : ''}${loading ? ' jx-fileCard--uploading' : ''}${error ? ' jx-fileCard--error' : ''}`;
+  const dot = name.lastIndexOf('.');
+  const basename = dot > 0 ? name.slice(0, dot) : name;
+  const suffix = dot > 0 ? name.slice(dot) : '';
 
   const inner = (
     <>
@@ -51,32 +52,40 @@ export default function FileAttachmentCard({
         )}
       </div>
       <div className="jx-fileCard-info">
-        <div className="jx-fileCard-name" title={name}>{name}</div>
-        <div className="jx-fileCard-type">
-          {loading ? <><LoadingOutlined style={{ marginRight: 4 }} />{t('上传中…')}</> : label}
+        <div className="jx-fileCard-name" title={name}>
+          <span className="jx-fileCard-basename">{basename}</span><span className="jx-fileCard-extension">{suffix}</span>
         </div>
+        {(loading || error) && (
+          <div className="jx-fileCard-type">
+            {loading ? <><LoadingOutlined style={{ marginRight: 4 }} />{t('上传中…')}</> : t('上传失败')}
+          </div>
+        )}
       </div>
-      {!loading && downloadHref && !canPreview && (
+      {!loading && !error && downloadHref && !canPreview && (
         <DownloadOutlined className="jx-fileCard-dlIcon" aria-hidden="true" />
       )}
       {onClose && (
-        <button className="jx-fileCard-close" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }} aria-label={t('移除文件')} title={t('移除')}>
+        <button type="button" className="jx-fileCard-close" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }} aria-label={t('移除文件 {name}', { name })} title={t('移除')}>
           <CloseOutlined style={{ fontSize: 9 }} />
         </button>
       )}
+      {error && <div className="jx-fileCard-error" role="status">
+        <span title={error}>{error}</span>
+        {onRetry && <button type="button" onClick={onRetry} aria-label={t('重试上传 {name}', { name })}>{t('重试')}</button>}
+      </div>}
     </>
   );
 
   if (canPreview) {
     return (
-      <div className="jx-fileCard jx-fileCard--preview">
+      <div className={`${className} jx-fileCard--preview`}>
         {inner}
         <button type="button" className="jx-fileCard-preview"
           aria-label={`${t('预览')} ${name}`} title={`${t('预览')} ${name}`}
           onClick={() => openCanvas(artifact)} />
         {downloadHref && (
           <span className="jx-fileCard-download">
-            <ArtifactFileAction file={artifact} className="jx-fileCard-nativeAction" />
+            <ArtifactFileAction file={artifact} iconOnly={compact} className="jx-fileCard-nativeAction" />
           </span>
         )}
       </div>
@@ -86,7 +95,7 @@ export default function FileAttachmentCard({
   if (downloadHref && !loading) {
     return (
       <a
-        className="jx-fileCard jx-fileCard--link"
+        className={`${className} jx-fileCard--link`}
         href={downloadHref}
         download={name}
         title={t('下载 {name}', { name })}
@@ -105,5 +114,5 @@ export default function FileAttachmentCard({
     );
   }
 
-  return <div className="jx-fileCard">{inner}</div>;
+  return <div className={className} aria-busy={!!loading}>{inner}</div>;
 }

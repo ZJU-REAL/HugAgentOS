@@ -12,6 +12,16 @@ Legacy detached-shell jobs have no reliable process reference and cannot safely 
 
 Internal callbacks authenticate and update the ledger within the same row-locked transaction, fencing stale tokens and preventing concurrent lost updates. The runner atomically writes a terminal receipt before sending its final callback, allowing monitoring to settle the job even if callback delivery fails.
 
+## Derived main agents
+
+The workflow SDK `agent(prompt, ...)` uses the shared main-agent factory and execution loop. Each call starts an independent context and inherits the submitting agent's model, skills, plugin capabilities, MCPs, knowledge bases, visible subagents, project and workspace configuration. It does not copy chat history. Derived agents and their subagents share the original conversation workspace and use the `full` approval preset without operation approval prompts. User access checks, data isolation and job budgets remain in effect.
+
+Derived agents can delegate through `call_subagent`. `run_job` and chat interaction tools remain exclusive to the submitting agent, preventing nested workflow submission. Concurrent writers must use non-overlapping workspace paths.
+
+Omitting `tools` inherits the parent's MCPs. A non-empty explicit list selects initial MCPs within the submitting conversation's scope; skills and subagents remain available. Callback authority and remaining budgets are checked throughout execution. Cancellation or wall-clock exhaustion cancels the derived task and awaits child cleanup. Older jobs without a saved main-agent configuration must be resubmitted; there is no lightweight-executor fallback.
+
+Derived instances use the main-agent iteration policy without lightweight or subagent turn caps. Each complete task executes once. Invalid output, execution failure or an uncertain callback result never automatically repeats potentially completed side effects. Inspect existing actions before explicitly resuming.
+
 ## Validation
 
 Unit and regression tests live under src/backend/tests/orchestration/test_job*.py. The opt-in real-sandbox test, src/backend/tests/integration/job_managed_smoke.py, requires an existing job for sandbox context. It creates synthetic jobs and a temporary callback endpoint to test concurrent ledger writes, thread exit, isolated cancellation, cross-process adoption, resume, and startup failure. It does not call a model or rerun the original business script.

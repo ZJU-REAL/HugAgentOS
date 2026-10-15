@@ -142,6 +142,7 @@ def make_client(
                 timeout=_http_transport_timeout(name, cfg, execution_timeout),
             ),
             "execution_timeout": execution_timeout,
+            "enable_tools": cfg.get("enable_tools"),
         }
         if cfg.get("schema_source") in ("cloud_manifest", "plugin_manifest"):
             if not uses_manifest_schema(cfg):

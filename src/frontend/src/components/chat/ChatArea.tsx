@@ -59,6 +59,7 @@ function BatchPanelsForChat({ chatId }: { chatId: string }) {
 }
 
 export interface ChatAreaProps {
+  isPaneHidden?: boolean;
   send: (text?: string) => void;
   abort?: () => void;
   activateQueuedMessage?: (chatId?: string) => Promise<void>;
@@ -84,7 +85,7 @@ export interface ChatAreaProps {
 export function ChatArea({
   send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, exportChatRecord, createChatShare, handleFileSelect, removeFile,
   regenerate, editAndResend,
-  inputRef, fileInputRef, chatListRef, messagesEndRef, onViewportMount,
+  inputRef, fileInputRef, chatListRef, messagesEndRef, onViewportMount, isPaneHidden = false,
 }: ChatAreaProps) {
   type ShareExpiryOption = '3d' | '15d' | '3m' | 'permanent';
   const shareExpiryOptions = [
@@ -322,7 +323,7 @@ export function ChatArea({
 
   return (
     <div className="jx-chatWrap">
-      <ConversationNavigation key={currentChatId} messages={chat.messages} chatListRef={chatListRef} />
+      <ConversationNavigation hidden={isPaneHidden} key={currentChatId} messages={chat.messages} chatListRef={chatListRef} />
       <Modal
         title={t('有效期设置')}
         open={shareExpiryModalOpen}

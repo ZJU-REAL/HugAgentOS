@@ -1,0 +1,21 @@
+.jx-archive { display: flex; flex-direction: column; min-height: 100%; color: var(--color-text); }
+.jx-archive-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--color-border); }
+.jx-archive-nav nav { flex: 1; overflow-wrap: anywhere; min-width: 140px; }
+.jx-archive button, .jx-archive-status button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; }
+.jx-archive-nav button, .jx-archive-status button { padding: 4px 8px; border-radius: 6px; }
+.jx-archive button:hover, .jx-archive-status button:hover { background: var(--color-fill-hover); }
+.jx-archive button:focus-visible, .jx-archive a:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.jx-archive-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.jx-archive-toolbar input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-container); color: var(--color-text); font: inherit; }
+.jx-archive-toolbar > span, .jx-archive-size { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
+.jx-archive-list { list-style: none; margin: 0; padding: 0 12px 12px; }
+.jx-archive-list li { display: flex; align-items: center; border-bottom: 1px solid var(--color-border); }
+.jx-archive-entry { display: flex; align-items: center; gap: 12px; padding: 12px 8px; flex: 1; min-width: 0; text-align: left; border-radius: 6px; }
+.jx-archive-entry:disabled { cursor: default; color: var(--color-text-secondary); }
+.jx-archive-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.jx-archive-name small { display: block; margin-top: 4px; font-size: 12px; }
+.jx-archive-download { padding: 8px; color: var(--color-text-secondary); }
+.jx-archive-notice { margin: 0 12px 8px; color: var(--color-text-secondary); font-size: 12px; }
+.jx-archive-status { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px 20px; text-align: center; color: var(--color-text-secondary); }
+.jx-archive-preview { display: flex; flex-direction: column; min-height: 400px; flex: 1; }
+.jx-archive-preview .jx-spaceImportPreview { flex: 1; }

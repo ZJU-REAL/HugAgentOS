@@ -1,6 +1,7 @@
 /* Keep a gutter for the navigation even when another pane narrows the chat. */
 .jx-content .jx-panel:has(.jx-chatWrap) {
-  padding-inline: calc(var(--space-xl) + var(--space-xs));
+  --jx-chat-panel-inline-gutter:calc(var(--space-xl) + var(--space-xs));
+  padding-inline:var(--jx-chat-panel-inline-gutter);
 }
 
 .jx-conversationNav {

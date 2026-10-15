@@ -36,6 +36,8 @@
     flex:1 1 auto;
   }
 
+  .jx-primaryPane.is-canvasOpen{visibility:hidden;}
+
   .jx-canvasPanelSlot{
     position:absolute;
     inset:0;

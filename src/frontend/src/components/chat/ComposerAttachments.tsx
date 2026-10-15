@@ -1,4 +1,6 @@
 import { useEffect, useMemo } from 'react';
+import { useReducedMotion } from 'motion/react';
+import { useComposerFiles } from '../../hooks/useComposerFiles';
 import { AnimatePresence, motion } from 'motion/react';
 import { EASE } from '../../utils/motionTokens';
 import { useComposerDraft } from '../../stores/composerStore';
@@ -35,7 +37,9 @@ export function ComposerAttachments({ currentChatId, removeFile, draftKey }: {
   draftKey: string;
   removeFile: (index: number) => void;
 }) {
-  const { uploadedFiles, uploadedArtifacts, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useComposerDraft(draftKey);
+  const { uploadedFiles, uploadedArtifacts, uploadingFiles, uploadErrors, importedSpaceFiles, removeImportedSpaceFile } = useComposerDraft(draftKey);
+  const { retryFile } = useComposerFiles(getApiUrl());
+  const reducedMotion = useReducedMotion();
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
   // Object URLs for uploaded image files — revoked when files change.
   // 超大图不给缩略图：浏览器画这张小卡片也要把整幅图解码成未压缩位图（一张
@@ -58,9 +62,12 @@ export function ComposerAttachments({ currentChatId, removeFile, draftKey }: {
         <div className="jx-inputAttachments">
           <AnimatePresence initial={false}>
             {uploadedFiles.map((file, idx) => (
-              <motion.div key={getFileKey(file)} {...attachCardMotion}>
+              <motion.div key={getFileKey(file)} {...(reducedMotion ? { initial: false, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0 } } : attachCardMotion)}>
                 <FileAttachmentCard
                   name={file.name}
+                  compact
+                  error={uploadErrors.get(file)}
+                  onRetry={() => retryFile(file, draftKey)}
                   loading={uploadingFiles.has(file)}
                   onClose={() => removeFile(idx)}
                   previewUrl={uploadedImageUrls[idx]}
@@ -88,9 +95,10 @@ export function ComposerAttachments({ currentChatId, removeFile, draftKey }: {
                   ? `${getApiUrl()}${file.download_url || `/files/${file.file_id}`}`
                   : undefined;
                 return (
-                  <motion.div key={`space-${file.file_id}-${nth}`} {...attachCardMotion}>
+                  <motion.div key={`space-${file.file_id}-${nth}`} {...(reducedMotion ? { initial: false, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0 } } : attachCardMotion)}>
                     <FileAttachmentCard
                       name={file.name}
+                      compact
                       onClose={() => removeImportedSpaceFile(idx)}
                       previewUrl={previewUrl}
                       artifact={{

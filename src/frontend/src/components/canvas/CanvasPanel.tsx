@@ -19,6 +19,9 @@ import {
 } from '../../utils/filePreviewSafety';
 
 
+import { ArchiveBrowser } from '../file/ArchiveBrowser';
+import { FilePreviewPane } from '../file/FilePreviewPane';
+
 /* ── helpers ── */
 
 import { getFileCategory } from './canvasFileCategory';
@@ -192,6 +195,7 @@ export function CanvasPanel() {
       );
     }
     switch (category) {
+      case 'archive': return <ArchiveBrowser key={activeTabId + ':' + openSeq} file={artifact} renderMember={item => <FilePreviewPane item={item} />} />;
       case 'docx': return <DocxRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
       case 'xlsx':
         return (

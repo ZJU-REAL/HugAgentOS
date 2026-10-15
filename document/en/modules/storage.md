@@ -190,3 +190,35 @@ On upgrade, the earliest file in each duplicate group keeps its name; other file
 receive an ID suffix, also reflected in their display names. IDs, original bytes
 and download references are retained. Copying a personal folder to a team rejects
 duplicate source names before creating destination folders; rename them first.
+
+## Browsing archive contents
+
+Click an archive in My Space to view its folders and files in the right panel.
+Open a folder to enter it. Use Parent folder or the breadcrumb path to return.
+The search field filters the current folder.
+
+Supported formats: ZIP, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.XZ/TXZ,
+and single-file GZ/BZ2/XZ. RAR and 7Z currently offer download only.
+Nested archives can be downloaded but cannot be expanded further.
+
+Click a member to preview text, images, PDF, or Office files. Existing preview
+format and size limits apply. HTML and SVG are displayed as text. Members can
+be downloaded individually. Browsing does not import members into My Space
+or modify the original archive. Members of local archives are also downloaded
+before opening outside the app.
+
+List entries with `GET /files/{file_id}/archive`. Read a member with
+`GET /files/{file_id}/archive/member?path=<relative-member-path>`.
+Office PDF previews use
+`GET /files/{file_id}/archive/member/preview?path=<relative-member-path>`.
+All endpoints require authentication and the original personal/team file's
+read permission. Deleted files cannot be accessed.
+
+Limits: 100 MiB original archive, 5,000 entries, 8 MiB ZIP central directory,
+256 MiB expanded TAR scan, 30 MiB per member, and 64 MiB XZ decoder memory.
+Download and extract the original archive locally when a limit is exceeded.
+
+Unsafe paths are hidden. Links, special files, duplicate or conflicting paths,
+and encrypted members cannot be read. The panel explains these restrictions.
+Invalid archives show an error and a retry action. Browsing is read-only and
+does not extract the entire archive into the user's workspace.

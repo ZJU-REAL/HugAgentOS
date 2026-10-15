@@ -226,6 +226,7 @@ async def assemble_agent(request: AgentRequest):
     )
     await native_tools(
         request,
+        _progressive=_progressive,
         _api_scope=_api_scope,
         _eval_scope=_eval_scope,
         _interactive=_interactive,

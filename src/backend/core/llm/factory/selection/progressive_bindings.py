@@ -61,7 +61,8 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
                 _progressive = await asyncio.to_thread(
                     _plug.resolve_progressive_plugins,
                     user_id=str(request.current_user_id),
-                    chat_id=request.chat_id,
+                    chat_id=(request.capability_source_chat_id if request.derived_main else None)
+                    or request.chat_id,
                     enabled_skill_ids=request.enabled_skill_ids,
                     enabled_mcp_ids=request.enabled_mcp_ids,
                     invoked_skill_ids=request.invoked_skill_ids,

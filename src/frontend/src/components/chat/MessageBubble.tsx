@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileAttachmentCard } from '../file';
 import { ToolMessageContext } from '../tool/ToolMessageContext';
@@ -12,7 +12,7 @@ import { useMessageSelection } from './useMessageSelection';
 import { useChatStore } from '../../stores';
 import type { ChatMessage } from '../../types';
 import { isForkedHistory } from '../../utils/forkHistory';
-import { FRESH_ENTER_WINDOW_MS } from '../../utils/motionTokens';
+import { completeMessageEntrance, hasMessageEntrance } from '../../utils/messageIdentity';
 import { t } from '../../i18n';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 interface MessageBubbleProps {
@@ -41,7 +41,8 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
   const shareSelected = selectedShareMessageUids.has(m.uid);
   const sending = useChatStore((s) => s.sending);
   const inherited = isForkedHistory(m);
-  const [isFresh] = useState(() => Date.now() - m.ts < FRESH_ENTER_WINDOW_MS);
+  const [isFresh] = useState(() => hasMessageEntrance(m.uid));
+  useEffect(() => { completeMessageEntrance(m.uid); }, [m.uid]);
   const toolMessageIdentity = useMemo(
     () => ({ chatId: currentChatId, messageId: m.messageId, messageUid: m.uid, readOnly: inherited }),
     [currentChatId, m.messageId, m.uid, inherited],
