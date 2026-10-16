@@ -18,8 +18,7 @@ def _trusted(service):
         "com.docker.compose.project=" + project,
         "com.docker.compose.service=backend",
     ]})
-    if not backends:
-        raise RuntimeError("An isolated sandbox requires a running Compose backend")
+    # Keep the management DNS alias on the permanent Compose network.
     return project, [(controller, "sandbox-control"), *[(box, "backend") for box in backends]]
 
 
@@ -94,3 +93,14 @@ def network_ip(container):
     if not ip:
         raise RuntimeError("Isolated sandbox has no network address")
     return ip
+
+
+def owned_sandboxes(service):
+    project, _ = _trusted(service)
+    result = []
+    for box in service.docker_client.containers.list(all=True, filters={"label": NETWORK_LABEL}):
+        labels = box.attrs["Config"]["Labels"]
+        sandbox_id = labels.get("opensandbox.io/id")
+        if sandbox_id and labels.get(NETWORK_LABEL) == project + "-sandbox-" + sandbox_id:
+            result.append(box)
+    return result

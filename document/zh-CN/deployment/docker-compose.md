@@ -59,7 +59,7 @@ CE 在空数据库首次启动时会全局安装并启用 `automation`、
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | 轻量沙箱：1 GB 内存 / 1 CPU / read-only rootfs + tmpfs，技能目录只读挂载到 `/workspace/skills` |
 | `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | 一次性 init：把 `docker/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-2` | CE / EE 共享控制器：经 Docker socket 管理沙盒；execd 执行命令并保留会话文件。CE 不映射宿主端口；全量仓库可配置调试端口 |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | CE / EE 共享控制器：经 Docker socket 管理沙盒；execd 执行命令并保留会话文件。CE 不映射宿主端口；全量仓库可配置调试端口 |
 
 ### mem0 记忆基础设施（profile `mem0`，可选）
 
@@ -219,7 +219,7 @@ make migrate-new msg="describe change"
 ### OpenSandbox 命令延迟与控制器镜像
 
 控制器使用 `docker/Dockerfile.opensandbox-server` 构建
-`hugagent-opensandbox-server:v0.1.13-2`。它基于固定的上游版本，对已知沙盒使用
+`hugagent-opensandbox-server:v0.1.13-3`。它基于固定的上游版本，对已知沙盒使用
 按名称 inspect 并校验归属标签，且在线程池中执行生命周期与代理的同步 Docker 查询，
 避免阻塞其它请求。构建时先校验上游源文件摘要并运行回归测试；升级上游版本时须重新审查补丁。
 离线交付必须包含此控制器镜像，不能仅携带原始 `opensandbox/server` 镜像。
@@ -278,4 +278,4 @@ healthy，再在管理台验证用量统计和调用日志。保留原有 `litel
 
 ### 沙盒网络边界
 
-定制控制器为每个沙盒创建独立 Docker bridge，仅接入该沙盒及受信任的后端、控制器；沙盒不发布宿主端口，无法直接访问其他沙盒的 execd。后端和控制器重新创建后，在实例查询时重新接入所属私有网络；删除沙盒时同时删除专属网络。控制器管理域名保留在主项目网络，避免删除沙盒网络时中断管理连接。此控制器需要 Compose 项目标签及运行中的 backend 服务，不支持旧的共享沙盒网络或 host 映射端口方式。
+定制控制器为每个沙盒创建独立 Docker bridge，仅接入该沙盒及受信任的后端、控制器；沙盒不发布宿主端口，无法直接访问其他沙盒的 execd。后端和控制器重新创建后，在实例查询时重新接入所属私有网络；删除沙盒时同时删除专属网络。控制器管理域名保留在主项目网络，避免删除沙盒网络时中断管理连接。此控制器需要 Compose 项目标签，不支持旧的共享沙盒网络或 host 映射端口方式。

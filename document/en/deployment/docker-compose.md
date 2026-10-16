@@ -62,7 +62,7 @@ Enterprise Edition (EE).
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | Lightweight sandbox: 1 GB RAM / 1 CPU / read-only rootfs + tmpfs; skill directory mounted read-only at `/workspace/skills` |
 | `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-2` | Shared CE / EE controller: manages containers through Docker socket; execd runs commands and session files persist. CE publishes no host port; the full repository has a configurable debug port |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | Shared CE / EE controller: manages containers through Docker socket; execd runs commands and session files persist. CE publishes no host port; the full repository has a configurable debug port |
 
 ### mem0 memory infrastructure (profile `mem0`, optional)
 
@@ -224,7 +224,7 @@ make migrate-new msg="describe change"
 ### OpenSandbox command latency and controller image
 
 The controller is built from `docker/Dockerfile.opensandbox-server` as
-`hugagent-opensandbox-server:v0.1.13-2`. Based on a pinned upstream release,
+`hugagent-opensandbox-server:v0.1.13-3`. Based on a pinned upstream release,
 it inspects known sandboxes by name and verifies ownership labels. Synchronous
 Docker lookups in lifecycle and proxy routes run in a thread pool so other requests
 remain responsive. Builds verify upstream source hashes and run regression tests;
@@ -296,4 +296,4 @@ prove that the gateway container exists.
 
 ### Sandbox network boundary
 
-The custom controller creates one Docker bridge per sandbox, connecting only that sandbox and the trusted backend and controller. Sandboxes publish no host ports and cannot directly reach another sandbox's execd. Instance lookup reconnects recreated trusted services; deleting a sandbox also removes its bridge. The management hostname stays on the main project network so deleting a sandbox bridge cannot interrupt a management request. This controller requires Compose project labels and a running backend service; shared sandbox networks and host-mapped sandbox endpoints are unsupported.
+The custom controller creates one Docker bridge per sandbox, connecting only that sandbox and the trusted backend and controller. Sandboxes publish no host ports and cannot directly reach another sandbox's execd. Instance lookup reconnects recreated trusted services; deleting a sandbox also removes its bridge. The management hostname stays on the main project network so deleting a sandbox bridge cannot interrupt a management request. This controller requires Compose project labels; shared sandbox networks and host-mapped sandbox endpoints are unsupported.

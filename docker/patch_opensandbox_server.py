@@ -122,7 +122,7 @@ def patch_isolated_networks(sources):
     name = "services/docker/docker_service.py"
     source = sources[name]
     source = replace_once(source, "import inspect\n",
-        "import inspect\nfrom .isolated_networks import (NETWORK_LABEL, create_network, ensure_network, remove_network)\n")
+        "import inspect\nfrom .isolated_networks import (NETWORK_LABEL, create_network, ensure_network, remove_network, owned_sandboxes)\n")
     source = replace_once(source, "        sidecar_container = None\n        try:",
         "        sidecar_container = None\n        isolated_network_name = None\n        try:")
     start = source.index("            if request.network_policy:", source.index("    def _provision_sandbox("))
@@ -147,6 +147,23 @@ def patch_isolated_networks(sources):
         "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n",
         "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n"
         "        remove_network(self, sandbox_id)\n")
+    start = source.index("    def _restore_existing_sandboxes(")
+    end = source.index("    def _container_to_sandbox(", start)
+    block = source[start:end]
+    block = replace_once(block, "self.docker_client.containers.list(all=True)", "owned_sandboxes(self)")
+    source = source[:start] + block + source[end:]
+    source = replace_once(source,
+        '            containers = self.docker_client.containers.list(\n                all=True,\n                filters={"label": [SANDBOX_ID_LABEL]},\n            )',
+        "            containers = owned_sandboxes(self)")
+    source = replace_once(source,
+        '        status_section = container.attrs.get("State", {})',
+        '        ensure_network(self, container, resolved_id)\n        status_section = container.attrs.get("State", {})')
+    start = source.index("    def _expire_sandbox(")
+    end = source.index("    def _restore_existing_sandboxes(", start)
+    block = replace_once(source[start:end],
+        "        self._release_ossfs_mounts(mount_keys)\n",
+        "        self._release_ossfs_mounts(mount_keys)\n        remove_network(self, sandbox_id)\n")
+    source = source[:start] + block + source[end:]
     sources[name] = source
 
     name = "services/docker/networking.py"

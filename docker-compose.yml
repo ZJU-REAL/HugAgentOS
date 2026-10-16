@@ -409,7 +409,7 @@ services:
   opensandbox:
     profiles:
     - opensandbox
-    image: hugagent-opensandbox-server:v0.1.13-2
+    image: hugagent-opensandbox-server:v0.1.13-3
     build:
       context: .
       dockerfile: docker/Dockerfile.opensandbox-server

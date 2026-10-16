@@ -268,6 +268,21 @@ class IsolatedNetworkTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unexpected sandbox network member"):
             self.module.remove_network(self.service, "one")
 
+    def test_network_lifecycle_when_backend_is_stopped(self):
+        self.service.docker_client.containers.list = lambda **kw: []
+        self.module.create_network(self.service, "one")
+        self.assertEqual(set(self.network.attrs["Containers"]), {"controller"})
+        self.module.remove_network(self.service, "one")
+        self.network.remove.assert_called_once()
+
+    def test_lists_only_the_current_compose_projects_sandboxes(self):
+        own = SimpleNamespace(attrs={"Config": {"Labels": {
+            "opensandbox.io/id": "one", "hugagent.sandbox-network": "test-sandbox-one"}}})
+        foreign = SimpleNamespace(attrs={"Config": {"Labels": {
+            "opensandbox.io/id": "two", "hugagent.sandbox-network": "foreign-sandbox-two"}}})
+        self.service.docker_client.containers.list = lambda **kw: [own, foreign]
+        self.assertEqual(self.module.owned_sandboxes(self.service), [own])
+
     def test_connection_failure_rolls_back_owned_network(self):
         self.network.connect.side_effect = RuntimeError("attach failed")
         with self.assertRaisesRegex(RuntimeError, "attach failed"):
