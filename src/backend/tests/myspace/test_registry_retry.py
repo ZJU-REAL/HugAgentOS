@@ -89,18 +89,18 @@ async def test_large_batch_does_not_exhaust_claim_pool(registry, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_listing_sync_failure_is_reported_as_pending(monkeypatch):
+async def test_listing_preserves_committed_data_when_sync_is_pending(monkeypatch):
     from types import SimpleNamespace
 
-    async def unavailable(user_id):
+    async def unavailable(user_id, **kwargs):
         raise RuntimeError("storage temporarily unavailable")
 
     from core.space_sync import personal_registry
     from fastapi import HTTPException
     monkeypatch.setattr(personal_registry, "_registry", SimpleNamespace(flush=unavailable))
-    with pytest.raises(HTTPException) as error:
-        await personal_registry.flush_user("u1")
-    assert error.value.status_code == 409
+    monkeypatch.setattr("core.myspace.projection.pull_myspace_updates",
+                        lambda **kw: SimpleNamespace(failed=0, conflicted=0))
+    await personal_registry.flush_user("u1")
 
 
 @pytest.mark.asyncio

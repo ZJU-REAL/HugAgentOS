@@ -107,10 +107,12 @@ volumes. Requires Git, Docker and Compose v2.
 ```bash
 git clone https://github.com/ZJU-REAL/HugAgentOS.git
 cd HugAgentOS
-cp .env.example .env
-mkdir -p data/storage
+python3 scripts/configure-ce-docker.py
+docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose up -d --build
 ```
+
+Docker CE uses OpenSandbox by default. Initialization creates private controller credentials and absolute host paths. It refuses to overwrite an existing .env. Local installation keeps subprocess execution.
 
 Open [http://localhost:3002](http://localhost:3002), then connect a model under
 **Settings → System → Model services**. Profiles, persistence and production
@@ -186,7 +188,7 @@ execution, consolidation and reuse. Optional components are enabled as needed.
 | 🧩 **Agent Skills** | Extend the agent with standardised skill definitions and scripts — built-in, marketplace and personal |
 | ⚙️ **Automation and batch runs** | Create scheduled tasks in natural language; run one process across an Excel sheet, a Word file or a file list |
 | 💬 **Group chat channels** | Feishu / DingTalk / WeCom bots, with optional group listening and history retrieval so the agent can see the conversation around it |
-| 🧪 **Sandbox and artifacts** | Run code in a subprocess or lightweight container sandbox, producing charts, reports, Office files, web pages and data canvases |
+| 🧪 **Sandbox and artifacts** | Run code locally or in an OpenSandbox container, producing charts, reports, Office files, web pages and data canvases |
 | 🧠 **Three-layer personal memory** | L1 profile in the relational store; optional Milvus vector memory and Neo4j graph memory |
 | 🧬 **Personal evolution** | Settle memory and skills out of your real work, each approved individually before it applies to you, and switchable off |
 | 🗂️ **Personal workspace** | Projects, folders, favourites, conversation sharing and an artifact center |
@@ -204,7 +206,7 @@ stack.
 
 > [!NOTE]
 > The diagram shows the complete HugAgentOS product architecture. Some
-> governance, collaboration, gateway, and persistent-sandbox capabilities are
+> governance, collaboration, and gateway capabilities are
 > available only in Enterprise Edition.
 
 ### Technology stack
@@ -237,7 +239,7 @@ is physically absent from the Community tree.
 | 8 general MCP tools, personal skills, and a skill marketplace | Industry data tools, organization governance, and skill review |
 | Private knowledge bases and three-tier personal memory | Public knowledge administration and memory auditing |
 | Automation, and a personal data canvas | Organization billing, usage reports, and canvas collaboration |
-| Lightweight sandbox and local file storage | Persistent sandboxes, cloud storage, and offline delivery |
+| OpenSandbox sessions, snapshots, and local file storage | Team workspace mounts, Cube, cloud storage, and offline delivery |
 | Local accounts and branding with Powered-by attribution | SSO, compliance auditing, and full white-labeling |
 
 See the [edition overview](./document/en/editions/overview.md) for the complete
@@ -296,3 +298,5 @@ supplementary terms. The terms restrict operating the software as a competing
 multi-tenant SaaS offering and require the UI's Powered-by attribution to
 remain visible. [LICENSE](./LICENSE) and [NOTICE](./NOTICE) define the complete
 rights and obligations for internal use, modification, and distribution.
+
+Each Docker sandbox uses a separate bridge with the trusted backend and controller. Sandbox host ports are not published; peer sandboxes cannot access each other's execd. Use the bundled custom controller image.

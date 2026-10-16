@@ -157,7 +157,7 @@ async def test_myspace_writeback_follows_the_preset(mode, asks, monkeypatch):
     from core.space_sync import personal as watcher
 
     monkeypatch.setattr(
-        "core.llm.tool_permissions.resolve_approval_mode",
+        "core.llm.tool_permissions.preferences.resolve_approval_mode",
         lambda explicit, *, user_id: mode,
     )
     monkeypatch.setattr(watcher, "_HANDOFF_GRACE_S", 0)

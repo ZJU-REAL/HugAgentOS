@@ -1,0 +1,8 @@
+**
+!docker/
+!docker/patch_opensandbox_server.py
+!src/
+!src/backend/
+!src/backend/tests/
+!src/backend/tests/sandbox/
+!src/backend/tests/sandbox/test_opensandbox_controller_patch.py

@@ -22,7 +22,7 @@
 | `HOST_STORAGE_PATH` | `/var/lib/hugagent-storage` | 宿主机存储目录绝对路径，bind mount 进 backend/mcp 的 `/app/storage`；compose 强校验**必填** | CE |
 | `HOST_REPO_PATH` | 仓库绝对路径 | 宿主机仓库根路径；backend 经 docker.sock 调宿主 daemon 重建沙盒镜像时解析 compose 相对路径用 | CE |
 | `DOCKER_GID` | `999` | 宿主 docker 组 GID，授予 backend 容器读写 `/var/run/docker.sock`（`stat -c '%g' /var/run/docker.sock` 查询） | CE |
-| `COMPOSE_PROFILES` | `script_runner` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
+| `COMPOSE_PROFILES` | CE Docker: `opensandbox` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
 | `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker-compose.cube.yml` | CE |
 | `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端单请求体上限（字节） | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2`（入口脚本默认） | 启动迁移重试次数 / 间隔秒 | CE |
@@ -202,7 +202,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `SANDBOX_PROVIDER` | `script_runner` | `script_runner` / `opensandbox` / `cube` | CE（持久沙箱 opensandbox/cube 为 EE） |
+| `SANDBOX_PROVIDER` | CE Docker: `opensandbox` | `script_runner` / `opensandbox` / `cube` | CE / EE；Cube 为 EE |
 | `SANDBOX_TOOLS_ENABLED` | `false` | 是否给 Agent 注册 `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` 三个工具 | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 | CE |
 | `SANDBOX_FILE_TRANSFER_TIMEOUT_S` | `120` | 文件传输请求超时（秒），不限制命令运行时长 | CE |
@@ -211,19 +211,19 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner 内存上限（MB） | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true`（代码默认） | 沙盒对 `/myspace` 写操作须用户带外确认 | CE |
 
-### OpenSandbox（持久沙箱，商业版 EE）
+### OpenSandbox（CE / EE 共享）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server 地址 |
-| `OPENSANDBOX_API_KEY` | （空 = insecure 模式） | 上生产必须填强随机串 |
+| `OPENSANDBOX_API_KEY` | CE 初始化生成 | 控制器与后端使用相同密钥；不在日志中输出 |
 | `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/Dockerfile.opensandbox`） |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | 等沙盒就绪上限（秒） |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
-| `OPENSANDBOX_PORT` | `8910` | host 调试映射端口（容器内固定 8080） |
-| `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | Jupyter 预热池（持久会话桶） |
+| `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
+| `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | `20` | 全池上限（含使用中） |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 全池上限（含使用中） |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |

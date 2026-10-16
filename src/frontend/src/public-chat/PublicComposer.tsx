@@ -1,3 +1,6 @@
+import { useVoiceInput } from '../components/voice/useVoiceInput';
+import { VoiceInput } from '../components/voice/VoiceInput';
+import { useComposerStore } from '../stores/composerStore';
 import { useRef } from 'react';
 import type React from 'react';
 import { Dropdown } from 'antd';
@@ -25,7 +28,9 @@ export function PublicComposer({ inputRef, fileInputRef, handleFileSelect, remov
   const canReadImage = useModelCapabilitiesStore(s => s.capabilities.can_read_image);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const setInput = (value: string) => readComposer(draftKey).setInput(value);
-  const disabled = !input.trim() || uploadingFiles.size > 0 || uploadErrors.size > 0;
+  const epoch = useComposerStore(s => s.epoch);
+  const voice = useVoiceInput(`${draftKey}:${epoch}`, inputRef, false);
+  const disabled = voice.busy || !input.trim() || uploadingFiles.size > 0 || uploadErrors.size > 0;
   const submit = () => { if (!sending && !disabled) send(); };
   const selectFiles = (files: File[] | FileList) => handleFileSelect(
     { target: { files } } as unknown as React.ChangeEvent<HTMLInputElement>, fileInputRef, draftKey,
@@ -61,6 +66,7 @@ export function PublicComposer({ inputRef, fileInputRef, handleFileSelect, remov
         <ApprovalPill />
         <div className="jx-composerSpacer" style={{ flex: 1 }} />
         <ModelEffortChip />
+        <VoiceInput voice={voice} />
         <ComposerSendButton stopping={sending} disabled={disabled} onSend={submit} onStop={abort} />
       </div>
     </div>

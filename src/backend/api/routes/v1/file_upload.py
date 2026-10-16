@@ -46,6 +46,8 @@ def upload_user_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
+    from core.db.personal_file_names import validate_filename
+    validate_filename(file.filename)
     file_bytes = file.file.read(_MAX_UPLOAD_BYTES + 1)
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")

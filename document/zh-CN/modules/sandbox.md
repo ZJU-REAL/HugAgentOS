@@ -4,7 +4,7 @@
 
 沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `Bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
-按[版本划分](../editions/overview.md)：**轻量沙箱（script_runner）+ 沙箱工具/offload 基础设施属社区版 CE**；**持久沙箱（opensandbox / cube，会话保持、环境复用、快照恢复）属商业版 EE**——社区版派生树剔除这两个 provider 文件，工厂自动回退轻量实现。
+OpenSandbox 基础执行、会话文件、个人空间与快照属于 CE 和 EE 共享能力。CE Docker 默认使用 OpenSandbox。团队挂载、组织治理和 Cube 属于 EE。无 Docker 安装与桌面本机模式继续使用本地执行。
 
 沙箱遵循一个统一边界：**`session_id`（对话中即 `chat_id`）是唯一隔离键**。不同会话使用不同沙箱；同一会话的主智能体、内置子智能体、用户自建子智能体和批量项共享同一个 `/workspace`。智能体的模型上下文、工具权限和执行线程仍可独立，但不会再在会话内部创建第二个文件沙箱。
 
@@ -37,11 +37,11 @@
 
 | Provider | 文件 | 形态 | 适用场景 | 版本 |
 |---|---|---|---|---|
-| `script_runner` | `script_runner_provider.py` | 单 sidecar + 按 `session_id` 分目录的持久文件工作区；每次命令仍由 setrlimit 子进程执行 | 单机部署、轻量代码执行，默认值 | CE |
-| `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | 阿里 OpenSandbox（Docker 容器 + Jupyter 持久 kernel），per-chat 持久会话 + 预热池 + 快照 | 多轮迭代分析、技能重工作流 | **EE** |
+| `script_runner` | `script_runner_provider.py` | 单 sidecar + 按 `session_id` 分目录的持久文件工作区；每次命令仍由 setrlimit 子进程执行 | 单机部署、轻量代码执行，可选 | CE |
+| `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | Docker 容器、execd 命令执行、会话文件、预热池与快照；不保留 Python/JS 内存变量 | CE Docker 默认 | CE / EE |
 | `cube` | `cube_provider.py` | 腾讯 CubeSandbox（E2B 兼容 MicroVM），**远端节点**——后端通过 `e2b_code_interpreter` SDK 跨网访问，无本地 sidecar | 后端宿主机资源紧张 / 需要强隔离（MicroVM 级）/ 沙箱算力独立扩容的部署 | **EE** |
 
-切换由环境变量 `SANDBOX_PROVIDER` 控制（`core/sandbox/factory.py` 单例工厂）。CE 树中 `opensandbox` / `cube` 模块不存在时，工厂打告警并**自动回退 script_runner**，配置不变也能跑通。
+通过 `SANDBOX_PROVIDER` 选择 provider，并让 `COMPOSE_PROFILES` 与之相符。缺失模块或 SDK 会直接报错，不会改用其他 provider。
 
 Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写脚本文件 + `commands.run`"，不依赖 Jupyter；**无 host bind-mount**（myspace 文件由工具层经 `put_file` 物化、技能文件运行时按需推送，`CUBE_SKILL_PREPUSH` 控制预推）；无快照体系；`session_id` 仍绑定持久 MicroVM（首次 create、后续 connect 复用）。
 
@@ -106,36 +106,26 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 `sandbox_artifact_too_large` 结构化错误；PDF 应按页拆分，其他格式应拆包或
 降低体积后逐个交付。
 
-## OpenSandbox 会话生命周期（EE）
+## OpenSandbox 会话生命周期（CE / EE）
 
-```
-            ┌── 预热池 SandboxPool（_pool.py，双桶）──────────────┐
-            │ jupyter 桶: min_idle=2  持久会话用（含 Jupyter，~10s）│
-            │ light 桶:   min_idle=2  ephemeral 用（仅 execd，~3s）│
-            └──────────────┬───────────────────────────────────┘
-   首次 Bash               │ acquire
-chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInterpreter + 语言 ctx）
-                │                         │  后续调用复用；fire-and-forget renew 续期
-                │ idle > 600s（reaper）    │  renew 连续失败 → stale 标记 → 下次重建
-                ▼                         ▼
-        回 user idle pool（Q2 暖复用，~7s 重连）
-                │ idle > 1500s（snapshot worker）
-                ▼
-        park：take_snapshot → Ready → 写 DB → kill 容器
-                │ 用户回来
-                ▼
-        restore：Sandbox.create(snapshot_id=…) → 文件系统全量恢复（kernel 冷启，无感）
+```text
+会话请求 → 校验身份与会话绑定 → 复用容器 / 从快照恢复 / 创建容器
+        → execd 执行独立进程 → 保存会话文件 → 按活动续期
+空闲达到 SANDBOX_IDLE_TTL_S → 创建快照 → 等待 Ready → 登记数据库
+        → 清理工作区 → 归还对应用户的空闲池
+用户返回 → 先恢复会话快照 → 重新声明挂载 → 执行下一条命令
 ```
 
-要点（`_opensandbox_session.py` / `_opensandbox_internals.py`）：
+- 一个会话复用同一容器中的文件。Python/JS 每次启动独立进程，不保留内存变量。
+- 用户绑定的容器仅能交给同一用户，复用前清理上一会话的工作区。
+- 基础实现保留个人空间和技能挂载。EE 扩展额外保留团队挂载并复核权限。
+- CE Docker 默认不预热空闲容器。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
+- SANDBOX_IDLE_TTL_S 同时控制服务端 TTL 和空闲回收阈值，默认 3600 秒。
+- 带密钥的续期与快照请求统一使用 OPEN-SANDBOX-API-KEY 认证头。
 
-- **per-chat 重沙箱**：一个会话一个带 Jupyter 的容器，变量、pip 包、`/workspace` 文件跨 Bash 调用持久；
-- **TTL 与续期**：沙箱服务端 TTL 取 `SANDBOX_IDLE_TTL_S`（默认 3600s，与空闲回收同一个数）；每次会话活动触发限频（60s）的后台 renew，不阻塞请求路径；renew 失败区分 lifecycle 信号（立即标 stale）与瞬时网络错误（连续 3 次才升级）；
-- **双层暖池**：进程启动即预热通用双桶池；Plan F 开启后 user-bound 流量改走 per-user 的 `_JupyterUserPool`（避免挂了别人 myspace volume 的沙盒被串用），idle reaper（`SANDBOX_IDLE_TTL_S`，默认 3600s）把空闲会话的沙盒**洗净 kernel、清空 `/workspace` 后回 user idle 池**复用而非销毁。清空只保留 `myspace` 与 `skills` 两个挂载点并重建 `scratch`——容器跨会话复用，上一轮的脚本和中间结果留在 `/workspace` 会被下一个会话当成自己的上文；擦不干净就放弃复用、直接销毁。
+## 快照持久化（CE / EE）
 
-## 快照持久化（EE）
-
-完整设计见 [sandbox-snapshot-design.md](../../sandbox-snapshot-design.md)。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
+实现位于 core/sandbox/_opensandbox_snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
 - **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
@@ -143,9 +133,9 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 - **GC**：每小时清理过期快照（DB 行 + 远端，默认保留 `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7` 天），删除冲突自动下轮重试；
 - 总开关 `OPENSANDBOX_SNAPSHOT_ENABLED`（默认 true），关闭即回退"idle 即丢"的旧行为。
 
-## MySpace bind-mount 直挂（Plan F，EE）
+## MySpace bind-mount 直挂（CE / EE）
 
-`OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true`（默认）时，创建 jupyter 沙箱直接把宿主机 `$HOST_STORAGE_PATH/myspace_cache/{uid}/` bind 进沙箱 `/workspace/myspace/{uid}/`（`_opensandbox_internals.py::_make_myspace_volume`）：
+`OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true`（默认）时，创建用户会话沙箱直接把宿主机 `$HOST_STORAGE_PATH/myspace_cache/{uid}/` bind 进沙箱 `/workspace/myspace/{uid}/`（`_opensandbox_internals.py::_make_myspace_volume`）：
 
 - 后端容器的 `/app/storage/myspace_cache/{uid}/` 与沙箱内路径指向**同一 host inode**——「我的空间」文件启动即可见，省掉旧路径整目录 HTTP PUT 的同步开销；
 - 前提：`HOST_STORAGE_PATH` 与 docker-compose 挂 backend storage 用的宿主路径完全一致，且 OpenSandbox server 的 `allowed_host_paths` 包含该前缀；
@@ -165,7 +155,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 - 本机模式：`<本机工作区>/.sessions/<会话哈希>/.offload/`，不上传到云端。
 - 云端 `script_runner`：`/workspace/.sessions/<会话哈希>/.offload/`；
   自定义工作区根目录时使用对应根目录。
-- OpenSandbox / Cube（EE）：当前会话沙箱内的 `/workspace/.offload/`。
+- OpenSandbox（CE / EE）与 Cube（EE）：当前会话沙箱内的 `/workspace/.offload/`。
 
 每次保存使用独立文件名，避免并行工具、重试或子智能体覆盖已有文件。
 只有写入成功才向模型提供真实路径；模型应分页读取或定向搜索，避免把整份大文件
@@ -188,7 +178,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `SANDBOX_PROVIDER` | `script_runner` | provider 选择：`script_runner` / `opensandbox` / `cube` |
+| `SANDBOX_PROVIDER` | CE Docker: `opensandbox` | provider 选择：`script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
@@ -213,9 +203,9 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | 路径 | 说明 |
 |---|---|
 | `src/backend/core/sandbox/protocol.py` | Provider 协议与数据契约 |
-| `src/backend/core/sandbox/factory.py` | provider 单例工厂 + CE 回退 |
+| `src/backend/core/sandbox/factory.py` | provider 显式选择；初始化错误直接上报 |
 | `src/backend/core/sandbox/script_runner_provider.py` | 轻量沙箱（CE） |
-| `src/backend/core/sandbox/opensandbox_provider.py` | OpenSandbox provider 主体（EE） |
+| `src/backend/core/sandbox/opensandbox_provider.py` | OpenSandbox 共享 provider 主体 |
 | `src/backend/core/sandbox/_opensandbox_session.py` | 会话/快照/park-restore worker（EE） |
 | `src/backend/core/sandbox/_opensandbox_exec.py` | 执行路径 + idle reaper（EE） |
 | `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
@@ -229,3 +219,5 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `docker/Dockerfile.script-runner` / `docker/Dockerfile.opensandbox` / `docker/Dockerfile.cube-sandbox` | 三种沙箱镜像 |
 
 相关文档：[技能系统](agent-skills.md) · [MCP 工具系统](mcp-tools.md) · [个人空间](projects-myspace.md) · [版本与许可](../editions/overview.md)
+
+Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控制器接入，不发布实例宿主端口。用户隔离验收同时检查个人挂载、会话权限及跨沙盒 execd 不可达。

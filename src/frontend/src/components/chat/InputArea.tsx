@@ -22,6 +22,8 @@ import { pastePlainText, insertClipboardContent } from './composerClipboard';
 import { moveCaretToEnd } from './composerEditorDom';
 import { createComposerKeyHandler } from './composerKeyboard';
 import { ComposerAttachments } from './ComposerAttachments';
+import { useVoiceInput } from '../voice/useVoiceInput';
+import { useComposerStore } from '../../stores/composerStore';
 import { ComposerToolbar } from './ComposerToolbar';
 import { useComposerState } from './useComposerState';
 import { useComposerSuggestions } from './useComposerSuggestions';
@@ -58,6 +60,8 @@ function MainInputArea({
     composingRef, onSlashEntrySelect, onMentionCandidateSelect, editorHostRef, editorRef, syncText,
     isComposing, applyChatReference, setIsComposing,
   } = editor;
+  const voiceEpoch = useComposerStore(s => s.epoch);
+  const voice = useVoiceInput(`${state.draftKey}:${voiceEpoch}`, editor.editorRef);
   const onKeyDown = createComposerKeyHandler(state, suggestions, editor);
 
   // 引用会话同样是"框里已经有内容"的一种：chip 不产生文本，光看 input 会误判成空，
@@ -217,6 +221,9 @@ function MainInputArea({
             onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
             onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); queueMicrotask(syncText); }}
             onKeyDownCapture={(e) => {
+              if (voice.busy && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault(); e.stopPropagation(); if (voice.phase === 'recording') voice.finish(); return;
+              }
               onKeyDown(e);
               if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
                 editorHostRef.current?.setAttribute('data-plain-paste', 'true');
@@ -260,7 +267,7 @@ function MainInputArea({
 
         </div>
         <ComposerToolbar state={state} editor={editor} options={options} fileInputRef={fileInputRef}
-          showStopButton={showStopButton} composerHasContent={composerHasContent} />
+          showStopButton={showStopButton} composerHasContent={composerHasContent} voice={voice} />
       </div>
     </div>
   );

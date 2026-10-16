@@ -15,8 +15,8 @@ export function directoryPaths(selection: UploadSelection): string[] {
   }
   for (const path of [...dirs]) {
     const parts = path.split('/');
-    if (parts.length > 8 || parts.some(p => !p || p !== p.trim() || p === '.' || p === '..' || p.includes('\\') || p.includes('\0') || p.length > 255)) {
-      throw new Error(t('文件夹路径非法或超过 8 级'));
+    if (parts.some(p => !p || p !== p.trim() || p === '.' || p === '..' || p.includes('\\') || p.includes('\0') || p.length > 255)) {
+      throw new Error(t('文件夹路径非法'));
     }
     for (let n = 1; n < parts.length; n++) dirs.add(parts.slice(0, n).join('/'));
   }

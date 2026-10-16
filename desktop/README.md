@@ -626,3 +626,8 @@ SQLite 初始化、归档、代理 HTTP 路由及源码测试不代替原生安�
 ### 工作台共享制品
 
 桌面与 CE 登录网页先构建协议及 SDK，再输出 workbench-build.json 和许可文件。完整包使用 CE 专用锁执行 npm ci。创建 server-ce.zip 前校验共享包制品、版本、许可及锁文件哈希，缺失或漂移即失败。详见 [工作台构建与离线制品](../document/zh-CN/development/workbench-build.md)。
+
+
+### 语音输入
+
+聊天输入框的麦克风录音后转写为可编辑文字，再由用户发送。服务端需在模型管理中配置 audio 类型并分配 audio_transcription 角色；默认未配置。远程/双端走云端音频服务，纯本机模式使用本机配置。macOS 的 Info.plist 和 microphone.entitlements.plist 提供系统用途声明与签名权限；用户仍需在系统中批准麦克风访问。旧客户端需要更新内置前端；本次代码检查不代表原生录音已验收。详见 [音频模型说明](../document/zh-CN/modules/model-providers.md#语音输入与音频模型)。

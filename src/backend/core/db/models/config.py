@@ -63,7 +63,7 @@ class ModelProvider(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "provider_type IN ('chat', 'embedding', 'reranker')",
+            "provider_type IN ('chat', 'embedding', 'reranker', 'audio')",
             name="model_providers_type_check",
         ),
         CheckConstraint(

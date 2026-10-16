@@ -10,10 +10,11 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
     PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple \
     PIP_TRUSTED_HOST=repo.huaweicloud.com
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Build dependencies include Rust for ripgrep on Linux ARM64.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    postgresql-client \
+    rustc cargo \
+    libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install

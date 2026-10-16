@@ -28,6 +28,7 @@ class AgentProfile:
     # Only function tools whose name passes are exposed; None keeps all.
     tool_filter: Optional[Callable[[str], bool]] = None
     # False: MCP servers come only from the request's explicit list, never catalog defaults.
+    # False also prevents history and skill dependencies from widening explicit bindings.
     inherit_default_mcps: bool = True
     # False: the profile's own system prompt lists its skills and how to read them; the
     # chat skill section (which points to view_text_file) is left out.

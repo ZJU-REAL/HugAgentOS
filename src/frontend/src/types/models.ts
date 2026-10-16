@@ -2,7 +2,7 @@ import type { StoredSegment, ThinkingBlock } from './messages';
 
 // ── Model management types ──────────────────────────────────────────────────
 
-export type ProviderType = 'chat' | 'embedding' | 'reranker';
+export type ProviderType = 'chat' | 'embedding' | 'reranker' | 'audio';
 
 export interface ProviderField {
   key: string;

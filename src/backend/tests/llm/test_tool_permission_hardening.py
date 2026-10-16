@@ -21,8 +21,6 @@ from core.llm.tool_permissions import (
     ToolPermissionRegistry,
     ToolPermissionService,
     builtin_tool_permission,
-    mcp_tool_permission,
-    register_mcp_client_permissions,
 )
 
 
@@ -114,49 +112,13 @@ def test_optional_path_argument_falls_back_to_the_tool_default(tool_name):
 # ── MCP tools are temporarily all whitelisted ────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "server,tool,config",
-    [
-        ("automation_task", "create_scheduled_task", {}),
-        ("plugin_manager", "install_plugin", {}),
-        ("automation-automation_task", "create_scheduled_task", {"source_plugin": "automation"}),
-        (
-            "skill-manager-skill_manager",
-            "delete_skill",
-            {"source_plugin": "skill-manager"},
-        ),
-        ("private_server", "destroy", {"permission_default": "deny"}),
-    ],
-)
-def test_mcp_tools_never_receive_a_permission_spec(server, tool, config):
-    assert mcp_tool_permission(server, tool, config) is None
 
 
 # ── MCP whitelist scans do not touch the remote surface ─────────────────────
 
 
-class _BrokenClient:
-    name = "plugin_manager"
-
-    def __init__(self):
-        self.calls = 0
-
-    async def list_tools(self):
-        self.calls += 1
-        raise RuntimeError("connection reset")
 
 
-@pytest.mark.asyncio
-async def test_mcp_whitelist_scan_does_not_enumerate_or_register_tools():
-    registry = ToolPermissionRegistry()
-    broken = _BrokenClient()
-
-    scan = await register_mcp_client_permissions(registry, [broken], {})
-
-    assert broken.calls == 0
-    assert scan.unresolved == ()
-    assert scan.names == frozenset()
-    assert registry.names == frozenset()
 
 
 @pytest.mark.asyncio

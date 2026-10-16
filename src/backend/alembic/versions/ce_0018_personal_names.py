@@ -1,28 +1,22 @@
-"""Enforce personal path identity; existing duplicates require explicit maintenance."""
+"""Enforce personal path identity using the canonical CE model indexes."""
 import sqlalchemy as sa
 from alembic import op
+
+from core.db.models import Artifact
+from core.db.personal_file_names import INDEX_NAMES
 
 revision = "ce_0018"
 down_revision = "ce_0017"
 branch_labels = None
 depends_on = None
 
-INDEXES = (
-    ("uq_personal_file_folder_name", ["user_id", "user_folder_id", "filename"],
-     "user_folder_id IS NOT NULL AND deleted_at IS NULL"),
-    ("uq_personal_file_root_name", ["user_id", "filename"],
-     "user_folder_id IS NULL AND deleted_at IS NULL"),
-)
-
 
 def upgrade():
     connection = op.get_bind()
     if connection.dialect.name == "postgresql":
         connection.execute(sa.text("LOCK TABLE artifacts IN SHARE ROW EXCLUSIVE MODE"))
-    table = sa.Table("artifacts", sa.MetaData(), autoload_with=connection)
-    scope = ""
     duplicate = connection.execute(sa.text(
-        "SELECT 1 FROM artifacts WHERE " + scope + "deleted_at IS NULL "
+        "SELECT 1 FROM artifacts WHERE deleted_at IS NULL "
         "GROUP BY user_id, user_folder_id, filename HAVING count(*) > 1 LIMIT 1"
     )).first()
     if duplicate:
@@ -31,12 +25,14 @@ def upgrade():
             "scripts/clean_myspace_duplicates.py --all --apply --backup-dir <private-directory> "
             "before retrying this migration."
         )
-    for name, columns, predicate in INDEXES:
-        op.create_index(name, "artifacts", columns, unique=True,
-                        postgresql_where=sa.text(scope + predicate),
-                        sqlite_where=sa.text(scope + predicate))
+    # CE's baseline creates current model metadata, including these indexes.
+    # Keep one index definition and let SQLAlchemy inspect before emitting DDL.
+    indexes = {index.name: index for index in Artifact.__table__.indexes}
+    for name in INDEX_NAMES:
+        indexes[name].create(bind=connection, checkfirst=True)
 
 
 def downgrade():
-    for name, _, _ in reversed(INDEXES):
-        op.drop_index(name, table_name="artifacts")
+    indexes = {index.name: index for index in Artifact.__table__.indexes}
+    for name in reversed(INDEX_NAMES):
+        indexes[name].drop(bind=op.get_bind())

@@ -23,81 +23,19 @@ def apply(user_id, change):
     from core.llm.tools.myspace_vfs import myspace_cache_file
     from core.services.project_source import reserve_sqlite_writer
 
+    if change.kind == "moved" and change.destination:
+        from .personal_move import apply_move
+
+        return apply_move(user_id, change)
+
     with SessionLocal() as db:
         reserve_sqlite_writer(db)
         lock_folder_owner(db, UserShadow, "user_id", user_id)
         scope = domain(user_id)
         from .content import artifact_timestamp, signature
-        from .index import move, remember, snapshot
+        from .index import remember, snapshot
 
         state = snapshot(user_id)
-        if change.kind == "moved" and change.destination:
-            # The source must remain absent, otherwise this is a stale rename event.
-            if myspace_cache_file(user_id, change.source).exists():
-                return False
-            source = change.source
-            destination = myspace_cache_file(user_id, change.destination)
-            if not destination.exists():
-                raise RuntimeError("Move destination changed; waiting for reconciliation")
-            existing = (
-                scope.folders(db).get(source) if change.directory else scope.artifact(db, source)
-            )
-            if existing is None:
-                identity = signature(destination)[:2]
-                matches = [
-                    p
-                    for p, s in state.items()
-                    if s.get("directory") == change.directory
-                    and (s.get("signature") or [])[:2] == identity
-                    and not myspace_cache_file(user_id, p).exists()
-                ]
-                if len(matches) == 1:
-                    source = matches[0]
-            existing = (
-                scope.folders(db).get(source) if change.directory else scope.artifact(db, source)
-            )
-            baseline = state.get(source)
-            if existing and baseline:
-                identity = existing.folder_id if change.directory else existing.artifact_id
-                if identity != baseline.get("id") or (
-                    not change.directory and existing.storage_key != baseline.get("key")
-                ):
-                    raise RuntimeError("Cloud identity changed; local move retained")
-                if baseline.get("version") is not None and baseline[
-                    "version"
-                ] != artifact_timestamp(existing):
-                    if change.directory:
-                        raise RuntimeError("Cloud directory version changed; local move retained")
-                    import hashlib
-
-                    from core.storage import get_storage
-
-                    if hashlib.sha256(
-                        get_storage().download_bytes(existing.storage_key)
-                    ).hexdigest() != baseline.get("sha256"):
-                        raise RuntimeError("Cloud content version changed; local move retained")
-            target = (
-                scope.folders(db).get(change.destination)
-                if change.directory
-                else scope.artifact(db, change.destination)
-            )
-            replay = (
-                target is not None
-                and baseline
-                and baseline.get("id")
-                == getattr(target, "folder_id" if change.directory else "artifact_id")
-            )
-            row = target if replay else scope.move(db, source, change.destination, change.directory)
-            db.commit()
-            if row is not None:
-                move(user_id, source, change.destination, change.directory)
-                restored = snapshot(user_id).get(change.destination)
-                if restored:
-                    restored["version"] = artifact_timestamp(row)
-                    if change.directory:
-                        restored["signature"] = signature(destination)
-                    remember(user_id, change.destination, restored)
-            return row is not None
         if change.directory and change.kind == "created":
             if not myspace_cache_file(user_id, change.source).is_dir():
                 return False

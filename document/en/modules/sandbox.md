@@ -4,7 +4,7 @@
 
 The sandbox is the isolated environment where HugAgentOS's agents execute code: every `Bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
-Edition split (see [editions](../editions/overview.md)): the **lightweight sandbox (script_runner) plus the sandbox tool / offload infrastructure are Community CE**; the **persistent sandboxes (opensandbox / cube — session retention, environment reuse, snapshot recovery) are Enterprise EE** — the CE derivation strips those two provider files and the factory transparently falls back to the lightweight implementation.
+OpenSandbox execution, session files, personal mounts and snapshots are shared by CE and EE. Docker CE defaults to OpenSandbox. Team mounts, organization governance and Cube belong to EE. No-Docker installation and desktop local mode keep local execution.
 
 All providers follow one boundary rule: **`session_id` (`chat_id` in a conversation) is the sole isolation key**. Different conversations use different sandboxes; the main agent, built-in subagents, user-defined subagents, and batch items in one conversation share the same `/workspace`. Model context, tool permissions, and execution threads may remain independent, but no second file sandbox is created inside a conversation.
 
@@ -37,11 +37,11 @@ Two key fields on `ProcessRequest`:
 
 | Provider | File | Form | When to use | Edition |
 |---|---|---|---|---|
-| `script_runner` | `script_runner_provider.py` | One sidecar with persistent per-`session_id` filesystem directories; each command still runs in a setrlimit subprocess | Single-host lightweight execution; the default | CE |
-| `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | Alibaba OpenSandbox (Docker containers + persistent Jupyter kernels): per-chat persistent sessions, warm pools, snapshots | Multi-turn iterative analysis, heavy skill workflows | **EE** |
+| `script_runner` | `script_runner_provider.py` | One sidecar with persistent per-`session_id` filesystem directories; each command still runs in a setrlimit subprocess | Single-host lightweight execution; optional | CE |
+| `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | Docker containers, execd commands, session files, warm pools and snapshots; Python/JS variables are not retained | Docker CE default | CE / EE |
 | `cube` | `cube_provider.py` | Tencent CubeSandbox (E2B-compatible MicroVMs) on a **remote node** — the backend reaches it over the network via the `e2b_code_interpreter` SDK, no local sidecar | Deployments where the backend host is resource-constrained, stronger (MicroVM-grade) isolation is required, or sandbox compute must scale independently | **EE** |
 
-Switching is controlled by the `SANDBOX_PROVIDER` environment variable (`core/sandbox/factory.py`, a singleton factory). In a CE tree where the `opensandbox` / `cube` modules don't exist, the factory logs a warning and **falls back to script_runner automatically** — the same configuration still boots.
+Select the provider with `SANDBOX_PROVIDER` and match `COMPOSE_PROFILES`. Missing modules or SDKs raise an error; the factory never changes the selected provider.
 
 Cube's design trade-offs (the price of being remote): every language goes through "write a script file + `commands.run`" without Jupyter; **no host bind mounts** (myspace files are materialized via `put_file` by the tool layer, and skill files matching `/workspace/skills` are pushed at runtime, governed by `CUBE_SKILL_PREPUSH*`); no snapshot system; `session_id` still binds a persistent MicroVM (create on first use, connect-reuse afterwards).
 
@@ -111,37 +111,26 @@ the configured limit before or during transfer, the tool returns the structured
 `sandbox_artifact_too_large` error. Split PDFs by page; split other archive-like
 formats or reduce their content before delivering each part.
 
-## OpenSandbox session lifecycle (EE)
+## OpenSandbox session lifecycle (CE / EE)
 
-```
-            ┌── warm pool SandboxPool (_pool.py, two buckets) ────────────┐
-            │ jupyter bucket: min_idle=2  persistent sessions (Jupyter, ~10s)│
-            │ light bucket:   min_idle=2  ephemeral runs (execd only, ~3s)   │
-            └──────────────┬──────────────────────────────────────────────┘
-   first Bash              │ acquire
-chat_id ──▶ _get_or_create_session ──▶ _Session (sandbox + CodeInterpreter + language ctxs)
-                │                         │  reused on later calls; fire-and-forget renew
-                │ idle > 600s (reaper)     │  repeated renew failures → stale → rebuilt next acquire
-                ▼                         ▼
-        returned to the user idle pool (Q2 warm reuse, ~7s reconnect)
-                │ idle > 1500s (snapshot worker)
-                ▼
-        park: take_snapshot → wait Ready → upsert DB → kill the container
-                │ user comes back
-                ▼
-        restore: Sandbox.create(snapshot_id=…) → full filesystem recovery
-                                                  (kernel cold-boots, invisible to the user)
+```text
+Request → authorize identity and session binding → reuse / restore / create container
+        → execd starts a separate process → retain files → renew on activity
+Idle reaches SANDBOX_IDLE_TTL_S → create snapshot → wait Ready → record in database
+        → clean workspace → return to the same user's idle pool
+User returns → restore the session snapshot first → declare mounts again → run command
 ```
 
-Key points (`_opensandbox_session.py` / `_opensandbox_internals.py`):
+- A conversation reuses container files. Each Python/JS command starts a separate process and retains no variables.
+- A user-bound container can only be reused by the same user, after clearing the previous conversation workspace.
+- The base runtime preserves personal and skill mounts. EE adds team mounts and permission checks.
+- Docker CE does not prewarm idle containers by default. Historical jupyter setting names refer to the user-session pool; no Jupyter server starts.
+- SANDBOX_IDLE_TTL_S controls the server TTL and idle reclaim threshold, default 3600 seconds.
+- Authenticated renewal and snapshot requests share the OPEN-SANDBOX-API-KEY header.
 
-- **Per-chat heavy sandboxes**: one Jupyter-equipped container per conversation; variables, pip packages and `/workspace` files persist across Bash calls;
-- **TTL & renewal**: the server-side sandbox TTL is `SANDBOX_IDLE_TTL_S` (default 3600 s — the same number as the idle threshold); every session activity triggers a rate-limited (60 s) background renew that never blocks the request path; renew failures distinguish lifecycle signals (immediate stale mark) from transient network errors (escalated only after 3 consecutive failures);
-- **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (`SANDBOX_IDLE_TTL_S`, default 3600 s) snapshots an idle session and then returns its sandbox — kernels scrubbed and `/workspace` wiped — to the user idle pool for reuse rather than destroying it. The wipe keeps only the `myspace` and `skills` mount points and rebuilds `scratch`: the container is reused across chats, so scripts and intermediate files left in `/workspace` would be read by the next session as its own context. If the wipe fails the sandbox is destroyed instead of reused.
+## Snapshot persistence (CE / EE)
 
-## Snapshot persistence (EE)
-
-Full design in [sandbox-snapshot-design.md](../../sandbox-snapshot-design.md). Goal: stop idle sessions from squatting on Docker resources while letting users resume **with their filesystem intact**.
+Implementation: core/sandbox/_opensandbox_snapshots.py. Goal: stop idle sessions from squatting on Docker resources while letting users resume **with their filesystem intact**.
 
 - **Park**: a background worker scans every 60 s; sessions idle beyond `SANDBOX_IDLE_TTL_S` (default 3600 s) get a snapshot (accept→Ready measured at ~60 s, a docker commit), then the `chat_sandbox_snapshots` row is upserted (chat_id is the primary key) and the wiped container goes back to the idle pool; at most 3 concurrent parks per round to protect the docker daemon. **This is the only path that reclaims a chat sandbox** — a second 600 s reaper used to wipe and release without snapshotting, and being the shorter threshold it always won, so files were lost with no backup to restore from; the two are now one;
 - **Restore**: `_create_session_for` checks the DB snapshot **first** (~15–20 s restore, still faster than a fresh create), falling back to the Q2 user idle pool (~7 s warm path) only for chats with nothing to restore, and creating fresh last. The order matters — idle-pool containers are wiped clean, so handing one to a chat that has a snapshot silently drops its files. When booting from a snapshot the volumes **must be re-declared** — docker commit does not preserve mount configuration, otherwise bind mounts like `/workspace/skills/` are lost;
@@ -149,9 +138,9 @@ Full design in [sandbox-snapshot-design.md](../../sandbox-snapshot-design.md). G
 - **GC**: an hourly sweep deletes expired snapshots (DB row + remote; default retention `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7`), retrying delete conflicts on the next round;
 - master switch `OPENSANDBOX_SNAPSHOT_ENABLED` (default true); off reverts to the old "idle = gone" behaviour.
 
-## MySpace bind mount (Plan F, EE)
+## MySpace bind mount (CE / EE)
 
-With `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true` (the default), Jupyter sandbox creation bind-mounts the host's `$HOST_STORAGE_PATH/myspace_cache/{uid}/` directly into the sandbox at `/workspace/myspace/{uid}/` (`_opensandbox_internals.py::_make_myspace_volume`):
+With `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true` (the default), User-session sandbox creation bind-mounts the host's `$HOST_STORAGE_PATH/myspace_cache/{uid}/` directly into the sandbox at `/workspace/myspace/{uid}/` (`_opensandbox_internals.py::_make_myspace_volume`):
 
 - the backend container's `/app/storage/myspace_cache/{uid}/` and the in-sandbox path point at the **same host inode** — "My Space" files are visible the moment the sandbox starts, eliminating the old full-directory HTTP PUT sync;
 - prerequisites: `HOST_STORAGE_PATH` must exactly match the host path docker-compose uses for the backend storage volume, and the OpenSandbox server's `allowed_host_paths` must include that prefix;
@@ -172,7 +161,7 @@ The path uses the same session as `Read` and `Bash`:
 - Local mode: `<local workspace>/.sessions/<session hash>/.offload/`, without a cloud upload.
 - Cloud `script_runner`: `/workspace/.sessions/<session hash>/.offload/`, or the
   equivalent location under a configured workspace root.
-- OpenSandbox / Cube (EE): `/workspace/.offload/` inside the current session sandbox.
+- OpenSandbox (CE / EE) and Cube (EE): `/workspace/.offload/` inside the current session sandbox.
 
 Each write gets a unique filename so concurrent tools, retries and child agents
 cannot overwrite earlier results. The model receives a real path only after a
@@ -201,7 +190,7 @@ fix on both execution surfaces. Updating only the cloud does not fix old clients
 
 | Variable | Default | Description |
 |---|---|---|
-| `SANDBOX_PROVIDER` | `script_runner` | Provider selection: `script_runner` / `opensandbox` / `cube` |
+| `SANDBOX_PROVIDER` | CE Docker: `opensandbox` | Provider selection: `script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
@@ -226,9 +215,9 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | Path | Description |
 |---|---|
 | `src/backend/core/sandbox/protocol.py` | Provider protocol & data contracts |
-| `src/backend/core/sandbox/factory.py` | Provider singleton factory + CE fallback |
+| `src/backend/core/sandbox/factory.py` | Explicit provider selection; initialization errors propagate |
 | `src/backend/core/sandbox/script_runner_provider.py` | Lightweight sandbox (CE) |
-| `src/backend/core/sandbox/opensandbox_provider.py` | OpenSandbox provider body (EE) |
+| `src/backend/core/sandbox/opensandbox_provider.py` | Shared OpenSandbox provider |
 | `src/backend/core/sandbox/_opensandbox_session.py` | Sessions / snapshots / park-restore workers (EE) |
 | `src/backend/core/sandbox/_opensandbox_exec.py` | Execution path + idle reaper (EE) |
 | `src/backend/core/sandbox/_opensandbox_internals.py` | Volume builders, metadata, user pool (EE) |
@@ -242,3 +231,5 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `docker/Dockerfile.script-runner` / `docker/Dockerfile.opensandbox` / `docker/Dockerfile.cube-sandbox` | The three sandbox images |
 
 Related docs: [Agent skills](agent-skills.md) · [MCP tool system](mcp-tools.md) · [Projects & My Space](projects-myspace.md) · [Editions & licensing](../editions/overview.md)
+
+Each Docker OpenSandbox instance has its own bridge, joined only by the trusted backend and controller, with no published sandbox host ports. User isolation checks cover personal mounts, session permissions, and blocked access to another sandbox's execd.

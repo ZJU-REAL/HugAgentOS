@@ -22,6 +22,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("memories", "router"),
     ("ontologies", "router"),
     ("models", "router"),
+    ("audio", "router"),
     ("prompt_management", "router"),
     ("chat_shares", "router"),
     ("agent_responses", "router"),
