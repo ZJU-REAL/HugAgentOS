@@ -1,3 +1,4 @@
+import { usePublicChat } from '../../public-chat/PublicChatContext';
 import { useChatStore } from '../../stores/chatStore';
 import { chatDraftKey, readComposer } from '../../stores/composerStore';
 import { FileTextOutlined, PieChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
@@ -18,6 +19,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
   view: ReturnType<typeof useChatWelcome>;
   shareAccessLevel: 'admin' | 'edit' | 'read' | null;
 }) {
+  const publicChat = usePublicChat();
   const project = useProjectStore(s => s.currentProject);
   const { overviewProjectId, isAgentChat, isSiteChat, isProjectChat, showHomepageLogo, homepageLogoUrl, cfgProductName, heroTitle, heroSubtitle, inputPlaceholder, suggestedQuestions, visibleHomepageSuggestions, suggestionPageCount, setSuggestionPage, pluginShortcuts, cfgDisclaimer } = view;
   const isProjectOverview = !!overviewProjectId;
@@ -27,7 +29,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
     inputRef.current?.focus();
   };
   return (
-    <div className={`jx-emptyPage${!isAgentChat && !isSiteChat ? ' jx-emptyPage--main' : ''}`}>
+    <div className={`jx-emptyPage${(!isAgentChat && !isSiteChat) || publicChat ? ' jx-emptyPage--main' : ''}`}>
       {isSiteChat && (
         <div className="jx-siteHeroTop">
           <button
@@ -52,10 +54,10 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
           )}
           <h1 className="jx-heroTitle">{heroTitle}</h1>
           <p className="jx-heroSubtitle">{heroSubtitle}</p>
-          {!isAgentChat && !isSiteChat && (
+          {((!isAgentChat && !isSiteChat) || publicChat) && (
             <div className="jx-mobileHeroText">
-              <h1>HugAgentOS</h1>
-              <p>{t('你的智能任务助手')}</p>
+              <h1>{publicChat ? heroTitle : 'HugAgentOS'}</h1>
+              <p>{publicChat ? heroSubtitle : t('你的智能任务助手')}</p>
             </div>
           )}
         </div>}

@@ -3,12 +3,20 @@ import { Button, Modal, message } from 'antd';
 import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useSidebarLayoutStore } from '../../stores/sidebarLayoutStore';
+import { NavigationManager } from '../../workbench/NavigationManager';
+import { useApplicationNavigation } from '../../applicationNavigation';
+import { saveNavigationPreferences, useNavigationPreferences, type NavigationPreferences } from '../../workbench/preferences';
 import { t } from '../../i18n';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { applySidebarLayout, type SidebarLayout } from '../../utils/sidebarLayout';
 import '../../styles/sidebar-layout-setting.css';
 
 export function SidebarLayoutSetting() {
+  const navigation = useNavigationPreferences();
+  const { defaults } = useApplicationNavigation();
+  const [draft, setDraft] = useState<{ owner: string; value: NavigationPreferences } | null>(null);
+  const value = draft?.owner === navigation.owner ? draft.value : navigation.value;
+  const navigationDirty = JSON.stringify([value.pinned, value.order]) !== JSON.stringify([navigation.value.pinned, navigation.value.order]);
   const applied = useSidebarLayoutStore(s => s.layout);
   const userId = useAuthStore(s => s.authUser?.user_id);
   const [selected, setSelected] = useState(applied);
@@ -20,8 +28,9 @@ export function SidebarLayoutSetting() {
     { value: 'classic', label: t('经典模式'), description: t('文字导航、项目与历史对话集中在同一侧栏') },
     { value: 'modern', label: t('现代模式'), description: t('图标导航与模块侧栏分开显示') },
   ];
-  return <div className="jx-layoutSetting">
+  return <>
     {holder}
+    <div className="jx-settings-card"><div className="jx-layoutSetting">
     <div className="jx-settings-rowLeft">
       <span className="jx-settings-rowLabel">{t('侧边栏排布')}</span>
       <span className="jx-settings-rowDesc">{t('选择排布后点击应用，确认后生效。')}</span>
@@ -41,9 +50,15 @@ export function SidebarLayoutSetting() {
         <span className="jx-layoutChoiceDesc">{choice.description}</span>
       </label>)}
     </fieldset>
+    </div></div>
+    <div className="jx-settings-card jx-settings-card--padded">
+      <h4 className="jx-settings-rowLabel">{t('管理应用导航')}</h4>
+      <NavigationManager defaults={defaults} value={value} disabled={applying}
+        onChange={next => setDraft({ owner: navigation.owner, value: next })} />
+    </div>
     <div className="jx-layoutActions">
       <span className="jx-settings-rowDesc">{isDesktop ? t('应用后将重启客户端，所有窗口都会关闭。') : t('应用后将刷新当前页面。')}</span>
-      <Button type="primary" disabled={selected === applied || applying} onClick={() => setConfirmOpen(true)}>{t('应用')}</Button>
+      <Button type="primary" disabled={(!navigationDirty && selected === applied) || applying || navigation.loading || navigation.saving} onClick={() => setConfirmOpen(true)}>{t('应用')}</Button>
     </div>
     <Modal open={confirmOpen} title={isDesktop ? t('重启客户端并应用排布？') : t('刷新页面并应用排布？')}
       okText={isDesktop ? t('应用并重启') : t('应用并刷新')} cancelText={t('取消')}
@@ -53,6 +68,15 @@ export function SidebarLayoutSetting() {
         if (!userId) return;
         setApplying(true);
         try {
+          if (navigationDirty) {
+            const result = await saveNavigationPreferences(value.pinned, value.order, value.revision);
+            if (!result.saved) {
+              // Keep edits after a conflict; another Apply explicitly retries against the latest revision.
+              setDraft({ owner: navigation.owner, value: { ...value, revision: result.latest?.revision ?? value.revision } });
+              setConfirmOpen(false);
+              return;
+            }
+          }
           await applySidebarLayout(userId, selected);
           if (isDesktop) setConfirmOpen(false);
         } catch {
@@ -64,5 +88,5 @@ export function SidebarLayoutSetting() {
       <p>{isDesktop ? t('客户端将关闭所有窗口并重新打开。请先保存尚未完成的编辑。') : t('当前页面将重新加载。请先保存尚未完成的编辑。')}</p>
       <p>{isDesktop && t('重启会中断正在本机运行的任务。')}{t('取消将保留当前排布。')}</p>
     </Modal>
-  </div>;
+  </>;
 }

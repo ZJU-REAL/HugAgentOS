@@ -1,13 +1,13 @@
 #[cfg(not(target_os = "macos"))]
 use crate::dialogs::open_close_confirm;
+#[cfg(not(target_os = "macos"))]
+use crate::prefs;
 use crate::session::handle_deep_link;
 use crate::window_labels::is_desktop_window;
 #[cfg(target_os = "macos")]
 use crate::windows::show_main_window;
 use crate::windows::{active_desktop_label, toggle_quickask};
 use crate::{actions, Shared};
-#[cfg(not(target_os = "macos"))]
-use crate::prefs;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
@@ -45,10 +45,6 @@ pub fn run() {
         )
         // 原生菜单栏事件分发（文件/编辑/视图/帮助）。
         .on_menu_event(actions::handle)
-        .invoke_handler(tauri::generate_handler![
-            crate::session::open_login,
-            crate::session::logout_desktop
-        ])
         // macOS 遵循平台习惯：红色关闭按钮只隐藏主窗口并继续驻留后台，退出由系统
         // 菜单或托盘显式执行。其他平台首次关闭时仍弹出自定义确认窗，可记住后续行为。
         .on_window_event(|window, event| {

@@ -196,8 +196,8 @@ async def test_reinforcement_retains_every_receipt_from_current_candidate(ctx, m
     updates = []
 
     class Memory:
-        def update(self, memory_id, *, metadata, expiration_date):
-            updates.append((memory_id, metadata, expiration_date))
+        def update(self, memory_id, data, *, metadata):
+            updates.append((memory_id, metadata, data))
 
     monkeypatch.setattr(
         memory_backend,
@@ -207,6 +207,7 @@ async def test_reinforcement_retains_every_receipt_from_current_candidate(ctx, m
     monkeypatch.setattr(memory_backend, "_get_memory", lambda: Memory())
     similar = {
         "id": "mem-1",
+        "memory": "先核验主体",
         "metadata": {
             "seen_count": 2,
             "outbox_effect_id": "job-1:hash-a",

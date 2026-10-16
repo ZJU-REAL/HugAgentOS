@@ -35,10 +35,23 @@ def _apply_normalized(
     secrets: Dict[str, str],
     source: str,
     created_by: Optional[str] = None,
+    approved_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Persist a NormalizedPlugin and return the installation result (including the import_report)."""
+    from core.applications.coordination import configuration
+    from core.applications.plugin_upgrades import prepare
+
+    configuration(db)
+    db.expire_all()
     install_id = plugin_sources._make_plugin_install_id(np.slug, owner_user_id)
     existing = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
+    try:
+        staged = prepare(db, existing, np, source, approved_revision)
+    except BaseException:
+        db.rollback()
+        raise
+    if staged is not None:
+        return staged
     previous_component_ids = dict(existing.component_ids or {}) if existing is not None else {}
     ontology_policy = resolve_plugin_import_ontology_validation(db, owner_user_id)
 
@@ -100,6 +113,7 @@ def _apply_normalized(
     import_report = {"imported": imported, "adapted": adapted, "dropped": np.dropped}
     if np.package_dir and np.ui:
         from core.plugins.packaging.runtime_assets import retain
+
         import_report["package_revision"] = retain(db, Path(np.package_dir))
     component_ids = {"skills": skill_ids, "mcp": server_ids, "prompts": []}
 
@@ -231,12 +245,14 @@ def install_plugin(
 ) -> Dict[str, Any]:
     """Install a marketplace plugin package (filesystem default / marketplace, or a DB-published marketplace package)."""
     from core.services.marketplace_version_store import active, archive, decode
+
     plugin_details.get_plugin_detail(slug, db)
     snapshot = active(db, "plugin", slug)
     if snapshot:
         with _extract_plugin_zip(archive(decode(snapshot))) as root:
-            return import_plugin(db, root, owner_user_id=owner_user_id,
-                                 secrets=secrets or {}, created_by=created_by)
+            return import_plugin(
+                db, root, owner_user_id=owner_user_id, secrets=secrets or {}, created_by=created_by
+            )
     plugin_dir = plugin_sources._resolve_plugin_dir(slug)
     if plugin_dir is not None:
         np = normalize_plugin_dir(plugin_dir)

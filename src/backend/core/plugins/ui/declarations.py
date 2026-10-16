@@ -263,7 +263,9 @@ def _params_schema(value: Any) -> Dict[str, Any]:
     return out
 
 
-def _modules(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
+def _modules(
+    entries: Any, dropper: _Dropper, *, allow_workspace: bool = False
+) -> List[Dict[str, Any]]:
     """L2 modules: frontend assets shipped **inside the plugin package**.
 
     ``entry`` is a package-relative path under the plugin's own ``web/``
@@ -284,13 +286,19 @@ def _modules(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
             dropper.drop("modules", mid, "entry 必须位于插件包的 web/ 目录下")
             continue
         surface = _text(raw.get("surface"), max_len=16) or "canvas"
-        if surface not in MODULE_SURFACES:
+        if surface not in MODULE_SURFACES and not (allow_workspace and surface == "workspace"):
             dropper.drop("modules", mid, f"未知 surface：{surface}")
             continue
+        from core.applications.protocol import HOST_CAPABILITIES
+
         grants = [
             g
             for g in _string_list(raw.get("grants"), limit=MAX_MODULE_GRANTS)
-            if g in BRIDGE_METHODS or g.startswith("data_source:")
+            if (
+                g in BRIDGE_METHODS
+                or g.startswith("data_source:")
+                or (allow_workspace and surface == "workspace" and g in HOST_CAPABILITIES)
+            )
         ]
         item: Dict[str, Any] = {
             "id": mid,
@@ -304,9 +312,12 @@ def _modules(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
         resource = raw.get("resource")
         if resource is not None:
             import re
+
             root = _safe_relpath(resource.get("entry")) if isinstance(resource, dict) else ""
             callable_name = resource.get("callable", "") if isinstance(resource, dict) else ""
-            if not root or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*", callable_name):
+            if not root or not re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*", callable_name
+            ):
                 dropper.drop("modules", mid, "resource runtime 非法")
                 continue
             item["resource"] = {"entry": root, "callable": callable_name}

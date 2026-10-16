@@ -173,10 +173,8 @@ def _build_ctx(
         "plugin_name": request.plugin_name,
         "plugin_id": request.plugin_id,
         "plan_chat": request.plan_chat,
-        "batch_chat": request.batch_chat,
         "workflow_chat": request.workflow_chat,
         "site_chat": request.site_chat,
-        "disable_batch_plan": request.disable_batch_plan,
         **project_ctx,
     }
     return ctx

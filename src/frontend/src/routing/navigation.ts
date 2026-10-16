@@ -1,9 +1,10 @@
+import { standaloneFromPath, pathForStandalone } from './standalone';
 import { generatePath, matchPath } from 'react-router';
 import type { PanelKey } from '../types';
 
 interface RouterLike {
-  navigate: (to: string, opts?: { replace?: boolean }) => unknown;
-  subscribe?: (fn: (state: { location: { pathname: string } }) => void) => unknown;
+  navigate: (to: string, opts?: { replace?: boolean; state?: unknown }) => unknown;
+  subscribe?: (fn: (state: { location: { pathname: string; search?: string; hash?: string } }) => void) => unknown;
 }
 
 /** 路由形状的单一真源：routes.tsx 按它声明路由，这里按它解析 / 生成地址，
@@ -16,13 +17,14 @@ export function pathForAutomationChat(taskId: string, chatId: string): string {
   return generatePath(AUTOMATION_CHAT_PATTERN, { taskId, chatId });
 }
 export function isConversationPath(pathname: string = currentPath()): boolean {
-  return panelFromPath(pathname) === 'chat' || !!matchPath(AUTOMATION_CHAT_PATTERN, pathname);
+  return !/^\/apps(?:\/|$)/.test(pathname) && panelFromPath(pathname) === 'chat' || !!matchPath(AUTOMATION_CHAT_PATTERN, pathname);
 }
 
 /** 这些 slug 不能和服务端自己占着的路径撞车（nginx 把 `/docs`、`/login`、`/register`、
  *  `/redoc`、`/site/`、`/mock-sso/` 直接转给后端，前端根本收不到），所以文档面板用
  *  `/help` 而不是 `/docs`。 */
 const PANEL_SLUGS: Partial<Record<PanelKey, string>> = {
+  personal_agent: 'personal-agent',
   docs: 'help',
   app_center: 'app-center',
   settings: 'settings',
@@ -49,7 +51,7 @@ let requestedPath: string | null = null;
  *  单页应用，不绑定 router——它们复用的 store 里发出的导航请求在那里无处可去。 */
 export function bindRouter(r: RouterLike) {
   router = r;
-  r.subscribe?.((state) => { requestedPath = state.location.pathname; });
+  r.subscribe?.((state) => { requestedPath = state.location.pathname + (state.location.search || '') + (state.location.hash || ''); });
 }
 
 /** 聊天面板对应哪个地址取决于当前开着哪段会话，由 chatStore 注册；
@@ -66,10 +68,13 @@ function currentPath(): string {
 
 /** 是否正停在首页。首页是「一段还没有地址的新对话」，只有它才需要被升级成 `/c/<会话id>`。 */
 export function isHomePath(): boolean {
-  return currentPath() === '/';
+  const standalone = standaloneFromPath();
+  return currentPath() === '/' || !!standalone && !standalone.chatId;
 }
 
 export function pathForChat(chatId: string | null): string {
+  const standalone = standaloneFromPath();
+  if (standalone) return pathForStandalone(standalone, chatId);
   if (!chatId) return '/';
   const owner = conversationOwner(chatId);
   return owner ? pathForAutomationChat(owner, chatId) : generatePath(CHAT_PATTERN, { chatId });
@@ -91,7 +96,7 @@ export function pathForPanel(panel: PanelKey, ...subs: Array<string | null | und
 }
 
 export function chatIdFromPath(pathname: string = currentPath()): string | null {
-  return (matchPath(CHAT_PATTERN, pathname) ?? matchPath(AUTOMATION_CHAT_PATTERN, pathname))?.params.chatId ?? null;
+  return standaloneFromPath(pathname)?.chatId ?? (matchPath(CHAT_PATTERN, pathname) ?? matchPath(AUTOMATION_CHAT_PATTERN, pathname))?.params.chatId ?? null;
 }
 
 function segments(pathname: string): string[] {
@@ -113,8 +118,9 @@ export function subsFromPath(pathname: string = currentPath()): string[] {
  *  `/ability-center` 冲回）。面板与它的下级页必须并进一次跳转，这里把误用喊出来。 */
 let sameTickPath: string | null = null;
 
-export function navigateTo(to: string, opts?: { replace?: boolean }) {
-  if (!router || (requestedPath ?? currentPath()) === to) return;
+export function navigateTo(to: string, opts?: { replace?: boolean; state?: unknown }) {
+  const currentUrl = currentPath() + (typeof window === 'undefined' ? '' : window.location.search + window.location.hash);
+  if (!router || (!opts?.state && (requestedPath ?? currentUrl) === to)) return;
   if (sameTickPath && sameTickPath !== to) {
     console.warn(`[navigation] 同一轮跳了两次：${sameTickPath} 被 ${to} 盖掉，请把下级页并进一次跳转`);
   }

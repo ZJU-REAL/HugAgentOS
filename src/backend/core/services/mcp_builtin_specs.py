@@ -47,16 +47,4 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "sort_order": 6,
         "icon": "/home/mcp/source.svg",
     },
-    {
-        "server_id": "batch_runner",
-        "display_name": "批量执行",
-        "description": (
-            "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，"
-            "用户审阅模板后再逐条执行。"
-        ),
-        "is_stable": True,
-        "is_enabled": True,
-        "sort_order": 100,
-        "icon": "/home/mcp/list.svg",
-    },
 ]

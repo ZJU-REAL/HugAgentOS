@@ -1,0 +1,102 @@
+.jx-kbEditorModal .ant-modal-content{
+  border-radius:18px;
+  padding:0;
+  overflow:hidden;
+}
+
+.jx-kbEditorModal .ant-modal-header{
+  padding:18px 22px 0;
+  border-bottom:none;
+}
+
+.jx-kbEditorModal .ant-modal-title{
+  font-size:18px;
+  font-weight:600;
+  color:var(--color-text);
+}
+
+.jx-kbEditorModal .ant-modal-body{
+  padding:18px 22px 8px;
+}
+
+.jx-kbEditorModal .ant-modal-footer{
+  padding:0 22px 20px;
+  border-top:none;
+}
+
+.jx-kbEditorBody{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.jx-kbEditorField{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.jx-kbEditorLabel{
+  font-size:13px;
+  font-weight:500;
+  color:var(--color-text-secondary);
+}
+
+.jx-kbEditorField .ant-input,
+.jx-kbEditorField .ant-input-affix-wrapper,
+.jx-kbEditorField .ant-input-textarea textarea{
+  border-radius:12px;
+}
+
+.jx-kbEditorTextareaWrap{
+  position:relative;
+}
+
+.jx-kbEditorField .jx-kbEditorTextarea textarea{
+  padding-bottom:46px;
+}
+
+.jx-kbEditorTextareaMeta{
+  position:absolute;
+  right:12px;
+  bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  pointer-events:none;
+}
+
+.jx-kbEditorTextareaMeta > *{
+  pointer-events:auto;
+}
+
+.jx-kbEditorPolishBtn{
+  height:24px;
+  padding:0 8px;
+  border-radius:999px;
+  border-color:var(--color-primary-disabled);
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+  box-shadow:none;
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.02em;
+}
+
+.jx-kbEditorPolishBtn:hover,
+.jx-kbEditorPolishBtn:focus{
+  color:var(--color-primary-active);
+  border-color:color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background:var(--color-primary-bg);
+}
+
+.jx-kbEditorCount{
+  font-size:12px;
+  color:var(--color-text-placeholder);
+}
+
+.jx-kbEditorFooter{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+}

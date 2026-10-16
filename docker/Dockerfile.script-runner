@@ -89,6 +89,7 @@ RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
 
 COPY src/backend/services/script_runner_service/ /app/
 COPY src/backend/core/sandbox/process_sessions.py /app/process_sessions.py
+COPY src/backend/core/sandbox/process_deadlines.py /app/process_deadlines.py
 WORKDIR /app
 
 # Install the pdf-cli shim so the agent can call ``pdf-cli read …`` from bash

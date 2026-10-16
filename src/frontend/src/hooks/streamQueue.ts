@@ -2,7 +2,6 @@ import { chatDraftKey, readComposer } from '../stores/composerStore';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { steerChatRun, getChatRunSteers, withdrawChatRunSteer, getActiveChatRun } from '../api';
-import { resolveBatchModeActive } from '../utils/chatMode';
 import { useChatStore, useAuthStore } from '../stores';
 import { reloadChatHistory } from './useChatInit';
 import { chatInvocationMessageProps, createQueuedChatTurn, hasChatInvocation, normalizeChatInvocation, queuedChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
@@ -22,8 +21,7 @@ export function createStreamQueue(ctx: Pick<StreamingContext, 'abortControllersR
     const draft = readComposer(chatDraftKey(state.currentChatId));
     const content = (directMessage ?? draft.input).trim();
     if (!content) return;
-    const chat = state.currentChat();
-    if (state.planMode || state.loopMode || resolveBatchModeActive(chat)) {
+    if (state.planMode || state.loopMode) {
       message.info(t('当前运行模式暂不支持追加消息'));
       return;
     }

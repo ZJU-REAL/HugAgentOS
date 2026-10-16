@@ -5,6 +5,7 @@ import os
 import json
 import signal
 import tempfile
+import sys
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -107,11 +108,13 @@ def install(server):
                 else {}
             )
             try:
+                native = req.session_id.startswith("workbench-") and sys.platform.startswith("linux")
                 handle.proc = await server._spawn_subprocess(
                     [*server.INTERPRETERS[req.language], str(script), *args],
                     str(cwd),
                     req.sandbox_launch,
                     (handle.stdin, handle.stdout, handle.stderr),
+                    **({"native_group": True} if native else {}),
                 )
                 return handle
             except BaseException:
@@ -126,6 +129,23 @@ def install(server):
                 req.timeout,
                 yield_on_output=req.yield_on_output,
             )
+        except ProcessSessionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    class DeadlineRequest(BaseModel):
+        sandbox_session_id: str
+        user_id: str
+        session_id: str
+        binding: str
+        expires_at: float
+        absolute_deadline: float | None = None
+
+    @server.app.post("/processes/deadline")
+    async def deadline(req: DeadlineRequest):
+        try:
+            armed = sessions.set_deadline(req.session_id, (req.sandbox_session_id, req.user_id),
+                                         req.binding, req.expires_at, req.absolute_deadline)
+            return {"armed": armed, "supported": armed}
         except ProcessSessionError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -153,6 +173,7 @@ class LocalHandle:
         self.server = server
         self.script = None
         self.proc = None
+        self.native_deadline = None
         self.stdin = open(os.devnull, "rb")
         self.stdout = (directory / "stdout.log").open("wb")
         self.stderr = (directory / "stderr.log").open("wb")
@@ -180,6 +201,9 @@ class LocalHandle:
     async def interrupt(self):
         if self.proc is None or self.proc.returncode is not None:
             return
+        if hasattr(self.proc, "signal_group"):
+            self.proc.signal_group(signal.SIGINT)
+            return
         if os.name == "nt":
             # Headless Windows children have no console for CTRL_C_EVENT.
             await self.server._terminate_process_group(self.proc)
@@ -188,6 +212,18 @@ class LocalHandle:
                 os.killpg(self.proc.pid, signal.SIGINT)
             except ProcessLookupError:
                 pass
+
+    def prepare_deadline(self):
+        if __package__:
+            from .native_group import NativeGroupProcess
+        else:
+            from native_group import NativeGroupProcess
+        if not isinstance(self.proc, NativeGroupProcess) or not self.proc.pin_namespace():
+            return None  # No verified kernel group lifecycle on this platform.
+        return self.proc.kill
+
+    def deadline_stopped(self):
+        return hasattr(self.proc, "group_stopped") and self.proc.group_stopped()
 
     async def close(self):
         await self.server._terminate_process_group(self.proc)

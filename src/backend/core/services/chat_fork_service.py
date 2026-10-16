@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from core.auth.permissions_iface import resolve_project_access
+from core.db.reserved_chats import reserved_chat_error, reserved_chat_owner
 from core.db.models import ChatMessage, ChatRun, ChatSession, Project
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -111,6 +112,9 @@ class ChatForkService:
         through_message_id: str | None = None,
         title: str | None = None,
     ) -> ChatSession:
+        if reserved_chat_owner(source_id):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail=reserved_chat_error(source_id))
         destination_id = (
             "chat_" + uuid5(NAMESPACE_URL, f"hugagent/chat-fork/{user_id}/{request_id}").hex
         )

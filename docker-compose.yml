@@ -372,8 +372,8 @@ services:
     restart: unless-stopped
   frontend:
     build:
-      context: ./src/frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}

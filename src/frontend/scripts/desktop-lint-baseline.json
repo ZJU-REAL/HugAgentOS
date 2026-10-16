@@ -15,8 +15,6 @@
   "src/components/admin/SkillsEditor.tsx": {"2:@typescript-eslint/no-explicit-any": 2},
   "src/components/agent/AgentIcon.tsx": {"2:react-refresh/only-export-components": 1},
   "src/components/agent/AgentMentionPopup.tsx": {"2:react-refresh/only-export-components": 1},
-  "src/components/batch/BatchConfirmModal.tsx": {"2:@typescript-eslint/no-unused-vars": 1},
-  "src/components/batch/BatchProgressPanel.tsx": {"2:react-hooks/purity": 1, "2:react-hooks/refs": 3},
   "src/components/catalog/CatalogPanel.tsx": {"1:react-hooks/exhaustive-deps": 2, "2:@typescript-eslint/no-explicit-any": 7},
   "src/components/chat/MermaidBlock.tsx": {"2:react-refresh/only-export-components": 1},
   "src/components/chat/OntologyRevisionPanel.tsx": {"1:react-hooks/exhaustive-deps": 1},

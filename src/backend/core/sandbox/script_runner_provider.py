@@ -109,6 +109,15 @@ class ScriptRunnerProvider(CompletionMixin):
             "yield_time_ms": max(0, min(yield_time_ms, 300000)),
         }, yield_time_ms)
 
+    async def set_process_deadline(self, session_id: str, *, sandbox_session_id: str,
+                                   user_id: str, binding: str, expires_at: float,
+                                   absolute_deadline: float | None = None) -> dict:
+        return await self._process_request("/processes/deadline", {
+            "session_id": session_id, "sandbox_session_id": sandbox_session_id,
+            "user_id": user_id, "binding": binding, "expires_at": expires_at,
+            "absolute_deadline": absolute_deadline,
+        }, 0)
+
     async def _process_request(self, route: str, body: dict, wait_ms: int) -> dict:
         # Never retry a start/write: a lost HTTP response is not evidence that
         # the command or the input was not already applied.

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from core.db.models import ChatMessage, ChatSession
+from core.db.reserved_chats import ordinary_chat_filter
 from core.services.chat_service import ChatService
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -73,6 +74,7 @@ def list_referencable_sessions(
         ChatSession.user_id == user_id,
         ChatSession.deleted_at.is_(None),
         ChatSession.archived.isnot(True),
+        ordinary_chat_filter(ChatSession.chat_id),
     )
     if project_id:
         stmt = stmt.filter(ChatSession.project_id == project_id)

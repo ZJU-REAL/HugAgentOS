@@ -44,15 +44,6 @@ export const BUILTIN_APPS: AppItem[] = [
     icon: '/home/new-icons/automation.svg',
   },
   {
-    id: 'batch_runner',
-    enabled: true,
-    name: '批量执行',
-    description:
-      '对一组对象（Excel 行 / 多份文档 / 文本枚举）批量执行同一任务，AI 自动生成可确认的执行计划并逐条处理',
-    url: '',
-    icon: '/home/random-icons/Frame 460.svg',
-  },
-  {
     id: 'prompt_hub',
     enabled: true,
     name: '提示词中心',

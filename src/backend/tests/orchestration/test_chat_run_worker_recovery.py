@@ -292,43 +292,115 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
         assert session.project_id is None
 
 
-def test_batch_item_needs_attention_blocks_item_regeneration(recovery_env, monkeypatch):
-    sessions = recovery_env
-    from orchestration import batch_orchestrator
+def test_retirement_removes_batch_run_ledger_without_losing_plan_recovery(recovery_env):
+    from core.db.batch_retirement import retire_batch_execution
+    from core.db.models import ToolEffectLedger, ToolEffectLease, ToolEffectReceipt
 
-    monkeypatch.setattr(batch_orchestrator, "SessionLocal", sessions)
+    sessions = recovery_env
     journal = RunJournal(sessions)
-    row = journal.accept(
-        run_id="run-batch-blocked",
-        message_id="msg-batch-blocked",
+    old = journal.accept(
+        run_id="run-retired-batch",
+        message_id="msg-retired-batch",
         chat_id="chat-1",
         user_id="user-1",
         request_payload={"kind": "batch_item", "plan_id": "batch-1", "item_index": 2},
         recovery_snapshot={"kind": "batch_item", "worker_args": {"context": {}}},
     )
-    assert journal.claim(row.run_id, owner="batch-old", lease_seconds=60)
-    assert journal.needs_attention(row.run_id, owner="batch-old", reason="tool recovered")
-
-    assert batch_orchestrator._blocking_item_run("batch-1", 2) == row.run_id
-    assert batch_orchestrator._blocking_item_run("batch-1", 1) is None
-
-    pending = journal.accept(
-        run_id="run-batch-pending",
-        message_id="msg-batch-pending",
+    plan = journal.accept(
+        run_id="run-preserved-plan",
+        message_id="msg-preserved-plan",
         chat_id="chat-1",
         user_id="user-1",
-        request_payload={"kind": "batch_item", "plan_id": "batch-1", "item_index": 3},
-        recovery_snapshot={"kind": "batch_item", "worker_args": {"context": {}}},
+        request_payload={"kind": "plan_execute", "plan_id": "plan-1"},
+        recovery_snapshot={
+            "kind": "plan_execute",
+            "worker_args": {"context": {"keep": True}},
+        },
     )
-    running = journal.accept(
-        run_id="run-batch-running",
-        message_id="msg-batch-running",
-        chat_id="chat-1",
-        user_id="user-1",
-        request_payload={"kind": "batch_item", "plan_id": "batch-1", "item_index": 4},
-        recovery_snapshot={"kind": "batch_item", "worker_args": {"context": {}}},
+    assert journal.claim(old.run_id, owner="batch-old", lease_seconds=60)
+    assert journal.needs_attention(
+        old.run_id, owner="batch-old", reason="legacy effect unknown"
     )
-    assert journal.claim(running.run_id, owner="batch-live", lease_seconds=300)
-
-    assert batch_orchestrator._blocking_item_run("batch-1", 3) == pending.run_id
-    assert batch_orchestrator._blocking_item_run("batch-1", 4) == running.run_id
+    assert journal.claim(plan.run_id, owner="plan-live", lease_seconds=300)
+    with sessions() as db:
+        # RunJournal does not create history; seed the existing shared message.
+        db.add(
+            ChatMessage(
+                message_id=old.message_id,
+                chat_id="chat-1",
+                chat_seq=1,
+                role="assistant",
+                content="Preserve the existing historical answer",
+            )
+        )
+        for run, effect_id, tool, owner in (
+            (old, "retired-effect", "legacy_tool", "batch-old"),
+            (plan, "preserved-effect", "web_fetch", "plan-live"),
+        ):
+            db.add(
+                ToolEffectLedger(
+                    effect_id=effect_id,
+                    result_id="result-" + effect_id,
+                    run_id=run.run_id,
+                    operation_seq=1,
+                    event_type="intent",
+                    tool_name=tool,
+                    args_hash="a" * 64,
+                    redacted_args={},
+                    recovery_policy="never_replay",
+                )
+            )
+            db.add(
+                ToolEffectLease(effect_id=effect_id, run_id=run.run_id, run_owner=owner)
+            )
+            db.add(
+                ToolEffectReceipt(
+                    effect_id=effect_id,
+                    tool_name=tool,
+                    user_id="user-1",
+                    result_payload={"recorded": True},
+                )
+            )
+        db.commit()
+        engine = db.get_bind()
+    with engine.begin() as bind:
+        result = retire_batch_execution(bind)
+        assert result["chat_runs"] == 1
+        assert result["tool_effect_ledger"] == 1
+        assert result["tool_effect_leases"] == 1
+        assert result["tool_effect_receipts"] == 1
+        assert not any(retire_batch_execution(bind).values())
+    with sessions() as db:
+        assert db.get(ChatRun, old.run_id) is None
+        assert (
+            db.query(ToolEffectLedger).filter_by(effect_id="retired-effect").count()
+            == 0
+        )
+        assert db.get(ToolEffectLease, "retired-effect") is None
+        assert db.get(ToolEffectReceipt, "retired-effect") is None
+        current = db.get(ChatRun, plan.run_id)
+        assert current.status == "running"
+        assert current.lease_owner == "plan-live"
+        assert current.request_payload == {"kind": "plan_execute", "plan_id": "plan-1"}
+        assert current.recovery_snapshot["worker_args"]["context"] == {"keep": True}
+        assert (
+            db.query(ToolEffectLedger).filter_by(effect_id="preserved-effect").count()
+            == 1
+        )
+        assert db.get(ToolEffectLease, "preserved-effect").run_owner == "plan-live"
+        assert db.get(ToolEffectReceipt, "preserved-effect").result_payload == {
+            "recorded": True
+        }
+        assert db.get(ChatSession, "chat-1") is not None
+        assert db.get(ChatMessage, old.message_id) is not None
+    # Surviving modern plan ownership and side-effect pause fences remain enforceable.
+    assert not journal.needs_attention(
+        plan.run_id, owner="batch-old", reason="wrong owner"
+    )
+    assert journal.needs_attention(
+        plan.run_id, owner="plan-live", reason="preserved pause fence"
+    )
+    with sessions() as db:
+        paused = db.get(ChatRun, plan.run_id)
+        assert paused.status == "needs_attention"
+        assert paused.failure_reason == "preserved pause fence"

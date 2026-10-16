@@ -238,7 +238,7 @@ async def _collect_reply(run_id: str):
     relay = current_relay_adapter()
     async for event in chat_run_executor.follow_run(run_id):
         et = event.get("type")
-        if relay and et in {"file_confirm", "batch_confirm", "ask_user_question"}:
+        if relay and et in {"file_confirm", "ask_user_question"}:
             relay.error = "此操作需要确认，请在桌面端处理后重试"
             await relay.cancel()
             raise ChannelRunError(relay.error)
@@ -674,6 +674,16 @@ async def _deliver_reply(adapter, conn, msg: InboundMsg, reply: str, placeholder
             logger.warning("[channels] 回复分段推送失败 kind=%s detail=%s", fr.error_kind, fr.error_detail)
 
 
+def _module_route(db, conn: ChannelConnection):
+    """The admit hook of the first enabled module that claims this bot, if any."""
+    from core.extensions import channel_routes
+
+    for handles, admit in channel_routes():
+        if handles(db, conn):
+            return admit
+    return None
+
+
 async def handle_inbound(msg: InboundMsg) -> None:
     """Main entry point for inbound messages. Scheduled on the main event loop (long-connection threads submit via run_coroutine_threadsafe).
 
@@ -734,6 +744,13 @@ async def _process_inbound(msg: InboundMsg) -> None:
                 )
             # Either way: no reset-command handling, no run, no placeholder, no reply.
             db.close()
+            return
+
+        admit = _module_route(db, conn)
+        if admit is not None:
+            db.expunge(conn)
+            db.close()
+            await admit(conn, msg, adapter)
             return
 
         # Channel-side "new conversation / clear context": soft-deleting the current session is

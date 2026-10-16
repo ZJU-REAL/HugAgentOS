@@ -8,6 +8,7 @@ import math
 from datetime import datetime
 from typing import List, Optional
 from core.memory.executor import run_effect
+from core.memory.ttl_sweeper import memory_entry_expired
 from core.memory.retrieval_types import MemoryRetrievalResult, RetrievedRelation, build_memory_item
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ async def retrieve_memories_structured(
                 # ── Scope + confidentiality filtering (new) ──
                 filtered_items = []
                 for m in items if isinstance(items, list) else []:
-                    if not isinstance(m, dict):
+                    if not isinstance(m, dict) or memory_entry_expired(m):
                         continue
                     meta = m.get("metadata") or {}
                     # Legacy data without workspace_id / confidentiality passes through (backward compatible)
@@ -331,10 +332,12 @@ async def get_all_memories(
                 None, lambda: memory.get_all(filters=filters, top_k=top_k)
             )
             if isinstance(result, dict):
-                return result.get("results", [])
-            if isinstance(result, list):
-                return result
-            return []
+                items = result.get("results", [])
+            elif isinstance(result, list):
+                items = result
+            else:
+                items = []
+            return [item for item in items if isinstance(item, dict) and not memory_entry_expired(item)]
         except Exception as exc:
             if attempt == 0 and (backend._is_connection_error(exc) or backend._is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
@@ -364,7 +367,16 @@ async def update_memory(memory_id: str, content: str, *, strict: bool = False) -
                 raise RuntimeError("memory store unavailable")
             return False
         try:
-            await run_effect(lambda: memory.update(memory_id, content.strip()))
+            def rewrite():
+                current = memory.get(memory_id)
+                if not current:
+                    raise ValueError("memory not found")
+                # mem0 replaces metadata on update; omitting it loses scope,
+                # expiry and the crash-replay receipt.
+                return memory.update(memory_id, content.strip(),
+                                     metadata=dict(current.get("metadata") or {}))
+
+            await run_effect(rewrite)
             return True
         except Exception as exc:
             if attempt == 0 and (backend._is_connection_error(exc) or backend._is_auth_error(exc)):

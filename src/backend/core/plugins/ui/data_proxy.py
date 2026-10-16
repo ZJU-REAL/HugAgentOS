@@ -72,13 +72,13 @@ def _config_value(key: str) -> str:
         return ""
 
 
-def _interpolate(template: str) -> Tuple[str, List[str]]:
+def _interpolate(template: str, config_values: Dict[str, str] | None = None) -> Tuple[str, List[str]]:
     """Fill ``{config.x}`` placeholders; returns (text, missing_keys)."""
     missing: List[str] = []
 
     def repl(match: "re.Match[str]") -> str:
         key = match.group(1)
-        value = _config_value(key)
+        value = _config_value(key) if config_values is None else config_values.get(key, "")
         if not value:
             missing.append(key)
         return value
@@ -149,12 +149,23 @@ async def _is_private_address(host: str) -> bool:
     return True
 
 
-async def _check_target(url: str, slug: str) -> None:
+async def _check_target(url: str, slug: str, configured_hosts: set | None = None,
+                        configured_origins: set | None = None) -> None:
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise PluginDataSourceError("插件数据源地址非法", status_code=400)
     host = parts.hostname.lower()
-    if host in _configured_hosts(slug):
+    if configured_origins is not None:
+        if parts.username or parts.password or "\\" in url:
+            raise PluginDataSourceError("插件数据源地址非法", status_code=400)
+        try:
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+        except ValueError:
+            raise PluginDataSourceError("插件数据源地址非法", status_code=400)
+        if (parts.scheme, host, port) in configured_origins:
+            return
+        configured_hosts = set()  # Never fall back to global legacy trust.
+    if host in (_configured_hosts(slug) if configured_hosts is None else configured_hosts):
         # Admin-configured endpoint: internal addresses are legitimate here.
         return
     if parts.scheme != "https":
@@ -253,25 +264,32 @@ async def _call_provider(provider: str, params: Dict[str, Any], *, slug: str) ->
         raise PluginDataSourceError("插件数据源处理失败", retryable=True)
 
 
-async def call_data_source(source: Dict[str, Any], params: Dict[str, Any], *, slug: str) -> Any:
+async def call_data_source(source: Dict[str, Any], params: Dict[str, Any], *, slug: str,
+                           configured_hosts: set | None = None,
+                           config_values: Dict[str, str] | None = None,
+                           configured_origins: set | None = None) -> Any:
     """Run one declared data source and return its decoded business payload."""
     provider = str(source.get("provider") or "")
     if provider:
+        if config_values is not None:
+            # Legacy providers have no installation/user authorization contract.
+            from fastapi import HTTPException
+            raise HTTPException(403, detail={"code": "unsupported_capability"})
         safe_params = validate_params(source.get("params_schema") or {}, params)
         return await _call_provider(provider, safe_params, slug=slug)
 
     url_template = str(source.get("url") or "")
-    url, missing = _interpolate(url_template)
+    url, missing = _interpolate(url_template, config_values)
     if missing:
         raise PluginDataSourceError(
             f"插件所需的系统配置尚未填写：{'、'.join(sorted(set(missing)))}", status_code=503
         )
-    await _check_target(url, slug)
+    await _check_target(url, slug, configured_hosts, configured_origins)
 
     headers = {"Accept": "application/json"}
     auth = source.get("auth") or {}
     if auth.get("header"):
-        value, auth_missing = _interpolate(str(auth.get("value") or ""))
+        value, auth_missing = _interpolate(str(auth.get("value") or ""), config_values)
         if auth_missing:
             raise PluginDataSourceError(
                 f"插件所需的访问凭据尚未配置：{'、'.join(sorted(set(auth_missing)))}",
@@ -295,7 +313,7 @@ async def call_data_source(source: Dict[str, Any], params: Dict[str, Any], *, sl
         raise PluginDataSourceError("插件数据源请求超时", retryable=True)
     except httpx.HTTPError as exc:
         logger.warning(
-            "plugin_data_proxy: slug=%s source=%s 请求失败 %s", slug, source.get("id"), exc
+            "plugin_data_proxy: slug=%s source=%s 请求失败 %s", slug, source.get("id"), type(exc).__name__
         )
         raise PluginDataSourceError("插件数据源请求失败", retryable=True)
 

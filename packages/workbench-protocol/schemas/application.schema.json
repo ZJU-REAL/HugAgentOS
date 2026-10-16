@@ -1,0 +1,341 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hugagent.org/schemas/workbench/1.0.0/application.json",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "target"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "id": {
+      "$ref": "#/definitions/id"
+    },
+    "title": {
+      "$ref": "#/definitions/text"
+    },
+    "description": {
+      "$ref": "#/definitions/text"
+    },
+    "icon": {
+      "type": "object",
+      "required": [
+        "light"
+      ],
+      "properties": {
+        "light": {
+          "$ref": "#/definitions/asset"
+        },
+        "dark": {
+          "$ref": "#/definitions/asset"
+        }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "componentId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "builtin"
+            },
+            "componentId": {
+              "$ref": "#/definitions/id"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "moduleId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "plugin"
+            },
+            "moduleId": {
+              "$ref": "#/definitions/id"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "url",
+            "mode"
+          ],
+          "properties": {
+            "kind": {
+              "const": "external"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https?://(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)*[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|\\[[0-9A-Fa-f:]+\\])(?::[0-9]{1,5})?(?:[/?#][^\\s\\\\]*)?$"
+            },
+            "mode": {
+              "enum": [
+                "browser",
+                "embedded"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "commandId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "commandId": {
+              "$ref": "#/definitions/id"
+            },
+            "params": {
+              "type": "object",
+              "maxProperties": 16,
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "navigation": {
+      "type": "object",
+      "properties": {
+        "defaultPinned": {
+          "type": "boolean"
+        },
+        "defaultOrder": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "group": {
+          "$ref": "#/definitions/id"
+        },
+        "showInAppCenter": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "views": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/definitions/id"
+          },
+          "title": {
+            "$ref": "#/definitions/text"
+          },
+          "path": {
+            "$ref": "#/definitions/route"
+          },
+          "moduleId": {
+            "$ref": "#/definitions/id"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/id"
+      }
+    },
+    "availability": {
+      "type": "object",
+      "properties": {
+        "platforms": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "web",
+              "windows",
+              "macos",
+              "uos"
+            ]
+          }
+        },
+        "executionScopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "local",
+              "cloud"
+            ]
+          }
+        },
+        "requiresOnline": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "keepAlive": {
+          "type": "boolean"
+        },
+        "stateSchemaVersion": {
+          "$ref": "#/definitions/id"
+        }
+      },
+      "additionalProperties": false
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "maxLength": 32
+        },
+        "requiredCapabilities": {
+          "$ref": "#/definitions/capabilities"
+        },
+        "optionalCapabilities": {
+          "$ref": "#/definitions/optionalCapabilities"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "text": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9-]{1,32}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          }
+        }
+      ]
+    },
+    "asset": {
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^web/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.(?:png|jpg|jpeg|gif|webp|svg)$"
+    },
+    "route": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$"
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "applications",
+          "workspace",
+          "host.info",
+          "workspace.navigate",
+          "data.query",
+          "canvas.open",
+          "canvas.new_tab",
+          "chat.send",
+          "clipboard.write",
+          "file.save",
+          "resource.attach",
+          "resource.command",
+          "state.load",
+          "state.save",
+          "lifecycle.setDirty",
+          "file.pick",
+          "chat.compose",
+          "navigation.open",
+          "platform.runtimeCapabilities",
+          "platform.openExternal",
+          "badge.update",
+          "notification.show",
+          "background",
+          "resource.open",
+          "resource.lease",
+          "resource.close"
+        ]
+      }
+    },
+    "optionalCapabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "anyOf": [
+          {
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          {
+            "enum": [
+              "lifecycle.setDirty",
+              "platform.runtimeCapabilities",
+              "platform.openExternal"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

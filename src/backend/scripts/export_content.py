@@ -129,7 +129,7 @@ def export_docs_via_db(database_url: str) -> dict:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from core.db.models import ContentBlock
-    from core.content.content_blocks import build_docs_snapshot
+    from core.applications.migration_compat import build_docs_snapshot
 
     from core.db.connection import utc_connect_args
     engine = create_engine(database_url, connect_args=utc_connect_args(database_url))

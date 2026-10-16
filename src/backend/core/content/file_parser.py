@@ -386,128 +386,12 @@ def parse_xlsx_single_sheet(file_bytes: bytes, sheet_name: str) -> str:
         wb.close()
 
 
-def _default_xlsx_max_rows() -> int:
-    """Batch-execution row cap for parse_xlsx_structured.
-
-    Read from BATCH_MAX_XLSX_ROWS env (default 2000). Each row is a
-    separate per-row LLM call downstream, so the cap controls plan size
-    and total runtime, not per-call context.
-    """
-    try:
-        return max(1, int(os.getenv("BATCH_MAX_XLSX_ROWS", "2000")))
-    except ValueError:
-        return 2000
-
-
 def _default_xlsx_max_cell_chars() -> int:
-    """Per-cell character cap shared by parse_xlsx_structured and
-    parse_xlsx_preview.
-
-    Read from BATCH_MAX_XLSX_CELL_CHARS env (default 2000). Cells longer
-    than this are truncated with an ellipsis. Larger values let long
-    fields (summary/body/etc.) flow into per-row LLM prompts at the cost of
-    more tokens per call and a larger plan.items JSONB row.
-    """
+    """Bound spreadsheet preview cells; the default remains 2000 characters."""
     try:
-        return max(50, int(os.getenv("BATCH_MAX_XLSX_CELL_CHARS", "2000")))
+        return max(50, int(os.getenv("XLSX_PREVIEW_MAX_CELL_CHARS", "2000")))
     except ValueError:
         return 2000
-
-
-def parse_xlsx_structured(
-    file_bytes: bytes,
-    *,
-    max_rows: Optional[int] = None,
-    max_columns: int = 40,
-    max_cell_chars: Optional[int] = None,
-) -> tuple[list[str], list[dict], dict]:
-    """Parse XLSX → (column_names, list_of_row_dicts, meta).
-
-    Used for batch execution where each row becomes one task. Three
-    independent safeguards bound the total plan size — but note each
-    row is a separate downstream LLM call, so this is plan-runtime
-    bounding, not per-call context bounding:
-
-      - ``max_rows``       : drop rows beyond this index
-                             (None → BATCH_MAX_XLSX_ROWS env, default 2000)
-      - ``max_columns``    : drop columns beyond this index (default 40)
-      - ``max_cell_chars`` : truncate any single cell value
-                             (None → BATCH_MAX_XLSX_CELL_CHARS env, default 2000)
-
-    Returns:
-        (header_list, data_rows, meta) where ``meta`` describes what got
-        truncated so the caller can surface a warning to the UI:
-        ``{"total_rows", "total_columns", "truncated_rows": int,
-        "truncated_columns": int, "truncated_cells": int}``.
-
-    Reads only the first sheet (multi-sheet batch is out of scope).
-    """
-    if max_rows is None:
-        max_rows = _default_xlsx_max_rows()
-    if max_cell_chars is None:
-        max_cell_chars = _default_xlsx_max_cell_chars()
-
-    try:
-        import openpyxl
-    except ImportError:
-        raise RuntimeError("openpyxl 未安装，无法解析 XLSX 文件（pip install openpyxl）")
-
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-    try:
-        sheet = wb.worksheets[0] if wb.worksheets else None
-        if sheet is None:
-            raise RuntimeError("XLSX 文件无 sheet")
-
-        rows_iter = sheet.iter_rows(values_only=True)
-        try:
-            header_row = next(rows_iter)
-        except StopIteration:
-            raise RuntimeError("XLSX 文件无数据行") from None
-
-        total_columns = len(header_row)
-        truncated_columns = max(0, total_columns - max_columns)
-        usable_cols = min(total_columns, max_columns)
-
-        header = _deduplicate_headers([
-            str(c).strip() if c is not None else f"col{idx + 1}"
-            for idx, c in enumerate(header_row[:usable_cols])
-        ])
-
-        data: list[dict] = []
-        truncated_cells = 0
-        total_rows_seen = 0
-        for row in rows_iter:
-            total_rows_seen += 1
-            if all(c is None for c in row):
-                continue
-            if len(data) >= max_rows:
-                continue  # keep counting to report total_rows accurately
-            d: dict = {}
-            for idx, val in enumerate(row[:usable_cols]):
-                if val is None:
-                    d[header[idx]] = ""
-                    continue
-                s = str(val)
-                if len(s) > max_cell_chars:
-                    s = s[:max_cell_chars] + "…(已截断)"
-                    truncated_cells += 1
-                d[header[idx]] = s
-            if any(v for v in d.values()):
-                data.append(d)
-
-        meta = {
-            "total_rows": total_rows_seen,
-            "total_columns": total_columns,
-            "kept_rows": len(data),
-            "kept_columns": usable_cols,
-            "truncated_rows": max(0, total_rows_seen - max_rows),
-            "truncated_columns": truncated_columns,
-            "truncated_cells": truncated_cells,
-            "max_cell_chars": max_cell_chars,
-        }
-        return header, data, meta
-    finally:
-        wb.close()
 
 
 def parse_xlsx_preview(
@@ -539,7 +423,7 @@ def parse_xlsx_preview(
             "truncated_cells": int,       # cells truncated to max_cell_chars
         }``
 
-    Reads only the first sheet (matches parse_xlsx_structured).
+    Reads only the first sheet.
     """
     if max_cell_chars is None:
         max_cell_chars = _default_xlsx_max_cell_chars()

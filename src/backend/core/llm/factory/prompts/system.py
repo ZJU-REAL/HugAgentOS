@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
-from core.llm.factory.defaults import _BATCH_MODE_HINT, _WORKFLOW_MODE_HINT
+from core.llm.factory.defaults import _WORKFLOW_MODE_HINT
 from core.llm.factory.request import AgentRequest
 from core.llm.project_environment import validate_project_environment
 from core.ontology.validator import render_runtime_prompt
@@ -36,6 +36,11 @@ async def system_prompt(
     tool_schemas,
     toolkit,
 ):
+    if request.profile:
+        from core.extensions import agent_profile
+
+        system_prompt = await agent_profile(request.profile).system_prompt(request)
+        return _agent_ref, _plan_tool_enabled, _plugin_runtime, system_prompt
     if request.user_agent is not None:
         system_prompt = build_subagent_system_prompt(
             request.user_agent,
@@ -340,20 +345,6 @@ async def system_prompt(
                 len(_progressive.deferred_mcp_ids),
             )
 
-        # ── Inject batch execution hint (App Center batch-execution sessions only) ──
-        if request.batch_mode:
-            system_prompt += _BATCH_MODE_HINT
-            _manifest_builder.add_prompt_section(
-                "runtime/batch_mode",
-                _BATCH_MODE_HINT,
-                origin="builtin:batch_mode",
-                trust="platform",
-                priority=880,
-                cache_class="mode",
-                version="1",
-            )
-            _log.info("[factory] +%s batch mode hint injected", _elapsed())
-
         # ── Inject workflow-mode hint (user explicitly entered workflow mode) ──
         if request.workflow_mode:
             system_prompt += _WORKFLOW_MODE_HINT
@@ -444,7 +435,7 @@ async def system_prompt(
         # enter_plan_mode redirect for model-initiated planning.
         # Recognizes ONLY the single positive signal top_level_chat (passed in
         # by astream_chat_workflow after it determines this is an interactive
-        # main conversation) — not a negative exclusion list of "not batch and
+        # main conversation) — not a negative exclusion list of "not isolated and
         # not plan_mode and not …". A negative list leaks the tool with every
         # derived context it misses (historically, plan-execute steps,
         # plan-generation disable_tools, and channel runs all leaked this way);

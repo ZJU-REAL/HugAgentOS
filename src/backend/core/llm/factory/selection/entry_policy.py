@@ -31,7 +31,7 @@ async def entry_policy(request: AgentRequest):
             raise ValueError("Evaluation cannot inherit an agent API execution scope")
         request.memory_enabled = False
         request.project_ctx = request.channel_origin = request.mode_spec = None
-        request.top_level_chat = request.workflow_mode = request.plan_mode = request.batch_mode = (
+        request.top_level_chat = request.workflow_mode = request.plan_mode = (
             request.turbo_mode
         ) = False
         request.enabled_mcp_ids, request.enabled_skill_ids, request.enabled_kb_ids = [], [], []
@@ -63,14 +63,16 @@ async def entry_policy(request: AgentRequest):
         request.project_ctx = None
         request.channel_origin = None
         request.top_level_chat = False
-        request.workflow_mode = request.plan_mode = request.batch_mode = request.turbo_mode = False
+        request.workflow_mode = request.plan_mode = request.turbo_mode = False
         request.mode_spec = None
         request.sandbox_session_id = _api_scope.sandbox_session_id
 
     # The shared subagent role is an administrator override. Resolve it before
     # tools/vision/manifests so all surfaces use the same effective provider.
     _shared_subagent_cfg = None
-    if request.user_agent is not None:
+    if request.user_agent is not None and not (
+        _api_scope and _api_scope.public_chat_visitor and request.model_provider_id
+    ):
         from core.services.model_config import ModelConfigService
 
         _model_service = ModelConfigService.get_instance()

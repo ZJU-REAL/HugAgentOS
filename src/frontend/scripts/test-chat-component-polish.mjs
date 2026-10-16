@@ -20,6 +20,7 @@ import { useUIStore } from './src/stores/uiStore';
 import { processChatStream } from './src/hooks/chatStream';
 import { newMessageUid } from './src/utils/messageIdentity';
 import './src/styles/variables.css';
+import './src/styles/motion.css';
 import './src/styles/chat.css';
 import './src/styles/tool.css';
 useChatStore.setState({currentChatId:'a',currentUserId:'component-test',store:{order:['a','b'],chats:{

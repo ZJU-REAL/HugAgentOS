@@ -6,12 +6,14 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.applications.protocol import UI_VERSION
+
 logger = logging.getLogger(__name__)
 
 # Contract version understood by this host. A manifest declaring a *higher*
 # major version is ignored wholesale (the frontend falls back to generic
 # rendering) rather than half-rendered from fields we may misinterpret.
-SUPPORTED_UI_VERSION = 2
+SUPPORTED_UI_VERSION = UI_VERSION
 
 # ── View kinds the host's material library provides ──────────────────────────
 # Grouped exactly like src/frontend/src/plugin-ui/views/: A = document-shaped,

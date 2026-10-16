@@ -1,0 +1,198 @@
+/* ── 能力中心 ── */
+
+/* 类别切换已移到左侧边栏的二级导航，页面内不再有 Tab 栏 ——
+   顶部不留给 Tab 的那段留白，直接由 pane 自己的页头顶到最上面。 */
+
+.jx-abilityCenter{
+  min-height:calc(100dvh - 98px);
+  display:flex;
+  flex-direction:column;
+  padding:0 20px 28px;
+  box-sizing:border-box;
+  container:ability-center / inline-size;
+}
+
+.jx-abilityCenterBody{
+  min-height:0;
+  flex:1;
+  position:relative;
+}
+
+.jx-abilityCenterPane{
+  display:none;
+  min-height:100%;
+}
+
+/* pane 切换只做入场（display:none→block 重新匹配 .active 时重放）。
+   backwards 填充：动画结束后不残留 transform，保护 pane 内 sticky 头部。 */
+
+.jx-abilityCenterPane.active{
+  display:block;
+  --fadeInUp-distance:6px;
+  animation:jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+
+@media (max-width: 768px){
+  .jx-abilityCenter{
+    padding:0 12px 24px;
+  }
+  .jx-abilityCenter .jx-sk-page,
+  .jx-abilityCenter .jx-mcp-page{
+    padding:14px 0 48px;
+  }
+  .jx-abilityCenter .jx-sk-header,
+  .jx-abilityCenter .jx-mcp-header{
+    flex-direction:column;
+    gap:14px;
+    margin-bottom:18px;
+  }
+  .jx-abilityCenter .jx-sk-title,
+  .jx-abilityCenter .jx-mcp-title{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 6px;
+    font-size:19px;
+    line-height:1.35;
+  }
+  .jx-abilityCenter .jx-sectionTitleCount{
+    font-size:13px;
+    line-height:1.35;
+    transform:none;
+  }
+  .jx-abilityCenter .jx-sk-subtitle,
+  .jx-abilityCenter .jx-mcp-subtitle{
+    line-height:1.6;
+    overflow-wrap:anywhere;
+  }
+  .jx-abilityCenter .jx-sk-headerRight,
+  .jx-abilityCenter .jx-mcp-headerRight{
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto;
+    width:100%;
+    gap:8px;
+    margin-top:0;
+  }
+  .jx-abilityCenter .jx-mcp-searchBox,
+  .jx-abilityCenter .jx-mcp-searchInput{
+    width:100%;
+    min-width:0;
+  }
+  .jx-abilityCenter .jx-sk-headerRight .ant-btn,
+  .jx-abilityCenter .jx-mcp-headerRight .ant-btn{
+    margin-left:0 !important;
+    white-space:nowrap;
+  }
+  .jx-abilityCenter .jx-sk-grid,
+  .jx-abilityCenter .jx-mcp-grid{
+    grid-template-columns:minmax(0, 1fr);
+    gap:12px;
+  }
+  .jx-abilityCenter .jx-sk-card,
+  .jx-abilityCenter .jx-mcp-card{
+    padding:14px;
+  }
+  .jx-abilityCenter .jx-sk-cardTop,
+  .jx-abilityCenter .jx-mcp-cardTop{
+    align-items:flex-start;
+  }
+  .jx-abilityCenter .jx-sk-cardNameGroup,
+  .jx-abilityCenter .jx-mcp-cardNameGroup{
+    flex-wrap:wrap;
+  }
+  .jx-abilityCenter .jx-sk-cardNameGroup{
+    flex:1;
+  }
+  .jx-abilityCenter .jx-sk-cardName{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    line-height:1.4;
+  }
+  .jx-abilityCenter .jx-sk-detailPage,
+  .jx-abilityCenter .jx-mcp-detailPage{
+    padding:0;
+  }
+  .jx-abilityCenter .jx-sk-stickyHeader,
+  .jx-abilityCenter .jx-mcp-stickyHeader{
+    flex-wrap:wrap;
+    padding:12px 0;
+  }
+  .jx-abilityCenter .jx-sk-detailName,
+  .jx-abilityCenter .jx-mcp-detailName{
+    min-width:0;
+    max-width:45vw;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .jx-abilityCenter .jx-sk-stickyBody,
+  .jx-abilityCenter .jx-mcp-stickyBody{
+    padding-top:16px;
+  }
+  .jx-abilityCenter .jx-sk-metaCard{
+    padding:16px;
+  }
+}
+
+.jx-capsView{
+  flex:1;
+  min-height:0;
+  overflow:auto;
+  padding:4px 20px 24px;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.jx-capRow{
+  display:grid;
+  grid-template-columns:28px 1fr;
+  gap:10px;
+  background:var(--color-bg-container);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-radius:14px;
+  padding:16px 18px;
+  box-shadow:0 2px 8px color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.jx-capNum{
+  font-size:18px;
+  font-weight:800;
+  color:color-mix(in srgb, var(--color-primary) 45%, transparent);
+  line-height:1.3;
+  padding-top:1px;
+}
+
+.jx-capBody{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.jx-capTitle{
+  font-size:14px;
+  font-weight:700;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  line-height:1.35;
+}
+
+.jx-capDesc{
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 66%, transparent);
+  line-height:1.6;
+  margin:0;
+}
+
+.jx-capBullets{
+  margin:0;
+  padding-left:18px;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.jx-capBullets li{
+  font-size:12px;
+  color:color-mix(in srgb, var(--color-text) 60%, transparent);
+  line-height:1.5;
+}

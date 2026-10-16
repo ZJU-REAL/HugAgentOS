@@ -1,0 +1,217 @@
+/* ── New Docs Panel ── */
+
+.jx-docsNew{
+  height:100%;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:0;
+}
+
+.jx-docsNewHeader{
+  display:flex;
+  justify-content:center;
+  padding:16px 20px 12px;
+  flex-shrink:0;
+}
+
+.jx-docsNewTabGroup{
+  display:inline-flex;
+  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
+  border-radius:999px;
+  padding:3px;
+  gap:2px;
+}
+
+.jx-docsNewTab{
+  appearance:none;
+  border:none;
+  background:transparent;
+  border-radius:999px;
+  padding:6px 22px;
+  font-size:13px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 60%, transparent);
+  cursor:pointer;
+  transition:all .18s ease;
+}
+
+.jx-docsNewTab:hover{ color:color-mix(in srgb, var(--color-text) 80%, transparent); }
+
+.jx-docsNewTab.active{
+  background:var(--color-bg-container);
+  color:color-mix(in srgb, var(--color-text) 90%, transparent);
+  box-shadow:0 1px 6px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+/* ── Docs Panel 标题区 ── */
+
+.jx-docsHeader {
+  padding: 28px 20px 18px;
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  margin-bottom: 0;
+}
+
+/* ── 功能更新 Timeline ── */
+
+.jx-updatesView{
+  flex:1;
+  min-height:0;
+  overflow:auto;
+  padding:0 20px 24px;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.jx-updateFilters{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  padding:4px 0 2px;
+  flex-shrink:0;
+}
+
+.jx-updateFilterBtn{
+  appearance:none;
+  position:relative;
+  border:1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
+  background:var(--color-bg-container);
+  border-radius:999px;
+  padding:4px 14px;
+  font-size:12px;
+  font-weight:500;
+  color:color-mix(in srgb, var(--color-text) 62%, transparent);
+  cursor:pointer;
+  transition:all .16s ease;
+}
+
+.jx-updateFilterBtn:hover{
+  border-color:color-mix(in srgb, var(--color-text) 28%, transparent);
+  color:color-mix(in srgb, var(--color-text) 80%, transparent);
+}
+
+/* active 底色由 layoutId="updateFilterPill" 的滑动背景块提供（DocsPanel） */
+
+.jx-updateFilterBtn.active{
+  background:transparent;
+  border-color:color-mix(in srgb, var(--color-primary) 30%, transparent);
+  color:var(--color-primary);
+  font-weight:600;
+}
+
+.jx-updateFilterPill{
+  position:absolute;
+  inset:0;
+  border-radius:999px;
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
+  z-index:0;
+}
+
+.jx-updateFilterLabel{
+  position:relative;
+  z-index:1;
+}
+
+.jx-timeline{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+}
+
+.jx-tlItem{
+  display:grid;
+  grid-template-columns:72px 28px 1fr;
+  gap:0 8px;
+  min-height:80px;
+}
+
+.jx-tlDate{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  padding-top:3px;
+  gap:2px;
+}
+
+.jx-tlDateMain{
+  font-size:15px;
+  font-weight:700;
+  color:color-mix(in srgb, var(--color-text) 80%, transparent);
+  letter-spacing:.5px;
+}
+
+.jx-tlDateYear{
+  font-size:11px;
+  color:color-mix(in srgb, var(--color-text) 44%, transparent);
+}
+
+.jx-tlTrack{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding-top:5px;
+}
+
+.jx-tlDot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:var(--color-bg-container);
+  border:2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  flex-shrink:0;
+  position:relative;
+  z-index:1;
+}
+
+.jx-tlLine{
+  flex:1;
+  width:1px;
+  background:color-mix(in srgb, var(--color-primary) 12%, transparent);
+  margin-top:4px;
+  min-height:32px;
+}
+
+.jx-tlContent{
+  padding:0 0 24px 4px;
+}
+
+.jx-tlTitleRow{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:6px;
+}
+
+.jx-tlTitle{
+  font-size:14px;
+  font-weight:700;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  flex:1;
+  min-width:0;
+  line-height:1.4;
+}
+
+.jx-tlCatTag{
+  display:inline-block;
+  border-radius:999px;
+  padding:2px 9px;
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+
+.jx-cat-模型迭代,.jx-cat-信息处理,.jx-cat-应用上新,.jx-cat-体验优化{
+  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.jx-tlDesc{
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 66%, transparent);
+  line-height:1.6;
+  margin:0;
+}

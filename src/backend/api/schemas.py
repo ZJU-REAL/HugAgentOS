@@ -125,19 +125,12 @@ class ChatRequest(BaseModel):
         default=False,
         description="是否为计划模式对话（从应用中心入口创建的对话）",
     )
-    batch_chat: bool = Field(
-        default=False,
-        description=(
-            "是否为批量执行模式对话（从应用中心『批量执行』入口创建的对话）。"
-            "为 True 时强制启用 batch_runner MCP，并在系统提示中提示模型优先调用 batch_plan。"
-        ),
-    )
     workflow_chat: bool = Field(
         default=False,
         description=(
             "是否为工作流模式对话（用户显式触发：输入框 / 斜杠命令、或 + 菜单里选「工作流模式」）。"
             "为 True 时才注册 run_job 批量作业工具，并在系统提示中给出作业脚本写法。"
-            "与计划模式/批量执行同属用户触发的模式：不触发就完全不存在，"
+            "与计划模式同属用户触发的模式：不触发就完全不存在，"
             "避免普通问答被无关的批量规则干扰。"
         ),
     )
@@ -147,13 +140,6 @@ class ChatRequest(BaseModel):
             "是否为站点会话（实验室『站点』入口创建的建站 / 站点编辑对话）。"
             "为 True 时由后端在系统提示里注入建站或编辑的作业规则——"
             "这段规则不进用户消息，历史里看不到它。"
-        ),
-    )
-    disable_batch_plan: bool = Field(
-        default=False,
-        description=(
-            "禁用 batch_plan 工具。用户在批量执行确认弹窗里点取消后，"
-            "前端再次发起本次对话时会带上此标志，让 LLM 用其它工具普通回答。"
         ),
     )
     skill_id: Optional[str] = Field(

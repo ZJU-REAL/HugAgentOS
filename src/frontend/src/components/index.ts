@@ -27,6 +27,3 @@ export { renderToolOutputBody, ToolOutputBody, ToolResultPanel } from './tool';
 
 // Catalog management
 export { CatalogPanel } from './catalog';
-
-// Batch execution
-export { BatchConfirmModal, BatchProgressPanel } from './batch';

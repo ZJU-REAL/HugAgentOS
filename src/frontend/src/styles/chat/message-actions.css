@@ -312,25 +312,21 @@
   color:var(--jx-chip-active-fg);
 }
 
-/* 关闭 ✕：贴在 chip 右上角内侧，不描边、不加投影、不做实心徽标——它是"退出这个
-   模式"的收尾动作，不该比模式名本身还抢眼。静息态压到很淡，hover / 键盘聚焦时
-   才提亮；触屏没有 hover，单独抬一档保证可见。热区比图形大一圈，好点中。 */
+/* Close participates in flow: its hit target never overlays the adjacent chip. */
 
 .jx-modeChip{
   position:relative;
   cursor:default;
-  /* 给右上角的 ✕ 留出自己的留白，避免压在模式名上 */
-  padding-right:16px;
+  padding-right:4px;
 }
 
 .jx-modeChip-close{
-  position:absolute;
-  top:2px;
-  right:3px;
+  position:relative;
+  flex:none;
   display:grid;
   place-items:center;
-  width:12px;
-  height:12px;
+  width:24px;
+  height:24px;
   padding:0;
   border:none;
   border-radius:50%;
@@ -341,13 +337,6 @@
   opacity:.3;
   cursor:pointer;
   transition:opacity .18s ease;
-}
-
-.jx-modeChip-close::after{
-  /* 图形 12px、热区 24px */
-  content:'';
-  position:absolute;
-  inset:-6px;
 }
 
 .jx-modeChip:hover .jx-modeChip-close,

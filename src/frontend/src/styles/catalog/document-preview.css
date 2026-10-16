@@ -1,0 +1,257 @@
+/* Document detail modal */
+
+.jx-kbDocDesc{
+  font-size:14px;
+  color:color-mix(in srgb, var(--color-text) 65%, transparent);
+  line-height:1.7;
+  margin-bottom:16px;
+  padding:10px 14px;
+  background:color-mix(in srgb, var(--color-bg-container) 80%, transparent);
+  border-radius:10px;
+  border:1px solid color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.jx-kbDocTabs{
+  display:flex;
+  gap:0;
+  border-bottom:2px solid color-mix(in srgb, var(--color-primary) 6%, transparent);
+  margin-bottom:16px;
+}
+
+.jx-kbDocTab{
+  padding:8px 18px;
+  font-size:14px;
+  font-weight:500;
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
+  background:none;
+  border:none;
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  margin-bottom:-2px;
+  transition:color .15s, border-color .15s;
+}
+
+.jx-kbDocTab:hover{
+  color:color-mix(in srgb, var(--color-primary) 85%, transparent);
+}
+
+.jx-kbDocTab.active{
+  color:var(--color-primary-active);
+  font-weight:600;
+  border-bottom-color:var(--color-primary-active);
+}
+
+/* Chunk list */
+
+.jx-chunkList{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.jx-chunkCard{
+  border-radius:14px;
+  border:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
+  background:var(--color-bg-container);
+  overflow:hidden;
+  transition:border-color .18s, box-shadow .18s;
+}
+
+.jx-chunkCard:hover{
+  border-color:color-mix(in srgb, var(--color-primary) 20%, transparent);
+  box-shadow:0 4px 16px color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.jx-chunkHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 16px;
+  background:linear-gradient(135deg, color-mix(in srgb, var(--color-bg-container) 95%, transparent) 0%, color-mix(in srgb, var(--color-bg-container) 80%, transparent) 100%);
+  border-bottom:1px solid color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+.jx-chunkIndex{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.jx-chunkIndexNum{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  border-radius:8px;
+  background:color-mix(in srgb, var(--color-text) 72%, transparent);
+  color:var(--color-text-white);
+  font-size:13px;
+  font-weight:700;
+}
+
+.jx-chunkHeaderRight{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.jx-chunkContentLen{
+  font-size:12px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.jx-chunkContent{
+  padding:14px 16px;
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  line-height:1.75;
+  white-space:pre-wrap;
+  word-break:break-word;
+  border-bottom:1px solid color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+/* 知识库媒体资产缩略图条（版面切出的图表 / 单独上传的图片）。
+   分块查看页与对话里的检索结果卡共用同一组类名。 */
+
+.jx-kbAssetThumbs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--space-sm);
+  padding:var(--space-sm) 16px;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.jx-kbAssetThumbs-item{
+  width:120px;
+  height:90px;
+  object-fit:cover;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  cursor:zoom-in;
+  background:var(--color-bg-gray);
+}
+
+/* 对话内的检索结果卡更窄，缩略图相应收小并去掉分隔线 */
+
+.jx-kbAssetThumbs--compact{
+  padding:var(--space-xs) 0 0;
+  gap:var(--space-xs);
+  border-bottom:none;
+}
+
+.jx-kbAssetThumbs--compact .jx-kbAssetThumbs-item{
+  width:72px;
+  height:54px;
+  border-radius:var(--radius-xs);
+}
+
+.jx-chunkMeta{
+  padding:12px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  background:color-mix(in srgb, var(--color-bg-container) 50%, transparent);
+}
+
+.jx-chunkSection{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.jx-chunkSectionLabel{
+  font-size:12px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
+  display:flex;
+  align-items:center;
+  gap:4px;
+  text-transform:uppercase;
+  letter-spacing:.3px;
+}
+
+.jx-chunkSectionIcon{
+  font-size:13px;
+}
+
+.jx-chunkTagsWrap{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+
+.jx-chunkTag.ant-tag{
+  margin:0;
+  border-radius:6px;
+  font-size:12px;
+  padding:2px 10px;
+  border-color:color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background:color-mix(in srgb, var(--color-primary) 6%, transparent);
+  color:color-mix(in srgb, var(--color-primary) 85%, transparent);
+}
+
+.jx-chunkAddInput{
+  width:90px;
+  border-radius:6px;
+  font-size:12px;
+}
+
+.jx-chunkAddInput .ant-input{
+  font-size:12px;
+}
+
+.jx-chunkQuestions{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.jx-chunkQuestion{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 10px;
+  border-radius:8px;
+  background:color-mix(in srgb, var(--color-primary) 4%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
+  transition:background .12s;
+}
+
+.jx-chunkQuestion:hover{
+  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
+}
+
+.jx-chunkQuestionText{
+  flex:1;
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 82%, transparent);
+  line-height:1.5;
+}
+
+.jx-chunkQuestionDel{
+  opacity:0;
+  transition:opacity .12s;
+  flex-shrink:0;
+}
+
+.jx-chunkQuestion:hover .jx-chunkQuestionDel{
+  opacity:1;
+}
+
+/* scrollbar for list */
+
+.jx-manageList::-webkit-scrollbar{width:8px}
+
+.jx-manageList::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--color-text) 14%, transparent); border-radius:999px}
+
+/* text ellipsis */
+
+.jx-lineClamp2{
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  line-height:1.6;
+}

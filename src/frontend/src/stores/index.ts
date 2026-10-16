@@ -10,7 +10,6 @@ export { useMySpaceStore } from './mySpaceStore';
 export { useCanvasStore } from './canvasStore';
 export { useAutomationStore } from './automationStore';
 export { useAutomationChatStore } from './automationChatStore';
-export { useBatchStore } from './batchStore';
 export { useModelCapabilitiesStore } from './modelCapabilitiesStore';
 export { useEditionStore } from './editionStore';
 export { usePluginStore } from './pluginStore';

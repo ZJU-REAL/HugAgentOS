@@ -21,6 +21,7 @@ from core.db.repository import (
     ChatSessionRepository,
 )
 from core.db.repository.chat import _strip_nul
+from core.db.reserved_chats import reserved_chat_owner
 from sqlalchemy import update
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
@@ -169,6 +170,7 @@ class ChatService:
         title: str = "新对话",
         extra_data: Dict = None,
         chat_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> ChatSession:
         """Create a new chat session.
 
@@ -187,6 +189,7 @@ class ChatService:
             "user_id": user_id,
             "title": title,
             "extra_data": extra_data or {},
+            "project_id": project_id,
         }
         session = self.session_repo.create(session_data)
 
@@ -239,6 +242,7 @@ class ChatService:
                 title=title,
                 extra_data=extra_data or {},
                 chat_id=chat_id,
+                project_id=project_id,
             )
         if session is not None and project_id and not session.project_id:
             session.project_id = project_id
@@ -274,6 +278,9 @@ class ChatService:
         Historical semantics unchanged: only the owner can get the session. For
         edition-specific sharing, use :py:meth:`get_session_with_access`.
         """
+        # Module-owned chats are reachable only through their module, never as ordinary chats.
+        if reserved_chat_owner(chat_id):
+            return None
         session = self.session_repo.get_by_id(chat_id)
 
         if session and session.user_id != user_id:
@@ -289,8 +296,11 @@ class ChatService:
 
         - Does not exist / soft-deleted → ``None``
         - No access (``resolve_chat_access`` returns ``'none'``) → ``None``
+        - Module-owned (reserved namespace) → ``None``: not an ordinary chat
         - Otherwise returns ``(session, 'admin'|'edit'|'read')``
         """
+        if reserved_chat_owner(chat_id):
+            return None
         session = self.session_repo.get_by_id(chat_id)
         if session is None:
             return None

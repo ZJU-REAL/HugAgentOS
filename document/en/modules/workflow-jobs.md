@@ -22,6 +22,10 @@ Omitting `tools` inherits the parent's MCPs. A non-empty explicit list selects i
 
 Derived instances use the main-agent iteration policy without lightweight or subagent turn caps. Each complete task executes once. Invalid output, execution failure or an uncertain callback result never automatically repeats potentially completed side effects. Inspect existing actions before explicitly resuming.
 
+Windows local jobs use `.job/<full attempt ID>/` to reduce directory depth and keep packaged Python job SDK imports below the traditional path-length limit. Each execution retains its complete unique attempt ID; resume and cancellation use the persisted actual directory and exact process reference.
+
+The native desktop end-to-end acceptance script is `src/backend/tests/integration/job_agent_local_smoke.py`. Run it with the packaged private Python and a new isolated output directory. It exercises real HTTP callbacks, managed job processes, concurrent derived main agents, child agents, Bash and file results. Only model decisions are supplied by a local scripted service. It uses no real accounts or data and does not replace installer or WebView2 window acceptance.
+
 ## Validation
 
 Unit and regression tests live under src/backend/tests/orchestration/test_job*.py. The opt-in real-sandbox test, src/backend/tests/integration/job_managed_smoke.py, requires an existing job for sandbox context. It creates synthetic jobs and a temporary callback endpoint to test concurrent ledger writes, thread exit, isolated cancellation, cross-process adoption, resume, and startup failure. It does not call a model or rerun the original business script.

@@ -1,3 +1,4 @@
+import { usePublicMediaUrl } from '../../hooks/usePublicMediaUrl';
 import { LoadingOutlined, DownloadOutlined, CloseOutlined } from '@ant-design/icons';
 import '../../styles/chat/attachment-polish.css';
 import { getFileIconSrc } from '../../utils/fileIcon';
@@ -33,8 +34,9 @@ export default function FileAttachmentCard({
   const canPreview = !!artifact && !loading && !error;
   if (artifact) {
     downloadHref = artifactUrl(artifact);
-    if (previewUrl) previewUrl = artifactUrl(artifact, { params: { inline: 'true' } });
+    if (previewUrl && !previewUrl.startsWith('blob:')) previewUrl = artifactUrl(artifact, { params: { inline: 'true' } });
   }
+  const media = usePublicMediaUrl(previewUrl || '');
   const ext = (name.split('.').pop() ?? '').toLowerCase();
   const isImage = IMAGE_EXTS.has(ext);
   const className = `jx-fileCard${compact ? ' jx-fileCard--compact' : ''}${loading ? ' jx-fileCard--uploading' : ''}${error ? ' jx-fileCard--error' : ''}`;
@@ -45,8 +47,8 @@ export default function FileAttachmentCard({
   const inner = (
     <>
       <div className="jx-fileCard-icon">
-        {isImage && previewUrl ? (
-          <img src={previewUrl} alt={name} className="jx-fileCard-imgThumb" />
+        {isImage && media.url ? (
+          <img src={media.url} alt={name} className="jx-fileCard-imgThumb" />
         ) : (
           <img src={getFileIconSrc(name)} width="24" height="24" alt="" aria-hidden="true" />
         )}

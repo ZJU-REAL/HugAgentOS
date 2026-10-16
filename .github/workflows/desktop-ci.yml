@@ -111,7 +111,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: src/frontend
-        run: npm install --no-package-lock --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Install desktop toolchain
         working-directory: desktop

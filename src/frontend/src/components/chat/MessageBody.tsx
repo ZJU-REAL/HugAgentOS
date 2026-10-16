@@ -23,16 +23,18 @@ import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
 interface MessageBodyProps {
   m: ChatMessage;
+  showProcess?: boolean;
   messageIndex: number;
   currentChatId: string;
   send: (text?: string) => void;
 }
-export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBodyProps) {
+export function MessageBody({ m, messageIndex, currentChatId, send, showProcess }: MessageBodyProps) {
   const handleCitationAction = useMessageCitation(m);
   const expandedThinking = useChatStore((s) => s.expandedThinking);
   const toggleThinking = useChatStore((s) => s.toggleThinking);
   const chatMode = useChatStore((s) => s.chatMode);
-  const dispatchProcessVisible = useUIStore((s) => s.dispatchProcessVisible);
+  const processPreference = useUIStore((s) => s.dispatchProcessVisible);
+  const dispatchProcessVisible = showProcess ?? processPreference;
   const conversationCitations = useConversationCitations(currentChatId, m, messageIndex);
   // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
   // 像模型在发呆。识图结束由 chatStream 清空。
@@ -273,15 +275,16 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                   const showInlineWait = !dispatchProcessVisible && m.isStreaming && isLastSeg;
                   return (
                     <React.Fragment key={segKey}>
-                      <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.role === 'user' || m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
+                      <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
                         {segIdx === 0 && renderUserQuote()}
                         {segIdx === 0 && renderChipBadges()}
                         {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={textContent} /> : <CitationMarkdownBlock
                           className="jx-msgText"
                           text={textContent}
-                          isMarkdown={m.isMarkdown ?? false}
+                          isMarkdown
                           citations={effectiveCitations}
                           messageIsStreaming={m.isStreaming}
+                          streamingSnapshot={m.inFlight?.textSnapshotOffset}
                           onCitationAction={handleCitationAction}
                         />}
                       </div>
@@ -342,15 +345,16 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 <ThinkingInline content="" isActive={true} />
               )
             ) : (
-            <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.role === 'user' || m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming ? 'streaming' : ''}`}>
+            <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming ? 'streaming' : ''}`}>
               {renderUserQuote()}
               {renderChipBadges()}
               {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={m.content} /> : <CitationMarkdownBlock
                 className="jx-msgText"
                 text={m.content}
-                isMarkdown={m.isMarkdown ?? false}
+                isMarkdown
                 citations={conversationCitations}
                 messageIsStreaming={m.isStreaming}
+                streamingSnapshot={m.inFlight?.textSnapshotOffset}
                 onCitationAction={handleCitationAction}
               />}
               {m.isStreaming && (

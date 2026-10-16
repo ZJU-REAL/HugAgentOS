@@ -116,12 +116,21 @@ def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
         recovery_snapshot={"kind": "chat", "worker_args": {}},
     )
     journal.accept(
-        run_id="run-batch",
-        message_id="msg-batch",
+        run_id="run-automation",
+        message_id="msg-automation",
         chat_id="chat-2",
         user_id="user-1",
-        request_payload={"kind": "batch_item"},
-        recovery_snapshot={"kind": "batch_item"},
+        request_payload={"kind": "automation_prompt"},
+        recovery_snapshot={"kind": "automation_prompt"},
+    )
+    # Personal Agent turns live in reserved chats and must not surface in the sidebar.
+    journal.accept(
+        run_id="run-personal-agent",
+        message_id="msg-personal-agent",
+        chat_id="pa_chat_abc",
+        user_id="user-1",
+        request_payload={"kind": "personal_agent_turn"},
+        recovery_snapshot={"kind": "personal_agent_turn"},
     )
     journal.accept(
         run_id="run-other-user",
@@ -132,8 +141,9 @@ def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
         recovery_snapshot={"kind": "chat", "worker_args": {}},
     )
 
-    listed = executor.list_active_runs_for_user("user-1")
+    listed, _ = executor.list_active_runs_for_user("user-1")
     assert {row.chat_id for row in listed} == {"chat-1", "chat-2"}
+    assert "pa_chat_abc" not in executor.list_active_runs_for_user("user-1", 3600)[1]
     assert {row.run_id for row in listed} == {live_one.run_id, live_two.run_id}
 
     # A finished run must stop lighting the sidebar dot, even while its writer
@@ -142,7 +152,7 @@ def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
         row = db.get(ChatRun, live_one.run_id)
         row.status = "completed"
         db.commit()
-    assert {row.chat_id for row in executor.list_active_runs_for_user("user-1")} == {"chat-2"}
+    assert {row.chat_id for row in executor.list_active_runs_for_user("user-1")[0]} == {"chat-2"}
 
 
 def test_active_runs_route_returns_chat_ids_and_outranks_the_detail_route(recovery_env):
@@ -180,6 +190,37 @@ def test_active_runs_route_returns_chat_ids_and_outranks_the_detail_route(recove
     # route swallows it and the sidebar probe 404s on a chat named active-runs.
     paths = [route.path for route in chat_routes.router.routes]
     assert paths.index("/v1/chats/active-runs") < paths.index("/v1/chats/{chat_id}")
+
+
+def test_active_runs_route_reports_recent_chats_whose_run_already_ended(recovery_env):
+    sessions = recovery_env
+    journal = RunJournal(sessions)
+    for run_id, chat_id, user_id, kind in (
+        ("run-short", "chat-short", "user-1", "chat"),
+        ("run-automation-recent", "chat-automation", "user-1", "automation_prompt"),
+        ("run-foreign", "chat-foreign", "user-2", "chat"),
+    ):
+        journal.accept(
+            run_id=run_id,
+            message_id="msg-" + run_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            request_payload={"kind": kind},
+            recovery_snapshot={"kind": kind, "worker_args": {}},
+        )
+    with sessions() as db:
+        db.get(ChatRun, "run-short").status = "completed"
+        db.commit()
+    user = UserContext(user_id="user-1", user_center_id="center-1", username="tester")
+
+    with sessions() as db:
+        plain = chat_run_views.list_active_chat_runs(user=user, db=db)
+        recent = chat_run_views.list_active_chat_runs(user=user, db=db, recent_seconds=60)
+
+    # The ended run never lights the "running" dot; only a window lists it.
+    assert plain["data"]["recent_chat_ids"] == []
+    assert recent["data"]["items"] == []
+    assert recent["data"]["recent_chat_ids"] == ["chat-short"]
 
 
 @pytest.mark.asyncio

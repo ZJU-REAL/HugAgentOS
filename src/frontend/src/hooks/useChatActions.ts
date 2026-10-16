@@ -80,7 +80,6 @@ export function useChatActions(effectiveApiUrl: string) {
           ...(latestChat?.agentId ? { agent_id: latestChat.agentId } : {}),
           ...(latestChat?.agentName ? { agent_name: latestChat.agentName } : {}),
           ...(latestChat?.planChat ? { plan_chat: true } : {}),
-          ...(latestChat?.batchChat ? { batch_chat: true } : {}),
           ...((patch.titleManuallySet ?? latestChat?.titleManuallySet) ? { title_manually_set: true } : {}),
         };
       }

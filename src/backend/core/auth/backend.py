@@ -34,6 +34,7 @@ class UserContext(BaseModel):
     api_key_id: Optional[str] = None
     api_key_agent_id: Optional[str] = None
     api_key_project_id: Optional[str] = None
+    public_chat_visitor: Optional[str] = None
 
 
 def _sso_login_url() -> str:
@@ -218,7 +219,15 @@ async def _resolve_session_user(request: Request) -> Optional[UserContext]:
         from core.auth.session import validate_session
     except ModuleNotFoundError:
         return None
-    user_data = await validate_session(token)
+    passive_directory = request.url.path.endswith("/v1/workbench/catalog/events") or (
+        request.url.path.endswith("/v1/workbench/catalog") and request.headers.get("if-none-match")
+    )
+    if passive_directory:
+        from core.auth.session import _hash_token, find_session_by_hash
+
+        user_data = await find_session_by_hash(_hash_token(token))
+    else:
+        user_data = await validate_session(token)
     if user_data:
         return UserContext(
             user_id=user_data["user_id"],
@@ -254,6 +263,10 @@ async def get_current_user(
     AUTH_MODE=session still accepts explicit API Keys; other Bearer tokens
     require a session cookie.
     """
+    if request.headers.get("x-public-chat") is not None:
+        from core.auth.public_chat import authenticate_public_chat
+
+        return authenticate_public_chat(request, db)
     auth_mode = _auth_mode()
 
     # An explicit API credential must not be widened by an accompanying cookie
@@ -269,7 +282,6 @@ async def get_current_user(
     # ── 0. 桌面桥接（仅桌面壳孵化的本机后端启用；混合架构 P2）──
     # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
     from core.auth.desktop_bridge import resolve_bridge_user
-
     from starlette.concurrency import run_in_threadpool
 
     bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
@@ -360,6 +372,9 @@ def require_auth(required: bool = True):
         async def optional_user(
             request: Request, db: Session = Depends(get_db)
         ) -> Optional[UserContext]:
+            if request.headers.get("x-public-chat") is not None:
+                from core.auth.public_chat import authenticate_public_chat
+                return authenticate_public_chat(request, db)
             auth_mode = _auth_mode()
             from core.services.api_key_service import api_key_token_from_header
 

@@ -44,6 +44,23 @@ def bridge_enabled() -> bool:
     return bool(os.getenv(BRIDGE_SECRET_ENV, "").strip())
 
 
+def bridge_headers(shadow) -> Dict[str, str]:
+    """本进程以桥接用户 ``shadow`` 身份回环调用自身接口时使用的头。
+
+    资料取自现有影子用户，回环请求不会改写用户名/邮箱/头像。
+    """
+    info = {
+        "user_center_id": shadow.user_center_id,
+        "username": shadow.username,
+        "email": shadow.email,
+        "avatar_url": shadow.avatar_url,
+    }
+    return {
+        BRIDGE_SECRET_HEADER: os.environ[BRIDGE_SECRET_ENV].strip(),
+        BRIDGE_USER_HEADER: base64.b64encode(json.dumps(info).encode("utf-8")).decode("ascii"),
+    }
+
+
 def _decode_user_header(raw: str) -> Optional[Dict[str, Any]]:
     """解 ``X-Desktop-Bridge-User``（base64 JSON）。畸形输入一律返回 None，不抛异常。"""
     try:

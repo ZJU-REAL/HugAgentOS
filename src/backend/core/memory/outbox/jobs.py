@@ -212,8 +212,12 @@ async def _process_memory_edit(row: MemoryOutbox) -> dict[str, Any]:
     text = str(payload.get("text") or "")
     if not memory_id or not text:
         raise ValueError("memory edit requires memory_id and text")
-    await update_memory(memory_id, text, strict=True)
     ctx = common._context_from_payload(payload.get("ctx") or {})
+    from core.memory.access import authorized_memory_context
+
+    if await authorized_memory_context(memory_id, ctx.effective_actor) is None:
+        raise ValueError("memory not found for actor")
+    await update_memory(memory_id, text, strict=True)
     if ctx.message_id:
         from core.evolution.settlement_store import update_entry_text
 

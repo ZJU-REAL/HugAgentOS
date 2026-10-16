@@ -56,7 +56,19 @@ export interface CanvasSubagentTab {
   target: SubagentPanelTarget;
 }
 
-export type RightSidebarView = 'file' | 'ontology' | 'plugin' | 'subagent' | 'empty';
+export type RightSidebarView = 'file' | 'ontology' | 'plugin' | 'subagent' | 'custom' | 'empty';
+
+/** A view registered by a feature module (see components/canvas/customCanvasRegistry.ts). */
+export interface CustomPanelTarget {
+  renderer: string;
+  title: string;
+}
+
+export interface CanvasCustomTab {
+  id: string;
+  kind: 'custom';
+  target: CustomPanelTarget;
+}
 
 /** 一个文件预览页签。openSeq 逐页签自增：同一文件重新打开 / 原地保存后用它做缓存击穿。 */
 export interface CanvasFileTab {
@@ -80,7 +92,7 @@ export interface CanvasPluginTab {
   target: PluginPanelTarget;
 }
 
-export type CanvasTab = CanvasFileTab | CanvasOntologyTab | CanvasPluginTab | CanvasSubagentTab;
+export type CanvasTab = CanvasFileTab | CanvasOntologyTab | CanvasPluginTab | CanvasSubagentTab | CanvasCustomTab;
 
 const fileTabId = (file: CanvasArtifact) => `file:${file.origin || 'cloud'}:${file.file_id}`;
 const ontologyTabId = (chatId: string) => `ontology:${chatId}`;
@@ -96,6 +108,7 @@ interface DerivedView {
   ontologyTarget: OntologyPanelTarget | null;
   pluginTarget: PluginPanelTarget | null;
   subagentTarget: SubagentPanelTarget | null;
+  customTarget: CustomPanelTarget | null;
   openSeq: number;
 }
 
@@ -104,6 +117,7 @@ function derive(tabs: CanvasTab[], activeTabId: string | null): DerivedView {
   return {
     activeView: active ? active.kind : 'empty',
     subagentTarget: active?.kind === 'subagent' ? active.target : null,
+    customTarget: active?.kind === 'custom' ? active.target : null,
     artifact: active && active.kind === 'file' ? active.artifact : null,
     ontologyTarget: active && active.kind === 'ontology' ? active.target : null,
     pluginTarget: active && active.kind === 'plugin' ? active.target : null,
@@ -134,6 +148,8 @@ interface CanvasState extends DerivedView {
   openCanvas: (artifact: CanvasArtifact) => void;
   openOntology: (target: OntologyPanelTarget) => void;
   openSubagent: (target: SubagentPanelTarget) => void;
+  /** One tab per renderer: reopening activates it and updates its title. */
+  openCustom: (target: CustomPanelTarget) => void;
   openPluginView: (target: PluginPanelTarget) => void;
   updatePluginView: (patch: Partial<PluginPanelTarget>) => void;
   activateTab: (tabId: string) => void;
@@ -169,6 +185,13 @@ export const useCanvasStore = create<CanvasState>((set) => ({
       openSeq: (previous && previous.kind === 'file' ? previous.openSeq : 0) + 1,
       dirty: false,
     };
+    const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
+    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+  }),
+  openCustom: (target) => set((state) => {
+    const id = `custom:${target.renderer}`;
+    const index = state.tabs.findIndex((tab) => tab.id === id);
+    const tab: CanvasCustomTab = { id, kind: 'custom', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
     return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
   }),

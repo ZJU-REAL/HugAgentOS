@@ -76,6 +76,9 @@ def set_plugin_enabled(
     if row.owner_user_id != owner_user_id:
         raise BadRequestError(message="无权操作该插件")
 
+    from core.plugins.ui.workspace_enabled import set_enabled
+
+    set_enabled(db, row, enabled)
     cids = row.component_ids or {}
     skill_ids = plugin_sources._component_keys(cids, "skills")
     server_ids = plugin_sources._component_keys(cids, "mcp")
@@ -165,6 +168,9 @@ def set_plugin_enabled_for_user(
     if row.owner_user_id is not None and row.owner_user_id != user_id:
         raise BadRequestError(message="无权操作该插件")
 
+    from core.plugins.ui.workspace_enabled import set_enabled
+
+    set_enabled(db, row, enabled, user_id)
     from core.services.catalog_service import CatalogService
 
     svc = CatalogService(db)

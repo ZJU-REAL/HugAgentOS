@@ -218,7 +218,12 @@ try {
   await page.setViewportSize({width:1846,height:1000});
   await page.waitForFunction(()=>Math.abs(document.querySelector('.jx-sider').getBoundingClientRect().width-260)<0.1);
   await check('closed overlay and returned to desktop');
-  assert.deepEqual(await readingBounds(),restoredReading);
+  // Chromium may round a settled flex position by 1/64 CSS pixel after resizing.
+  const returnedReading = await readingBounds();
+  returnedReading.forEach((bounds, index) => {
+    assert.ok(Math.abs(bounds.x - restoredReading[index].x) < 0.1, 'reading column x restored');
+    assert.ok(Math.abs(bounds.width - restoredReading[index].width) < 0.1, 'reading column width restored');
+  });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await check('dark and reduced motion');

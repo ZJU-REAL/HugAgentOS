@@ -1,14 +1,13 @@
-# Automation & Batch Execution
+# Automation & Plan Mode
 
 > Last updated: 2026-09-30
 
-HugAgentOS ships three built-in mechanisms for turning a single instruction into repeatable or bulk productivity, all part of the **Community Edition (CE)**:
+HugAgentOS ships two built-in mechanisms for turning a single instruction into repeatable productivity, all part of the **Community Edition (CE)**:
 
 | Capability | One-liner | Backend entry |
 |---|---|---|
 | Scheduled automation | Run a prompt or a plan automatically on a cron schedule (or once / manually) | `api/routes/v1/automations.py` + `orchestration/schedulers/automation_scheduler.py` |
 | Plan mode | AI first decomposes a complex task into structured steps, then executes them after confirmation | `api/routes/v1/plans.py` + `orchestration/subagents/plan_mode.py` |
-| Batch execution | "Do the same thing to each item in a set" packaged as a confirmable batch plan | `api/routes/v1/batch.py` + `orchestration/batch_orchestrator.py` + `mcp_servers/batch_runner_mcp/` |
 
 ## Scheduled automation tasks
 
@@ -73,36 +72,6 @@ REST API (`/v1/plans`, `api/routes/v1/plans.py`): `GET ""` list, `GET/PATCH/DELE
 
 Plans can also be scheduled: after creating an automation task with `task_type=plan`, every trigger resets a completed / failed plan back to `approved`, clears step states, and reruns it from the top.
 
-## Batch execution
-
-Batch execution addresses "do the same thing to N items" (rate 10 companies one by one, analyze every row of an Excel sheet, extract key clauses from each contract). The flow has two phases:
-
-```
-User message (with batch intent)
-  → LLM calls the batch_plan tool (mcp_servers/batch_runner_mcp/server.py)
-    → the MCP process calls back POST /v1/internal/batch/resolve (internal_batch.py, BACKEND_INTERNAL_TOKEN auth)
-       · parse uploaded files (xlsx / word) → structured items
-       · or LLM-split a natural-language enumeration → items
-       · infer a default prompt template (with placeholders) and persist the BatchPlan
-  → backend pauses the SSE stream; frontend shows a confirmation dialog (BatchConfirmModal: review items, edit the template)
-  → POST /v1/batch/{plan_id}/confirm
-  → GET /v1/batch/{plan_id}/stream (SSE) starts the BatchOrchestrator (Phase 2, deterministic execution)
-```
-
-### Phase 1: plan generation (LLM-driven)
-
-The `batch_plan` tool description hard-codes strong trigger rules: whenever the message contains expressions like "批量 / 分别 / 逐个 / 每一个…" or enumerates ≥2 parallel objects in one sentence, the model **must** call the tool instead of answering directly, then end its turn immediately and wait for confirmation. The tool returns the `plan_id`, total item count, a preview of the first 3 items, the inferred default template, and the available placeholders.
-
-### Phase 2: deterministic execution (BatchOrchestrator)
-
-After confirmation, `orchestration/batch_orchestrator.py` iterates `plan.items` serially, **spawning a fresh ReActAgent per item** (with batch_runner disabled to prevent recursion) and persisting each result back to the DB:
-
-- **Refresh survival**: execution runs in a detached background asyncio task; an SSE client disconnect (page refresh, tab switch) does not interrupt it. On reconnect, a still-running task is tailed for new events, while a finished one replays all results from the DB.
-- **Retries & skipping**: a failed item is retried with exponential back-off up to `max_retries`; once exhausted it is recorded as `skipped` and the loop continues.
-- **Cancellation**: `POST /{plan_id}/cancel` sets the `cancelled` flag and the orchestrator stops at the next item boundary; `POST /{plan_id}/cancel-and-resume` (SSE) cancels the batch, deletes the assistant turn that triggered it, and re-streams the original user message with batch_plan disabled — a one-click escape for "actually, I didn't want a batch".
-
-Plan state machine: `pending → confirmed → running → done / failed / cancelled` (`batch_plans` table). Frontend components: `src/frontend/src/components/batch/BatchConfirmModal.tsx` (confirmation / template editing) and `BatchProgressPanel.tsx` (per-item progress stream), with state in `stores/batchStore.ts`.
-
 ## Typical scenarios
 
 **Daily 8 a.m. industry briefing (prompt automation)**
@@ -123,8 +92,6 @@ Every morning an Industry morning brief execution conversation is created. The s
 
 **Weekly report pipeline (plan automation)**: build and validate a three-step plan ("pull data → aggregate analysis → export Word") in plan mode, then create a task with `task_type=plan` and `cron_expression="0 17 * * 5"` to rerun the whole plan every Friday at 5 p.m.
 
-**Excel batch analysis (batch execution)**: upload a 200-row company list as xlsx and type "give a business-risk assessment for each row's company" — the model calls `batch_plan`, you confirm the template ("Assess the business risk of {{company_name}}…"), and execution proceeds row by row, surviving page refreshes, with automatic retries for failed rows.
-
 ## Source map
 
 | Topic | Path |
@@ -136,12 +103,7 @@ Every morning an Industry morning brief execution conversation is created. The s
 | Plan REST API | `src/backend/api/routes/v1/plans.py` |
 | Plan generation / execution orchestration | `src/backend/orchestration/subagents/plan_mode.py`, `src/backend/core/services/plan_service.py` |
 | Plan / step models | `src/backend/core/db/models/agent.py` |
-| Batch REST + SSE | `src/backend/api/routes/v1/batch.py` |
-| Internal batch resolver | `src/backend/api/routes/v1/internal_batch.py` |
-| batch_plan MCP tool | `src/backend/mcp_servers/batch_runner_mcp/server.py`, `_planner.py` |
-| Batch orchestrator | `src/backend/orchestration/batch_orchestrator.py` |
 | Frontend automation UI | `src/frontend/src/components/lab/AutomationPanel.tsx` etc., `src/frontend/src/components/automation/RunTimelinePanel.tsx` |
-| Frontend batch UI | `src/frontend/src/components/batch/`, `src/frontend/src/stores/batchStore.ts` |
 | Frontend state | `src/frontend/src/stores/automationStore.ts`, `automationChatStore.ts` |
 
 Further reading: [Chat System](chat.md) · [MCP Tools](mcp-tools.md) · [Canvas & Artifacts](canvas-artifacts.md)

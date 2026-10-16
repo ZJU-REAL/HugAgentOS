@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 import core.services as chat_services
 from api.schemas import ChatRequest
 from core.auth.backend import UserContext
+from core.db.reserved_chats import reserved_chat_error, reserved_chat_owner
 from core.chat.context import generate_smart_title
 from core.infra.logging import get_logger
 from core.services.model_config import ModelConfigService
@@ -70,11 +71,12 @@ def _ensure_chat_session(
     agent_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     plan_chat: bool = False,
-    batch_chat: bool = False,
     workflow_chat: bool = False,
     site_chat: bool = False,
     project_id: Optional[str] = None,
 ):
+    if reserved_chat_owner(chat_id):
+        raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
     extra_data: Dict[str, Any] = {"chat_id": chat_id}
     if agent_id:
         extra_data["agent_id"] = agent_id
@@ -82,8 +84,6 @@ def _ensure_chat_session(
             extra_data["agent_name"] = agent_name
     if plan_chat:
         extra_data["plan_chat"] = True
-    if batch_chat:
-        extra_data["batch_chat"] = True
     if workflow_chat:
         extra_data["workflow_chat"] = True
     if site_chat:
@@ -120,9 +120,6 @@ def _ensure_chat_session(
         dirty = True
     if plan_chat and not existing_meta.get("plan_chat"):
         merged["plan_chat"] = True
-        dirty = True
-    if batch_chat and not existing_meta.get("batch_chat"):
-        merged["batch_chat"] = True
         dirty = True
     if workflow_chat and not existing_meta.get("workflow_chat"):
         merged["workflow_chat"] = True

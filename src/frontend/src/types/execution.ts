@@ -1,5 +1,4 @@
 import type { ToolCall } from './messages';
-import type { CitationItem } from './workspace';
 
 // ── Plan Mode types ───────────────────────────────────────────────────────
 
@@ -65,49 +64,6 @@ export interface JobBrief {
   created_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
-}
-
-// ── Batch execution feature ────────────────────────────────────────────────
-
-export type BatchSourceType = 'xlsx' | 'word_files' | 'text_list';
-
-export interface BatchPlanMeta {
-  plan_id: string;
-  total: number;
-  source_type: BatchSourceType;
-  preview: Record<string, unknown>[];
-  default_template: string;
-  placeholder_keys: string[];
-  chat_id?: string;
-  warnings?: string[];   // truncation / cap warnings surfaced from backend
-}
-
-export interface BatchItemResult {
-  index: number;
-  total?: number;
-  status: 'success' | 'skipped';
-  content?: string;
-  error?: string;
-  retry_count: number;
-  progress?: { done: number; success: number; failed: number };
-  // Optional captured side-channels from the per-item sub-agent run.
-  // Lets the frontend reuse the chat-bubble's tool-call / artifact /
-  // citation primitives for diverse output formats (charts, Word/Excel
-  // exports, KB-cited research) without bespoke rendering.
-  tool_calls?: ToolCall[];
-  artifacts?: unknown[];
-  citations?: CitationItem[];
-}
-
-export interface BatchPlanState {
-  meta: BatchPlanMeta;
-  template?: string;        // user-edited template (after confirm)
-  status: 'awaiting_confirm' | 'running' | 'done' | 'cancelled' | 'error';
-  results: BatchItemResult[];
-  startedAt?: number;
-  finishedAt?: number;
-  errorMsg?: string;
-  summary?: { total: number; success: number; failed: number };
 }
 
 // ── Autonomous Loop (long-running autonomous operation) ─────────────────────

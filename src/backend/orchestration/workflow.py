@@ -905,7 +905,6 @@ from orchestration.tool_payloads import (  # noqa: E402
 # stream's agent.reply() / the next item's create_subprocess_exec along with
 # it. Reproduced in both production and local.
 #
-# Same root cause and same fix as batch_orchestrator._persistent_clients:
 # accept a small memory leak (one leftover HTTP keepalive socket per
 # conversation) in exchange for a runner that never deadlocks. Released
 # together when the worker process exits/restarts.
@@ -925,47 +924,6 @@ from orchestration.message_parser import looks_markdown as _looks_markdown  # no
 from orchestration.message_parser import resolve_sources_conflict as _resolve_sources_conflict
 
 logger = logging.getLogger(__name__)
-
-
-_BATCH_RUNNER_ID = "batch_runner"
-
-
-def _resolve_batch_runner_visibility(
-    context: Dict[str, Any],
-    enabled_mcp_ids: Optional[List[str]],
-) -> Optional[List[str]]:
-    """Decide whether ``batch_runner`` should be in the effective MCP set.
-
-    - ``batch_chat`` (App Center batch-execution entry): force-include, even if the
-      user's catalog config doesn't list it. Wins over the unattended hide.
-    - ``plan_chat`` / ``automation_run`` / ``disable_batch_plan``: hide,
-      because the batch_plan flow requires a confirmation dialog and these
-      runs have no UI to confirm with.
-    - Otherwise: pass through unchanged.
-
-    When *enabled_mcp_ids* is ``None`` we resolve the catalog default once.
-    """
-    if context.get("batch_chat"):
-        if enabled_mcp_ids is None:
-            from core.config.catalog import get_enabled_ids
-
-            enabled_mcp_ids = list(get_enabled_ids("mcp"))
-        if _BATCH_RUNNER_ID not in enabled_mcp_ids:
-            return [*enabled_mcp_ids, _BATCH_RUNNER_ID]
-        return enabled_mcp_ids
-
-    if not (
-        context.get("plan_chat")
-        or context.get("automation_run")
-        or context.get("disable_batch_plan")
-    ):
-        return enabled_mcp_ids
-
-    if enabled_mcp_ids is None:
-        from core.config.catalog import get_enabled_ids
-
-        enabled_mcp_ids = list(get_enabled_ids("mcp"))
-    return [m for m in enabled_mcp_ids if m != _BATCH_RUNNER_ID]
 
 
 def _explicit_skill_ids_from_context(context: Dict[str, Any]) -> List[str]:
@@ -1335,7 +1293,6 @@ def run_chat_workflow(
     enabled_kb_ids = None if _direct_user_agent else enabled_kb_ids_from_context(context)
     enabled_mcp_ids = None if _direct_user_agent else enabled_mcp_ids_from_context(context)
 
-    enabled_mcp_ids = _resolve_batch_runner_visibility(context, enabled_mcp_ids)
 
     _workflow_user_id = str(context.get("user_id", ""))
     _workflow_model_name = str(context.get("model_name", ""))
@@ -1344,7 +1301,6 @@ def run_chat_workflow(
     _workflow_mem_enabled = bool(context.get("memory_enabled", False))
     _reranker_enabled = bool(context.get("reranker_enabled", False))
 
-    _workflow_batch_chat = bool(context.get("batch_chat", False))
 
     if _direct_user_agent is None:
         _visible_subagents = _runtime_visible_subagents(
@@ -1361,7 +1317,6 @@ def run_chat_workflow(
     _workflow_mode_spec = _resolve_mode_spec(context)
     _workflow_turbo = (
         _direct_user_agent is None
-        and not _workflow_batch_chat
         and _workflow_mode_spec is not None
         and _workflow_mode_spec.restricted
     )
@@ -1416,7 +1371,6 @@ def run_chat_workflow(
                 if isinstance(item, str) and item
             ],
             memory_enabled=_workflow_mem_enabled,
-            batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             workflow_mode=bool(context.get("workflow_chat", False)),
             user_agent=_direct_user_agent,
             read_only=_direct_read_only,
@@ -2686,13 +2640,6 @@ async def astream_chat_workflow(
         enabled_kb_ids = enabled_kb_ids_from_context(context)
         enabled_mcp_ids = enabled_mcp_ids_from_context(context)
 
-        _stream_unattended = bool(
-            context.get("plan_chat")
-            or context.get("automation_run")
-            or context.get("disable_batch_plan")
-        )
-        enabled_mcp_ids = _resolve_batch_runner_visibility(context, enabled_mcp_ids)
-
         # ── Load visible sub-agents for main agent routing ──
         _visible_subagents: list = []
         _mentioned_ids: list = []
@@ -2741,15 +2688,13 @@ async def astream_chat_workflow(
 
         # Create agent (with model-aware CompressionConfig + optional native LTM)
         _plan_chat = bool(context.get("plan_chat", False))
-        _batch_chat = bool(context.get("batch_chat", False))
         # 极速模式：配置化检索工具集 + 独立 turbo 提示词 + 迭代硬上限。
-        # plan/batch 会话有自己的编排语义，不进入极速裁剪。
+        # plan 会话有自己的编排语义，不进入极速裁剪。
         _stream_mode_spec = _resolve_mode_spec(context)
         _turbo_chat = (
             _stream_mode_spec is not None
             and _stream_mode_spec.restricted
             and not _plan_chat
-            and not _batch_chat
         )
         if _turbo_chat:
             # 收窄模式下子智能体不再只靠手动呼唤入场：模式自己圈定的那批常驻，
@@ -2805,7 +2750,6 @@ async def astream_chat_workflow(
             approval_mode=_approval_mode(context),
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,
-            batch_mode=_batch_chat,
             workflow_mode=bool(context.get("workflow_chat", False)),
             chat_id=context.get("chat_id"),
             sandbox_session_id=context.get("sandbox_session_id"),
@@ -2819,14 +2763,13 @@ async def astream_chat_workflow(
             # The single positive source of truth for update_plan: enabled
             # only for "interactive main chats that can host plan mode" — has
             # a chat_id, not a channel bot, not automation, not plan_chat, not
-            # batch. Channels/automation have no plan-bar UI; plan_chat/batch
+            # batch. Channels/automation have no plan-bar UI; plan_chat
             # have their own orchestration and must not nest plan tracking.
             top_level_chat=(
                 bool(context.get("chat_id"))
                 and not context.get("channel_origin")
                 and not bool(context.get("automation_run"))
                 and not _plan_chat
-                and not _batch_chat
             ),
         )
 
@@ -3208,84 +3151,6 @@ async def astream_chat_workflow(
                         "model_step": payload.get("model_step"),
                         **({"subagent_name": _tr_sa_name} if _tr_sa_name else {}),
                     }
-
-                    # ── Batch execution: pause flow on batch_plan success ──
-                    # When the LLM calls the batch_plan MCP tool we treat its
-                    # result as a "human-in-the-loop" gate: emit a structured
-                    # batch_confirm SSE event with the plan summary, then
-                    # terminate the agent loop so the user can review/edit
-                    # the prompt template before any item is executed.
-                    #
-                    # In unattended modes (plan exec / automation) we don't
-                    # pause — there's no UI to confirm. We already filter
-                    # batch_runner out of those modes' toolkit, so this code
-                    # path is mostly defensive (if the agent calls it anyway,
-                    # we let it proceed with the plan_id text result).
-                    if tool_name == "batch_plan" and not _stream_unattended:
-                        bp_data = tool_result_json
-                        if (
-                            isinstance(bp_data, dict)
-                            and "result" in bp_data
-                            and isinstance(bp_data["result"], dict)
-                        ):
-                            bp_data = bp_data["result"]
-                        if isinstance(bp_data, dict) and bp_data.get("plan_id"):
-                            plan_id = bp_data.get("plan_id")
-                            ctx_user_id = str(context.get("user_id", "") or "")
-                            ctx_chat_id = str(context.get("chat_id", "") or "")
-                            # Backfill user_id + chat_id on the plan: the MCP
-                            # subprocess doesn't know who the caller is, so it
-                            # creates the plan as 'anonymous'. Patch it now
-                            # using the workflow's own context.
-                            try:
-                                from core.db.engine import SessionLocal
-                                from core.db.models import BatchPlan
-
-                                if ctx_user_id:
-                                    with SessionLocal() as _db:
-                                        _plan = (
-                                            _db.query(BatchPlan)
-                                            .filter(BatchPlan.plan_id == plan_id)
-                                            .first()
-                                        )
-                                        if _plan and _plan.user_id in (
-                                            "anonymous",
-                                            "",
-                                            None,
-                                        ):
-                                            _plan.user_id = ctx_user_id
-                                            if ctx_chat_id and not _plan.chat_id:
-                                                _plan.chat_id = ctx_chat_id
-                                            _db.commit()
-                                            logger.info(
-                                                "[batch] plan %s reassigned to user=%s chat=%s",
-                                                plan_id,
-                                                ctx_user_id,
-                                                ctx_chat_id,
-                                            )
-                            except Exception as patch_err:
-                                logger.warning(
-                                    "[batch] failed to backfill plan %s owner: %s",
-                                    plan_id,
-                                    patch_err,
-                                )
-
-                            yield {
-                                "type": "batch_confirm",
-                                "plan_id": plan_id,
-                                "total": bp_data.get("total"),
-                                "preview": bp_data.get("preview", []),
-                                "default_template": bp_data.get("default_template", ""),
-                                "placeholder_keys": bp_data.get("placeholder_keys", []),
-                                "source_type": bp_data.get("source_type"),
-                                "warnings": bp_data.get("warnings", []),
-                                "chat_id": ctx_chat_id if ctx_chat_id else None,
-                            }
-                            # Stop the agent loop — user must confirm before
-                            # any item executes. The MCP tool description
-                            # already instructs the LLM not to continue, but
-                            # we enforce it here defensively.
-                            break
 
                 elif event_type in ("heartbeat", "model_progress"):
                     # heartbeat = transport keep-alive; model_progress = the

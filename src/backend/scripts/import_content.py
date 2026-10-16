@@ -114,7 +114,7 @@ def import_docs_via_db(database_url: str, snapshot: dict, overwrite: bool) -> di
     sys.path.insert(0, str(BACKEND_ROOT))
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from core.content.content_blocks import import_docs_snapshot
+    from core.applications.migration_compat import import_docs_snapshot
 
     from core.db.connection import utc_connect_args
     engine = create_engine(database_url, connect_args=utc_connect_args(database_url))

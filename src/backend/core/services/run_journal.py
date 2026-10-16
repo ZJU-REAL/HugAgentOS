@@ -28,6 +28,7 @@ RECOVERABLE_TOOL_PHASES = (
 )
 NON_CHAT_RUN_KINDS = ("plan_execute", "plan_generate", "autonomous_loop")
 TOOL_BOUND_INTERNAL_RUN_KINDS = (
+    "personal_agent_task",
     "automation_plan",
     "automation_prompt",
     "batch_item",

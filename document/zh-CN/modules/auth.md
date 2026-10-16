@@ -68,17 +68,19 @@ GET  /mock-sso/login            → 生成一次性 ticket 并带 ?ticket=... �
 POST /mock-sso/ticket/exchange  → 校验 ticket，返回用户信息
 ```
 
-票据存储在进程内的 `core/auth/mock_ticket_store.py`，供 `core/auth/sso.py` 在 mock 模式下消费。手工验证流程：浏览器打开 `http://localhost:3001/mock-sso/login?redirect=/`。
+票据存储在进程内的 `core/auth/mock_ticket_store.py`，供 `edition_ee/auth/sso.py` 在 mock 模式下消费。手工验证流程：浏览器打开 `http://localhost:3001/mock-sso/login?redirect=/`。
 
 ### 企业 SSO（商业版 EE）
 
-生产 SSO 走 ticket 交换流程，由 `core/auth/sso.py` 实现，**受 License 能力位 `Feature.SSO` 门控**：
+生产 SSO 走 ticket 交换流程，由 `edition_ee/auth/sso.py` 实现，**受 License 能力位 `Feature.SSO` 门控**：
 
-- `POST /v1/auth/ticket/exchange` — 用一次性 ticket 换取会话（`api/routes/v1/auth.py`）
+- `POST /v1/auth/ticket/exchange` — 用一次性 ticket 换取会话（`edition_ee/routes/auth.py`）
 - `GET /v1/auth/sso/authorize-url` — 代理 SSO 提供方的 OAuth 授权地址，路由级挂 `requires_feature(Feature.SSO)`
 - `GET /v1/auth/session/check` / `POST /v1/auth/logout` — 会话检查与注销（基础设施，不受 License 限制）
 
 `SSO_EXCHANGE_MODE` 区分真实模式（`GET {SSO_TICKET_EXCHANGE_URL}?{callback_param}={credential}`）与 mock 模式；`SSO_CALLBACK_PARAM` 支持 `ticket`（旧版）与 `code`（OAuth2 风格的省级新版 SSO）两种参数名。
+
+SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0（包括 0.0；布尔值不算成功码）。无效 JSON、响应结构或登录/注销地址结构返回受控错误。网络异常、响应正文和提供方错误消息不进入日志或浏览器响应；SSO 客户端日志不保留任何票据字节。此检查保留 ticket / code 交换及已支持的用户信息格式。
 
 ### 会话管理
 
@@ -196,7 +198,7 @@ Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用�
 |---|---|
 | 认证后端（三种模式 + 判定优先级） | `src/backend/core/auth/backend.py` |
 | 会话管理（Redis） | `src/backend/core/auth/session.py` |
-| SSO 票据交换 | `src/backend/core/auth/sso.py`、`src/backend/api/routes/v1/auth.py` |
+| SSO 票据交换 | `src/backend/edition_ee/auth/sso.py`、`src/backend/edition_ee/routes/auth.py` |
 | Mock SSO / 本地登录注册页 | `src/backend/api/routes/v1/mock_sso.py`、`src/backend/core/auth/mock_ticket_store.py` |
 | 密码哈希 | `src/backend/core/auth/password.py` |
 | 权限接口层（CE/EE 接缝） | `src/backend/core/auth/permissions_iface.py` |

@@ -144,7 +144,17 @@ def _merge_duplicate_identities() -> None:
 
 def init_db():
     """Initialize or reconcile the database schema for the active edition."""
+    if engine.dialect.name == "sqlite":
+        from core.db.batch_retirement import retire_batch_execution
+        from sqlalchemy import inspect
+
+        with engine.begin() as connection:
+            if inspect(connection).has_table("batch_plans"):
+                retire_batch_execution(connection)
     if settings.deploy.is_local and engine.dialect.name == "sqlite":
+        from core.db.resource_owner_upgrade import reconcile_resource_owners
+
+        reconcile_resource_owners(engine)
         from core.db.site_storage_retirement import retire_site_storage
         from core.services.application_store import initialize_local_store
 

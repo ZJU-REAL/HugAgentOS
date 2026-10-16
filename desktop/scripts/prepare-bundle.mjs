@@ -45,6 +45,7 @@ if (bundleFlavor === "full") {
 }
 const desktopTarget = currentDesktopTarget();
 const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, desktopTarget);
+run(process.execPath, [join(repoRoot, "scripts", "build-workbench.mjs"), "--check"]);
 const python = bundleFlavor === "full" ? findPython() : null;
 
 function run(command, args, options = {}) {
@@ -183,7 +184,7 @@ console.log(
 console.log("[desktop] Building the CE login/onboarding web application");
 run(
   npmCommand,
-  [...npmPrefix, "install", "--no-audit", "--no-fund", "--no-package-lock"],
+  [...npmPrefix, "ci", "--no-audit", "--no-fund"],
   {
     cwd: join(generatedRoot, "src", "frontend"),
   },
@@ -196,6 +197,16 @@ run(npmCommand, [...npmPrefix, "run", "build"], {
     NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=6144",
   },
 });
+run(process.execPath, [join(repoRoot, "scripts", "build-workbench.mjs"), "--verify-dist", "dist"], {
+  cwd: join(repoRoot, "src", "frontend"),
+});
+run(process.execPath, [join(generatedRoot, "scripts", "build-workbench.mjs"), "--verify-dist", "dist"], {
+  cwd: join(generatedRoot, "src", "frontend"),
+});
+// Shared packages use frontend tools; the payload needs no Node installation.
+for (const name of ["workbench-protocol", "workbench-sdk"]) {
+  rmSync(join(generatedRoot, "packages", name, "node_modules"), {recursive: true, force: true});
+}
 // node_modules is a build-time input, not a server runtime dependency. Keeping it
 // would inflate the NSIS payload by hundreds of megabytes.
 rmSync(join(generatedRoot, "src", "frontend", "node_modules"), {

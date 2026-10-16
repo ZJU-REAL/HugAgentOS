@@ -17,7 +17,6 @@ Design trade-offs:
 - **At most one auto-pin per reply turn** (the middleware uses a ``_fired`` flag
   to prevent an infinite loop when all file_ids are garbage); when every pin
   fails, ``_fired`` is not set, leaving it for retry.
-- Under batch_mode the middleware skips directly, without disturbing anything.
 """
 from __future__ import annotations
 

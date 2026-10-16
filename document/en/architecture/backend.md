@@ -155,7 +155,6 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 | `registry.py` | Agent registry |
 | `tool_payloads.py` | SSE tool_result payload builders (artifact cards, skill loading, and other special shapes) |
 | `tool_callbacks.py` | Tool-call soft warnings (observation only — never blocks) |
-| `batch_orchestrator.py` | Batch execution orchestration (phase 2 of the batch flow) |
 | `subagents/plan_mode.py` | Plan-mode sub-agent: generates and executes structured plans |
 | `schedulers/automation_scheduler.py` | Automation scheduler: polls the DB for due tasks and fires them |
 | `schedulers/distillation_cron_scheduler.py` (Enterprise Edition, EE) | Daily skill-distillation cron |
@@ -186,7 +185,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 
 ## mcp_servers/ and sidecars
 
-`mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `batch_runner_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (spawns all processes inside the mcp container according to the `_ports.py` port table), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
+`mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (spawns all processes inside the mcp container according to the `_ports.py` port table), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
 
 `services/script_runner_service/server.py` is the skill-script execution sidecar: its own container, resource-limited subprocesses, and no database / Redis / API-key access.
 

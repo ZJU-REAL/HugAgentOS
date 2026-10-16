@@ -80,6 +80,7 @@ export function installRunSnapshot(state: ChatStreamState, value: unknown) {
 
     }
   }
+  state.textSnapshotOffset = projection.event_offset;
   state.allCitations = projection.citations ?? [];
   installRunControls(state, projection.signals);
   state.streamEnded = projection.terminal;

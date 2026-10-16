@@ -183,6 +183,9 @@ async def test_interactive_long_term_edits_are_admitted_before_store_effect(
 
     monkeypatch.setattr("core.memory.profile.upsert_fields", profile_effect)
     monkeypatch.setattr("core.memory.service.update_memory", memory_effect)
+    monkeypatch.setattr(memory_backend, "settings", SimpleNamespace(memory=memory_settings))
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: SimpleNamespace(
+        get=lambda ident: {"id": ident, "user_id": "u1", "metadata": {"workspace_id": "default"}}))
     profile_job = O.enqueue_profile_edit_job(ctx, "identity.name", "小明")
     memory_job = O.enqueue_memory_edit_job(ctx, "mem-1", "先核验主体")
 
@@ -217,7 +220,7 @@ async def test_shutdown_waits_for_real_executor_add_then_replay_uses_receipt(
             self.add_calls = 0
             self.rows = []
 
-        def add(self, messages, *, user_id, metadata, infer, expiration_date):
+        def add(self, messages, *, user_id, metadata, infer):
             self.add_calls += 1
             started.set()
             assert release.wait(timeout=3)
@@ -352,6 +355,9 @@ async def test_editing_back_to_an_old_value_creates_a_new_operation(db_session, 
         return True
 
     monkeypatch.setattr(S, "update_memory", update)
+    monkeypatch.setattr(memory_backend, "settings", SimpleNamespace(memory=memory_settings))
+    monkeypatch.setattr(memory_backend, "_get_memory", lambda: SimpleNamespace(
+        get=lambda ident: {"id": ident, "user_id": "u1", "metadata": {"workspace_id": "default"}}))
     jobs = [
         O.enqueue_memory_edit_job(ctx, "mem-1", "B", operation_id="op-b-1"),
         O.enqueue_memory_edit_job(ctx, "mem-1", "C", operation_id="op-c"),

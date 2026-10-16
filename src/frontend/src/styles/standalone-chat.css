@@ -1,0 +1,50 @@
+.jx-standaloneLink { display: grid; gap: 12px; padding: 18px; margin: 16px 0; background: var(--color-bg-layout); border: 1px solid var(--color-border); border-radius: 14px; }
+.jx-standaloneLink-heading { display: flex; align-items: center; gap: 10px; color: var(--color-text); }
+.jx-standaloneLink-heading .ant-switch { margin-left: auto; }
+.jx-standaloneLink-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.jx-standaloneLink-actions .ant-input { flex: 1 1 240px; min-width: 0; }
+.jx-publicChat { display: flex; height: 100%; min-height: 0; background: var(--color-bg-chat); color: var(--color-text); }
+.jx-publicSidebar { display: flex; flex-direction: column; flex: 0 0 256px; width: 256px; min-height: 0; padding: 24px 16px 16px; background: var(--module-sidebar-bg); border-right: 1px solid var(--color-border); }
+.jx-publicBrand { display: flex; align-items: center; gap: 10px; min-width: 0; margin-bottom: 26px; font-size: 16px; }
+.jx-publicBrand > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jx-publicBrand > .anticon { color: var(--color-primary); font-size: 22px; }
+.jx-publicNewChat { min-height: 40px; background: var(--color-bg-container); border-color: var(--color-border); }
+.jx-publicHistoryLabel { margin: 28px 10px 10px; color: var(--color-text-tertiary); font-size: 12px; }
+.jx-publicHistory { overflow-y: auto; flex: 1; min-height: 0; }
+.jx-publicHistory button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; margin: 2px 0; border: 0; border-radius: 9px; color: var(--color-text-secondary); background: transparent; text-align: left; cursor: pointer; }
+.jx-publicHistory button span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.jx-publicHistory button:hover { background: var(--module-nav-hover); }
+.jx-publicHistory button.is-active { color: var(--color-text); background: var(--module-nav-selected); }
+.jx-publicHistoryNote { margin: 16px 10px 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.6; }
+.jx-publicMain { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.jx-publicTopbar { flex: 0 0 64px; display: flex; align-items: center; padding: 0 28px; gap: 12px; border-bottom: 1px solid var(--color-border); }
+.jx-publicTopbar > .ant-btn:last-child { margin-left: auto; }
+.jx-publicContent { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.jx-publicContent > .jx-emptyPage { flex: 1; }
+.jx-publicContent .jx-emptyPage { overflow-y: auto; }
+.jx-publicLoading { width: min(680px, 90%); margin: 80px auto; }
+.jx-publicSidebar .jx-publicSidebarClose, .jx-publicTopbar .jx-publicMenu { display: none; }
+.jx-publicChat button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .jx-publicSidebar { display: none; position: fixed; inset: 0 auto 0 0; z-index: 101; width: min(290px, 86vw); }
+  .jx-publicSidebar.is-open { display: flex; }
+  .jx-publicSidebar .jx-publicSidebarClose, .jx-publicTopbar .jx-publicMenu { display: inline-flex; }
+  .jx-publicSidebarClose { margin-left: auto; }
+  .jx-publicBackdrop { position: fixed; inset: 0; z-index: 100; border: 0; background: color-mix(in srgb, var(--color-text) 35%, transparent); }
+  .jx-publicTopbar { padding: 0 12px; flex-basis: 56px; }
+  .jx-publicTopbar .jx-chatTopbarTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jx-standaloneLink { padding: 14px; }
+}
+
+/* Resource descriptions use supporting copy rather than the main greeting. */
+.jx-publicChat .jx-heroSubtitle { margin-top: 8px; font-size: 16px; font-weight: 400; line-height: 1.6; color: var(--color-text-secondary); letter-spacing: normal; overflow-wrap: anywhere; }
+.jx-publicChat .jx-heroTitle { overflow-wrap: anywhere; }
+.jx-publicTopbar .jx-chatTopbarTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 768px), (max-width: 960px) and (max-height: 600px) {
+  .jx-publicChat .jx-mobileHeroText h1 { font-size: 32px; line-height: 1.3; letter-spacing: -.02em; overflow-wrap: anywhere; text-align: center; }
+  .jx-publicChat .jx-mobileHeroText p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; text-align: center; }
+}
+
+.jx-publicFilePreview .ant-drawer-body { padding: 0; }
+.jx-publicFilePreview .jx-spaceImportPreview { height: 100%; }

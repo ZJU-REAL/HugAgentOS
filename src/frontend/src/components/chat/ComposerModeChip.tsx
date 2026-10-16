@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { CloseOutlined } from '@ant-design/icons';
 import { DUR, EASE } from '../../utils/motionTokens';
 
-/** The "you are in plan / batch / loop mode" chip in the composer bar. The chip body is a pure
+/** The "you are in plan / workflow / loop mode" chip in the composer bar. The chip body is a pure
  *  status indicator; the ✕ badge pinned to its top-right corner is the one way to leave the mode
  *  (the "+" menu only turns modes on, so this ✕ must always be reachable). */
 export function ComposerModeChip({

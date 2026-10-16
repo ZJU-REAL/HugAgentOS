@@ -20,13 +20,17 @@ def require_project_key_access(db, user_id: str, project_id: str):
 
 
 def make_project_api_scope(user, chat_id: str) -> dict:
-    return {
+    scope = {
         "version": 1,
         "owner_user_id": str(user.user_id),
         "api_key_id": str(user.api_key_id),
         "project_id": str(user.api_key_project_id),
         "chat_id": chat_id,
     }
+
+    if getattr(user, "public_chat_visitor", None):
+        scope["public_chat_visitor"] = user.public_chat_visitor
+    return scope
 
 
 def project_session_matches(session, scope: dict) -> bool:

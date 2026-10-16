@@ -41,7 +41,7 @@
       用户只能手动双指缩回。实测输入框是 15px，差 1px 就触发。
    3. 触摸热区：移动断点内的控件是照桌面尺寸「压小」的（28–38px），低于 Apple HIG
       的 44pt 下限——这正是「看着适配了、点着老是点不中」的来源。做法是保留视觉尺寸、
-      只用 ::after 把可点区域撑到 44px，不让界面变胖。
+      导航和消息操作使用 ::after 扩展；输入工具栏在 toolbar-layout.css 中使用真实尺寸。
    4. 触屏交互态：hover 态在触屏上按下即粘住不散；系统默认的点击高亮方块会在圆角
       控件外画出直角色块，与本站自己的 :active 反馈重复。
    ══════════════════════════════════════════════════════════════════════ */
@@ -105,11 +105,6 @@
    重叠会让后一个按钮偷走前一个的边缘，比不扩还糟。 */
 
 @media (max-width: 960px){
-  .jx-attachBtn,
-  .jx-promptHubBtn,
-  .jx-planModeBtn,
-  .jx-projectDropBtn,
-  .jx-modelEffortBtn,
   .jx-modeSeatBtn,
   .jx-searchBtn,
   .jx-collapseBtn,
@@ -118,11 +113,6 @@
     position:relative;
   }
 
-  .jx-attachBtn::after,
-  .jx-promptHubBtn::after,
-  .jx-planModeBtn::after,
-  .jx-projectDropBtn::after,
-  .jx-modelEffortBtn::after,
   .jx-modeSeatBtn::after,
   .jx-searchBtn::after,
   .jx-collapseBtn::after,
@@ -140,64 +130,8 @@
     border-radius:inherit;
   }
 
-  /* 命中层撑到 44px 后控件之间要留够节距，否则相邻命中层互相蚕食
-     （后一个按钮会偷走前一个的边缘）。40px 视觉宽 + 6px 间距 = 46px 节距 > 44。 */
-
-  .jx-composerBar{
-    gap:6px;
-    padding-top:4px;
-    padding-bottom:4px;
-  }
-
-  .jx-attachBtn,
-  .jx-promptHubBtn,
-  .jx-planModeBtn{
-    width:40px;
-    min-width:40px;
-    height:40px;
-    min-height:40px;
-    flex:0 0 40px;
-  }
-
-  .jx-projectDropBtn,
-  .jx-emptyPage--main .jx-homeInput .jx-projectDropBtn{
-    width:40px;
-    min-width:40px;
-    height:40px;
-    min-height:40px;
-    flex:0 0 40px;
-  }
-
-  /* chat.css 用 `.jx-composerBar .jx-<x>Btn{overflow:hidden}` 裁文字做省略号，
-     这个 hidden 会连命中层一起裁掉——实测热区被压回按钮自身的 40×40。
-     解法是把裁剪下移到内部的文字 span：省略号照旧，命中层不再被裁。
-     选择器必须同为 0,2,0 才压得住原规则。 */
-  .jx-composerBar .jx-projectDropBtn,
-  .jx-composerBar .jx-modelEffortBtn{
-    overflow:visible;
-  }
-
-  .jx-composerBar .jx-modelEffortBtn .jx-composerChip-label{
-    min-width:0;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    white-space:nowrap;
-  }
-
-  .jx-modelEffortBtn{
-    height:40px;
-    min-height:40px;
-  }
-
   .jx-modeSeatBtn{
     min-height:40px;
-  }
-
-  /* 发送键的视觉是里面的图标、按钮本身透明——直接撑到 44 不改观感 */
-  .jx-sendBtn{
-    width:var(--jx-touch-min);
-    height:var(--jx-touch-min);
-    flex:0 0 var(--jx-touch-min);
   }
 
   /* 消息底部的复制/赞踩/分享一排图标此前 26px，是全站最难点中的一处。
@@ -286,14 +220,6 @@
   .jx-historyItem,
   .jx-msgActionBtn{
     -webkit-tap-highlight-color:transparent;
-  }
-
-  /* 触屏上没有真正的 hover：手指按下会让 :hover 生效并一直粘住，直到点了别处
-     才散——表现为「点过的按钮一直亮着」。放大类的 hover 变换尤其明显
-     （发送键点完卡在放大态），统一还原。 */
-  .jx-sendBtn:hover,
-  .jx-projectCard:hover{
-    transform:none;
   }
 }
 

@@ -10,6 +10,10 @@ from orchestration.registry import AgentSpec
 
 @dataclass
 class AgentRequest:
+    # A registered module agent profile (core.extensions.AgentProfile) and that
+    # module's own reference, e.g. the task the dedicated agent works on.
+    profile: Optional[str] = None
+    profile_ref: Optional[str] = None
     agent_spec: Optional[AgentSpec] = None
     user_query: Optional[str] = None
     disable_tools: bool = False
@@ -30,7 +34,6 @@ class AgentRequest:
     max_iters: Optional[int] = None
     plan_mode: bool = False
     model_role: Optional[str] = None
-    batch_mode: bool = False
     workflow_mode: bool = False
     top_level_chat: bool = False
     chat_id: Optional[str] = None

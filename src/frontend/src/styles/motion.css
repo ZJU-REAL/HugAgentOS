@@ -75,14 +75,7 @@
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
-/* motion-keep: 通用「加载中」流光工具类 */
-.jx-anim-shimmer {
-  background: linear-gradient(90deg,
-    var(--color-bg-gray) 0%, var(--color-fill-hover) 50%, var(--color-bg-gray) 100%);
-  background-size: 240% 100%;
-  animation: jx-kf-shimmer 2.2s ease-in-out infinite;
-  border-radius: var(--radius-xs);
-}
+/* Skeleton surfaces and their transform sweep live in skeleton.css. */
 
 /* 7. flash：跳转定位 / 保存成功的一次性高亮。
    颜色 --flash-color（默认主色淡底）、时长 --flash-dur 可覆盖。

@@ -1,0 +1,211 @@
+/* ── 技能图标选择器 ── */
+
+/* 技能头像：身份色由组件以 --jx-skillAvatar-accent 传入（每类技能一个固定色相，
+   属于品牌资产不随主题变），底色与字色在这里推导。深色档单独提亮一档——
+   #455A64 这类深板岩色直接压在暗底上等于看不见。 */
+
+.jx-skillAvatar {
+  user-select: none;
+  background: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 12%, transparent);
+  color: var(--jx-skillAvatar-accent, var(--color-primary));
+}
+
+:root[data-theme='dark'] .jx-skillAvatar {
+  background: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 24%, transparent);
+  color: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 40%, #FFFFFF);
+}
+
+.jx-iconPicker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--color-fill);
+  background: var(--color-bg-container);
+  border-radius: 10px;
+  padding: 6px 12px 6px 6px;
+  cursor: pointer;
+  transition: border-color .12s;
+}
+
+.jx-iconPicker-trigger:hover { border-color: var(--color-primary); }
+
+.jx-iconPicker-triggerHint { font-size: 12px; color: var(--color-text-tertiary); }
+
+.jx-iconPicker { width: 300px; max-width: 84vw; }
+
+.jx-iconPicker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 232px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.jx-iconPicker-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  transition: all .1s;
+}
+
+.jx-iconPicker-cell:hover { background: var(--color-primary-light); }
+
+.jx-iconPicker-cell.active { border-color: var(--color-primary); background: var(--color-primary-light); }
+
+.jx-iconPicker-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+/* ══════════════════════════════════════════
+   动效：面板域统一动画（依赖 styles/motion.css 的 jx-kf-* 原语）
+   ══════════════════════════════════════════ */
+
+/* 卡片网格入场 stagger：容器 .jx-anim-stagger + --stagger-step:30ms，
+   子项 style={staggerStyle(i)}（motion.css 原语，无本地克隆规则）。
+   容器 key 用 panelEntryNonce+页码 控制重放；toggleItem 乐观更新
+   不重建 DOM 节点（React key=业务 id），不会重闪。 */
+
+/* 技能市场安装按钮三态：底色平滑过渡 + min-width 防「安装→已安装」宽度跳 */
+
+.jx-mk-installBtn.ant-btn {
+  min-width: 76px;
+  transition: background-color .3s var(--motion-ease-standard),
+    border-color .3s var(--motion-ease-standard),
+    color .3s var(--motion-ease-standard);
+}
+
+.jx-mk-installBtnInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* DocsPanel 时间轴条目 stagger（--stagger-i 封顶 8，容器 key=筛选项 控制重放） */
+
+.jx-timeline > .jx-tlItem {
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+  animation-delay: calc(var(--stagger-i, 0) * 40ms);
+}
+
+/* 创建/编辑智能体页：back/hero/card 三块 80ms 间隔入场 */
+
+.jx-agentCreatePage-back,
+.jx-agentCreatePage-hero,
+.jx-agentCreatePage-card {
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+
+.jx-agentCreatePage-hero { animation-delay: 80ms; }
+
+.jx-agentCreatePage-card { animation-delay: 160ms; }
+
+/* 变更记录 Drawer 历史条目 stagger（基础 delay 100ms 避开 Drawer 自带动画） */
+
+.jx-agentDetail-historyList > .jx-agentDetail-historyItem {
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+  animation-delay: calc(100ms + var(--stagger-i, 0) * 40ms);
+}
+
+/* KB 文档行容器（骨架→内容交接淡入的挂载点） */
+
+.jx-kbDocListWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 上传文档弹窗：config(520)↔preview(720) 宽度过渡 */
+
+.jx-kbUploadModal .ant-modal {
+  transition: width var(--motion-duration-slow) var(--motion-ease-brand-out);
+}
+
+/* ── 能力卡片右侧尾部：常驻启停开关 + 悬浮才出现的操作按钮 ──────────────
+   技能 / 智能体 / 连接器 / 插件四类卡片共用（见 components/common/CardTail.tsx），
+   启停一律在详情页外完成 */
+
+.jx-cardTail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.jx-cardTailActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard),
+              transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+/* 只有能悬浮的设备才藏起来；触控设备没有 hover，保持常驻。
+   触发挂在 .jx-card-lift 上（四类卡片都带），新增卡片类型自动继承，不必再改这里。 */
+
+@media (hover: hover) {
+  .jx-cardTailActions {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(4px);
+  }
+  /* :focus-within 保证 Popconfirm 弹出后指针移开、触发按钮也不会消失 */
+  .jx-card-lift:hover .jx-cardTailActions,
+  .jx-card-lift:focus-within .jx-cardTailActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+/* 胶囊开关：无文字、轨道 40x24、开启态主色蓝。三个尺寸由变量派生，改一处即可 */
+
+.jx-cardSwitch.ant-switch {
+  --jx-switch-pad: 2px;
+  --jx-switch-handle: 20px;
+  min-width: 40px;
+  height: calc(var(--jx-switch-handle) + var(--jx-switch-pad) * 2);
+  border-radius: 999px;
+  background: var(--color-fill);
+}
+
+.jx-cardSwitch.ant-switch:hover:not(.ant-switch-disabled) {
+  background: var(--color-fill-deep);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked {
+  background: var(--color-primary);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background: var(--color-primary-hover);
+}
+
+.jx-cardSwitch.ant-switch .ant-switch-handle {
+  width: var(--jx-switch-handle);
+  height: var(--jx-switch-handle);
+  top: var(--jx-switch-pad);
+  inset-inline-start: var(--jx-switch-pad);
+}
+
+.jx-cardSwitch.ant-switch .ant-switch-handle::before {
+  border-radius: 50%;
+  box-shadow: var(--shadow-card);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked .ant-switch-handle {
+  inset-inline-start: calc(100% - var(--jx-switch-handle) - var(--jx-switch-pad));
+}

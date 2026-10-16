@@ -36,7 +36,6 @@ _FORBIDDEN_INPUTS = (
     "enabled_kbs",
     "mode_slug",
     "plan_chat",
-    "batch_chat",
     "workflow_chat",
     "site_chat",
     "quoted_follow_up",
@@ -64,7 +63,7 @@ def require_agent_manager(db, user_id: str, agent_id: str):
 
 def make_agent_api_scope(user, chat_id: str) -> dict:
     key_id = str(user.api_key_id)
-    return {
+    scope = {
         "version": 1,
         "owner_user_id": str(user.user_id),
         "api_key_id": key_id,
@@ -74,6 +73,10 @@ def make_agent_api_scope(user, chat_id: str) -> dict:
         "sandbox_session_id": "api_"
         + hashlib.sha256(f"{key_id}:{chat_id}".encode()).hexdigest()[:40],
     }
+
+    if getattr(user, "public_chat_visitor", None):
+        scope["public_chat_visitor"] = user.public_chat_visitor
+    return scope
 
 
 def session_matches_scope(session, scope: dict) -> bool:
@@ -132,6 +135,8 @@ def prepare_agent_api_request(db, user, request):
         if request.agent_id != agent_id:
             raise HTTPException(status_code=403, detail={"code": "agent_key_target_mismatch"})
         for field in _FORBIDDEN_INPUTS:
+            if getattr(user, "public_chat_visitor", None) and field in ("attachments", "model_provider_id"):
+                continue
             value = getattr(request, field, None)
             if value is not None and value is not False and value != [] and value != "":
                 raise HTTPException(status_code=403, detail={"code": "api_capability_override"})

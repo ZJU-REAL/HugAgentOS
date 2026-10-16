@@ -1,0 +1,322 @@
+.jx-agentDetail-historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.jx-agentDetail-historyList::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--color-primary-light);
+  border-radius: 999px;
+}
+
+.jx-agentDetail-historyItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.jx-agentDetail-historyDot {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-primary-active);
+  border: 2px solid var(--color-primary-light);
+  box-shadow: 0 0 0 4px var(--color-primary-light);
+  flex-shrink: 0;
+}
+
+.jx-agentDetail-historyBody {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-layout);
+  box-shadow: none;
+}
+
+.jx-agentDetail-historyMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.jx-agentDetail-historyTime {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-agentDetail-historyVersion {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary-active);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.jx-agentDetail-historyOperator {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-agentDetail-historyContent {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.jx-agentDetail-historyInfoRow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.jx-agentDetail-historyInfoRow + .jx-agentDetail-historyInfoRow {
+  margin-top: 8px;
+}
+
+.jx-agentDetail-historyInfoLabel {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-placeholder);
+}
+
+.jx-agentDetail-historyInfoValue {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.jx-agentDetail-historyDetailList {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jx-agentDetail-historyDetailItem {
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg-container) 58%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 92%, transparent);
+}
+
+.jx-agentDetail-historyDetailField {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.jx-agentDetail-historyDetailValues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jx-agentDetail-historyDetailLine {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.jx-agentDetail-historyDetailTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-fill-hover);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.jx-agentDetail-historyDetailTag.is-after {
+  background: var(--color-tint-green-bg);
+  color: var(--color-tint-green);
+}
+
+.jx-agentDetail-historyDetailText {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.jx-agentDetail-historyEmpty {
+  padding: 12px 0 2px;
+  font-size: 13px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-agentHistoryDrawer .ant-drawer-header {
+  padding: 18px 20px 14px;
+}
+
+.jx-agentHistoryDrawer .ant-drawer-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-agentHistoryDrawer .ant-drawer-body {
+  padding: 8px 20px 20px;
+  background: var(--color-bg-layout);
+}
+
+.jx-agentDetail-actionsWrap {
+  position: sticky;
+  bottom: 18px;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  margin-top: 8px;
+  z-index: 8;
+}
+
+.jx-agentDetail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 96%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-primary) 8%, transparent);
+  pointer-events: auto;
+}
+
+.jx-agentDetail-iconBtn.ant-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 12px;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  box-shadow: none;
+}
+
+.jx-agentDetail-iconBtn.ant-btn:hover,
+.jx-agentDetail-iconBtn.ant-btn:focus {
+  border-color: var(--color-border);
+  color: var(--color-text);
+  background: var(--color-bg-layout);
+}
+
+.jx-agentDetail-iconBtn.danger.ant-btn {
+  border-color: color-mix(in srgb, var(--color-error) 30%, transparent);
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 4%, transparent);
+}
+
+.jx-agentDetail-iconBtn.danger.ant-btn:hover,
+.jx-agentDetail-iconBtn.danger.ant-btn:focus {
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  color: var(--color-error-active);
+  background: var(--color-error-light);
+}
+
+.jx-agentCardSkeleton {
+  pointer-events: none;
+}
+
+.jx-agentCardSkeletonMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-agentCardSkeletonTitle {
+  width: 144px !important;
+}
+
+.jx-agentCardSkeletonBadge {
+  width: 56px !important;
+}
+
+.jx-agentDetailSkeletonTitle {
+  width: 180px !important;
+}
+
+.jx-agentDetailSkeletonBadge {
+  width: 64px !important;
+}
+
+.jx-agentDetailSkeletonVersion {
+  width: 92px !important;
+  margin-top: 6px;
+}
+
+.jx-agentDetailSkeletonSectionTitle {
+  width: 96px !important;
+}
+
+@container agent-detail (max-width: 640px) {
+  .jx-agentDetail-nameRow {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .jx-agentDetail-versionRow {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .jx-agentDetail-versionLeft {
+    flex-wrap: wrap;
+  }
+
+  .jx-agentDetail-versionMeta {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .jx-agentDetail-enableRow {
+    margin-left: 0;
+  }
+
+  .jx-agentDetail-section {
+    padding: 16px;
+  }
+
+  .jx-agentDetail-actionsWrap {
+    bottom: 12px;
+  }
+
+  .jx-agentDetail-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .jx-agentDetail-actions .ant-btn {
+    flex: 1 1 calc(50% - 5px);
+  }
+}

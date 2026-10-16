@@ -186,7 +186,6 @@ def test_default_and_unauthorized_projects_reject_init(env):
     "mode",
     [
         "plan_chat",
-        "batch_chat",
         "workflow_chat",
         "skill_id",
         "plugin_id",

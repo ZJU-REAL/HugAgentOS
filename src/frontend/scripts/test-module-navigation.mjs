@@ -38,7 +38,7 @@ useChatStore.setState({chatsLoading:false,currentUserId:'test-user',currentChatI
 const actions = {onNewChat:()=>useChatStore.getState().newChat(),onNewProjectChat:()=>{},onDeleteChat:confirmDeleteChat,onTogglePinned:()=>{},onToggleFavorite:()=>{},onStartRename:()=>{},onCommitRename:()=>{},onExportChat:()=>{},onSelectChat:id=>useChatStore.getState().setCurrentChatId(id),onSetPanel:(panel,sub)=>useCatalogStore.getState().setPanel(panel,sub)};
 function Shell(){useAppBootstrap(isConversationPath());useChatSearch(); const panel=usePanel();const location=useLocation();useEffect(()=>{const id=chatIdFromPath(location.pathname);if(id)useChatStore.getState().adoptChatFromUrl(id);},[location.pathname]);return <Layout className="jx-appShell" style={{height:'100vh'}}><Sidebar {...actions}/><SearchModal onNewChat={actions.onNewChat} onSelectChat={actions.onSelectChat} onSelectSearchResult={item=>actions.onSelectChat(item.id)}/><main className="jx-panel" style={{flex:1,minWidth:0,overflow:'auto'}}><button aria-label="Open navigation" onClick={()=>useUIStore.getState().setSiderCollapsed(false)}>Menu</button>{panel==='ability_center'?<AbilityCenterPage/>:panel==='my_space'?<NotificationList/>:<Outlet/>}</main></Layout>;}
 const router=createBrowserRouter([{path:'/',element:<Shell/>,children:[{index:true,element:<p>Workspace</p>},{path:'*',element:<p>Module content</p>}]}]);bindRouter(router);
-window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>readComposer().activePlugin};
+window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),loaded:id=>!!useChatStore.getState().store.chats[id],owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>readComposer().activePlugin};
 createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
 `,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
 const origin='http://127.0.0.1:5199';
@@ -53,6 +53,7 @@ try{
   if(url.pathname.startsWith('/home/')){const body=await readFile(resolve('public',decodeURIComponent(url.pathname.slice(1)))).catch(()=>null);return body?route.fulfill({contentType:'image/svg+xml',body}):route.fulfill({status:404});}
   if(url.pathname.startsWith('/api/')){
    let data=[];
+   if(url.pathname==='/api/v1/workbench/catalog') data={items:[],policy:{revision:0,defaultPinned:[],forced:[]}};
    if(url.pathname==='/api/v1/chats' && route.request().method()==='GET')data={items:liveSessions,pagination:{page:1,page_size:100,total_items:1,has_next:false}};
    if(url.pathname==='/api/v1/catalog')data=catalog;
    if(url.pathname==='/api/v1/agents')data=[agent];
@@ -88,11 +89,16 @@ try{
  await page.getByRole('menuitem',{name:'项目',exact:true}).click();
  await page.waitForURL('**/projects');
  assert.equal(await page.locator('.jx-moduleSidebar').getByText('Normal conversation',{exact:true}).count(),0,'项目模块不显示对话侧栏');
+ await page.getByRole('button',{name:'更多',exact:true}).click();
  for(const name of ['站点','实验室','项目','应用中心']){
-  assert.equal(await page.locator('.jx-moduleCategories').getByRole('button',{name,exact:true}).locator('img').count(),1,name+' 带图标');
+  await page.getByRole('menuitem',{name,exact:true}).waitFor();
+  assert.equal(await page.getByRole('menuitem',{name,exact:true}).locator('img').count(),1,name+' 带图标');
  }
+ await page.keyboard.press('Escape');
+ assert.equal(await page.locator('.jx-moduleSidebar').count(),0,'无二级菜单的项目不显示空侧栏');
  await page.reload();
- await page.locator('.jx-moduleCategories').getByRole('button',{name:'项目',exact:true}).waitFor();
+ await page.getByRole('button',{name:'更多',exact:true}).waitFor();
+ assert.equal(await page.locator('.jx-moduleSidebar').count(),0,'刷新项目仍不显示空侧栏');
  assert.equal(await page.locator('.jx-moduleSidebar').getByText('Normal conversation',{exact:true}).count(),0,'刷新项目仍保持模块侧栏');
  await page.getByRole('button',{name:'能力中心',exact:true}).click();
  for(const [name,slug,entry] of [['插件','plugins','Report plugin'],['技能','skills','Writing skill'],['连接器','connectors','Drive connector'],['智能体','agents','Research agent']]){
@@ -107,13 +113,19 @@ try{
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'桌面不产生横向溢出');
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
 
- await page.locator('.jx-taskSidebar').getByText('Live task conversation',{exact:true}).waitFor();
- assert.equal(await page.locator('.jx-taskSidebar').getByText('Live task conversation',{exact:true}).count(),1,'同步当前运行的新会话而不依赖点击任务');
- liveSessions.push({...liveSession,chat_id:'later-task-chat',title:'Later running conversation'});
- await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
- await page.locator('.jx-taskSidebar').getByText('Later running conversation',{exact:true}).waitFor();
  const taskRow=page.locator('.jx-taskSidebar .jx-historyItem').filter({hasText:'Task execution'});
  await taskRow.waitFor();
+ await page.waitForFunction(()=>window.__navigation.loaded('live-task-chat'));
+ assert.equal(await taskRow.count(),1,'当前运行归入稳定任务条目');
+ assert.equal(await page.locator('.jx-taskSidebar').getByText('Live task conversation',{exact:true}).count(),0,'新运行不替换最早会话显示锚点');
+ await taskRow.getByText('Task execution',{exact:true}).click();
+ await page.waitForURL('**/automation/task-one/conversations/live-task-chat');
+ await page.locator('.jx-taskSidebar').getByRole('button',{name:'全部任务',exact:true}).click();
+ liveSessions.push({...liveSession,chat_id:'later-task-chat',title:'Later running conversation',created_at:'2026-09-30T13:00:00Z',updated_at:'2026-09-30T13:00:00Z'});
+ await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+ await page.waitForFunction(()=>window.__navigation.loaded('later-task-chat'));
+ assert.equal(await taskRow.count(),1,'后续运行仍只有一个稳定任务条目');
+ assert.equal(await page.locator('.jx-taskSidebar').getByText('Later running conversation',{exact:true}).count(),0,'后续执行不创建重复条目');
  assert.equal(await page.locator('.jx-taskSidebar').getByText('Daily report',{exact:true}).count(),0,'侧栏展示会话而非任务');
  assert.equal(await page.locator('.jx-taskSidebar h3').count(),0,'侧栏不展示任务状态分组');
  assert.equal(await taskRow.locator('.jx-historyTypeIcon--automation').count(),0,'会话不显示闪电图标');
@@ -125,7 +137,7 @@ try{
  await page.getByRole('dialog').getByRole('button',{name:/取\s*消/}).click();
  assert.equal(new URL(page.url()).pathname,'/automation','悬浮操作无需先选中会话');
  await taskRow.getByText('Task execution',{exact:true}).click();
- await page.waitForURL('**/automation/task-one/conversations/task-chat');
+ await page.waitForURL('**/automation/task-one/conversations/later-task-chat');
  await page.waitForFunction(()=>document.querySelector('.jx-taskSidebar .jx-historyItem.active'));
  await page.locator('.jx-taskSidebar').getByRole('button',{name:'全部任务',exact:true}).click();
  await page.waitForURL('**/automation');
@@ -157,7 +169,7 @@ try{
  await page.getByRole('button',{name:'Open navigation'}).click();
  await page.locator('.jx-taskSidebar').getByText('Task execution',{exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.jx-moduleShell').classList.contains('ant-layout-sider-collapsed'));
- assert.equal(new URL(page.url()).pathname,'/automation/task-one/conversations/task-chat');
+ assert.equal(new URL(page.url()).pathname,'/automation/task-one/conversations/later-task-chat');
  await page.getByRole('button',{name:'Open navigation'}).click();
  await page.getByRole('button',{name:'我的空间',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.jx-moduleShell').classList.contains('ant-layout-sider-collapsed'));
@@ -177,8 +189,9 @@ try{
  await page.waitForFunction(()=>!document.querySelector('.jx-moduleShell').classList.contains('ant-layout-sider-collapsed'));
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  const deletingRow=page.locator('.jx-taskSidebar .jx-historyItem').filter({hasText:'Task execution'});
- await deletingRow.getByText('Task execution',{exact:true}).click();
+ await page.evaluate(()=>window.__navigation.selectTask());
  await page.waitForURL('**/automation/task-one/conversations/task-chat');
+ assert.equal(await deletingRow.evaluate(el=>el.classList.contains('active')),true,'历史执行也激活同一任务条目');
  await deletingRow.getByRole('button',{name:'更多操作'}).click();
  await page.getByRole('menuitem').filter({hasText:'删除'}).click();
  const deletion=page.waitForRequest(request=>request.method()==='DELETE' && request.url().endsWith('/v1/chats/task-chat'));

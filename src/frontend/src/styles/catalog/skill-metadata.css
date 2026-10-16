@@ -1,0 +1,127 @@
+/* Skill metadata card */
+
+.jx-skillMeta{
+  background:linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 6%, transparent) 0%, color-mix(in srgb, var(--color-primary) 3%, transparent) 100%);
+  border:1px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
+  border-radius:14px;
+  padding:22px 24px;
+  margin-bottom:12px;
+  box-shadow:0 4px 12px color-mix(in srgb, var(--color-primary) 8%, transparent);
+  max-width:80ch;
+}
+
+.jx-skillMetaTitle{
+  font-size:20px;
+  font-weight:900;
+  color:var(--color-primary);
+  margin-bottom:16px;
+  padding-bottom:13px;
+  border-bottom:2px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
+  line-height:1.35;
+}
+
+.jx-skillMetaGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap:12px;
+  margin-bottom:14px;
+}
+
+.jx-skillMetaItem{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.jx-skillMetaLabel{
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  color:color-mix(in srgb, var(--color-primary) 75%, transparent);
+}
+
+.jx-skillMetaValue{
+  font-size:14px;
+  font-weight:600;
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
+  font-family:var(--font-family-mono);
+  background:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  padding:5px 10px;
+  border-radius:6px;
+  display:inline-block;
+  width:fit-content;
+}
+
+.jx-skillMetaDesc{
+  font-size:14px;
+  line-height:1.78;
+  color:color-mix(in srgb, var(--color-text) 85%, transparent);
+  padding:14px 16px;
+  background:color-mix(in srgb, var(--color-bg-container) 60%, transparent);
+  border-radius:8px;
+  border-left:3px solid var(--color-primary);
+  margin-bottom:14px;
+}
+
+.jx-skillMetaTags{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:12px;
+}
+
+.jx-skillTag{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 12px;
+  background:color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  color:var(--color-primary);
+  text-transform:lowercase;
+  letter-spacing:0.2px;
+  transition:all 0.2s ease;
+}
+
+.jx-skillTag:hover{
+  background:color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-color:color-mix(in srgb, var(--color-primary) 35%, transparent);
+  transform:translateY(-1px);
+}
+
+.jx-skillMetaTools{
+  padding-top:14px;
+  border-top:1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.jx-skillToolList{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:10px;
+}
+
+.jx-skillTool{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  background:color-mix(in srgb, var(--color-bg-container) 80%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-radius:8px;
+  font-size:13px;
+  font-weight:700;
+  color:var(--color-primary);
+  font-family:var(--font-family-mono);
+  box-shadow:0 2px 4px color-mix(in srgb, var(--color-primary) 6%, transparent);
+  transition:all 0.2s ease;
+}
+
+.jx-skillTool:hover{
+  background:var(--color-bg-container);
+  border-color:var(--color-primary);
+  box-shadow:0 3px 8px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  transform:translateY(-1px);
+}

@@ -50,7 +50,7 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
     """Strip out skill ids this user must not load.
 
     Two independent rules, applied at the one choke point every agent (main,
-    sub-agent, batch) passes through:
+    sub-agent) passes through:
 
     1. **Ownership.** Kept: public skills (``owner_user_id`` empty, including
        filesystem/built-in skills absent from ``admin_skills``) + the user's own

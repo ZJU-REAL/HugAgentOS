@@ -75,7 +75,7 @@ def resolve_approval_mode(explicit: Any, *, user_id: Optional[str]) -> str:
     """本次运行的权限档：调用方显式给了就用它，否则回落到用户自己存的那一档。
 
     权限档是**每个用户一份**的设置，任何一个新起 agent 的入口（子智能体、
-    计划步骤、批量执行）都该拿到同一份。靠每个调用点各自透传，漏一个就等于
+    计划步骤、后台作业）都该拿到同一份。靠每个调用点各自透传，漏一个就等于
     悄悄退回「逐项确认」——用户明明选了「完全放开」，换条路径照样被问。
     """
     if explicit is not None:
@@ -168,7 +168,7 @@ class PermissionRuntime:
     project_scope: Optional[ProjectScope] = None
 
 
-# What an intent does when no live UI can answer a confirmation (batch runs,
+# What an intent does when no live UI can answer a confirmation (background runs,
 # sub-agents, IM channel runs, scheduled automation). Declared per intent rather
 # than assumed globally: refusing is right for host access the user never saw,
 # but applying it to governance that previously passed through silently removes

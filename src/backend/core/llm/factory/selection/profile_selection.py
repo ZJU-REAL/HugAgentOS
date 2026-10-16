@@ -25,11 +25,11 @@ async def profile_selection(
     skill_ids_for_bindings,
 ):
     profile = builtin_profile()
-    if request.user_agent is None:
+    if request.user_agent is None and not request.profile:
         # A user-built sub-agent carries its own explicit bindings. Applying a
         # learned profile on top would override a person's deliberate
         # configuration with a statistical one, which is not a trade the person
-        # agreed to.
+        # agreed to. A module's dedicated agent profile is configured the same way.
         try:
             profile = await asyncio.to_thread(
                 load_active_profile,

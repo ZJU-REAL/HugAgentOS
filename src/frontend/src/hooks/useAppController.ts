@@ -1,3 +1,5 @@
+import { useTaskReminderScope } from './useTaskReminderScope';
+import { usePersonalAgentNotifications } from '../personalAgentEdition';
 import {
   message
 } from 'antd';
@@ -34,6 +36,8 @@ import type { PanelKey } from '../types';
 
 
 export function useAppController() {
+  useTaskReminderScope();
+  usePersonalAgentNotifications();
   usePageConfigPolling();
   const pageConfig = usePageConfigAll();
   const panelTitles = pageConfig.navigation.panel_titles;
@@ -129,7 +133,7 @@ export function useAppController() {
   } = useChatActions(effectiveApiUrl);
 
   // ── Streaming hook ──
-  const { send: rawSend, abort, activateQueuedMessage, discardQueuedMessage, handleFileSelect, removeFile, regenerate, editAndResend, resumeRunIfAny, cancelAndResumeBatch, continueLoop } = useStreaming(
+  const { send: rawSend, abort, activateQueuedMessage, discardQueuedMessage, handleFileSelect, removeFile, regenerate, editAndResend, resumeRunIfAny, continueLoop } = useStreaming(
     effectiveApiUrl, generateSummary, generateClassification,
   );
 
@@ -320,6 +324,5 @@ export function useAppController() {
     detailModal,
     setDetailModal,
     refreshCatalog,
-    cancelAndResumeBatch
   };
 }

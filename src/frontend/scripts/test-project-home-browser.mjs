@@ -13,7 +13,7 @@ const shellStubs = {
       if (!args.importer.endsWith('/components/AppWorkspace.tsx')) return;
       if (args.path === './common/CollapseHeight') return;
       if (args.path === './chat') return { path: 'chat', namespace: 'fixture' };
-      if (/^\.\/(sidebar|canvas|batch|common|kb|tool|automation|catalog|docs|lab|myspace|projects|settings|sites)(\/|$)/.test(args.path))
+      if (/^\.\/(sidebar|canvas|common|kb|tool|automation|catalog|docs|lab|myspace|projects|settings|sites)(\/|$)/.test(args.path))
         return { path: args.path, namespace: 'empty-panel' };
     });
     builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
@@ -31,7 +31,7 @@ export function PromptHubPanel(){return null;}
 `, loader: 'tsx', resolveDir: process.cwd(),
     }));
     builder.onLoad({ filter: /.*/, namespace: 'empty-panel' }, () => ({
-      contents: `const Empty=()=>null;export default Empty;export {Empty as Sidebar,Empty as SearchModal,Empty as RightSidebarPanel,Empty as BatchConfirmModal,Empty as AuthExpiredModal,Empty as ImagePreview,Empty as CreateKBModal,Empty as ReindexModal,Empty as ToolResultPanel,Empty as SlidePanel,Empty as ProjectsSkeleton};`,
+      contents: `const Empty=()=>null;export default Empty;export {Empty as Sidebar,Empty as SearchModal,Empty as RightSidebarPanel,Empty as AuthExpiredModal,Empty as ImagePreview,Empty as CreateKBModal,Empty as ReindexModal,Empty as ToolResultPanel,Empty as SlidePanel,Empty as ProjectsSkeleton};`,
       loader: 'jsx',
     }));
   },

@@ -93,8 +93,21 @@ async def tool_surface(
                 or _prepared_capabilities
             )
             _visible_mcps = [AvailableMCPClient(client, _live_run) for client in _visible_mcps]
+        selected_tools = toolkit.function_tools
+        if request.profile:
+            from core.extensions import agent_profile
+
+            _profile = agent_profile(request.profile)
+            if _profile.tool_filter is not None:
+                selected_tools = [tool for tool in selected_tools if _profile.tool_filter(tool.name)]
+            # The existing MCP resolver already intersects the explicit per-agent list.
+            # A profile that does not inherit defaults gets none when the list is empty.
+            if not _profile.inherit_default_mcps and not request.enabled_mcp_ids:
+                _visible_mcps = []
+            if not _profile.native_skill_prompt:
+                include_skills = False
         return OntologyFilteredToolkit(
-            tools=toolkit.function_tools,
+            tools=selected_tools,
             mcps=_visible_mcps,
             skills_or_loaders=(toolkit.skill_loaders or None) if include_skills else None,
             skill_instruction_template=_SKILL_INSTRUCTION_TEMPLATE,

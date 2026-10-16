@@ -2,22 +2,21 @@ use crate::windows::{navigate_session_windows, show_main_window};
 use crate::{auth, device_login, hybrid, local_server, Shared};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
-/// 登录页按钮 → 打开系统浏览器登录页。
-#[tauri::command]
-pub(crate) fn open_login(app: tauri::AppHandle) {
-    start_device_login(app);
-}
-
-/// 前端退出登录时由 webview 调用：清掉本地 token（内存 + 落盘），把窗口切回登录页。
-/// 解决「退出后前端跳外部 SSO / 内部空路由 → 白屏」的问题。
-#[tauri::command]
-pub(crate) async fn logout_desktop(app: tauri::AppHandle) {
-    let expected = clear_desktop_session(&app.state::<Shared>()).await;
-    if !app.state::<Shared>().session.epoch.matches(expected) {
-        return;
-    }
-    let idle = app.state::<Shared>().login_idle_url();
-    navigate_session_windows(&app, &idle);
+/// Only the authenticated host proxy calls this; no custom IPC command is registered.
+/// Invalidate the identity before async server cleanup and return the HTTP acknowledgement.
+pub(crate) fn logout_from_host(app: tauri::AppHandle) {
+    let shared = app.state::<Shared>();
+    cancel_device_login(&shared);
+    let expected = shared.session.epoch.advance();
+    drop(shared);
+    tauri::async_runtime::spawn(async move {
+        let shared = app.state::<Shared>();
+        clear_invalidated_session(&shared, expected).await;
+        if !shared.session.epoch.matches(expected) {
+            return;
+        }
+        navigate_session_windows(&app, &shared.login_idle_url());
+    });
 }
 
 /// Invalidate async tasks before waiting for writes; revoke the old cloud session.

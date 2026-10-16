@@ -1,22 +1,9 @@
-"""Physical removal of expired memories.
+"""L2 expiry policy and bounded physical removal of expired memories.
 
-``ttl_days`` was written on every L2 entry from day one, but nothing ever read
-it — the field was a promise with no enforcement, and the store could only grow.
-Two mechanisms now honour it:
-
-1. **Hiding** (immediate): every write/reinforce sets mem0's native
-   ``expiration_date``; mem0's search and get_all skip expired entries on their
-   own, so an expired memory stops being recalled the day it expires.
-2. **Deletion** (this module): a daily sweep physically removes expired rows so
-   Milvus doesn't accumulate hidden garbage forever.
-
-Legacy entries (written before ``expiration_date`` existed) carry only
-``ttl_days``; for those the expiry is computed from ``updated_at``/``created_at``
-+ ``ttl_days``. Entries with neither field are never touched.
-
-The sweep queries Milvus directly for candidate rows (mem0's ``get_all``
-requires a user_id, and the sweep is global), but deletes through
-``memory.delete()`` so mem0's history DB and entity links stay consistent.
+mem0 stores expiration_date as ordinary metadata. Public L2 reads enforce
+expiry immediately; the daily sweep only reclaims storage. Legacy ttl_days
+rows fall back to their update/create timestamp. Invalid dates never trigger
+physical deletion. Durable effect receipts remain readable after expiry.
 """
 
 from __future__ import annotations
@@ -27,6 +14,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from core.config.settings import settings
+from core.infra.time import as_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +27,7 @@ DEFAULT_SCAN_LIMIT = 5000
 def entry_expiry_date(payload: dict) -> Optional[date]:
     """The date this entry stops being valid, or None if it never expires.
 
-    ``expiration_date`` (native, YYYY-MM-DD) wins; legacy entries fall back to
+    ``expiration_date`` (YYYY-MM-DD metadata) wins; legacy entries fall back to
     ``updated_at``/``created_at`` + ``ttl_days``. Unparseable data means "no
     expiry" — a sweeper must never delete on a guess.
     """
@@ -65,10 +53,19 @@ def entry_expiry_date(payload: dict) -> Optional[date]:
     if not stamp:
         return None
     try:
-        base = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).date()
+        base = as_utc(datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))).date()
     except ValueError:
         return None
     return base + timedelta(days=ttl)
+
+
+def memory_entry_expired(item: dict) -> bool:
+    """Evaluate a mem0 result or raw payload using the same UTC expiry policy."""
+    if not isinstance(item, dict):
+        return False
+    payload = {**item, **(item.get("metadata") or {})}
+    expiry = entry_expiry_date(payload)
+    return expiry is not None and expiry <= utc_now().date()
 
 
 async def sweep_expired_memories(scan_limit: int = DEFAULT_SCAN_LIMIT) -> dict:
@@ -106,12 +103,12 @@ async def sweep_expired_memories(scan_limit: int = DEFAULT_SCAN_LIMIT) -> dict:
         logger.warning("[memory-ttl] candidate query failed: %s", exc)
         return stats
 
-    today = date.today()
+    today = utc_now().date()
     expired_ids: list[str] = []
     for row in rows or []:
         stats["scanned"] += 1
         expiry = entry_expiry_date(row.get("metadata") or {})
-        if expiry is not None and expiry < today:
+        if expiry is not None and expiry <= today:
             row_id = row.get("id")
             if row_id:
                 expired_ids.append(str(row_id))

@@ -116,7 +116,6 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 |---|---|
 | `scheduled_tasks` | Automation scheduled tasks (cron expressions, retry policy) |
 | `scheduled_task_runs` | Scheduled-task run history |
-| `batch_plans` | Batch execution plans (created by the batch_plan MCP tool, executed by the BatchOrchestrator after confirmation) |
 | `distillation_runs` (Enterprise Edition, EE) | Skill-distillation queue + audit (at most one row per chat_id) |
 
 ### Memory (models/memory.py)

@@ -11,6 +11,7 @@
   scrollbar-gutter: stable both-edges;
   background: var(--color-bg-container);
   padding: 28px 24px 80px;
+  container: projects / inline-size;
 }
 
 .jx-projects-shell {
@@ -66,7 +67,7 @@
 
 .jx-projects-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 16px;
 }
 
@@ -82,6 +83,8 @@
   flex-direction: column;
   gap: 8px;
   min-height: 140px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .jx-projectCard:hover {
@@ -202,4 +205,154 @@
 .jx-projectEnvironment-label label { font-weight: 600; }
 .jx-projectEnvironment-hint {
   font-size: 13px; color: var(--color-text-secondary); line-height: 1.7;
+}
+@container projects (max-width: 600px){
+
+  .jx-projects-shell{
+    width:100%;
+    max-width:none;
+    gap:16px;
+  }
+
+  .jx-projects-header{
+    flex-direction:column;
+    align-items:stretch;
+    gap:16px;
+  }
+
+  .jx-projects-header .jx-agentPage-title{
+    margin:0 0 5px;
+    color:var(--color-text);
+    font-size:34px;
+    font-weight:720;
+    line-height:1.18;
+    letter-spacing:-.045em;
+  }
+
+  .jx-projects-header .jx-agentPage-subtitle{
+    color:var(--color-text-tertiary);
+    font-size:15px;
+    line-height:1.55;
+  }
+
+  .jx-projects-actions{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    width:100%;
+    gap:8px;
+  }
+
+  .jx-projects-sortLabel{
+    display:none;
+  }
+
+  .jx-projects-actions .ant-select{
+    width:100% !important;
+    min-width:0;
+  }
+
+  .jx-projects-actions .ant-select-selector{
+    min-height:42px !important;
+    padding:5px 12px !important;
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent) !important;
+    border-radius:14px !important;
+    background:color-mix(in srgb, var(--color-bg-container) 82%, transparent) !important;
+    box-shadow:0 4px 14px color-mix(in srgb, var(--color-primary) 4.5%, transparent) !important;
+  }
+
+  .jx-projects-actions .ant-btn{
+    min-height:42px;
+    margin:0;
+    padding-inline:15px;
+    border-radius:14px;
+    box-shadow:0 7px 18px color-mix(in srgb, var(--color-primary) 18%, transparent);
+    white-space:nowrap;
+  }
+
+  .jx-projects-searchInput.ant-input-affix-wrapper{
+    width:100%;
+    min-height:44px;
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
+    border-radius:14px;
+    background:color-mix(in srgb, var(--color-bg-container) 84%, transparent);
+    box-shadow:0 5px 16px color-mix(in srgb, var(--color-primary) 4.5%, transparent);
+  }
+
+  .jx-projects-section{
+    gap:8px;
+  }
+
+  .jx-projects-sectionTitle{
+    margin-top:4px;
+    padding:0 4px;
+    color:var(--color-text-tertiary);
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .jx-projects-grid{
+    display:grid;
+    overflow:hidden;
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
+    border-radius:20px;
+    background:var(--color-bg-container);
+    box-shadow:var(--shadow-card);
+  }
+
+  .jx-projectCard{
+    min-height:0;
+    padding:18px 16px;
+    gap:8px;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+    transform:none;
+  }
+
+  .jx-projectCard + .jx-projectCard{
+    border-top:1px solid var(--color-border);
+  }
+
+  .jx-projectCard:hover{
+    border-color:transparent;
+    background:color-mix(in srgb, var(--color-primary) 2.5%, transparent);
+    box-shadow:none;
+    transform:none;
+  }
+
+  .jx-projectCard-header{
+    align-items:flex-start;
+  }
+
+  .jx-projectCard-title{
+    color:var(--color-text);
+    font-size:17px;
+    font-weight:650;
+    line-height:1.42;
+    overflow-wrap:anywhere;
+  }
+
+  .jx-projectCard-star{
+    display:flex;
+    width:36px;
+    height:36px;
+    margin:-7px -7px 0 0;
+    align-items:center;
+    justify-content:center;
+    flex:0 0 auto;
+    border-radius:50%;
+  }
+
+  .jx-projectCard-desc{
+    color:var(--color-text-tertiary);
+    font-size:14px;
+    line-height:1.62;
+    -webkit-line-clamp:2;
+  }
+
+  .jx-projectCard-footer{
+    color:var(--color-text-placeholder);
+    font-size:12px;
+  }
 }

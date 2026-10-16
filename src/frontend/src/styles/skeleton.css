@@ -1,15 +1,29 @@
-/* Shared shimmer and neutral shape. Each layout owns the block dimensions. */
-.jx-skeletonBlock{
+/* Shared neutral skeleton with a translated, tilted highlight band.
+   Geometry stays with the caller; the sweep never changes layout. */
+.jx-skeletonBlock,
+.jx-anim-shimmer{
+  position:relative;
+  overflow:hidden;
+  isolation:isolate;
   border-radius:var(--radius-sm);
-  /* 从文字令牌派生的低透明度灰，深浅两个主题下都是「比底色深/亮一点」的微光 */
-  background:linear-gradient(90deg,
-    color-mix(in srgb, var(--color-text) 10%, transparent) 0%,
-    color-mix(in srgb, var(--color-text) 6%, transparent) 50%,
-    color-mix(in srgb, var(--color-text) 10%, transparent) 100%);
-  background-size:240% 100%;
-  animation:jx-kf-shimmer 2.2s ease-in-out infinite;
+  background:color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .jx-skeletonBlock { animation: none; }
+/* motion-keep: The sweep indicates a pending load, including reduced motion. */
+.jx-skeletonBlock::after,
+.jx-anim-shimmer::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(110deg,
+    transparent 20%,
+    color-mix(in srgb, var(--color-text) 12%, transparent) 50%,
+    transparent 80%);
+  animation:jx-skeletonSweep 1.6s linear infinite;
+}
+
+@keyframes jx-skeletonSweep {
+  from { transform:translateX(-100%); }
+  to { transform:translateX(100%); }
 }

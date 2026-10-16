@@ -373,27 +373,14 @@
 
 .jx-msg .jx-bubble pre { max-width:100%; overflow-x:auto; }
 
-.jx-composerBar .jx-modelEffort { flex:0 1 auto; min-width:0; }
-
-.jx-composerBar .jx-modelEffortBtn { width:100%; max-width:100%; }
-
-.jx-composerBar .jx-modelEffortStatic { flex-shrink:1; overflow:hidden; }
-
-.jx-composerBar .jx-composerSpacer { min-width:0; }
-
 @container conversation-pane (max-width: 600px) {
   .jx-panel { padding:16px 16px 12px; }
   .jx-content { scrollbar-gutter:stable; }
   .jx-chatTopbar { gap:6px; }
   .jx-chatTopbarProject { max-width:32%; }
-  .jx-composerBar { gap:3px; padding-inline:8px; }
-  .jx-composerBar .jx-modelEffort { max-width:160px; }
-}
+  }
 
-@container (max-width: 400px) {
-  .jx-composerBar .jx-modelEffort { max-width:112px; }
-  .jx-composerBar .jx-modelEffortAside { display:none; }
-}
+
 
 .jx-spaceImportLoadMore {
   display: flex;

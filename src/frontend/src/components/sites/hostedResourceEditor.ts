@@ -37,8 +37,8 @@ export async function startMcpEdit(app: Application): Promise<void> {
     if (existing || editor.chat_id) {
       const original = existing || await getSession(editor.chat_id!);
       state.updateStore(store => ({ ...store,
-        chats: { ...store.chats, [original.id]: { ...original, siteChat: true, planChat: false, batchChat: false, workflowChat: false,
-          planModeActive: false, batchModeActive: false, workflowModeActive: false,
+        chats: { ...store.chats, [original.id]: { ...original, siteChat: true, planChat: false, workflowChat: false,
+          planModeActive: false, workflowModeActive: false,
           projectId: editor.project_id, projectName: editor.project_name, runTarget: 'cloud' } },
         order: store.order.includes(original.id) ? store.order : [original.id, ...store.order],
       }));

@@ -78,7 +78,6 @@ async def mcp_connections(
     _is_channel_run = bool((request.channel_origin or {}).get("channel_id"))
     _tool_approval_available = bool(
         request.chat_id is not None
-        and not request.batch_mode
         and not request.isolated
         and not request.plan_mode
         and not _is_channel_run

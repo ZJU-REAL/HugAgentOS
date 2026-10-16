@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.auth.permissions_iface import resolve_project_permission
-from core.db.models import Project
 from core.services.project_instructions import ProjectInstructionsService
 
 INIT_COMMANDS = frozenset({"/init", "/初始化指令"})
@@ -32,17 +31,15 @@ def resolve_project_init(db: Session, request, user_id: str) -> str | None:
             project_id = chat.project_id
     if not project_id:
         raise HTTPException(400, "请先选择具体项目，再使用 /init 或 /初始化指令")
-    project = db.query(Project).filter(
-        Project.project_id == project_id, Project.deleted_at.is_(None)
-    ).first()
-    if project is None or resolve_project_permission(db, user_id, project) == "none":
-        raise HTTPException(404, "项目不存在或你无权访问")
+    from core.services.project_access import require_visible_project
+
+    project = require_visible_project(db, user_id, project_id)
     if resolve_project_permission(db, user_id, project) not in ("admin", "edit"):
         raise HTTPException(403, "需要项目编辑权限才能初始化项目指令")
     if request.agent_id or request.mention_agent_id or request.skill_id or request.plugin_id or request.connector_id:
         raise HTTPException(400, "初始化项目指令请使用普通项目对话，先移除已选择的能力")
-    if request.plan_chat or request.batch_chat or request.workflow_chat:
-        raise HTTPException(400, "初始化项目指令请先退出计划、批量或工作流模式")
+    if request.plan_chat or request.workflow_chat:
+        raise HTTPException(400, "初始化项目指令请先退出计划或工作流模式")
     # Initialization needs the normal exploration tools even when the composer
     # was set to quick lookup. This only changes this request, not the saved mode.
     request.mode_slug = "standard"

@@ -86,7 +86,6 @@ const CATEGORY_RULES: Array<{ test: RegExp; group: string }> = [
   { test: /^\/v1\/(artifacts|plans)(\/|$)/,                  group: '工件与计划' },
   { test: /^\/v1\/myspace(\/|$)/,                            group: '个人空间' },
   ...EDITION_API_CATEGORY_RULES,
-  { test: /^\/v1\/(batch|internal\/batch)(\/|$)/,            group: '批量处理' },
   { test: /^\/v1\/projects(\/|$)/,                           group: '项目' },
   { test: /^\/v1\/(audit|summary|classify)(\/|$)/,           group: '辅助处理' },
   { test: /^\/v1\/(service-configs|models)(\/|$)/,           group: '系统配置' },

@@ -3,8 +3,8 @@ import { requestChatRerun } from '../api/chatReruns';
 import { readComposer, chatDraftKey } from '../stores/composerStore';
 import { composeCommandMessage } from '../utils/projectCommands';
 import { t } from '../i18n';
-import { authFetch, cancelChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi } from '../api';
-import { useChatStore, useAuthStore, useBatchStore } from '../stores';
+import { cancelChatRun, getActiveChatRun, cancelPlanApi } from '../api';
+import { useChatStore, useAuthStore } from '../stores';
 import { isThinkingMode } from '../stores/chatStore';
 import { markRunCancelledByUser } from './chatStream';
 import { type ChatInvocationContext } from '../utils/chatInvocation';
@@ -168,9 +168,7 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
 
   /** Abort the stream for a specific chat (defaults to the currently viewed chat).
    *  Actually kills the background task: first call /v1/chat-runs/{run_id}/cancel, then abort
-   *  the local SSE connection. Also cancels any batch plans still executing on this chat —
-   *  batch tasks have their own SSE stream and plan_id, are not in abortControllersRef, and
-   *  must be handled separately.
+   *  the local SSE connection.
    */
   function abort(chatId?: string) {
     const targetId = chatId || useChatStore.getState().currentChatId;
@@ -233,88 +231,11 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
       ctx.followUpAbortRef.current.delete(targetId);
     }
 
-    // Cancel batch plans on this chat that are still running or awaiting confirmation
-    const batchState = useBatchStore.getState();
-    const activePlans = Object.values(batchState.plans).filter(
-      (p) => p.meta.chat_id === targetId
-        && (p.status === 'running' || p.status === 'awaiting_confirm'),
-    );
-    for (const p of activePlans) {
-      // Backend: mark cancelled + cancel the in-flight runner task
-      cancelBatchPlan(p.meta.plan_id).catch(() => { /* noop */ });
-      // Frontend: immediately close the SSE fetch + update store state
-      batchState.disconnectStream(p.meta.plan_id);
-      batchState.cancel(p.meta.plan_id);
-    }
-  }
-
-
-  /** Cancel a pending batch plan and re-stream the original user message
-   *  with batch_plan disabled, so the agent answers via ordinary tools.
-   *
-   *  The backend endpoint (POST /v1/batch/{plan_id}/cancel-and-resume):
-   *    1. marks the plan cancelled
-   *    2. deletes the assistant turn that triggered batch_plan
-   *    3. re-streams the user message with disable_batch_plan=true
-   *
-   *  Frontend mirrors the assistant-turn deletion in chatStore so the UI
-   *  reflects the same state, then consumes the SSE via the regenerate
-   *  pipeline (since the response shape is identical).
-   */
-  async function cancelAndResumeBatch(planId: string, chatId: string) {
-    const { addSendingChatId, removeSendingChatId, truncateMessagesFrom } =
-      useChatStore.getState();
-    addSendingChatId(chatId);
-
-    // Drop the dangling empty assistant turn from the local store. We pick
-    // the latest assistant message — the backend does the same lookup
-    // server-side so the two stay in sync.
-    const chat = useChatStore.getState().store.chats[chatId];
-    if (chat?.messages?.length) {
-      for (let i = chat.messages.length - 1; i >= 0; i--) {
-        const m = chat.messages[i];
-        if (m.role === 'assistant') {
-          truncateMessagesFrom(chatId, m);
-          break;
-        }
-      }
-    }
-
-    const abortController = new AbortController();
-    ctx.abortControllersRef.current.set(chatId, abortController);
-
-    try {
-      const r = await authFetch(
-        `${ctx.effectiveApiUrl}/v1/batch/${encodeURIComponent(planId)}/cancel-and-resume`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: abortController.signal,
-        },
-      );
-      if (!r.ok || !r.body) {
-        throw new Error(await r.text() || `cancel-and-resume failed: ${r.status}`);
-      }
-      // The endpoint streams the same SSE shape as /chats/regenerate, so
-      // we can reuse the existing consumer.
-      await ctx.processRegenerateStream(r, chatId, {
-        enableThinking: isThinkingMode(useChatStore.getState().chatMode),
-        signal: abortController.signal,
-      });
-    } catch (e) {
-      if (!(e instanceof Error && e.name === 'AbortError')) {
-        message.error(t('取消批量并继续失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
-        throw e;
-      }
-    } finally {
-      ctx.abortControllersRef.current.delete(chatId);
-      removeSendingChatId(chatId);
-    }
   }
 
 
   function continueLoop(chatId?: string) {
     return continueLoopImpl(ctx.abortControllersRef, chatId);
   }
-return { regenerate, editAndResend, smartSend, abort, cancelAndResumeBatch, continueLoop };
+return { regenerate, editAndResend, smartSend, abort, continueLoop };
 }

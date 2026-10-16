@@ -47,3 +47,146 @@ document/
 云文档在线编辑：Markdown、TXT 和代码文件的编辑、保存、权限与版本冲突处理见
 [我的空间](zh-CN/modules/projects-myspace.md#云文档在线编辑) /
 [Online cloud document editing](en/modules/projects-myspace.md#online-cloud-document-editing)。
+
+工作台协议 / Workbench protocol：
+[中文接入说明](zh-CN/development/workbench-protocol.md) /
+[English integration guide](en/development/workbench-protocol.md)。
+
+普通外部应用：[中文](zh-CN/development/workbench-external-apps.md) · [English](en/development/workbench-external-apps.md)。
+
+工作台目录与布局策略：[中文](zh-CN/development/workbench-access-policies.md) · [English](en/development/workbench-access-policies.md)。
+
+工作台导航偏好：[中文](zh-CN/development/workbench-navigation-preferences.md) · [English](en/development/workbench-navigation-preferences.md)。
+
+独立 SDK 与插件页面：[中文](zh-CN/development/workbench-sdk.md) · [English](en/development/workbench-sdk.md)。
+
+工作台独立工程与权限预览：[中文](zh-CN/development/workbench-preview.md) · [English](en/development/workbench-preview.md)。
+工作台管理员指南：[中文](zh-CN/development/workbench-administration.md) · [English](en/development/workbench-administration.md)。
+工作台错误码：[中文](zh-CN/development/workbench-errors.md) · [English](en/development/workbench-errors.md)。
+工作台兼容与迁移：[中文](zh-CN/development/workbench-migration.md) · [English](en/development/workbench-migration.md)。
+
+工作台目录通知与撤销：[中文](zh-CN/development/workbench-invalidation.md) · [English](en/development/workbench-invalidation.md)。
+
+- [工作台构建与交付](zh-CN/development/workbench-build.md)
+
+- [workbench-sdk](en/development/workbench-sdk.md)
+
+- [workbench-access-policies](en/development/workbench-access-policies.md)
+
+- [workbench-external-apps](en/development/workbench-external-apps.md)
+
+- [workbench-plugin-upgrades](en/development/workbench-plugin-upgrades.md)
+
+- [workbench-protocol](en/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](zh-CN/development/workbench-sdk.md)
+
+- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
+
+- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
+
+- [workbench-plugin-upgrades](zh-CN/development/workbench-plugin-upgrades.md)
+
+- [workbench-protocol](zh-CN/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
+
+- [workbench-origins](en/development/workbench-origins.md)
+
+- [workbench-sdk](en/development/workbench-sdk.md)
+
+- [workbench-access-policies](en/development/workbench-access-policies.md)
+
+- [workbench-external-apps](en/development/workbench-external-apps.md)
+
+- [workbench-protocol](en/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
+
+- [workbench-origins](zh-CN/development/workbench-origins.md)
+
+- [workbench-sdk](zh-CN/development/workbench-sdk.md)
+
+- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
+
+- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
+
+- [workbench-protocol](zh-CN/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](en/development/workbench-sdk.md)
+
+- [workbench-platform-adapters](en/development/workbench-platform-adapters.md)
+
+- [workbench-access-policies](en/development/workbench-access-policies.md)
+
+- [workbench-external-apps](en/development/workbench-external-apps.md)
+
+- [workbench-protocol](en/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](zh-CN/development/workbench-sdk.md)
+
+- [workbench-platform-adapters](zh-CN/development/workbench-platform-adapters.md)
+
+- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
+
+- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
+
+- [workbench-protocol](zh-CN/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](en/development/workbench-sdk.md)
+
+- [workbench-access-policies](en/development/workbench-access-policies.md)
+
+- [workbench-external-apps](en/development/workbench-external-apps.md)
+
+- [workbench-activity](en/development/workbench-activity.md)
+
+- [workbench-protocol](en/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](zh-CN/development/workbench-sdk.md)
+
+- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
+
+- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
+
+- [workbench-activity](zh-CN/development/workbench-activity.md)
+
+- [workbench-protocol](zh-CN/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](en/development/workbench-sdk.md)
+
+- [workbench-access-policies](en/development/workbench-access-policies.md)
+
+- [workbench-external-apps](en/development/workbench-external-apps.md)
+
+- [workbench-diagnostics](en/development/workbench-diagnostics.md)
+
+- [workbench-protocol](en/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
+
+- [workbench-sdk](zh-CN/development/workbench-sdk.md)
+
+- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
+
+- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
+
+- [workbench-diagnostics](zh-CN/development/workbench-diagnostics.md)
+
+- [workbench-protocol](zh-CN/development/workbench-protocol.md)
+
+- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
+
+项目与智能体独立对话链接 / Standalone project and agent chat links：[中文](zh-CN/modules/chat.md#项目和智能体的独立对话链接) · [English](en/modules/chat.md#standalone-chat-links-for-projects-and-agents)。

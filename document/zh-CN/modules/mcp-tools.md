@@ -27,7 +27,6 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 └─────────┘        │        │   :9104  保留（图表 MCP 已退役）                  │
      │             │        │   :9105  保留（原报告导出 MCP）                  │
  MCPConnectionPool │        │   :9106  web_fetch（网页抓取）                    │
- (core/llm/        │        │   :9107  batch_runner（批量计划）                 │
   mcp_pool.py)     └───┬────┘   :9108  automation_task（自动化插件提供）      │
                        │        9109–9111 保留（原 excel/ppt/pdf MCP）        │
                        │        :9112  skill_manager（技能管理）              │
@@ -52,7 +51,6 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 | `internet_search_mcp` | 9102 | `internet_search` | 社区版 CE |
 | `ai_chain_information_mcp` | 9103 | 27 个产业链、企业、资讯、政策、报告、专利与技术工具 | **商业版 EE（产业知识中心插件）** |
 | `web_fetch_mcp` | 9106 | `web_fetch` | 社区版 CE |
-| `batch_runner_mcp` | 9107 | `batch_plan` | 社区版 CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` 等 | 社区版 CE（自动化插件提供） |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | 社区版 CE |
 
@@ -135,10 +133,6 @@ MCP（即使工具同名）也统一使用通用 JSON 卡片展示。两类结�
 ### web_fetch — 网页抓取（CE）
 
 `web_fetch(url, extractMode, maxChars)`：抓取指定 URL 并提取正文，支持 `text` / `markdown` / `html` 三种提取模式。典型搭配是"先 `internet_search` 拿 URL，再 `web_fetch` 取正文"；多个搜索类市场技能也通过它调用专门搜索引擎 URL。
-
-### batch_runner — 批量执行调度器（CE）
-
-`batch_plan(instruction, file_ids, text_items, chat_id)`：识别"对一组对象逐个做同一件事"的批量意图（枚举对象 / 上传 Excel 行 / 多份文档），生成带 prompt 模板与占位符的**执行计划**并立即暂停回合——前端弹出确认对话框，用户审阅/修改模板后由后端逐条执行并实时推送结果。详见[批量执行 / 自动化模块](automation.md)。
 
 ### automation_task — 定时任务管理（CE）
 

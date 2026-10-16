@@ -1,0 +1,148 @@
+.jx-kbChunkPreviewSummary{
+  margin-bottom:14px;
+  color:var(--color-text-tertiary);
+  font-size:14px;
+  font-weight:700;
+}
+
+.jx-kbChunkPreviewList{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-height:60vh;
+  overflow:auto;
+}
+
+.jx-kbChunkPreviewCard{
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-radius:16px;
+  overflow:hidden;
+  background:var(--color-bg-container);
+}
+
+.jx-kbChunkPreviewHeader{
+  width:100%;
+  appearance:none;
+  border:none;
+  background:var(--color-bg-layout);
+  padding:14px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  cursor:pointer;
+  font-size:14px;
+  font-weight:700;
+  color:var(--color-text);
+}
+
+.jx-kbChunkPreviewBody{
+  padding:14px 16px;
+  color:var(--color-text-secondary);
+  font-size:13px;
+  line-height:1.7;
+  white-space:pre-wrap;
+}
+
+.jx-kbChunkPreviewChildren{
+  padding:0 16px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.jx-kbChunkPreviewChild{
+  border-radius:12px;
+  background:var(--color-bg-layout);
+  padding:12px;
+  color:var(--color-text-tertiary);
+  font-size:13px;
+  line-height:1.65;
+}
+
+.jx-kbChunkPreviewChildIndex{
+  margin-bottom:6px;
+  color:var(--color-text);
+  font-size:12px;
+  font-weight:800;
+}
+
+@container knowledge-view (max-width: 800px){
+  .jx-kbDocTable{
+    --jx-kb-doc-cols:minmax(0,1.3fr) 80px 104px 84px 96px;
+  }
+}
+
+@container knowledge-view (max-width: 640px){
+
+  /* 窄屏下同样保留 embedded 的无左右内边距（否则会比同级 Tab 内容多缩进 16px） */
+
+  .jx-kbTabs{
+    gap:18px;
+    overflow:auto;
+  }
+
+  .jx-kbTab{
+    font-size:16px;
+  }
+
+  .jx-kbDetailHeader{
+    padding:18px;
+  }
+
+  .jx-kbDetailHeaderMain{
+    flex-wrap:wrap;
+  }
+
+  .jx-kbDetailDivider{
+    display:none;
+  }
+
+  .jx-kbDetailActions{
+    width:100%;
+    margin-left:0;
+  }
+
+  .jx-kbSyncInline{
+    width:100%;
+  }
+
+  .jx-kbDocFilterTabs{
+    width:100%;
+    overflow-x:auto;
+  }
+
+  .jx-kbDocPanelHeader{
+    padding:18px;
+  }
+
+  .jx-kbDocTableHead{
+    display:none;
+  }
+
+  .jx-kbDocRow{
+    grid-template-columns:1fr;
+    gap:12px;
+    padding:18px;
+  }
+
+  .jx-kbDocPagination{
+    justify-content:center;
+    padding:16px;
+  }
+
+  .jx-kbPager{
+    width:100%;
+    justify-content:center;
+    row-gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .jx-kbPager .ant-pagination-options{
+    margin-inline-start:0;
+  }
+
+  .jx-kbDocActions{
+    justify-content:flex-start;
+  }
+}

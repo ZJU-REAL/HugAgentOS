@@ -36,8 +36,6 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("me_system", "router"),
     ("me_logs", "router"),
     ("myspace_folders", "router"),
-    ("batch", "router"),
-    ("internal_batch", "router"),
     # 作业编排：沙箱里的作业脚本经 internal_jobs 回调后端（建台账、派子智能体、报终态），
     # jobs 是给人看的只读进度视图（输入框上方那条状态条）。两条都必须在——CE 的
     # agent_factory 已经注册了 run_job 工具，少了回调路由，作业会在第一发回调 404 当场死掉。
@@ -45,6 +43,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("jobs", "router"),
     ("internal_sites", "router"),
     ("applications", "router"),
+    ("workbench", "router"),
     ("application_transports", "internal_router"),
     ("application_transports", "public_router"),
     ("application_transports", "mcp_router"),
@@ -74,6 +73,8 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("desktop_capability", "router"),
     ("desktop_observability", "router"),
     ("desktop_capabilities", "router"),
+    # This computer's link to a Personal Agent on the cloud it signed in to.
+    ("device_link", "router"),
     ("local", "router"),
     ("local_site_sources", "router"),
     # 工具执行权限档（标准 / 只读 / 自动）——输入框工具栏那颗权限胶囊的数据源

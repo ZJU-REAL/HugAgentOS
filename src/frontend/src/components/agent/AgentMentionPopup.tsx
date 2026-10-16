@@ -8,7 +8,6 @@ import {
   PartitionOutlined,
   RobotOutlined,
   SyncOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { scaleIn } from '../../utils/motionVariants';
@@ -17,7 +16,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import { t } from '../../i18n';
 
-export type MentionActionId = 'files' | 'agents' | 'plan' | 'batch' | 'workflow' | 'loop';
+export type MentionActionId = 'files' | 'agents' | 'plan' | 'workflow' | 'loop';
 
 export interface MentionLauncherAction {
   id: MentionActionId;
@@ -61,7 +60,6 @@ function actionIcon(id: MentionActionId) {
   if (id === 'files') return <FolderOpenOutlined />;
   if (id === 'agents') return <RobotOutlined />;
   if (id === 'plan') return <OrderedListOutlined />;
-  if (id === 'batch') return <ThunderboltOutlined />;
   if (id === 'workflow') return <PartitionOutlined />;
   return <SyncOutlined />;
 }

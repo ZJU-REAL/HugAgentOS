@@ -1497,8 +1497,7 @@ class StallInterventionMiddleware(MiddlewareBase):
 
 # ── FinishPinGuard ─────────────────────────────────────────────────────────
 class FinishPinGuardMiddleware(MiddlewareBase):
-    def __init__(self, *, batch_mode: bool = False) -> None:
-        self._batch_mode = batch_mode
+    def __init__(self) -> None:
         self._fired = False
 
     async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
@@ -1507,7 +1506,7 @@ class FinishPinGuardMiddleware(MiddlewareBase):
             if isinstance(evt, ToolCallEndEvent):
                 had_tool_call = True
             yield evt
-        if self._batch_mode or had_tool_call or self._fired:
+        if had_tool_call or self._fired:
             return
         try:
             from core.llm.finish_guard import _collect_unpinned, _direct_pin

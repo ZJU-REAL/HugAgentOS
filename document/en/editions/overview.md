@@ -3,7 +3,7 @@
 
 HugAgentOS is distributed under an **open-core** model, following the established practice of open-source agent platforms such as Dify and FastGPT:
 
-- **Community Edition (CE)** — open source and free. A single person on a single machine gets a fully self-contained platform: complete chat, knowledge-base RAG, sub-agents, general-purpose tools, automation, batch execution, data canvas, and three-layer personal memory.
+- **Community Edition (CE)** — open source and free. A single person on a single machine gets a fully self-contained platform: complete chat, knowledge-base RAG, sub-agents, general-purpose tools, automation, data canvas, and three-layer personal memory.
 - **Enterprise Edition (EE)** — adds the **organization-scale** capabilities on top of CE: team collaboration, SSO, audit & compliance, billing, industry data tools, admin consoles, and white-labeling. Licensed by annual subscription via an offline license file.
 
 The dividing line in one sentence: **capabilities that are self-contained for an individual go to CE; capabilities that only matter at organizational scale go to EE**.
@@ -33,12 +33,11 @@ The edition boundary is aligned with the public pricing page. The table below re
 | Chat | ✅ Full: SSE streaming, ReAct agent, plan mode, deep thinking, cited sources | — |
 | Knowledge-base RAG | ✅ Document upload, smart chunking, hybrid vector + keyword retrieval, private KBs | ➕ External KB integration (Dify), public KB admin console |
 | Sub-agents | ✅ Create, auto-routing, @-mention collaboration (personal) | ➕ Organization-level agent library & admin console |
-| MCP tools | ✅ 7 general tools: internet search, web fetch, chart generation, batch runner, automation task management, skill management, KB retrieval | ➕ Data-warehouse query (`query_database`) and the Industry Knowledge Center plugin (1 MCP, 27 tools, 14 Skills) |
+| MCP tools | ✅ 6 general tools: internet search, web fetch, chart generation, batch runner, automation task management, skill management, KB retrieval | ➕ Data-warehouse query (`query_database`) and the Industry Knowledge Center plugin (1 MCP, 27 tools, 14 Skills) |
 | Self-service capability hub | ✅ MCP marketplace (Token/OAuth installs), private remote HTTP/SSE MCP servers, and private skills (hand-written or zip upload), owner-isolated | ➕ Org-level permission governance, MCP/skill listing review, and distillation |
 | Personal API keys | ✅ Create / revoke your own API keys for the native agent API | ➕ External model gateway (OpenAI / Anthropic compatible) plus org-managed per-user authorization bits |
 | Memory | ✅ L1 personal profile + L2 vector (Milvus, optional) + L3 graph (Neo4j, optional) | ➕ Memory audit (compliance trail, `memory_audit` table) |
 | Automation | ✅ Scheduled tasks, cron, prompt/plan automation, retry on failure | — |
-| Batch execution | ✅ Excel/Word/list template batch processing | — |
 | Data canvas | ✅ Online spreadsheet personal editing (free Univer presets) | ➕ Real-time multi-user collaboration (with the commercial `@univerjs/preset-sheets-advanced`) |
 | Code execution | ✅ Lightweight sandbox (script-runner) + offload/read-back of oversized results | ➕ Persistent sandbox (OpenSandbox / Cube providers; session retention, environment reuse) |
 | File storage | ✅ Local storage | ➕ Cloud storage (S3 / Alibaba Cloud OSS) |
@@ -51,7 +50,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 | System console (/config) | ✅ Prompt management: system/desktop versions, preview and snapshots (instance administrator required) | ➕ Users / teams / invites / security / service configs / License panel |
 | Branding | ⚠️ Rebrandable (attribution retained) | ➕ Full white-label |
 
-> Note the 2026-06 boundary adjustment: **automation, batch execution, data canvas (personal editing), and memory L2 vector / L3 graph moved from EE down to CE**. EE keeps only their organizational increments (canvas multi-user collaboration, team quota billing, etc.).
+> Note the 2026-06 boundary adjustment: **automation, data canvas (personal editing), and memory L2 vector / L3 graph moved from EE down to CE**. EE keeps only their organizational increments (canvas multi-user collaboration, team quota billing, etc.).
 
 ## How edition and license manifest at runtime
 

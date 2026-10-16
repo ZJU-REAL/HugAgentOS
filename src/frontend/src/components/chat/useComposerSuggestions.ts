@@ -14,7 +14,7 @@ export function useComposerSuggestions(state: ComposerState, {
 }: ComposerOptions) {
   const {
     input, installedPlugins, skills, canInitProject, referencedChats,
-    activeLocalMode, planModeAllowed, batchRunnerAllowed, planMode, batchModeOn,
+    activeLocalMode, planModeAllowed, planMode,
     workflowModeOn, showLoopEntry, loopMode, _currentChat, currentChatId,
   } = state;
   // `/` 面板里的「引用会话」候选。按当前项目范围从后端取，只含标题级信息。
@@ -113,12 +113,6 @@ export function useComposerSuggestions(state: ComposerState, {
       description: t('计划模式：AI 将自动分解任务为多步骤并逐步执行'),
       active: planMode,
     }] : []),
-    ...(batchRunnerAllowed ? [{
-      id: 'batch' as const,
-      name: t('批量执行'),
-      description: t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划'),
-      active: batchModeOn,
-    }] : []),
     {
       id: 'workflow' as const,
       name: t('工作流模式'),
@@ -135,9 +129,8 @@ export function useComposerSuggestions(state: ComposerState, {
     activeLocalMode,
     disableMention,
     planModeAllowed,
-    batchRunnerAllowed,
     planMode,
-    batchModeOn,
+
     workflowModeOn,
     showLoopEntry,
     loopMode,

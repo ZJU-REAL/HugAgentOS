@@ -216,6 +216,7 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
     if isinstance(url, str) and url.startswith("builtin://"):
         from core.config.mcp_config import _mcp_http_url
         from mcp_servers._ports import PORTS
+
         server_id = url.removeprefix("builtin://")
         if server_id not in PORTS:
             raise ValueError("unknown bundled MCP service")
@@ -428,9 +429,6 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
     ext = manifest_extensions(manifest)
 
     slug = _slugify(str(manifest.get("name") or plugin_dir.name))
-    # Standard manifests carry no display fields (display_name/category/icon are
-    # UI-configured, seeded/overridden at the service layer); legacy top-level
-    # values are still honored for imported packages.
     name = str(manifest.get("display_name") or manifest.get("name") or slug)
     version = str(manifest.get("version") or "1.0.0")
     description = str(manifest.get("description") or "")
@@ -460,9 +458,6 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
     connection = str(connection).strip() if connection else None
     dropped = _collect_dropped(plugin_dir, manifest, kind)
 
-    # UI contributions are optional and fail-soft: a malformed entry is dropped
-    # into the import report rather than blocking the install, so a typo in a
-    # view declaration never makes a plugin uninstallable.
     ui, ui_dropped = normalize_ui(_ext_or_top(manifest, ext, "ui"))
     dropped.extend(ui_dropped)
 
@@ -478,7 +473,11 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
             "mcp": [m.name for m in mcp if not m.needs_runtime],
         }
 
-    if not skills and not mcp:
+    if (
+        not skills
+        and not mcp
+        and not (ui and ui.get("version") == 3 and ui.get("contributes", {}).get("applications"))
+    ):
         raise BadRequestError(message="插件包内未发现可导入的技能或 MCP（仅含不可移植组件？）")
 
     return NormalizedPlugin(
@@ -496,5 +495,6 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
         dropped=dropped,
         admin_config=admin_config,
         connection=connection,
-        ui=ui, package_dir=str(plugin_dir),
+        ui=ui,
+        package_dir=str(plugin_dir),
     )

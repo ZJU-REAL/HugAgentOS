@@ -30,7 +30,6 @@ must execute in separate rounds.
 └─────────┘        │        │   :9104  reserved (retired chart MCP)          │
      │             │        │   :9105  reserved (former report export MCP)   │
  MCPConnectionPool │        │   :9106  web_fetch                              │
- (core/llm/        │        │   :9107  batch_runner                           │
   mcp_pool.py)     └───┬────┘   :9108  automation_task (automation plugin)    │
                        │        9109–9111 reserved (former office MCPs)       │
                        │        :9112  skill_manager                          │
@@ -56,7 +55,6 @@ The single source of truth for port assignment is `src/backend/mcp_servers/_port
 | `internet_search_mcp` | 9102 | `internet_search` | Community CE |
 | `ai_chain_information_mcp` | 9103 | 27 industry, enterprise, news, policy, report, patent, and technology tools | **Enterprise EE (Industry Knowledge Center plugin)** |
 | `web_fetch_mcp` | 9106 | `web_fetch` | Community CE |
-| `batch_runner_mcp` | 9107 | `batch_plan` | Community CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE (automation plugin) |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | Community CE |
 
@@ -163,10 +161,6 @@ workbenches, and upstream write operations are no longer exposed to agents.
 ### web_fetch — web page fetching (CE)
 
 `web_fetch(url, extractMode, maxChars)`: fetches a URL and extracts its main content in `text` / `markdown` / `html` mode. The canonical pairing is "`internet_search` for URLs, then `web_fetch` for full text"; several search-oriented marketplace skills also use it to hit specialised search-engine URLs.
-
-### batch_runner — batch execution planner (CE)
-
-`batch_plan(instruction, file_ids, text_items, chat_id)`: detects "do the same thing to each item in a set" intents (enumerated objects / uploaded Excel rows / multiple documents), produces a confirmable **execution plan** with a prompt template and placeholders, then immediately ends the turn — the frontend pops a confirmation dialog, the user reviews/edits the template, and the backend executes item by item with live streaming. See the [automation module](automation.md).
 
 ### automation_task — scheduled task management (CE)
 

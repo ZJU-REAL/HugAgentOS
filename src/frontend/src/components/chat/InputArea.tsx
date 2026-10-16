@@ -1,3 +1,5 @@
+import { usePublicChat } from '../../public-chat/PublicChatContext';
+import { PublicComposer } from '../../public-chat/PublicComposer';
 import React, { useEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 import { AnimatePresence, motion } from 'motion/react';
@@ -26,7 +28,7 @@ import { useComposerSuggestions } from './useComposerSuggestions';
 import { useComposerEditor } from './useComposerEditor';
 import type { ComposerOptions, InputAreaProps } from './composerTypes';
 
-export function InputArea({
+function MainInputArea({
   inputRef, fileInputRef, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, handleFileSelect, removeFile,
   placeholder = t('请输入你的问题，按Enter发送，Shift+Enter换行'),
   mobilePlaceholder,
@@ -262,4 +264,9 @@ export function InputArea({
       </div>
     </div>
   );
+}
+
+export function InputArea(props: InputAreaProps) {
+  const publicChat = usePublicChat();
+  return publicChat ? <PublicComposer {...props} /> : <MainInputArea {...props} />;
 }

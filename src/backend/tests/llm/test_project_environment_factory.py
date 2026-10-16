@@ -9,7 +9,7 @@ def test_empty_environment_blocks_registration_and_keeps_one_run_frozen(tmp_path
     script = r"""
 import asyncio
 from core.db.engine import Base, engine, SessionLocal
-from core.db.models import Project, UserShadow, ChatSession, UserAgent, AdminMcpServer, BatchPlan, ChatRun
+from core.db.models import Project, UserShadow, ChatSession, UserAgent, AdminMcpServer, ChatRun
 from core.db.model_repository import create_provider, assign_role
 from core.llm.factory import create_agent_executor
 from core.llm.factory.request import AgentRequest
@@ -121,81 +121,6 @@ async def run():
     assert executed == [], executed
     assert results[0].metadata["project_environment_denied"] is True
 
-    # Exercise the real multi-item batch runner; model execution is the only
-    # replaced boundary. Widening project settings after item 1 must not affect
-    # item 2, and the snapshot is persisted for process recovery.
-    with SessionLocal() as db:
-        db.get(Project, "scoped").extra_data = {"environment": {"mode": "custom"}}
-        db.add(BatchPlan(plan_id="environment-batch", user_id="owner", chat_id="scoped-chat",
-                        status="confirmed", source_type="text_list", prompt_template="{text}",
-                        items=[{"text": "one"}, {"text": "two"}], max_retries=0))
-        db.commit()
-    import orchestration.batch_runner as batch_runner
-    item_policies = []
-    async def model_boundary(prompt, user_id, sub_mcp_ids, **kwargs):
-        item_request = AgentRequest(current_user_id=user_id, chat_id=kwargs["chat_id"],
-            project_ctx=kwargs["project_ctx"], isolated=True, enabled_mcp_ids=sub_mcp_ids)
-        item_policies.append(await bind_project_environment(item_request))
-        if len(item_policies) == 1:
-            with SessionLocal() as db:
-                db.get(Project, "scoped").extra_data = {"environment": {"mode": "all"}}
-                db.commit()
-        return "completed", [], [], []
-    with patch.object(batch_runner, "_run_item_via_workflow", side_effect=model_boundary):
-        await batch_runner._run_until_done("environment-batch", "owner")
-    assert len(item_policies) == 2 and all(p.mcp_ids == frozenset() for p in item_policies), item_policies
-    with SessionLocal() as db:
-        batch = db.get(BatchPlan, "environment-batch")
-        assert batch.status == "done", batch.status
-        assert batch.progress["project_environment"]["project_environment_config"]["mode"] == "custom"
-    with SessionLocal() as db:
-        snapshots = [r.recovery_snapshot for r in db.query(ChatRun).all()
-                     if (r.recovery_snapshot or {}).get("worker_args")]
-        assert snapshots
-        assert all(s["worker_args"]["context"]["project_ctx"]["project_environment_config"]["mode"]
-                   == "custom" for s in snapshots)
-        # Simulate a competitor winning persistence after this runner resolves
-        # the current all-mode environment but before its row lock is acquired.
-        db.add(BatchPlan(plan_id="competing-batch", user_id="owner", chat_id="scoped-chat",
-                        status="confirmed", source_type="text_list", prompt_template="{text}",
-                        items=[{"text": "race"}], max_retries=0))
-        db.commit()
-    bind_count = 0
-    async def competing_bind(req):
-        nonlocal bind_count
-        result = await bind_project_environment(req)
-        bind_count += 1
-        if bind_count == 1:
-            with SessionLocal() as db:
-                batch = db.get(BatchPlan, "competing-batch")
-                batch.progress = {"project_environment": request.project_ctx}
-                db.commit()
-        return result
-    raced_policies = []
-    async def race_model(prompt, user_id, sub_mcp_ids, **kwargs):
-        req = AgentRequest(current_user_id=user_id, chat_id=kwargs["chat_id"],
-                           project_ctx=kwargs["project_ctx"], isolated=True)
-        raced_policies.append(await bind_project_environment(req))
-        return "completed", [], [], []
-    with patch("core.llm.project_environment.bind_project_environment", side_effect=competing_bind), \
-         patch.object(batch_runner, "_run_item_via_workflow", side_effect=race_model):
-        await batch_runner._run_until_done("competing-batch", "owner")
-    assert raced_policies == [frozen], raced_policies
-    with SessionLocal() as db:
-        db.add(BatchPlan(plan_id="rejected-batch", user_id="owner", chat_id="scoped-chat",
-                        status="confirmed", source_type="text_list", prompt_template="{text}",
-                        items=[{"text": "reject"}], max_retries=0))
-        db.commit()
-    from fastapi import HTTPException
-    with patch("core.llm.project_environment.bind_project_environment",
-               side_effect=HTTPException(403, "environment revoked")):
-        await batch_runner._run_until_done("rejected-batch", "owner")
-    with SessionLocal() as db:
-        batch = db.get(BatchPlan, "rejected-batch")
-        assert batch.status == "failed", batch.status
-        assert batch.progress["environment_error"] == "environment revoked"
-        assert not batch.progress.get("results")
-        assert batch.progress.get("done", 0) == 0
 asyncio.run(run())
 engine.dispose()
 """

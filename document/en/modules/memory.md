@@ -241,3 +241,10 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/frontend/src/components/settings/SettingsModal.tsx` | Memory settings + layered memory modal |
 | `src/frontend/src/components/memory/FactsList.tsx` | L2 procedure list component (editable) |
 | `docker-compose.yml` (`mem0` profile) | Milvus / etcd / MinIO / Neo4j |
+
+
+### L2 expiry and mutation permissions
+
+L2 stores expiry dates in memory metadata. Search, lists and duplicate matching hide an entry on its UTC expiry date. The background sweep later removes the stored row. Legacy entries still use `ttl_days` and their update timestamp. Text edits preserve the ID, workspace, expiry date and write receipt. Reinforcement extends expiry.
+
+Single-entry edits and deletion authorize the actor against the stored scope. Team-project mutations require current edit permission. Durable replay rechecks permission. Expiry does not hide write receipts from crash recovery, preventing duplicate writes.

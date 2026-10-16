@@ -29,7 +29,8 @@ def test_invocation_proof_rejects_impersonation_expiry_and_wrong_audience(monkey
         proof.verify(headers, "browser_runtime")
     assert proof.for_url("https://third-party.example/mcp", "owner", "chat") == {}
 
-def test_tickets_are_origin_bound_single_use_and_asset_owner_bound():
+def test_tickets_are_origin_bound_single_use_and_asset_owner_bound(monkeypatch):
+    monkeypatch.setenv("PLUGIN_RESOURCE_SECRET_KEY", "isolated-resource-ticket-test-key")
     engine = create_engine("sqlite://")
     for model in (PluginResource, PluginResourceTicket, PluginResourceAssetTicket):
         model.__table__.create(engine)

@@ -30,17 +30,17 @@ async def interactive_tools(
 
     loaded_skill_ids: set[str] = set()
     # Effective sandbox session: callers may pass an explicit id to layer sessions
-    # (main/plan execution → chat_id persistent kernel; batch/subagent → "" ephemeral).
+    # (main/plan execution → chat_id persistent kernel; subagent → "" ephemeral).
     # ``None`` means "not specified" → fall back to chat_id (legacy behavior).
     _sbx_sess: Optional[str] = resolve_sandbox_session(request.sandbox_session_id, request.chat_id)
     # Interactive mode = a human is in the loop and confirmations can be shown
-    # (main/plan-execute). Batch items / subagents (isolated/batch) have no
+    # (main/plan-execute). Subagents (isolated) have no
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
-    _interactive: bool = not (request.isolated or request.batch_mode or _api_scope or _eval_scope)
+    _interactive: bool = not (request.isolated or _api_scope or _eval_scope)
 
     # Browser-backed model questions are deliberately a top-level standard-chat
-    # capability. Channels, automation, batch/plan workers and subagents have no
+    # capability. Channels, automation, plan workers and subagents have no
     # resident composer to answer them; turbo mode keeps its bounded fast path.
     from core.llm.tools import ask_user_question_tool
 

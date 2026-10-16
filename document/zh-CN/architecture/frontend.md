@@ -32,7 +32,7 @@ App.tsx 只连接 useAppController、AppAuthGate 和 AppWorkspace。初始化、
 - **信封解包**：后端统一返回 `{ code, message, data, trace_id, timestamp }`，`isApiEnvelope` + `unwrapData<T>` 自动取出 `data`，调用方拿到的就是业务类型；
 - **认证联动**：`onUnauthorized(handler)` 注册 401 回调，由 `authStore` 统一跳转登录；
 - **错误友好化**：如 `uploadErrorMessage` 识别 Nginx 413（超出 `client_max_body_size`）等非 JSON 错误并给出中文提示；
-- **领域函数**：会话 CRUD / 流式与续播 / 消息反馈 / 知识库 / 产物 / 自动化 / 批量 / 项目 / 记忆 / 能力中心等数百个具名函数，与 `types.ts` 中的共享类型一一对应。
+- **领域函数**：会话 CRUD / 流式与续播 / 消息反馈 / 知识库 / 产物 / 自动化 / 项目 / 记忆 / 能力中心等数百个具名函数，与 `types.ts` 中的共享类型一一对应。
 
 SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接消费 `fetch` 流。
 
@@ -44,7 +44,6 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `agent/` | 子智能体的创建页、表单、@提及弹层、面板 |
 | `apidoc/` | API 文档页面板 |
 | `automation/` | 定时任务列表、创建、详情、创建会话入口与执行时间线 |
-| `batch/` | 批量执行确认弹窗与进度面板 |
 | `canvas/` | 数据画布：Univer 在线表格面板 |
 | `catalog/` | 能力中心：技能 / MCP 页面、目录面板、技能市场弹窗、图标选择 |
 | `chat/` | 聊天主区：消息气泡、输入区、产物卡片、思考面板、计划卡片、技能斜杠弹层、文件确认条等 |
@@ -77,7 +76,6 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `kbStore` | 知识库空间 / 文档 / 分块状态 |
 | `mySpaceStore` | 我的空间资源树与收藏 |
 | `projectStore` | 项目列表、详情、项目内会话 |
-| `batchStore` | 批量计划状态（按 plan_id 键控，含待确认弹窗追踪） |
 | `automationStore` / `automationChatStore` | 自动化任务列表 / 自动化会话运行态 |
 | `canvasStore` | 数据画布文档状态 |
 | `skillDistillStore` | 个人技能蒸馏任务状态 |
@@ -97,6 +95,18 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `usePageConfig` | 按 dot-path 读取页面配置（如 `branding.product_name`） |
 | `useStallDetector` | 流静默超时检测（卡顿提示） |
 | `useDelayedFlag` | 防闪烁的延迟布尔量（延迟显示 + 最短保持） |
+
+## 流式正文显示
+
+助手正文从首帧开始按 Markdown 渲染。普通段落、格式化正文和带引用正文共用 CitationHtmlBlock，不再根据后续字符切换纯文本与 Markdown 容器。SSE 解析和后台任务仍负责接收与恢复数据；GraphemeReveal 只负责显示新增文字。
+
+新增文字按完整字素淡入，组合重音和 ZWJ emoji 不按 UTF-16 单元拆开。动画参数在 styles/chat/grapheme-reveal.css 中统一定义：90ms、cubic-bezier(.215,.61,.355,1)、模糊从 6px 到 0；正常字素间隔为 30ms。大批增量会缩短显示间隔，将待显示时间限制在 600ms 内。已显示文字和引用 portal 的节点保持原位；动画完成后合并临时文字节点，避免长消息保留逐字 DOM。
+
+代码、公式、复制按钮和图表组件不拆分。完成或取消时，页面立即显示全部已接收文字。恢复快照中的已有文字不重播；后续增量继续淡入。系统启用减弱动画时直接显示正文。
+
+Markdown 转 HTML 后复用 DOMPurify 清理可执行属性和链接，同时保留外链的新标签页行为。
+
+验证入口为 npm run test:grapheme-reveal。完整应用测试使用 scripts/grapheme-e2e-environment.py 创建独立 Docker 网络、Redis、临时 SQLite、测试模型和 Nginx，再运行 npm run test:grapheme-reveal-app。测试环境不读取真实 .env；完成后用该脚本的 down 命令移除带测试标签的容器。
 
 ## 样式与其他目录
 
@@ -129,7 +139,7 @@ useStreaming.send
    │ 逐行解析 data: {json}
    │ ├─ content/thinking → segments 分段追加（utils/segments.ts）
    │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → 按 tool_id 原位更新工具时间线（components/tool/）
-   │ ├─ file_confirm/batch_confirm → 确认条 / 弹窗（真挂起）
+   │ ├─ file_confirm → 确认条 / 弹窗（真挂起）
    │ └─ meta → 引用源、产物列表写入消息
    ▼
 chatStore 更新 → MessageBubble 重渲染
