@@ -66,7 +66,7 @@ def _model_is_gateway_compatible(provider: ModelProvider) -> bool:
 
     provider_id = getattr(provider, "provider", None) or "openai_compatible"
     spec = get_spec(provider_id)
-    return spec.engine == "openai" and spec.id != "azure_openai"
+    return spec.engine == "openai" and spec.id != "azure_openai" and provider.provider_type != "audio"
 
 
 def _sanitize_model_extra(value: Any) -> Any:

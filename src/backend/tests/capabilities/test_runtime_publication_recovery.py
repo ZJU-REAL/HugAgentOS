@@ -207,7 +207,7 @@ async def test_dedicated_agent_factory_reaches_config_after_freezing_definition(
 
     monkeypatch.setattr(skills, "current_account_profile", lambda: None)
     monkeypatch.setattr(
-        "core.llm.tool_permissions.resolve_approval_mode", lambda *args, **kwargs: "auto"
+        "core.llm.tool_permissions.preferences.resolve_approval_mode", lambda *args, **kwargs: "auto"
     )
 
     class ConfigurationReached(Exception):

@@ -4,14 +4,27 @@ import asyncio
 import time
 
 
-async def flush(registry, owner, timeout, *, metadata_only=False):
+async def flush(registry, owner, timeout, *, metadata_only=False, strict=True, paths=()):
     # Root refresh downloads cloud bytes; metadata reads still drain every local write.
     def relevant(key):
-        return key[0] == owner and (not metadata_only or bool(key[1]))
+        if key[0] != owner or (metadata_only and not key[1]):
+            return False
+        if not strict and key in registry._failures:
+            return False
+        if not paths:
+            return True
+        change = registry._events.get(key)
+        candidates = (key[1],) + (tuple(change.paths()) if change else ())
+        return any(
+            a == b or a.startswith(b + "/") or b.startswith(a + "/")
+            for a in candidates
+            if a
+            for b in paths
+        )
 
     deadline = time.monotonic() + timeout
     for key in list(registry._failures):
-        if relevant(key):
+        if strict and relevant(key):
             registry._failures.pop(key, None)
     while True:
         if registry._inbox:
@@ -31,9 +44,10 @@ async def flush(registry, owner, timeout, *, metadata_only=False):
         if keys:
             registry._dispatch(keys, time.monotonic(), force=True)
         waiting = [
-            task for task in registry._tasks
+            task
+            for task in registry._tasks
             if registry._task_users.get(task) == owner
-            and (not metadata_only or any(registry._task_paths.get(task, ("unknown",))))
+            and any(relevant((owner, p)) for p in registry._task_paths.get(task, ("",)))
         ]
         remaining = deadline - time.monotonic()
         if remaining <= 0:

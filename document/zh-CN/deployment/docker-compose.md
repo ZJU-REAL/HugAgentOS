@@ -6,6 +6,34 @@
 
 HugAgentOS 的全部服务由根目录 `docker-compose.yml` 一个文件编排，按 profiles 分为常驻核心服务、互斥的沙箱 sidecar（`script_runner` / `opensandbox`）和可选的记忆基础设施（`mem0`）。本文给出完整服务拓扑、卷与持久化、profiles 用法及改代码后的 rebuild 流程。
 
+
+## CE Docker 默认沙盒
+
+CE 的 Docker 部署默认使用 OpenSandbox；无 Docker 安装及桌面本机模式仍使用本地执行。
+首次安装执行：
+
+```bash
+python3 scripts/configure-ce-docker.py
+docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker compose up -d --build
+```
+
+初始化脚本生成绝对宿主路径、项目名和随机控制器密钥，并拒绝覆盖已有 .env。
+可使用 --project-name 和 --storage 指定项目名与存储目录。
+控制器网络名按项目名生成，控制器不发布宿主端口。控制器通过 Docker socket 管理沙盒；
+后端保留原有管理 socket 挂载，CE 不提供沙盒重建管理接口。
+运行镜像必须先构建；普通 compose build 不会构建按需运行的沙盒镜像。
+SDK、控制器、execd、egress 与运行镜像按仓库配置验证，不随本次调整升级上游版本。
+
+已有部署需要人工修改现有 .env：设置 SANDBOX_PROVIDER=opensandbox、
+COMPOSE_PROFILES=opensandbox、SANDBOX_TOOLS_ENABLED=true，填写绝对 HOST_REPO_PATH、
+HOST_STORAGE_PATH 和强随机 OPENSANDBOX_API_KEY，并显式设置 COMPOSE_PROJECT_NAME。
+保留原存储目录和数据卷。旧 script-runner 工作区不会自动迁入 OpenSandbox。
+按部署授权流程停止旧 runner、构建运行镜像并启动新控制器及后端。
+检查 /health、/ready、连续命令文件保留、用户隔离、后端重启接管和空闲快照恢复。
+初始化或依赖失败会报错，不会自动切换 provider。
+OpenSandbox 保留会话文件与快照；每次 Python/JS 命令启动独立进程，不保留内存变量。
+
 ## 服务拓扑
 
 ### 核心服务（始终启动）
@@ -30,8 +58,8 @@ CE 在空数据库首次启动时会全局安装并启用 `automation`、
 | 服务 | profile | 容器名 | 镜像 / 构建 | 作用 |
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | 轻量沙箱：1 GB 内存 / 1 CPU / read-only rootfs + tmpfs，技能目录只读挂载到 `/workspace/skills` |
-| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `alpine:3.19` | 一次性 init：把 `docker/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-1` | 持久沙箱控制器（商业版 EE 能力）：经宿主 `docker.sock` 按需起停 sandbox 容器，Jupyter kernel 维持跨轮上下文；对外调试端口 `${OPENSANDBOX_PORT:-8910}:8080` |
+| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | 一次性 init：把 `docker/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | CE / EE 共享控制器：经 Docker socket 管理沙盒；execd 执行命令并保留会话文件。CE 不映射宿主端口；全量仓库可配置调试端口 |
 
 ### mem0 记忆基础设施（profile `mem0`，可选）
 
@@ -56,7 +84,7 @@ mcp ──depends_on──► postgres (healthy)
 milvus ──depends_on──► etcd (healthy) + minio (healthy)
 ```
 
-所有服务接在同一 bridge 网络 `hugagent-network`，容器间用 service 名互访（如 `http://backend:3001`、`http://mcp:9102/mcp/`、`http://milvus:19530`）。每个容器统一应用 json-file 日志轮转（50 MB × 5 = 单容器 250 MB 封顶），防止日志写满磁盘。
+Compose 基础服务接在同一 bridge 网络 `hugagent-network`，容器间用 service 名互访（如 `http://backend:3001`、`http://mcp:9102/mcp/`、`http://milvus:19530`）。每个容器统一应用 json-file 日志轮转（50 MB × 5 = 单容器 250 MB 封顶），防止日志写满磁盘。
 
 ## 卷与持久化
 
@@ -76,7 +104,7 @@ milvus ──depends_on──► etcd (healthy) + minio (healthy)
 profiles 由 `.env` 的 `COMPOSE_PROFILES` 控制（也可用命令行 `--profile`）：
 
 ```bash
-# 默认：轻量沙箱
+# 全量仓库默认：轻量沙箱；CE Docker 默认 opensandbox
 COMPOSE_PROFILES=script_runner
 
 # 切换到 OpenSandbox 持久沙箱（须同步改 SANDBOX_PROVIDER=opensandbox）
@@ -191,7 +219,7 @@ make migrate-new msg="describe change"
 ### OpenSandbox 命令延迟与控制器镜像
 
 控制器使用 `docker/Dockerfile.opensandbox-server` 构建
-`hugagent-opensandbox-server:v0.1.13-1`。它基于固定的上游版本，对已知沙盒使用
+`hugagent-opensandbox-server:v0.1.13-3`。它基于固定的上游版本，对已知沙盒使用
 按名称 inspect 并校验归属标签，且在线程池中执行生命周期与代理的同步 Docker 查询，
 避免阻塞其它请求。构建时先校验上游源文件摘要并运行回归测试；升级上游版本时须重新审查补丁。
 离线交付必须包含此控制器镜像，不能仅携带原始 `opensandbox/server` 镜像。
@@ -247,3 +275,7 @@ healthy，再在管理台验证用量统计和调用日志。保留原有 `litel
 出现 `Name or service not known` 时，先核查容器是否存在、是否与后端处于
 同一网络，以及 `LITELLM_ADMIN_URL` 是否正确。缺失的服务名可能被外部 DNS
 返回代理地址；能解析出地址并不代表网关容器存在。
+
+### 沙盒网络边界
+
+定制控制器为每个沙盒创建独立 Docker bridge，仅接入该沙盒及受信任的后端、控制器；沙盒不发布宿主端口，无法直接访问其他沙盒的 execd。后端和控制器重新创建后，在实例查询时重新接入所属私有网络；删除沙盒时同时删除专属网络。控制器管理域名保留在主项目网络，避免删除沙盒网络时中断管理连接。此控制器需要 Compose 项目标签，不支持旧的共享沙盒网络或 host 映射端口方式。

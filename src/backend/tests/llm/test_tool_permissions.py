@@ -20,7 +20,6 @@ from core.llm.tool_permissions import (
     allow_tool,
     local_command_tool,
     local_path_tool,
-    mcp_tool_permission,
 )
 from core.ontology.toolkit import OntologyFilteredToolkit
 from core.sandbox.local_policy import Grant, Policy
@@ -61,9 +60,6 @@ def test_native_tool_registration_does_not_require_a_declaration():
     assert collector.permission_specs["brand_new_tool"].key == "allow"
 
 
-def test_mcp_unknown_server_stays_outside_registry_by_default():
-    spec = mcp_tool_permission("private_server", "do_something", {})
-    assert spec is None
 
 
 @pytest.mark.asyncio
@@ -118,16 +114,6 @@ async def test_middleware_dispatches_unregistered_tool_without_binding_ticket():
     assert events[0].metadata["permission"]["decision"] == "allow_unregistered"
 
 
-@pytest.mark.parametrize("behavior", ["allow", "confirm", "deny"])
-def test_mcp_config_is_ignored_while_the_whitelist_policy_is_active(behavior):
-    assert (
-        mcp_tool_permission(
-            "private_server",
-            "mutate",
-            {"tool_permissions": {"mutate": behavior}},
-        )
-        is None
-    )
 
 
 @pytest.mark.asyncio

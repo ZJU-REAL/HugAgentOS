@@ -62,7 +62,7 @@ router.include_router(reasoning_router)
 
 class ProviderCreateRequest(BaseModel):
     display_name: str
-    provider_type: str = Field(..., pattern="^(chat|embedding|reranker)$")
+    provider_type: str = Field(..., pattern="^(chat|embedding|reranker|audio)$")
     provider: str = "openai_compatible"  # vendor/protocol, see core/llm/providers/registry.py
     base_url: str = ""
     api_key: str = ""
@@ -101,7 +101,7 @@ class ProviderUpdateRequest(BaseModel):
 class TestConnectionRequest(BaseModel):
     """For testing a provider config that hasn't been saved yet."""
 
-    provider_type: str = Field(..., pattern="^(chat|embedding|reranker)$")
+    provider_type: str = Field(..., pattern="^(chat|embedding|reranker|audio)$")
     provider: str = "openai_compatible"
     base_url: str = ""
     api_key: str = ""
@@ -279,6 +279,8 @@ async def _validate_provider_config(
 ) -> None:
     """Validate provider config at save time. Raises HTTPException on failure."""
     normalized_url = _normalize_base_url(base_url)
+    if provider_type == "audio" and not normalized_url:
+        return
     result = await _test_connection(
         provider,
         provider_type,
@@ -517,6 +519,9 @@ async def _test_connection(
 
     spec = get_spec(provider)
     extra = extra_config or {}
+    if provider_type == "audio":
+        from core.services.audio_transcription import test_audio_connection
+        return await test_audio_connection(base_url, api_key, model_name)
     if spec.engine == "openai":
         if spec.id == "azure_openai":
             return await _ping_azure(base_url, api_key, extra)
@@ -692,6 +697,10 @@ async def update_provider_endpoint(
     new_type = fields.get("provider_type", existing.provider_type)
     new_provider = fields.get("provider", getattr(existing, "provider", "openai_compatible"))
     new_extra = fields.get("extra_config", existing.extra_config or {})
+    if new_type != existing.provider_type:
+        roles = provider_is_referenced(db, provider_id)
+        if any(ROLE_DEFINITIONS.get(role, {}).get("type") != new_type for role in roles):
+            raise HTTPException(400, "请先取消该模型的角色分配，再修改模型类型")
 
     from core.llm.providers.registry import validate_payload
 
@@ -961,6 +970,9 @@ def import_endpoint(
         payload = sanitize_import(body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    result = import_all(db, payload, overwrite=body.overwrite)
+    try:
+        result = import_all(db, payload, overwrite=body.overwrite)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     _invalidate_model_caches()
     return success_response(data=result)

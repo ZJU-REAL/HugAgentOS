@@ -2,7 +2,33 @@
 
 import json
 import sqlite3
+import time
 from contextlib import contextmanager
+
+
+def _initialize(db):
+    """SQLite may reject simultaneous first-time WAL initialization immediately."""
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            if db.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                db.execute("PRAGMA journal_mode=WAL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS identities (owner TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(owner,path))"
+            )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS reflections (owner TEXT NOT NULL,session TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(owner,session))"
+            )
+            return
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
+            if (
+                code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                or time.monotonic() >= deadline
+            ):
+                raise
+            time.sleep(0.02)
 
 
 @contextmanager
@@ -13,13 +39,7 @@ def connection(owner):
     root.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(root / "identities.sqlite", timeout=10)
     try:
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS identities (owner TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(owner,path))"
-        )
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS reflections (owner TEXT NOT NULL,session TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(owner,session))"
-        )
+        _initialize(db)
         yield db
         db.commit()
     finally:

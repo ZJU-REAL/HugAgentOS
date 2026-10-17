@@ -5,7 +5,10 @@
     "beforeBundleCommand": "node scripts/macos-signing.mjs"
   },
   "bundle": {
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "resources": {
       "../generated/server-ce.zip": "server-ce.zip",
       "../generated/server-ce/desktop-bundle.json": "server-ce-manifest.json",
@@ -13,7 +16,9 @@
       "../generated/runtime-manifest.json": "runtime-manifest.json"
     },
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "infoPlist": "Info.plist",
+      "entitlements": "microphone.entitlements.plist"
     }
   }
 }

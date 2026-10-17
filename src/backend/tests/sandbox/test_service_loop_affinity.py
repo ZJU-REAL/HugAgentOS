@@ -20,7 +20,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from core.sandbox.opensandbox_provider import _on_service_loop
+from core.sandbox._opensandbox_loop import _on_service_loop
 
 
 class _FakeProvider:
@@ -152,3 +152,12 @@ async def test_exception_propagates_back_across_loops():
 
     assert isinstance(box.get("error"), _Boom)
     assert str(box["error"]) == "sandbox gone"
+
+
+def test_closed_service_loop_rejects_execution():
+    provider = _FakeProvider()
+    provider._service_loop = asyncio.new_event_loop()
+    provider._service_loop.close()
+    with pytest.raises(RuntimeError, match="service event loop is closed"):
+        asyncio.run(provider.touch_sdk())
+    assert provider.ran_on == []

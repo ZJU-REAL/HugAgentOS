@@ -154,6 +154,9 @@ def init_db():
     if settings.deploy.is_local and engine.dialect.name == "sqlite":
         from core.db.resource_owner_upgrade import reconcile_resource_owners
 
+        from core.db.audio_model_upgrade import reconcile_audio_model_type
+
+        reconcile_audio_model_type(engine)
         reconcile_resource_owners(engine)
         from core.db.site_storage_retirement import retire_site_storage
         from core.services.application_store import initialize_local_store

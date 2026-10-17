@@ -235,19 +235,14 @@ async def test_a_refused_overwrite_restores_the_registered_version(registry, mon
 
 
 @pytest.mark.asyncio
-async def test_a_subagent_overwrite_takes_effect_without_asking(registry, monkeypatch):
-    """问不到人时直接生效 —— 拒绝拦不住已经发生的改动，只会让两边不一致。"""
+async def test_background_overwrite_without_owner_approval_stays_unregistered(registry, monkeypatch):
+    """Without full permission or a live owner, retain the change for retry."""
     _stub_present(monkeypatch, mirror.VERDICT_MODIFIED)
     seen = _capture_registrations(monkeypatch)
     monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
-
-    async def _must_not_ask(**kwargs):
-        raise AssertionError("没有活跃会话时不该弹确认")
-
-    monkeypatch.setattr("core.llm.tools._myspace_confirm.gate", _must_not_ask)
-
-    await registry._process("u1", ["年度总结.docx"])
-    assert seen == [("u1", "年度总结.docx")]
+    with pytest.raises(RuntimeError, match="no active owner"):
+        await registry._process("u1", ["年度总结.docx"])
+    assert seen == []
 
 
 # ── 删除：沙箱里 rm 掉的文件要从「我的空间」消失 ──────────────────────────
@@ -305,6 +300,7 @@ async def test_an_unregistered_file_vanishing_is_a_no_op(registry, monkeypatch):
 @pytest.mark.asyncio
 async def test_removing_a_folder_soft_deletes_what_is_inside(registry, monkeypatch):
     """``rm -rf /myspace/<目录>`` 只让路径消失，得认出删的是个还在册的文件夹。"""
+    _stub_preset(monkeypatch, answered=True)
     _stub_gone(monkeypatch, mirror.DeleteTarget(folder=True))
     monkeypatch.setattr("core.space_sync.personal_policy.find_chat", lambda uid: None)
     deleted: list = []

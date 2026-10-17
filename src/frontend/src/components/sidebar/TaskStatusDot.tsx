@@ -11,7 +11,7 @@ function taskStatusLabel(status: TaskStatus, seen = false): string {
   return '';
 }
 export function TaskStatusDot({status,seen=false}: {status:TaskStatus;seen?:boolean}) {
-  if (status === 'idle' || (status === 'completed' && seen)) return null;
+  if (status === 'idle' || ((status === 'completed' || status === 'failed') && seen)) return null;
   const label=taskStatusLabel(status,seen);
   return <Tooltip title={label}><span className={'jx-taskStatus jx-taskStatus--'+status+(seen?' jx-taskStatus--seen':'')}
     role="img" aria-label={label} data-task-status={status} data-task-unread={!seen} /></Tooltip>;

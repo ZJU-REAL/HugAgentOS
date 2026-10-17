@@ -50,7 +50,7 @@ def write_projection(user_id: str, rel: str, data: bytes, timestamp: Optional[fl
             temporary.unlink(missing_ok=True)
 
 
-def pull_myspace_updates(*, user_id: str) -> PullReport:
+def pull_myspace_updates(*, user_id: str, paths: tuple[str, ...] = ()) -> PullReport:
     """Check the complete path set; download only absent or older mirror files.
 
     An updated_at cursor cannot detect a missing mirror, a renamed ancestor or a
@@ -62,6 +62,9 @@ def pull_myspace_updates(*, user_id: str) -> PullReport:
     from core.services.artifact_edition import personal_artifact_predicates
     from core.storage import get_storage
 
+    def relevant(rel):
+        return not paths or any(rel == p or rel.startswith(p + "/") or p.startswith(rel + "/")
+                                for p in paths)
     report = PullReport()
     if not user_id:
         return report
@@ -81,21 +84,37 @@ def pull_myspace_updates(*, user_id: str) -> PullReport:
         tracked = snapshot(user_id)
         folders: dict[Any, Optional[str]] = {}
         live, deleted = {}, {}
+        ambiguous = set()
+        from core.db.personal_file_names import validate_filename
         for art in rows:
             directory = _folder_rel(db, user_id, art.user_folder_id, folders)
             if directory is None or not art.filename:
                 continue
             rel = f"{directory}/{art.filename}" if directory else str(art.filename)
+            if not relevant(rel):
+                continue
+            try:
+                validate_filename(art.filename)
+            except Exception:
+                if art.deleted_at is None:
+                    report.failed += 1
+                    logger.warning("Invalid legacy personal filename user=%s artifact=%s", user_id, art.artifact_id)
+                continue
+            rel = f"{directory}/{art.filename}" if directory else str(art.filename)
             target = deleted if art.deleted_at is not None else live
             if target is live and rel in live:
-                # Never silently choose one identity and report an incomplete view.
-                raise RuntimeError("MySpace contains duplicate paths; run the duplicate cleanup")
+                # Preserve both identities; only this path is unavailable.
+                ambiguous.add(rel)
+                report.conflicted += 1
+                continue
             target[rel] = art
         from core.sandbox._common import myspace_cache_dir
 
         root = myspace_cache_dir(user_id)
         root.mkdir(parents=True, exist_ok=True)
-        folder_rows = db.query(UserFolder).filter_by(user_id=user_id, deleted_at=None).all()
+        folder_rows = [f for f in db.query(UserFolder).filter_by(user_id=user_id, deleted_at=None).all()
+                       if (rel := _folder_rel(db, user_id, f.folder_id, folders)) is not None
+                       and relevant(rel)]
         from core.space_sync.personal_projection import project_directories
 
         blocked = project_directories(
@@ -124,6 +143,8 @@ def pull_myspace_updates(*, user_id: str) -> PullReport:
                 )
         storage = get_storage()
         for rel, art in live.items():
+            if rel in ambiguous:
+                continue
             if any(rel.startswith(p + "/") for p in blocked):
                 report.conflicted += 1
                 continue
@@ -220,6 +241,8 @@ def pull_myspace_updates(*, user_id: str) -> PullReport:
             for f in db.query(UserFolder).filter_by(user_id=user_id, deleted_at=None).all()
         }
         for rel, baseline in tracked.items():
+            if not relevant(rel):
+                continue
             path = root / rel
             if baseline.get("directory"):
                 if baseline.get("id") not in live_folders and path.is_dir():

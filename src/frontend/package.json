@@ -98,7 +98,8 @@
     "test:workbench-build": "node --test ../../scripts/test-workbench-build.mjs",
     "test:grapheme-reveal": "node scripts/test-grapheme-reveal-browser.mjs",
     "test:grapheme-reveal-app": "node scripts/test-grapheme-reveal-app.mjs",
-    "test:container-layout-browser": "node scripts/test-container-layout-browser.mjs"
+    "test:container-layout-browser": "node scripts/test-container-layout-browser.mjs",
+    "test:voice-input": "node scripts/test-voice-input-browser.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

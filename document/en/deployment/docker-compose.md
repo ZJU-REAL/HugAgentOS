@@ -6,6 +6,35 @@
 
 All HugAgentOS services are orchestrated by a single `docker-compose.yml` at the repository root, split by profiles into always-on core services, mutually exclusive sandbox sidecars (`script_runner` / `opensandbox`), and the optional memory infrastructure (`mem0`). This guide covers the full service topology, volumes and persistence, profile usage, and the rebuild flow after code changes.
 
+
+## Default sandbox in Docker CE
+
+Docker CE defaults to OpenSandbox. No-Docker installation and desktop local mode keep local execution.
+For a new deployment:
+
+```bash
+python3 scripts/configure-ce-docker.py
+docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker compose up -d --build
+```
+
+The initializer generates absolute host paths, an explicit project name and a random controller key.
+It refuses to overwrite an existing .env. Use --project-name and --storage to select those values.
+The controller network follows the project name. CE publishes no controller host port.
+The backend retains its existing management socket mount; CE has no sandbox rebuild management API.
+Build the runtime image first: ordinary compose build does not build on-demand sandbox images.
+Validate SDK, controller, execd, egress and runtime image together using repository versions.
+This change does not upgrade upstream components.
+
+For an existing deployment, edit its existing .env explicitly: set SANDBOX_PROVIDER=opensandbox,
+COMPOSE_PROFILES=opensandbox and SANDBOX_TOOLS_ENABLED=true. Supply absolute HOST_REPO_PATH and
+HOST_STORAGE_PATH, a strong random OPENSANDBOX_API_KEY and an explicit COMPOSE_PROJECT_NAME.
+Preserve storage and database volumes. Existing script-runner workspaces are not migrated automatically.
+Follow deployment authorization rules to stop the old runner, build the runtime, and start the controller and backend.
+Verify /health, /ready, files across commands, user isolation, restart adoption and idle snapshot recovery.
+Initialization and dependency failures raise errors without changing the provider.
+OpenSandbox preserves session files and snapshots. Python/JS commands use separate processes and do not retain variables.
+
 ## Service topology
 
 ### Core services (always started)
@@ -32,8 +61,8 @@ Enterprise Edition (EE).
 | Service | Profile | Container | Image / build | Role |
 |---|---|---|---|---|
 | `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | Lightweight sandbox: 1 GB RAM / 1 CPU / read-only rootfs + tmpfs; skill directory mounted read-only at `/workspace/skills` |
-| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `alpine:3.19` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
-| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-1` | Persistent sandbox controller (Enterprise Edition capability): starts/stops sandbox containers on demand via the host `docker.sock`; a Jupyter kernel keeps context across turns; debug port `${OPENSANDBOX_PORT:-8910}:8080` |
+| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
+| `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | Shared CE / EE controller: manages containers through Docker socket; execd runs commands and session files persist. CE publishes no host port; the full repository has a configurable debug port |
 
 ### mem0 memory infrastructure (profile `mem0`, optional)
 
@@ -58,7 +87,7 @@ mcp ──depends_on──► postgres (healthy)
 milvus ──depends_on──► etcd (healthy) + minio (healthy)
 ```
 
-All services join the same bridge network `hugagent-network`; containers reach each other by service name (e.g. `http://backend:3001`, `http://mcp:9102/mcp/`, `http://milvus:19530`). Every container shares a json-file log-rotation policy (50 MB × 5 = 250 MB cap per container) to keep logs from filling the disk.
+The base Compose services join the same bridge network `hugagent-network`; containers reach each other by service name (e.g. `http://backend:3001`, `http://mcp:9102/mcp/`, `http://milvus:19530`). Every container shares a json-file log-rotation policy (50 MB × 5 = 250 MB cap per container) to keep logs from filling the disk.
 
 ## Volumes and persistence
 
@@ -78,7 +107,7 @@ All services join the same bridge network `hugagent-network`; containers reach e
 Profiles are driven by `COMPOSE_PROFILES` in `.env` (or the `--profile` CLI flag):
 
 ```bash
-# Default: lightweight sandbox
+# Full repository default: lightweight sandbox; Docker CE defaults to opensandbox
 COMPOSE_PROFILES=script_runner
 
 # Switch to the OpenSandbox persistent sandbox (also set SANDBOX_PROVIDER=opensandbox)
@@ -195,7 +224,7 @@ make migrate-new msg="describe change"
 ### OpenSandbox command latency and controller image
 
 The controller is built from `docker/Dockerfile.opensandbox-server` as
-`hugagent-opensandbox-server:v0.1.13-1`. Based on a pinned upstream release,
+`hugagent-opensandbox-server:v0.1.13-3`. Based on a pinned upstream release,
 it inspects known sandboxes by name and verifies ownership labels. Synchronous
 Docker lookups in lifecycle and proxy routes run in a thread pool so other requests
 remain responsive. Builds verify upstream source hashes and run regression tests;
@@ -264,3 +293,7 @@ For `Name or service not known`, check that the container exists, shares the
 backend network, and matches `LITELLM_ADMIN_URL`. External DNS may return a proxy
 address for a missing service name, so successful resolution alone does not
 prove that the gateway container exists.
+
+### Sandbox network boundary
+
+The custom controller creates one Docker bridge per sandbox, connecting only that sandbox and the trusted backend and controller. Sandboxes publish no host ports and cannot directly reach another sandbox's execd. Instance lookup reconnects recreated trusted services; deleting a sandbox also removes its bridge. The management hostname stays on the main project network so deleting a sandbox bridge cannot interrupt a management request. This controller requires Compose project labels; shared sandbox networks and host-mapped sandbox endpoints are unsupported.

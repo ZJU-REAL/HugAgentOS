@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import Optional
 
 from core.llm.tools._myspace_confirm import OP_DELETE, OP_EDIT
 from core.llm.tools.myspace_vfs import MYSPACE_LOGICAL
@@ -24,7 +23,6 @@ logger = logging.getLogger(__name__)
 _SETTLE_S = 0.05
 _ERROR_BACKOFF_S = 0.5
 _HANDOFF_GRACE_S = 0.05
-_CONFIRM_TIMEOUT_S = 300.0
 
 
 from core.myspace.registry_claims import claim as _claim
@@ -68,7 +66,7 @@ class MySpaceRegistry:
         self._subscriptions = []
         self._events = {}
         self._versions = {}
-        self._user_locks = {}
+        self._active_paths = {}
         self._failures = {}
         self._task_users = {}
         self._task_paths = {}
@@ -150,8 +148,6 @@ class MySpaceRegistry:
                 return
             self._events[key] = converted
             self._mark(key, change.observed)
-            if dest and dest != source:
-                self._mark(source, change.observed)
             if change.kind == "closed":
                 self._pending[key] -= _SETTLE_S
         else:
@@ -165,8 +161,6 @@ class MySpaceRegistry:
         self._events[key] = change
         self._versions[key] = generation
         self._mark(key, change.observed)
-        if change.destination and change.destination != change.source:
-            self._mark((user, change.source), change.observed)
         if change.kind == "closed":
             self._pending[key] -= _SETTLE_S
 
@@ -195,7 +189,11 @@ class MySpaceRegistry:
                     continue
                 started = self._dispatch(ready, now)
                 if not started:
-                    await asyncio.sleep(0.01)  # Let the parent/inflight task complete.
+                    self._wake.clear()
+                    try:
+                        await asyncio.wait_for(self._wake.wait(), timeout=0.25)
+                    except TimeoutError:
+                        pass  # A retry deadline may arrive without a new event.
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — 这条循环不能倒
@@ -205,60 +203,15 @@ class MySpaceRegistry:
     def _dispatch(
         self, ready: list[tuple[str, str]], now: float, *, force: bool = False
     ) -> list[asyncio.Task]:
-        "按用户成批派发：同一批共用一次会话查询和一次判定，不逐个文件重来。"
-        by_user: dict[str, list[str]] = {}
-        parent_moves = [
-            (key, change)
-            for key, change in self._events.items()
-            if change.directory and change.kind == "moved"
-        ]
-        ready = sorted(
-            ready,
-            key=lambda key: (
-                not any(key == parent for parent, change in parent_moves),
-                key[1].count("/"),
-            ),
-        )
-        for key in ready:
-            if any(
-                parent != key
-                and parent[0] == key[0]
-                and (parent not in ready or parent in self._inflight)
-                and any(key[1].startswith(path + "/") for path in change.paths())
-                for parent, change in parent_moves
-            ):
-                continue
-            self._pending.pop(key, None)
-            if key in self._inflight:
-                self._pending[key] = now  # 上一次还没跑完，等下一轮
-                continue
-            self._processing_times[key] = self._observed.pop(key, time.time())
-            self._inflight.add(key)
-            by_user.setdefault(key[0], []).append(key[1])
-        started: list[asyncio.Task] = []
-        batches = ((uid, batch) for uid, paths in by_user.items()
-                   for batch in ([p for p in paths if p], [""] if "" in paths else [])
-                   if batch)
-        for user_id, rels in batches:
-            task = asyncio.create_task(self._guarded(user_id, rels, force=force))
-            self._tasks.add(task)
-            self._task_users[task] = user_id
-            self._task_paths[task] = tuple(rels)
+        from core.space_sync.personal_dispatch import dispatch
 
-            def completed(done):
-                self._tasks.discard(done)
-                self._task_users.pop(done, None)
-                self._task_paths.pop(done, None)
+        return dispatch(self, ready, now, force=force)
 
-            task.add_done_callback(completed)
-            started.append(task)
-        return started
-
-    async def _guarded(self, user_id: str, rels: list[str], *, force: bool = False) -> None:
+    async def _guarded(
+        self, user_id: str, rels: list[str], *, versions, events, force: bool = False
+    ) -> None:
         try:
-            lock = self._user_locks.setdefault(user_id, asyncio.Lock())
-            async with lock, claim_batch():
-                versions = {rel: self._versions.get((user_id, rel)) for rel in rels}
+            async with claim_batch():
                 current = rels
                 if self._journal:
                     durable = await asyncio.to_thread(
@@ -274,7 +227,7 @@ class MySpaceRegistry:
                 # Parent moves can retire a queued child key after it entered memory.
                 # Its replacement owns the work; retire the old cache without replaying it.
                 if current:
-                    await self._process(user_id, current, force=force)
+                    await self._process(user_id, current, force=force, events=events)
                 for rel, generation in versions.items():
                     if self._journal and generation is not None:
                         self._journal.acknowledge(user_id + ":" + rel, generation)
@@ -300,10 +253,6 @@ class MySpaceRegistry:
                     delay = self._journal.retry(":".join(key), self._versions[key], exc)
                 self._pending.setdefault(key, time.monotonic() + delay)
                 self._wake.set()
-        finally:
-            for rel in rels:
-                self._inflight.discard((user_id, rel))
-                self._processing_times.pop((user_id, rel), None)
 
     async def _register(self, user_id: str, entry) -> None:
         "把一个文件登记进账本。只有这一步把文件内容读进内存，所以只有这一步占内存额度。"
@@ -314,8 +263,11 @@ class MySpaceRegistry:
             else:
                 raise RuntimeError("MySpace registration did not persist the file")
 
-    async def _process(self, user_id: str, rels: list[str], *, force: bool = False) -> None:
+    async def _process(
+        self, user_id: str, rels: list[str], *, force: bool = False, events=None
+    ) -> None:
         "处理这个用户这一批改动。"
+        events = self._events if events is None else events
         refresh = "" in rels
         rels = [rel for rel in rels if rel]
         ask = Ask(user_id)
@@ -326,7 +278,7 @@ class MySpaceRegistry:
 
         directories = set()
         for rel in rels:
-            change = self._events.get((user_id, rel))
+            change = events.get((user_id, rel))
             if change and (change.directory or change.kind == "moved"):
                 if change.kind == "created" and change.directory:
                     await asyncio.to_thread(apply, user_id, change)
@@ -339,7 +291,7 @@ class MySpaceRegistry:
                         summary="同步空间目录或移动文件",
                     ):
                         await asyncio.to_thread(apply, user_id, change)
-                    elif change.kind == "moved":
+                    else:
                         from core.space_sync.personal_metadata import restore_move
 
                         await asyncio.to_thread(restore_move, user_id, change)
@@ -353,8 +305,8 @@ class MySpaceRegistry:
             for rel, e in entries.items()
             if e is None
             and (
-                self._events.get((user_id, rel)) is None
-                or self._events[(user_id, rel)].kind in ("deleted", "moved")
+                events.get((user_id, rel)) is None
+                or events[(user_id, rel)].kind in ("deleted", "moved")
             )
         ]
         from core.space_sync.content import signature
@@ -468,28 +420,20 @@ class MySpaceRegistry:
         op: str,
         summary: str,
     ) -> bool:
-        "要不要让这次改动落进账本。问不到人、或用户的权限档已经替他答过，就直接放行。"
-        chat_id = await ask.get()
-        if chat_id is None:
-            return True
-        from core.llm.tool_permissions import preset_answers_for_user
+        from .personal_policy import approve
 
-        if await asyncio.to_thread(preset_answers_for_user, user_id, op=op):
-            return True
-        from core.llm.tools import _myspace_confirm as mc
+        return await approve(user_id, ask, logical_path, op, summary)
 
-        res = await mc.gate(
-            chat_id=chat_id,
-            op=op,
-            logical_path=logical_path,
-            interactive=True,
-            summary=summary,
-            timeout=_CONFIRM_TIMEOUT_S,
-        )
-        return res is None
-
-    async def flush(self, user_id: str, *, timeout: float = 5.0, metadata_only: bool = False) -> None:
+    async def flush(
+        self,
+        user_id: str,
+        *,
+        timeout: float = 5.0,
+        metadata_only: bool = False,
+        strict: bool = True,
+        paths: tuple[str, ...] = (),
+    ) -> None:
         "Wait for this owner's complete queue, including parent/child dependencies."
         from core.space_sync.personal_barrier import flush
 
-        await flush(self, user_id, timeout, metadata_only=metadata_only)
+        await flush(self, user_id, timeout, metadata_only=metadata_only, strict=strict, paths=paths)

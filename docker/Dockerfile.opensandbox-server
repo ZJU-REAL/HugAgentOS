@@ -1,0 +1,11 @@
+# Pinned controller patch; tests run against the actual upstream source at build time.
+FROM opensandbox/server:v0.1.13
+COPY docker/opensandbox_networks.py /app/opensandbox_server/services/docker/isolated_networks.py
+COPY docker/patch_opensandbox_server.py /tmp/hugagent-controller/patch.py
+COPY src/backend/tests/sandbox/test_opensandbox_controller_patch.py /tmp/hugagent-controller/test_patch.py
+RUN OPENSANDBOX_NETWORK_MODULE=/app/opensandbox_server/services/docker/isolated_networks.py \
+    OPENSANDBOX_PATCH_SCRIPT=/tmp/hugagent-controller/patch.py \
+    OPENSANDBOX_TEST_SOURCE=/app/opensandbox_server \
+    python /tmp/hugagent-controller/test_patch.py -v \
+    && python /tmp/hugagent-controller/patch.py --root /app/opensandbox_server \
+    && rm -rf /tmp/hugagent-controller

@@ -39,7 +39,7 @@ python scripts/build_ce.py        # 生成 dist/ce/（CE 派生树）
 | 记忆系统 | ✅ L1 个人画像 + L2 向量（Milvus，可选）+ L3 图谱（Neo4j，可选） | ➕ 记忆审计（合规留痕，`memory_audit` 表） |
 | 自动化 | ✅ 定时任务、Cron 调度、Prompt/计划自动化、失败重试 | — |
 | 数据画布 | ✅ 在线表格个人编辑（免费 Univer 预设） | ➕ 多人实时协同（含 `@univerjs/preset-sheets-advanced` 商业预设） |
-| 代码执行 | ✅ 轻量沙箱（script-runner）+ 超长结果 offload 回读 | ➕ 持久沙箱（OpenSandbox / Cube provider，会话保持、环境复用） |
+| 代码执行 | ✅ Docker 默认 OpenSandbox：会话文件、环境复用、快照恢复；可选 script-runner | ➕ 团队空间挂载、组织治理、Cube provider |
 | 文件存储 | ✅ 本地存储 | ➕ 云存储（S3 / 阿里云 OSS） |
 | 认证登录 | ✅ 本地账号注册登录 | ➕ 企业 SSO 单点登录、部门同步、邀请码体系 |
 | 个人工作空间 | ✅ 个人文件夹、收藏、会话分享、个人项目 | — |

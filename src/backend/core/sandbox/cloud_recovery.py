@@ -23,7 +23,7 @@ async def _dispatch(provider, action):
     if loop is not None and loop is not asyncio.get_running_loop():
         if not loop.is_running():
             raise SandboxError("Sandbox service loop is not running")
-        from .opensandbox_provider import _forward_to_loop
+        from ._opensandbox_loop import _forward_to_loop
 
         return await _forward_to_loop(loop, action())
     return await action()

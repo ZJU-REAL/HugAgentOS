@@ -89,7 +89,7 @@ async def decide(kind, chat_id, request_id, decision):
             return True
 
 
-async def wait(kind, chat_id, request_id, event, timeout):
+async def wait(kind, chat_id, request_id, event, timeout, *, policy=None):
     """Return the shared decision, or None for a local resolution/deadline.
 
     Renew only our own pending record. A concurrent answer always wins over
@@ -105,6 +105,8 @@ async def wait(kind, chat_id, request_id, event, timeout):
         record = json.loads(raw)
         if record["decision"] is not None:
             return record["decision"]
+        if policy is not None and await policy(chat_id, request_id, record["info"]):
+            continue
         if event.is_set():
             return None
         remaining = deadline - asyncio.get_running_loop().time()

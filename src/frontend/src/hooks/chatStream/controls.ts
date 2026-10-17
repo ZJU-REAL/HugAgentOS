@@ -87,7 +87,7 @@ if (eventType === 'file_confirm') {
         const _cid = String(eventObj.confirm_id ?? '');
         if (_cid) {
             useUIStore.getState().resolvePendingConfirm(s.chatId, _cid);
-            message.info(t('一项「我的空间」写确认已超时取消，如仍需要请重新发起。'));
+            if (!eventObj.resolved) message.info(t('一项「我的空间」写确认已超时取消，如仍需要请重新发起。'));
         }
         return true;
     }

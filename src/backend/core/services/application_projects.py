@@ -31,7 +31,7 @@ class ApplicationProjectService:
         paths = await run_in_threadpool(self._source_paths, app_id, owner)
         self.db.rollback()  # Release the read transaction before the registry writes.
         if paths:
-            await flush_user(owner, metadata_only=True, paths=tuple(paths))
+            await flush_user(owner, metadata_only=True, paths=tuple(paths), strict=True)
 
     def _source_paths(self, app_id, owner):
         with self.engine.connect() as connection:

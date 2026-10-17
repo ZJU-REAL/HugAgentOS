@@ -102,6 +102,10 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
         if not request.disable_tools
         else []
     )
+    if request.profile:
+        from core.extensions import agent_profile
+        if not agent_profile(request.profile).inherit_default_mcps:
+            skill_bound_mcp_ids = [m for m in skill_bound_mcp_ids if m in (request.enabled_mcp_ids or [])]
     if skill_bound_mcp_ids:
         base_mcp_ids = (
             request.enabled_mcp_ids

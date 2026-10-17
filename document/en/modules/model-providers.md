@@ -1,6 +1,6 @@
 # Model Providers
 
-> Last updated: 2026-09-22
+> Last updated: 2026-10-15
 
 HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with snapshots validated against the database revision, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
 
@@ -196,3 +196,22 @@ Settings live in `extra_config.reasoning_effort_levels` (`[{key, value}]`) and `
 Detect thinking levels first reads upstream model declarations, then sends at most five small parameter probes (32 output tokens and a 12-second timeout per request). Probes may incur a small amount of model usage. Explicit validation errors can reveal the complete vocabulary and integer range. Results only fill the form for review and saving. Authentication, rate limiting, and transport failures do not prove lack of support and do not erase existing settings. HTTP success only proves acceptance; a gateway may ignore the parameter, so actual reasoning strength is not verified.
 
 `POST /v1/models/providers/detect-reasoning` requires model-management authorization and does not persist settings. It returns `levels`, `default`, `source`, `notes`, and optional `numeric_range`. Sources distinguish model metadata, validation declarations, and accepted probe requests.
+
+
+## Voice input and audio models
+
+The chat composer offers a microphone button. Click to record, then confirm to transcribe. Text is inserted at the original cursor and can be edited before normal submission. Sending is blocked during recording/transcription. Cancel or Escape releases the microphone. Failed transcription can reuse the recording for retry. If the draft changed, the transcript is preserved separately for explicit insertion or copying. Changing chats or accounts cancels the operation.
+
+Administrators can add an **Audio model** (`provider_type=audio`) in Settings → Model Services, or Config → Model Management (EE). Select **Audio transcription (OpenAI compatible)** and assign the **Speech to text** (`audio_transcription`) role. The service URL may remain empty until deployment. No endpoint, credentials, or default model is provisioned; chat models are never used as a fallback. Audio models are excluded from the chat model selector.
+
+After deployment, enter a Base URL including its version path, such as `https://asr.example.com/v1`, and the actual model name. The service must implement `POST {base_url}/audio/transcriptions`, accepting multipart `file`, `model`, and `response_format=json`, and returning `{ "text": "transcript" }`. An optional API Key is forwarded as Bearer authentication. Connection tests send half a second of silent WAV and accept empty text; they validate the protocol, not recognition quality. Native Qwen3-ASR or SenseVoice services need a compatibility adapter if they do not expose this wire format.
+
+`GET /v1/audio/status` exposes readiness and the duration limit. `POST /v1/audio/transcriptions` accepts a raw `audio/wav` request body. AudioWorklet captures microphone PCM; the browser converts it to 16kHz mono 16-bit WAV, limited to 120 seconds. The backend checks content, size, duration, and concurrency. Audio is ephemeral, is not attached to chat, and neither audio nor transcripts are logged. Signed-in users and public-chat visitors with valid scoped credentials may call these endpoints.
+
+Web recording requires HTTPS or a secure localhost/loopback context. Missing configuration, permission denial, missing devices, and timeouts produce recoverable feedback. Remote/dual desktop modes use the cloud audio configuration; local-only mode uses its local configuration. Audio providers are excluded from the JSON-only desktop model gateway and external LiteLLM synchronization. macOS packages include a microphone purpose string and audio-input entitlement; native permission checks are still required for release.
+
+Alembic revision `voiceaudio01` widens the model type constraint. Existing desktop SQLite databases apply the same upgrade during startup. Models and role assignments are preserved. Downgrade refuses to discard existing audio providers. Deployment requires updated backend/frontend; bundled desktop UI requires a client update.
+
+### User permission for voice input
+
+Enable **Voice input** in **System configuration → User management → Permission configuration** before a user can see the microphone or request transcription. It is disabled by default. Roles and teams can grant it; an explicit personal denial takes priority. Public visitors do not inherit the owner’s voice grant. Adding a speech model does not grant access to all users. Select the fourth model type, **Speech model**, and assign the **Speech to text** role.

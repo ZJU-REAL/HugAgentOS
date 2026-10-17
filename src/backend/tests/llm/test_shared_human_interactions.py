@@ -92,7 +92,7 @@ async def test_answer_on_other_worker_resumes_original_tool():
     "kind", ["myspace", "automation", "local_cmd", "tool_permission", "tool:demo"]
 )
 async def test_confirmation_on_other_worker_resumes_once(kind, monkeypatch):
-    monkeypatch.setattr(confirms, "_confirm_enabled", lambda _kind: True)
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda _kind: True)
     receiver = worker_copy(confirms)
     chat = "confirm-worker-" + uuid.uuid4().hex
     waiting = asyncio.create_task(
@@ -122,7 +122,7 @@ async def test_confirmation_on_other_worker_resumes_once(kind, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_parallel_duplicate_writes_execute_only_once(monkeypatch):
-    monkeypatch.setattr(confirms, "_confirm_enabled", lambda _kind: True)
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda _kind: True)
     receiver = worker_copy(confirms)
     chat = "dedup-" + uuid.uuid4().hex
     tasks = [
@@ -190,7 +190,7 @@ async def test_design_choice_cancel_timeout_and_isolation():
 
 @pytest.mark.asyncio
 async def test_session_allow_does_not_override_deny_or_cross_permission_scope(monkeypatch):
-    monkeypatch.setattr(confirms, "_confirm_enabled", lambda _kind: True)
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda _kind: True)
     receiver = worker_copy(confirms)
     chat = "grant-" + uuid.uuid4().hex
     paths = ["/project/a.txt", "/project/b.txt", "/elsewhere/c.txt"]
@@ -250,7 +250,7 @@ async def test_session_allow_does_not_override_deny_or_cross_permission_scope(mo
 
 @pytest.mark.asyncio
 async def test_same_path_different_permission_domains_are_not_deduplicated(monkeypatch):
-    monkeypatch.setattr(confirms, "_confirm_enabled", lambda _kind: True)
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda _kind: True)
     receiver = worker_copy(confirms)
     chat = "domains-" + uuid.uuid4().hex
     tasks = [
@@ -357,7 +357,7 @@ async def test_answer_and_cancel_race_has_one_winner():
 
 @pytest.mark.asyncio
 async def test_session_grant_cascades_and_resolves_concurrent_registration(monkeypatch):
-    monkeypatch.setattr(confirms, "_confirm_enabled", lambda _kind: True)
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda _kind: True)
     receiver = worker_copy(confirms)
     chat = "cascade-" + uuid.uuid4().hex
     first = asyncio.create_task(

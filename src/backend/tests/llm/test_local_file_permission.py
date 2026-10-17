@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,24 @@ from core.llm.tools._state import ReadEntry, ReadStateTracker
 from core.llm.tools.edit_tool import register_edit
 from core.llm.tools.write_tool import register_write
 from core.sandbox.local_policy import Grant, Policy
+
+
+@pytest.fixture(autouse=True)
+def isolated_permission_store(monkeypatch):
+    from core.infra.ephemeral import LocalEphemeralState
+    store = LocalEphemeralState()
+    monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: store)
+    monkeypatch.setattr("core.llm.interaction_store.get_ephemeral_state", lambda: store)
+    monkeypatch.setattr(confirm.state, "_CHATS", {})
+
+
+async def _pending_pair(chat_id):
+    for _ in range(100):
+        pending = confirm.get_all_pending(chat_id)
+        if len(pending) == 2:
+            return pending
+        await asyncio.sleep(0.01)
+    raise AssertionError("Expected two independent confirmation requests")
 
 
 def _payload(response) -> dict:
@@ -159,8 +178,7 @@ async def test_allow_session_is_isolated_between_myspace_and_local_host():
             kind=confirm.KIND_LOCAL_CMD,
         )
     )
-    await asyncio.sleep(0.05)
-    pending = confirm.get_all_pending(chat_id)
+    pending = await _pending_pair(chat_id)
     local_id = next(
         item["confirm_id"] for item in pending if item["kind"] == confirm.KIND_LOCAL_CMD
     )
@@ -199,8 +217,7 @@ async def test_local_read_session_grant_does_not_authorize_local_write():
             kind=f"{confirm.KIND_LOCAL_PATH_PREFIX}write",
         )
     )
-    await asyncio.sleep(0.05)
-    pending = confirm.get_all_pending(chat_id)
+    pending = await _pending_pair(chat_id)
     read_id = next(
         item["confirm_id"]
         for item in pending

@@ -16,7 +16,7 @@ store.getState().observe([notice('running',{id:'run-b',startedAt:4,updatedAt:4})
 store.getState().observe([notice('completed',{updatedAt:5})]);assert.equal(store.getState().notices['chat:a'].id,'run-b','a late old run cannot replace a new run');
 store.getState().observe([notice('failed',{id:'run-b',startedAt:4,updatedAt:6})]);
 assert.equal(taskIndicator(Object.values(store.getState().notices)).status,'failed');
-store.getState().markSeen('chat:a','run-b');assert.equal(taskIndicator(Object.values(store.getState().notices)).seen,true,'viewing failure stops only its animation');
+store.getState().markSeen('chat:a','run-b');assert.equal(taskIndicator(Object.values(store.getState().notices)).seen,true,'viewing failure acknowledges its reminder');
 store.getState().observe([notice('idle',{id:'run-c',startedAt:8,updatedAt:8})]);
 assert.equal(taskIndicator(Object.values(store.getState().notices)).status,'idle','cancellation never shows success');
 assert.equal(taskIndicator([notice('running')],true,true).status,'waiting','input/approval takes priority over live transport');

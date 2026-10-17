@@ -26,7 +26,7 @@ The manifest has the following sections, in processing order:
 
 Glob patterns (relative to the repo root); a match means the file is never copied. Covers:
 
-- **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), persistent sandbox providers, memory audit, skill distillation, and other EE services;
+- **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), the Cube sandbox provider, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
 - **Industry MCP servers**: `mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
 - **Industry-specific frontend code and seeds**: the industry-chain Canvas,
@@ -57,8 +57,8 @@ Content edits that plain text substitution cannot express, implemented in `build
 |---|---|---|
 | `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`database_query`, `query_database`, `ai_chain_information_mcp`) |
 | `package_json` | `src/frontend/package.json` | renames to `hugagent-ui`; drops the commercially licensed `@univerjs/preset-sheets-advanced` and dead dependency `pptxgenjs`; pins `@univerjs/icons=1.1.1` to preserve the Univer 0.19 export contract when the main-repo lockfile is absent |
-| `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
-| `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips environment variables for excluded components, including `OPENSANDBOX_`, `S3_`, `INDUSTRY_`, and `COMPANY_`; pins backend edition, authentication, and SSO defaults to CE local-session mode and pins the frontend build default to CE |
+| `requirements` | `requirements.txt` | retains the OpenSandbox SDK; drops cloud-storage and Cube dependencies (boto3 / oss2 / e2b-code-interpreter); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
+| `docker_compose` | `docker-compose.yml` | Retains OpenSandbox and configuration initialization; Docker CE selects the opensandbox profile by default. Script-runner keeps its optional profile. The controller uses a generated key and has no host port mapping. Enterprise gateway services and settings are removed |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
 | `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |
 | `text_ranges` | edition-specific branches in shared backend and frontend files | removes industry tool mappings, dedicated citation extraction, Canvas state, prompts, and styles using exact markers; a missing or changed marker fails the build so an upstream refactor cannot silently restore the feature |
@@ -206,3 +206,7 @@ See also: [Community vs. Enterprise Edition](overview.md) · [License Mechanism]
 CE upgrade migration `ce_0013` adds durable tool media storage. Tool images are stored by content hash while history retains references; later turns and restarted workers restore the bytes from the database. Repeated reconciliation preserves existing media.
 
 CE migration `ce_0019` adds the nullable `tool_calls_display` history projection. Existing messages retain canonical tool results and use read-through fallback until a projection exists. Repeated upgrades are safe; downgrade removes only the derived column and preserves original messages.
+
+### Native ARM64 Docker builds
+
+The backend and MCP builder stages install Rust/Cargo to compile AgentScope's ripgrep dependency, whose version has no Linux ARM64 wheel. The compilers remain in the builder stages; runtime images only copy installed packages. Build environments need access to the PyPI mirror, crates.io index, and crate download service.

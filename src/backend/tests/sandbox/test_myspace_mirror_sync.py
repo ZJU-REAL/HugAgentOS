@@ -436,7 +436,7 @@ def test_wipe_workspace_keeps_mounts_and_rebuilds_scratch():
     assert asyncio.run(_mixin()._wipe_workspace(_session_with(cmds))) is True
     assert "/workspace -mindepth 1 -maxdepth 1" in cmds.cmd
     assert "! -name myspace" in cmds.cmd
-    assert "! -name teamspace" in cmds.cmd
+    assert "! -name teamspace" not in cmds.cmd
     assert "! -name skills" in cmds.cmd
     assert "/workspace/scratch" in cmds.cmd
 

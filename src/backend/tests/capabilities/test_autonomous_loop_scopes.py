@@ -47,7 +47,7 @@ async def test_actual_loop_scout_then_two_workers_use_separate_factory_snapshots
         return False
 
     monkeypatch.setattr(loop_planner, "_workspace_is_empty", nonempty)
-    monkeypatch.setattr("core.llm.tool_permissions.resolve_approval_mode", lambda *a, **kw: "auto")
+    monkeypatch.setattr("core.llm.tool_permissions.preferences.resolve_approval_mode", lambda *a, **kw: "auto")
     monkeypatch.setattr(catalog, "get_enabled_ids", lambda *a: [])
     selected = []
     monkeypatch.setattr(

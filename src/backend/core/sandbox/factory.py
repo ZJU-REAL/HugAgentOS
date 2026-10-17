@@ -28,26 +28,11 @@ def _ordinary_provider() -> SandboxProvider:
         from .script_runner_provider import ScriptRunnerProvider
         _provider = ScriptRunnerProvider()
     elif kind == "opensandbox":
-        # Seam C5: when the persistent sandbox module is missing (CE tree), warn clearly and fall back to the lightweight sandbox
-        try:
-            from .edition_provider import PersistentSandboxProvider
-            _provider = PersistentSandboxProvider()
-        except ModuleNotFoundError:
-            logger.warning(
-                "[sandbox] opensandbox provider 不可用（本发行版未携带），回退 script_runner"
-            )
-            from .script_runner_provider import ScriptRunnerProvider
-            _provider = ScriptRunnerProvider()
+        from .edition_provider import PersistentSandboxProvider
+        _provider = PersistentSandboxProvider()
     elif kind == "cube":
-        try:
-            from core.sandbox.cube.provider import CubeSandboxProvider
-            _provider = CubeSandboxProvider()
-        except ModuleNotFoundError:
-            logger.warning(
-                "[sandbox] cube provider 不可用（本发行版未携带），回退 script_runner"
-            )
-            from .script_runner_provider import ScriptRunnerProvider
-            _provider = ScriptRunnerProvider()
+        from core.sandbox.cube.provider import CubeSandboxProvider
+        _provider = CubeSandboxProvider()
     else:
         raise ValueError(
             f"未知 SANDBOX_PROVIDER: {kind!r}，可选: script_runner / opensandbox / cube"

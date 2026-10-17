@@ -54,6 +54,7 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_create_public_kb": False,
     "can_create_channel_bot": False,
     "can_switch_model": False,
+    "can_use_voice": False,  # Dictation is opt-in, including for administrators.
     "can_use_ontology_validation": False,
     "can_run_autonomous_loop": True,  # long-running autonomous loop (open in CE, enabled by default, can be disabled per user/team)
     # 自定义对话模式：授予后「设置 → 模式选择」出现，可自建仅本人可见的模式

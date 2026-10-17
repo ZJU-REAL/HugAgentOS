@@ -22,6 +22,9 @@ async def sticky_capabilities(
     required: RequiredCapabilities,
     sticky: StickyCapabilities,
 ):
+    # Dedicated profiles own their full binding list. Chat history must not widen it.
+    from core.extensions import agent_profile
+    explicit_profile = bool(request.profile and not agent_profile(request.profile).inherit_default_mcps)
     inherited_skills = set(request.enabled_skill_ids or [])
     inherited_mcps = set(request.enabled_mcp_ids or [])
     capability_chat = (
@@ -94,6 +97,7 @@ async def sticky_capabilities(
         not request.disable_tools
         and request.current_user_id
         and capability_chat
+        and not explicit_profile
         and _eval_scope is None
         and (not request.turbo_mode or _mode_manual_invoke)
     ):

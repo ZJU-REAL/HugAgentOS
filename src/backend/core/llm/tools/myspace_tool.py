@@ -127,7 +127,7 @@ def register_myspace_tools(
             # 刚写进 /myspace 的文件还在登记器的去抖窗口里，催一下再列，免得模型写完
             # 立刻来查却查不到自己刚写的东西。
             if user_id:
-                await flush_user(user_id)
+                await flush_user(user_id, metadata_only=True)
 
             page_size = normalize_page_size(limit)
             page = normalize_page(page)
