@@ -1,0 +1,4 @@
+# Verified real-memory integration stack; runtime dependencies stay in requirements.txt.
+mem0ai==2.2.1
+pymilvus==2.5.18
+milvus-lite==3.2.2

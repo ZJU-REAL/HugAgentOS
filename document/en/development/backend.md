@@ -55,6 +55,17 @@ PYTHONPATH=src/backend pytest src/backend/tests/api/test_bar.py::test_case -v
 
 Tests can run inside the backend container or in a local venv with `PYTHONPATH` set. Test files are named `test_*.py` and live in the matching subdirectory of `src/backend/tests/`.
 
+### Real Milvus memory regression
+
+Install backend dependencies and the verified memory-test versions in a dedicated test venv:
+
+```bash
+python -m pip install -r requirements.txt -r src/backend/tests/memory/constraints.txt
+PYTHONPATH=src/backend python -m pytest src/backend/tests/memory -q
+```
+
+The version list pins a compatible mem0, pymilvus and Milvus Lite combination. Do not upgrade pymilvus alone to 3.x; the backend requires `<2.6.0`. Tests use temporary vector stores and a local embedding HTTP fixture, without connecting to business memory databases. They verify real writes, recall, scope isolation, edits, deletion, expiry and idempotency receipts rather than mocking storage.
+
 ## Alembic migration flow
 
 1. Change the ORM models in `src/backend/core/db/models.py`;

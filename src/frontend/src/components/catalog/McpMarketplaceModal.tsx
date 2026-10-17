@@ -47,7 +47,7 @@ interface McpMarketplaceModalProps {
   open: boolean;
   canInstall: boolean;
   onClose: () => void;
-  onInstalled?: () => void;
+  onInstalled?: (result: { server_id?: string; action?: string }) => void;
 }
 
 function MarketIcon({ item, size = 40 }: { item: McpMarketItem; size?: number }) {
@@ -237,7 +237,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         ? { ...current, installed: true }
         : current);
       setInstallTarget(null);
-      onInstalled?.();
+      onInstalled?.(result);
     } catch (error) {
       popup?.close();
       const errorMessage = (error as Error).message || t('安装失败');

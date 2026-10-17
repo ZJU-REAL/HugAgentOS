@@ -361,3 +361,74 @@ def test_ce_registers_native_api_key_routes():
     assert {"get", "post"} <= set(paths["/v1/me/api-keys"])
     assert "get" in paths["/v1/me/api-keys/{key_id}/reveal"]
     assert {"patch", "delete"} <= set(paths["/v1/me/api-keys/{key_id}"])
+
+
+def test_ce_opensandbox_provider_is_shared_runtime(monkeypatch):
+    from core.sandbox.edition_provider import PersistentSandboxProvider
+    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+
+    assert PersistentSandboxProvider is OpenSandboxProvider
+    assert OpenSandboxProvider.workspace_mount_names == ("myspace", "skills")
+
+
+def test_ce_factory_selects_opensandbox_without_enterprise_code(monkeypatch):
+    from types import SimpleNamespace
+    from core.sandbox import factory
+    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+
+    monkeypatch.setattr(factory, "settings", SimpleNamespace(sandbox=SimpleNamespace(provider="opensandbox")))
+    factory.reset_provider_cache()
+    try:
+        assert type(factory.get_sandbox_provider()._ordinary) is OpenSandboxProvider
+    finally:
+        factory.reset_provider_cache()
+
+
+def _personal_name_migration():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
+    return ScriptDirectory.from_config(config).get_revision("ce_0018").module
+
+
+def test_ce_personal_name_migration_after_current_baseline(monkeypatch):
+    import sqlalchemy as sa
+    from core.db.edition_tables import ce_create_all
+    from core.db.personal_file_names import INDEX_NAMES
+
+    migration = _personal_name_migration()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        ce_create_all(connection)
+        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+        migration.upgrade()
+        indexes = {item["name"]: item for item in sa.inspect(connection).get_indexes("artifacts")}
+        assert all(indexes[name]["unique"] for name in INDEX_NAMES)
+    engine.dispose()
+
+
+def test_ce_personal_name_migration_builds_indexes_and_rejects_duplicates(monkeypatch):
+    import pytest
+    import sqlalchemy as sa
+    from core.db.personal_file_names import INDEX_NAMES
+
+    migration = _personal_name_migration()
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE artifacts (user_id TEXT, user_folder_id TEXT, filename TEXT, deleted_at TEXT)"
+        )
+        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+        migration.upgrade()
+        indexes = {item["name"] for item in sa.inspect(connection).get_indexes("artifacts")}
+        assert set(INDEX_NAMES) <= indexes
+        for name in INDEX_NAMES:
+            connection.exec_driver_sql("DROP INDEX " + name)
+        connection.exec_driver_sql(
+            "INSERT INTO artifacts (user_id,filename) VALUES ('u','same.txt'),('u','same.txt')"
+        )
+        with pytest.raises(RuntimeError, match="duplicate names"):
+            migration.upgrade()
+    engine.dispose()

@@ -1,3 +1,5 @@
+import { ChatSlot } from '../../customization/ChatCustomization';
+import { toMessageView } from '../../customization/chatView';
 import { useChatResultRead } from '../../hooks/useChatResultRead';
 import { usePublicChat } from '../../public-chat/PublicChatContext';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -265,11 +267,11 @@ export function ChatArea({
   }
 
   if (hasNoMessages) {
-    return <ChatWelcome view={welcome} shareAccessLevel={shareAccessLevel}
+    return <ChatSlot name="welcome"><ChatWelcome view={welcome} shareAccessLevel={shareAccessLevel}
       send={send} abort={abort} activateQueuedMessage={activateQueuedMessage}
       discardQueuedMessage={discardQueuedMessage} continueLoop={continueLoop}
       handleFileSelect={handleFileSelect} removeFile={removeFile}
-      inputRef={inputRef} fileInputRef={fileInputRef} />;
+      inputRef={inputRef} fileInputRef={fileInputRef} /></ChatSlot>;
   }
 
   const handleCreateShare = async () => {
@@ -402,7 +404,7 @@ export function ChatArea({
                   </div>
                 )}
               >
-                <MessageBubble
+                <ChatSlot name="message" message={toMessageView(m)}><MessageBubble
                   m={m}
                   messageIndex={idx}
                   currentChatId={currentChatId}
@@ -410,7 +412,7 @@ export function ChatArea({
                   exportChatRecord={stableExportChatRecord}
                   regenerate={stableRegenerate}
                   editAndResend={stableEditAndResend}
-                />
+                /></ChatSlot>
               </ContentErrorBoundary>
             ))}
             <div ref={messagesEndRef} />
@@ -448,7 +450,7 @@ export function ChatArea({
         ) : hasPendingUserQuestion ? (
           <AskUserQuestionComposer />
         ) : (
-          <InputArea
+          <ChatSlot name="composer"><InputArea
             inputRef={inputRef}
             fileInputRef={fileInputRef}
             send={() => send()}
@@ -460,7 +462,7 @@ export function ChatArea({
             removeFile={removeFile}
             placeholder={inputPlaceholder}
             disableMention={isAgentChat}
-          />
+          /></ChatSlot>
         )}
       </div>
     </div>

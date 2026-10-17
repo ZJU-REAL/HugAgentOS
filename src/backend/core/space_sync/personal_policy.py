@@ -21,7 +21,8 @@ def find_chat(user_id: str) -> Optional[str]:
 
         if not cre.has_local_runs():  # 便宜的前置判断，省掉一次 DB 查询
             return None
-        for run in cre.list_active_runs_for_user(user_id):
+        runs, _recent_chats = cre.list_active_runs_for_user(user_id)
+        for run in runs:
             if cre.is_local_run(str(run.run_id)):
                 return str(run.chat_id)
     except Exception as exc:  # noqa: BLE001 — 查不到就按"问不到人"处理
@@ -83,3 +84,26 @@ def _split(raw: str, root: Path) -> Optional[tuple[str, str]]:
     if any(p in mirror.SKIP_DIR_NAMES for p in parts[1:]):
         return None
     return parts[0], "/".join(parts[1:])
+
+
+async def approve(user_id, ask, logical_path, op, summary):
+    """The stored preset answers before any interactive routing is attempted."""
+    from core.llm.tool_permissions import preset_answers_for_user
+
+    if await asyncio.to_thread(preset_answers_for_user, user_id, op=op):
+        return True
+    chat_id = await ask.get()
+    if chat_id is None:
+        raise RuntimeError("Space approval has no active owner conversation")
+    from core.llm.tools import _myspace_confirm as mc
+
+    result = await mc.gate(
+        chat_id=chat_id,
+        op=op,
+        logical_path=logical_path,
+        interactive=True,
+        summary=summary,
+        timeout=300.0,
+        approval_user_id=user_id,
+    )
+    return result is None

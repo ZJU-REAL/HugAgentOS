@@ -36,7 +36,7 @@ class CloudProcesses:
             return await action()
         if self.loop.is_closed():
             raise SandboxError("Process service stopped; old process sessions cannot be resumed")
-        from .opensandbox_provider import _forward_to_loop
+        from ._opensandbox_loop import _forward_to_loop
 
         return await _forward_to_loop(self.loop, action())
 
@@ -299,7 +299,7 @@ async def start_on_service_loop(provider, req, yield_time_ms):
         return await process_service(provider).start(req, yield_time_ms)
 
     if loop is not None and not loop.is_closed() and loop is not asyncio.get_running_loop():
-        from .opensandbox_provider import _forward_to_loop
+        from ._opensandbox_loop import _forward_to_loop
 
         return await _forward_to_loop(loop, start())
     return await start()

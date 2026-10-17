@@ -1,5 +1,4 @@
-"""Persistent sandboxes are not shipped in Community Edition."""
+"""Community Edition uses the shared OpenSandbox runtime."""
+from .opensandbox_provider import OpenSandboxProvider as PersistentSandboxProvider
 
-
-def PersistentSandboxProvider():
-    raise ModuleNotFoundError("Persistent sandbox is unavailable in this edition")
+__all__ = ["PersistentSandboxProvider"]

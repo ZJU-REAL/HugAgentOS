@@ -76,6 +76,7 @@ async def middleware_stack(
                 automation_run=request.automation_run,
             ),
             approval_mode=request.approval_mode,
+            account_approval=not bool(request.profile) and not bool(_api_scope or _eval_scope),
         ),
     )
 

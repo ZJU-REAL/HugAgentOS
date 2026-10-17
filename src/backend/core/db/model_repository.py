@@ -22,6 +22,7 @@ ROLE_DEFINITIONS: dict[str, dict] = {
     "summarizer": {"label": "标题摘要 + 分类", "type": "chat"},
     "followup": {"label": "追问生成", "type": "chat"},
     "memory": {"label": "记忆提取 (mem0)", "type": "chat"},
+    "audio_transcription": {"label": "语音转文字", "type": "audio"},
     "embedding": {"label": "文本向量化", "type": "embedding"},
     "reranker": {"label": "搜索结果重排序", "type": "reranker"},
     "plan_agent": {"label": "计划模式推理", "type": "chat"},
@@ -279,6 +280,8 @@ def export_all(db: Session) -> dict:
 
 def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
     """Import providers + role assignments. Returns counts."""
+    from core.db.model_import_validation import validate_import_graph
+    validate_import_graph(db, data, overwrite)
     imported_providers = 0
     imported_roles = 0
 

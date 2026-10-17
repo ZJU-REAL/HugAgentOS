@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
@@ -10,7 +10,6 @@ import core.infra.responses as responses
 from core.auth.backend import UserContext
 from core.db.reserved_chats import reserved_chat_owner
 from core.infra.logging import quiet_access_log
-from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -33,31 +32,9 @@ def list_active_chat_runs(
     侧边栏对没点开过的会话一无所知。这里按用户一次查完：查询只命中 pending /
     running 这一小撮行，与历史 run 的数量无关。
     """
-    from orchestration import chat_run_executor
+    from core.services.session_operations.runs import list_active_chat_runs as operation
 
-    db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
-    )
-    runs, recent_chat_ids = chat_run_executor.list_active_runs_for_user(
-        db_user_id, recent_seconds
-    )
-    from core.services.sidebar_status import sidebar_run_statuses
-
-    return success_response(
-        data={
-            **({"statuses": sidebar_run_statuses(db, db_user_id)} if include_status else {}),
-            "items": [
-                {
-                    "chat_id": run.chat_id,
-                    "run_id": run.run_id,
-                    "status": run.status,
-                    "started_at": run.started_at.isoformat() if run.started_at else None,
-                }
-                for run in runs
-            ],
-            "recent_chat_ids": recent_chat_ids,
-        }
-    )
+    return operation(user=user, db=db, include_status=include_status, recent_seconds=recent_seconds)
 
 
 @router.get("/stream/{run_id}", summary="续播 run（用于刷新后重新订阅）")
@@ -103,41 +80,10 @@ def chat_active_run(
     有则返回 run_id / message_id / status / 刷新重放 offset / thinking 模式等元信息，
     无则返回 data=null。需认证（有效 cookie 或 API-Key）。
     """
-    from orchestration import chat_run_executor
+    from core.services.session_operations.runs import chat_active_run as operation
 
-    db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
-    )
-    run = chat_run_executor.get_active_run_for_chat(chat_id, db_user_id)
-    if run is None:
-        return success_response(data=None)
-    payload = run.request_payload if isinstance(run.request_payload, dict) else {}
-    kind = payload.get("kind", "chat")
-    plan_id = payload.get("plan_id")
-    # Resume needs the run's thinking mode: the SSE replay parser must start in
-    # the right phase. The model emits reasoning with the opening <think> tag
-    # frequently absent, so a wrong initial phase flattens it into the answer.
-    resolved_mode = payload.get("chat_mode") or (
-        "medium" if payload.get("enable_thinking", True) else "fast"
-    )
-    # This endpoint is a fresh-client probe: the server does not persist how
-    # much of the stream this particular browser consumed.  ``run.last_event_offset``
-    # is the producer high-water mark, not a consumer resume cursor.  Returning
-    # it here would make a refreshed client skip the already-produced prefix
-    # immediately after it clears the partial assistant message from the UI.
-    replay_from_offset = 0
-    return success_response(
-        data={
-            "run_id": run.run_id,
-            "message_id": run.message_id,
-            "status": run.status,
-            "started_at": run.started_at.isoformat() if run.started_at else None,
-            "last_event_offset": replay_from_offset,
-            "kind": kind,
-            "plan_id": plan_id,
-            "enable_thinking": resolved_mode not in ("fast", "turbo"),
-        }
-    )
+    return operation(chat_id=chat_id, user=user, db=db)
+
 
 @router.get("/stream/{run_id}/subscription", summary="订阅当前会话状态和后续事件")
 def chat_run_subscription(

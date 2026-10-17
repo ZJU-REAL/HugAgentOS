@@ -21,6 +21,7 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    rustc cargo \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 

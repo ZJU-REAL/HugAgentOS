@@ -31,6 +31,7 @@ const TYPE_LABELS: Record<string, string> = {
   chat: t('对话'),
   embedding: t('向量'),
   reranker: t('重排'),
+  audio: t('语音模型'),
 };
 
 /**
@@ -82,9 +83,10 @@ export function SystemModelPanel() {
     getModelProviderSchemas().then(setSchemas).catch(() => setSchemas([]));
   }, [reload]);
 
+  const selectedType = Form.useWatch('provider_type', form);
   const providerOptions = useMemo(
-    () => schemas.map((s) => ({ value: s.id, label: s.label || s.id })),
-    [schemas],
+    () => schemas.filter(s => !selectedType || s.supports_types?.includes(selectedType)).map((s) => ({ value: s.id, label: s.label || s.id })),
+    [schemas, selectedType],
   );
 
   const openCreate = () => {
@@ -189,7 +191,7 @@ export function SystemModelPanel() {
         message.success(t('模型供应商已更新'));
       } else {
         await createModelProvider({ api_key: '', ...payload } as ModelProviderInput);
-        message.success(t('模型供应商已添加并通过连通性校验'));
+        message.success(values.provider_type === 'audio' && !values.base_url ? t('音频模型已保存；服务地址待配置') : t('模型供应商已添加并通过连通性校验'));
       }
       setEditorOpen(false);
       await reload();
@@ -266,7 +268,7 @@ export function SystemModelPanel() {
           options={providers
             .filter(
               (p) =>
-                (!r.type || p.provider_type === r.type) &&
+                (!(r.required_type || r.type) || p.provider_type === (r.required_type || r.type)) &&
                 // 角色还可能要求能力位（视觉桥要求 supports_vision）。只按用途筛的话，
                 // 纯文本模型也会出现在视觉桥的下拉里，配错要到对话中途才暴露。
                 (!r.requires_capability ||
@@ -398,16 +400,22 @@ export function SystemModelPanel() {
             </Form.Item>
             <Form.Item name="provider_type" label={t('用途')} style={{ width: 120, marginLeft: 8 }} rules={[{ required: true }]}>
               <Select
+                onChange={value => {
+                  const current = schemas.find(s => s.id === form.getFieldValue('provider'));
+                  if (value === 'audio') form.setFieldValue('provider', 'audio_compatible');
+                  else if (!current?.supports_types?.includes(value)) form.setFieldValue('provider', 'openai_compatible');
+                }}
                 options={[
                   { value: 'chat', label: TYPE_LABELS.chat },
                   { value: 'embedding', label: TYPE_LABELS.embedding },
                   { value: 'reranker', label: TYPE_LABELS.reranker },
+                  { value: 'audio', label: TYPE_LABELS.audio },
                 ]}
               />
             </Form.Item>
           </Space.Compact>
           <Form.Item name="base_url" label="base_url">
-            <Input placeholder="https://api.deepseek.com" />
+            <Input placeholder={selectedType === 'audio' ? 'http://<asr-host>:8000/v1' : 'https://api.deepseek.com'} />
           </Form.Item>
           <Form.Item
             name="api_key"
@@ -417,8 +425,11 @@ export function SystemModelPanel() {
           >
             <Input.Password placeholder={editing ? '••••••••' : 'sk-...'} autoComplete="new-password" />
           </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+            {({ getFieldValue }) => getFieldValue('provider_type') === 'audio' && <Text type="secondary">{t('音频模型用于语音转文字；服务未部署时可留空地址。部署后填写兼容接口的 Base URL，并分配给「语音转文字」角色。')}</Text>}
+          </Form.Item>
           <Form.Item name="model_name" label={t('模型名')} rules={[{ required: true }]}>
-            <Input placeholder="deepseek-chat" />
+            <Input placeholder={selectedType === 'audio' ? 'Qwen3-ASR-0.6B' : 'deepseek-chat'} />
           </Form.Item>
           <Space.Compact block>
             <Form.Item

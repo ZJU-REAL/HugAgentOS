@@ -71,7 +71,7 @@ async def endpoint(provider, chat_id, user_id, port):
             return url, headers
         loop = provider._service_loop
         if loop and loop is not asyncio.get_running_loop():
-            from .opensandbox_provider import _forward_to_loop
+            from ._opensandbox_loop import _forward_to_loop
             return await _forward_to_loop(loop, resolve())
         return await resolve()
     if provider.name == "cube":

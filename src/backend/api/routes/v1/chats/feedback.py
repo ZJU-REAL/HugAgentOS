@@ -1,7 +1,7 @@
 """Ontology acceptance and assistant feedback endpoints."""
 
-import api.routes.v1.chats.models as chat_models
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.schemas as chat_models
+import core.services.session_operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine

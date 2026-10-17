@@ -61,6 +61,8 @@ def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = N
     local = db.query(LocalUser).filter(LocalUser.user_id == user_id).first()
     meta = dict(shadow.extra_data or {}) if shadow else {}
     caps = resolve_capabilities(meta)
+    from personal_agent.access import allowed
+    caps["can_use_personal_agent"] = allowed(db, user_id)
     return {
         "user_id": user_id,
         "username": shadow.username if shadow else user_data.get("username", ""),

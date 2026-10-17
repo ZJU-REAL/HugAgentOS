@@ -1,7 +1,6 @@
 """Personal folder (UserFolder) business logic.
 
 Manages only the "My Space" personal file hierarchy:
-- depth limit (MAX_FOLDER_DEPTH)
 - same-name check among siblings (with soft-delete fallback)
 - cycle detection on move
 - cascading soft delete (itself + descendant folders + associated personal artifacts)
@@ -32,7 +31,6 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-MAX_FOLDER_DEPTH = 8
 
 
 @dataclass
@@ -89,52 +87,36 @@ class UserFolderService(PersonalFileOperations):
     def get_tree(self, user_id: str) -> List[Dict[str, Any]]:
         """Return the user's full personal folder tree as nested dicts (NULL parent = top level)."""
         all_folders = self.list_by_user(user_id)
-        children_map: Dict[Optional[str], List[UserFolder]] = {}
+        nodes = {f.folder_id: {"folder_id": f.folder_id, "user_id": f.user_id, "parent_folder_id": f.parent_folder_id, "name": f.name,
+                  "created_at": f.created_at.isoformat() if f.created_at else None,
+                  "children": []} for f in all_folders}
+        roots = []
         for f in all_folders:
-            children_map.setdefault(f.parent_folder_id, []).append(f)
-
-        def serialize(folder: UserFolder) -> Dict[str, Any]:
-            return {
-                "folder_id": folder.folder_id,
-                "user_id": folder.user_id,
-                "parent_folder_id": folder.parent_folder_id,
-                "name": folder.name,
-                "created_at": folder.created_at.isoformat() if folder.created_at else None,
-                "children": [serialize(c) for c in children_map.get(folder.folder_id, [])],
-            }
-
-        return [serialize(root) for root in children_map.get(None, [])]
+            node = nodes[f.folder_id]
+            if f.parent_folder_id is None:
+                roots.append(node)
+            elif f.parent_folder_id in nodes:
+                nodes[f.parent_folder_id]["children"].append(node)
+        return roots
 
     def get_breadcrumb(self, folder_id: str, user_id: str) -> List[Dict[str, Any]]:
         """Return the path from the root to the current folder (excluding the "My Space" root node)."""
         chain: List[UserFolder] = []
         cur_id: Optional[str] = folder_id
-        guard = 0
-        while cur_id and guard < MAX_FOLDER_DEPTH + 2:
+        seen = set()
+        while cur_id and cur_id not in seen:
+            seen.add(cur_id)
             folder = self.get(cur_id)
             if folder is None or folder.user_id != user_id:
                 break
             chain.append(folder)
             cur_id = folder.parent_folder_id
-            guard += 1
         chain.reverse()
         return [
             {"folder_id": f.folder_id, "name": f.name, "parent_folder_id": f.parent_folder_id}
             for f in chain
         ]
 
-    def _depth(self, parent_id: Optional[str]) -> int:
-        depth = 0
-        cur_id = parent_id
-        while cur_id:
-            folder = self.get(cur_id)
-            if folder is None:
-                break
-            depth += 1
-            cur_id = folder.parent_folder_id
-            if depth > MAX_FOLDER_DEPTH + 1:
-                break
-        return depth
 
     # ── Write operations ─────────────────────────────────
     def create_folder(
@@ -154,8 +136,6 @@ class UserFolderService(PersonalFileOperations):
             parent = self.get(parent_folder_id, lock=True)
             if parent is None or parent.user_id != user_id:
                 return FolderResult(False, "父文件夹不存在或不属于该用户")
-            if self._depth(parent_folder_id) >= MAX_FOLDER_DEPTH:
-                return FolderResult(False, f"层级超出上限（≤{MAX_FOLDER_DEPTH} 级）")
 
         duplicate = (
             self.db.query(UserFolder)
@@ -293,15 +273,17 @@ class UserFolderService(PersonalFileOperations):
                 return FolderResult(False, "目标父文件夹不存在或跨用户")
             # Cycle detection: the target parent must not be a descendant of itself
             cur_id: Optional[str] = new_parent_id
+            seen = set()
             while cur_id:
+                if cur_id in seen:
+                    return FolderResult(False, "文件夹层级非法")
+                seen.add(cur_id)
                 if cur_id == folder_id:
                     return FolderResult(False, "不能移动到自身或其子孙")
                 cur = self.get(cur_id)
                 if cur is None:
                     break
                 cur_id = cur.parent_folder_id
-            if self._depth(new_parent_id) >= MAX_FOLDER_DEPTH:
-                return FolderResult(False, f"层级超出上限（≤{MAX_FOLDER_DEPTH} 级）")
 
         # Sibling name check: after the move it must not collide with a name under the new parent
         duplicate = (

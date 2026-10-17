@@ -27,7 +27,7 @@ async def test_business_failure_cannot_validate_credentials(monkeypatch, body):
             transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body)), **kw
         ),
     )
-    conn = SimpleNamespace(app_id="fixture", config={"bot_token_enc": encrypt_secret("fixture")})
+    conn = SimpleNamespace(app_id="fixture", config={"bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat"})
     with pytest.raises(RuntimeError) as error:
         await WeixinAdapter().validate_credentials(conn)
     assert "SENSITIVE_UPSTREAM_DETAIL" not in str(error.value)
@@ -54,7 +54,7 @@ def test_poll_business_error_never_dispatches_message(monkeypatch, body):
         ),
     )
     conn = SimpleNamespace(
-        channel_id="fixture", config={"bot_token_enc": encrypt_secret("fixture")}
+        channel_id="fixture", config={"bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat"}
     )
     received = []
     poller = WeixinAdapter().make_ws_client(conn, received.append)
@@ -87,7 +87,7 @@ async def test_credentials_transport_and_success_contract(monkeypatch, status, b
             **kw,
         ),
     )
-    conn = SimpleNamespace(app_id="fixture", config={"bot_token_enc": encrypt_secret("fixture")})
+    conn = SimpleNamespace(app_id="fixture", config={"bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat"})
     if status == 200 and body is not None:
         assert await WeixinAdapter().validate_credentials(conn) == {"app_id": "fixture"}
     else:
@@ -103,7 +103,7 @@ def test_poll_network_timeout_is_not_silently_connected(monkeypatch):
         httpx, "Client", lambda **kw: _client.Client(transport=httpx.MockTransport(respond), **kw)
     )
     conn = SimpleNamespace(
-        channel_id="fixture", config={"bot_token_enc": encrypt_secret("fixture")}
+        channel_id="fixture", config={"bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat"}
     )
     with pytest.raises(RuntimeError, match="ReadTimeout"):
         WeixinAdapter().make_ws_client(conn, lambda msg: None).start()
@@ -129,7 +129,7 @@ def test_http_credential_test_does_not_fabricate_receiver_health(
                 owner_user_id="owner",
                 channel_type="weixin",
                 app_id="health-fixture",
-                config={"bot_token_enc": encrypt_secret("fixture")},
+                config={"bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat"},
                 status="pending",
                 enabled=True,
                 transport="long_conn",
@@ -148,3 +148,67 @@ def test_http_credential_test_does_not_fabricate_receiver_health(
     bot = client.get("/v1/channels/bots").json()["data"]["bots"][0]
     assert bot["status"] == ("error" if expected_http == 400 else "pending")
     assert "SENSITIVE_UPSTREAM_DETAIL" not in result.text + str(bot)
+
+
+async def test_getconfig_includes_scanning_user(monkeypatch):
+    import json
+
+    def respond(request):
+        assert request.url.path.endswith("/getconfig")
+        body = json.loads(request.content)
+        assert body["ilink_user_id"] == "fixture-user@im.wechat"
+        return httpx.Response(200, json={"ret": 0})
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda **kw: _client.AsyncClient(transport=httpx.MockTransport(respond), **kw),
+    )
+    conn = SimpleNamespace(app_id="fixture", config={
+        "bot_token_enc": encrypt_secret("fixture"), "ilink_user_id": "fixture-user@im.wechat",
+    })
+    await WeixinAdapter().validate_credentials(conn)
+
+
+async def test_legacy_binding_leaves_validation_to_receiver(monkeypatch):
+    def unexpected_request(**kwargs):
+        pytest.fail("getconfig must not be called without its required user ID")
+
+    monkeypatch.setattr(httpx, "AsyncClient", unexpected_request)
+    conn = SimpleNamespace(app_id="fixture", config={"bot_token_enc": encrypt_secret("fixture")})
+    assert await WeixinAdapter().validate_credentials(conn) == {"app_id": "fixture"}
+
+
+def test_qr_binding_preserves_user_for_new_and_existing_bot(api, monkeypatch):
+    from core.infra.ephemeral import LocalEphemeralState
+    from core.services.channel_service import ChannelService
+    from core.db.models import ChannelConnection
+
+    state = LocalEphemeralState()
+    monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: state)
+    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+
+    async def start():
+        return {"qrcode": "fixture-qr", "qrcode_img_content": "png"}
+
+    async def poll(qrcode):
+        return {"status": "confirmed", "bot_token": "fixture-token",
+                "ilink_user_id": "fixture-user@im.wechat"}
+
+    monkeypatch.setattr(WeixinAdapter, "start_qr_bind", staticmethod(start))
+    monkeypatch.setattr(WeixinAdapter, "poll_qr_status", staticmethod(poll))
+    client, factory, _ = api
+    channel_id = None
+    for attempt in range(2):
+        started = client.post("/v1/channels/weixin/bind/start").json()["data"]
+        response = client.get(f"/v1/channels/weixin/bind/{started['bind_id']}/status")
+        assert response.status_code == 200
+        ident = response.json()["data"]["channel_id"]
+        assert channel_id is None or ident == channel_id
+        channel_id = ident
+        with factory() as db:
+            bot = db.get(ChannelConnection, channel_id)
+            assert bot.config["ilink_user_id"] == "fixture-user@im.wechat"
+            if attempt == 0:
+                bot.config = {key: value for key, value in bot.config.items() if key != "ilink_user_id"}
+                db.commit()
+    assert "fixture-user@im.wechat" not in client.get("/v1/channels/bots").text

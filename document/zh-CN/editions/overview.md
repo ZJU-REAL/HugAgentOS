@@ -30,6 +30,7 @@ python scripts/build_ce.py        # 生成 dist/ce/（CE 派生树）
 
 | 能力域 | 社区版（CE） | 商业版（EE）新增 |
 |---|---|---|
+| Personal Agent | ✅ 个人助手、后台任务、专属电脑、渠道、调度和文件记忆（显式启用） | ➕ 用户、角色、团队授权治理 |
 | 智能对话 | ✅ 完整：SSE 流式、ReAct 智能体、计划模式、深度思考、引用溯源 | — |
 | 知识库 RAG | ✅ 文档上传、智能分块、向量 + 关键词混合检索、私有知识库 | ➕ 对接外部知识库（Dify）、公共知识库管理台 |
 | 子智能体 | ✅ 创建、自动路由、@提及协作（个人） | ➕ 组织级智能体库与管理台 |
@@ -39,7 +40,7 @@ python scripts/build_ce.py        # 生成 dist/ce/（CE 派生树）
 | 记忆系统 | ✅ L1 个人画像 + L2 向量（Milvus，可选）+ L3 图谱（Neo4j，可选） | ➕ 记忆审计（合规留痕，`memory_audit` 表） |
 | 自动化 | ✅ 定时任务、Cron 调度、Prompt/计划自动化、失败重试 | — |
 | 数据画布 | ✅ 在线表格个人编辑（免费 Univer 预设） | ➕ 多人实时协同（含 `@univerjs/preset-sheets-advanced` 商业预设） |
-| 代码执行 | ✅ 轻量沙箱（script-runner）+ 超长结果 offload 回读 | ➕ 持久沙箱（OpenSandbox / Cube provider，会话保持、环境复用） |
+| 代码执行 | ✅ Docker 默认 OpenSandbox：会话文件、环境复用、快照恢复；可选 script-runner | ➕ 团队空间挂载、组织治理、Cube provider |
 | 文件存储 | ✅ 本地存储 | ➕ 云存储（S3 / 阿里云 OSS） |
 | 认证登录 | ✅ 本地账号注册登录 | ➕ 企业 SSO 单点登录、部门同步、邀请码体系 |
 | 个人工作空间 | ✅ 个人文件夹、收藏、会话分享、个人项目 | — |

@@ -30,6 +30,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 
 | Capability | Community (CE) | Enterprise (EE) adds |
 |---|---|---|
+| Personal Agent | ✅ Personal assistant, background tasks, dedicated computers, channels, schedules and file memory (opt-in) | ➕ User, role and team access governance |
 | Chat | ✅ Full: SSE streaming, ReAct agent, plan mode, deep thinking, cited sources | — |
 | Knowledge-base RAG | ✅ Document upload, smart chunking, hybrid vector + keyword retrieval, private KBs | ➕ External KB integration (Dify), public KB admin console |
 | Sub-agents | ✅ Create, auto-routing, @-mention collaboration (personal) | ➕ Organization-level agent library & admin console |
@@ -39,7 +40,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 | Memory | ✅ L1 personal profile + L2 vector (Milvus, optional) + L3 graph (Neo4j, optional) | ➕ Memory audit (compliance trail, `memory_audit` table) |
 | Automation | ✅ Scheduled tasks, cron, prompt/plan automation, retry on failure | — |
 | Data canvas | ✅ Online spreadsheet personal editing (free Univer presets) | ➕ Real-time multi-user collaboration (with the commercial `@univerjs/preset-sheets-advanced`) |
-| Code execution | ✅ Lightweight sandbox (script-runner) + offload/read-back of oversized results | ➕ Persistent sandbox (OpenSandbox / Cube providers; session retention, environment reuse) |
+| Code execution | ✅ Docker defaults to OpenSandbox: session files, environment reuse, snapshots; optional script-runner | ➕ Team workspace mounts, organization governance, Cube provider |
 | File storage | ✅ Local storage | ➕ Cloud storage (S3 / Alibaba Cloud OSS) |
 | Authentication | ✅ Local account sign-up & login | ➕ Enterprise SSO, department sync, invite codes |
 | Personal workspace | ✅ Personal folders, favorites, chat sharing, personal projects | — |

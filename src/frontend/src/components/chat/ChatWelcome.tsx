@@ -1,3 +1,4 @@
+import { ChatSlot } from '../../customization/ChatCustomization';
 import { usePublicChat } from '../../public-chat/PublicChatContext';
 import { useChatStore } from '../../stores/chatStore';
 import { chatDraftKey, readComposer } from '../../stores/composerStore';
@@ -68,7 +69,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
               {t('该会话由创建者设为只读共享，无法在此发送消息')}
             </div>
           ) : (
-            <InputArea
+            <ChatSlot name="composer"><InputArea
               inputRef={inputRef}
               fileInputRef={fileInputRef}
               send={() => send()}
@@ -81,7 +82,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
               placeholder={inputPlaceholder}
               mobilePlaceholder={!isAgentChat && !isSiteChat && !isProjectChat ? t('输入问题或需求') : inputPlaceholder}
               disableMention={isAgentChat}
-            />
+            /></ChatSlot>
           )}
         </div>
 

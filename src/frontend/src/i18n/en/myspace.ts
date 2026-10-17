@@ -18,7 +18,7 @@ export const MYSPACE_DICT: Record<string, string> = {
 
   '上传中': 'Uploading',
   '上传完成': 'Upload complete',
-  '文件夹路径非法或超过 8 级': 'Invalid folder path or more than 8 levels',
+  '文件夹路径非法': 'Invalid folder path',
   '无法读取拖入的文件夹': 'Cannot read the dropped folder',
   '登录身份或服务地址已改变，请重新选择文件': 'Account or server changed. Select files again.',
   '请选择原上传文件，或先清除上传记录': 'Select the original files, or clear the upload record first.',

@@ -167,7 +167,7 @@ services:
       MEMORY_OUTBOX_RETRY_BASE_SECONDS: ${MEMORY_OUTBOX_RETRY_BASE_SECONDS:-5}
       MEMORY_OUTBOX_POLL_SECONDS: ${MEMORY_OUTBOX_POLL_SECONDS:-1}
       MCP_HOST: ${MCP_HOST:-mcp}
-      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-script_runner}
+      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-opensandbox}
       SANDBOX_FILE_TRANSFER_TIMEOUT_S: ${SANDBOX_FILE_TRANSFER_TIMEOUT_S:-120}
       SANDBOX_TOOLS_ENABLED: ${SANDBOX_TOOLS_ENABLED:-false}
       SANDBOX_RUNNER_URL: ${SANDBOX_RUNNER_URL:-http://script-runner:8900}
@@ -184,6 +184,27 @@ services:
       SANDBOX_RUNNER_TOKEN: ${SANDBOX_RUNNER_TOKEN:-}
       SANDBOX_IDLE_TTL_S: ${SANDBOX_IDLE_TTL_S:-3600}
       SANDBOX_ARTIFACT_MAX_BYTES: ${SANDBOX_ARTIFACT_MAX_BYTES:-104857600}
+      OPENSANDBOX_DOMAIN: ${OPENSANDBOX_DOMAIN:-http://opensandbox:8080}
+      OPENSANDBOX_API_KEY: ${OPENSANDBOX_API_KEY:?Initialize CE Docker configuration first}
+      OPENSANDBOX_IMAGE: ${OPENSANDBOX_IMAGE:-hugagent-opensandbox-custom:latest}
+      PERSONAL_AGENT_ENABLED: ${PERSONAL_AGENT_ENABLED:-false}
+      PERSONAL_AGENT_OPENSANDBOX_DOMAIN: ${PERSONAL_AGENT_OPENSANDBOX_DOMAIN:-personal-agent-opensandbox:8080}
+      PERSONAL_AGENT_OPENSANDBOX_API_KEY: ${PERSONAL_AGENT_OPENSANDBOX_API_KEY:-}
+      PERSONAL_AGENT_CLI_SERVER: ${PERSONAL_AGENT_CLI_SERVER:-http://backend:3001}
+      PERSONAL_AGENT_IMAGE: ${PERSONAL_AGENT_IMAGE:-hugagent-personal-agent:v5}
+      PERSONAL_AGENT_VOLUME_ROOT: ${HOST_STORAGE_PATH}/personal-agent
+      PERSONAL_AGENT_LOCAL_VOLUME_ROOT: /app/storage/personal-agent
+      OPENSANDBOX_READY_TIMEOUT_S: ${OPENSANDBOX_READY_TIMEOUT_S:-90}
+      OPENSANDBOX_REQUEST_TIMEOUT_S: ${OPENSANDBOX_REQUEST_TIMEOUT_S:-120}
+      OPENSANDBOX_POOL_JUPYTER_MIN_IDLE: ${OPENSANDBOX_POOL_JUPYTER_MIN_IDLE:-0}
+      OPENSANDBOX_POOL_JUPYTER_MAX_IDLE: ${OPENSANDBOX_POOL_JUPYTER_MAX_IDLE:-3}
+      OPENSANDBOX_POOL_LIGHT_MIN_IDLE: ${OPENSANDBOX_POOL_LIGHT_MIN_IDLE:-0}
+      OPENSANDBOX_POOL_LIGHT_MAX_IDLE: ${OPENSANDBOX_POOL_LIGHT_MAX_IDLE:-5}
+      OPENSANDBOX_POOL_MAX_TOTAL: ${OPENSANDBOX_POOL_MAX_TOTAL:-4}
+      OPENSANDBOX_SNAPSHOT_ENABLED: ${OPENSANDBOX_SNAPSHOT_ENABLED:-true}
+      OPENSANDBOX_SNAPSHOT_RETENTION_DAYS: ${OPENSANDBOX_SNAPSHOT_RETENTION_DAYS:-7}
+      OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S: ${OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S:-120}
+      OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED: ${OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED:-true}
       HOST_STORAGE_PATH: ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}
       CODE_CAPABILITY_ENABLED: ${CODE_CAPABILITY_ENABLED:-false}
       FILE_PARSER_API_URL: ${FILE_PARSER_API_URL:-}
@@ -334,6 +355,8 @@ services:
     - hugagent-network
     restart: unless-stopped
   script-runner:
+    profiles:
+    - script_runner
     build:
       context: .
       dockerfile: docker/Dockerfile.script-runner
@@ -370,6 +393,57 @@ services:
     networks:
     - hugagent-network
     restart: unless-stopped
+  opensandbox-config-init:
+    profiles:
+    - opensandbox
+    image: python:3.12-alpine
+    container_name: hugagent-opensandbox-config-init
+    environment:
+      HOST_REPO_PATH: ${HOST_REPO_PATH:?HOST_REPO_PATH must be an absolute host path}
+      HOST_STORAGE_PATH: ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be an absolute host path}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be explicit}
+      OPENSANDBOX_API_KEY: ${OPENSANDBOX_API_KEY:-}
+    volumes:
+    - ./docker/opensandbox-config.toml.tpl:/tpl/config.toml.tpl:ro
+    - ./docker/render-opensandbox-config.py:/tpl/render.py:ro
+    - opensandbox_config:/out
+    command:
+    - python
+    - /tpl/render.py
+    - /tpl/config.toml.tpl
+    - /out/config.toml
+    restart: 'no'
+  opensandbox:
+    profiles:
+    - opensandbox
+    image: hugagent-opensandbox-server:v0.1.13-3
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.opensandbox-server
+    container_name: hugagent-opensandbox
+    logging: *id001
+    depends_on:
+      opensandbox-config-init:
+        condition: service_completed_successfully
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      OPENSANDBOX_INSECURE_SERVER: 'NO'
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - opensandbox_config:/etc/opensandbox:ro
+    - opensandbox_data:/var/lib/opensandbox
+    ports: []
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://localhost:8080/health",timeout=2).status==200
+        else 1)'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
   frontend:
     build:
       context: .
@@ -379,6 +453,7 @@ services:
         SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}
         VITE_EDITION: ${VITE_EDITION:-ce}
         VITE_DEFAULT_LANGUAGE: ${VITE_DEFAULT_LANGUAGE:-zh-CN}
+        HUGAGENT_CHAT_CUSTOMIZATION: ${HUGAGENT_CHAT_CUSTOMIZATION:-}
         VITE_UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
     container_name: hugagent-frontend
     logging: *id001

@@ -50,18 +50,18 @@ def create_folder_batch(
     expanded = set()
     for path in paths:
         parts = path.split("/")
-        if len(parts) > 8 or any(
+        if any(
             not p or p != p.strip() or p in (".", "..") or "\\" in p or "\x00" in p or len(p) > 255
             for p in parts
         ):
-            raise ValueError("文件夹路径非法或超过 8 级")
+            raise ValueError("文件夹路径非法")
         expanded.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
     if len(expanded) > 1600:
         raise ValueError("文件夹数量超出批次上限")
     scope = getattr(model, owner_column) == owner_id
     try:
         lock_folder_owner(db, owner_model, owner_column, owner_id)
-        depth, current, seen = 0, parent_folder_id, set()
+        current, seen = parent_folder_id, set()
         while current:
             if current in seen:
                 raise ValueError("文件夹层级非法")
@@ -76,9 +76,6 @@ def create_folder_batch(
             if parent is None:
                 raise ValueError("目标文件夹不存在")
             current = parent.parent_folder_id
-            depth += 1
-        if depth + max(p.count("/") + 1 for p in expanded) > 8:
-            raise ValueError("文件夹层级超过 8 级")
         mapping = {"": parent_folder_id}
         for level in sorted({p.count("/") for p in expanded}):
             level_paths = sorted(p for p in expanded if p.count("/") == level)

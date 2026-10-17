@@ -2,7 +2,7 @@
 
 
 def test_attachment_schema_discards_legacy_content_and_download_url():
-    from api.schemas import AttachmentItem
+    from core.chat.schemas import AttachmentItem
 
     item = AttachmentItem.model_validate(
         {

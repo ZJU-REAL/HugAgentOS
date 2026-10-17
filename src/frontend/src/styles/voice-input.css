@@ -1,0 +1,11 @@
+.jx-voiceInput { position: relative; display: flex; align-items: center; flex-shrink: 0; }
+.jx-voiceInput button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 30px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: 8px; color: inherit; background: transparent; cursor: pointer; }
+.jx-voiceInput button:hover { background: var(--color-fill-hover); }
+.jx-voiceInput button:focus-visible { outline: 2px solid var(--accent, #d97757); outline-offset: 2px; }
+.jx-voiceMic { font-size: 17px; color: var(--color-text-secondary); }
+.jx-voiceControls { display: flex; align-items: center; gap: 2px; color: var(--accent, #d97757); background: var(--color-bg-gray); border-radius: 12px; padding: 0 4px; }
+.jx-voiceStatus { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.jx-voiceError { position: absolute; bottom: calc(100% + 10px); right: 0; z-index: 25; width: min(330px, calc(100vw - 40px)); padding: 14px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-elevated); color: var(--color-text); box-shadow: var(--shadow-dropdown); font-size: 13px; }
+.jx-voiceError textarea { width: 100%; min-height: 80px; margin-top: 10px; padding: 8px; resize: vertical; color: inherit; background: transparent; border: 1px solid var(--color-border); border-radius: 6px; }
+.jx-voiceErrorActions { display: flex; justify-content: flex-end; margin-top: 8px; gap: 4px; }
+@media (max-width: 600px) { .jx-voiceControls { gap: 0; } .jx-voiceControls svg { width: 34px; } .jx-voiceStatus { max-width: 64px; overflow: hidden; text-overflow: ellipsis; } }

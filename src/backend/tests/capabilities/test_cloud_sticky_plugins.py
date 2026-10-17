@@ -177,7 +177,7 @@ async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflig
         skill_ids=[],
         mcp_server_ids=[],
     )
-    monkeypatch.setattr("core.llm.tool_permissions.resolve_approval_mode", lambda *a, **kw: "auto")
+    monkeypatch.setattr("core.llm.tool_permissions.preferences.resolve_approval_mode", lambda *a, **kw: "auto")
     monkeypatch.setattr(catalog, "get_enabled_ids", lambda *a: [])
     monkeypatch.setattr(factory_capabilities, "_effective_main_available_skills", lambda: [])
     monkeypatch.setattr(factory_capabilities, "_filter_skill_ids_for_user", lambda ids, uid: ids)

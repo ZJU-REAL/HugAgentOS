@@ -101,9 +101,14 @@ try{
  await page.getByTestId('reader').evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event('scroll'));});
  await page.waitForFunction(()=>!document.querySelector('#ordinary [data-task-status="completed"]'));
  assert.equal(await page.locator('#ordinary .anticon-check').count(),0,'read completion leaves no check icon');
- await row('failed').click();await page.getByTestId('reader').evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event('scroll'));});
- await page.waitForFunction(()=>document.querySelector('#ordinary [data-task-status="failed"]').dataset.taskUnread==='false');
- assert.equal(await page.locator('#ordinary [data-task-status="failed"]').evaluate(el=>getComputedStyle(el).animationName),'none','viewed failure is static red');
+ await row('failed').click();
+ await page.waitForFunction(()=>!document.querySelector('#ordinary [data-task-status="failed"]'));
+ assert.equal(await page.evaluate(()=>window.reminders.getState().notices['chat:d'].seen),true,'click acknowledges failure without scrolling');
+ await page.evaluate(()=>window.reminders.getState().observe([{key:'chat:d',id:'run-d',messageId:'msg-d',status:'failed',startedAt:1,updatedAt:2}]));
+ assert.equal(await page.locator('#ordinary [data-task-status="failed"]').count(),0,'polling does not restore a dismissed failure');
+ await page.evaluate(()=>window.reminders.getState().observe([{key:'chat:d',id:'retry-d',messageId:'retry-msg-d',status:'failed',startedAt:3,updatedAt:4}]));
+ await page.locator('#ordinary [data-task-status="failed"]').waitFor();
+ assert.equal(await page.locator('#ordinary [data-task-status="failed"]').getAttribute('data-task-unread'),'true','a later failed run shows a new reminder');
  await page.locator('#personal button').click();await page.getByTestId('reader').evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event('scroll'));});
  await page.waitForFunction(()=>!document.querySelector('#personal .jx-personalUnread'));
  assert.equal(await page.locator('#personal [data-task-status="running"]').count(),1,'reading messages does not stop the running lamp');
@@ -135,5 +140,5 @@ try{
  await other.waitForFunction(()=>window.reminders.getState().notices['chat:a']?.id==='new-a'&&window.reminders.getState().notices['chat:a'].seen);
  await other.close();
  assert.deepEqual(errors,[]);
- console.log('PASS browser: four breathing states; approval priority; actual viewport read; static viewed failure; Personal Agent simultaneous running/unread and new completion; reduced motion; dark mode; narrow rail.');
+ console.log('PASS browser: four breathing states; approval priority; actual viewport read; dismissed viewed failure and new failure reminder; Personal Agent simultaneous running/unread and new completion; reduced motion; dark mode; narrow rail.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

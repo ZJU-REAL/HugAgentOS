@@ -241,7 +241,7 @@ async def finish_application_publication(owner, receipt):
         from core.space_sync.personal_registry import flush_user
 
         try:
-            await flush_user(owner)
+            await flush_user(owner, strict=True)
         except HTTPException:
             receipt["project_synced"] = False
             logger.warning(

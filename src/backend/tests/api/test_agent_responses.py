@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 
@@ -33,7 +33,7 @@ def response_client(monkeypatch):
         yield 'event: run_started\ndata: {"run_id":"run-1"}\n\n'
         yield 'data: [DONE]\n\n'
     async def wait(run_id, *, chat_id, message_id):
-        from api.schemas import ChatResponse
+        from core.chat.schemas import ChatResponse
         return ChatResponse(chat_id=chat_id, response="hello", timestamp="2026-09-26")
 
     monkeypatch.setattr(responses, "_start_response_run", start)

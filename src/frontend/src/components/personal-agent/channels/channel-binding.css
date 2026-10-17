@@ -1,0 +1,5 @@
+.pa-channel-grid{align-items:start}
+.pa-channel-binding{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pa-channel-binding img{max-width:100%;height:auto;align-self:center}
+.pa-channel-card .ant-alert{margin-top:8px;overflow-wrap:anywhere}
+.pa-channel-conversations{display:flex;flex-direction:column;gap:4px;margin-top:8px}

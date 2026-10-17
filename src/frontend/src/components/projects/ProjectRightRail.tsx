@@ -13,7 +13,7 @@ import ProjectFileList from './ProjectFileList';
 import { fmtBytes, leafName } from './projectFileDisplay';
 import type { ProjectFileItem } from '../../types';
 import { useProjectStore } from '../../stores/projectStore';
-import { FilePreviewPane } from '../file/FilePreviewPane';
+import { FilePreviewModal } from '../file/FilePreviewModal';
 import { DropOverlay } from '../common/DropOverlay';
 import { UploadProgressBar } from '../common/UploadProgressBar';
 import ProjectMemoryCard from './ProjectMemoryCard';
@@ -367,20 +367,11 @@ function FilesCard() {
         onChange={(e) => handleFileInput(e, 'folder')}
       />
 
-      <Modal
-        open={!!previewFile}
-        onCancel={() => setPreviewFile(null)}
-        footer={null}
-        width="min(1100px, 90vw)"
-        title={previewFile ? leafName(previewFile) : t('文件预览')}
-        destroyOnClose
-        style={{ top: 24 }}
-        styles={{ body: { padding: 0, height: '82vh', display: 'flex' } }}
-      >
-        <div className="jx-projectRail-previewWrap">
-          <FilePreviewPane item={previewItem} />
-        </div>
-      </Modal>
+      <FilePreviewModal
+        item={previewItem}
+        title={previewFile ? leafName(previewFile) : undefined}
+        onClose={() => setPreviewFile(null)}
+      />
 
       {/* Drag-and-drop upload highlight layer (shared component, mounts only while dragging) */}
       <DropOverlay

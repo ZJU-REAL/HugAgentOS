@@ -55,6 +55,17 @@ PYTHONPATH=src/backend pytest src/backend/tests/api/test_bar.py::test_case -v
 
 测试可在 backend 容器内跑，也可在配好 `PYTHONPATH` 的本地 venv 跑。测试文件命名 `test_*.py`，放在 `src/backend/tests/` 对应子目录。
 
+### 真实 Milvus 记忆回归
+
+在独立测试 venv 中安装后端依赖和已验证的记忆测试版本：
+
+```bash
+python -m pip install -r requirements.txt -r src/backend/tests/memory/constraints.txt
+PYTHONPATH=src/backend python -m pytest src/backend/tests/memory -q
+```
+
+该版本清单固定 mem0、pymilvus 和 Milvus Lite 的兼容组合。不要单独升级 pymilvus 到 3.x；后端要求 `<2.6.0`。测试使用临时向量库和本地 embedding HTTP 夹具，不连接业务记忆库。测试检查真实存储的写入、召回、作用域隔离、修改、删除、过期和幂等回执；不会用模拟存储替代这些操作。
+
 ## Alembic 迁移流程
 
 1. 在 `src/backend/core/db/models.py` 改 ORM 模型；

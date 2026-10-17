@@ -93,12 +93,17 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
     # —— OpenAI-compatible (generic + presets; engine=openai, no new protocol) ——
     "openai_compatible": ProviderSpec(
         id="openai_compatible", label="OpenAI 兼容", engine="openai",
-        supports_types=("chat", "embedding", "reranker"),
+        supports_types=("chat", "embedding", "reranker", "audio"),
         base_url_template="https://api.openai.com/v1",
+    ),
+    "audio_compatible": ProviderSpec(
+        id="audio_compatible", label="音频转写（OpenAI 兼容）", engine="openai",
+        supports_types=("audio",), api_key_required=False,
+        base_url_template="http://<asr-host>:8000/v1", responses_capable=False,
     ),
     "openai": ProviderSpec(
         id="openai", label="OpenAI / Codex", engine="openai",
-        supports_types=("chat", "embedding"),
+        supports_types=("chat", "embedding", "audio"),
         base_url_template="https://api.openai.com/v1",
         reasoning_effort_top_level=True,
         structured_reasoning=True,

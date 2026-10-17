@@ -138,7 +138,7 @@ curl -N http://localhost:3000/api/v1/agents/responses \
   }'
 ```
 
-请求体为 `ChatRequest`（`src/backend/api/schemas.py`）：`chat_id`、`message` 必填；可选 `model_name`、`chat_mode`（`turbo`/`fast`/`medium`/`high`/`max`，`turbo` 为极速模式——仅装配联网搜索/网页抓取/知识库检索工具并用独立提示词快速作答）、`attachments`、`enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents` 等。每个附件只接收 `file_id`、`name`、`mime_type`，正文由后端按 `file_id` 延迟解析，不能放进请求体。
+请求体为 `ChatRequest`（`src/backend/core/chat/schemas.py`）：`chat_id`、`message` 必填；可选 `model_name`、`chat_mode`（`turbo`/`fast`/`medium`/`high`/`max`，`turbo` 为极速模式——仅装配联网搜索/网页抓取/知识库检索工具并用独立提示词快速作答）、`attachments`、`enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents` 等。每个附件只接收 `file_id`、`name`、`mime_type`，正文由后端按 `file_id` 延迟解析，不能放进请求体。
 
 ### 事件类型
 

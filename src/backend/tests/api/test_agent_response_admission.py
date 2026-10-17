@@ -1,21 +1,22 @@
 """Route-level concurrency proof for POST /v1/agents/responses admission."""
 
 from __future__ import annotations
+import core.services.session_operations.admission as admission
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from types import SimpleNamespace
 
-import api.routes.v1.chats.agent_targets as chat_agent_targets
-import api.routes.v1.chats.request_context as chat_request_context
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.agent_targets as chat_agent_targets
+import core.services.session_operations.request_context as chat_request_context
+import core.services.session_operations.session_context as chat_session_context
 import core.chat.context as chat_context
 import core.db.engine as db_engine
 import core.services as chat_services
 import pytest
 from api.routes.v1.agent_responses import agent_response
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.auth.backend import UserContext
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
@@ -140,7 +141,7 @@ def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, tran
     monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", empty_follow)
 
     from api.routes.v1 import agent_responses
-    from api.schemas import ChatResponse
+    from core.chat.schemas import ChatResponse
 
     async def accepted_json(_run_id, *, chat_id, message_id):
         return ChatResponse(chat_id=chat_id, response="accepted", timestamp="now")
@@ -330,12 +331,12 @@ def test_both_transports_share_preferences_and_release_request_transaction(
     async def start(**kwargs):
         return kwargs["accepted_run"]
 
-    monkeypatch.setattr(agent_responses, "_read_preferences", preferences)
+    monkeypatch.setattr("core.services.session_operations.admission._read_preferences", preferences)
     monkeypatch.setattr(chat_request_context, "_build_ctx", context)
     monkeypatch.setattr(chat_run_executor, "start_run", start)
     with Session() as db:
         result = asyncio.run(
-            agent_responses._start_response_run(
+            admission._start_response_run(
                 ChatRequest(chat_id="chat-1", message="hello", stream=stream), _user(), db
             )
         )

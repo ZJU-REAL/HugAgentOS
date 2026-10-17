@@ -28,19 +28,20 @@ class Domain:
         by_id = {r.folder_id: r for r in rows}
         paths = {None: ""}
 
-        def visit(fid, seen):
-            if fid in paths:
-                return paths[fid]
-            row = by_id.get(fid)
-            if row is None or fid in seen:
-                raise HTTPException(409, "Invalid folder hierarchy")
-            validate_filename(row.name)
-            parent = visit(row.parent_folder_id, seen | {fid})
-            paths[fid] = "/".join(filter(None, (parent, row.name)))
-            return paths[fid]
-
         for fid in by_id:
-            visit(fid, set())
+            chain, seen, current = [], set(), fid
+            while current not in paths:
+                row = by_id.get(current)
+                if row is None or current in seen:
+                    raise HTTPException(409, "Invalid folder hierarchy")
+                seen.add(current)
+                validate_filename(row.name)
+                chain.append(row)
+                current = row.parent_folder_id
+            parent = paths[current]
+            for row in reversed(chain):
+                parent = "/".join(filter(None, (parent, row.name)))
+                paths[row.folder_id] = parent
         if len(set(paths.values())) != len(paths):
             raise HTTPException(409, "Duplicate folder paths")
         return {path: by_id.get(fid) for fid, path in paths.items()}
@@ -49,7 +50,7 @@ class Domain:
         if not path:
             return None
         parts = PurePosixPath(path).parts
-        if len(parts) > 8 or path.startswith("/") or any(p in (".", "..") for p in parts):
+        if path.startswith("/") or any(p in (".", "..") for p in parts):
             raise HTTPException(400, "Invalid folder path")
         mapping = self.folders(db)
         parent = None
@@ -82,6 +83,18 @@ class Domain:
                 db.add(row)
                 db.flush()
                 mapping[current] = row
+            else:
+                # FK checks need KEY SHARE on parents. Do not wait for a folder
+                # writer that may already be waiting for our owner lock.
+                row = (
+                    db.query(self.folder_model)
+                    .filter_by(folder_id=row.folder_id, deleted_at=None)
+                    .populate_existing()
+                    .with_for_update(read=True, key_share=True, nowait=True)
+                    .one_or_none()
+                )
+                if row is None:
+                    raise HTTPException(409, "Destination parent changed")
             parent = row.folder_id
         return parent
 
@@ -102,14 +115,12 @@ class Domain:
                 Artifact.filename == name,
                 Artifact.deleted_at.is_(None),
             )
-            .with_for_update()
+            .with_for_update(nowait=True)
             .populate_existing()
             .one_or_none()
         )
 
     def move(self, db, source, destination, directory=False):
-        from core.db.models import Artifact
-
         if source == destination:
             return None
         if directory and destination.startswith(source + "/"):
@@ -122,13 +133,6 @@ class Domain:
             return None
         if destination in mapping or self.artifact(db, destination):
             raise HTTPException(409, "Destination already exists; local bytes retained")
-        if directory:
-            deepest = max(
-                (p.count("/") + 1 for p in mapping if p == source or p.startswith(source + "/")),
-                default=1,
-            )
-            if deepest - source.count("/") + destination.count("/") > 8:
-                raise HTTPException(400, "Folder depth exceeds limit")
         parent_id = self.directory(db, parent)
         if directory:
             row.parent_folder_id = parent_id

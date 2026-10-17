@@ -7,8 +7,8 @@ export interface NarrowTab {
   tab: MySpaceTab | 'search';
   scope?: 'personal' | 'team';
   kb?: KbTabKey;
-  /** 仅商业版（个人智能体） */
-  ee?: boolean;
+  /** 需要已启用且可用的个人智能体 */
+  requiresPersonalAgent?: boolean;
 }
 
 export const TABS: NarrowTab[] = [
@@ -20,4 +20,5 @@ export const TABS: NarrowTab[] = [
   { key: 'favorites', label: t('会话收藏'), tab: 'favorites' },
   { key: 'shares', label: t('分享记录'), tab: 'shares' },
   { key: 'notifications', label: t('消息通知'), tab: 'notifications' },
+  { key: 'agent', label: t('个人智能体'), tab: 'agent', requiresPersonalAgent: true },
 ];

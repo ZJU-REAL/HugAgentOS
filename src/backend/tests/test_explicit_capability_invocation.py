@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-from api.routes.v1.chats.invocation import _resolve_explicit_capability_invocation
-from api.schemas import ChatRequest
+from core.services.session_operations.invocation import _resolve_explicit_capability_invocation
+from core.chat.schemas import ChatRequest
 from core.config import catalog_resolver
 from core.db.models import AdminMcpServer, AdminSkill, CatalogOverride, InstalledPlugin, UserShadow
 from core.plugins import management as plugin_service

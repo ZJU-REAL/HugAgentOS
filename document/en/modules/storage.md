@@ -154,7 +154,7 @@ directories and can include loose files. Directory pickers only expose directori
 
 POST `/v1/myspace/folders/batch` or `/v1/teams/{team_id}/folders/batch` accepts up to 200 relative
 `paths` and an optional `parent_folder_id`, returning a `data.folders` path-to-ID map. Existing
-sibling directories are reused. Total depth remains eight. Each batch is atomic; earlier batches
+sibling directories are reused. No fixed folder depth is imposed. Invalid paths, cycles and access permissions are still checked; operating system path limits still apply. Each batch is atomic; earlier batches
 remain if a later batch fails.
 
 Files use a shared browser queue with four concurrent requests and at least 200ms between request
@@ -222,3 +222,21 @@ Unsafe paths are hidden. Links, special files, duplicate or conflicting paths,
 and encrypted members cannot be read. The panel explains these restrictions.
 Invalid archives show an error and a retry action. Browsing is read-only and
 does not extract the entire archive into the user's workspace.
+
+
+### Space synchronization and permission changes
+
+Synchronization tracks each path independently. A failed task retains its retry state without
+blocking other registrations or reads of committed resources. Listings can return committed data.
+Operations requiring complete consistency, such as application publication, retain strict barriers;
+a barrier for selected paths only waits for related work and preserves local changes on conflicts.
+
+Uploaded filenames must be single names; folder IDs specify their directories. Historical invalid
+names are reported individually without stopping other cache downloads. The maintenance tool supports
+preview, repair and rollback. Repairs retain file IDs and stored objects, preserving both records
+under distinct names when paths conflict.
+
+Subsequent tools in ordinary chats read the latest permission preference. Switching to full access
+lets the server resolve permission waits for ordinary chats owned by the account. The interface closes each
+prompt when its resolution event arrives. Account preferences do not override visitor or module-specific policies. Permission presets
+do not replace resource access checks; questions and design choices remain interactive.

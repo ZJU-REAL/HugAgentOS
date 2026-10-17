@@ -22,7 +22,7 @@
 | `HOST_STORAGE_PATH` | `/var/lib/hugagent-storage` | 宿主机存储目录绝对路径，bind mount 进 backend/mcp 的 `/app/storage`；compose 强校验**必填** | CE |
 | `HOST_REPO_PATH` | 仓库绝对路径 | 宿主机仓库根路径；backend 经 docker.sock 调宿主 daemon 重建沙盒镜像时解析 compose 相对路径用 | CE |
 | `DOCKER_GID` | `999` | 宿主 docker 组 GID，授予 backend 容器读写 `/var/run/docker.sock`（`stat -c '%g' /var/run/docker.sock` 查询） | CE |
-| `COMPOSE_PROFILES` | `script_runner` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
+| `COMPOSE_PROFILES` | CE Docker: `opensandbox` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
 | `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker-compose.cube.yml` | CE |
 | `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端单请求体上限（字节） | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2`（入口脚本默认） | 启动迁移重试次数 / 间隔秒 | CE |
@@ -202,7 +202,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `SANDBOX_PROVIDER` | `script_runner` | `script_runner` / `opensandbox` / `cube` | CE（持久沙箱 opensandbox/cube 为 EE） |
+| `SANDBOX_PROVIDER` | CE Docker: `opensandbox` | `script_runner` / `opensandbox` / `cube` | CE / EE；Cube 为 EE |
 | `SANDBOX_TOOLS_ENABLED` | `false` | 是否给 Agent 注册 `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` 三个工具 | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 | CE |
 | `SANDBOX_FILE_TRANSFER_TIMEOUT_S` | `120` | 文件传输请求超时（秒），不限制命令运行时长 | CE |
@@ -211,19 +211,19 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner 内存上限（MB） | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true`（代码默认） | 沙盒对 `/myspace` 写操作须用户带外确认 | CE |
 
-### OpenSandbox（持久沙箱，商业版 EE）
+### OpenSandbox（CE / EE 共享）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server 地址 |
-| `OPENSANDBOX_API_KEY` | （空 = insecure 模式） | 上生产必须填强随机串 |
+| `OPENSANDBOX_API_KEY` | CE 初始化生成 | 控制器与后端使用相同密钥；不在日志中输出 |
 | `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/Dockerfile.opensandbox`） |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | 等沙盒就绪上限（秒） |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
-| `OPENSANDBOX_PORT` | `8910` | host 调试映射端口（容器内固定 8080） |
-| `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | Jupyter 预热池（持久会话桶） |
+| `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
+| `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | `20` | 全池上限（含使用中） |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 全池上限（含使用中） |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
@@ -374,8 +374,26 @@ License 细节见 [License 机制](../editions/license.md)。
 
 应用托管仍需显式启用。参见[应用部署](../modules/application-hosting.md)和[浏览器部署](../modules/browser-automation.md)。云端站点写入依赖共享 Redis，未配置或不可用时拒绝写入。
 
+## Personal Agent（社区版 / 企业版）
+
+| 变量 | 用途 |
+| --- | --- |
+| PERSONAL_AGENT_ENABLED | 是否加载该模块（默认 `false`）。关闭时不注册任何路由、后台 worker 和渠道转交 |
+| PERSONAL_AGENT_OPENSANDBOX_DOMAIN | 独立且需要认证的控制器地址 |
+| PERSONAL_AGENT_OPENSANDBOX_API_KEY | 独立控制器密钥，至少 32 个字符 |
+| PERSONAL_AGENT_IMAGE | 使用固定版本标签的桌面电脑镜像 |
+| PERSONAL_AGENT_VOLUME_ROOT | 宿主机中存放专属持久卷的绝对路径 |
+| PERSONAL_AGENT_LOCAL_VOLUME_ROOT | 后端容器内可见的同一目录 |
+| PERSONAL_AGENT_HEARTBEAT | `off` 停止本后端的全部心跳检查（默认 `on`），用户设置保留 |
+| PERSONAL_AGENT_HEARTBEAT_MIN_MINUTES | 用户可设的最短心跳间隔（分钟，默认 15） |
+| PERSONAL_AGENT_HEARTBEAT_DAILY_MAX | 每个智能体每天最多运行的心跳次数（默认 48） |
+
+模块开启后，社区版已存在的登录用户即可使用。企业版额外检查 Config 后台的用户、角色或团队 **Personal Agent** 权限（默认关闭）；收回权限会隐藏入口，并停止排队、定时触发和渠道转交任务。不需要 persistent_sandbox License。两个版本都保留对象归属检查和操作批准。
+
+请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/compose.personal-agent.yml 和 personal-agent profile。
+
 <!-- End Personal Agent settings -->
 
-`PERSONAL_AGENT_CLI_SERVER` (EE): 云电脑访问后台的地址。默认 `http://backend:3001`。不保存凭据。沙盒与应用分机部署时改为应用的可访问地址，例如 `http://<应用内网地址>/api`。
+`PERSONAL_AGENT_CLI_SERVER` (CE / EE): 云电脑访问后台的地址。默认 `http://backend:3001`。不保存凭据。沙盒与应用分机部署时改为应用的可访问地址，例如 `http://<应用内网地址>/api`。
 
-`PERSONAL_AGENT_CLI_ALLOW_HTTP` (EE): 是否允许云电脑 CLI 用 HTTP 访问后台。默认 `true`（适合内网部署）。设为 `false` 时只接受 HTTPS。
+`PERSONAL_AGENT_CLI_ALLOW_HTTP` (CE / EE): 是否允许云电脑 CLI 用 HTTP 访问后台。默认 `true`（适合内网部署）。设为 `false` 时只接受 HTTPS。

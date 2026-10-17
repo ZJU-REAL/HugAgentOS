@@ -10,6 +10,8 @@ ARG VITE_API_BASE_URL=
 ARG SSO_LOGIN_URL=
 ARG VITE_EDITION=ee
 ARG VITE_DEFAULT_LANGUAGE=zh-CN
+ARG HUGAGENT_CHAT_CUSTOMIZATION=
+ENV HUGAGENT_CHAT_CUSTOMIZATION=$HUGAGENT_CHAT_CUSTOMIZATION
 ARG NODE_HEAP_MB=6144
 # Upload size hint baked into the JS bundle; keep in sync with the runtime
 # UPLOAD_MAX_MB below (compose feeds both from the same UPLOAD_MAX_MB env var)
@@ -25,12 +27,16 @@ ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 COPY src/frontend/package*.json ./
 COPY packages/workbench-protocol /build/packages/workbench-protocol
 COPY packages/workbench-sdk /build/packages/workbench-sdk
+COPY packages/chat-sdk /build/packages/chat-sdk
+RUN cd /build/packages/chat-sdk && npm ci --ignore-scripts && npm run build
+COPY examples/customer-chat /build/examples/customer-chat
 
 # Install dependencies (including dev dependencies for build)
 RUN npm ci
 
 # Copy source code
 COPY src/frontend/ .
+COPY scripts/build-chat-sdk.mjs /build/scripts/
 COPY scripts/sync-workbench-schema.mjs scripts/build-workbench.mjs scripts/workbench-build-contract.mjs /build/scripts/
 COPY src/backend/core/applications/schemas /build/src/backend/core/applications/schemas
 

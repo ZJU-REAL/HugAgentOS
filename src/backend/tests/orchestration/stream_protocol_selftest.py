@@ -24,7 +24,7 @@ async def _collect_stream() -> str:
     from unittest.mock import patch
 
     from api.routes.v1 import agent_responses
-    from api.schemas import ChatRequest
+    from core.chat.schemas import ChatRequest
     from core.auth.backend import UserContext
     from orchestration import chat_run_executor
 

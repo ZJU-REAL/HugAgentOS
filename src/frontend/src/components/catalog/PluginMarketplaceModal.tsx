@@ -14,6 +14,7 @@ interface PluginMarketplaceModalProps {
   onClose: () => void;
   onInstalled?: (result: PluginInstallResult, plugin: PluginListItem) => void;
   scopeLabel?: string;
+  excludedSlugs?: string[];
 }
 
 function normalizeSecret(field: string | PluginRequiredSecret): PluginRequiredSecret {
@@ -31,6 +32,7 @@ export function PluginMarketplaceModal({
   onClose,
   onInstalled,
   scopeLabel,
+  excludedSlugs,
 }: PluginMarketplaceModalProps) {
   const [items, setItems] = useState<PluginListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -96,8 +98,8 @@ export function PluginMarketplaceModal({
   }, [install, secretForm, secretPlugin]);
 
   const availableItems = useMemo(
-    () => items.filter((item) => !item.installed),
-    [items],
+    () => items.filter((item) => !item.installed && !excludedSlugs?.includes(item.slug)),
+    [items, excludedSlugs],
   );
 
   return (

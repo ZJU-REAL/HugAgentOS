@@ -1,6 +1,7 @@
 import {
 BellOutlined,
 BookOutlined,
+RobotOutlined,
 CloudOutlined,
 SearchOutlined,
 ShareAltOutlined,
@@ -10,6 +11,7 @@ import { Badge } from 'antd';
 import { useState } from 'react';
 import { t } from '../../i18n';
 import { useKbTab } from '../../routing/subPages';
+import { usePersonalAgentName } from '../../personalAgentEdition';
 import { useEditionStore } from '../../stores';
 import { useMySpaceStore } from '../../stores/mySpaceStore';
 import type { MySpaceTab } from '../../types';
@@ -31,6 +33,7 @@ export function MySpaceRail() {
   const kbTab = useKbTab();
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
   const isCE = useEditionStore((s) => s.edition === 'ce');
+  const agentName = usePersonalAgentName();
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -117,7 +120,16 @@ export function MySpaceRail() {
           </button>
         ))}
 
-
+        {agentName && (
+          <button
+            type="button"
+            className={`jx-msRail-item${tab === 'agent' ? ' active' : ''}`}
+            onClick={() => setTab('agent')}
+          >
+            <span className="jx-msRail-icon"><RobotOutlined /></span>
+            <span title={agentName}>{agentName}</span>
+          </button>
+        )}
       </div>
       </div>
     </aside>

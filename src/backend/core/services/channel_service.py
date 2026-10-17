@@ -355,9 +355,16 @@ class ChannelService:
             current_binding = execution(existing)
             if selected_local or current_binding:
                 raise BadRequestError("该微信已添加，请先移除原机器人，再按所选执行位置重新添加")
+            user_id = status.get("ilink_user_id")
+            if isinstance(user_id, str) and user_id.strip():
+                existing.config = {**(existing.config or {}), "ilink_user_id": user_id}
+                self.db.commit()
             return {"status": "confirmed", "channel_id": existing.channel_id}
         channel_id = f"chan_{uuid.uuid4().hex[:16]}"
         config = {"bot_token_enc": encrypt_secret(bot_token)}
+        user_id = status.get("ilink_user_id")
+        if isinstance(user_id, str) and user_id.strip():
+            config["ilink_user_id"] = user_id
         if ctx.get("local_binding_id"):
             from core.services.channel_relay import ChannelRelayService
             config["desktop_execution"] = ChannelRelayService(self.db).bind(owner_id, ctx["local_binding_id"])

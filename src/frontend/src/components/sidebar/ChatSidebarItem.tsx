@@ -60,6 +60,12 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
 
   const handleClick = async () => {
     if (editingChatId && editingChatId !== item.id) { setEditingChatId(null); setEditingTitle(''); }
+    // Opening a failed history item acknowledges the verdict, even before its messages load.
+    const state = useTaskNotificationStore.getState();
+    for (const id of statusIds) {
+      const notice = state.notices['chat:' + id];
+      if (notice?.status === 'failed') state.markSeen(notice.key, notice.id);
+    }
     onSelectChat(item.id);
   };
 

@@ -38,7 +38,7 @@ def test_ce_revocation_cancels_only_bound_runs_and_blocks_admission(tmp_path):
 
 def test_ce_project_credentials_keep_scope_and_register_http_routes(tmp_path, monkeypatch):
     from api.app import app
-    from api.schemas import ChatRequest
+    from core.chat.schemas import ChatRequest
     from core.auth.backend import UserContext
     from core.db.models import ChatSession, Project
     from core.services.api_key_service import ApiKeyService

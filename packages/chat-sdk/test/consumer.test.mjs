@@ -1,0 +1,57 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, cpSync, realpathSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+
+const root=fileURLToPath(new URL('../../../',import.meta.url));
+test('packed SDK installs into an independent customer project and survives a public package rebuild',()=>{
+ const work=mkdtempSync(path.join(root,'.scratch/chat-sdk-consumer-'));
+ const sdk=path.join(root,'packages/chat-sdk');
+ const packed=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',work],{cwd:sdk,encoding:'utf8'}));
+ const tar=path.join(work,packed[0].filename);
+ const consumer=path.join(work,'consumer');mkdirSync(consumer);
+ cpSync(path.join(root,'examples/customer-chat/src'),path.join(consumer,'src'),{recursive:true});
+ cpSync(path.join(root,'examples/customer-chat/scripts'),path.join(consumer,'scripts'),{recursive:true});
+ for(const name of ['index.html','tsconfig.json'])cpSync(path.join(root,'examples/customer-chat',name),path.join(consumer,name));
+ const pkg=JSON.parse(readFileSync(path.join(root,'examples/customer-chat/package.json'),'utf8'));
+ pkg.devDependencies['@hugagent/chat-sdk']='file:'+tar;
+ writeFileSync(path.join(consumer,'package.json'),JSON.stringify(pkg));
+ execFileSync('npm',['install','--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:consumer,stdio:'pipe'});
+ const installed=realpathSync(path.join(consumer,'node_modules/@hugagent/chat-sdk'));
+ assert.equal(installed.startsWith(consumer),true,'consumer must use the installed tarball, not source symlinks');
+ execFileSync('npm',['run','build'],{cwd:consumer,stdio:'pipe'});
+ execFileSync('npm',['run','standalone'],{cwd:consumer,stdio:'pipe'});
+ const customerPacked=JSON.parse(execFileSync('npm',['pack','--ignore-scripts','--json','--pack-destination',work],{cwd:consumer,encoding:'utf8'}));
+ execFileSync('npm',['install','file:'+path.join(work,customerPacked[0].filename),'--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:consumer,stdio:'pipe'});
+ mkdirSync(path.join(consumer,'customization'));
+ writeFileSync(path.join(consumer,'customization/ChatCustomization.tsx'),"export { default } from './selected';");
+ writeFileSync(path.join(consumer,'customization/selected.ts'),"export default null;");
+ // Vite resolves import-only package exports, including the copied CSS.
+ const viteScript = `
+import {build} from 'vite';
+import {chatCustomizationPlugin} from ${JSON.stringify(path.join(root,'src/frontend/scripts/chat-customization-plugin.mjs'))};
+await build({configFile:false,root:process.cwd(),logLevel:'error',plugins:[chatCustomizationPlugin({entry:'hugagent-customer-chat-example',root:process.cwd()})],resolve:{dedupe:['react','@hugagent/chat-sdk']},build:{outDir:'host-dist',lib:{entry:'customization/ChatCustomization.tsx',formats:['es'],fileName:'customer'}}});
+`;
+ writeFileSync(path.join(consumer,'host-build.mjs'),viteScript);
+ execFileSync(process.execPath,['host-build.mjs'],{cwd:consumer,stdio:'pipe'});
+ assert.equal(readFileSync(path.join(consumer,'host-dist/customer.js'),'utf8').includes('Customer Portal'),true);
+ execFileSync(process.execPath,['--input-type=module','-e',"import {ChatClient} from '@hugagent/chat-sdk'; if(typeof ChatClient!=='function')throw Error('missing client')"],{cwd:consumer});
+ const source=path.join(consumer,'src/customization.tsx');
+ const hash=()=>createHash('sha256').update(readFileSync(source)).digest('hex');
+ const before=hash();
+ const upgraded=path.join(work,'sdk-upgrade');mkdirSync(upgraded);
+ cpSync(path.join(sdk,'dist'),path.join(upgraded,'dist'),{recursive:true});
+ const release=JSON.parse(readFileSync(path.join(sdk,'package.json'),'utf8'));release.version='1.0.1';
+ writeFileSync(path.join(upgraded,'package.json'),JSON.stringify(release));
+ const newer=JSON.parse(execFileSync('npm',['pack','--ignore-scripts','--json','--pack-destination',work],{cwd:upgraded,encoding:'utf8'}));
+ execFileSync('npm',['install','file:'+path.join(work,newer[0].filename),'--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:consumer,stdio:'pipe'});
+ assert.equal(JSON.parse(readFileSync(path.join(consumer,'node_modules/@hugagent/chat-sdk/package.json'),'utf8')).version,'1.0.1');
+ execFileSync('npm',['run','build'],{cwd:consumer,stdio:'pipe'});
+ execFileSync(process.execPath,['host-build.mjs'],{cwd:consumer,stdio:'pipe'});
+ assert.equal(hash(),before);
+ writeFileSync(path.join(work,'evidence.json'),JSON.stringify({tarball:tar,consumer,customerSourceSha256:before,independentInstall:true},null,2));
+ console.log('Consumer and upgrade evidence:',work);
+});

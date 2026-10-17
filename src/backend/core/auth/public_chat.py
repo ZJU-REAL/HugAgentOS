@@ -27,6 +27,8 @@ def authenticate_public_chat(request, db):
         return user
     if request.method == "GET" and path == "/v1/models/capabilities":
         return user
+    if (request.method, path) in {("GET", "/v1/audio/status"), ("POST", "/v1/audio/transcriptions")}:
+        return user
     if path == "/v1/tool-approval" and request.method in ("GET", "PUT"):
         return user
     if request.method == "POST" and path == "/v1/file/upload":

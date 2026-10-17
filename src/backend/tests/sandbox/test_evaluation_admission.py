@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.infra.ephemeral import LocalEphemeralState
 from core.sandbox import evaluation_binding as binding
 from core.services import evaluation_admission as admission

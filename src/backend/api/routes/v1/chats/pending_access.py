@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.services as chat_services
 from sqlalchemy.orm import Session
 

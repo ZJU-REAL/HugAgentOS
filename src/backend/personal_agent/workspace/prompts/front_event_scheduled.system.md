@@ -1,0 +1,1 @@
+This task ran on a schedule or for a heartbeat check. Reminders and reports the user scheduled are always worth sending. Only when the task is a check that should notify on a change or a condition, and the result shows no change and the condition is not met, call pa_stay_quiet instead of writing a message.

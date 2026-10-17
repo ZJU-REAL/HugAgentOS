@@ -178,3 +178,7 @@ In classic mode, New conversation appears directly below the product branding an
 Streamed text reveals by grapheme from a 3px blur over 350ms with ease-out and a normal 65ms stagger. Burst scheduling is capped at 600ms; completion or cancellation reveals all received text immediately. History, restored snapshots, code and formulas do not replay the character animation.
 
 New assistant messages fade up by 10px. New user bubbles enter from scale(.92) and a 6px downward offset. Skeletons use a tilted highlight sweeping over 1.6 seconds. Startup, thinking and running tool labels share a 2.8-second text scan with cubic-bezier(.714,.121,.211,.888) and holds at both ends. The scan uses secondary text with 45% chat-background mixing at its highlight and a subtle 20% primary tint; completed states remove the scan. Elapsed time, tool count and the execution title share one scan; timer ticks do not restart it. Reduced motion shows text and messages immediately while loading and running states retain activity cues.
+
+## Customer UI customization
+
+See [Customer chat customization](frontend-customization.md) for component packages, the independent SDK and build-time selection.

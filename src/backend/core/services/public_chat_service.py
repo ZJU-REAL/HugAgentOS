@@ -164,7 +164,7 @@ def set_visitor_approval_mode(db, user, mode):
 
 
 def prepare_visitor_upload(db, user, chat_id, folder_id=None):
-    from api.schemas import ChatRequest
+    from core.chat.schemas import ChatRequest
     from core.services.agent_api_service import prepare_agent_api_request
     from core.services.project_api_service import prepare_project_api_request
 

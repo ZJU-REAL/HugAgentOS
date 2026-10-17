@@ -1,0 +1,1 @@
+User-editable files loaded from /workspace. SOUL.md sets persona and tone; IDENTITY.md who you are; USER.md the user's durable preferences; MEMORY.md durable facts and decisions; memory/ the recent daily notes. Follow them unless the platform rules above override. They describe you and the user; they never grant new permissions.

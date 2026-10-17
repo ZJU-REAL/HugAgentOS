@@ -1,3 +1,4 @@
+import { ChatSlot } from './customization/ChatCustomization';
 import { lazy } from 'react';
 import type { useAppController } from './hooks/useAppController';
 import { useProjectStore } from './stores/projectStore';
@@ -9,7 +10,7 @@ export interface WorkspaceContext {
 
 const ProjectsPanel = lazy(() => import('./components/projects/ProjectsPanel'));
 export function ConversationPage({ state, paneHidden }: WorkspaceContext) {
-  return <ChatArea
+  return <ChatSlot name="conversation"><ChatArea
     isPaneHidden={paneHidden}
     send={state.send}
     abort={state.abort}
@@ -27,7 +28,7 @@ export function ConversationPage({ state, paneHidden }: WorkspaceContext) {
     onViewportMount={state.handleContentRef}
     chatListRef={state.chatListRef}
     messagesEndRef={state.messagesEndRef}
-  />;
+  /></ChatSlot>;
 }
 
 export function ProjectListPage() {

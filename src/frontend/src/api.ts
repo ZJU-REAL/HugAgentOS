@@ -2494,6 +2494,7 @@ export interface AuthUser extends EditionAuthUserFields {
   can_create_channel_bot?: boolean;
   /** Whether the user may switch the currently available model from the chat input box (default false) */
   can_switch_model?: boolean;
+  can_use_voice?: boolean;
   /** Whether the user may configure and use ontology validation (default false) */
   can_use_ontology_validation?: boolean;
   /** Whether Personal Agent is available: module enabled on the server and permission granted (default false) */
@@ -4360,7 +4361,7 @@ export async function testMyServiceConfig(groupKey: string): Promise<ServiceTest
 export interface ModelProviderItem {
   provider_id: string;
   display_name: string;
-  provider_type: 'chat' | 'embedding' | 'reranker';
+  provider_type: 'chat' | 'embedding' | 'reranker' | 'audio';
   provider: string;
   base_url: string;
   api_key: string; // masked
@@ -4373,7 +4374,7 @@ export interface ModelProviderItem {
 
 export interface ModelProviderInput {
   display_name: string;
-  provider_type: 'chat' | 'embedding' | 'reranker';
+  provider_type: 'chat' | 'embedding' | 'reranker' | 'audio';
   provider?: string;
   base_url?: string;
   api_key?: string;

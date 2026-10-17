@@ -1,5 +1,5 @@
-from api.routes.v1.chats.request_context import _build_user_extra_data
-from api.schemas import ChatRequest
+from core.services.session_operations.request_context import _build_user_extra_data
+from core.chat.schemas import ChatRequest
 from core.llm.factory.tools.mcp_config import _required_mcp_server_keys
 from orchestration.workflow import _build_skill_injection
 from pydantic import ValidationError

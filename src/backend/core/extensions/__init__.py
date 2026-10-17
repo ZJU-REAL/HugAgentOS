@@ -4,7 +4,7 @@ Core never imports a module's implementation. A module contributes behaviour by
 registering hooks from its ``setup()`` at startup; when the module is disabled
 it registers nothing and core behaves as if the module were not installed.
 
-Which modules exist is an edition concern (``core.extensions.edition``); whether
+Shared modules are loaded in every edition. Additional modules are an edition concern (``core.extensions.edition``); whether
 an installed module is switched on is the module's own decision, usually an env
 flag read inside its ``setup()``.
 """
@@ -36,14 +36,14 @@ _loaded = False
 
 
 def load_extensions() -> None:
-    """Import every edition module and let it register itself. Idempotent."""
+    """Import shared and edition modules and let it register itself. Idempotent."""
     global _loaded
     if _loaded:
         return
     _loaded = True
     from core.extensions.edition import EDITION_EXTENSIONS
 
-    for module_name in EDITION_EXTENSIONS:
+    for module_name in ("personal_agent.extension", *EDITION_EXTENSIONS):
         module = import_module(module_name)
         if module.setup():
             mark_enabled(module.NAME)

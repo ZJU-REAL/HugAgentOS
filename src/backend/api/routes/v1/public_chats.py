@@ -75,7 +75,7 @@ def bootstrap(
     )
     if not resource:
         raise HTTPException(404, detail="Resource unavailable")
-    from api.routes.v1.chats.sessions import _session_to_dict
+    from core.services.session_operations.sessions import _session_to_dict
 
     scope_name = "agent_api_scope" if user.api_key_agent_id else "project_api_scope"
     # JSON extraction is supported by both SQLite and Postgres. Bound the result,

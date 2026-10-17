@@ -1,0 +1,6 @@
+/* Independent consumer styles; no host selectors or assets. */
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+main { max-width: 840px; margin: 32px auto; padding: 16px; }
+textarea { display: block; width: 100%; min-height: 100px; box-sizing: border-box; }
+button { padding: 8px 16px; margin: 8px 8px 8px 0; }
+[data-role="assistant"] { border-inline-start: 3px solid currentColor; padding-inline-start: 16px; white-space: pre-wrap; }

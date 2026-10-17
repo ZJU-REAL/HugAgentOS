@@ -18,7 +18,7 @@ use axum::{
     routing::{any, get, post},
     Json, Router,
 };
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 
 use crate::brand;
 use crate::config::ProvisionMode;
@@ -103,7 +103,7 @@ pub async fn serve(
     let injected_guard = injected_file.into_temp_path();
     let spa_index = injected_guard.to_path_buf();
     // SPA：静态资源命中即返回，未命中回落注入后的 index.html。
-    let serve_dir = ServeDir::new(&web_dir).fallback(ServeFile::new(&spa_index));
+    let serve_dir = ServeDir::new(&web_dir).fallback(spa::html_file(&spa_index));
 
     let app = Router::new()
         .merge(native.router())
@@ -144,7 +144,8 @@ pub async fn serve(
         // Page-config assets and manuals also live on the backend, not in the
         // frontend dist.  Forward them with the same streaming proxy.
         .route("/docs/*rest", any(proxy_handler))
-        .route_service("/", ServeFile::new(&spa_index))
+        .route_service("/", spa::html_file(&spa_index))
+        .route_service("/index.html", spa::html_file(&spa_index))
         .fallback_service(serve_dir)
         .with_state(state);
 
@@ -174,6 +175,7 @@ async fn login_status(State(state): State<ProxyState>, headers: HeaderMap) -> Re
 }
 
 mod deadline;
+mod spa;
 mod pages;
 mod state;
 /// 这次请求是不是来自本窗口自己的页面。

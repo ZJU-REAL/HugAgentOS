@@ -1,8 +1,8 @@
 """The actual /skill, /connector and /plugin API resolves desktop-only sources."""
 
 import pytest
-from api.routes.v1.chats.invocation import _resolve_explicit_capability_invocation
-from api.schemas import ChatRequest
+from core.services.session_operations.invocation import _resolve_explicit_capability_invocation
+from core.chat.schemas import ChatRequest
 from core.capabilities import registry, skills, store
 from core.capabilities.paths import revision_for_hash
 from core.config import catalog_resolver

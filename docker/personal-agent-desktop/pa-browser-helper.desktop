@@ -1,0 +1,9 @@
+[Desktop Entry]
+NoDisplay=true
+Version=1.0
+Type=X-XFCE-Helper
+Name=Personal Agent Browser
+Icon=web-browser
+X-XFCE-Category=WebBrowser
+X-XFCE-Commands=/usr/local/bin/pa-browser
+X-XFCE-CommandsWithParameter=/usr/local/bin/pa-browser "%s"

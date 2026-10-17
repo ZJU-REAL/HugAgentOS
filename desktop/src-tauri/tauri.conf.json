@@ -35,6 +35,8 @@
     "windows": {
       "nsis": {
         "installerHooks": "installer-hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "languages": [
           "SimpChinese",
           "English"

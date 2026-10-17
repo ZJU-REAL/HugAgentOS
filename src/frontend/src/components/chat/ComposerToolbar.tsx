@@ -7,14 +7,16 @@ import { ComposerModeChip } from './ComposerModeChip';
 import { ComposerSendButton } from './ComposerSendButton';
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu';
 import { ComposerProjectMenu } from './ComposerProjectMenu';
+import { VoiceInput } from '../voice/VoiceInput';
+import type { VoiceInputState } from '../voice/useVoiceInput';
 import { t } from '../../i18n';
 import type { InputAreaProps, ComposerOptions } from './composerTypes';
 import type { ComposerState } from './useComposerState';
 import type { ComposerEditor } from './useComposerEditor';
 
-export function ComposerToolbar({ state, editor, options, fileInputRef, showStopButton, composerHasContent }: {
+export function ComposerToolbar({ state, editor, options, fileInputRef, showStopButton, composerHasContent, voice }: {
   state: ComposerState; editor: ComposerEditor; options: ComposerOptions;
-  fileInputRef: InputAreaProps['fileInputRef']; showStopButton: boolean; composerHasContent: boolean;
+  fileInputRef: InputAreaProps['fileInputRef']; showStopButton: boolean; composerHasContent: boolean; voice?: VoiceInputState;
 }) {
   const { isCE, isAppAllowed, promptHubOpen, setPromptHubOpen, planMode, workflowModeOn,
     onCloseMode, showLoopEntry, loopMode, setLoopMode, uploadingFiles } = state;
@@ -89,8 +91,9 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
 
           {/* While a run is active, an empty composer keeps the stop button; typing switches
               back to send so Enter/click can queue a follow-up without cancelling the run. */}
+          {voice && <VoiceInput voice={voice} />}
           <ComposerSendButton stopping={showStopButton}
-            disabled={forkPending || uploadingFiles.size > 0 || !composerHasContent}
+            disabled={voice?.busy || forkPending || uploadingFiles.size > 0 || !composerHasContent}
             onSend={sendFromComposer} onStop={abort} />
         </div>
       </div>

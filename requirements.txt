@@ -87,6 +87,7 @@ pymilvus>=2.5.0,<2.6.0
 
 # Sandbox Provider — alibaba/OpenSandbox (optional;
 # only required when SANDBOX_PROVIDER=opensandbox)
+opensandbox>=0.1.15
 
 # Sandbox Provider — Tencent CubeSandbox / E2B-compatible (optional;
 # only required when SANDBOX_PROVIDER=cube)

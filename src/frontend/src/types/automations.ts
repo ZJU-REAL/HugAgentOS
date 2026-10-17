@@ -2,7 +2,7 @@ import type { EditionResourceFields } from '../editionModelTypes';
 
 // ── My Space types ─────────────────────────────────────────────────────────
 
-export type MySpaceTab = 'assets' | 'kb' | 'favorites' | 'shares' | 'notifications';
+export type MySpaceTab = 'assets' | 'kb' | 'favorites' | 'shares' | 'notifications' | 'agent';
 
 /** 知识库分档：公共库 / 私有库 */
 export type KbTabKey = 'public' | 'private';

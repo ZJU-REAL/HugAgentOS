@@ -17,6 +17,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def artifact_upload_key(user_id: str, artifact_id: str, filename: str) -> str:
+    """Canonical storage location, also used for safe compensation before SQL commit."""
+    env = os.getenv("ENVIRONMENT", "dev")
+    return f"{env}/{user_id}/user_uploads/{artifact_id}/{filename}"
+
+
 def store_bytes_as_artifact(
     db: Session,
     *,
@@ -30,8 +36,9 @@ def store_bytes_as_artifact(
     parsed_text: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
     artifact_id: Optional[str] = None,
+    commit: bool = True,
 ) -> ArtifactModel:
-    """Persist bytes to storage + create one Artifact row; return the committed Artifact.
+    """Persist bytes and create one Artifact row; commit by default, or flush for a caller-owned transaction.
 
     User uploads (/v1/file/upload) and inbound channel attachments
     (core/channels/inbound) share this entry point, avoiding copy-pasted
@@ -41,9 +48,8 @@ def store_bytes_as_artifact(
     from core.db.personal_file_names import check_name
 
     check_name(db, user_id, user_folder_id, filename)
-    env = os.getenv("ENVIRONMENT", "dev")
     artifact_id = artifact_id or f"ua_{uuid.uuid4().hex[:16]}"
-    storage_key = f"{env}/{user_id}/user_uploads/{artifact_id}/{filename}"
+    storage_key = artifact_upload_key(user_id, artifact_id, filename)
     from core.storage import get_storage
 
     storage_url = get_storage().upload_bytes(content, storage_key)
@@ -68,8 +74,11 @@ def store_bytes_as_artifact(
         extra_data=meta,
     )
     db.add(artifact)
-    db.commit()
-    db.refresh(artifact)
+    if commit:
+        db.commit()
+        db.refresh(artifact)
+    else:
+        db.flush()
     return artifact
 
 

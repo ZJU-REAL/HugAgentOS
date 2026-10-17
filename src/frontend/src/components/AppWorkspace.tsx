@@ -1,3 +1,4 @@
+import { ChatSlot } from '../customization/ChatCustomization';
 import {WorkspaceRuntime} from '../workbench/WorkspaceRuntime';
 import {ActivityPanel} from '../workbench/ActivityPanel';
 import {navigateTo} from '../routing/navigation';
@@ -61,7 +62,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
-      <Sidebar
+      <ChatSlot name="sidebar"><Sidebar
         onNewChat={handleNewChat}
         onNewProjectChat={handleNewProjectChat}
         onDeleteChat={deleteChat}
@@ -72,7 +73,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
         onExportChat={(id) => void exportChatRecord(id)}
         onSelectChat={handleSelectChat}
         onSetPanel={handleSetPanel}
-      />
+      /></ChatSlot>
       {!siderCollapsed && (
         <button
           type="button"

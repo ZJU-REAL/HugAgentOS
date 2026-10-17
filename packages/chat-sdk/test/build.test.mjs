@@ -1,0 +1,21 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync,mkdirSync,cpSync,symlinkSync,existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const root=fileURLToPath(new URL('../../../',import.meta.url));
+test('frontend build entry compiles the SDK without SDK-local node_modules',()=>{
+ const clean=mkdtempSync(path.join(root,'.scratch/chat-sdk-clean-'));
+ mkdirSync(path.join(clean,'packages/chat-sdk'),{recursive:true});mkdirSync(path.join(clean,'scripts'));
+ mkdirSync(path.join(clean,'src/frontend'),{recursive:true});
+ cpSync(path.join(root,'packages/chat-sdk/src'),path.join(clean,'packages/chat-sdk/src'),{recursive:true});
+ cpSync(path.join(root,'packages/chat-sdk/tsconfig.json'),path.join(clean,'packages/chat-sdk/tsconfig.json'));
+ cpSync(path.join(root,'packages/chat-sdk/package.json'),path.join(clean,'packages/chat-sdk/package.json'));
+ cpSync(path.join(root,'scripts/build-chat-sdk.mjs'),path.join(clean,'scripts/build-chat-sdk.mjs'));
+ cpSync(path.join(root,'src/frontend/package.json'),path.join(clean,'src/frontend/package.json'));
+ symlinkSync(path.join(root,'src/frontend/node_modules'),path.join(clean,'src/frontend/node_modules'),'dir');
+ execFileSync(process.execPath,[path.join(clean,'scripts/build-chat-sdk.mjs')],{cwd:clean,stdio:'pipe'});
+ assert.equal(existsSync(path.join(clean,'packages/chat-sdk/node_modules')),false);
+ assert.equal(existsSync(path.join(clean,'packages/chat-sdk/dist/react.js')),true);
+});

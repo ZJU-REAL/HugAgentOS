@@ -30,7 +30,7 @@ def get_registry() -> Optional[MySpaceRegistry]:
 
 
 async def flush_user(
-    user_id: str, *, metadata_only: bool = False, paths: tuple[str, ...] = ()
+    user_id: str, *, metadata_only: bool = False, paths: tuple[str, ...] = (), strict: bool = False
 ) -> None:
     "催一下这个用户待登记的改动 —— 读「我的空间」之前调，看到的就是当下状态。"
     if _registry is None or not user_id:
@@ -56,13 +56,29 @@ async def flush_user(
             ):
                 raise ValueError("Invalid personal source path")
             _registry._receive(Change("modified", user_id + "/" + path, observed=time()))
+        try:
+            await _registry.flush(
+                user_id, metadata_only=metadata_only, strict=strict or bool(paths), paths=paths
+            )
+        except (RuntimeError, TimeoutError):
+            if strict or paths:
+                raise
+            logger.warning(
+                "[myspace-registry] Pending writes retained; serving committed data user=%s",
+                user_id,
+            )
         if metadata_only:
-            await _registry.flush(user_id, metadata_only=True)
             return
-        await _registry.flush(user_id)
-        report = await asyncio.to_thread(pull_myspace_updates, user_id=user_id)
+        report = await asyncio.to_thread(pull_myspace_updates, user_id=user_id, paths=paths)
         if report.failed or report.conflicted:
-            raise RuntimeError("部分空间文件尚未同步")
+            if strict or paths:
+                raise RuntimeError("部分空间文件尚未同步")
+            logger.warning(
+                "[myspace-registry] Partial projection retained user=%s failed=%d conflicted=%d",
+                user_id,
+                report.failed,
+                report.conflicted,
+            )
     except Exception as exc:
         logger.warning(
             "[myspace-registry] 同步屏障未完成 user=%s error=%s", user_id, type(exc).__name__
