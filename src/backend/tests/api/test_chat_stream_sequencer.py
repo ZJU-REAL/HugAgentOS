@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
-import api.routes.v1.chats.agent_targets as chat_agent_targets
-import api.routes.v1.chats.invocation as chat_invocation
-import api.routes.v1.chats.models as chat_models
-import api.routes.v1.chats.request_context as chat_request_context
+import core.services.session_operations.agent_targets as chat_agent_targets
+import core.services.session_operations.invocation as chat_invocation
+import core.services.session_operations.schemas as chat_models
+import core.services.session_operations.request_context as chat_request_context
 import api.routes.v1.chats.reruns as chat_reruns
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.chat.context as chat_context
 import core.db.engine as db_engine
 import core.infra.responses as responses

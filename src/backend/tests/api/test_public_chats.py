@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.auth.backend import get_current_user, require_auth
 from core.auth.public_chat import authenticate_public_chat, public_session_matches
 from core.db.engine import Base

@@ -1,3 +1,4 @@
+import { PERSONAL_AGENT_DICT } from './personalAgent';
 import { WORKBENCH_DICT } from './workbench';
 import { WORKBENCH_AUTH_DICT } from './workbenchAuth';
 import { ARCHIVE_DICT } from './archive';
@@ -24,6 +25,7 @@ import { CE_SHARED_DICT } from './ceShared';
 import { SIDEBAR_LAYOUT_DICT } from './sidebarLayout';
 
 export const EN_DICT: Record<string, string> = {
+  ...PERSONAL_AGENT_DICT,
   ...WORKBENCH_DICT,
   ...WORKBENCH_AUTH_DICT,
   ...ARCHIVE_DICT,

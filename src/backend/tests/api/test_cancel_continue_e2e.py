@@ -14,7 +14,7 @@ import fakeredis.aioredis
 import httpx
 import pytest
 from api.routes.v1 import agent_responses, chat_runs, chats
-from api.routes.v1.chats import invocation
+from core.services.session_operations import invocation
 from core.auth.backend import UserContext, get_current_user
 from core.db import engine as db_engine
 from core.db.engine import Base, get_db
@@ -56,7 +56,7 @@ def environment(tmp_path, monkeypatch):
     async def preferences(*_):
         return (None, None, None), {}
 
-    monkeypatch.setattr(agent_responses, "_read_preferences", preferences)
+    monkeypatch.setattr("core.services.session_operations.admission._read_preferences", preferences)
     app = FastAPI()
     for router in (agent_responses.router, chats.router, chat_runs.router):
         app.include_router(router)

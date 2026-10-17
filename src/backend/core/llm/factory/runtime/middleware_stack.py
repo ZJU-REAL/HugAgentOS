@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.llm.steer_middleware import SteerMiddleware
+
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.runtime import evidence as factory_evidence_helpers
@@ -17,7 +19,6 @@ from core.llm.middlewares import (
     OntologyGateMiddleware,
     PlanStaleReminderMiddleware,
     StallInterventionMiddleware,
-    SteerMiddleware,
     ToolEffectMiddleware,
     WorkspacePinHintMiddleware,
 )
@@ -143,7 +144,15 @@ async def middleware_stack(
     if request.profile:
         from core.extensions import agent_profile
 
-        _policy_middlewares.extend(agent_profile(request.profile).middlewares(request))
+        for middleware in agent_profile(request.profile).middlewares(request):
+            if isinstance(middleware, SteerMiddleware):
+                # Profiles change the source, not its position before approvals
+                # and durable tool effects.
+                index = next(i for i, item in enumerate(_policy_middlewares)
+                             if isinstance(item, SteerMiddleware))
+                _policy_middlewares[index] = middleware
+            else:
+                _policy_middlewares.append(middleware)
     # The Agent sees one framework adapter. Transitional AgentScope policies
     # execute inside its compatibility chain and can be deleted one by one as
     # their neutral HookSpec replacements reach parity.

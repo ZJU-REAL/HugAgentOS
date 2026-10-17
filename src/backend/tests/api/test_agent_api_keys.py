@@ -33,7 +33,7 @@ from core.services.agent_api_service import (
     prepare_agent_api_request,
 )
 from tests.api.test_agent_api_scope import db, _key, _user
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 
 
 def _app(db, monkeypatch, *, user_id="owner", middleware=False):

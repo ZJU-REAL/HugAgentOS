@@ -163,7 +163,7 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 
 ### Application and middleware
 
-`api/app.py` creates the FastAPI app and runs startup hooks serially in its lifespan: table fallback → Run recovery → stale-Run reaper → sandbox pool warm-up → page-config / prompt-version seeding → MCP catalog sync → preloading → automation and distillation schedulers → memory warm-up. Middleware lives in `api/middleware/`: `cors.py`, `logging.py` (structured request logs + trace_id), and `error_handler.py` (exceptions → unified error envelope). `api/deps.py` provides auth and user-resolution dependencies, `api/health.py` the health checks, and `api/schemas.py` the shared Pydantic models.
+`api/app.py` creates the FastAPI app and runs startup hooks serially in its lifespan: table fallback → Run recovery → stale-Run reaper → sandbox pool warm-up → page-config / prompt-version seeding → MCP catalog sync → preloading → automation and distillation schedulers → memory warm-up. Middleware lives in `api/middleware/`: `cors.py`, `logging.py` (structured request logs + trace_id), and `error_handler.py` (exceptions → unified error envelope). `api/deps.py` provides auth and user-resolution dependencies, `api/health.py` the health checks, and `core/chat/schemas.py` the shared Pydantic models.
 
 ### The router registry (CE/EE seam C1)
 

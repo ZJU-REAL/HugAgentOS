@@ -380,6 +380,24 @@ Builtin MCP invocations, including browser automation, require the same `BACKEND
 
 Hosting remains opt-in. See [application deployment](../modules/application-hosting.md) and [browser deployment](../modules/browser-automation.md). Cloud site writes require shared Redis; missing or unavailable Redis rejects writes.
 
+## Personal Agent (CE / EE)
+
+| Variable | Use |
+| --- | --- |
+| PERSONAL_AGENT_ENABLED | Loads the module (default `false`). When off it registers no routes, background worker or channel routing |
+| PERSONAL_AGENT_OPENSANDBOX_DOMAIN | Dedicated authenticated controller address |
+| PERSONAL_AGENT_OPENSANDBOX_API_KEY | Separate controller credential; at least 32 characters |
+| PERSONAL_AGENT_IMAGE | Versioned graphical computer image |
+| PERSONAL_AGENT_VOLUME_ROOT | Absolute host directory for dedicated persistent volumes |
+| PERSONAL_AGENT_LOCAL_VOLUME_ROOT | Matching directory visible inside the backend |
+| PERSONAL_AGENT_HEARTBEAT | `off` stops all heartbeat checks on this backend (default `on`); user settings stay |
+| PERSONAL_AGENT_HEARTBEAT_MIN_MINUTES | Lowest heartbeat interval a user can set, in minutes (default 15) |
+| PERSONAL_AGENT_HEARTBEAT_DAILY_MAX | Maximum heartbeat checks for one agent in one day (default 48) |
+
+With the module enabled, existing authenticated CE users can use Personal Agent. EE additionally checks the **Personal Agent** permission granted per user, role or team in the Config console (default off). Revoking that permission hides the entry and stops queued, scheduled and channel work. A persistent_sandbox license is not required. Both editions enforce ownership and action approvals.
+
+See [Personal Agent](../modules/personal-agent.md). Use docker/compose.personal-agent.yml with the root Compose file and the personal-agent profile.
+
 <!-- End Personal Agent settings -->
 
 `PERSONAL_AGENT_CLI_SERVER` (EE): The backend address reachable from the cloud computer. Default: `http://backend:3001`. No credentials. When the sandbox runs on another server, use a reachable application address such as `http://<application private address>/api`.

@@ -1,3 +1,4 @@
+import { chatCustomizationPlugin } from './scripts/chat-customization-plugin.mjs';
 import { defineConfig, loadEnv } from 'vite'
 import type { PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -84,7 +85,11 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [react(), univerHyphenationTrim()],
+    plugins: [react(), univerHyphenationTrim(), chatCustomizationPlugin({
+      entry: process.env.HUGAGENT_CHAT_CUSTOMIZATION || env.HUGAGENT_CHAT_CUSTOMIZATION,
+      root: __dirname,
+    })],
+    resolve: { dedupe: ['react', 'react-dom', '@hugagent/chat-sdk'] },
     // 从项目根目录读取 .env，使 VITE_API_BASE_URL 和 SSO_LOGIN_URL 在 build 时生效
     envDir: repoRoot,
     envPrefix: ['VITE_', 'SSO_LOGIN_URL'],

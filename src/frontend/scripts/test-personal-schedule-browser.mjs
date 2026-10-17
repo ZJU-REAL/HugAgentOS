@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { readFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { chromium } from 'playwright';
+const output = resolve('node_modules/.tmp/personal-schedule');
+await mkdir(output, { recursive: true });
+await build({ entryPoints: ['scripts/personal-schedule-fixture.tsx'], outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' }, alias: { '@hugagent/workbench-protocol': resolve('../../packages/workbench-protocol/dist/index.js') } });
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage(); const errors = []; let saved; let rejectSave = false;
+  let current = { id: 'schedule-1', title: '邮件摘要', instruction: '阅读邮件', cron: '0 8 * * *', timezone: 'Asia/Shanghai', next_run: '2099-01-01T08:00:00+08:00' };
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('http://schedule.test/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/fixture.js') return route.fulfill({ contentType: 'text/javascript', body: await readFile(resolve(output, 'fixture.js')) });
+    if (path === '/fixture.css') return route.fulfill({ contentType: 'text/css', body: await readFile(resolve(output, 'fixture.css')) });
+    if (path.endsWith('/schedules/schedule-1')) { saved = route.request().postDataJSON(); if (rejectSave) return route.fulfill({ status: 409, json: { detail: 'Schedule changed; reopen settings and try again' } }); current = { ...current, ...saved }; return route.fulfill({ json: { code: 0, data: { id: 'schedule-1', ...saved } } }); }
+    if (path === '/fixture-state') return route.fulfill({ json: [current] });
+    return route.fulfill({ contentType: 'text/html', body: '<link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script>' });
+  });
+  await page.goto('http://schedule.test');
+  await page.getByRole('button', { name: '定时任务设置' }).click({ timeout: 4000 });
+  await page.getByLabel('任务名称').fill('每日摘要');
+  await page.getByLabel('执行内容').fill('总结重要邮件并列出待办');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByText('每日摘要', { exact: true }).waitFor();
+  assert.equal(saved.cron, undefined); assert.equal(saved.run_at, undefined); assert.equal(saved.timezone, undefined);
+  assert.equal(saved.title, '每日摘要'); assert.equal(saved.instruction, '总结重要邮件并列出待办');
+  await page.screenshot({ path: resolve(output, 'schedule-list.png') });
+  await page.getByRole('button', { name: '定时任务设置' }).click();
+  await page.getByLabel('重复规则').fill('30 9 * * 1-5');
+  await page.getByLabel('时区', { exact: true }).fill('America/Los_Angeles');
+  await page.screenshot({ path: resolve(output, 'schedule-settings.png') });
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(saved.cron, '30 9 * * 1-5'); assert.equal(saved.timezone, 'America/Los_Angeles');
+  await page.getByRole('button', { name: '单次任务' }).click();
+  await page.getByRole('button', { name: '定时任务设置' }).click();
+  await page.getByLabel('任务名称').fill('单次提醒');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(saved.cron, undefined); assert.equal(saved.run_at, undefined);
+  await page.getByRole('button', { name: '定时任务设置' }).click();
+  await page.getByLabel('任务名称').fill('保留未保存草稿');
+  rejectSave = true;
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByText('定时任务已被修改，请重新打开设置后再试。').waitFor();
+  assert.equal(await page.getByLabel('任务名称').inputValue(), '保留未保存草稿');
+  await page.getByRole('button', { name: /取\s*消/ }).click();
+  await page.getByRole('button', { name: '清空列表' }).click();
+  await page.getByText('暂无定时任务', { exact: false }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log('PASS: schedule settings save, unchanged timing, custom cron/timezone, once, conflict preserves draft, empty state');
+} finally { await browser.close(); }

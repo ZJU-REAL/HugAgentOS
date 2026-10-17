@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-from api.routes.v1.chats.agent_targets import _resolve_chat_agent_targets, _strip_direct_mention_prefix
-from api.schemas import ChatRequest
+from core.services.session_operations.agent_targets import _resolve_chat_agent_targets, _strip_direct_mention_prefix
+from core.chat.schemas import ChatRequest
 from core.llm.subagent_tool import _shared_ontology_runtime, build_explicit_subagent_command_hint
 from core.services.subagent_routing_service import parse_explicit_subagent_command
 from fastapi import HTTPException

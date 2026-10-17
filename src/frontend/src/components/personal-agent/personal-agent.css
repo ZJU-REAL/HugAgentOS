@@ -1,0 +1,278 @@
+.jx-panel[data-panel="personal_agent"]{height:100%;min-height:0;padding:0;max-width:none}
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
+.pa-panel{--pa-scroll-extension:364px;--pa-chat-bg:var(--color-personal-bg);--pa-assistant-bg:var(--color-personal-assistant);--pa-user-bg:var(--color-personal-user);--pa-chat-text:var(--color-personal-text);--pa-chat-link:var(--color-personal-link);--pa-composer-bg:var(--color-bg-elevated);--pa-composer-shadow:var(--shadow-personal-composer);background:var(--pa-chat-bg);display:flex;position:relative;min-height:0;height:100%;gap:24px;padding:12px 20px 0;color:var(--color-text)}
+.pa-conversation{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;width:100%}
+.pa-header{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 4px 14px;font-size:16px}
+.pa-header strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-side-toggle{display:none;margin-left:auto}
+
+/* ── Avatar ─────────────────────────────────────────────────────────── */
+.pa-avatar{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:28%;object-fit:cover;line-height:1;user-select:none;background:var(--color-bg-layout)}
+.pa-avatar--blue{background:var(--color-tint-blue-bg)}
+.pa-avatar--amber{background:var(--color-tint-amber-bg)}
+.pa-avatar--purple{background:var(--color-tint-purple-bg)}
+.pa-avatar--teal{background:var(--color-tint-teal-bg)}
+.pa-avatar--green{background:var(--color-tint-green-bg)}
+.pa-avatar--cyan{background:var(--color-tint-cyan-bg)}
+
+/* ── Messages ───────────────────────────────────────────────────────── */
+/* Extend the viewport past the status column; keep message content in its original column. */
+.pa-messages{flex:1;overflow:auto;margin-right:calc(0px - var(--pa-scroll-extension));padding:8px var(--pa-scroll-extension) 20px 0;min-height:0;scrollbar-gutter:stable}
+.pa-messages-inner{max-width:760px;margin:0 auto;padding:0;box-sizing:border-box}
+.pa-conversation>.ant-alert,.pa-conversation>.pa-attention,.pa-conversation>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+.pa-message{position:relative;margin:0 0 24px;max-width:100%;width:fit-content;overflow-wrap:anywhere;padding-right:36px;box-sizing:border-box}
+.pa-message-user{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;max-width:88%}
+.pa-message-assistant{max-width:80%}
+.pa-message-bubble{position:relative;min-width:0;max-width:100%;box-sizing:border-box;padding:14px 20px;border:0;border-radius:28px;color:var(--pa-chat-text)}
+.pa-message-assistant .pa-message-bubble{background:var(--pa-assistant-bg)}
+.pa-message-user .pa-message-bubble{background:var(--pa-user-bg)}
+.pa-message .pa-message-text{font-size:16px;line-height:1.55;color:inherit}
+.pa-message .pa-message-text p{margin:0 0 12px}
+.pa-message-text>:first-child,.pa-message-text>div>:first-child{margin-top:0}
+.pa-message-text>:last-child,.pa-message-text>div>:last-child{margin-bottom:0}
+.pa-message .pa-message-text :is(ul,ol){margin:12px 0;padding-left:24px}
+.pa-message .pa-message-text li+li{margin-top:10px}
+.pa-message .pa-message-text :is(h1,h2,h3,h4){font-size:1em;line-height:1.5;margin:18px 0 10px;font-weight:650}
+.pa-message .pa-message-text a{color:var(--pa-chat-link);text-underline-offset:3px;font-weight:400;border-bottom:0}
+.pa-message.pa-message-user .pa-message-text a{text-decoration:underline;color:inherit}
+.pa-message .pa-message-text strong{color:inherit;font-weight:650}
+.pa-message-text :is(pre,.jx-tableWrap){max-width:100%;overflow-x:auto}
+.pa-message-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pa-message .pa-message-actions{position:absolute;top:50%;left:100%;right:auto;transform:translateY(-50%);margin:0;padding:0 0 0 4px;min-height:28px}
+.pa-message:hover .jx-msgActionBtn,.pa-message:focus-within .jx-msgActionBtn{opacity:1;pointer-events:auto}
+.pa-message-author{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-tertiary);margin-bottom:8px}
+.pa-message-assistant .pa-message-author{font-size:14px;font-weight:600;color:var(--color-text)}
+.pa-message-source{display:inline-flex;align-items:center;gap:4px;margin-left:4px;font-weight:400}
+.pa-empty{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;min-height:320px;color:var(--color-text-tertiary);text-align:center}
+.pa-empty h2{margin:16px 0 0;font-size:22px;font-weight:600;color:var(--color-text)}
+.pa-empty p{margin:0;font-size:14px}
+.pa-attachment{display:inline-flex;gap:6px;margin-right:12px;font-size:13px}
+.pa-skeleton{height:100px}
+
+/* ── Composer ───────────────────────────────────────────────────────── */
+.pa-composer{width:100%;max-width:760px;box-sizing:border-box;align-self:center;padding:10px 14px;border:1px solid transparent;border-radius:32px;background:var(--pa-composer-bg);box-shadow:var(--pa-composer-shadow);margin:12px 0 0;transition:border-color var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-composer:focus-within{border-color:color-mix(in srgb,var(--color-primary) 45%,transparent)}
+.pa-composer-input{display:flex;align-items:flex-end;gap:10px;min-width:0}
+.pa-composer .pa-composer-input textarea{flex:1;min-width:0;border:0;box-shadow:none!important;background:transparent;resize:none;padding:7px 0;font-size:16px;line-height:24px;color:var(--pa-chat-text)}
+.pa-composer .pa-composer-attach,.pa-composer .pa-composer-send{flex-shrink:0;width:38px;height:38px;box-shadow:none}
+.pa-composer .pa-composer-attach{font-size:20px;color:var(--pa-chat-text)}
+.pa-composer .pa-composer-send:disabled{background:var(--pa-user-bg);color:var(--color-text-tertiary);border-color:transparent;opacity:.45}
+.pa-composer .pa-composer-send:not(:disabled){background:var(--pa-user-bg);color:var(--pa-chat-text);border:0;font-size:19px}
+.pa-composer .pa-composer-send:not(:disabled):hover{background:color-mix(in srgb,var(--pa-user-bg) 85%,var(--pa-chat-link))}
+.pa-composer-files{display:flex;flex-wrap:wrap;gap:6px;padding:2px 4px 10px}
+.pa-composer-files .ant-btn{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
+.pa-composer-preferences{width:100%;max-width:760px;align-self:center;box-sizing:border-box;padding:8px 16px 12px}
+.pa-composer-preferences .jx-composerChip{font-size:11px;color:var(--color-text-tertiary)}
+.pa-confirmBar-preview{margin-top:6px;font-size:12px;line-height:1.6;color:var(--color-text-secondary);white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.pa-task-dialog-actions .jx-confirmBar{margin:0}
+
+/* ── Needs your action ──────────────────────────────────────────────── */
+.pa-attention{margin:0 0 10px;padding:10px 14px;border:1px solid color-mix(in srgb,var(--color-warning) 35%,transparent);border-radius:var(--radius-md);background:var(--color-warning-bg);max-height:38vh;overflow-y:auto}
+.pa-attention header{display:flex;gap:6px;align-items:center;font-weight:600;font-size:13px;margin-bottom:6px;color:var(--color-text)}
+.pa-attention-item{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid color-mix(in srgb,var(--color-text) 8%,transparent);font-size:12px}
+.pa-attention-item p{margin:0;color:var(--color-text-secondary)}
+.pa-task-title{white-space:normal;height:auto;text-align:left;padding:0;justify-content:flex-start}
+.pa-task-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ── Side panel (status, channels, computers, activity, outputs) ────── */
+.pa-side{align-self:flex-start;position:sticky;top:12px;width:320px;flex-shrink:0;max-height:calc(100vh - 110px);overflow:auto;background:var(--color-bg-container);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);padding:20px 16px 12px}
+.pa-side-profile{display:flex;align-items:center;gap:14px;padding:0 4px}
+.pa-side-avatar{position:relative;padding:0;border:0;background:none;cursor:pointer;border-radius:28%}
+.pa-side-avatar:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+.pa-side-avatar-edit{position:absolute;right:-4px;bottom:-4px;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:11px;background:var(--color-bg-elevated);color:var(--color-text-secondary);box-shadow:var(--shadow-dropdown);opacity:0;transition:opacity var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-side-avatar:hover .pa-side-avatar-edit,.pa-side-avatar:focus-visible .pa-side-avatar-edit{opacity:1}
+.pa-side-identity{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pa-side-identity strong{font-size:18px;font-weight:600;line-height:1.3;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.pa-side-status{font-size:14px;color:var(--color-text-tertiary)}
+.pa-side-status--attention{color:var(--color-warning)}
+/* motion-keep: this is the only sign that the agent is still working; a frozen ellipsis reads as stuck. */
+.pa-side-ellipsis::after{content:'…';display:inline-block;animation:pa-blink 1.2s steps(4,end) infinite}
+@keyframes pa-blink{0%{opacity:.2}50%{opacity:1}100%{opacity:.2}}
+.pa-side-close{display:none}
+
+.pa-side-channels{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 4px}
+.pa-side-chip{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:0;height:44px;padding:0 14px;border:0;border-radius:14px;background:var(--color-bg-layout);color:var(--color-text);font-size:14px;cursor:pointer;flex:1 1 auto;transition:background var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-side-chip span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-side-chip:hover{background:var(--color-fill-hover)}
+.pa-side-chip:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
+.pa-side-chip--wide{width:100%}
+.pa-side-chip--icon{flex:0 0 44px;padding:0}
+
+.pa-side-section{padding-top:18px}
+.pa-side-section h3{margin:0 0 6px;padding:0 4px;font-size:14px;font-weight:400;color:var(--color-text-tertiary)}
+.pa-side-empty{margin:4px;font-size:13px;color:var(--color-text-placeholder)}
+
+.pa-side-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:6px 4px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-text);text-align:left}
+button.pa-side-row{cursor:pointer}
+button.pa-side-row:hover:not(:disabled){background:var(--color-bg-layout)}
+button.pa-side-row:disabled{cursor:default}
+.pa-side-icon{position:relative;display:flex;font-size:20px;color:var(--color-text-tertiary)}
+.pa-dot{position:absolute;right:-3px;bottom:-1px;width:8px;height:8px;border-radius:50%;background:var(--color-fill-heavy);box-shadow:0 0 0 2px var(--color-bg-container)}
+.pa-dot--on{background:var(--color-success)}
+.pa-side-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.pa-side-text strong{font-size:15px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-side-text small{font-size:13px;color:var(--color-text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-side-thumb{flex-shrink:0;width:96px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--color-border);background:var(--color-bg-layout)}
+.pa-side-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.pa-side-thumb .jx-skeletonBlock{display:block;width:100%;height:100%}
+.pa-side-link,.pa-side-more{display:flex;align-items:center;gap:8px;width:100%;padding:8px 4px;border:0;background:none;font-size:14px;color:var(--color-text-tertiary);cursor:pointer;text-align:left;border-radius:var(--radius-sm)}
+.pa-side-link:hover,.pa-side-more:hover{color:var(--color-text);background:var(--color-bg-layout)}
+
+.pa-activity{list-style:none;margin:0;padding:0}
+.pa-activity>li{position:relative}
+.pa-activity-row{display:flex;align-items:center;gap:12px;width:100%;min-height:40px;padding:6px 4px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-text);font-size:15px;text-align:left;cursor:pointer}
+.pa-activity-row:hover{background:var(--color-bg-layout)}
+.pa-activity-row--static{cursor:default}
+.pa-activity-row--static:hover{background:none}
+.pa-activity-row small{flex-shrink:0;font-size:12px;color:var(--color-text-tertiary)}
+.pa-activity-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-activity-icon{flex-shrink:0;font-size:18px;color:var(--color-text-tertiary)}
+.pa-activity-icon--running{color:var(--color-primary)}
+.pa-activity-icon--warning{color:var(--color-warning)}
+.pa-activity-icon--error{color:var(--color-error)}
+.pa-schedule{display:flex;align-items:center}
+.pa-schedule>.pa-activity-row{flex:1;min-width:0}
+.pa-side-empty{font-size:12px;line-height:1.7;color:var(--color-text-tertiary)}
+
+.pa-outputs{list-style:none;margin:0;padding:0}
+.pa-output{display:flex;align-items:center;border-radius:var(--radius-sm)}
+.pa-output:hover{background:var(--color-bg-layout)}
+.pa-output-name{display:flex;align-items:center;gap:12px;flex:1;min-width:0;min-height:40px;padding:6px 4px;border:0;background:none;color:var(--color-text);font-size:15px;text-align:left;cursor:pointer}
+.pa-output-name .anticon{flex-shrink:0;font-size:18px;color:var(--color-text-tertiary)}
+.pa-output-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-output-action{opacity:0;padding-right:4px}
+.pa-output:hover .pa-output-action,.pa-output:focus-within .pa-output-action{opacity:1}
+
+/* ── Channels modal ─────────────────────────────────────────────────── */
+.pa-channel-mark{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:28%;font-weight:600;line-height:1}
+.pa-channel-mark--blue{background:var(--color-tint-blue-bg);color:var(--color-tint-blue)}
+.pa-channel-mark--cyan{background:var(--color-tint-cyan-bg);color:var(--color-tint-cyan)}
+.pa-channel-mark--green{background:var(--color-tint-green-bg);color:var(--color-tint-green)}
+.pa-channel-mark--teal{background:var(--color-tint-teal-bg);color:var(--color-tint-teal)}
+.pa-channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.pa-channel-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container)}
+.pa-channel-card header{display:flex;align-items:center;gap:10px}
+.pa-channel-card header strong{flex:1;font-size:14px}
+.pa-channel-state{font-size:12px;color:var(--color-text-placeholder)}
+.pa-channel-state--on{color:var(--color-success)}
+.pa-channel-bot{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.pa-channel-bot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-channel-bot em{margin-left:6px;font-style:normal;color:var(--color-text-placeholder)}
+
+/* ── Profile, settings, dialogs ─────────────────────────────────────── */
+.pa-profile{display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0}
+.pa-profile-grid{display:grid;grid-template-columns:repeat(4,56px);gap:10px}
+.pa-profile-option{display:flex;align-items:center;justify-content:center;width:56px;height:56px;padding:0;border:2px solid transparent;border-radius:16px;background:none;cursor:pointer}
+.pa-profile-option:hover{border-color:var(--color-border)}
+.pa-profile-option--active{border-color:var(--color-primary)}
+/* Settings: grouped rows, label and description left, control right. */
+.pa-settings-modal .ant-modal-body{max-height:min(72vh,720px);overflow-y:auto;margin-right:-12px;padding-right:12px}
+.pa-settings{display:flex;flex-direction:column;gap:20px;padding-top:4px}
+.pa-set-hero{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);color:var(--color-text);text-align:left;cursor:pointer;transition:background var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-set-hero:hover{background:var(--color-bg-layout)}
+.pa-set-hero>.anticon{color:var(--color-text-placeholder)}
+.pa-set-group h3{margin:0 0 8px 4px;font-size:13px;font-weight:500;color:var(--color-text-tertiary)}
+.pa-set-card{border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);overflow:hidden}
+.pa-set-row{display:flex;align-items:center;gap:14px;padding:14px 16px}
+.pa-set-row+.pa-set-row{border-top:1px solid var(--color-border)}
+.pa-set-row--stacked{flex-wrap:wrap}
+.pa-set-row--stacked .pa-set-control{flex-basis:100%;padding-left:34px}
+.pa-set-icon{display:flex;flex-shrink:0;width:20px;justify-content:center;font-size:18px;color:var(--color-text-tertiary)}
+.pa-set-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.pa-set-text strong{font-size:14px;font-weight:500;color:var(--color-text)}
+.pa-set-text span{font-size:12px;color:var(--color-text-tertiary);line-height:1.5}
+.pa-set-control{flex-shrink:0}
+.pa-set-action{margin-left:auto;flex-shrink:0}
+.pa-set-model-options{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pa-set-model-options>.ant-select{flex:1;min-width:150px}
+.pa-set-effort{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-tertiary)}
+.pa-set-effort .ant-select{width:132px}
+.pa-set-inline{display:flex;align-items:center;gap:10px}
+.pa-set-tags{display:flex;flex-wrap:wrap;gap:6px}
+.pa-set-tags .ant-tag{margin:0}
+.pa-set-muted{font-size:12px;color:var(--color-text-tertiary)}
+/* The email connector embedded in a row: no own padding, the row already has it. */
+.pa-set-control .jx-conn--compact{padding:0}
+.pa-set-control .jx-conn--compact .jx-conn-statusBar{padding:10px 12px;box-shadow:none}
+.pa-set-control .jx-conn--compact .jx-conn-form{margin-top:12px}
+.pa-heartbeat-times{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.pa-pairing{display:flex;flex-direction:column;gap:10px}
+.pa-hint{font-size:12px;color:var(--color-text-tertiary);margin:4px 0 0}
+.pa-task-dialog-actions{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;font-size:12px}
+.pa-task-dialog-actions p{margin:0;color:var(--color-text-secondary)}
+.pa-task-conversation{height:60vh;overflow:auto;padding:12px}
+.pa-task-conversation .jx-msgInner{width:100%}
+/* Cloud computer in the canvas: only the screen, framed simply. */
+.jx-rightSidebar--custom .jx-rightSidebar-body{display:flex;flex-direction:column;min-height:0}
+.pa-computer-canvas{display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;padding:16px}
+.pa-computer-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px}
+.pa-computer-live{display:inline-flex;align-items:center;gap:8px;min-width:0;font-size:13px;color:var(--color-text-tertiary)}
+.pa-computer-live i{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--color-success);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-success) 20%,transparent)}
+.pa-computer-live--control{color:var(--color-primary)}
+.pa-computer-live--control i{background:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 20%,transparent)}
+.pa-computer-notice{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--color-warning)}
+/* The screen keeps one size. Status text floats over it, so nothing around it can move it. */
+.pa-screen{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px;border-radius:var(--radius-md);background:var(--color-bg-layout);outline:none;overflow:hidden;container-type:size;transition:box-shadow var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-screen--control{box-shadow:inset 0 0 0 2px var(--color-primary)}
+.pa-screen-frame{position:relative;width:min(100%,160cqh);aspect-ratio:16/10;border-radius:10px;overflow:hidden;border:1px solid color-mix(in srgb,var(--color-text) 10%,transparent);box-shadow:var(--shadow-card);background:var(--color-bg-container)}
+.pa-screen-poster{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;user-select:none}
+.pa-live-host{position:absolute;inset:0;opacity:0}
+.pa-live-host--ready{opacity:1}
+.pa-live-host canvas{display:block}
+.pa-screen-input{position:absolute;left:0;top:0;width:1px;height:1px;padding:0;border:0;opacity:0;resize:none;pointer-events:none}
+.pa-screen-loading{position:absolute;inset:0}
+.pa-screen-status{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);margin:0;max-width:calc(100% - 24px);padding:4px 12px;border-radius:999px;font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-secondary);background:color-mix(in srgb,var(--color-bg-elevated) 88%,transparent);box-shadow:var(--shadow-card);pointer-events:none}
+.pa-header-identity{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.pa-header-status{font-size:12px;color:var(--color-text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-typing{display:inline-flex;align-items:center;justify-content:center;min-width:64px;height:44px;box-sizing:border-box;padding:0 16px;border-radius:24px;background:var(--pa-assistant-bg);color:var(--color-text-tertiary)}
+.pa-typing-row{margin:0 0 24px}
+.pa-typing-dots{display:inline-flex;gap:4px}
+/* motion-keep: this is the visible indication that a reply is being prepared. */
+.pa-typing-dots i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pa-blink 1.2s infinite}
+.pa-typing-dots i:nth-child(2){animation-delay:.2s}
+.pa-typing-dots i:nth-child(3){animation-delay:.4s}
+@media(prefers-reduced-motion:reduce){.pa-typing-dots i{animation:none}}
+.pa-activity-group{margin:8px 4px 2px;font-size:12px;font-weight:500;color:var(--color-text-tertiary)}
+.pa-activity-text{display:flex;flex:1;flex-direction:column;min-width:0}
+.pa-activity-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-device-session-grid{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:16px}
+
+/* ── Canvas open: one column, the status panel becomes an overlay ───── */
+.pa-panel--canvas .pa-side{display:none}
+.pa-panel--canvas .pa-side-toggle,.pa-panel--canvas .pa-side-close{display:inline-flex}
+.pa-panel--canvas .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
+.pa-panel--canvas{--pa-scroll-extension:12px;padding:8px 12px 0}
+.pa-conversation{min-width:0}
+
+/* ── Narrow screens: the side panel becomes an overlay ──────────────── */
+@media(max-width:1100px){
+  .pa-side{display:none}
+  .pa-side-toggle,.pa-side-close{display:inline-flex}
+  .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
+  .pa-panel{--pa-scroll-extension:12px;padding:8px 12px 0}
+}
+@media(max-width:600px){
+  .pa-device-session-grid{grid-template-columns:minmax(0,1fr)}
+  .pa-device-session-grid>.ant-list{max-height:160px;overflow-y:auto}
+  .pa-channel-grid{grid-template-columns:minmax(0,1fr)}
+  .pa-messages-inner{padding:0 2px}
+  .pa-message-assistant{max-width:94%}
+  .pa-message-user{max-width:92%}
+  .pa-message-bubble{padding:12px 16px;border-radius:24px}
+  .pa-message .pa-message-text{font-size:15px}
+  .pa-composer{padding:8px 10px}
+  .pa-composer-input{gap:6px}
+}
+
+.pa-activity-item--active .pa-activity-row{padding-right:36px}
+.pa-activity-item--active:hover .pa-activity-row,.pa-activity-item--active:focus-within .pa-activity-row{background:var(--color-bg-layout)}
+.pa-activity .pa-activity-stop{position:absolute;right:4px;top:50%;transform:translateY(-50%);opacity:0;pointer-events:none;color:var(--color-text-secondary)}
+.pa-activity>li:hover .pa-activity-stop,.pa-activity>li:focus-within .pa-activity-stop,.pa-activity .pa-activity-stop.ant-btn-loading{opacity:1;pointer-events:auto}
+@media (hover:none){.pa-activity .pa-activity-stop{opacity:1;pointer-events:auto}}
+
+.pa-delivery-artifacts{margin-top:10px;min-width:0;max-width:100%}
+.pa-delivery-artifacts .jx-dlCard{min-width:0;flex-wrap:wrap}
+.pa-delivery-artifacts .jx-dlCard-left{flex:1 1 180px}
+.pa-delivery-artifacts .jx-dlCard-meta{flex:1}
+.pa-delivery-artifacts .jx-dlCard-actions{margin-left:auto}

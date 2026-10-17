@@ -30,6 +30,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 
 | Capability | Community (CE) | Enterprise (EE) adds |
 |---|---|---|
+| Personal Agent | ✅ Personal assistant, background tasks, dedicated computers, channels, schedules and file memory (opt-in) | ➕ User, role and team access governance |
 | Chat | ✅ Full: SSE streaming, ReAct agent, plan mode, deep thinking, cited sources | — |
 | Knowledge-base RAG | ✅ Document upload, smart chunking, hybrid vector + keyword retrieval, private KBs | ➕ External KB integration (Dify), public KB admin console |
 | Sub-agents | ✅ Create, auto-routing, @-mention collaboration (personal) | ➕ Organization-level agent library & admin console |

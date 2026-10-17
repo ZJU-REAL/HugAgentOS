@@ -3,6 +3,14 @@
    Based on UI design spec (img/设计规范/)
    ══════════════════════════════════════════ */
 :root{
+  /* Personal Agent: neutral conversation with blue outgoing messages. */
+  --color-personal-bg:#FCFCFC;
+  --color-personal-assistant:#EAEAEA;
+  --color-personal-user:#CBE5FF;
+  --color-personal-text:#191919;
+  --color-personal-link:#007AFF;
+  --shadow-personal-composer:0 2px 16px #0000000D;
+
   /* Neutral secondary navigation balances the subtly tinted outer rail. */
   --module-rail-bg:#EDF2FA;
   --module-rail-gradient:linear-gradient(180deg,#EAF0F9 0%,#F0F2F9 55%,#EDF2FA 100%);
@@ -180,6 +188,13 @@
    只重定义颜色/阴影令牌，几何与 motion 令牌两个主题共用。
    ══════════════════════════════════════════ */
 :root[data-theme="dark"]{
+  --color-personal-bg:var(--color-bg-container);
+  --color-personal-assistant:#2A3039;
+  --color-personal-user:#254766;
+  --color-personal-text:var(--color-text);
+  --color-personal-link:#80BFFF;
+  --shadow-personal-composer:var(--shadow-card);
+
   --module-rail-bg:var(--color-bg-base);
   --module-rail-gradient:none;
   --module-rail-selected:#2B3749;

@@ -1,0 +1,40 @@
+/* Include the header and padding in the viewport budget, also on short screens. */
+.jx-filePreviewModal .ant-modal-container {
+  height: calc(100vh - 32px);
+  height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jx-filePreviewModal .ant-modal-header {
+  flex-shrink: 0;
+  padding-right: 32px;
+}
+
+.jx-filePreviewModal .ant-modal-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jx-filePreviewModal .ant-modal-body {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.jx-filePreviewModal .jx-spaceImportPreview {
+  min-height: 0;
+}
+
+.jx-filePreviewModal .jx-spaceImportPreview-frame {
+  min-height: 0;
+}
+
+/* Keep natural-size media and status content inside the scrollable body. */
+.jx-filePreviewModal .jx-filePreview-fade {
+  overflow: auto;
+}

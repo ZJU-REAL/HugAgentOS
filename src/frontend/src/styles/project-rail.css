@@ -174,20 +174,6 @@
   flex-shrink: 0;
 }
 
-/* Preview modal wrap — give FilePreviewPane real height */
-.jx-projectRail-previewWrap {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--color-bg-gray);
-}
-
-.jx-projectRail-previewWrap > .jx-spaceImportPreview {
-  border: none;
-}
-
 /* Bound DOM work on desktop and mobile. */
 .jx-projectRail-fileTree { min-width: 0; }
 .jx-projectRail-fileTree .ant-tree-node-content-wrapper { min-width: 0; overflow: hidden; }

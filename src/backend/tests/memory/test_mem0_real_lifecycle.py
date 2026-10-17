@@ -70,23 +70,33 @@ def real_memory(tmp_path, monkeypatch):
         "embedder": {"provider": "openai", "config": {
             "model": "fixture", "openai_base_url": url, "api_key": "fixture-only"}},
         "vector_store": {"provider": "milvus", "config": {
-            "url": str(tmp_path / "vectors.db"), "collection_name": "l2_lifecycle",
+            # Match production: mem0 validates token as str, even for local no-auth stores.
+            "token": "", "url": str(tmp_path / "vectors.db"), "collection_name": "l2_lifecycle",
             "embedding_model_dims": 16, "metric_type": "COSINE"}},
     }
-    backend._patch_mem0_embedding()
-    memory = mem0.Memory.from_config(config)
-    monkeypatch.setattr(backend, "_get_memory", lambda: memory)
-    monkeypatch.setattr(backend, "settings", SimpleNamespace(
-        memory=replace(backend.settings.memory, enabled=True, graph_enabled=False)))
-    from core.memory.pipeline import milvus_breaker
-    monkeypatch.setattr(milvus_breaker, "is_open", lambda: False)
-    yield memory, requests
-    memory.vector_store.client.close()
-    from milvus_lite.server_manager import server_manager_instance
-    server_manager_instance.release_server(str(tmp_path / "vectors.db"))
-    server.shutdown()
-    server.server_close()
-    worker.join(timeout=3)
+    memory = None
+    try:
+        backend._patch_mem0_embedding()
+        memory = mem0.Memory.from_config(config)
+        monkeypatch.setattr(backend, "_get_memory", lambda: memory)
+        monkeypatch.setattr(backend, "settings", SimpleNamespace(
+            memory=replace(backend.settings.memory, enabled=True, graph_enabled=False)))
+        from core.memory.pipeline import milvus_breaker
+        monkeypatch.setattr(milvus_breaker, "is_open", lambda: False)
+        yield memory, requests
+    finally:
+        if memory is not None:
+            memory.vector_store.client.close()
+        from milvus_lite.server_manager import server_manager_instance
+        server_manager_instance.release_server(str(tmp_path / "vectors.db"))
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=3)
+
+
+def expiry(item):
+    # mem0 2.2 promotes expiry to the result root; older releases keep it in metadata.
+    return item.get("expiration_date") or (item.get("metadata") or {}).get("expiration_date")
 
 
 def context(user="owned-user-a", workspace="default"):
@@ -103,7 +113,7 @@ async def test_public_write_read_recall_scope_edit_delete(real_memory):
     rows = await service.get_all_memories(ctx.user_id, workspace_id=ctx.workspace_id)
     assert len(rows) == 1 and rows[0]["id"] == ident
     original_meta = rows[0]["metadata"]
-    assert original_meta["expiration_date"] == (utc_now().date() + timedelta(days=30)).isoformat()
+    assert expiry(rows[0]) == (utc_now().date() + timedelta(days=30)).isoformat()
     result = await service.retrieve_memories_structured(ctx.user_id, text)
     assert not result.degraded and any(row.memory_id == ident for row in result.items)
     assert not await service.get_all_memories("owned-user-b")
@@ -113,6 +123,7 @@ async def test_public_write_read_recall_scope_edit_delete(real_memory):
     edited = (await service.get_all_memories(ctx.user_id))[0]
     assert edited["id"] == ident
     assert edited["metadata"] == original_meta
+    assert expiry(edited) == expiry(rows[0])
     assert "Check source authority" in edited["memory"]
     assert await service.delete_memory(ident)
     assert not await service.get_all_memories(ctx.user_id)
@@ -154,7 +165,7 @@ async def test_reinforcement_preserves_scope_content_receipts_and_extends_ttl(re
     assert meta["workspace_id"] == ctx.workspace_id and meta["author_user_id"] == ctx.user_id
     assert meta["seen_count"] == 2 and meta["strength"] == "strong"
     assert meta["outbox_effect_ids"] == ["job:one", "job:two"]
-    assert meta["expiration_date"] == (
+    assert expiry(rows[0]) == (
         utc_now().date() + timedelta(days=backend.settings.memory.procedure_ttl_days)).isoformat()
     same = await service.find_similar_procedure(ctx, text, min_score=0.4)
     assert await service.reinforce_procedure_entry(same, effect_id="job:two")

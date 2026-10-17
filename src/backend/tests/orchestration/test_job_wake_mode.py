@@ -17,7 +17,7 @@ context，没带 `workflow_chat`，而 `workflow_mode` 正是 run_job 注册与�
 import asyncio
 from typing import Any, Dict, List
 
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base

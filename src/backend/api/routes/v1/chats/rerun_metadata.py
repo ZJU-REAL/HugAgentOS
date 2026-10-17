@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List
 
-from api.schemas import AttachmentItem
+from core.chat.schemas import AttachmentItem
 
 _INVOCATION_EXTRA_KEYS = (
     "agent_id",

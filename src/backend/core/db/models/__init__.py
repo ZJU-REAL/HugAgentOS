@@ -114,3 +114,13 @@ from core.db.models.observability import DesktopOutbox, DesktopRecord, DesktopSy
 from core.db.models.channel_relay import DesktopChannelBinding, ChannelRelayDelivery, ChannelRelayOperation
 
 from core.db.models.plugin_resource import PluginResource, PluginResourceTicket, PluginResourceCheckpoint
+
+# Shared feature tables exist even when the runtime module is disabled.
+from personal_agent.models import (
+    PersonalAgent, PersonalWorkItem, PersonalDevice, PersonalDeviceCommand,
+    PersonalMessageTask, PersonalMessageInbox, PersonalSessionOperation,
+)
+
+__all__ += ["PersonalAgent", "PersonalWorkItem", "PersonalDevice",
+            "PersonalDeviceCommand", "PersonalMessageTask", "PersonalMessageInbox",
+            "PersonalSessionOperation"]

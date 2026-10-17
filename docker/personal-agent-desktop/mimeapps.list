@@ -1,0 +1,6 @@
+[Default Applications]
+x-scheme-handler/http=pa-browser.desktop
+x-scheme-handler/https=pa-browser.desktop
+text/html=pa-browser.desktop
+application/xhtml+xml=pa-browser.desktop
+inode/directory=thunar.desktop

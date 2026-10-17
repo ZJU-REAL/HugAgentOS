@@ -1,0 +1,41 @@
+/* ── My Space: Personal Agent workspace ─────────────────────────────── */
+.pa-ws{display:flex;flex-direction:column;gap:12px;height:100%;min-height:520px;color:var(--color-text)}
+.pa-ws-empty{padding:64px 0}
+.pa-ws-toolbar{display:flex;align-items:center;gap:12px}
+.pa-ws-hint{flex:1;min-width:0;font-size:12px;color:var(--color-text-tertiary)}
+.pa-ws-note{padding:8px 4px;font-size:12px;color:var(--color-text-tertiary)}
+
+.pa-ws-split{display:flex;flex:1;min-height:0;gap:16px}
+.pa-ws-tree{display:flex;flex-direction:column;width:300px;flex-shrink:0;min-height:0;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);overflow:hidden}
+.pa-ws-treeHead{padding:10px 14px;border-bottom:1px solid var(--color-border);font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);font-size:12px;color:var(--color-text-tertiary)}
+.pa-ws-treeBody{flex:1;min-height:0;overflow:auto;padding:6px}
+.pa-ws-tree .ant-tree{background:transparent}
+.pa-ws-tree .ant-tree-treenode{width:100%;padding:0;margin-bottom:2px}
+.pa-ws-tree .ant-tree-node-content-wrapper{flex:1;min-width:0;display:flex;align-items:center;min-height:30px;padding:0 8px;border-radius:var(--radius-sm)}
+.pa-ws-tree .ant-tree-title{flex:1;min-width:0}
+/* Folder rows toggle on click and the folder icon shows open/closed state, so the expand arrow is redundant. */
+.pa-ws-tree .ant-tree-switcher{display:none}
+.pa-ws-tree .ant-tree-node-content-wrapper.ant-tree-node-selected{background:var(--color-primary-bg)}
+.pa-ws-tree .ant-tree-node-selected .pa-ws-nodeName{color:var(--color-primary);font-weight:500}
+.pa-ws-node{display:flex;align-items:center;gap:8px;min-width:0;line-height:20px}
+.pa-ws-nodeIcon{flex-shrink:0;display:inline-flex;font-size:14px;color:var(--color-text-tertiary)}
+.pa-ws-node--dir .pa-ws-nodeIcon{color:var(--color-warning)}
+.pa-ws-nodeName{flex-shrink:0;white-space:nowrap;color:var(--color-text)}
+.pa-ws-nodeRole{flex:1;min-width:0;font-size:12px;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.pa-ws-viewer{display:flex;flex-direction:column;flex:1;min-width:0;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container)}
+.pa-ws-viewerHead{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+.pa-ws-path{display:flex;align-items:baseline;gap:10px;flex:1;min-width:0}
+.pa-ws-path strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pa-ws-path span{min-width:0;font-size:12px;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pa-ws-meta{flex-shrink:0;font-size:12px;color:var(--color-text-tertiary);white-space:nowrap}
+.pa-ws-actions{display:inline-flex;gap:8px}
+.pa-ws-viewerBody{flex:1;min-height:0;overflow:auto;padding:16px 20px}
+.pa-ws-markdown{max-width:820px}
+.pa-ws-text{margin:0;font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.pa-ws-editor.ant-input{height:100%;min-height:420px;font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);font-size:13px;line-height:1.6;resize:none}
+
+@media (max-width: 768px){
+  .pa-ws-split{flex-direction:column}
+  .pa-ws-tree{width:auto;max-height:280px}
+}

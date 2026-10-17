@@ -15,3 +15,7 @@ npm run tauri icon /path/to/logo-1024.png
 ```
 
 多品牌：分别用各自 logo 跑一次 `tauri icon`，构建对应品牌包前替换本目录即可。
+
+Windows 的应用图标与 NSIS 安装器图标分别配置。`bundle.icon` 用于应用，
+`bundle.windows.nsis.installerIcon` 和 `uninstallerIcon` 用于安装器与卸载器。
+三者均使用本目录当前品牌的 `icon.ico`；更新品牌时一并替换，避免安装进度窗口回退到 NSIS 默认图标。

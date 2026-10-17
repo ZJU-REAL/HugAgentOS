@@ -13,9 +13,15 @@
 !packages/workbench-protocol/**
 !packages/workbench-sdk/
 !packages/workbench-sdk/**
+!packages/chat-sdk/
+!packages/chat-sdk/**
+!examples/
+!examples/customer-chat/
+!examples/customer-chat/**
 !scripts/
 !scripts/sync-workbench-schema.mjs
 !scripts/build-workbench.mjs
+!scripts/build-chat-sdk.mjs
 !scripts/workbench-build-contract.mjs
 **/node_modules/
 **/dist/
@@ -23,3 +29,5 @@
 **/.git/
 **/*.tgz
 packages/workbench-protocol/src/*-schema.ts
+
+**/standalone-dist/

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 import pytest
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.services.project_instructions import ProjectInstructionsService
 from core.services.project_scope import build_project_ctx
 from core.services.project_service import ProjectService
@@ -14,8 +14,8 @@ from tests.services.project_instructions_support import env, local, update
 
 
 def test_chat_dispatch_expands_command_and_loads_fresh_rules(env):
-    from api.routes.v1.chats.agent_targets import _resolve_chat_agent_targets
-    from api.routes.v1.chats.request_context import _build_ctx
+    from core.services.session_operations.agent_targets import _resolve_chat_agent_targets
+    from core.services.session_operations.request_context import _build_ctx
 
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Dispatch")

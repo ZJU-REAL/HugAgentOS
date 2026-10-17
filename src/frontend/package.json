@@ -89,7 +89,7 @@
     "test:composer-scroll-browser": "node scripts/test-composer-scroll-browser.mjs",
     "test:chat-component-polish": "node scripts/test-chat-component-polish.mjs",
     "test:chat-component-app": "node scripts/test-chat-component-app.mjs",
-    "prebuild": "node ../../scripts/build-workbench.mjs --build",
+    "prebuild": "node ../../scripts/build-chat-sdk.mjs && node ../../scripts/build-workbench.mjs --build",
     "test:workbench-protocol": "esbuild scripts/test-workbench-protocol.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-workbench-protocol.mjs && node node_modules/.tmp/test-workbench-protocol.mjs",
     "test:workbench-policy-browser": "node scripts/test-workbench-policy-browser.mjs",
     "test:workbench-plugin": "node scripts/test-workbench-plugin-browser.mjs",
@@ -99,7 +99,8 @@
     "test:grapheme-reveal": "node scripts/test-grapheme-reveal-browser.mjs",
     "test:grapheme-reveal-app": "node scripts/test-grapheme-reveal-app.mjs",
     "test:container-layout-browser": "node scripts/test-container-layout-browser.mjs",
-    "test:voice-input": "node scripts/test-voice-input-browser.mjs"
+    "test:voice-input": "node scripts/test-voice-input-browser.mjs",
+    "test:chat-customization": "node scripts/test-chat-customization.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -142,7 +143,8 @@
     "react-router": "^7.18.4",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.11",
-    "@hugagent/workbench-protocol": "file:../../packages/workbench-protocol"
+    "@hugagent/workbench-protocol": "file:../../packages/workbench-protocol",
+    "@hugagent/chat-sdk": "file:../../packages/chat-sdk"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

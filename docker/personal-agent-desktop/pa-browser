@@ -1,0 +1,11 @@
+#!/bin/sh
+# Browser for the Personal Agent cloud desktop. The hardened container has no setuid or
+# user-namespace sandbox for Chromium, so the container itself is the isolation boundary.
+profile="$HOME/browser"
+# A recreated computer kills Chromium without a clean exit. Before the first start, mark the
+# last session as closed so the browser does not open with a "Restore pages?" prompt.
+if ! pgrep -u "$(id -u)" -f -- "--user-data-dir=$profile" >/dev/null 2>&1 && [ -f "$profile/Default/Preferences" ]; then
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/; s/"exited_cleanly":false/"exited_cleanly":true/' "$profile/Default/Preferences"
+fi
+exec /usr/local/bin/chromium --no-sandbox --test-type --disable-dev-shm-usage --no-first-run \
+  --no-default-browser-check --password-store=basic --user-data-dir="$profile" "$@"

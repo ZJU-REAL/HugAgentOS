@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import object_session
 
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.auth import session
 from core.config.settings import settings
 from core.db.engine import Base, SessionLocal, engine
@@ -147,7 +147,7 @@ def test_ordinary_public_chat_and_project_init_survive_retirement(boundary, kind
 
 
 def test_scoped_runtime_wrappers_do_not_reintroduce_retired_fields():
-    from api.routes.v1.chats.session_context import _ensure_chat_session
+    from core.services.session_operations.session_context import _ensure_chat_session
     from core.llm.agent_api_runtime import apply_api_scope
     from core.llm.evaluation_runtime import apply_evaluation_scope
     from core.services.agent_api_service import _FORBIDDEN_INPUTS

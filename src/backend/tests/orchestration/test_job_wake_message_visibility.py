@@ -17,7 +17,7 @@
 
 import asyncio
 
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base
@@ -155,7 +155,7 @@ class _Msg:
 
 def test_message_list_filters_wake_messages():
     """消息列表接口的过滤谓词：带标记的、以及标记上线前落库的老消息，都不进聊天记录。"""
-    from api.routes.v1.chats.history import _is_internal_message
+    from core.services.session_operations.history import _is_internal_message
 
     assert _is_internal_message(_Msg("user", "转述一下", {"hidden_in_chat": True}))
     # 老消息（没有标记，只有开头那句）

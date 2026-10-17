@@ -163,7 +163,7 @@ src/backend/
 
 ### 应用与中间件
 
-`api/app.py` 创建 FastAPI 应用并以 lifespan 串行执行启动钩子：建表兜底 → Run 恢复 → 过期 Run 收割 → 沙箱池预热 → 页面配置 / 提示词版本 seed → MCP 目录同步 → 预加载 → 自动化与蒸馏调度器 → 记忆预热。中间件在 `api/middleware/`：`cors.py`、`logging.py`（结构化请求日志 + trace_id）、`error_handler.py`（异常 → 统一错误信封）。`api/deps.py` 提供鉴权与用户解析依赖，`api/health.py` 提供健康检查，`api/schemas.py` 收口公共 Pydantic 模型。
+`api/app.py` 创建 FastAPI 应用并以 lifespan 串行执行启动钩子：建表兜底 → Run 恢复 → 过期 Run 收割 → 沙箱池预热 → 页面配置 / 提示词版本 seed → MCP 目录同步 → 预加载 → 自动化与蒸馏调度器 → 记忆预热。中间件在 `api/middleware/`：`cors.py`、`logging.py`（结构化请求日志 + trace_id）、`error_handler.py`（异常 → 统一错误信封）。`api/deps.py` 提供鉴权与用户解析依赖，`api/health.py` 提供健康检查，`core/chat/schemas.py` 收口公共 Pydantic 模型。
 
 ### 路由注册表（CE/EE 接缝 C1）
 

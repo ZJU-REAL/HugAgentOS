@@ -174,12 +174,18 @@ class WeixinAdapter:
         token = self._bot_token(conn)
         if not token:
             raise RuntimeError("缺少 bot_token（请重新扫码绑定）")
-        # Lightweight liveness check: fetch config once (typing_ticket). Failure isn't fatal, but an invalid token raises.
+        user_id = (conn.config or {}).get("ilink_user_id")
+        if not isinstance(user_id, str) or not user_id.strip():
+            # Older QR bindings did not retain this required getconfig parameter.
+            # Their single getupdates receiver validates the token and owns health;
+            # never consume its messages with a second polling request here.
+            return {"app_id": conn.app_id}
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(
                     f"{self._baseurl(conn)}/ilink/bot/getconfig",
-                    headers=_bind_headers(token), json={"base_info": {"channel_version": _CHANNEL_VERSION}},
+                    headers=_bind_headers(token),
+                    json={"ilink_user_id": user_id, "base_info": {"channel_version": _CHANNEL_VERSION}},
                 )
             _checked_response(resp, "凭据校验")
         except httpx.HTTPError as exc:

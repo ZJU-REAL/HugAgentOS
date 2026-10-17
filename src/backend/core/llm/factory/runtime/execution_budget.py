@@ -148,6 +148,16 @@ async def execution_budget(
         # else: 开了代码执行位且模式没配上限 → 不套极速的检索档硬顶（默认 4 轮
         # 会把跑代码的任务掐死），按 profile/env 的常规上限走。
 
+    # Personal Agent owns long-lived work. Neither main-chat operator settings
+    # nor published chat profiles may impose a turn budget on its execution.
+    # AgentScope requires an integer; use the platform loop sentinel rather
+    # than a product-level allowance, and omit budget prompts for these runs.
+    personal_agent = request.profile in {"personal_agent", "personal_agent_front"}
+    if personal_agent:
+        import sys
+
+        _max_iters = sys.maxsize
+
     # Budget spending policy, injected only where a budget exists. Appended last
     # so it sees the final number after every narrowing above (turbo included);
     # skipped without tools, where "spend your rounds on parallel calls" has

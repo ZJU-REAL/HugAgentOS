@@ -374,8 +374,26 @@ License 细节见 [License 机制](../editions/license.md)。
 
 应用托管仍需显式启用。参见[应用部署](../modules/application-hosting.md)和[浏览器部署](../modules/browser-automation.md)。云端站点写入依赖共享 Redis，未配置或不可用时拒绝写入。
 
+## Personal Agent（社区版 / 企业版）
+
+| 变量 | 用途 |
+| --- | --- |
+| PERSONAL_AGENT_ENABLED | 是否加载该模块（默认 `false`）。关闭时不注册任何路由、后台 worker 和渠道转交 |
+| PERSONAL_AGENT_OPENSANDBOX_DOMAIN | 独立且需要认证的控制器地址 |
+| PERSONAL_AGENT_OPENSANDBOX_API_KEY | 独立控制器密钥，至少 32 个字符 |
+| PERSONAL_AGENT_IMAGE | 使用固定版本标签的桌面电脑镜像 |
+| PERSONAL_AGENT_VOLUME_ROOT | 宿主机中存放专属持久卷的绝对路径 |
+| PERSONAL_AGENT_LOCAL_VOLUME_ROOT | 后端容器内可见的同一目录 |
+| PERSONAL_AGENT_HEARTBEAT | `off` 停止本后端的全部心跳检查（默认 `on`），用户设置保留 |
+| PERSONAL_AGENT_HEARTBEAT_MIN_MINUTES | 用户可设的最短心跳间隔（分钟，默认 15） |
+| PERSONAL_AGENT_HEARTBEAT_DAILY_MAX | 每个智能体每天最多运行的心跳次数（默认 48） |
+
+模块开启后，社区版已存在的登录用户即可使用。企业版额外检查 Config 后台的用户、角色或团队 **Personal Agent** 权限（默认关闭）；收回权限会隐藏入口，并停止排队、定时触发和渠道转交任务。不需要 persistent_sandbox License。两个版本都保留对象归属检查和操作批准。
+
+请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/compose.personal-agent.yml 和 personal-agent profile。
+
 <!-- End Personal Agent settings -->
 
-`PERSONAL_AGENT_CLI_SERVER` (EE): 云电脑访问后台的地址。默认 `http://backend:3001`。不保存凭据。沙盒与应用分机部署时改为应用的可访问地址，例如 `http://<应用内网地址>/api`。
+`PERSONAL_AGENT_CLI_SERVER` (CE / EE): 云电脑访问后台的地址。默认 `http://backend:3001`。不保存凭据。沙盒与应用分机部署时改为应用的可访问地址，例如 `http://<应用内网地址>/api`。
 
-`PERSONAL_AGENT_CLI_ALLOW_HTTP` (EE): 是否允许云电脑 CLI 用 HTTP 访问后台。默认 `true`（适合内网部署）。设为 `false` 时只接受 HTTPS。
+`PERSONAL_AGENT_CLI_ALLOW_HTTP` (CE / EE): 是否允许云电脑 CLI 用 HTTP 访问后台。默认 `true`（适合内网部署）。设为 `false` 时只接受 HTTPS。

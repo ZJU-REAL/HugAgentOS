@@ -3,9 +3,9 @@
 import inspect
 from pathlib import Path
 
-import api.routes.v1.chats.request_context as chat_request_context
+import core.services.session_operations.request_context as chat_request_context
 import core.chat.context as chat_context
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.llm.factory import create_agent_executor
 
 

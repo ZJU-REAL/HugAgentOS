@@ -16,7 +16,10 @@ export function useComposerFiles(effectiveApiUrl: string) {
     if (!files || files.length === 0) return;
     const picked = Array.from(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
+    attachFiles(picked, draftKey);
+  }
 
+  function attachFiles(picked: readonly File[], draftKey = useComposerStore.getState().activeKey) {
     // 超限的文件当场拦下并说明上限：以前既不校验、上传失败也被 catch 吞掉，
     // 挑一个 90MB 的文件会「安静地」挂在输入框上，用户完全不知道它没传上去（问题 42）。
     // 上限与 nginx 的 client_max_body_size 同一个来源（VITE_UPLOAD_MAX_MB）。
@@ -79,5 +82,5 @@ export function useComposerFiles(effectiveApiUrl: string) {
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
   }
 
-  return { handleFileSelect, removeFile, retryFile };
+  return { handleFileSelect, attachFiles, removeFile, retryFile };
 }

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 import pytest
-from api.schemas import ChatRequest
+from core.chat.schemas import ChatRequest
 from core.chat.context import generate_smart_title
 from core.db.models import Artifact, Project, UserFolder, UserShadow
 from core.services.project_file_service import ProjectFileService

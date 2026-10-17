@@ -4,7 +4,7 @@
 以及写入落到 metadata 的键名不能漂——前端按这个键名读回顺序。
 """
 
-import api.routes.v1.chats.models as chat_models
+import core.services.session_operations.schemas as chat_models
 import api.routes.v1.chats.sidebar as chat_sidebar
 import core.services as chat_services
 

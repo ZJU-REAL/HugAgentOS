@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, Button } from 'antd';
-import { PersonalCapabilities } from '../src/components/personal-agent/PersonalCapabilities';
+import { PersonalCapabilities } from '../src/components/personal-agent/settings/PersonalCapabilities';
 import { personalRequest, type PersonalAgent } from '../src/components/personal-agent/api';
 import { useAuthStore } from '../src/stores';
 import '../src/components/personal-agent/personal-agent.css';

@@ -11,7 +11,8 @@ from tests.api.test_chat_stream_sequencer import _route_database, _patch_common_
 @pytest.mark.parametrize("operation", ["edit", "regenerate"])
 @pytest.mark.parametrize("override", [False, True])
 def test_rerun_model_and_mode_survive_admission(monkeypatch, tmp_path, operation, override):
-    from api.routes.v1.chats import reruns, models, session_context
+    from api.routes.v1.chats import reruns
+    from core.services.session_operations import schemas as models, session_context
     from core.db import engine as db_engine
     from orchestration import chat_run_executor
 

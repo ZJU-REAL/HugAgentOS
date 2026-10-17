@@ -21,7 +21,7 @@ const ABILITY_BY_SLUG = new Map(
   (Object.entries(ABILITY_SLUGS) as Array<[AbilityTabKey, string]>).map(([k, v]) => [v, k]),
 );
 
-const MY_SPACE_TABS: readonly MySpaceTab[] = ['assets', 'kb', 'favorites', 'shares', 'notifications'];
+const MY_SPACE_TABS: readonly MySpaceTab[] = ['assets', 'kb', 'favorites', 'shares', 'notifications', 'agent'];
 const KB_TABS: readonly KbTabKey[] = ['public', 'private'];
 
 export function abilitySlug(tab: AbilityTabKey): string {

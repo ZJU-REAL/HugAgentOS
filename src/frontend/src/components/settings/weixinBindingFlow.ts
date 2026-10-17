@@ -16,7 +16,7 @@ interface BindingActions {
   start: () => Promise<WeixinBindStart>;
   poll: (bindId: string) => Promise<WeixinBindStatus>;
   onChange: (state: WeixinBindingState) => void;
-  onConfirmed: () => Promise<void>;
+  onConfirmed: (channelId: string) => Promise<void>;
 }
 
 /** One QR attempt owns its timers and late responses; long polls never overlap. */
@@ -57,7 +57,7 @@ export function createWeixinBindingFlow(actions: BindingActions) {
       if (result.status === 'confirmed') {
         if (!result.channel_id) throw new Error(t('绑定失败，请重试'));
         close();
-        await actions.onConfirmed();
+        await actions.onConfirmed(result.channel_id);
         return;
       }
       if (result.status === 'expired') {

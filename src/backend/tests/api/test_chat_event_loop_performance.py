@@ -6,7 +6,7 @@ import time
 from types import SimpleNamespace
 
 import api.routes.v1.chats.questions as chat_questions
-import api.routes.v1.chats.session_context as chat_session_context
+import core.services.session_operations.session_context as chat_session_context
 import core.services as chat_services
 import pytest
 from core.llm.tools import user_questions

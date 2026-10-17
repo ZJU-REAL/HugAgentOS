@@ -1,6 +1,6 @@
 """Pending tool confirmations and user decision endpoints."""
 
-import api.routes.v1.chats.models as chat_models
+import core.services.session_operations.schemas as chat_models
 import api.routes.v1.chats.pending_access as chat_pending_access
 import core.auth.backend as auth_backend
 import core.db.engine as db_engine

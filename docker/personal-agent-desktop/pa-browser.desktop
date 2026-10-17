@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Web Browser
+Name[zh_CN]=浏览器
+Comment=Browse the web
+Comment[zh_CN]=浏览网页
+Exec=/usr/local/bin/pa-browser %U
+Icon=web-browser
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
