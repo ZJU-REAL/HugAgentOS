@@ -79,7 +79,6 @@ class TaskService:
         if row.status not in TERMINAL:
             row.status = "cancelled"
             self.db.execute(update(PersonalDeviceCommand).where(PersonalDeviceCommand.work_item_id == ident, PersonalDeviceCommand.status == "queued").values(status="revoked"))
-            row.revision += 1
             from personal_agent.workspace.file_memory import record_task
             record_task(self.db, row, self.context.identity.agent())
             self.db.commit()
@@ -97,15 +96,16 @@ class TaskService:
         if old:
             if old.content != text or (old.extra_data or {}).get("work_item_id") != ident or (old.extra_data or {}).get("artifact_ids", []) != artifact_ids: raise ValueError("Idempotency key conflict")
             return task_view(row)
+        inputs = list(dict.fromkeys([*(row.checkpoint or {}).get("input_artifact_ids", []), *artifact_ids]))
+        if len(inputs) > 10: raise ValueError("Task has more than ten input attachments")
         message = self.context.conversation.append(agent, "user", text, ident, request_key)
         message.extra_data = {**message.extra_data, "artifact_ids": artifact_ids}
-        row.checkpoint = {**(row.checkpoint or {}), "input_artifact_ids": list(dict.fromkeys([*(row.checkpoint or {}).get("input_artifact_ids", []), *artifact_ids]))}
+        row.checkpoint = {**(row.checkpoint or {}), "input_artifact_ids": inputs}
         state = dict(row.checkpoint or {})
         state["approved_action_payloads"] = {}
         state["approved_actions"] = []
         state.pop("pending_approval", None)
         row.checkpoint = state
-        row.revision += 1
         self.db.commit()
         return task_view(row)
 
@@ -113,9 +113,13 @@ class TaskService:
         row = self.get(ident, lock=True)
         if row.status in TERMINAL: return task_view(row)
         if owner is not None and (row.owner != owner or row.status != "running" or not row.lease_until or row.lease_until < time.time()): raise ValueError("Task lease lost")
-        consumed = checkpoint.get("consumed_revision")
-        if consumed is not None and consumed != row.revision:
-            # The user added instructions during the run. Run again with the latest instructions.
+        from personal_agent.tasks.steering import has_unread
+        consumed = checkpoint.get("consumed_message_ids")
+        if consumed is not None and has_unread(self.db, row, set(consumed)):
+            # Preserve acknowledged inputs so the next execution only consumes unread instructions.
+            row.checkpoint = {**checkpoint, **(row.checkpoint or {}),
+                              "consumed_message_ids": list(consumed)}
+            row.pop_state("final_answer")
             row.requeue()
             self.db.commit()
             return task_view(row)
@@ -137,6 +141,5 @@ class TaskService:
         state.pop("task_wait_reason", None)
         row.checkpoint = state
         row.requeue()
-        row.revision += 1
         self.db.commit()
         return task_view(row)

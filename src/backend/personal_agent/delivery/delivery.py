@@ -35,13 +35,13 @@ def discard_unpublished(key):
         log.warning("Personal delivery upload cleanup failed (%s)", type(exc).__name__)
 
 def active_task(db, ident, uid, expected):
-    """Fence both reads and durable effects to the admitted execution and input."""
+    """Fence both reads and durable effects to the admitted execution."""
     task = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == ident).with_for_update())
     agent = db.get(PersonalAgent, task.agent_id) if task else None
     if (not task or not agent or agent.user_id != uid or agent.status != "ready"
             or task.status != "running" or not task.lease_until or task.lease_until <= time.time()
             or task.run_id != expected["run_id"] or task.owner != expected["owner"]
-            or task.revision != expected["revision"] or agent.generation != expected["generation"]
+            or agent.generation != expected["generation"]
             or (task.checkpoint or {}).get("pending_approval") or not access.allowed(db, uid)):
         raise PermissionError("Task execution or delivery permission changed")
     if state_target := expected.get("resource_target"):
@@ -73,8 +73,8 @@ def _receipt(db, row, uid, request_hash):
             "filename": file["name"], "download_url": file["url"], "mime_type": file["mime_type"],
             "size_bytes": file["size"], "channel_status": (metadata.get("channel_delivery") or {}).get("status", "not_requested")}
 
-def _identity(ident, revision, request_key):
-    digest = hashlib.sha256(json.dumps([ident, revision, request_key]).encode()).hexdigest()[:32]
+def _identity(ident, request_key):
+    digest = hashlib.sha256(json.dumps([ident, request_key]).encode()).hexdigest()[:32]
     return "pa_delivery_" + digest, "pa_file_" + digest
 
 def _previous(ident, uid, state, message_id, request_hash):
@@ -98,7 +98,7 @@ def _publish(ident, uid, state, message_id, artifact_id, request_hash, content, 
             guarded = db.execute(update(PersonalWorkItem).where(
                 PersonalWorkItem.id == ident, PersonalWorkItem.status == "running",
                 PersonalWorkItem.run_id == state["run_id"], PersonalWorkItem.owner == state["owner"],
-                PersonalWorkItem.revision == state["revision"], PersonalWorkItem.lease_until > time.time()
+                PersonalWorkItem.lease_until > time.time()
             ).values(updated_at=PersonalWorkItem.updated_at)).rowcount
             if guarded != 1: raise PermissionError("Task execution changed")
             db.expire_all()
@@ -168,7 +168,7 @@ def build(ident, uid):
         caption = caption.strip()
         request_hash = hashlib.sha256(json.dumps([path, resource_ref, filename, caption],
                                                 ensure_ascii=False).encode()).hexdigest()
-        message_id, artifact_id = _identity(ident, state["revision"], request_key)
+        message_id, artifact_id = _identity(ident, request_key)
         previous = await asyncio.to_thread(_previous, ident, uid, state, message_id, request_hash)
         if previous: return _pa_responses.response(previous)
         if resource_ref:

@@ -12,9 +12,9 @@ import {MemoryRouter} from 'react-router';
 import {ChatSidebarItem} from './src/components/sidebar/ChatSidebarItem';
 import {PersonalAgentSidebarEntry,usePersonalAgentNotifications} from './src/personalAgentEdition';
 import {ApplicationButton} from './src/workbench/ApplicationButton';
-import {PersonalTaskDialog} from './src/components/personal-agent/PersonalTaskDialog';
+import {PersonalTaskDialog} from './src/components/personal-agent/tasks/PersonalTaskDialog';
 import {useChatResultRead} from './src/hooks/useChatResultRead';
-import {usePersonalResultRead} from './src/components/personal-agent/usePersonalResultRead';
+import {usePersonalResultRead} from './src/components/personal-agent/conversation/usePersonalResultRead';
 import {useTaskNotificationStore} from './src/stores/taskNotificationStore';
 import {useChatStore} from './src/stores/chatStore';
 import {useUIStore} from './src/stores/uiStore';
@@ -47,7 +47,7 @@ function Fixture(){
  return <main><nav id='ordinary'>{chats.map(item=><ChatSidebarItem key={item.id} item={item} groupItems={chats} scopeKey='history' dragScopeRef={{current:null}} actions={actions} active={selected===item.id}/>)}</nav>
  <nav id='personal'><PersonalAgentSidebarEntry onOpen={()=>open('personal')}/></nav>
  <div id='compact' style={{position:'relative',width:48,height:48}}><ApplicationButton entry={{key:'builtin:personal_agent',title:'Personal Agent',item:{availability:{available:true}}}} onOpen={()=>open('personal')} current={false} className='rail' expanded={false}/></div>
- <Reader selected={selected}/><button id='open-dialog' onClick={()=>{useTaskNotificationStore.getState().observe([{key:'personal:dialogtask',id:'dialogtask:2',status:'completed',startedAt:0,updatedAt:2}]);setDialog(true)}}>Open task</button>{dialog&&<PersonalTaskDialog task={{id:'dialogtask',status:'completed',goal:'Result identity test',revision:2}} onClose={()=>setDialog(false)} onChange={async()=>{}}/>}</main>;
+ <Reader selected={selected}/><button id='open-dialog' onClick={()=>{useTaskNotificationStore.getState().observe([{key:'personal:dialogtask',id:'dialogtask:current-run',status:'completed',startedAt:0,updatedAt:2}]);setDialog(true)}}>Open task</button>{dialog&&<PersonalTaskDialog task={{id:'dialogtask',status:'completed',goal:'Result identity test',run_id:'current-run'}} onClose={()=>setDialog(false)} onChange={async()=>{}}/>}</main>;
 }
 createRoot(document.getElementById('root')).render(<MemoryRouter><Fixture/></MemoryRouter>);
 `;
@@ -65,11 +65,11 @@ const server=createServer((req,res)=>{
    let data={config:{name:'Personal Agent'}};
    if(req.url.includes('/work-items/dialogtask/conversation')){
      const message=(id,seq,content)=>({message_id:id,chat_seq:seq,role:'assistant',content,created_at:'2026-10-14T10:00:00Z',metadata:{},is_streaming:false});
-     data={chat_id:'task-thread',task_revision:threadFinal?2:1,task_status:threadFinal?'completed':'running',terminal_message_id:threadFinal?'current-result':'old-progress',has_more:false,messages:[message('old-progress',1,'Earlier progress'),...(threadFinal?[message('current-result',2,'Final result')]:[])]};
+     data={chat_id:'task-thread',task_run_id:threadFinal?'current-run':'old-run',task_status:threadFinal?'completed':'running',terminal_message_id:threadFinal?'current-result':'old-progress',has_more:false,messages:[message('old-progress',1,'Earlier progress'),...(threadFinal?[message('current-result',2,'Final result')]:[])]};
    }
    if(req.url.includes('sidebar-status')){
      const after=Number(new URL(req.url,'http://fixture').searchParams.get('after_seq'));
-     data={tasks:[{id:'p',status:personalRunning?'running':'completed',revision:personalRunning?1:2,updated_at:personalRunning?'2026-10-14T10:00:00Z':'2026-10-14T10:01:00Z',result_seq:personalRunning?null:6}],replying:false,
+     data={tasks:[{id:'p',status:personalRunning?'running':'completed',run_id:personalRunning?'first-run':'second-run',updated_at:personalRunning?'2026-10-14T10:00:00Z':'2026-10-14T10:01:00Z',result_seq:personalRunning?null:6}],replying:false,
        latest_seq:personalRunning?5:6,unread_count:[1,3,5,...(personalRunning?[]:[6])].filter(n=>n>after).length};
    }
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({code:20000,data}));return;

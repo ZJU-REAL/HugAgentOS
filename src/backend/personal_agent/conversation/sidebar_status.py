@@ -17,7 +17,7 @@ def sidebar_status(svc, after_seq: int):
     latest = svc.db.scalar(select(func.max(ChatMessage.chat_seq)).where(*final_assistant)) or 0
     from personal_agent.conversation.message_routing import pending
     turns = pending(svc)
-    tasks = [{key: task.get(key) for key in ("id", "status", "revision", "updated_at",
+    tasks = [{key: task.get(key) for key in ("id", "status", "run_id", "updated_at",
         "pending_approval", "uncertain_actions")} for task in svc.tasks.list()]
     # Only a delivered result can acknowledge a completed work item. Earlier
     # progress/status messages must not silently clear a later completion.

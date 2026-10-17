@@ -72,7 +72,7 @@ async def stage(ident, uid, state, data):
         keys = sorted(await cache.keys(namespace))
         if len(keys) >= KEEP: await cache.drop(*keys[:len(keys) - KEEP + 1])
         ref = "screen_" + format(time.time_ns(), "x") + uuid.uuid4().hex[:16]
-        value = {key: state[key] for key in ("run_id", "owner", "revision", "generation",
+        value = {key: state[key] for key in ("run_id", "owner", "generation",
                                              "resource_target", "resource_epoch")}
         value["image"] = data
         await cache.put(namespace + ref, json.dumps(value), ttl=TTL)
@@ -88,8 +88,8 @@ async def resolve(ident, uid, state, ref):
     if not value:
         raise ValueError("Screenshot resource expired or unavailable. Observe again, then pa_deliver with a new key. Do not use Bash.")
     resource = json.loads(value)
-    if any(resource.get(key) != state[key] for key in ("run_id", "owner", "revision", "generation")):
-        raise PermissionError("Screenshot belongs to another execution or input revision")
+    if any(resource.get(key) != state[key] for key in ("run_id", "owner", "generation")):
+        raise PermissionError("Screenshot belongs to another execution")
     state["resource_target"], state["resource_epoch"] = resource["resource_target"], resource["resource_epoch"]
     await asyncio.to_thread(validate_scope, ident, uid, state)
     return await asyncio.to_thread(decode_png, resource["image"])

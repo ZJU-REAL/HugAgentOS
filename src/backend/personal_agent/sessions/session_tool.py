@@ -95,7 +95,7 @@ async def call(uid, operation, args, target="cloud", task_id=None, wait=60):
             from personal_agent.tasks.guards import owned_task
             state = owned_task(task_id, uid)
             task = db.get(PersonalWorkItem, task_id)
-            grant = {"task": task_id, "run": state["run_id"], "owner": task.owner, "revision": task.revision}
+            grant = {"task": task_id, "run": state["run_id"], "owner": task.owner}
         job = await dispatch(db, owner(db, uid), target, operation, args,
             request_key(task_id, target, operation, args), grant)
         # A device answers through its queue.

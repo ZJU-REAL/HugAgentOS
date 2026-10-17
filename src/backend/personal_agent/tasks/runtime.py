@@ -1,4 +1,3 @@
-from core.services.artifact_edition import is_personal_artifact
 """One task's bounded model context and real tools; no extra ChatSession."""
 import json
 import re
@@ -73,6 +72,7 @@ def clock(config):
     return "Current time for the user: " + datetime.now(zone(name)).strftime("%Y-%m-%d %H:%M (%A)") + ", timezone " + name + ".\n"
 
 async def execute_task(task_id, binding):
+    import asyncio
     from core.llm.factory import create_agent_executor
     from orchestration.streaming import StreamingAgent
     with SessionLocal() as db:
@@ -88,8 +88,13 @@ async def execute_task(task_id, binding):
         config = runtime_config(db, uid, config)
         goal = task.goal
         # Query task updates directly. A busy lifelong conversation must not evict the goal.
-        from personal_agent.conversation.associations import instructions
-        updates = instructions(db, chat_id, task_id)
+        from personal_agent.conversation.associations import instruction_messages
+        from personal_agent.tasks.steering import TaskSteering, current_steering
+        messages = instruction_messages(db, chat_id, task_id)
+        steering = TaskSteering(task_id, uid, task.run_id, task.owner, messages, artifact_ids,
+                                (task.checkpoint or {}).get("consumed_message_ids", []))
+        current_steering.set(steering)
+        updates = [text for _, text in steering.initial_messages]
         recent = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id,
             ChatMessage.chat_seq < task.context_seq, ChatMessage.role.in_(["user", "assistant"]))
             .order_by(ChatMessage.chat_seq.desc()).limit(12)).all()
@@ -103,23 +108,8 @@ async def execute_task(task_id, binding):
         if task.checkpoint:
             prompt += "\nTask checkpoint (reference data):\n" + json.dumps({
                 k: v for k, v in task.checkpoint.items() if k not in {"records", "final_answer"}}, ensure_ascii=False)[:12000]
-    if artifact_ids:
-        from core.db.models import Artifact
-        from core.storage import get_storage
-        from personal_agent.computer.sandbox import get_personal_sandbox_provider
-        import asyncio, posixpath
-        provider = get_personal_sandbox_provider()
-        for artifact_id in artifact_ids[:10]:
-            with SessionLocal() as db:
-                artifact = db.get(Artifact, artifact_id)
-                if not artifact or artifact.user_id != uid or not is_personal_artifact(artifact) or artifact.deleted_at:
-                    raise PermissionError("Task attachment no longer available")
-                filename, key, size = artifact.filename, artifact.storage_key, artifact.size_bytes
-            if size > 20 * 1024 * 1024: raise ValueError("Attachment exceeds 20 MiB")
-            path = "/workspace/work/" + task_id + "/inputs/" + artifact_id + "/" + posixpath.basename(filename)
-            content = await asyncio.to_thread(get_storage().download_bytes, key)
-            await provider.put_file(box, path, content, user_id=uid)
-            prompt += "\nExplicit task attachment: " + path
+    from personal_agent.tasks.attachments import stage_inputs
+    prompt += await stage_inputs(task_id, uid, box, artifact_ids)
     from personal_agent.identity.capabilities import capability_ids
     skill_ids, mcp_ids = capability_ids(config)
     effort = config.get("thinking_effort", "fast")
@@ -135,13 +125,15 @@ async def execute_task(task_id, binding):
     async for event, payload in stream.stream(session_messages=[{"role": "user", "content": prompt}],
         context={"user_id": uid, "chat_id": binding.chat_id, "run_id": binding.run_id,
                  "journal_owner": binding.owner, "model_provider_id": config.get("model_provider_id"), "chat_mode": effort, "enable_thinking": effort != "fast"}):
-        transcript.record(event, payload)
+        # Transcript ordering checks use synchronous DB transactions. Keep them
+        # off the event loop so input admission and lease heartbeats stay responsive.
+        await asyncio.to_thread(transcript.record, event, payload)
         if event == "text_delta":
             final += str(payload)
             if len(final) - checked >= 2000:
                 checked = len(final)
                 if runaway(final):
-                    transcript.flush()
+                    await asyncio.to_thread(transcript.flush)
                     raise RunawayOutput("Model output repeated without progress")
         elif event == "tool_call":
             final, checked = "", 0
@@ -149,7 +141,7 @@ async def execute_task(task_id, binding):
         elif event in {"tool_result", "error"}:
             records.append({"event": event})
             if event == "error": raise RuntimeError("Model execution failed")
-    transcript.flush()
+    await asyncio.to_thread(transcript.flush)
     with SessionLocal() as db:
         state = dict(db.get(PersonalWorkItem, task_id).checkpoint or {})
     answer = state.get("final_answer") or {}
@@ -159,6 +151,4 @@ async def execute_task(task_id, binding):
         final = await finalize(goal, final, config.get("model_provider_id"))
     if not final.strip(): raise RuntimeError("Task did not produce a final reply")
     final = with_exports(final, state.get("exports") or [], binding.run_id)
-    from personal_agent.tasks.execution import current_execution
-    consumed_revision = current_execution.get()[3]
-    return final.strip(), {"records": json.loads(json.dumps(records, default=str)), "context_chars": len(prompt), "consumed_revision": consumed_revision}
+    return final.strip(), {"records": json.loads(json.dumps(records, default=str)), "context_chars": len(prompt), "consumed_message_ids": sorted(steering.consumed)}

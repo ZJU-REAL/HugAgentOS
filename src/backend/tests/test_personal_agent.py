@@ -280,7 +280,7 @@ def test_cancellation_revokes_queued_device_commands(sessions):
         db.refresh(cmd); assert cmd.status == "revoked"
 
 
-def test_new_input_revision_prevents_outdated_final_reply(sessions):
+def test_unread_input_prevents_outdated_final_reply(sessions):
     import time
     from personal_agent.models import PersonalWorkItem
     with sessions() as db:
@@ -290,7 +290,7 @@ def test_new_input_revision_prevents_outdated_final_reply(sessions):
         row.status, row.owner, row.lease_until = "running", "worker", time.time()+90
         db.commit()
         svc.tasks.steer(row.id, "Updated instructions", "two")
-        svc.tasks.complete(row.id, "Outdated answer", {"consumed_revision": 0}, owner="worker")
+        svc.tasks.complete(row.id, "Outdated answer", {"consumed_message_ids": []}, owner="worker")
         # The outdated answer is discarded. The task runs again with the update, without a manual retry.
         assert svc.tasks.list()[0]["status"] == "queued"
         assert [m["content"] for m in svc.conversation.list()] == ["Original instructions", "Updated instructions"]
@@ -307,18 +307,6 @@ def test_explicit_attachments_reject_other_owner(sessions):
         assert not svc.tasks.list()
 
 
-@pytest.mark.asyncio
-async def test_revision_consumption_survives_child_tool_task():
-    import asyncio
-    from types import SimpleNamespace
-    from personal_agent.tasks.execution import bind, consume, current_execution
-    original = SimpleNamespace(id="task", run_id="run", owner="worker", revision=0)
-    bind(original)
-    async def read_updates():
-        consume(SimpleNamespace(id="task", run_id="run", owner="worker", revision=1))
-    await asyncio.create_task(read_updates())
-    assert current_execution.get()[3] == 1
-    current_execution.set(None)
 
 
 def test_ordinary_chat_cannot_claim_personal_conversation():

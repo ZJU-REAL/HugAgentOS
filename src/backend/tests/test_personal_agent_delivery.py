@@ -142,7 +142,7 @@ async def test_invalid_sources_never_publish(sessions, setup, patch):
         assert list(db.scalars(select(Artifact))) == []
 
 
-@pytest.mark.parametrize("change", ["cancel", "expired_lease", "pending_approval", "capability", "generation", "revision"])
+@pytest.mark.parametrize("change", ["cancel", "expired_lease", "pending_approval", "capability", "generation", "owner"])
 async def test_access_is_rechecked_after_source_read(sessions, setup, monkeypatch, change):
     from personal_agent.delivery import delivery
     allowed = True
@@ -155,7 +155,7 @@ async def test_access_is_rechecked_after_source_read(sessions, setup, monkeypatc
             elif change == "expired_lease": row.lease_until = time.time() - 1
             elif change == "pending_approval": row.checkpoint = {**row.checkpoint, "pending_approval": {"id": "approval"}}
             elif change == "capability": allowed = False
-            elif change == "revision": row.revision += 1
+            elif change == "owner": row.owner = "replacement"
             else: AgentContext(db, "owner").identity.agent().generation += 1
             db.commit()
         return b"verified output"
@@ -202,7 +202,7 @@ async def capture(setup, monkeypatch):
     return result(await setup.functions["pa_computer_observe"]())
 
 
-@pytest.mark.parametrize("change", ["expired", "other_user", "other_task", "run", "generation", "revision"])
+@pytest.mark.parametrize("change", ["expired", "other_user", "other_task", "run", "generation", "owner"])
 async def test_screenshot_reference_cannot_escape_its_scope(sessions, setup, monkeypatch, change):
     from personal_agent.delivery import delivery
     observed = await capture(setup, monkeypatch)
@@ -221,7 +221,7 @@ async def test_screenshot_reference_cannot_escape_its_scope(sessions, setup, mon
         with sessions() as db:
             row = db.get(PersonalWorkItem, setup.task)
             if change == "run": row.run_id = "replacement"
-            elif change == "revision": row.revision += 1
+            elif change == "owner": row.owner = "replacement"
             else: AgentContext(db, "owner").identity.agent().generation += 1
             db.commit()
     with pytest.raises((ValueError, PermissionError)):

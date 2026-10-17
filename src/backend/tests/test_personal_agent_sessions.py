@@ -74,7 +74,7 @@ def test_transport_rejects_malformed_server():
         Client("https://user:pass@remote.example/api", "secret")
 
 
-def test_queued_task_operations_are_revoked_when_task_revision_changes(db):
+def test_queued_task_operations_are_revoked_when_task_execution_changes(db):
     from personal_agent.models import PersonalWorkItem
     from personal_agent.context import AgentContext
     from personal_agent.sessions.session_queue import check
@@ -91,21 +91,23 @@ def test_queued_task_operations_are_revoked_when_task_revision_changes(db):
     first = submit(
         db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "A", task, "run"
     )
-    row.revision += 1
+    row.run_id = "replacement-run"
     db.commit()
     assert poll(db, device["id"], device["token"]) is None
     assert view(db, "owner", first["id"])["status"] == "revoked"
+    row.run_id = "run"
+    db.commit()
     second = submit(
         db, "owner", "device:" + device["id"], "chat.create", {"title": "B"}, "B", task, "run"
     )
     assert poll(db, device["id"], device["token"])["id"] == second["id"]
-    row.revision += 1
+    row.run_id = "replacement-run"
     db.commit()
     with pytest.raises(LookupError):
         check(db, device["id"], device["token"], second["id"])
 
 
-async def test_task_grants_are_bound_to_revision_owner_and_running_lease(db, monkeypatch):
+async def test_task_grants_are_bound_to_run_owner_and_running_lease(db, monkeypatch):
     from sqlalchemy.orm import sessionmaker
     from starlette.requests import Request
     from fastapi import HTTPException
@@ -137,12 +139,12 @@ async def test_task_grants_are_bound_to_revision_owner_and_running_lease(db, mon
     )
     user, grant = await session_auth.resolve(request, db)
     assert user.user_id == "owner" and grant["task"] == task
-    row.revision += 1
+    row.run_id = "replacement-run"
     db.commit()
     with pytest.raises(HTTPException) as exc:
         await session_auth.resolve(request, db)
     assert exc.value.status_code == 401
-    row.revision -= 1
+    row.run_id = "run"
     db.commit()
     row.owner = "replacement"
     db.commit()

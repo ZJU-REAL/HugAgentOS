@@ -1,5 +1,6 @@
 """Private task sessions and the ordinary chat history projection."""
 import time
+from copy import deepcopy
 import uuid
 from sqlalchemy import select,exists
 from sqlalchemy.orm import aliased
@@ -42,6 +43,9 @@ def history(svc, ident, before=None, limit=100):
     query=select(ChatMessage).where(ChatMessage.chat_id==session.chat_id)
     if before is not None:query=query.where(ChatMessage.chat_seq<before)
     rows=list(svc.db.scalars(query.order_by(ChatMessage.chat_seq.desc()).limit(limit)));rows.reverse()
+    latest_input_seq = svc.db.scalar(select(ChatMessage.chat_seq).where(
+        ChatMessage.chat_id == session.chat_id, ChatMessage.role == "user"
+    ).order_by(ChatMessage.chat_seq.desc()).limit(1)) or 0
     # The dialog acknowledges only the terminal response from this exact run.
     # Older assistant messages must not clear a newly completed task reminder.
     terminal_message_id = None
@@ -59,11 +63,12 @@ def history(svc, ident, before=None, limit=100):
                 if original and original.created_at >= task.updated_at:
                     terminal_message_id = message.message_id
                     break
-    return {"chat_id":session.chat_id,"task_id":ident,"task_revision":task.revision,
+    return {"chat_id":session.chat_id,"task_id":ident,"task_run_id":task.run_id,
         "task_status":task.status,"terminal_message_id":terminal_message_id,"has_more":len(rows)==limit,"messages":[
         {"message_id":m.message_id,"chat_id":m.chat_id,"chat_seq":m.chat_seq,"role":m.role,"content":m.content,
          "thinking":m.thinking,"tool_calls":m.tool_calls,"metadata":m.extra_data or {},
-         "created_at":m.created_at.isoformat(),"is_streaming":task.status=="running" and (m.extra_data or {}).get("run_id")==task.run_id}
+         "created_at":m.created_at.isoformat(),"is_streaming":task.status=="running" and (m.extra_data or {}).get("run_id")==task.run_id
+             and (m.chat_seq > latest_input_seq or any(t.get("status") == "running" for t in (m.tool_calls or [])))}
         for m in rows]}
 
 class StreamRecord:
@@ -107,14 +112,73 @@ class Transcript(StreamRecord):
             task=AgentContext(db,uid).tasks.get(task_id,lock=True);session=sync_thread(db,task,uid)
             run=db.get(ChatRun,binding.run_id)
             row=append(db,session,"assistant","",{"run_id":binding.run_id},run.message_id)
-            self.message_id=row.message_id;db.commit()
+            self.message_id = row.message_id
+            self.message_seq = row.chat_seq
+            self.chat_id = row.chat_id
+            self.owner = task.owner
+            self.pending_tool_messages = {}
+            db.commit()
 
-    def record(self,event,payload):
-        if self.take(event,payload):self.flush()
+    def _owns_run(self, task):
+        return (task.status == "running" and task.run_id == self.binding.run_id
+                and task.owner == self.owner and task.lease_until
+                and task.lease_until >= time.time())
+
+    def _latest_input(self, db):
+        return db.scalar(select(ChatMessage.chat_seq).where(
+            ChatMessage.chat_id == self.chat_id, ChatMessage.role == "user"
+        ).order_by(ChatMessage.chat_seq.desc()).limit(1)) or 0
+
+    def record(self, event, payload):
+        if event not in {"text_delta", "thinking_delta", "tool_call", "tool_result"}:
+            return
+        from personal_agent.context import AgentContext
+        # Check BEFORE accepting a delta, so buffered earlier text stays before
+        # the instruction. The common text path only reads the input sequence;
+        # it does not lock the task or write on every token.
+        with self.sessions() as db:
+            if event in {"text_delta", "thinking_delta"} and self._latest_input(db) <= self.message_seq:
+                if self.take(event, payload):
+                    task = AgentContext(db, self.uid).tasks.get(self.task_id, lock=True)
+                    if self._owns_run(task):
+                        self.store(db.get(ChatMessage, self.message_id), self.text)
+                        db.commit()
+                return
+            # Message allocation and tool results serialize with input admission.
+            task = AgentContext(db, self.uid).tasks.get(self.task_id, lock=True)
+            if not self._owns_run(task):
+                return
+            if event == "tool_result" and payload["id"] in self.pending_tool_messages:
+                row = db.get(ChatMessage, self.pending_tool_messages[payload["id"]])
+                record = StreamRecord()
+                record.tools = deepcopy(row.tool_calls or [])
+                record.take(event, payload)
+                row.tool_calls = record.tools
+                db.commit()
+                self.pending_tool_messages.pop(payload["id"])
+                return
+            if event != "tool_result":
+                latest_input = self._latest_input(db)
+                if latest_input > self.message_seq:
+                    self.store(db.get(ChatMessage, self.message_id), self.text)
+                    for tool in self.tools:
+                        if tool["status"] == "running":
+                            self.pending_tool_messages[tool["tool_id"]] = self.message_id
+                    # A run can contain multiple display messages. Keep the run
+                    # identity for completion reminders; never move existing rows.
+                    row = append(db, db.get(ChatSession, task.chat_id), "assistant", "",
+                                 {"run_id": self.binding.run_id})
+                    self.message_id, self.message_seq = row.message_id, row.chat_seq
+                    super().__init__()
+            if self.take(event, payload):
+                self.store(db.get(ChatMessage, self.message_id), self.text)
+            db.commit()
 
     def flush(self):
         from personal_agent.context import AgentContext
         with self.sessions() as db:
-            task=AgentContext(db,self.uid).tasks.get(self.task_id,lock=True)
-            if task.status!="running" or task.run_id!=self.binding.run_id or not task.lease_until or task.lease_until<time.time():return
-            self.store(db.get(ChatMessage,self.message_id),self.text);db.commit()
+            task = AgentContext(db, self.uid).tasks.get(self.task_id, lock=True)
+            if not self._owns_run(task):
+                return
+            self.store(db.get(ChatMessage, self.message_id), self.text)
+            db.commit()

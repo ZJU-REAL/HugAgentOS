@@ -130,7 +130,7 @@ async def test_channel_delivery_uses_source_session_for_file_and_message(session
     monkeypatch.setattr(delivery, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     monkeypatch.setattr("core.storage.get_storage", lambda: Storage())
-    state={"owner":"worker","run_id":"run","revision":0,"generation":generation}
+    state={"owner":"worker","run_id":"run","generation":generation}
     receipt = delivery._publish(task_id, "owner", state, "delivery-id", "artifact-id", "hash",
                                b"report", "report.txt", "text/plain", "finished")
     with sessions() as db:

@@ -40,3 +40,28 @@ Compose profile and tests. CE overlay files must preserve model exports,
 authentication availability, navigation and dictionary assembly. Validate the
 physically derived CE tree as well as the full tree; setting JX_EDITION=ce inside
 the full checkout is not sufficient.
+
+## Task transcript ordering
+
+Task details use the private conversation's monotonic `chat_seq`. When a user
+instruction arrives during a run, subsequent text, thinking and tool calls start
+a new assistant message after that instruction. Buffered earlier output stays in
+the earlier message. Results of tools started before the instruction update their
+original tool cards. Split messages retain the run ID so completion reminders can
+identify the latest response. This affects new execution output; existing mixed
+transcripts cannot be reconstructed without their original event boundaries.
+
+## Task steering
+
+TaskSteering reads actual linked user messages and shares the ordinary
+SteerMiddleware boundaries. Delivery acknowledgement records message IDs only
+after insertion into model context. Starting tool batches yield to new input;
+in-flight tool results remain valid. Completion checks for unread messages under
+the task lock and queues another execution if input arrived too late.
+
+Task input revisions and session-operation task revisions are removed by
+personalsteer01 (full) and ce_0029 (CE). Stop task workers before upgrading; the old
+worker code expects these columns. Downgrade recreates obsolete counters at zero,
+not their historical values. It must also run with workers stopped. No user
+messages, task results or files are removed. File delivery request keys now stay
+unique within a task, including continuations: use a new key for a new output.

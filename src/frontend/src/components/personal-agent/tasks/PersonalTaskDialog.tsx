@@ -12,7 +12,7 @@ import { t } from '../../../i18n';
 import { TaskActions } from './TaskActions';
 import { taskTitle } from './taskState';
 interface HistoryMessage extends Record<string, unknown> { chat_seq: number; is_streaming: boolean }
-interface Thread { chat_id: string; task_revision:number; task_status:string; terminal_message_id?:string; has_more: boolean; messages: HistoryMessage[] }
+interface Thread { chat_id: string; task_run_id?:string | null; task_status:string; terminal_message_id?:string; has_more: boolean; messages: HistoryMessage[] }
 function mergeMessages(previous: HistoryMessage[], items: HistoryMessage[]) {
   const merged = new Map(previous.map(row => [row.message_id, row]));items.forEach(row => merged.set(row.message_id, row));
   return [...merged.values()].sort((a, b) => a.chat_seq - b.chat_seq);
@@ -30,7 +30,7 @@ export function PersonalTaskDialog({ task, onClose, onChange }: { task: Personal
     return { ...parsed, isStreaming: item.is_streaming, toolCalls: parsed.toolCalls?.map((tool, index) => raw[index]?.status === 'running' ? { ...tool, status: item.is_streaming ? 'running' as const : 'interrupted' as const } : tool) };
   }), [records]);
 
-  useReadAtBottom(viewport,!!notice&&!notice.seen&&thread?.task_revision===task.revision&&thread?.task_status===task.status&&records.some(r=>r.message_id===thread?.terminal_message_id&&!r.is_streaming)&&['completed','failed'].includes(task.status),acknowledge);
+  useReadAtBottom(viewport,!!notice&&!notice.seen&&thread?.task_run_id===task.run_id&&thread?.task_status===task.status&&records.some(r=>r.message_id===thread?.terminal_message_id&&!r.is_streaming)&&['completed','failed'].includes(task.status),acknowledge);
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();let timer: ReturnType<typeof setTimeout>;

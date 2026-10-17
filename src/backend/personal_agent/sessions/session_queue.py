@@ -88,7 +88,7 @@ def submit(
             or task.run_id != run_id
             or (
                 task_scope
-                and (task.owner, task.revision) != (task_scope["owner"], task_scope["revision"])
+                and task.owner != task_scope["owner"]
             )
         ):
             raise ValueError("Task execution changed")
@@ -104,7 +104,6 @@ def submit(
         work_item_id=task_id,
         run_id=run_id,
         task_owner=task.owner if task else None,
-        task_revision=task.revision if task else None,
         deadline=time.time() + 60,
     )
     db.add(row)
@@ -130,7 +129,6 @@ def active_task(db, row):
         and task.status == "running"
         and task.run_id == row.run_id
         and task.owner == row.task_owner
-        and task.revision == row.task_revision
         and task.lease_until
         and task.lease_until > time.time()
     )

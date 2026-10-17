@@ -8,7 +8,7 @@ import { type PersonalTask } from '../src/components/personal-agent/api';
 export function Fixture() {
   const [now] = useState(() => Date.now());
   const [status, setStatus] = useState('running');
-  const task: PersonalTask = { id: 'test', goal: '电脑操作', status, revision: 1,
+  const task: PersonalTask = { id: 'test', goal: '电脑操作', status, run_id: "test-run",
     uncertain_actions: status === 'completed' ? [] : ['action'], updated_at: new Date(now).toISOString() };
   const done = async () => {};
   return <ConfigProvider theme={{ token: { motion: false } }}>

@@ -3,17 +3,25 @@ from sqlalchemy import select, and_, or_, exists
 from core.db.models import ChatMessage
 from personal_agent.models import PersonalMessageTask, PersonalWorkItem
 
-def instructions(db, chat_id, task_id, limit=30):
+def instruction_messages(db, chat_id, task_id, *, exclude=(), limit=None):
     # SQLite upgrades use metadata reconciliation, so legacy JSON links need a read fallback.
     linked = exists(select(PersonalMessageTask.message_id).where(PersonalMessageTask.message_id == ChatMessage.message_id)).correlate(ChatMessage)
     task = db.get(PersonalWorkItem, task_id)
     legacy = and_(~linked, ChatMessage.extra_data["work_item_id"].as_string() == task_id,
         ChatMessage.role == "user", ChatMessage.chat_seq != task.context_seq)
-    rows = db.execute(select(ChatMessage, PersonalMessageTask).outerjoin(PersonalMessageTask,
+    query = (select(ChatMessage, PersonalMessageTask).outerjoin(PersonalMessageTask,
         and_(PersonalMessageTask.message_id == ChatMessage.message_id, PersonalMessageTask.work_item_id == task_id))
         .where(or_(PersonalMessageTask.relation == "update", and_(ChatMessage.chat_id == chat_id, legacy)))
-        .order_by(ChatMessage.chat_seq.desc()).limit(limit)).all()
-    return [link.instruction if link else message.content for message, link in reversed(rows)]
+        .order_by(ChatMessage.created_at, ChatMessage.message_id))
+    if exclude:
+        query = query.where(ChatMessage.message_id.notin_(exclude))
+    if limit is not None:
+        query = query.limit(limit)
+    rows = db.execute(query).all()
+    return [(message.message_id, link.instruction if link else message.content) for message, link in rows]
+
+def instructions(db, chat_id, task_id, limit=30):
+    return [text for _, text in instruction_messages(db, chat_id, task_id)[-limit:]]
 
 def message_links(db, message_ids):
     result = {ident: [] for ident in message_ids}

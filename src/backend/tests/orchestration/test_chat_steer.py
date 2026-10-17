@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
-from core.llm.middlewares import SteerMiddleware
+from core.llm.steer_middleware import SteerMiddleware
 from core.services import chat_steer_service
 from core.services.chat_service import ChatService
 from core.services.run_journal import RunJournal, RunLeaseLost
@@ -278,6 +278,7 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
         emitted.append(dict(event))
 
     monkeypatch.setattr(executor, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(executor, "get_run", lambda _run_id: SimpleNamespace(request_payload={}, status="running"))
     monkeypatch.setattr(executor, "ChatService", FakeChatService)
     monkeypatch.setattr(executor, "_persisted_history", lambda *_args: [])
     fake_journal = FakeJournal()

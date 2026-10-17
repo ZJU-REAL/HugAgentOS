@@ -20,6 +20,8 @@ WeChat QR binding retains the returned user ID for configuration checks. Older b
 ## Runtime
 
 Each user has one agent identity, one public conversation, and one permanent sandbox. Each task has its own WorkItem, ChatSession, and ChatRun. Completed, failed and stopped tasks can continue in that same task and conversation, preserving the previous result, files and history. Unknown external effects still require reconciliation. Select a task title to open its conversation with tool results. Task conversations stay out of the ordinary chat list. The public conversation shows final replies.
+Task details preserve admission order: earlier progress, the added instruction, then continued progress. Later text, thinking and new tool calls start a new assistant message; results for tools already started update their original cards. Reloading or paging preserves this order. This applies to new execution records; old mixed records cannot be reconstructed without their original boundaries.
+
 
 The default concurrency is three tasks. You can set 1 to 8 in Settings. PostgreSQL stores the queue. Workers use row locks and execution leases. An expired worker cannot publish a reply or continue tool execution.
 
@@ -350,3 +352,7 @@ Daily journal writes are capped at 16 MiB per file. Oversized files preserve pen
 The shared backend lives in `src/backend/personal_agent/`, organized by identity, conversations, tasks, scheduling, workspace, computers, sessions, channels and delivery. The frontend follows the same feature boundaries. Both editions share execution logic; EE adds its account access policy.
 
 CE uses its independent `ce_0028` migration for the seven Personal Agent tables. Existing data is preserved and downgrade refuses to drop populated tables. The full repository retains its original migration history. The module is off by default; existing authenticated CE users can use it once enabled.
+
+### Steering a running task
+
+Additional user messages enter context automatically at the next model or tool boundary. Unstarted tool calls yield to replanning; tools already running retain their results. No status-tool call is required to resume execution. Tasks do not use input version counters. Cancellation, execution ownership, leases and approvals still apply. Input arriving after the last reasoning boundary continues in a subsequent execution rather than being lost.

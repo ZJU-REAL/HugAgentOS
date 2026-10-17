@@ -22,13 +22,11 @@ def register_personal_tools(toolkit, request, loader=None):
 
     async def pa_task_status() -> ToolResponse:
         """Read this task's latest user updates and pending actions."""
-        state = owned_task(ident, uid, allow_revision_change=True, allow_pending=True)
+        state = owned_task(ident, uid, allow_pending=True)
         with SessionLocal() as db:
             task = db.get(PersonalWorkItem, ident)
-            from personal_agent.tasks.execution import consume
-            consume(task)
             from personal_agent.conversation.associations import instructions
-            return response({"revision": task.revision, "goal": task.goal,
+            return response({"goal": task.goal,
                 "updates": instructions(db, state["chat"], ident, 100), "checkpoint": task.checkpoint})
 
     async def pa_task_checkpoint(summary: str, next_step: str = ""):
@@ -151,7 +149,7 @@ def register_personal_tools(toolkit, request, loader=None):
         """Complete the task with final text in the user's language, then stop.
         To show an image/file in the main conversation, call pa_deliver before this.
         Already delivered outputs remain visible; do not export or send them again."""
-        state = owned_task(ident, uid, allow_revision_change=True, allow_pending=True)
+        state = owned_task(ident, uid, allow_pending=True)
         if not answer.strip() or len(answer) > 60000: raise ValueError("Answer must contain 1 to 60000 characters")
         from personal_agent.context import AgentContext
         with SessionLocal() as db:

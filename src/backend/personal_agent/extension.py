@@ -48,7 +48,9 @@ def _middlewares(request) -> list:
     # Desktop observations: keep only the latest screenshots in the model context.
     from personal_agent.computer.screenshot_pruning import ScreenshotPruningMiddleware
 
-    return [ScreenshotPruningMiddleware()]
+    from personal_agent.tasks.steering import current_steering
+    steering = current_steering.get()
+    return [*([steering.middleware()] if steering else []), ScreenshotPruningMiddleware()]
 
 def _handles_channel(db, conn) -> bool:
     from personal_agent.channels.channel_bridge import handled_by_agent

@@ -3,6 +3,7 @@ import pytest
 from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
 from personal_agent.tasks.task_threads import history
+from personal_agent.conversation.associations import instructions
 from tests.test_personal_agent_routing import sessions, personal_agent_on  # noqa: F401
 
 
@@ -16,7 +17,7 @@ def test_completed_task_accepts_followup_in_same_conversation_once(sessions):
         assert result == admit(svc, "Add a conclusion", "followup", work_item_ids=[task["id"]], intent="update")
         [updated] = svc.tasks.list()
         assert updated["id"] == task["id"] and updated["status"] == "queued"
-        assert updated["revision"] == 1 and updated["result"] == "Original report"
+        assert updated["result"] == "Original report"
         after = history(svc, task["id"])
         assert after["chat_id"] == before["chat_id"]
         assert [m["content"] for m in after["messages"]] == ["Write a report", "Original report", "Add a conclusion"]
@@ -31,12 +32,12 @@ async def test_implicit_followup_requires_inspecting_target_before_changing_it(s
         entry = admit(svc, "Add a conclusion", "followup")
     await turn(entry["message_id"], scripted(("pa_task_update", {"task_id": task["id"], "instruction": "Add a conclusion"}), "Checking the report first."))
     with sessions() as db:
-        assert AgentContext(db, "owner").tasks.list()[0]["revision"] == 0
+        assert instructions(db, task.get("chat_id"), task["id"]) == []
     with sessions() as db:
         entry = admit(AgentContext(db, "owner"), "Please continue that report", "followup-2")
     await turn(entry["message_id"], scripted(("pa_task_get", {"task_id": task["id"]}), ("pa_task_update", {"task_id": task["id"], "instruction": "Add a conclusion"}), "Continuing the report."))
     with sessions() as db:
-        assert AgentContext(db, "owner").tasks.list()[0]["revision"] == 1
+        assert instructions(db, task.get("chat_id"), task["id"]) == ["Add a conclusion"]
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled"])
@@ -52,7 +53,7 @@ def test_ended_task_continuation_clears_old_execution_state(sessions, status):
         db.commit()
         admit(svc, "Try the next page", "followup", work_item_ids=[task["id"]], intent="update")
         [updated] = svc.tasks.list()
-        assert updated["status"] == "queued" and updated["revision"] == 1
+        assert updated["status"] == "queued"
         assert not row.checkpoint.get("approved_scopes") and not row.checkpoint.get("approved_action_payloads")
         assert row.checkpoint["action_receipts"]["a"]["status"] == "done"
 
@@ -83,7 +84,7 @@ async def test_unrelated_message_does_not_inherit_the_only_existing_task(session
     await turn(entry["message_id"], scripted("Hello!"))
     with sessions() as db:
         svc = AgentContext(db, "owner")
-        assert svc.tasks.list()[0]["revision"] == 0
+        assert instructions(db, task.get("chat_id"), task["id"]) == []
         assert svc.conversation.list()[-1]["work_item_ids"] == []
 
 

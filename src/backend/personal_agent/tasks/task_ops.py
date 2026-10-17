@@ -72,7 +72,6 @@ def update_task(svc, message, task_id, instruction, *, attachments=()):
         task.checkpoint = state
         task.requeue()
     task.checkpoint = state
-    task.revision += 1
     link(svc.db, message.message_id, task.id, "update", instruction)
     _sync(svc, [task.id])
     return task
@@ -89,11 +88,10 @@ def control(svc, message, task_id, kind):
             raise ValueError("请先在卡片中批准待处理操作，或核对未知的操作结果。")
         if task.status == "waiting":
             state = dict(task.checkpoint or {}); state.pop("task_wait_reason", None); task.checkpoint = state
-            task.requeue(); task.revision += 1
+            task.requeue()
     elif task.status not in TERMINAL:
         task.status = "waiting" if kind == "pause" else "cancelled"
         task.waiting_reason = "用户暂停了任务" if kind == "pause" else "用户停止了任务"
-        task.revision += 1
         if task.status == "cancelled":
             from personal_agent.workspace.file_memory import record_task
             record_task(svc.db, task, svc.identity.agent())

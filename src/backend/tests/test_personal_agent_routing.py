@@ -214,7 +214,7 @@ async def test_one_message_changes_several_tasks_with_scoped_instructions(sessio
     with sessions() as db:
         chat = AgentContext(db, "owner").identity.agent().chat_id
         assert instructions(db, chat, a) == ["部署用 feature/demo 分支"] and instructions(db, chat, b) == []
-        assert db.get(PersonalWorkItem, b).status == "waiting" and db.get(PersonalWorkItem, a).revision == 1
+        assert db.get(PersonalWorkItem, b).status == "waiting" and db.get(PersonalWorkItem, a).checkpoint.get("continuation_seq") is not None
 
 
 @pytest.mark.asyncio

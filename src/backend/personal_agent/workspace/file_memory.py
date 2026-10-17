@@ -135,7 +135,7 @@ def drain(sessions=None, limit=50):
 def record_task(db, task, agent):
     """Record terminal failures/cancellations in the same transaction as their state."""
     from core.db.repository.chat import ChatMessageRepository
-    key = "pa_memory_" + hashlib.sha256((task.id + ":" + str(task.revision) + ":" + task.status).encode()).hexdigest()[:32]
+    key = "pa_memory_" + hashlib.sha256((task.id + ":" + str(task.run_id or "") + ":" + task.status).encode()).hexdigest()[:32]
     if db.get(ChatMessage, key): return
     row = ChatMessageRepository(db).create({"message_id": key, "chat_id": agent.chat_id,
         "role": "system", "content": task.waiting_reason or task.status,

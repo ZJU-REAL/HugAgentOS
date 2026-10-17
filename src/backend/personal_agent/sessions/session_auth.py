@@ -25,7 +25,6 @@ async def mint(task_id, uid, ttl):
             "task": task_id,
             "run": task.run_id,
             "owner": task.owner,
-            "revision": task.revision,
         }
     token = "pa_cli_" + secrets.token_urlsafe(32)
     await get_ephemeral_state().put(key(token), json.dumps(payload), ttl=ttl)
@@ -53,8 +52,8 @@ async def resolve(request, db):
         or task.status != "running"
         or not task.lease_until
         or task.lease_until < time.time()
-        or (task.run_id, task.owner, task.revision)
-        != (payload["run"], payload["owner"], payload["revision"])
+        or (task.run_id, task.owner)
+        != (payload["run"], payload["owner"])
     ):
         raise HTTPException(401, "Task grant revoked")
     row = db.get(UserShadow, payload["uid"])

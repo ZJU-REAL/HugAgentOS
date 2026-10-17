@@ -92,7 +92,6 @@ async def dispatch_approved(task_id, uid, action):
                 "task": task_id,
                 "run": state["run_id"],
                 "owner": task.owner,
-                "revision": task.revision,
             },
         )
 
