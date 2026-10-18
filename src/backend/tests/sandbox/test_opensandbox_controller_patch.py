@@ -48,6 +48,20 @@ def extract(source, name, namespace):
 
 @unittest.skipUnless(SOURCE.is_dir(), "Set OPENSANDBOX_TEST_SOURCE to the pinned server source")
 class ControllerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_creation_does_not_block_controller_queries(self):
+        import asyncio
+        source = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
+        def slow_create(request):
+            time.sleep(0.25)
+            return "created"
+        service = SimpleNamespace(_create_sandbox_sync=slow_create)
+        fn = extract(source, "create_sandbox", {"run_in_threadpool": run_in_threadpool})
+        started = time.perf_counter()
+        creation = asyncio.create_task(fn(service, object()))
+        await asyncio.sleep(0.02)
+        self.assertLess(time.perf_counter() - started, 0.15)
+        self.assertEqual(await creation, "created")
+
     async def test_get_does_not_block_health(self):
         # Set BASELINE=1 to prove the same regression against unpatched code.
         source = (
@@ -216,7 +230,7 @@ class IsolatedNetworkTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("isolated_networks", path)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
-        self.environment = mock_patch.dict(os.environ, {"HOSTNAME": "controller"})
+        self.environment = mock_patch.dict(os.environ, {"HOSTNAME": "controller", "HUGAGENT_BACKEND_CONTAINER": "backend"})
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.controller = SimpleNamespace(id="controller", attrs={"Config": {"Labels": {
@@ -225,9 +239,10 @@ class IsolatedNetworkTests(unittest.TestCase):
             "com.docker.compose.project": "test", "com.docker.compose.service": "backend"}}})
         boxes = {"controller": self.controller, "backend": self.backend}
         self.boxes = boxes
+        self.module._remove_mount_helper = Mock()
         self.network = Mock()
         self.network.name = "test-sandbox-one"
-        self.network.attrs = {"Labels": {"hugagent.project": "test", "hugagent.sandbox": "one"}, "Containers": {}}
+        self.network.attrs = {"Labels": {"hugagent.project": "test", "hugagent.sandbox": "one", "hugagent.controller": "opensandbox"}, "Containers": {}}
         self.network.connect.side_effect = lambda box, **kw: self.network.attrs["Containers"].update({box.id: {}})
         self.network.disconnect.side_effect = lambda box: self.network.attrs["Containers"].pop(box.id)
         self.service = SimpleNamespace(docker_client=SimpleNamespace(
@@ -269,7 +284,7 @@ class IsolatedNetworkTests(unittest.TestCase):
             self.module.remove_network(self.service, "one")
 
     def test_network_lifecycle_when_backend_is_stopped(self):
-        self.service.docker_client.containers.list = lambda **kw: []
+        self.backend.attrs["State"] = {"Running": False}
         self.module.create_network(self.service, "one")
         self.assertEqual(set(self.network.attrs["Containers"]), {"controller"})
         self.module.remove_network(self.service, "one")
@@ -282,6 +297,43 @@ class IsolatedNetworkTests(unittest.TestCase):
             "opensandbox.io/id": "two", "hugagent.sandbox-network": "foreign-sandbox-two"}}})
         self.service.docker_client.containers.list = lambda **kw: [own, foreign]
         self.assertEqual(self.module.owned_sandboxes(self.service), [own])
+
+    def test_personal_controller_removes_its_network_and_rejects_other_owner(self):
+        self.controller.attrs["Config"]["Labels"]["com.docker.compose.service"] = "personal-agent-opensandbox"
+        self.network.attrs["Labels"]["hugagent.controller"] = "personal-agent-opensandbox"
+        self.module.create_network(self.service, "one")
+        self.module.remove_network(self.service, "one")
+        self.network.remove.assert_called_once()
+        self.network.attrs["Labels"]["hugagent.controller"] = "opensandbox"
+        with self.assertRaisesRegex(RuntimeError, "ownership mismatch"):
+            self.module.ensure_network(self.service, SimpleNamespace(), "one")
+        own = SimpleNamespace(attrs={"Config": {"Labels": {
+            "opensandbox.io/id": "one", "hugagent.sandbox-network": "test-sandbox-one"}}})
+        self.service.docker_client.containers.list = lambda **kw: [own]
+        self.assertEqual(self.module.owned_sandboxes(self.service), [])
+
+    def test_backend_lookup_does_not_enumerate_containers(self):
+        def forbidden(**kwargs):
+            raise AssertionError("Container enumeration on request path")
+        self.service.docker_client.containers.list = forbidden
+        project, trusted = self.module._trusted(self.service)
+        self.assertEqual(project, "test")
+        self.assertEqual([box.id for box, _ in trusted], ["controller", "backend"])
+        self.backend.attrs["Config"]["Labels"]["com.docker.compose.project"] = "foreign"
+        with self.assertRaisesRegex(RuntimeError, "ownership mismatch"):
+            self.module._trusted(self.service)
+
+    def test_other_sandbox_lookup_is_not_blocked_by_lifecycle_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        other = next(str(i) for i in range(100)
+                     if self.module._network_lock(str(i)) is not self.module._network_lock("one"))
+        with ThreadPoolExecutor() as pool:
+            with self.module._network_lock(other):
+                future = pool.submit(self.module.ensure_network, self.service,
+                    SimpleNamespace(attrs={"Config": {"Labels": {
+                        "hugagent.sandbox-network": self.network.name}},
+                        "NetworkSettings": {"Networks": {self.network.name: {}}}}), "one")
+                future.result(timeout=1)
 
     def test_connection_failure_rolls_back_owned_network(self):
         self.network.connect.side_effect = RuntimeError("attach failed")

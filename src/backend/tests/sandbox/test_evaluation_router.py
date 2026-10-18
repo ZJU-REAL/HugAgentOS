@@ -40,8 +40,7 @@ def arguments(method, session):
 def providers(monkeypatch):
     import core.config.settings as config
     import core.sandbox.evaluation_provider as evaluation
-    ordinary = SimpleNamespace(name="opensandbox", runs_on_host=False,
-                               stage_files=AsyncMock(return_value="personal files"))
+    ordinary = SimpleNamespace(name="opensandbox", runs_on_host=False)
     strict = SimpleNamespace()
     for method in METHODS:
         setattr(ordinary, method, AsyncMock(return_value=("ordinary", method)))
@@ -66,8 +65,6 @@ async def test_unscoped_capabilities_still_delegate_to_ordinary_provider(provide
     router, ordinary, _ = providers
     assert router.name == ordinary.name
     assert router.runs_on_host is False
-    assert await router.stage_files("owner", []) == "personal files"
-    ordinary.stage_files.assert_awaited_once_with("owner", [])
 
 
 @pytest.mark.parametrize("method", METHODS)

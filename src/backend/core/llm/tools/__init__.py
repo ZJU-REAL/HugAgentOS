@@ -30,7 +30,6 @@ from .skill_tool import (
 )
 from .channel_attachment_tool import register_channel_attachment
 from .chat_history_tool import register_chat_history_tools
-from .space_tools import register_space_tools
 from .pin_tool import register_pin_to_workspace
 from .read_artifact_tool import register_read_artifact
 from .data_context_tool import register_get_data_context
@@ -45,7 +44,6 @@ __all__ = [
     "register_edit",
     "register_glob",
     "register_grep",
-    "register_space_tools",
     "register_pin_to_workspace",
     "register_read",
     "register_read_artifact",

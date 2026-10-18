@@ -17,6 +17,8 @@ def test_same_folder_rejects_new_name_but_allows_edit(client):
 
 def test_names_are_scoped_and_move_copy_cannot_create_duplicates(client):
     first = client.post("/v1/file/upload", files={"file": ("report.txt", b"first")}).json()
+    assert client.post("/v1/myspace/folders/copy-artifact",
+                       json={"artifact_id": first["file_id"], "folder_id": None}).status_code == 200
     folder = client.post("/v1/myspace/folders", json={"name": "Nested"}).json()["data"]["folder_id"]
     other = client.post("/v1/file/upload", data={"folder_id": folder},
                         files={"file": ("report.txt", b"other")})
@@ -59,32 +61,3 @@ def test_file_and_folder_share_one_namespace(client):
     assert client.post("/v1/myspace/folders", json={"name": "occupied"}).status_code == 409
     assert client.post("/v1/myspace/folders", json={"name": "directory"}).status_code == 200
     assert client.post("/v1/file/upload", files={"file": ("directory", b"data")}).status_code == 409
-
-
-def test_delayed_delete_preserves_new_version_and_recreated_identity(client, monkeypatch, tmp_path):
-    from contextlib import contextmanager
-    from core.db.engine import get_db
-    from core.db.models import Artifact
-    from core.myspace import mirror
-    from core.infra.time import utc_now
-
-    @contextmanager
-    def session():
-        yield from client.app.dependency_overrides[get_db]()
-
-    monkeypatch.setattr("core.db.engine.SessionLocal", session)
-    monkeypatch.setattr("core.llm.tools.myspace_vfs.myspace_cache_file", lambda *a: tmp_path / "absent")
-    first = client.post("/v1/file/upload", files={"file": ("delayed.txt", b"old")}).json()["file_id"]
-    with session() as db:
-        old = mirror._registered_of(db.get(Artifact, first))
-    target = mirror.DeleteTarget(registered=old)
-    client.put("/v1/file/" + first, files={"file": ("delayed.txt", b"updated")})
-    assert mirror.delete_registered(user_id="owner", rel="delayed.txt", target=target)
-    with session() as db:
-        assert db.get(Artifact, first).deleted_at is None
-        db.get(Artifact, first).deleted_at = utc_now()
-        db.commit()
-    replacement = client.post("/v1/file/upload", files={"file": ("delayed.txt", b"new")}).json()["file_id"]
-    assert mirror.delete_registered(user_id="owner", rel="delayed.txt", target=target)
-    with session() as db:
-        assert db.get(Artifact, replacement).deleted_at is None

@@ -26,7 +26,7 @@ async def list_pending_confirms(
     注意：本路由必须声明在 ``GET /{chat_id}`` **之前**，否则会被 path
     参数路由吞掉（FastAPI 按声明顺序匹配）。
     """
-    from core.llm.tools import _myspace_confirm as _mc
+    from core.llm.tools import _tool_confirmation as _mc
 
     items = []
     for cid in await _mc.list_pending_chat_ids_shared():
@@ -60,7 +60,7 @@ async def get_pending_confirm(
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
-    from core.llm.tools import _myspace_confirm as _mc
+    from core.llm.tools import _tool_confirmation as _mc
 
     # pendings: all outstanding items; the frontend restores the whole confirmation queue from this
     # (one round of parallel tool calls can concurrently register N distinct pending confirmations).
@@ -89,7 +89,7 @@ async def file_confirm(
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
-    from core.llm.tools import _myspace_confirm as _mc
+    from core.llm.tools import _tool_confirmation as _mc
 
     res = await _mc.set_decision_shared(
         chat_id, body.confirm_id, body.decision, option_id=body.option_id

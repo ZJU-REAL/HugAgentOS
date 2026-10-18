@@ -1,4 +1,7 @@
-"""Community Edition uses the shared OpenSandbox runtime."""
-from .opensandbox_provider import OpenSandboxProvider as PersistentSandboxProvider
+"""Persistent sandbox provider for personal accounts."""
+from core.sandbox.opensandbox_provider import OpenSandboxProvider
+from core.spaces.sandbox import SpaceSandboxMixin
 
-__all__ = ["PersistentSandboxProvider"]
+
+class PersistentSandboxProvider(SpaceSandboxMixin, OpenSandboxProvider):
+    pass

@@ -45,7 +45,7 @@ src/frontend/src/
 │   └── lab/ memory/ myspace/ projects/ settings/ share/ sidebar/ tool/ apidoc/
 ├── hooks/               # useChatInit / useChatActions / useStreaming / usePlanMode
 │                        # usePageConfig / useDelayedFlag / useStallDetector
-├── stores/              # 18 Zustand stores (authStore, chatStore, catalogStore,
+├── stores/              # Zustand stores (authStore, chatStore, catalogStore,
 │                        # editionStore, uiStore, settingsStore, fileStore, kbStore,
 │                        # agentStore, automationStore, canvasStore,
 │                        # mySpaceStore, projectStore, skillDistillStore, …) + index.ts

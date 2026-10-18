@@ -47,7 +47,7 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 
 ## Agent-side tools
 
-`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `agent_factory` in Phase 3.5):
+`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `factory/tools/native.py`):
 
 | Tool | Purpose |
 |---|---|

@@ -269,7 +269,7 @@ async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
                 return_value=Policy(),
             ),
             patch(
-                "core.llm.tools._myspace_confirm.gate",
+                "core.llm.tools._tool_confirmation.gate",
                 new=AsyncMock(return_value=None),
             ),
             patch(_CONFINE, new=_capture_policy(captured)),

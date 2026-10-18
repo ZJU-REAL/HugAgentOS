@@ -52,7 +52,6 @@ def _path(value):
 class EvaluationSandboxProvider:
     name = "opensandbox"
     runs_on_host = False
-    myspace_mirror_live = False
 
     def __init__(self, *, connector=None):
         self._connector = connector or connect_sandbox
@@ -199,8 +198,6 @@ class EvaluationSandboxProvider:
             finally:
                 await chunks.aclose()
 
-    async def stage_files(self, user_id, files):
-        raise SandboxError("Evaluation sandboxes do not stage personal-space files")
 
     async def current_sandbox_id(self, session_id):
         return (await binding.get(session_id)).sandbox_id

@@ -1,6 +1,6 @@
 """Sandbox driver abstraction layer.
 
-Callers only depend on ``get_sandbox_provider()`` + ``ProcessRequest`` / ``StageFile``;
+Callers only depend on ``get_sandbox_provider()`` + ``ProcessRequest``;
 the concrete implementation is decided by the environment variable ``SANDBOX_PROVIDER``.
 """
 
@@ -10,8 +10,6 @@ from .protocol import (
     ProcessRequest,
     ProcessResult,
     SandboxProvider,
-    StagedFile,
-    StageFile,
 )
 
 __all__ = [
@@ -22,8 +20,6 @@ __all__ = [
     "SandboxFileTooLargeError",
     "SandboxProvider",
     "SandboxTimeoutError",
-    "StageFile",
-    "StagedFile",
     "get_sandbox_provider",
     "reset_provider_cache",
 ]

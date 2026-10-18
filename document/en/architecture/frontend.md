@@ -62,7 +62,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `sidebar/` | Sidebar, global search modal, navigation item definitions |
 | `tool/` | Tool-call timeline: call rows, thinking rows, output renderer, result panel, inline progress |
 
-## Zustand State (18 stores)
+## Zustand State
 
 | Store | Responsibility |
 |---|---|
@@ -98,7 +98,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 
 ## Styles and Other Directories
 
-- `styles/`: global CSS split by feature area (`chat.css`, `catalog.css`, `automation.css`, `canvas.css`, `myspace.css`, `projects.css`, `config.css`, `team-folder.css` — 18 files), with `variables.css` for design tokens and `index.ts` importing them all;
+- `styles/`: global CSS split by feature area (`chat.css`, `catalog.css`, `automation.css`, `canvas.css`, `myspace.css`, `projects.css`, `config.css`, `team-folder.css`), with `variables.css` for design tokens and `index.ts` importing them all;
 - `types.ts` + `types/`: shared types (`ChatMessage`, `CitationItem`, `Catalog`…); team-file domain types in `types/teamFiles.ts`;
 - `utils/`: `citations.ts` (citation parsing), `markdown.ts`, `segments.ts` (stream segmentation), `fileParser.ts`, `adminApi.ts`, `pageConfigDefaults.ts` — 22 utility modules;
 - `storage.ts`: localStorage persistence and defaults; `appTheme.ts`: antd theme tokens; `preloadReload.ts`: auto-reload on chunk preload failures.

@@ -20,7 +20,6 @@ from core.llm.tools import (
     register_sandbox_get_artifact,
     register_sandbox_put_artifact,
     register_sandboxed_view_text_file,
-    register_space_tools,
     register_write,
 )
 from core.services.system_config import code_capability_enabled
@@ -126,7 +125,7 @@ async def native_tools(
             )
 
         # ── Phase 3.6: Register file-operation tools (Read/Edit/Write/Glob/
-        # Grep/Delete/Move + myspace). These tools share a single
+        # Grep). These tools share a single
         # ReadStateTracker, keeping the Edit/Write "must Read first" invariant
         # consistent across multiple tool calls.
         #
@@ -135,7 +134,7 @@ async def native_tools(
         # `if not disable_tools:`, so the plan-generation phase naturally gets
         # no file capability.
         # Project mode: hooks up the folder name + subtree scoping; the fs/
-        # MySpace tools below and pin_to_workspace (Phase 3.8) share the same
+        # file tools below and pin_to_workspace (Phase 3.8) share the same
         # scope.
         _proj_folder_name = (request.project_ctx or {}).get("project_folder_name") or None
 
@@ -200,17 +199,6 @@ async def native_tools(
                 project_folder_name=_proj_folder_name,
                 scope=_proj_scope,
             )
-            if not request.read_only:
-                register_space_tools(
-                    toolkit,
-                    chat_id=request.chat_id,
-                    sandbox_session_id=_sbx_sess,
-                    user_id=request.current_user_id,
-                    state=_read_state,
-                    interactive=_interactive,
-                    project_folder_name=_proj_folder_name,
-                    scope=_proj_scope,
-                )
 
         # ── Phase 3.7: Register read_artifact for cross-turn file access ──
         # Unconditional: any user may have uploaded files in prior turns of this chat,

@@ -30,7 +30,7 @@ src/backend/prompts/prompt_text/default/system/
 └── 40_format.system.md        # output format + [ref:tool-N] citation contract
 ```
 
-After the base prompt, runtime appends dynamic sections per context: the tools & skills notice (`_TOOLS_AND_SKILLS_NOTICE`), the lightweight KB catalog (`prompts/kb_lite_section.py`), the project-mode section (`prompts/project_section.py`, injected only for project chats), the code-execution segment and batch-mode hint (appended by `agent_factory.py`), and the sub-agent routing table (`core/llm/subagent_tool.py::build_subagent_prompt_section`).
+After the base prompt, runtime appends dynamic sections per context: the tools & skills notice (`_TOOLS_AND_SKILLS_NOTICE`), the lightweight KB catalog (`prompts/kb_lite_section.py`), the project-mode section (`prompts/project_section.py`, injected only for project chats), the code-execution segment and batch-mode hint (appended by `factory/build.py`), and the sub-agent routing table (`core/llm/subagent_tool.py::build_subagent_prompt_section`).
 
 ### Caching
 
@@ -99,10 +99,10 @@ their own enablement state.
 
 | kind | Runtime consumer | Resolution order |
 |---|---|---|
-| `code_exec` | `agent_factory.py` appends this segment (the code-capability prompt) to the system prompt when `CODE_CAPABILITY_ENABLED=true`; the single source of truth is `prompt_version_service.render_code_capability_segment()`, also used by the console preview | active DB version → `prompts/prompt_text/code_exec/system/*.system.md` |
+| `code_exec` | `factory/build.py` appends this segment (the code-capability prompt) to the system prompt when `CODE_CAPABILITY_ENABLED=true`; the single source of truth is `prompt_version_service.render_code_capability_segment()`, also used by the console preview | active DB version → `prompts/prompt_text/code_exec/system/*.system.md` |
 | `distillation` | Skill distillation (`core/llm/skill_distiller.py`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
 | `plan_mode` | The plan-generation sub-agent (`orchestration/subagents/plan_mode.py::_load_plan_prompt`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
-| `turbo` | Turbo mode (when the chat-mode picker is set to Turbo, `agent_factory.py` **replaces** the assembled main system prompt with this one). The tool set is admin-configurable via Config "System Config → Turbo" (`turbo.mcp_server_ids`, defaulting to internet search / web fetch / KB retrieval, **independent of catalog enable/disable state**); explicitly summoned skills / @sub-agents / plugins may join per turn (`turbo.manual_invoke_enable`); the react-iteration cap is configurable (`turbo.max_iters`, default 4). The single source of truth is `prompt_version_service.render_turbo_system_prompt()` | active `turbo` DB version → `prompts/prompt_text/turbo/turbo.system.md` → hardcoded fallback |
+| `turbo` | Turbo mode (when the chat-mode picker is set to Turbo, `factory/build.py` **replaces** the assembled main system prompt with this one). The tool set is admin-configurable via Config "System Config → Turbo" (`turbo.mcp_server_ids`, defaulting to internet search / web fetch / KB retrieval, **independent of catalog enable/disable state**); explicitly summoned skills / @sub-agents / plugins may join per turn (`turbo.manual_invoke_enable`); the react-iteration cap is configurable (`turbo.max_iters`, default 4). The single source of truth is `prompt_version_service.render_turbo_system_prompt()` | active `turbo` DB version → `prompts/prompt_text/turbo/turbo.system.md` → hardcoded fallback |
 
 Sub-agents do not use the full pool assembly: `prompt_runtime.py::build_subagent_system_prompt()` builds around the user-defined `system_prompt`, reusing the `20_tools_policy` / `65_citations` / `60_format` parts from the active version (or files). See [Chat & Agent Orchestration](chat.md).
 

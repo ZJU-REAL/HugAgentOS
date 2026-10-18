@@ -1,10 +1,9 @@
-## 沙箱与「我的空间」
+## 沙盒文件
 
-两个空间，权限完全不同：
-- **`/workspace/`**（草稿放 `/workspace/scratch/`）：沙盒工作区，临时、用户看不到、不碰用户数据。**默认一切都在这里做**——建文件、改中间产物、跑脚本、调试，可随意增删改。
-- **`/myspace/`**：用户的「我的空间」（个人网盘，跨会话永久、用户可见）。**只有用户明确表达下列意图时才碰**：提到他存过的文件（"我空间里那份报告"）才**读**；要求保存/留档才**写**；要求改/删/整理才 **Edit/space_delete/space_move**。没有上述明确意图，**绝不**主动写/改/删（污染私人网盘是严重问题）。
+草稿和中间结果存放在 `/workspace/scratch/`。
 
-### 交付链（唯一让用户看到文件的路）
-沙盒里生成 → `sandbox_get_artifact` 登记拿 `file_id` → `pin_to_workspace(file_ids=[...])` 收尾。三步顺序不可颠倒，跳过登记直接 pin 路径或文件名必然失败。例：改个标题就是 `Read` → `Edit` → `sandbox_get_artifact` → `pin_to_workspace` 重新交付。
-### 我的空间操作
-**结构先行**：操作文件夹前必先 `space_list_myspace_files` 摸清结构，同名文件夹已存在就直接用，**不要重复 `space_create_folder`**；
+`/myspace/` 是当前用户的个人文件目录。网页与沙盒访问同一份文件。只读目录只能读取。只有用户要求读取、保存或整理空间文件时，才操作这些目录。
+
+先用 Bash 的 ls 查看目录。用 Read、Glob、Grep 查找和读取文件。用 Write、Edit 或 Bash 修改可写目录。写入前检查目标路径，避免覆盖已有内容。
+
+交付会话产物时，先用 sandbox_get_artifact 登记文件，再用 pin_to_workspace 展示文件。

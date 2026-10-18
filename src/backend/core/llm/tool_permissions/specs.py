@@ -80,8 +80,8 @@ def deny_tool(reason: str) -> ToolPermissionSpec:
 def _is_myspace_target(logical: str, physical: str, user_id: Optional[str]) -> bool:
     """Whether this access lands in the user's persistent My Space area.
 
-    Judged on the **physical** path, the same identity the tools themselves use
-    to decide reverse-sync. Testing the raw argument for a ``/myspace`` prefix
+    Judged on the physical mount path used for file access.
+    Testing the raw argument for a ``/myspace`` prefix
     would miss the equally-supported physical spelling
     ``/workspace/myspace/<uid>/…``, letting a caller reach persistent storage
     with no confirmation at all.
@@ -98,15 +98,11 @@ def _path_summary(tool: str, action: str, logical: str, args: Mapping[str, Any])
         return f"写入 {logical}（{len(str(args.get('content') or ''))} 字符）"
     if tool == "Edit":
         return f"编辑 {logical}（替换片段）"
-    if tool == "space_move":
-        return f"移动/改名 {logical} → {str(args.get('dst_path') or '')}"
     labels = {
         "Read": "读取",
         "Glob": "扫描",
         "Grep": "搜索",
         "read_image": "查看图片",
-        "space_delete": "删除",
-        "space_create_folder": "创建文件夹",
         "sandbox_put_artifact": "写入沙盒文件",
         "sandbox_get_artifact": "读取沙盒文件",
     }
@@ -200,7 +196,7 @@ def local_command_tool() -> ToolPermissionSpec:
 
 def builtin_tool_permission(tool_name: str) -> Optional[ToolPermissionSpec]:
     """Return the rule for a governed native tool, otherwise pass through."""
-    from core.llm.tools._myspace_confirm import OP_DELETE, OP_EDIT, OP_MKDIR, OP_MOVE, OP_WRITE
+    from core.llm.tools._tool_confirmation import OP_EDIT, OP_WRITE
 
     governed: dict[str, ToolPermissionSpec] = {
         "Read": local_path_tool("file_path", READ, tool_name="Read"),
@@ -215,19 +211,6 @@ def builtin_tool_permission(tool_name: str) -> Optional[ToolPermissionSpec]:
             READ,
             tool_name="read_image",
             skip_if_arg="file_id",
-        ),
-        "space_delete": local_path_tool(
-            "path", WRITE, tool_name="space_delete", myspace_op=OP_DELETE
-        ),
-        "space_move": local_path_tool(
-            "src_path",
-            WRITE,
-            tool_name="space_move",
-            additional_paths=(("dst_path", WRITE),),
-            myspace_op=OP_MOVE,
-        ),
-        "space_create_folder": local_path_tool(
-            "path", WRITE, tool_name="space_create_folder", myspace_op=OP_MKDIR
         ),
         "Bash": local_command_tool(),
         "sandbox_put_artifact": local_path_tool(

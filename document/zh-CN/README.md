@@ -42,7 +42,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | [提示词系统](modules/prompts.md) | 装配优先级、版本池、提示词广场、跨环境迁移 |
 | [能力目录](modules/catalog.md) | catalog 单一真源、能力门控、用户自助能力 |
 | [模型接入](modules/model-providers.md) | 模型供应商与角色体系、动态切换、个人 API-Key、计费 |
-| [MCP 工具系统](modules/mcp-tools.md) | 8 个内置 Server、连接池、管理员/用户自定义 MCP |
+| [MCP 工具系统](modules/mcp-tools.md) | 内置及插件 Server、连接池、管理员/用户自定义 MCP |
 | [技能系统](modules/agent-skills.md) | SKILL.md 机制、技能包分层、技能市场、技能蒸馏 |
 | [沙箱执行](modules/sandbox.md) | 三种 provider、bash 工具、快照持久化、MySpace 直挂 |
 | [记忆系统](modules/memory.md) | L1/L2/L3 三层记忆、脱敏、审计、mem0 基础设施 |

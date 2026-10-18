@@ -62,7 +62,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `sidebar/` | 侧边栏、全局搜索弹窗、导航项定义 |
 | `tool/` | 工具调用时间线：调用行、思考行、输出渲染器、结果面板、进度内联 |
 
-## Zustand 状态（stores/ 下 18 个）
+## Zustand 状态（stores/）
 
 | Store | 职责 |
 |---|---|
@@ -110,7 +110,7 @@ Markdown 转 HTML 后复用 DOMPurify 清理可执行属性和链接，同时保
 
 ## 样式与其他目录
 
-- `styles/`：按功能域拆分的全局 CSS（`chat.css`、`catalog.css`、`automation.css`、`canvas.css`、`myspace.css`、`projects.css`、`config.css`、`team-folder.css` 等 18 个），`variables.css` 收口设计变量，`index.ts` 统一引入；
+- `styles/`：按功能域拆分的全局 CSS（`chat.css`、`catalog.css`、`automation.css`、`canvas.css`、`myspace.css`、`projects.css`、`config.css`、`team-folder.css` 等），`variables.css` 收口设计变量，`index.ts` 统一引入；
 - `types.ts` + `types/`：共享类型（`ChatMessage`、`CitationItem`、`Catalog`…），团队文件等领域类型在 `types/teamFiles.ts`；
 - `utils/`：`citations.ts`（引用解析）、`markdown.ts`、`segments.ts`（流式分段）、`fileParser.ts`、`adminApi.ts`、`pageConfigDefaults.ts` 等 22 个工具模块；
 - `storage.ts`：localStorage 持久化与默认目录；`appTheme.ts`：antd 主题令牌；`preloadReload.ts`：chunk 预加载失败自动刷新。

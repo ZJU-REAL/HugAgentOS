@@ -28,9 +28,9 @@ def has_pending(chat_id: Optional[str]) -> bool:
 
     if not chat_id:
         return False
-    from core.llm.tools import _myspace_confirm, user_questions
+    from core.llm.tools import _tool_confirmation, user_questions
 
-    return _myspace_confirm.has_pending(chat_id) or user_questions.has_pending(chat_id)
+    return _tool_confirmation.has_pending(chat_id) or user_questions.has_pending(chat_id)
 
 
 __all__ = [

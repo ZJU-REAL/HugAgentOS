@@ -59,12 +59,8 @@ def preset_answers_for_user(
 ) -> bool:
     """执行期复查：这个用户的权限档是不是已经替他答了这次确认。
 
-    留给在 dispatch 之外**自己发起**确认的地方（「我的空间」的登记器就是这一类）：
-    它们不经过 ``on_acting``，拿不到 ``PermissionRuntime``，但判定必须和这里同源。
-
-    按 ``user_id`` 取档而不是读异步上下文：登记器跑在自己的任务里，任何 ContextVar
-    在那里读到的都是默认值 —— 用户明明选了「完全放开」，还会逐个文件弹确认。档位的
-    真源本来就是用户设置。
+    供分派中间件之外的确认调用使用。按账号读取同一权限档，
+    不依赖当前异步任务的上下文。
     """
     return _preset_answers(
         resolve_approval_mode(None, user_id=user_id),

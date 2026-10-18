@@ -515,6 +515,11 @@ async def gateway_mcp_call(
     started = time.monotonic()
     try:
         result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
+    except HTTPException:
+        from mcp_servers.registry import gateway_server
+        if gateway_server(resolved["server_id"]) is not None:
+            raise
+        raise HTTPException(502, "Cloud tool call failed") from None
     except RemoteOperationConflict:
         raise HTTPException(status_code=400, detail="operation key already bound to different arguments") from None
     except CapabilityContentRejected:

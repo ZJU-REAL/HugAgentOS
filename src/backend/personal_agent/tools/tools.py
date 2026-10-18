@@ -211,9 +211,7 @@ def register_personal_tools(toolkit, request, loader=None):
     # The user's HugAgentOS sessions; writes wait for the user's approval.
     from personal_agent.sessions.session_tool import build as session_tool
     toolkit.register_tool_function(session_tool(uid, ident))
-    from personal_agent.tools.space import register_space_tools
     from personal_agent.tools.email import register_email_tools
     from personal_agent.computer.computer import register_computer_tools
-    register_space_tools(toolkit, ident, uid)
     register_email_tools(toolkit, ident, uid)
     register_computer_tools(toolkit, ident, uid)

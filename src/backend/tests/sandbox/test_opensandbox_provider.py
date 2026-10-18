@@ -20,7 +20,6 @@ def test_renew_in_background_marks_stale_on_lifecycle_error():
         sandbox=MagicMock(id="zzz"),
         interpreter=MagicMock(),
         contexts={},
-        seeded_myspace_mtime={},
     )
 
     async def fake_renew(s):
@@ -40,7 +39,6 @@ def test_renew_in_background_keeps_session_on_transient_error():
         sandbox=MagicMock(id="zzz"),
         interpreter=MagicMock(),
         contexts={},
-        seeded_myspace_mtime={},
     )
 
     async def fake_renew(s):
@@ -75,7 +73,6 @@ def test_reset_language_context_drops_only_target_language():
             "bash": MagicMock(id="ctx-bash-1"),
             "python": MagicMock(id="ctx-python-1"),
         },
-        seeded_myspace_mtime={},
     )
 
     asyncio.run(p._reset_language_context(sess, "bash"))
@@ -104,7 +101,6 @@ def test_reset_language_context_never_touches_sdk():
         sandbox=MagicMock(id="sbx-1"),
         interpreter=interp,
         contexts={"bash": MagicMock(id="ctx-bash-1")},
-        seeded_myspace_mtime={},
     )
 
     # No exception leaks out (boom is never reached)
@@ -132,7 +128,6 @@ def test_reset_language_context_noop_when_ctx_missing():
         sandbox=MagicMock(id="sbx-1"),
         interpreter=interp,
         contexts={},  # already empty
-        seeded_myspace_mtime={},
     )
 
     asyncio.run(p._reset_language_context(sess, "bash"))

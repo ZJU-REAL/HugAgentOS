@@ -65,7 +65,7 @@ The backend runs several parallel authentication mechanisms, each covering a dif
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` console backend (`/v1/config/*`, `/v1/models`, `/v1/service-configs`, some `/v1/admin/*` observability endpoints) | `require_config` (env var `CONFIG_TOKEN`) |
 | **ADMIN or CONFIG (either)** | Same as above | Prompt snapshot export/import (`/v1/content/prompts/export|import`) | `require_admin_or_config` |
 | **super_admin session** | Session cookie (user with `extra_data.role == "super_admin"`); a valid ADMIN_TOKEN works as fallback | A few cross-user management operations | `require_super_admin` |
-| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | Only `/v1/internal/batch/*` (service-to-service calls); if the env var is unset the endpoint refuses with 503 (fail-closed) | `api/routes/v1/internal_batch.py` |
+| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | Internal site, browser and security-tool service calls; requests are rejected when unset | `api/routes/v1/internal_site_auth.py`, `internal_security.py` |
 
 Resolution order in `get_current_user`: **cookie session → API-key Bearer (`sk-jx-` prefix) → mock/remote Bearer**. A Bearer that looks like an API key but fails validation gets an immediate 401 — it is never silently downgraded to anonymous.
 

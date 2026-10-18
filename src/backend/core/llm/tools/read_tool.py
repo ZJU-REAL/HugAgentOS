@@ -1,32 +1,24 @@
-"""Read sandbox files, restoring missing artifacts through authorized recovery.
-
-Prefer read_artifact(file_id) for explicit historical file access.
-"""
+"""Read files from the active sandbox."""
 
 from __future__ import annotations
-from core.services.edition_workspace import is_shared_scope
 
 import asyncio
 import hashlib
 import logging
 from typing import Optional
 
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 from core.services.project_scope import ProjectScope
 from core.vision import VisionMode
 
-from core.llm.tools import myspace_vfs as _ms
 from ._common import response_metadata, resolve_sandbox_session, resp_image, resp_json
 from ._paths import (
-    basename,
-    is_myspace_physical,
     space_metadata,
     to_physical_path,
     validate_project_scope_path,
     validate_workspace_path,
 )
 from ._state import ReadEntry, ReadStateTracker
-from .edition_artifact_recovery import recover_organization_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -108,72 +100,6 @@ def _format_with_line_numbers(
     return "\n".join(out)
 
 
-def _fallback_recover_from_artifact(
-    *,
-    file_path: str,
-    chat_id: Optional[str],
-    user_id: Optional[str],
-    scope: Optional[ProjectScope],
-) -> Optional[bytes]:
-    """Recover a missing artifact through edition or current-user/chat authorization."""
-    fname = basename(file_path)
-    if not fname:
-        return None
-
-    handled, data = recover_organization_artifact(file_path=file_path, scope=scope)
-    if handled:
-        return data
-
-    if not chat_id or not user_id:
-        return None
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import Artifact
-        from core.storage import get_storage
-    except Exception as exc:
-        logger.warning("[read.fallback] deps unavailable: %s", exc)
-        return None
-    db = SessionLocal()
-    try:
-        row = (
-            db.query(Artifact)
-            .filter(
-                Artifact.chat_id == chat_id,
-                Artifact.user_id == user_id,
-                Artifact.filename == fname,
-                Artifact.deleted_at.is_(None),
-            )
-            .order_by(Artifact.created_at.desc())
-            .first()
-        )
-        if row is None:
-            logger.info(
-                "[read.fallback] no artifact match chat=%s user=%s name=%s",
-                chat_id,
-                user_id,
-                fname,
-            )
-            return None
-        try:
-            data = get_storage().download_bytes(str(row.storage_key))
-            logger.info(
-                "[read.fallback] recovered %s from artifact %s (%d bytes)",
-                file_path,
-                row.artifact_id,
-                len(data),
-            )
-            return data
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[read.fallback] download_bytes failed for storage_key=%s: %s",
-                row.storage_key,
-                exc,
-            )
-            return None
-    finally:
-        db.close()
-
-
 def register_read(
     toolkit: Toolkit,
     *,
@@ -188,8 +114,7 @@ def register_read(
     """Register the ``Read`` tool.
 
     ``state`` is the per-chat ReadStateTracker shared with Edit/Write.
-    ``chat_id`` scopes DB artifact recovery; ``sandbox_session_id`` (``None`` →
-    fall back to chat_id) selects which sandbox container to read from.
+    ``sandbox_session_id`` selects the container; it defaults to ``chat_id``.
     ``vision_mode`` (see ``core.vision.resolve_vision_mode``) decides what an image
     file reads back as: pixels, a vision-bridge transcription, or ``type=binary``.
     """
@@ -214,7 +139,6 @@ def register_read(
             return resp_json({"error": scope_err})
 
         from .project_source_access import current_scope_error
-        from core.services.edition_workspace import is_organization_path
 
         scope_error = current_scope_error(scope, user_id)
         if scope_error:
@@ -224,9 +148,7 @@ def register_read(
         physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
 
         provider = _get_provider()
-        recovered_from_artifact = False
-        # Local desktop mode: read the real host file directly (no My Space /
-        # artifact fallback locally); the value flows into the normal downstream.
+        # Desktop mode reads the authorized host path.
         from core.config.local_mode import local_mode_enabled as _local_on
 
         _local_read: Optional[bytes] = None
@@ -244,37 +166,6 @@ def register_read(
                 return resp_json({"error": str(exc), "blocked": True})
             except OSError as exc:
                 return resp_json({"error": f"读取文件失败: {exc}"})
-        # A project-root AGENTS.md is live configuration, not a sandbox
-        # snapshot. Resolve it by the authorized project ID, even when an old
-        # copy already exists in this conversation's sandbox.
-        if (
-            not _local_on()
-            and scope
-            and not is_shared_scope(scope)
-            and not scope.is_local
-            and scope.folder_name
-            and _ms.myspace_rel(physical, user_id, scope) == f"{scope.folder_name}/AGENTS.md"
-        ):
-            from core.services.project_instructions import read_authorized_project_instructions
-
-            try:
-                snapshot = await asyncio.to_thread(
-                    read_authorized_project_instructions,
-                    scope.project_id,
-                    user_id or "",
-                )
-                if snapshot["instructions_source"] != "AGENTS.md":
-                    return resp_json(
-                        {"error": "项目根 AGENTS.md 不存在，请使用项目指令读取工具检查现有规则"}
-                    )
-                _local_read = snapshot["instructions"].encode("utf-8")
-            except HTTPException as exc:
-                return resp_json({"error": exc.detail, "status": exc.status_code})
-            # Refresh the disposable copy for subsequent file/shell operations.
-            try:
-                await provider.put_file(_sess, physical, _local_read, user_id=user_id)
-            except Exception as exc:  # noqa: BLE001 — canonical read remains usable
-                logger.warning("[read] AGENTS.md sandbox refresh failed: %s", exc)
         try:
             content_bytes = (
                 _local_read
@@ -286,93 +177,23 @@ def register_read(
         except _SCE as exc:
             return resp_json({"error": f"沙盒连接失败: {exc}"})
         except _SE as exc:
-            if is_organization_path(scope, user_id, file_path):
-                return resp_json({"error": f"读取项目文件失败: {exc}"})
-            from core.llm.evaluation_runtime import is_evaluation_session
-
-            if is_evaluation_session(_sess):
-                return resp_json({"error": f"Evaluation sandbox read failed: {exc}"})
-            data: Optional[bytes] = None
-            # First choice: folder-aware "My Space" lazy loading (user-scoped,
-            # cross-chat; internally already put_file's back into the sandbox +
-            # mirror cache)
-            try:
-                data = await _ms.materialize_into_sandbox(
-                    provider,
-                    _sess,
-                    user_id,
-                    file_path,
-                    scope=scope,
-                )
-            except Exception as mexc:  # noqa: BLE001
-                logger.warning("[read] myspace 懒加载失败 %s: %s", file_path, mexc)
-            # Fallback: legacy chat-scoped same-name recovery (non-myspace paths take this)
-            if data is None:
-                # Worker thread: the recovery downloads artifact bytes from storage,
-                # which is a network round-trip on S3/OSS deployments.
-                data = await asyncio.to_thread(
-                    _fallback_recover_from_artifact,
-                    file_path=physical,
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    scope=scope,
-                )
-                if data is not None:
-                    try:
-                        await provider.put_file(_sess, physical, data, user_id=user_id)
-                    except (_SE, _SCE) as put_exc:
-                        logger.warning(
-                            "[read.fallback] put_file %s failed (continuing): %s",
-                            physical,
-                            put_exc,
-                        )
-            if data is None:
-                return resp_json({"error": f"读取失败: {exc}"})
-            content_bytes = data
-            recovered_from_artifact = True
+            return resp_json({"error": f"读取失败: {exc}"})
 
         # Binary detection
-        parsed_fallback = False
         if _is_binary(content_bytes):
             # Images: a screenshot, a chart the agent just rendered, or a picture in
             # "My Space" must not be a dead end — see _image_response.
             image_response = await _image_response(content_bytes, file_path, vision_mode)
             if image_response is not None:
                 return response_metadata(image_response, space_metadata(physical, user_id))
-            # Office documents in "My Space" (docx/pdf/xlsx/pptx) → fall back to
-            # the artifact parsed text (merging the former read_artifact capability,
-            # keyed by path rather than file_id)
-            parsed_text: Optional[str] = None
-            if is_myspace_physical(physical, user_id):
-                try:
-                    fid = _ms.resolve_file_id(user_id, file_path, scope=scope)
-                    if fid:
-                        from core.content.artifact_reader import fetch_parsed_text
-
-                        # Worker thread: on a cache miss this POSTs the document to the
-                        # external file-parser service — blocking, and slow on large PDFs.
-                        pt = await asyncio.to_thread(fetch_parsed_text, fid, user_id)
-                        if pt:
-                            parsed_text = pt
-                except Exception as pexc:  # noqa: BLE001
-                    logger.warning("[read] 解析文本回退失败 %s: %s", file_path, pexc)
-            if parsed_text is None:
-                return resp_json(
-                    {
-                        "type": "binary",
-                        **space_metadata(physical, user_id),
-                        "file_path": file_path,
-                        "physical_path": physical,
-                        "size": len(content_bytes),
-                        "hint": (
-                            "文件是二进制（如 docx/xlsx/pdf/图片），且不在「我的空间」"
-                            "或无法解析。如需让用户下载，使用 sandbox_get_artifact"
-                            "(src_path)；如需在沙盒内处理，用 Bash 调用命令行工具。"
-                        ),
-                    }
-                )
-            content_bytes = parsed_text.encode("utf-8")
-            parsed_fallback = True
+            return resp_json({
+                "type": "binary",
+                **space_metadata(physical, user_id),
+                "file_path": file_path,
+                "physical_path": physical,
+                "size": len(content_bytes),
+                "hint": "使用 Bash 调用文档工具处理此文件。",
+            })
 
         if len(content_bytes) > MAX_TEXT_BYTES:
             return resp_json(
@@ -415,21 +236,13 @@ def register_read(
 
         truncated = end < total_lines
 
-        if not is_partial and not truncated and not parsed_fallback:
+        if not is_partial and not truncated:
             sha = hashlib.sha256(content_bytes).hexdigest()
             entry = ReadEntry(
                 content=content_bytes,
                 sha256=sha,
                 offset=None,
                 limit=None,
-            )
-        elif parsed_fallback:
-            entry = ReadEntry(
-                content=b"",
-                sha256="",
-                offset=None,
-                limit=None,
-                parsed_doc=True,
             )
         else:
             entry = ReadEntry(
@@ -453,29 +266,15 @@ def register_read(
             "total_lines": total_lines,
             "truncated": truncated,
         }
-        if parsed_fallback:
-            payload["parsed_text"] = True
-            payload["note"] = (
-                "这是该二进制文档（docx/pdf/xlsx/pptx）的**解析文本**，不是原始"
-                "字节。可直接阅读理解，但不要用 Edit/Write 把它当纯文本覆盖原文件"
-                "（会损坏文档）；要改文档请用 Bash 调命令行工具处理。"
-            )
         if truncated:
             payload["hint"] = (
                 f"已截断（显示 {start}-{end}/{total_lines} 行）。"
                 f'继续读后续：Read(file_path="{file_path}", offset={end + 1})'
             )
-        if recovered_from_artifact:
-            payload["recovered_from_artifact"] = True
-            payload["note"] = (
-                "该文件原沙盒副本已不在（容器被回收），已从历史 artifact 库恢复"
-                "并 seed 回沙盒。提示：跨轮访问历史文件建议直接用 read_artifact。"
-            )
         return resp_json(payload)
 
     Read.__doc__ = (
         "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n"
-        "- 读 ``/myspace/...`` 无需先 stage，沙盒里没有会自动按需拉取。\n"
         "- 二进制文档（docx/pdf/xlsx/pptx）自动返回**解析文本**（``parsed_text=true``）；\n"
         + _IMAGE_NOTE[vision_mode]
         + "- 默认读前 2000 行；超长文件用 ``offset``(1-indexed) + ``limit`` 分段。\n"

@@ -57,7 +57,6 @@ async def install_once(provider, box, uid, name, digest, command):
         await state.release(lock, token)
 
 class PersonalSandboxProvider(OpenSandboxProvider):
-    myspace_mirror_live = False
 
     def _make_config(self):
         from opensandbox.config import ConnectionConfig
@@ -94,7 +93,12 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         async with lock:
             cached = self._sessions.get(session_id)
             if cached and cached.sandbox.id == sandbox_id:
-                return cached
+                try:
+                    await self._check_mount_revision(cached.sandbox, user_id)
+                    return cached
+                except Exception as exc:
+                    if getattr(exc, "status_code", None) != 404:
+                        raise
             if cached:
                 self._sessions.pop(session_id, None)
                 await cached.sandbox.close()
@@ -102,10 +106,11 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 from opensandbox import Sandbox
                 try:
                     sandbox = await Sandbox.connect(sandbox_id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
-                    await sandbox.get_info()
+                    await self._check_mount_revision(sandbox, user_id)
                 except Exception as exc:
                     # Only a confirmed missing instance permits recreation. Network errors preserve identity.
                     if getattr(exc, "status_code", None) != 404: raise
+                    await self._check_mount_revision(sandbox, user_id)
                     with SessionLocal() as db:
                         row = db.get(PersonalAgent, ident)
                         if row.sandbox_id == sandbox_id:
@@ -118,12 +123,32 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             else:
                 sandbox = await self._provision(ident, session_id, user_id, generation)
             await self._repoint_execd_direct(sandbox)
-            session = _Session(sandbox=sandbox, interpreter=None, contexts={}, seeded_myspace_mtime={},
+            session = _Session(sandbox=sandbox, interpreter=None, contexts={},
                                user_id=user_id, setup_done=True, pool_source="none")
             self._sessions[session_id] = session
             return session
 
+    async def _check_mount_revision(self, sandbox, user_id):
+        from core.spaces.sandbox import current_revision
+        from core.spaces.mounts import MOUNT_REVISION_TAG
+        info = await sandbox.get_info()
+        revision = await asyncio.to_thread(current_revision, user_id)
+        if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
+            await sandbox.kill()
+            raise SandboxError("File permissions changed; reopen the computer")
+        from core.spaces.recovery import ensure_mounts
+        import os
+        await ensure_mounts(sandbox, user_id, info,
+            domain=os.environ["PERSONAL_AGENT_OPENSANDBOX_DOMAIN"],
+            api_key=os.getenv("PERSONAL_AGENT_OPENSANDBOX_API_KEY", ""))
+
+
     async def _provision(self, ident, session_id, user_id, generation):
+        from core.spaces.leases import async_space_lock
+        async with async_space_lock(user_id):
+            return await self._provision_locked(ident, session_id, user_id, generation)
+
+    async def _provision_locked(self, ident, session_id, user_id, generation):
         from opensandbox import Sandbox
         from opensandbox.models.sandboxes import Host, Volume
         from core.infra.ephemeral import get_ephemeral_state
@@ -137,7 +162,9 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             # Recheck after acquiring the cross-worker creation lock.
             _, existing, _ = self._binding(session_id, user_id)
             if existing:
-                return await Sandbox.connect(existing, connection_config=self._computer_config(ident)[0], skip_health_check=True)
+                sandbox = await Sandbox.connect(existing, connection_config=self._computer_config(ident)[0], skip_health_check=True)
+                await self._check_mount_revision(sandbox, user_id)
+                return sandbox
             from opensandbox import SandboxManager
             from opensandbox.models.sandboxes import SandboxFilter
             manager = await SandboxManager.create(self._make_config())
@@ -149,6 +176,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                     found = matches.sandbox_infos[0]
                     if found.status.state not in {"RUNNING", "PENDING"}: raise SandboxError("Permanent computer requires recovery")
                     sandbox = await Sandbox.connect(found.id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
+                    await self._check_mount_revision(sandbox, user_id)
                     with SessionLocal() as db:
                         row = db.get(PersonalAgent, ident)
                         row.sandbox_id, row.computer_status = sandbox.id, "ready"
@@ -166,17 +194,19 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             # Persona files (AGENTS.md, SOUL.md, IDENTITY.md, USER.md ...) exist before the first task.
             from personal_agent.workspace.persona import ensure_seeded
             ensure_seeded(ident)
-            # Only this dedicated workspace is mounted. No MySpace, credentials or skill tree.
+            # Workspace data survives sandbox replacement.
             volume = Volume(name="personal-workspace", host=Host(path=str(Path(root) / ident / "workspace")), mount_path="/workspace", read_only=False)
             desktop = Path(local_root) / ident / "desktop"
             if not desktop.exists():
                 desktop.mkdir(parents=True)
                 os.chmod(desktop, 0o700)
             desktop_volume = Volume(name="personal-desktop", host=Host(path=str(Path(root) / ident / "desktop")), mount_path=DESKTOP_HOME, read_only=False)
+            from core.spaces.mounts import prepare_volumes
+            space_volumes, space_metadata = await asyncio.to_thread(prepare_volumes, user_id)
             computer_config, access_token = self._computer_config(ident)
             sandbox = await Sandbox.create(os.getenv("PERSONAL_AGENT_IMAGE", DEFAULT_IMAGE), connection_config=computer_config, env={"EXECD_ACCESS_TOKEN": access_token},
-                timeout=None, skip_health_check=False, volumes=[volume, desktop_volume],
-                metadata={"hugagent-owner": "personal-agent", "personal-agent-id": ident, "generation": str(generation)},
+                timeout=None, skip_health_check=False, volumes=[volume, desktop_volume, *space_volumes],
+                metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation), **space_metadata},
                 entrypoint=["/bin/bash", "/opt/personal-agent/start.sh"])
             with SessionLocal() as db:
                 row = db.get(PersonalAgent, ident)

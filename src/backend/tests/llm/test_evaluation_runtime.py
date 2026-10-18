@@ -117,14 +117,12 @@ def payload(value):
 
 
 @pytest.mark.asyncio
-async def test_native_bash_skips_both_myspace_sync_directions(evaluation_tools, monkeypatch):
+async def test_native_bash_uses_only_the_bound_container(evaluation_tools, monkeypatch):
     tools, provider = evaluation_tools
 
     async def reject(*args, **kwargs):
         raise AssertionError("account myspace was accessed")
 
-    monkeypatch.setattr("core.llm.tools.sandbox_tool._pull_myspace_updates", reject)
-    monkeypatch.setattr("core.myspace.sandbox_sync.reflect_sandbox_myspace", reject)
     assert payload(await tools["Bash"]("pwd"))["exit_code"] == 0
     assert provider.calls == [("Bash", SESSION, "pwd", "owner")]
     assert set(tools) == {"Bash", "write_stdin", "Read", "Write", "Edit", "Glob", "Grep"}
@@ -157,8 +155,6 @@ async def test_missing_file_never_recovers_account_artifacts(evaluation_tools, m
     def reject(*args, **kwargs):
         raise AssertionError("account artifact fallback was accessed")
 
-    monkeypatch.setattr("core.llm.tools.read_tool._fallback_recover_from_artifact", reject)
-    monkeypatch.setattr("core.llm.tools.myspace_vfs.materialize_into_sandbox", reject)
     assert "error" in payload(await tools["Read"]("/app/missing"))
 
 

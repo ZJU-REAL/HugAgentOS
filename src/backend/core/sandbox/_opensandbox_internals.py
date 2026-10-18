@@ -27,7 +27,6 @@ from ._common import (
     dws_extra_envs,
     email_cache_dir,
     lark_cache_dir,
-    myspace_cache_dir,
     safe_user_id,
     shell_escape,
     yida_cache_dir,
@@ -83,31 +82,8 @@ async def write_file(sbx: Any, path: str, content: Any) -> None:
 
 
 def _user_bound_sandbox_required() -> bool:
-    """Whether persistent OpenSandbox sessions need per-user containers.
-
-    Every enabled private-data bind mount makes a sandbox user-specific. Such a
-    sandbox must never come from the general pool: general-pool instances are
-    created without ``user_id`` and therefore have none of these volumes. Using
-    one would either hide the current user's credentials (DingTalk/Feishu/email/
-    Yida report "not logged in") or risk reusing another user's mounted data.
-
-    This decision intentionally does not depend on the MySpace switch alone.
-    Deployments may disable the MySpace optimization while still relying on one
-    or more account integrations — or on nothing but the skill view, which is
-    per-user as soon as there is host storage to bind (a general-pool sandbox
-    would then be missing the user's own private skills).
-    """
-    sandbox = settings.sandbox
-    return any(
-        (
-            bool((sandbox.opensandbox_host_storage_path or "").strip()),
-            sandbox.opensandbox_myspace_bind_mount_enabled,
-            sandbox.dws_creds_bind_mount_enabled,
-            sandbox.lark_creds_bind_mount_enabled,
-            sandbox.email_creds_bind_mount_enabled,
-            sandbox.yida_creds_bind_mount_enabled,
-        )
-    )
+    """Account sessions always require account-specific volumes."""
+    return True
 
 # OpenSandbox snapshot lifecycle states (the status.state returned by GET /v1/snapshots/{id}).
 # SDK 0.1.13 does not expose an enum, so we can only string-compare these values.
@@ -173,7 +149,6 @@ class _Session:
     sandbox: Any  # opensandbox.Sandbox
     interpreter: Any  # code_interpreter.CodeInterpreter
     contexts: dict[str, Any]  # language → CodeContext (one ctx per language, mutually isolated)
-    seeded_myspace_mtime: dict[str, float]  # filename → mtime (for incremental sync)
     # The user_id owning this sandbox (binds MySpace/account-credential volumes +
     # user re-homing on adopt across restarts). None when legacy paths call
     # _get_or_create_session without a user_id — execution then falls back to a
@@ -251,7 +226,6 @@ from ._opensandbox_volumes import (
     _METADATA_SKILLS_LAYOUT_VALUE,
     _pool_metadata,
     _make_skills_volumes,
-    _make_myspace_volume,
 )
 
 from ._opensandbox_account_volumes import (

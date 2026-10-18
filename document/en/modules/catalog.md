@@ -50,7 +50,7 @@ is_enabled("mcp", "internet_search")   # single-item check
 get_enabled_ids("mcp")                 # all enabled ids of a kind
 ```
 
-These two functions are the system-wide read path for capability switches: `agent_factory.py::_effective_mcp_server_keys()` intersects "all enabled DB servers ∩ request-level enabled_mcp_ids (falling back to `get_enabled_ids("mcp")`) ∩ AgentSpec allowlist" to decide which MCP servers to connect for a request; skill registration defaults to `get_enabled_ids("skills")`. Catalog edits take effect on the next request — no restart.
+These two functions are the system-wide read path for capability switches: `factory/tools/mcp_config.py::_effective_mcp_server_keys()` intersects "all enabled DB servers ∩ request-level enabled_mcp_ids (falling back to `get_enabled_ids("mcp")`) ∩ AgentSpec allowlist" to decide which MCP servers to connect for a request; skill registration defaults to `get_enabled_ids("skills")`. Catalog edits take effect on the next request — no restart.
 
 ## Per-user overrides (catalog_overrides)
 
@@ -99,7 +99,7 @@ See [Knowledge Base](knowledge-base.md).
 
 **Permission flags**: each endpoint first checks a boolean in `users_shadow.metadata` — `can_add_mcp`, `can_add_skill` (personal API keys use the same mechanism with `can_use_api_key`, see [Model Providers](model-providers.md)). These flags are granted per user from the Config console's user management. In the single-tenant Community Edition they are simply switched on for full self-service; **per-user governance of these flags and skill review/approval belong to the Enterprise Edition (EE)**.
 
-Runtime isolation: `agent_factory.py` merges the current user's private MCP servers into the connectable set (`get_owned_servers`) and strips other users' private skill ids via `_filter_skill_ids_for_user()` to prevent privilege escalation; `/v1/catalog` injects private items into the owner's response with `owner: "self"` and `deletable: true`.
+Runtime isolation: `factory/build.py` merges the current user's private MCP servers into the connectable set (`get_owned_servers`) and strips other users' private skill ids via `_filter_skill_ids_for_user()` to prevent privilege escalation; `/v1/catalog` injects private items into the owner's response with `owner: "self"` and `deletable: true`.
 
 ## Frontend Capability Center (components/catalog/)
 

@@ -24,37 +24,7 @@ class ApplicationProjectService:
     def __init__(self, db, engine):
         self.db, self.engine = db, engine
 
-    async def flush_source(self, app_id, owner):
-        from core.space_sync.personal_registry import flush_user
-        from starlette.concurrency import run_in_threadpool
 
-        paths = await run_in_threadpool(self._source_paths, app_id, owner)
-        self.db.rollback()  # Release the read transaction before the registry writes.
-        if paths:
-            await flush_user(owner, metadata_only=True, paths=tuple(paths), strict=True)
-
-    def _source_paths(self, app_id, owner):
-        with self.engine.connect() as connection:
-            owned_application(connection, app_id, owner)
-            project_id = connection.scalar(
-                select(application_sources.c.project_id).where(
-                    application_sources.c.app_id == app_id,
-                )
-            )
-        if not project_id:
-            return []
-        project = ProjectSourceService(self.db).authorized_project(project_id, owner, write=False)
-        if resolve_project_permission(self.db, owner, project) not in ("edit", "admin"):
-            raise HTTPException(403, "MCP source project is not editable")
-        if project.kind != "personal":
-            return []  # Organization file tools persist synchronously.
-        from core.space_sync.personal_metadata import domain
-
-        folders = domain(owner).folders(self.db)
-        for path, folder in folders.items():
-            if folder and folder.folder_id == project.linked_folder_id:
-                return [path + "/" + SOURCE_PATH]
-        raise HTTPException(409, "MCP source folder is unavailable")
 
     def editor(self, app_id, owner, chat_id=""):
         from core.services.application_publication import publication_lock

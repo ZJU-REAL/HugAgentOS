@@ -51,22 +51,6 @@ def _detect_dws_pat_authorization(exit_code: int, stdout: str, stderr: str) -> O
     }
 
 
-async def _pull_myspace_updates(user_id: str) -> None:
-    """执行 Bash 前把「我的空间」的最新状态落进镜像目录，命令看到的就是用户当下的文件。
-
-    界面上的上传、改名、删除只动 artifact 记录，不碰镜像目录；不补这一步，``ls /myspace``
-    看到的就是过期视图 —— 用户刚传的看不见，刚删的还在。bind mount 下写进镜像即刻对沙箱
-    可见，其余 provider 由各自的按需物化路径兜底。
-    """
-    from core.myspace.projection import pull_myspace_updates
-    try:
-        report = await asyncio.to_thread(pull_myspace_updates, user_id=user_id)
-        if report.failed:
-            logger.warning("[myspace] 部分文件等待下次同步 user=%s count=%d", user_id, report.failed)
-    except Exception as exc:
-        logger.warning("[myspace] 本次同步未完成 user=%s error=%s", user_id, type(exc).__name__)
-
-
 def register_bash(
     toolkit: Toolkit,
     *,
@@ -191,13 +175,8 @@ def register_bash(
                 if local_mode_enabled() and not _evaluation else None
             ),
         )
-        # 把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件。反方向
-        # （命令写了什么、删了什么）不在这里判断：那由 core.space_sync.personal 从文件
-        # 事件登记，命令返回之后才落盘的后台进程也一样收得到。
         from fastapi import HTTPException
         try:
-            if user_id and not _evaluation:
-                await _pull_myspace_updates(user_id)
             payload = await provider.start_process(req, yield_time_ms=yield_time_ms)
         except HTTPException as exc:
             return _resp_json({"error": exc.detail, "status": exc.status_code})
@@ -225,23 +204,6 @@ def register_bash(
         return await finish(payload)
 
     async def finish(payload: dict) -> ToolResponse:
-        from core.config.settings import settings
-        if user_id and not _evaluation and settings.sandbox.provider == "opensandbox":
-            from core.services.edition_workspace import persist_user
-            try:
-                payload["workspace_synced_count"] = await asyncio.to_thread(persist_user, user_id)
-            except Exception as exc:
-                payload["error"] = getattr(exc, "detail", str(exc))
-                payload["source_saved"] = False
-
-        # 沙箱的 /myspace 不在本机时（script_runner / cube），把它的现状搬进镜像目录，
-        # 之后的判定与登记由 core.space_sync.personal 按同一套判据完成。bind mount 下这里
-        # 直接返回 —— 沙箱写的就是镜像目录本身。
-        if user_id and not _evaluation:
-            from core.myspace.sandbox_sync import reflect_sandbox_myspace
-
-            await reflect_sandbox_myspace(session_id=_sess, user_id=user_id)
-
         # dws (DingTalk CLI) PAT per-scope authorization interception: exit code 4
         # + a PAT_AUTHORIZATION_URL=<url> line on stderr. Surface the link to the
         # model in structured form so it hands it verbatim to the user, who

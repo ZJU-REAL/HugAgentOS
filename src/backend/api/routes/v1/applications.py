@@ -11,7 +11,6 @@ from core.services.application_data import ApplicationDataService
 from core.services.application_operations import create_application
 from core.services.application_publication import (
     ApplicationPublicationService,
-    finish_application_publication,
 )
 from core.services.application_schema import (
     ApplicationDefinition,
@@ -66,7 +65,6 @@ async def open_editor(
 
     service = ApplicationDataService()
     projects = ApplicationProjectService(db, service.engine)
-    await projects.flush_source(app_id, user.user_id)
     return success_response(data=await run_in_threadpool(projects.editor, app_id, user.user_id))
 
 
@@ -154,9 +152,8 @@ async def publish_mcp(
     from core.services.application_projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    await ApplicationProjectService(db, publication.engine).flush_source(app_id, user.user_id)
     receipt = await run_in_threadpool(publication.publish, app_id, user.user_id, body.tools)
-    return success_response(data=await finish_application_publication(user.user_id, receipt))
+    return success_response(data=receipt)
 
 
 @router.post("/{app_id}/mcp/project")
@@ -168,9 +165,8 @@ async def publish_project_mcp(
     from core.services.application_projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    await ApplicationProjectService(db, publication.engine).flush_source(app_id, user.user_id)
     receipt = await run_in_threadpool(publication.publish, app_id, user.user_id, from_project=True)
-    return success_response(data=await finish_application_publication(user.user_id, receipt))
+    return success_response(data=receipt)
 
 
 @router.delete("/{app_id}/mcp")
@@ -190,9 +186,8 @@ async def rollback_mcp(
     from core.services.application_projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    await ApplicationProjectService(db, publication.engine).flush_source(app_id, user.user_id)
     receipt = await run_in_threadpool(publication.rollback, app_id, user.user_id, body.version)
-    return success_response(data=await finish_application_publication(user.user_id, receipt))
+    return success_response(data=receipt)
 
 @router.delete("/{app_id}/tables/{table}/records/{record_id}")
 def erase_record(app_id: str, table: str, record_id: str,

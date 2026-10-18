@@ -128,10 +128,15 @@ class McpServerConfigService:
                     .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
                     .all()
                 )
-                from core.config.mcp_config import builtin_launcher_serves_this_plane, launcher_backed
+                from core.config.mcp_config import (
+                    builtin_launcher_serves_this_plane, launcher_backed,
+                    builtin_available_on_this_plane,
+                )
 
                 launcher_here = builtin_launcher_serves_this_plane()
                 for row in rows:
+                    if not builtin_available_on_this_plane(row.server_id):
+                        continue
                     if is_removed_builtin_mcp_server(
                         row.server_id,
                         source_plugin=row.source_plugin,

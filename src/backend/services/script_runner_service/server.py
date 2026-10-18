@@ -284,39 +284,14 @@ def _validate_user_id(user_id: str) -> None:
         raise HTTPException(400, f"不安全的 user_id: {user_id!r}")
 
 
-class StageFile(BaseModel):
-    name: str
-    content_b64: str
 
 
-class StageRequest(BaseModel):
-    user_id: str
-    files: List[StageFile]
 
 
 class StageResponse(BaseModel):
     staged: List[Dict[str, str]]  # [{"name": ..., "path": ...}]
 
 
-@app.post("/stage", response_model=StageResponse)
-async def stage_files(req: StageRequest):
-    """Stage files into /workspace/myspace/{user_id}/ so later code execution can read them directly by path."""
-    _validate_user_id(req.user_id)
-    base_dir = Path(f"{WORKSPACE_ROOT}/myspace/{req.user_id}")
-    base_dir.mkdir(parents=True, exist_ok=True)
-
-    staged = []
-    for f in req.files:
-        _validate_filename(f.name)
-        try:
-            content = base64.b64decode(f.content_b64)
-        except Exception:
-            raise HTTPException(400, f"文件 {f.name} 的 base64 内容无效")
-        dest = base_dir / f.name
-        dest.write_bytes(content)
-        staged.append({"name": f.name, "path": f"/workspace/myspace/{req.user_id}/{f.name}"})
-
-    return StageResponse(staged=staged)
 
 
 @app.get("/health")

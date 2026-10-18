@@ -24,7 +24,7 @@ def project_instruction_path(project_ctx: dict) -> str:
 
 def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str, local_path=None, instruction_path=None, allow_write=True):
     from core.llm.tool_permissions import READ, WRITE, local_path_tool
-    from core.llm.tools._myspace_confirm import OP_EDIT
+    from core.llm.tools._tool_confirmation import OP_EDIT
 
     target = instruction_path or (f"{local_path.rstrip('/')}/AGENTS.md" if local_path else "/myspace/AGENTS.md")
 

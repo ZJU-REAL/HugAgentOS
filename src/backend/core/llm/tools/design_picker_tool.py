@@ -1,6 +1,6 @@
 """choose_design tool — pick one of three site-building design options (human-in-the-loop suspended choice).
 
-Piggybacks on the suspension-gating skeleton of ``_myspace_confirm`` (kind=design_pick):
+Piggybacks on the suspension-gating skeleton of ``_tool_confirmation`` (kind=design_pick):
 the tool coroutine ``await``s the user's click on the frontend DesignPickerCard, then
 resumes in place once chosen. Conditionally registered by agent_factory only in
 site-building chats (site-builder skill enabled).
@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from agentscope.tool import Toolkit
 from agentscope.tool._response import ToolChunk as ToolResponse
 
-from core.llm.tools import _myspace_confirm as _mc
+from core.llm.tools import _tool_confirmation as _mc
 from core.llm.tools._common import resp_json
 
 logger = logging.getLogger(__name__)

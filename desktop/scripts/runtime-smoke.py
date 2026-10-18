@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 NATIVE_PROCESS_FLAGS = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
@@ -30,7 +29,6 @@ REQUIRED_MODULES = (
     "scipy",
     "sqlalchemy",
     "uvicorn",
-    "watchdog.observers",
 )
 
 
@@ -129,32 +127,6 @@ def check_native_tools() -> dict:
 
 
 
-def check_file_watcher() -> None:
-    from watchdog.events import FileSystemEventHandler
-    from watchdog.observers import Observer
-
-    changed = threading.Event()
-
-    class Handler(FileSystemEventHandler):
-        def on_created(self, event):
-            if Path(event.src_path).name == "watchdog-probe.txt":
-                changed.set()
-
-    with tempfile.TemporaryDirectory(prefix="desktop-watcher-") as folder:
-        observer = Observer()
-        observer.schedule(Handler(), folder)
-        observer.start()
-        try:
-            (Path(folder) / "watchdog-probe.txt").write_text("probe", encoding="utf-8")
-            if not changed.wait(10):
-                raise RuntimeError("Bundled file watcher did not receive a file creation event")
-        finally:
-            observer.stop()
-            observer.join(timeout=10)
-        if observer.is_alive():
-            raise RuntimeError("Bundled file watcher failed to stop")
-
-
 def check_application(source: Path) -> None:
     """Load all application routers without touching the builder's data or env."""
     source = source.resolve()
@@ -211,7 +183,6 @@ def main() -> int:
         importlib.import_module(module_name)
         imported.append(module_name)
 
-    check_file_watcher()
     if args.source:
         check_application(args.source)
         imported.extend(["cli", "api.app"])

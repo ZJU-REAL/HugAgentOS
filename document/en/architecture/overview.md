@@ -15,7 +15,7 @@ This page describes the system from five angles: the layered architecture, the o
 | Backend | Python + FastAPI + SQLAlchemy + Alembic |
 | Agent runtime | AgentScope 2.0 (ReActAgent + Toolkit + middlewares) |
 | Tool protocol | MCP (streamable-http, long-running processes in a dedicated `mcp` container) |
-| Sandbox | OpenSandbox / CubeSandbox (Enterprise Edition, EE), script-runner lightweight sandbox |
+| Sandbox | OpenSandbox (CE / EE), CubeSandbox (Enterprise Edition, EE), script-runner lightweight sandbox |
 | Data | PostgreSQL (production) / SQLite (dev), Redis, Milvus + Neo4j (optional memory components) |
 | Storage | Local disk / S3 / Aliyun OSS (cloud storage is Enterprise Edition, EE) |
 
@@ -50,7 +50,7 @@ This page describes the system from five angles: the layered architecture, the o
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
 │  Agent layer (src/backend/core/llm/)                               │
-│  agent_factory → AgentScope 2.0 ReActAgent                         │
+│  factory/build → AgentScope 2.0 ReActAgent                         │
 │  ToolCollector → Toolkit (built-in tools + skills + MCP tools)     │
 │  middlewares: dynamic model / file context / system reminders      │
 │  offloader: oversized tool results spilled to sandbox              │
@@ -60,10 +60,10 @@ This page describes the system from five angles: the layered architecture, the o
 ┌───────▼───────────┐ ┌────────▼──────────┐ ┌─────────▼─────────────┐
 │ MCP tool pool      │ │ Sandboxes         │ │ Data layer            │
 │ mcp container,     │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
-│ 8 servers          │ │ OpenSandbox (EE)  │ │ Milvus · Neo4j (opt.) │
-│ :9100–:9107        │ │ CubeSandbox (EE)  │ │ Local / S3 / OSS      │
-│ search/fetch/chart │ │                   │ │ storage               │
-│ export/dwh/chain(EE)│ │                  │ │                       │
+│ tool processes     │ │ OpenSandbox CE/EE │ │ Milvus · Neo4j (opt.) │
+│ see _ports.py     │ │ CubeSandbox (EE)  │ │ Local / S3 / OSS      │
+│ search/fetch/tools │ │                   │ │ storage               │
+│ plugins/dwh/chain(EE)│ │                  │ │                       │
 └───────────────────┘ └───────────────────┘ └───────────────────────┘
 ```
 

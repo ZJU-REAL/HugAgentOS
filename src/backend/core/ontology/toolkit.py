@@ -74,7 +74,7 @@ class OntologyFilteredToolkit(Toolkit):
         service = self._tool_permission_service
         if service is not None and service.registry.contains(tool_call.name):
             ticket = CURRENT_PERMISSION_TICKET.get()
-            valid = ticket is not None and ticket.matches(tool_call)
+            valid = ticket is not None and ticket.active and ticket.matches(tool_call)
             if valid:
                 spec = service.registry.get(tool_call.name)
                 valid = spec is not None and spec.key == ticket.spec_key

@@ -1,0 +1,106 @@
+# My Space file mounts
+
+The web file manager and sandbox use the same authorized directories.
+
+## Permissions
+
+- Read: list, preview, read and download files.
+- Edit: create, modify, move and delete all files in the authorized directory.
+- Admin: edit files and manage member permissions.
+
+The mount list excludes directories that the user cannot access.
+Read-only directories use read-only mounts. Each file API request checks permission.
+Before a permission change, the service closes the affected user's sandboxes.
+If closure fails, the permission change fails.
+
+## Storage
+
+Full Docker deployments default to S3. Set STORAGE_TYPE to s3, oss or obs.
+Cloud sandboxes require SANDBOX_PROVIDER=opensandbox.
+CE Docker and desktop local mode use local storage.
+
+The backend and controller must reach the storage endpoint.
+The Docker host needs FUSE and shared mount propagation.
+Run docker/prepare-object-mounts.sh with the absolute HOST_STORAGE_PATH as root.
+
+## Local S3 service (CE / EE)
+
+Add docker/compose.object-storage.yml to COMPOSE_FILE.
+Set S3_ENDPOINT=http://object-storage:9000 and S3_BUCKET=hugagent-files.
+Generate separate random S3_ACCESS_KEY and S3_SECRET_KEY values.
+Store credentials in a protected environment file with mode 600.
+Build the backend image before startup. The initialization container creates a missing bucket and checks access.
+
+The service uses a separate data volume. It does not publish host ports or use the Milvus volume.
+Before switching an existing deployment, back up configuration and database.
+Copy valid file objects and attachments. Check each object's SHA-256.
+Keep source files. Switch STORAGE_TYPE and recreate the application containers after verification.
+
+## File import
+
+Back up data and pause writes. Preview one user's or team's import plan:
+
+    PYTHONPATH=src/backend python -m scripts.import_space_files --user USER_ID
+    PYTHONPATH=src/backend python -m scripts.import_space_files --team TEAM_ID
+
+Review destinations and conflicts. Add --apply to import.
+The tool verifies content and preserves source objects.
+
+## Verification
+
+Test upload, download and listing with an editor account.
+Confirm that a read-only account cannot write or delete.
+Revoke team access and confirm that the directory is unavailable.
+
+Local S3 has passed isolated MinIO, controller, sandbox and browser tests.
+Live OSS and OBS mounts need verification in dedicated test buckets.
+Object-store directory moves use multiple object operations. They are not atomic filesystem renames.
+
+## File page
+
+The file page provides document lists, image views, folder navigation, and a team directory tree.
+Listing, preview, search, upload, and rename use mounted directories available to the current user.
+Read-only directories allow browsing and downloads. They do not show upload, rename, or delete actions.
+
+Files open in Canvas. Text, Markdown and HTML support inline editing. Excel uses the spreadsheet editor. Save writes to the current space file. Read-only folders block saves. The server checks permission on each save.
+
+File search returns paths in order. Pass next_cursor to continue with the same path and pattern. Each page checks permission and reads current directories. Pagination stores no file copies or search results. Global modification-time sorting is not supported. File additions, deletions and moves during a search can affect subsequent pages.
+
+### Mount lifecycle and controller restarts
+
+Each sandbox object volume uses a separate host mount path. Validation, mounting, and container binding use the same path for that volume. A new sandbox does not reuse an old FUSE connection or a retained Docker Desktop bind alias. Volumes retain the current user's authorized prefix and read-only settings. Synchronous Docker and mount operations run in a thread pool during sandbox creation. This keeps other controller requests responsive.
+
+After a controller restart, the next file operation or sandbox renewal checks the mounts. The system reads current permissions and restores the existing sandbox mounts. The sandbox container and workspace files remain intact. Users do not need to create another sandbox.
+
+A separate helper container holds the restored FUSE connections. These connections survive subsequent controller restarts. The helper receives only authorized paths and read-only settings. It has no Docker socket. Sandbox deletion also removes the helper. Recovery errors retain the sandbox and workspace and allow another attempt.
+
+## Hybrid desktop MCP
+
+Hybrid desktop sessions install the My Space connector from the cloud capability
+manifest. Cloud Agent sessions continue using sandbox mounts directly. Local-only
+sessions do not install this cloud connector.
+
+The MCP interface lives in `src/backend/mcp_servers/space_files_mcp/`.
+The built-in registry, `mcp_servers/registry.py`, declares installation placement
+(`local`, `cloud`, or `both`) separately from exposure (`process` or
+`desktop_gateway`). The space connector runs in the cloud through the desktop
+gateway and does not open another listening port. Installation does not grant
+account access: each gateway operation checks current directory permissions.
+
+The connector exposes two tools:
+
+- `space_files_read`: list roots, list directories, and read files.
+- `space_files_write`: write files, create directories, move, and delete.
+
+Read-only agents cannot discover or execute mutations, including forged calls.
+Mutations use unified tool approval. Ask confirms writes and deletes. Auto approves
+ordinary writes but still confirms deletes. Full uses the user's prior approval.
+Read-only denial takes priority over every approval preset. Reads and writes use
+Base64 and support at most 5 MiB; directories must be empty before deletion.
+
+Gateway execution requires a live approval ticket matching the tool arguments.
+Missing, expired, or changed-argument tickets cannot send a gateway request.
+Desktop rollout requires the bundled backend, cloud backend, and a refreshed
+capability manifest.
+
+The object-storage image uses checksum-pinned binaries from the official MinIO GitHub release. Docker builds this image from docker/Dockerfile.object-storage. Existing Milvus images and volumes are separate.

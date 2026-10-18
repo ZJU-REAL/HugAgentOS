@@ -3,7 +3,8 @@ import { Input, Modal } from 'antd';
 import type { InputRef } from 'antd';
 import { CloseOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ChatShareRecord } from '../../api';
-import { getArtifacts, getFavoriteChats, listChatShares } from '../../api';
+import { getFavoriteChats, listChatShares } from '../../api';
+import { searchSpaceFiles } from './spaceFilesApi';
 import type { KBItem, ResourceItem } from '../../types';
 import { useMySpaceStore } from '../../stores/mySpaceStore';
 import { useCatalogStore } from '../../stores/catalogStore';
@@ -55,15 +56,16 @@ export function MySpaceSearchModal({ onOpenChat, onPreviewFile }: Props) {
   useEffect(() => {
     if (!searchOpen || !keyword) return;
     const seq = ++seqRef.current;
+    const abort = new AbortController();
     const timer = window.setTimeout(() => {
       void (async () => {
         const lower = keyword.toLowerCase();
         const [files, favorites, shares] = await Promise.all([
-          getArtifacts({ keyword, scope: 'all', page_size: PER_GROUP }).then((r) => r.items).catch(() => []),
+          searchSpaceFiles(keyword, PER_GROUP, abort.signal).catch(() => []),
           getFavoriteChats({ keyword, page_size: PER_GROUP }).then((r) => r.items).catch(() => []),
           listChatShares().catch((): ChatShareRecord[] => []),
         ]);
-        if (seq !== seqRef.current) return;
+        if (abort.signal.aborted || seq !== seqRef.current) return;
         setResult({
           query: keyword,
           hits: {
@@ -77,7 +79,7 @@ export function MySpaceSearchModal({ onOpenChat, onPreviewFile }: Props) {
         });
       })();
     }, DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); abort.abort(); };
   }, [searchOpen, keyword, catalog.kb]);
 
   const hits = result.hits;

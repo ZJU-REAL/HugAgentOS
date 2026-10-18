@@ -301,7 +301,7 @@ Plan Mode splits complex tasks into "generate plan → user reviews/edits → ex
 - **Execute** (`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`): each step gets its own agent, executed sequentially, with step-level MCP/skill/sub-agent bindings and cancellation (`is_run_cancelled` polling); execution also goes through ChatRun + Redis Stream, so it survives disconnects.
 - **Frontend presentation and title**: manual Plan Mode keeps plan previews and execution progress in the in-conversation plan card instead of duplicating them in the compact strip above the composer (that strip is reserved for model-driven `update_plan` progress in regular chats). A model-generated conversation title is requested as soon as the preview is ready, with a first-task title used as the temporary fallback.
 - **History is separate from the active mode**: the chat's `planChat` marker and `plan_snapshot` only preserve its sidebar classification and historical plan cards; an independent per-chat composer state decides whether the next message uses Plan Mode. Turning Plan Mode off keeps prior plans and reports visible, while later requests (for example, generating a presentation from a report) run as ordinary chat and stay that way after refresh or re-entry.
-- **Model role**: plan mode prefers the `plan_agent` role and falls back to `main_agent` (the `_mode_role` branch in `agent_factory.py`).
+- **Model role**: plan mode prefers the `plan_agent` role and falls back to `main_agent` (role selection in `factory/runtime/model_selection.py`).
 
 ## Sub-agents
 
@@ -484,7 +484,7 @@ Storage is Redis (`chat_share:*` key groups + TTL) with an in-process memory fal
 
 ## Other entry points
 
-The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false` (`orchestration/batch_orchestrator.py`, see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
+The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false` (see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
 
 ## Source map
 

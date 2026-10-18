@@ -233,7 +233,7 @@
 | `PUT /v1/me/skills/{id}/icon` | 设置图标 |
 | `DELETE /v1/me/skills/{id}` | 删除 |
 
-私有技能同样落 `AdminSkill` 表（`owner_user_id` = 本人），运行时 `agent_factory._filter_skill_ids_for_user` 保证不会泄漏给他人。攒出好用的私有技能后即可走上文的社区上架流程贡献到市场。
+私有技能同样落 `AdminSkill` 表（`owner_user_id` = 本人），运行时 `factory/selection/capabilities.py::_filter_skill_ids_for_user` 保证不会泄漏给他人。攒出好用的私有技能后即可走上文的社区上架流程贡献到市场。
 
 ## 桌面本地文件与云端提交
 

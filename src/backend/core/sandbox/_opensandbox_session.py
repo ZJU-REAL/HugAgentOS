@@ -27,7 +27,6 @@ from core.sandbox._opensandbox_internals import (  # noqa: F401,E402
     _SETUP_ENTRYPOINT,
     _pool_metadata,
     _make_skills_volumes,
-    _make_myspace_volume,
     _make_dws_creds_volumes,
     _make_lark_creds_volumes,
     _make_email_creds_volumes,

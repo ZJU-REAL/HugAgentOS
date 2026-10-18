@@ -15,6 +15,8 @@ CE 的 Docker 部署默认使用 OpenSandbox；无 Docker 安装及桌面本机�
 ```bash
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker compose build backend
+sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 

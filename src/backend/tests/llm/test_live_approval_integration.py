@@ -3,10 +3,10 @@
 import asyncio
 import uuid
 import pytest
-from core.llm.tools import _myspace_confirm as confirms
+from core.llm.tools import _tool_confirmation as confirms
 from core.services.user_service import UserService
 from tests.llm.test_shared_human_interactions import shared_store, pending_on
-from tests.edition_ee.test_team_workspace_access import team
+from tests.storage.project_fixtures import team
 
 
 @pytest.fixture(autouse=True)

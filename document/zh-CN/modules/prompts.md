@@ -29,7 +29,7 @@ src/backend/prompts/prompt_text/default/system/
 └── 40_format.system.md        # 输出格式 + [ref:工具名-N] 引用规范
 ```
 
-在 base prompt 之后，运行时还会按上下文追加动态段：工具与技能说明（`_TOOLS_AND_SKILLS_NOTICE`）、轻量知识库目录（`prompts/kb_lite_section.py`）、项目模式段（`prompts/project_section.py`，仅项目对话注入）、代码执行段与批量模式提示（由 `agent_factory.py` 追加）、子智能体路由表（`core/llm/subagent_tool.py::build_subagent_prompt_section`）。
+在 base prompt 之后，运行时还会按上下文追加动态段：工具与技能说明（`_TOOLS_AND_SKILLS_NOTICE`）、轻量知识库目录（`prompts/kb_lite_section.py`）、项目模式段（`prompts/project_section.py`，仅项目对话注入）、代码执行段与批量模式提示（由 `factory/build.py` 追加）、子智能体路由表（`core/llm/subagent_tool.py::build_subagent_prompt_section`）。
 
 ### 缓存设计
 
@@ -93,10 +93,10 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 
 | kind | 运行时消费方 | 解析顺序 |
 |---|---|---|
-| `code_exec` | `agent_factory.py` 在 `CODE_CAPABILITY_ENABLED=true` 时把该段（代码能力提示词）拼到 system prompt 尾部；单一真源为 `prompt_version_service.render_code_capability_segment()`，管理台 preview 同源 | DB 激活版本 → `prompts/prompt_text/code_exec/system/*.system.md` |
+| `code_exec` | `factory/build.py` 在 `CODE_CAPABILITY_ENABLED=true` 时把该段（代码能力提示词）拼到 system prompt 尾部；单一真源为 `prompt_version_service.render_code_capability_segment()`，管理台 preview 同源 | DB 激活版本 → `prompts/prompt_text/code_exec/system/*.system.md` |
 | `distillation` | 技能蒸馏（`core/llm/skill_distiller.py`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
 | `plan_mode` | 计划模式生成子智能体（`orchestration/subagents/plan_mode.py::_load_plan_prompt`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
-| `turbo` | 极速模式（对话模式选「极速」时，`agent_factory.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
+| `turbo` | 极速模式（对话模式选「极速」时，`factory/build.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
 
 子智能体不走版本池整版拼装：`prompt_runtime.py::build_subagent_system_prompt()` 以用户自定义 `system_prompt` 为核心，复用激活版本（或文件）的 `20_tools_policy` / `65_citations` / `60_format` 分段组装，详见 [对话与智能体编排](chat.md)。
 

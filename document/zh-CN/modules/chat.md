@@ -262,7 +262,7 @@ data: [DONE]
 - **执行**（`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`）：每个步骤独立建 agent 顺序执行，支持步骤级 MCP/技能/子智能体绑定、取消（`is_run_cancelled` 轮询）；执行同样走 ChatRun + Redis Stream，可断线续播。
 - **前端呈现与标题**：手动计划模式的预览和执行进度统一显示在对话内的计划卡片，不再重复显示输入框上方的紧凑计划条（该计划条只服务普通对话中的模型 `update_plan`）；计划预览生成后即触发会话标题自动摘要，摘要完成前由首条任务生成临时标题。
 - **历史与当前模式解耦**：会话的 `planChat` 标记和 `plan_snapshot` 仅用于保留侧边栏类型及历史计划卡片；输入框是否继续走计划模式由独立的逐会话状态控制。用户关闭计划模式后仍能查看已有计划和报告，但后续消息（例如基于报告生成 PPT）按普通对话执行，刷新或重新进入会话也不会被历史计划自动重新开启。
-- **模型角色**：计划模式优先解析 `plan_agent` 角色，未配置降级 `main_agent`（`agent_factory.py` `_mode_role` 分支）。
+- **模型角色**：计划模式优先解析 `plan_agent` 角色，未配置降级 `main_agent`（`factory/runtime/model_selection.py` 的角色选择分支）。
 
 ## 子智能体（Sub-agents）
 

@@ -140,7 +140,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
 
 | 变量 | 现状 |
 |---|---|
-| `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` | 不再被主链路直接读取；保留在 `core/config/settings.py` 与个别旧路径（如 `internal_batch.py`、`kb_processing.py`）作兜底 |
+| `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` | 不再被主链路直接读取；保留在 `core/config/settings.py` 与个别旧路径（如 `kb_processing.py`）作兜底 |
 | MCP 子进程 | `ModelConfigService.get_mcp_env_overlay()` 把 `main_agent` / `embedding` / `reranker` 角色映射回 `MODEL_URL`、`OPENAI_API_KEY`、`MEM0_EMBED_*`、`RERANKER_*` 等旧变量名注入；常驻 MCP 容器内则用 `core/config/runtime_env.py::get_runtime_value()` 先查 DB 再回退 env，保证后台改模型对 MCP 即时生效 |
 
 完整变量清单见 [环境变量](../deployment/environment-variables.md)。

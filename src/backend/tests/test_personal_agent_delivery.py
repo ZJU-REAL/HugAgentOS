@@ -33,7 +33,6 @@ def setup(sessions, monkeypatch):
     monkeypatch.setattr(tools, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.computer.computer_wait.SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tools.space.register_space_tools", lambda *args: None)
     monkeypatch.setattr("personal_agent.tools.email.register_email_tools", lambda *args: None)
     current_execution.set(None)
     with sessions() as db:

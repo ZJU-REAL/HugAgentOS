@@ -13,17 +13,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-from ._common import myspace_cache_dir, safe_user_id
+from ._common import safe_user_id
 
 
 logger = logging.getLogger(__name__)
 from . import _opensandbox_internals as runtime
 
 # Built-in skills enter the sandbox at /workspace/skills/ via a host bind mount, read-only.
-# This replaces the old materialization path of "per chat, tar-upload every used skill +
-# unpack with Python" (the main source of the 50-80s slow first bash). Editing skill content
-# on the host makes it immediately visible to all new sandboxes, no image rebuild needed;
-# only pip / apt dependency changes require rebuilding Dockerfile.opensandbox.
 #
 # Note: an absolute host path is required — the OpenSandbox server creates sandbox
 # containers through the host docker daemon, and docker.sock sees the host's view.
@@ -97,11 +93,6 @@ def _pool_metadata(kind: str, user_id: Optional[str] = None) -> dict[str, str]:
         _METADATA_OWNER_KEY: _METADATA_OWNER_VALUE,
         _METADATA_POOL_KIND_KEY: kind,
     }
-    # Only jupyter sandboxes are bucketed per user; light sandboxes are ephemeral and not
-    # user-bound. Must normalize with safe_user_id — if the raw user_id is invalid,
-    # _make_myspace_volume refuses to mount the volume; in that case we must not tag here
-    # either, otherwise adopt would use this tag to bucket into _jupyter_user_pool and a
-    # sandbox with no mount would be reused as user-bound, bypassing isolation.
     if user_id and kind == "jupyter":
         safe = safe_user_id(user_id)
         if safe:
@@ -194,67 +185,3 @@ def _make_skills_volumes(user_id: Optional[str] = None) -> list:
             read_only=True,
         ),
     ]
-
-
-def _make_myspace_volume(user_id: Optional[str]) -> Optional[Any]:
-    """Plan F: bind the myspace_cache/{uid}/ subdirectory under the backend host storage
-    into the sandbox at ``/workspace/myspace/{uid}/``, visible at startup, eliminating
-    the full HTTP PUT of _sync_inputs_to_sandbox.
-
-    Prerequisites:
-    - runtime.settings.sandbox.opensandbox_myspace_bind_mount_enabled = true (default)
-    - runtime.settings.sandbox.opensandbox_host_storage_path non-empty (points to the real
-      location of the backend storage directory on the host, i.e. the
-      ${HOST_STORAGE_PATH} used by the backend volumes in docker-compose)
-    - the OpenSandbox server's ``allowed_host_paths`` includes that path prefix
-
-    Two cases return None:
-    1. flag off / invalid user_id / host_storage_path not configured — the caller
-       continues without mounting the myspace volume and falls back to the old HTTP PUT
-       path (depending on which flag branch takes effect)
-    2. SDK model import failure — same as above
-    """
-    if not runtime.settings.sandbox.opensandbox_myspace_bind_mount_enabled:
-        return None
-    uid = safe_user_id(user_id or "")
-    if not uid:
-        return None
-    host_storage = (runtime.settings.sandbox.opensandbox_host_storage_path or "").strip().rstrip("/")
-    if not host_storage:
-        logger.warning(
-            "[opensandbox] myspace bind mount enabled but HOST_STORAGE_PATH "
-            "not configured; falling back to HTTP PUT path"
-        )
-        return None
-    # Proactively mkdir so the host subdirectory is owned by the in-container backend
-    # process (appuser, UID 1000), instead of relying on the docker daemon's root-owned
-    # auto-mkdir at bind time — that would leave files written by root inside the sandbox
-    # that the backend cannot chown/delete/overwrite. If mkdir fails we must abandon the
-    # bind mount (return None and fall back to the old path); anything else steps right
-    # into the root-owned trap we are trying to avoid.
-    cache_dir = myspace_cache_dir(uid)
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "[opensandbox] failed to pre-create myspace_cache dir %s: %s; "
-            "skipping bind mount (would otherwise create root-owned host dir)",
-            cache_dir, exc,
-        )
-        return None
-    try:
-        from opensandbox.models.sandboxes import Host, Volume
-    except ImportError:
-        return None
-    host_path = f"{host_storage}/myspace_cache/{uid}"
-    # Volume name must match ``^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`` (OpenSandbox enforces
-    # k8s-style naming); _ / . / uppercase letters in the uid are all invalid — normalize
-    # to lowercase and substitute `-`.
-    slug = re.sub(r"[^a-z0-9-]", "-", uid.lower()).strip("-")
-    vol_name = f"myspace-{slug}"[:63].rstrip("-") or "myspace"
-    return Volume(
-        name=vol_name,
-        host=Host(path=host_path),
-        mount_path=f"/workspace/myspace/{uid}",
-        read_only=False,
-    )

@@ -18,7 +18,7 @@ from core.llm.tool_permissions import (
     ToolPermissionService,
     builtin_tool_permission,
 )
-from core.llm.tools import _myspace_confirm as confirm
+from core.llm.tools import _tool_confirmation as confirm
 from core.llm.tools._paths import to_physical_path
 from core.llm.tools._state import ReadEntry, ReadStateTracker
 from core.llm.tools.edit_tool import register_edit
