@@ -1,6 +1,14 @@
 use super::{backup_local_data, restore_local_data, restore_local_data_with};
 use std::path::Path;
 
+fn temporary_directory() -> tempfile::TempDir {
+    // macOS exposes its default temporary directory through /var, a system
+    // symlink. Use its real parent so these tests exercise links inside the
+    // backup boundary rather than an alias above the fixture.
+    let parent = std::env::temp_dir().canonicalize().unwrap();
+    tempfile::tempdir_in(parent).unwrap()
+}
+
 fn write(root: &Path, name: &str, contents: &[u8]) {
     let path = root.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -9,7 +17,7 @@ fn write(root: &Path, name: &str, contents: &[u8]) {
 
 #[test]
 fn upgrade_rollback_restores_complete_vector_store_and_retains_failed_contents() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     write(&data, "milvus.db/manifest.json", b"original manifest");
     write(
@@ -85,7 +93,7 @@ fn upgrade_rollback_restores_complete_vector_store_and_retains_failed_contents()
 
 #[test]
 fn rollback_removes_new_store_from_live_data_without_deleting_it() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     write(&data, "data.db", b"before");
     let backup = backup_local_data(&data, &temp.path().join("backups"))
@@ -102,7 +110,7 @@ fn rollback_removes_new_store_from_live_data_without_deleting_it() {
 
 #[test]
 fn incomplete_or_traversing_manifest_cannot_modify_live_memory() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     let backup = temp.path().join("backup");
     write(&data, "milvus.db/manifest.json", b"original");
@@ -124,7 +132,7 @@ fn incomplete_or_traversing_manifest_cannot_modify_live_memory() {
 #[test]
 fn vector_symlinks_in_source_snapshot_and_live_destination_are_rejected() {
     use std::os::unix::fs::symlink;
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     let outside = temp.path().join("outside");
     write(&outside, "manifest.json", b"outside");
@@ -153,7 +161,7 @@ fn vector_symlinks_in_source_snapshot_and_live_destination_are_rejected() {
 
 #[test]
 fn ordinary_file_store_and_empty_directories_are_preserved() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     write(&data, "milvus.db", b"existing store");
     let backup = backup_local_data(&data, &temp.path().join("backups"))
@@ -176,7 +184,7 @@ fn ordinary_file_store_and_empty_directories_are_preserved() {
 
 #[test]
 fn failed_publication_reverses_completed_database_and_vector_moves() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = temporary_directory();
     let data = temp.path().join("data");
     write(&data, "data.db", b"before users");
     write(&data, "data.db-wal", b"before wal");
