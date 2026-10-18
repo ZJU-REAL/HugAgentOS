@@ -28,8 +28,10 @@
 .jx-composerTools { flex:1 1 auto; flex-wrap:nowrap; }
 .jx-composerPrimary { flex:0 1 auto; margin-inline-start:auto; }
 .jx-composerPrimary .jx-modelEffort,
-.jx-composerPrimary .jx-modelEffortStatic { flex:1 1 auto; min-width:0; max-width:220px; }
-.jx-composerPrimary .jx-modelEffortBtn { width:100%; max-width:220px; }
+.jx-composerPrimary .jx-modelEffortStatic { flex:none; min-width:0; max-width:none; }
+.jx-composerPrimary .jx-modelEffortBtn { width:max-content; max-width:none; }
+/* Measure and display the full model name; the toolbar switches to icons when it cannot fit. */
+.jx-modelEffortBtn .jx-composerChip-label { flex:none; overflow:visible; text-overflow:clip; }
 .jx-composerTools > * { max-width:100%; }
 .jx-projectDropName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .jx-composerBar .jx-attachBtn { margin:0; }
@@ -41,7 +43,7 @@
    as soon as they fit without resize feedback. */
 .jx-composerBar[data-measuring] > div { flex:none; width:max-content; max-width:none; }
 .jx-composerBar[data-measuring] .jx-modelEffort { flex:none; }
-.jx-composerBar[data-measuring] .jx-modelEffortBtn { width:auto; max-width:220px; }
+.jx-composerBar[data-measuring] .jx-modelEffortBtn { width:max-content; max-width:none; }
 .jx-composerBar .jx-modelEffortCompactIcon,
 .jx-modeChip-compactIcon { display:none; }
 .jx-composerBar[data-compact] .jx-composerChip-label,

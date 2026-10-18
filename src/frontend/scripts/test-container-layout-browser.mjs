@@ -122,14 +122,21 @@ try {
    }
   }
   // Width recovery must restore labels without remounting.
-  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='1600px';});
+  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='3000px';});
   await page.waitForFunction(()=>!document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
+  assert.equal(await page.evaluate(()=>{
+   const label=document.querySelector('.jx-modelEffortBtn .jx-composerChip-label');
+   return label.clientWidth>=label.scrollWidth && getComputedStyle(label).textOverflow!=='ellipsis';
+  }),true,'full model name is visible without ellipsis when space permits');
   assert.equal(await page.evaluate(()=>{
    const host=document.querySelector('#toolbar-host').getBoundingClientRect();
    return [...document.querySelectorAll('.jx-composerToolbar button')].every(el=>{
     const r=el.getBoundingClientRect(); return r.left>=host.left&&r.right<=host.right;
    });
   }),true,'expanded controls fit after labels return');
+  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='1600px';});
+  await page.waitForFunction(()=>document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
+  assert.equal(await page.locator('.jx-modelEffortCompactIcon').isVisible(),true,'long model switches to an icon instead of truncating');
   await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='320px';});
   await page.waitForFunction(()=>document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
   await page.screenshot({path:resolve(output,(touch?'touch-':'desktop-')+viewport+'.png'),fullPage:true});

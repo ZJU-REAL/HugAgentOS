@@ -42,8 +42,7 @@ type = "sqlite"
 path = "/var/lib/opensandbox/opensandbox.db"
 
 [docker]
-# 控制平面使用主项目网络。定制控制器为每个 sandbox 创建独立 bridge，
-# 仅接入该 sandbox、受信任的 backend 和控制器，不发布沙盒宿主端口。
+# 控制器和沙箱使用已配置的共享网络；沙箱生命周期不修改后端或控制器的网络连接。
 # 网络名规则：${COMPOSE_PROJECT_NAME}_${network_name_in_compose}
 network_mode = "@@COMPOSE_PROJECT_NAME@@_hugagent-network"
 drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]

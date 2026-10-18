@@ -1,5 +1,6 @@
 """Recover FUSE connections without replacing a sandbox or its workspace."""
 import json
+import os
 from pathlib import PurePosixPath
 from threading import RLock
 from uuid import uuid4
@@ -8,7 +9,6 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from opensandbox_server.api.schema import Volume
 from . import sandbox_metadata
-from .isolated_networks import _trusted
 from .object_mounts import mount_identity, validated_options
 
 EPOCH = uuid4().hex
@@ -95,8 +95,8 @@ def ensure_mounts(service, sandbox_id, request):
         specs = _specifications(service, container, request)
         if _healthy(container, specs):
             return {"epoch": EPOCH, "recovered": False}
-        project, trusted = _trusted(service)
-        controller = trusted[0][0]
+        controller = service.docker_client.containers.get(os.environ["HOSTNAME"])
+        project = controller.attrs["Config"]["Labels"]["com.docker.compose.project"]
         remove_helper(service, sandbox_id)
         helper = service.docker_client.containers.run(
             controller.image.id, ["sleep", "infinity"], entrypoint=[],

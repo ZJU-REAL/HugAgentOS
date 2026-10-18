@@ -438,7 +438,6 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSANDBOX_INSECURE_SERVER: 'NO'
-      HUGAGENT_BACKEND_CONTAINER: hugagent-backend
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - opensandbox_config:/etc/opensandbox:ro
