@@ -37,14 +37,11 @@ class MCPServer:
 # Stable ports are part of the deployed MCP contract.
 _PROCESS_PORTS = {
     "retrieve_dataset_content": 9100,
-    "query_database": 9101,
     "internet_search": 9102,
-    "ai_chain_information_mcp": 9103,
     "web_fetch": 9106,
     "automation_task": 9108,
     "skill_manager": 9112,
     "site_publish": 9113,
-    "security_ops": 9114,
     "agent_manager": 9115,
     "plugin_manager": 9116,
     "browser_runtime": 9117,
