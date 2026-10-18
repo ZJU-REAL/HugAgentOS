@@ -54,7 +54,10 @@ def build_command(self, volume, source, backend_path, endpoint_url, passwd_file)
     self._validate_endpoint_url(endpoint_url)
     self._validate_mount_path(backend_path)
     command = ["s3fs", source, backend_path, "-o", "url=" + endpoint_url,
-        "-o", "passwd_file=" + passwd_file]
+        "-o", "passwd_file=" + passwd_file,
+        # Keep a fixed 2 GiB reserve for temporary writes. The s3fs default
+        # reserves 10% of the whole host disk and can reject healthy data volumes.
+        "-o", "ensure_diskfree=2048"]
     for option in validated_options(self, volume):
         command.extend(["-o", option])
     return command
