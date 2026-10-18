@@ -1,7 +1,9 @@
 /* ── New Docs Panel ── */
 
 .jx-docsNew{
-  height:100%;
+  width:100%;
+  max-width:1400px;
+  margin:0 auto;
   min-height:0;
   display:flex;
   flex-direction:column;
@@ -58,7 +60,6 @@
 .jx-updatesView{
   flex:1;
   min-height:0;
-  overflow:auto;
   padding:0 20px 24px;
   display:flex;
   flex-direction:column;

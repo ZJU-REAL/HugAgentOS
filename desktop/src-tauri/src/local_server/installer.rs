@@ -132,6 +132,7 @@ impl LocalServerManager {
                 Ok(())
             }
             Err(start_error) => {
+                self.stop_server()?;
                 if local_payload::restore_previous(&self.root)? {
                     if let Some(backup) = data_backup.as_deref() {
                         restore_local_data(&self.data_root, backup)?;

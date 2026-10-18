@@ -71,7 +71,7 @@ def test_script_runner_provider_execute_sends_correct_body(monkeypatch):
 
     monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
 
-    p = get_sandbox_provider()
+    p = get_sandbox_provider()._ordinary
     result = asyncio.run(
         p.run_to_completion(
             ProcessRequest(
@@ -123,7 +123,7 @@ def test_script_runner_provider_never_retries_ambiguous_start(monkeypatch):
 
     monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
 
-    p = get_sandbox_provider()
+    p = get_sandbox_provider()._ordinary
     with pytest.raises(SandboxError, match="uncertain"):
         asyncio.run(
             p.run_to_completion(
@@ -175,7 +175,7 @@ def test_script_runner_provider_file_and_lifecycle_calls_are_session_scoped(monk
 
     monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
 
-    provider = get_sandbox_provider()
+    provider = get_sandbox_provider()._ordinary
     asyncio.run(
         provider.put_file(
             "chat-1",
@@ -242,7 +242,7 @@ def test_script_runner_provider_execute_maps_connect_error(monkeypatch):
 
     monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
 
-    p = get_sandbox_provider()
+    p = get_sandbox_provider()._ordinary
     with pytest.raises(SandboxConnectError, match="无法连接"):
         asyncio.run(
             p.run_to_completion(
@@ -256,53 +256,6 @@ def test_script_runner_provider_execute_maps_connect_error(monkeypatch):
         )
 
 
-def test_script_runner_provider_stage_files(monkeypatch):
-    f = _reload_settings_and_factory(
-        monkeypatch, SANDBOX_PROVIDER="script_runner", SANDBOX_RUNNER_URL="http://test-runner:8900"
-    )
-    f.reset_provider_cache()
-
-    from core.sandbox import StageFile, get_sandbox_provider
-
-    captured = {}
-
-    class FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return {"staged": [{"name": "data.csv", "path": "/workspace/myspace/u1/data.csv"}]}
-
-    class FakeClient:
-        def __init__(self, *a, **kw):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            pass
-
-        async def post(self, url, json=None):
-            captured["url"] = url
-            captured["body"] = json
-            return FakeResponse()
-
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
-
-    p = get_sandbox_provider()
-    staged = asyncio.run(p.stage_files("u1", [StageFile(name="data.csv", content_b64="aGVsbG8=")]))
-
-    assert captured["url"] == "http://test-runner:8900/stage"
-    assert captured["body"] == {
-        "user_id": "u1",
-        "files": [{"name": "data.csv", "content_b64": "aGVsbG8="}],
-    }
-    assert len(staged) == 1
-    assert staged[0].name == "data.csv"
-    assert staged[0].path == "/workspace/myspace/u1/data.csv"
 
 
 def test_explicit_opensandbox_does_not_fall_back_on_missing_dependency(monkeypatch):
@@ -314,3 +267,12 @@ def test_explicit_opensandbox_does_not_fall_back_on_missing_dependency(monkeypat
     monkeypatch.setattr(edition, "PersistentSandboxProvider", missing_provider)
     with pytest.raises(ModuleNotFoundError, match="missing SDK dependency"):
         factory.get_sandbox_provider()
+
+def test_cloud_file_operations_require_direct_mount_provider(monkeypatch):
+    from core.sandbox import SandboxError
+    factory = _reload_settings_and_factory(
+        monkeypatch, SANDBOX_PROVIDER="script_runner", DEPLOY_PROFILE="team")
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
+    provider = factory.get_sandbox_provider()
+    with pytest.raises(SandboxError, match="OpenSandbox"):
+        asyncio.run(provider.put_file("chat-1", "/workspace/report.txt", b"data", user_id="user-1"))

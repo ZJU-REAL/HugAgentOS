@@ -104,6 +104,26 @@ def create_folder_batch(
                     siblings[(parent_id, name)] = row
                 mapping[path] = row.folder_id
             db.flush()
+        from core.spaces.files import SpaceFiles
+        from core.spaces.projects import folder_path
+        from core.spaces.edition_access import owner_space
+        from core.storage import get_storage
+        if owner_column == "user_id":
+            if owner_id != actor:
+                raise ValueError("Directory owner does not match the account")
+            space = "personal"
+        else:
+            space = owner_space(owner_column, owner_id)
+        base = folder_path(db, model, {owner_column: owner_id}, parent_folder_id)
+        files = SpaceFiles(db, actor, get_storage())
+        for path in sorted(expanded):
+            location = "/".join(filter(None, [base, path]))
+            grant = files.grant(space, write=True)
+            entry = files.storage.stat_object(grant.key(location))
+            if entry is None:
+                files.mkdir(space, location)
+            elif not entry.is_directory:
+                raise ValueError("A file exists at the directory path")
         db.commit()
     except Exception:
         db.rollback()

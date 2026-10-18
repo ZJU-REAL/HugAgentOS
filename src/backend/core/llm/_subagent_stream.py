@@ -7,7 +7,7 @@ errors). The sub-agent used to execute one-shot via ``agent.reply()``, swallowin
 intermediate events; the frontend only saw a single "call sub-agent" tool card and the
 final summary text, with no visibility into its internal tool calls.
 
-This module provides a per-chat side-channel shaped after the proven ``_myspace_confirm``:
+This module provides a per-chat side-channel shaped after the proven ``_tool_confirmation``:
 - ``stream()`` (orchestration/streaming.py) calls ``attach`` on startup with its own
   ``event_q`` + the loop it runs on, and ``detach`` on shutdown.
 - ``call_subagent`` and its worker thread deliver sub-agent events back to the main
@@ -19,7 +19,7 @@ Keyed by chat_id: a chat has only one active run at a time (chat_run serializati
 so keys never collide. When chat_id is missing it falls back to ``_nochat_`` (only for
 edge flows without a chat; a tiny chance of concurrent key collision is acceptable).
 
-Storage: in-process per-chat (same constraint as myspace-confirm). In multi-worker
+Storage: in-process per-chat (same process-local stream constraint). In multi-worker
 setups a sub-agent is naturally in the same process as its parent run (spawned within
 the same run executor), so no cross-process support is needed.
 """

@@ -32,9 +32,10 @@ export function archiveUrl(file: ArtifactLocation, memberPath?: string): string 
   const raw = artifactUrl(file);
   if (!raw) return '';
   const url = new URL(raw, 'http://artifact.invalid');
-  if (!/^(?:\/api)?\/files\/[^/]+$/.test(url.pathname)) return '';
+  const space = /^(?:\/api)?\/v1\/myspace\/content$/.test(url.pathname);
+  if (!space && !/^(?:\/api)?\/files\/[^/]+$/.test(url.pathname)) return '';
   url.pathname += '/archive' + (memberPath === undefined ? '' : '/member');
-  if (memberPath !== undefined) url.searchParams.set('path', memberPath);
+  if (memberPath !== undefined) url.searchParams.set(space ? 'member' : 'path', memberPath);
   return /^https?:\/\//i.test(raw) ? url.toString() : url.pathname + url.search;
 }
 

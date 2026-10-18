@@ -33,6 +33,7 @@ services:
       retries: 5
     networks:
     - hugagent-network
+    restart: unless-stopped
   redis:
     image: redis:7-alpine
     container_name: hugagent-redis
@@ -117,10 +118,15 @@ services:
       MCP_OAUTH_PUBLIC_BASE_URL: ${MCP_OAUTH_PUBLIC_BASE_URL:-}
       MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK: ${MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK:-false}
       DESKTOP_MODEL_SYNC_SCOPE: ${DESKTOP_MODEL_SYNC_SCOPE:-}
-      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_TYPE: ${STORAGE_TYPE:-s3}
       STORAGE_PATH: /app/storage
       CATALOG_PATH: /app/storage/catalog.json
       DESKTOP_RELEASE_DIR: ${DESKTOP_RELEASE_DIR:-/app/storage/desktop_release}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-100/minute}
@@ -204,7 +210,6 @@ services:
       OPENSANDBOX_SNAPSHOT_ENABLED: ${OPENSANDBOX_SNAPSHOT_ENABLED:-true}
       OPENSANDBOX_SNAPSHOT_RETENTION_DAYS: ${OPENSANDBOX_SNAPSHOT_RETENTION_DAYS:-7}
       OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S: ${OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S:-120}
-      OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED: ${OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED:-true}
       HOST_STORAGE_PATH: ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}
       CODE_CAPABILITY_ENABLED: ${CODE_CAPABILITY_ENABLED:-false}
       FILE_PARSER_API_URL: ${FILE_PARSER_API_URL:-}
@@ -268,8 +273,13 @@ services:
       DB_POOL_SIZE: ${DB_POOL_SIZE:-100}
       DB_POOL_MAX_OVERFLOW: ${DB_POOL_MAX_OVERFLOW:-20}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
-      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_TYPE: ${STORAGE_TYPE:-s3}
       STORAGE_PATH: /app/storage
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       KNOWLEDGE_BASE: ${KNOWLEDGE_BASE:-}
       DIFY_URL: ${DIFY_URL:-}
       DIFY_API_KEY: ${DIFY_API_KEY:-}
@@ -428,10 +438,22 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSANDBOX_INSECURE_SERVER: 'NO'
+      HUGAGENT_BACKEND_CONTAINER: hugagent-backend
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - opensandbox_config:/etc/opensandbox:ro
     - opensandbox_data:/var/lib/opensandbox
+    - type: bind
+      source: ${HOST_STORAGE_PATH}/object-mounts
+      target: ${HOST_STORAGE_PATH}/object-mounts
+      bind:
+        propagation: rshared
+    devices:
+    - /dev/fuse:/dev/fuse
+    cap_add:
+    - SYS_ADMIN
+    security_opt:
+    - apparmor:unconfined
     ports: []
     healthcheck:
       test:

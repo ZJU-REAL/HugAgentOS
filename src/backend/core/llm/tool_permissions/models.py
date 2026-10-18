@@ -71,6 +71,7 @@ class PermissionRuntime:
     default_allow: bool = False
     approval_mode: str = APPROVAL_ASK
     account_approval: bool = False
+    read_only: bool = False
     sandbox_session_id: Optional[str] = None
     project_scope: Optional[ProjectScope] = None
 

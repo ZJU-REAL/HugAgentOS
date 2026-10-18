@@ -490,7 +490,7 @@ class StreamingAgent:
                 )
 
         # myspace write-confirmation gate (in-house ContextVar, distinct from 2.0 native HITL)
-        from core.llm.tools import _myspace_confirm as _mc
+        from core.llm.tools import _tool_confirmation as _mc
 
         _confirm_chat_id = st.chat_id or None
 

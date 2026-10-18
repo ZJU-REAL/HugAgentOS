@@ -41,7 +41,7 @@ python scripts/build_ce.py        # 生成 dist/ce/（CE 派生树）
 | 自动化 | ✅ 定时任务、Cron 调度、Prompt/计划自动化、失败重试 | — |
 | 数据画布 | ✅ 在线表格个人编辑（免费 Univer 预设） | ➕ 多人实时协同（含 `@univerjs/preset-sheets-advanced` 商业预设） |
 | 代码执行 | ✅ Docker 默认 OpenSandbox：会话文件、环境复用、快照恢复；可选 script-runner | ➕ 团队空间挂载、组织治理、Cube provider |
-| 文件存储 | ✅ 本地存储 | ➕ 云存储（S3 / 阿里云 OSS） |
+| 文件存储 | ✅ 云端 Docker 使用 S3；桌面离线模式使用本地存储 | ➕ 其他云存储（OSS / OBS） |
 | 认证登录 | ✅ 本地账号注册登录 | ➕ 企业 SSO 单点登录、部门同步、邀请码体系 |
 | 个人工作空间 | ✅ 个人文件夹、收藏、会话分享、个人项目 | — |
 | 团队协作 | — | ➕ 团队、成员管理、团队文件夹、权限矩阵、会话团队共享 |

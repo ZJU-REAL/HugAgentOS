@@ -109,6 +109,8 @@ git clone https://github.com/ZJU-REAL/HugAgentOS.git
 cd HugAgentOS
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker compose build backend
+sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -239,7 +241,7 @@ is physically absent from the Community tree.
 | 8 general MCP tools, personal skills, and a skill marketplace | Industry data tools, organization governance, and skill review |
 | Private knowledge bases and three-tier personal memory | Public knowledge administration and memory auditing |
 | Automation, and a personal data canvas | Organization billing, usage reports, and canvas collaboration |
-| OpenSandbox sessions, snapshots, and local file storage | Team workspace mounts, Cube, cloud storage, and offline delivery |
+| OpenSandbox sessions, snapshots, and S3 file storage | Team workspace mounts, Cube, additional cloud providers, and offline delivery |
 | Local accounts and branding with Powered-by attribution | SSO, compliance auditing, and full white-labeling |
 
 See the [edition overview](./document/en/editions/overview.md) for the complete

@@ -75,6 +75,19 @@ def patched_sources(root: Path) -> dict[str, str]:
         "import inspect\nfrom docker.errors import NotFound\n",
     )
 
+    # Creation includes synchronous Docker and FUSE calls. Keep them off the
+    # controller event loop, including volume validation and network setup.
+    name = "services/docker/docker_service.py"
+    source = sources[name]
+    source = replace_once(source, "import inspect\n",
+        "import inspect\nfrom starlette.concurrency import run_in_threadpool\n")
+    source = replace_once(source,
+        "    async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxResponse:\n",
+        "    async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxResponse:\n"
+        "        return await run_in_threadpool(self._create_sandbox_sync, request)\n\n"
+        "    def _create_sandbox_sync(self, request: CreateSandboxRequest) -> CreateSandboxResponse:\n")
+    sources[name] = source
+
     name = "api/lifecycle.py"
     source = sources[name]
     calls = (
@@ -113,6 +126,23 @@ def patched_sources(root: Path) -> dict[str, str]:
         "import logging\nfrom starlette.concurrency import run_in_threadpool\n",
     )
     patch_isolated_networks(sources)
+    name = "services/docker/docker_service.py"
+    sources[name] = replace_once(sources[name], "import inspect\n",
+        "import inspect\nfrom .object_mounts import install as install_object_mounts\ninstall_object_mounts()\n")
+    name = "services/docker/docker_service.py"
+    sources[name] = replace_once(sources[name], "import inspect\n",
+        "import inspect\nfrom .mount_recovery import EPOCH as MOUNT_EPOCH\n")
+    sources[name] = replace_once(sources[name],
+        '        entrypoint = container.attrs.get("Config", {}).get("Cmd") or []',
+        '        metadata = {**(metadata or {}), "hugagent-mount-epoch": MOUNT_EPOCH}\n'
+        '        entrypoint = container.attrs.get("Config", {}).get("Cmd") or []')
+    sources["api/lifecycle.py"] += """
+\nfrom opensandbox_server.services.docker.mount_recovery import RecoveryRequest, ensure_mounts
+
+@router.post("/sandboxes/{sandbox_id}/space-mounts/ensure")
+async def ensure_space_mounts(sandbox_id: str, request: RecoveryRequest):
+    return await run_in_threadpool(ensure_mounts, sandbox_service, sandbox_id, request)
+"""
     for name, source in sources.items():
         ast.parse(source, filename=name)
     return sources

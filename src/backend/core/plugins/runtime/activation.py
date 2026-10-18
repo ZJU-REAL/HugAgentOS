@@ -113,8 +113,8 @@ def register_load_plugin(
     - ``loader`` / ``chat_id`` / ``user_id`` / ``enabled_kb_ids`` /
       ``channel_origin`` / ``reranker_enabled`` / ``approval_available`` /
       ``ontology_runtime``: assembly context replayed at activation.
-    MCP tools are trusted and therefore never added to the built-in-tool
-    permission registry during progressive activation.
+    Registry-governed MCP permissions are installed before activation.
+    Deferred clients inherit the current run's read-only setting.
     """
     from agentscope.message import TextBlock
     from agentscope.tool._response import ToolChunk as ToolResponse
@@ -237,7 +237,10 @@ def register_load_plugin(
 
                         await stage.checkpoint()
                         await ensure_native_servers({key: cfg})
-                        client = make_client(key, cfg, is_stateful=False)
+                        client = make_client(
+                            key, {**cfg, "read_only": bool(runtime.get("read_only"))},
+                            is_stateful=False,
+                        )
                         if stage.staged and not plugin_resolution._http_transport(cfg):
                             await client.connect()
                         tools = await client.list_tools()

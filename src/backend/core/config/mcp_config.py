@@ -1,8 +1,7 @@
 """MCP server configuration for HugAgentOS.
 
-Every MCP server runs as a long-running streamable-http process inside the
-dedicated ``mcp`` Docker container. ``backend`` connects via
-``HttpStatefulClient`` (see ``core/llm/factory/build.py``).
+Registry-managed process servers use streamable HTTP in the dedicated MCP
+container or desktop launcher. Embedded desktop gateways are registered separately.
 
 Server IDs are also keys in ``configs/display_names.py`` and consumed by
 ``configs/catalog_loader.py``; renaming requires updating those.
@@ -26,14 +25,37 @@ def _mcp_http_url(server_id: str) -> str:
     return f"http://{settings.server.mcp_host}:{_PORTS[server_id]}/mcp/"
 
 
-MCP_SERVERS: Dict[str, dict] = {
-    server_id: {
-        "transport": "streamable_http",
-        "url": _mcp_http_url(server_id),
-        "env": {},
+def builtin_mcp_configs(location=None) -> Dict[str, dict]:
+    """Discover only process MCPs installed on this execution plane."""
+    from core.config.local_mode import local_mode_enabled
+    from mcp_servers.registry import process_servers
+
+    location = location or ("local" if local_mode_enabled() else "cloud")
+    return {
+        server.server_id: {
+            "transport": "streamable_http",
+            "url": _mcp_http_url(server.server_id),
+            "env": {},
+        }
+        for server in process_servers(location)
     }
-    for server_id in _PORTS
-}
+
+
+MCP_SERVERS = builtin_mcp_configs()
+
+
+def builtin_available_on_this_plane(server_id: str) -> bool:
+    """Placement constrains registered built-ins; third-party MCPs remain independent."""
+    from core.config.local_mode import local_mode_enabled
+    from mcp_servers.registry import SERVERS
+
+    server = SERVERS.get(server_id)
+    if server is None:
+        return True
+    return server.exposure == "process" and server.installed_on(
+        "local" if local_mode_enabled() else "cloud"
+    )
+
 
 
 def builtin_launcher_serves_this_plane() -> bool:

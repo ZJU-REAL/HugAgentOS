@@ -15,7 +15,7 @@ HugAgentOS 是一个面向企业的 AgentOS，同时提供轻量本地运行形�
 | 后端 | Python + FastAPI + SQLAlchemy + Alembic |
 | 智能体 | AgentScope 2.0（ReActAgent + Toolkit + 中间件） |
 | 工具协议 | MCP（streamable-http，独立 `mcp` 容器常驻进程） |
-| 沙箱 | OpenSandbox / CubeSandbox（商业版 EE）、script-runner 轻量沙箱 |
+| 沙箱 | OpenSandbox（CE / EE）、CubeSandbox（商业版 EE）、script-runner 轻量沙箱 |
 | 数据 | PostgreSQL（生产）/ SQLite（开发）、Redis、Milvus + Neo4j（可选记忆组件） |
 | 存储 | 本地磁盘 / S3 / 阿里云 OSS（云存储为商业版 EE） |
 
@@ -49,7 +49,7 @@ HugAgentOS 是一个面向企业的 AgentOS，同时提供轻量本地运行形�
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
 │  智能体层（src/backend/core/llm/）                                  │
-│  agent_factory → AgentScope 2.0 ReActAgent                          │
+│  factory/build → AgentScope 2.0 ReActAgent                          │
 │  ToolCollector → Toolkit（自研工具 + 技能 + MCP 工具）               │
 │  middlewares：动态模型/文件上下文/系统提醒 · offloader：超长结果落盘  │
 │  prompts/prompt_runtime：系统提示词装配（DB 优先，文件兜底）          │
@@ -57,9 +57,9 @@ HugAgentOS 是一个面向企业的 AgentOS，同时提供轻量本地运行形�
         │ streamable-http      │ 沙箱驱动协议           │ SQL / 向量
 ┌───────▼───────────┐ ┌────────▼──────────┐ ┌─────────▼─────────────┐
 │ MCP 工具池         │ │ 沙箱               │ │ 数据层                 │
-│ mcp 容器 8 个服务   │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
-│ :9100–:9107 常驻   │ │ OpenSandbox(EE)   │ │ Milvus · Neo4j(可选)  │
-│ 搜索/抓取/图表/导出 │ │ CubeSandbox(EE)   │ │ 本地 / S3 / OSS 存储   │
+│ mcp 工具进程   │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
+│ 端口见 _ports.py   │ │ OpenSandbox(CE/EE)   │ │ Milvus · Neo4j(可选)  │
+│ 搜索/抓取/插件工具 │ │ CubeSandbox(EE)   │ │ 本地 / S3 / OSS 存储   │
 │ 数仓/产业链(EE)    │ │                   │ │                       │
 └───────────────────┘ └───────────────────┘ └───────────────────────┘
 ```

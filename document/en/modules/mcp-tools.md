@@ -36,7 +36,7 @@ must execute in separate rounds.
                        └──────────────────────────────────────────────────────┘
 ```
 
-The single source of truth for port assignment is `src/backend/mcp_servers/_ports.py`: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
+The built-in registry, `src/backend/mcp_servers/registry.py`, declares installation placement, package names, and base ports. `_ports.py` applies desktop port offsets: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
 
 > Historical note: office-document editing and export (word / excel / ppt /
 > pdf) have moved out of the `mcp` container into
@@ -188,7 +188,8 @@ The shared layer (root of `mcp_servers/`):
 |---|---|
 | `_serve.py` | The common `main()` entry: `run(mcp, default_port)` picks stdio (local-debug default) or streamable-http (in-container) from `--transport`; HTTP mode binds `0.0.0.0` and disables DNS-rebinding protection (private Docker network) |
 | `_launcher.py` | The mcp container's CMD: spawns one streamable-http child per server, prefixes stdout/stderr with `[server]`, restarts crashes with exponential backoff, and exits non-zero if any child crashes more than 5 times within 60s (Docker then restarts the whole container) |
-| `_ports.py` | The single source of truth for server_id → port, plus the `package_name()` mapping |
+| `registry.py` | Local, cloud, or dual installation; process or desktop gateway exposure |
+| `_ports.py` | Deployment port mapping derived from the registry, including desktop offsets |
 | `_common.py` | Shared helpers |
 
 Two iron rules: **stdout is reserved for the MCP protocol** (business logs go to stderr; server.py wraps calls in `contextlib.redirect_stdout` as a backstop), and **be tolerant of malformed LLM-generated arguments** (e.g. auto-unpacking when a dict lands in a string parameter).
@@ -406,7 +407,8 @@ docker-compose up -d --build mcp
 | `src/backend/mcp_servers/<name>_mcp/` | Individual MCP servers (server.py / impl / _selftest) |
 | `src/backend/mcp_servers/_launcher.py` | mcp container entry: multi-process spawn + crash restart |
 | `src/backend/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
-| `src/backend/mcp_servers/_ports.py` | Single source of truth for server_id → port |
+| `src/backend/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
+| `src/backend/mcp_servers/_ports.py` | Deployment port mapping |
 | `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
 | `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |

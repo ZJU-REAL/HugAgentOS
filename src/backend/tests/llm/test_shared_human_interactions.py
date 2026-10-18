@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from core.llm.tools import user_questions, _myspace_confirm as confirms
+from core.llm.tools import user_questions, _tool_confirmation as confirms
 
 
 @pytest.fixture(autouse=True, params=["local", "redis", "delayed"])

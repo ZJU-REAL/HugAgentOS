@@ -307,5 +307,7 @@ fn run_smoke_test(
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .stdin(Stdio::null());
-    crate::child_process::run_diagnostic(&mut command, cancelled, Duration::from_secs(120))
+    // Cold starts run native tool conversions and application imports sequentially.
+    // Allow five minutes overall; existing per-probe deadlines remain unchanged.
+    crate::child_process::run_diagnostic(&mut command, cancelled, Duration::from_secs(300))
 }

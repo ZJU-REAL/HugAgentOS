@@ -140,7 +140,7 @@ Legacy clients that only send `enable_thinking` are mapped to medium / fast. Thi
 
 | Variable | Status |
 |---|---|
-| `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` | No longer read by the main path; kept in `core/config/settings.py` and a few legacy paths (e.g. `internal_batch.py`, `kb_processing.py`) as fallbacks |
+| `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` | No longer read by the main path; kept in `core/config/settings.py` and a few legacy paths (e.g. `kb_processing.py`) as fallbacks |
 | MCP subprocesses | `ModelConfigService.get_mcp_env_overlay()` maps the `main_agent` / `embedding` / `reranker` roles back to the legacy variable names (`MODEL_URL`, `OPENAI_API_KEY`, `MEM0_EMBED_*`, `RERANKER_*`, …); long-lived MCP containers use `core/config/runtime_env.py::get_runtime_value()` to consult the DB first and fall back to env, so console model changes reach MCP tools immediately |
 
 Full variable list: [Environment Variables](../deployment/environment-variables.md).

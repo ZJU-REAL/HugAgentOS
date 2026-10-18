@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dropdown } from 'antd';
 import '../../styles/model-effort-popup.css';
-import { RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { RobotOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useChatStore, useChatModeStore, useModelCapabilitiesStore } from '../../stores';
 import { projectOverviewId, type ThinkingEffort } from '../../stores/chatStore';
 import { useModelMenuBounds } from './useModelMenuBounds';
@@ -137,9 +137,11 @@ export default function ModelEffortChip() {
       className={`jx-composerChip jx-modelEffortBtn${open ? ' open' : ''}`}
       aria-haspopup="menu"
       aria-expanded={open}
-      title={t('切换模型与思考强度')}
+      title={triggerLabel + (triggerAside ? ' · ' + triggerAside : '') + ' — ' + t('切换模型与思考强度')}
       aria-label={t('切换模型与思考强度')}
+      aria-description={triggerLabel + (triggerAside ? ' · ' + triggerAside : '')}
     >
+      <RobotOutlined className="jx-modelEffortCompactIcon" aria-hidden="true" />
       <span className="jx-composerChip-label">{triggerLabel}</span>
       {triggerAside && <span className="jx-modelEffortAside">{triggerAside}</span>}
       <ChipChevron />

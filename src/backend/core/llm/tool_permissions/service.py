@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolPermissionService:
-    """Policy decision point for explicitly governed built-in tools."""
+    """Policy decision point for explicitly governed native and MCP tools."""
 
     def __init__(
         self,
@@ -264,7 +264,7 @@ class ToolPermissionService:
         if self._no_ui_pass_through(intent):
             return {"reasons": [*verdict.reasons, "no_approval_ui_pass_through:local_path"]}
 
-        from core.llm.tools import _myspace_confirm as confirm
+        from core.llm.tools import _tool_confirmation as confirm
 
         op = confirm.OP_LOCAL_READ if intent.action == READ else confirm.OP_LOCAL_WRITE
         blocked = await confirm.gate(
@@ -322,7 +322,7 @@ class ToolPermissionService:
             and not self._answers_for_user(dangerous=bool(danger_categories(verdict.reasons)))
             and not self._no_ui_pass_through(intent)
         ):
-            from core.llm.tools import _myspace_confirm as confirm
+            from core.llm.tools import _tool_confirmation as confirm
 
             blocked = await confirm.gate(
                 chat_id=self.runtime.chat_id,
@@ -456,7 +456,7 @@ class ToolPermissionService:
         *,
         interactive: bool,
     ) -> dict[str, Any]:
-        from core.llm.tools import _myspace_confirm as confirm
+        from core.llm.tools import _tool_confirmation as confirm
 
         op = intent.op or intent.action
         if self._answers_for_user(dangerous=op in DESTRUCTIVE_OPS):

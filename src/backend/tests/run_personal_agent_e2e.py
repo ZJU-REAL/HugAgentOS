@@ -126,12 +126,10 @@ print('EXECUTION_BOUNDARY_VERIFIED')
         downloaded = data(await tools.tools["pa_email_download"](message_uid, 0, "/workspace/work/mail-return.txt"))
         assert downloaded["sha256"] == hashlib.sha256(content).hexdigest()
         print("PASS: real IMAP attachment receive; SHA-256 matches", flush=True)
-        from personal_agent.tools.space import register_space_tools
-        tools = CaptureTools(); register_space_tools(tools, task_id, uid)
-        saved = data(await tools.tools["pa_space_save"](path, "personal-agent-verification-" + str(time.time_ns()) + ".txt"))
-        imported = await tools.tools["pa_space_import"](saved["artifact_id"], "/workspace/work/space-return.txt")
-        assert await provider.get_file(box, "/workspace/work/space-return.txt", user_id=uid) == content
-        print("PASS: MySpace connector file round trip without mount", flush=True)
+        mounted = "/workspace/myspace/" + uid + "/personal-agent-verification-" + str(time.time_ns()) + ".txt"
+        await provider.put_file(box, mounted, content, user_id=uid)
+        assert await provider.get_file(box, mounted, user_id=uid) == content
+        print("PASS: mounted personal directory file round trip", flush=True)
     with SessionLocal() as db:
         AgentContext(db, uid).tasks.complete(task_id, "Real service verification completed", {}, owner="e2e")
     print("PASS: only final answer projected to canonical conversation", flush=True)

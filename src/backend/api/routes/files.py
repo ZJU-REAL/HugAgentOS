@@ -139,8 +139,6 @@ def _authorize_access(
             raise HTTPException(status_code=401, detail="请先登录")
         return
     if can_access_artifact_metadata(db, str(user.user_id), metadata):
-        from core.services.edition_workspace import refresh_artifact
-        refresh_artifact(item, file_id, db, str(user.user_id))
         return
 
     _record_audit(

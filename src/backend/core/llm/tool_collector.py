@@ -208,6 +208,13 @@ class ToolCollector:
         else:
             self._permission_specs.pop(name, None)
 
+    def register_tool_permission(self, name: str, spec: ToolPermissionSpec) -> None:
+        """Attach developer-owned MCP policy to the same dispatch registry."""
+        previous = self._permission_specs.get(name)
+        if previous is not None and previous.key != spec.key:
+            raise ValueError(f"Conflicting permission declaration for {name!r}")
+        self._permission_specs[name] = spec
+
     def register_agent_skill(
         self, skill_dir: Any, *, runtime_name: str | None = None, capability_run=None
     ) -> None:

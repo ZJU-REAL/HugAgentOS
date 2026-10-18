@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-> Last updated: 2026-09-30
+> Last updated: 2026-10-18
 
 The frontend lives in `src/frontend/` and is a React 19 + TypeScript single-page application: built with Vite, styled with Ant Design, state-managed with Zustand, and uses React Router in the main workspace — the entry module switches between five independent app shells by URL path. Production builds are served by the Nginx container, and every backend call funnels through one typed client, `api.ts`.
 
@@ -23,6 +23,16 @@ The CE derived tree physically removes `AdminApp.tsx` / `ConfigApp.tsx` together
 The main workspace uses a module icon rail, a contextual sidebar, and a content area. Chat lists ordinary and project conversations. The capability sidebar selects agents, plugins, skills, and connectors; installed capabilities and their actions stay in the content area. My Space navigation covers files, knowledge bases, favorites, shares, and notifications. Scheduled-task setup and execution conversations remain in Scheduled Tasks, with consistent URLs across search, notifications, reloads, and browser history.
 
 App.tsx connects useAppController, AppAuthGate, and AppWorkspace. useAppBootstrap, useChatRecovery, useChatSearch, and useChatViewport own initialization, stream recovery, search, and scrolling. Sidebar components separate module menus, conversation rows, project groups, and account tools. My Space separates its controller, folder actions, knowledge picker, header, content, and dialogs. Routes own module location; automationStore owns the task list.
+
+## Module page scrolling and App Center
+
+AppWorkspace owns vertical scrolling for ordinary module pages. The scroll viewport spans the available page width, placing the scrollbar at that page's right edge. Maximum widths on project cards, My Space files and application cards only constrain reading content; they do not create page scroll containers. Module URL changes return to the top. The My Space header remains sticky. Chat, Canvas and plugin workspaces retain their dedicated layouts. Dialogs, editors and bounded previews can still own internal scrolling.
+
+Shared layout styles live in `styles/workspace-layout.css`. My Space and Automation styles are split by layout, files, assets, detail, creation and responsive responsibilities. Their entry files only import those modules. New pages must not combine full-page percentage heights and auto overflow inside a constrained reading column.
+
+App Center restores the icon/name/description card grid for mode commands such as Plan Mode, plugin applications and external scenario applications. Shell navigation modules are excluded. The server directory and launch checks still control discovery, availability and opening. Retired batch execution and token-in-URL behavior are not restored.
+
+Run `npm run test:module-pages` to verify nine modules across classic/modern layouts and wide/medium/narrow viewports, actual mouse wheel scrolling, scrollbar geometry, centered reading widths, application cards and keyboard Plan Mode launch. This command also runs chat/Canvas width regressions. `npm run test:sidebar-navigation` continues to cover More and secondary navigation.
 
 ## api.ts — the typed API client
 
@@ -62,7 +72,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `sidebar/` | Sidebar, global search modal, navigation item definitions |
 | `tool/` | Tool-call timeline: call rows, thinking rows, output renderer, result panel, inline progress |
 
-## Zustand State (18 stores)
+## Zustand State
 
 | Store | Responsibility |
 |---|---|
@@ -98,7 +108,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 
 ## Styles and Other Directories
 
-- `styles/`: global CSS split by feature area (`chat.css`, `catalog.css`, `automation.css`, `canvas.css`, `myspace.css`, `projects.css`, `config.css`, `team-folder.css` — 18 files), with `variables.css` for design tokens and `index.ts` importing them all;
+- `styles/`: global CSS split by feature area (`chat.css`, `catalog.css`, `automation.css`, `canvas.css`, `myspace.css`, `projects.css`, `config.css`, `team-folder.css`), with `variables.css` for design tokens and `index.ts` importing them all;
 - `types.ts` + `types/`: shared types (`ChatMessage`, `CitationItem`, `Catalog`…); team-file domain types in `types/teamFiles.ts`;
 - `utils/`: `citations.ts` (citation parsing), `markdown.ts`, `segments.ts` (stream segmentation), `fileParser.ts`, `adminApi.ts`, `pageConfigDefaults.ts` — 22 utility modules;
 - `storage.ts`: localStorage persistence and defaults; `appTheme.ts`: antd theme tokens; `preloadReload.ts`: auto-reload on chunk preload failures.

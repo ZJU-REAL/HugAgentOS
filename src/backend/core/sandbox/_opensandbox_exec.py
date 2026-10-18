@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from core.config.settings import settings
 
-from ._common import SANDBOX_RUN_GID, SANDBOX_RUN_UID, WORKSPACE, myspace_cache_dir, safe_user_id, shell_escape
+from ._common import SANDBOX_RUN_GID, SANDBOX_RUN_UID, WORKSPACE, safe_user_id, shell_escape
 from .protocol import ProcessRequest
 
 # Snapshot persistence (see internal design docs). Deferred to a
@@ -66,24 +66,10 @@ class _OpenSandboxExecMixin:
         await self._persistent_setup(sess, req)
         await self._sync_inputs_to_sandbox(
             sess.sandbox, req,
-            mtime_cache=sess.seeded_myspace_mtime,
         )
 
     async def _persistent_setup(self, sess: _Session, req: ProcessRequest) -> None:
-        """Establish the directory conventions before the session's first execution (scratch / myspace / symlink).
-
-        Under Plan F bind mount:
-        - ``/workspace/scratch`` is pre-created by Dockerfile.opensandbox and chowned to ubuntu
-        - ``/workspace/myspace/{uid}`` is created automatically by the docker bind mount
-        - only the ``/myspace -> /workspace/myspace/{uid}`` symlink still needs runtime creation (per-user)
-
-        Uses execd ``commands.run`` for the symlink (no Jupyter kernel, no fallback path).
-
-        Plan F Q2: cached across sessions via the ``_jx_setup_done`` attribute on
-        the sandbox — a sandbox reused from the idle pool already had setup done
-        by a previous chat (the symlink is still in the container), so we just
-        mark setup_done=True and return, saving ~4s of execd RTT.
-        """
+        """Set up scratch and account file links before execution."""
         uid = safe_user_id(req.user_id)
         # 「scratch 建好」且「本次请求的用户已有 /myspace 软链」才算做完：漏了后者，
         # 不带 user_id 的调用方会把残缺 setup 记成完成，之后的 bash 再也补不上软链。
@@ -173,17 +159,8 @@ class _OpenSandboxExecMixin:
         self,
         sbx: Any,
         req: ProcessRequest,
-        *,
-        mtime_cache: Optional[dict[str, float]],
     ) -> None:
-        """Write resource_files / input_files / the myspace cache into the sandbox.
-
-        ``mtime_cache``: persistent sessions pass a session-level mtime dict for
-        incremental sync.
-
-        All writes run concurrently (asyncio.gather): syncing N files drops from
-        N×RTT to 1×RTT.
-        """
+        """Stage explicit request attachments."""
         tasks: list[Any] = []
         for name, text in (req.resource_files or {}).items():
             tasks.append(write_file(sbx, f"{WORKSPACE}/{name}", text))
@@ -191,37 +168,6 @@ class _OpenSandboxExecMixin:
             tasks.append(write_file(sbx, f"{WORKSPACE}/{name}", text))
         for name, b64 in (req.input_files_b64 or {}).items():
             tasks.append(write_file(sbx, f"{WORKSPACE}/{name}", base64.b64decode(b64)))
-
-        # myspace sync (persistent sessions incrementally by mtime; ephemeral
-        # does a full sync). ``rglob`` rather than ``iterdir``: ``sync_upsert``
-        # / ``mirror_to_cache`` preserve the directory structure as
-        # ``<sub>/<name>`` when writing myspace_cache — scanning only the top
-        # level would make files in the user's subfolders vanish out of thin
-        # air after a sandbox rebuild.
-        #
-        # Plan F: when bind mount is on, this whole block is SKIPPED — the
-        # sandbox's /workspace/myspace/{uid} is already bind-mounted via
-        # _make_myspace_volume to the same cache directory on the host, so the
-        # HTTP PUTs would be redundant and waste N RTTs. When the flag is off,
-        # the old path runs as a fallback.
-        if not settings.sandbox.opensandbox_myspace_bind_mount_enabled:
-            uid = safe_user_id(req.user_id)
-            if uid:
-                cache_dir = myspace_cache_dir(uid)
-                if cache_dir.is_dir():
-                    for fp in sorted(cache_dir.rglob("*")):
-                        if not fp.is_file():
-                            continue
-                        sub_rel = fp.relative_to(cache_dir).as_posix()
-                        rel = f"myspace/{uid}/{sub_rel}"
-                        if mtime_cache is not None:
-                            mtime = fp.stat().st_mtime
-                            if mtime_cache.get(rel) == mtime:
-                                continue
-                            mtime_cache[rel] = mtime
-                        tasks.append(write_file(
-                            sbx, f"{WORKSPACE}/{rel}", fp.read_bytes(),
-                        ))
 
         if tasks:
             await asyncio.gather(*tasks)

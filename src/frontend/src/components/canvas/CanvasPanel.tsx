@@ -11,6 +11,7 @@ import { UniverSpreadsheet } from './UniverSpreadsheet';
 import { CanvasTabBar } from './CanvasTabBar';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
 import { overwriteFile, LOCAL_TARGET_HEADER } from '../../api';
+import { uploadSpaceFile } from '../myspace/spaceFilesApi';
 import { artifactUrl, artifactOrigin, withUrlParams } from '../../utils/artifactAccess';
 import { ArtifactFileAction } from '../file/ArtifactFileAction';
 import {
@@ -126,7 +127,7 @@ export function CanvasPanel() {
   const maxPreviewBytes = previewLimitBytes ?? Number.MAX_SAFE_INTEGER;
 
   const isTextFile = !previewTooLarge && ['text', 'markdown', 'html'].includes(category)
-    && !artifact.file_id.startsWith('lpf_') && artifact.url.startsWith('/files/');
+    && (!!artifact.space || (!artifact.file_id.startsWith('lpf_') && artifact.url.startsWith('/files/')));
 
   // For xlsx: lock the load URL so saves (which update artifact.url) don't reload Univer
   if (isXlsx && !xlsxLoadUrlRef.current) {
@@ -159,7 +160,7 @@ export function CanvasPanel() {
   };
 
   const handleSave = async () => {
-    if (!univerRef.current || !artifact || xlsxSavingRef.current) return;
+    if (!univerRef.current || !artifact || artifact.space?.writable === false || xlsxSavingRef.current) return;
     if (!xlsxReady) {
       message.warning(t('电子表格尚未加载完成，请稍候再保存'));
       return;
@@ -170,7 +171,9 @@ export function CanvasPanel() {
       const exported = await univerRef.current.exportXlsx();
       const file = new File([exported], artifact.name, { type: exported.type });
       // Overwrite in-place — same file_id, same URL, content updated on server
-      const result = await overwriteFile(artifact.file_id, file, artifactOrigin(artifact) === 'local' ? { [LOCAL_TARGET_HEADER]: 'local' } : {});
+      const result = artifact.space
+        ? (await uploadSpaceFile(artifact.space.id, artifact.space.path, file), { size: file.size })
+        : await overwriteFile(artifact.file_id, file, artifactOrigin(artifact) === 'local' ? { [LOCAL_TARGET_HEADER]: 'local' } : {});
       updateArtifact({ size: result.size });
       setXlsxDirty(false);
       univerRef.current?.resetDirty();
@@ -203,6 +206,7 @@ export function CanvasPanel() {
             ref={univerRef}
             url={xlsxLoadUrl}
             fileName={artifact.name}
+            readOnly={artifact.space?.writable === false}
             maxBytes={maxPreviewBytes}
             onDirty={setXlsxDirty}
             onReadyChange={setXlsxReady}
@@ -253,7 +257,7 @@ export function CanvasPanel() {
         </div>
         <div className="jx-canvas-header-actions">
           {isTextFile && category === 'html' && <div ref={setHtmlControls} className="jx-canvas-htmlControls" />}
-          {isXlsx && !previewTooLarge && (
+          {isXlsx && !previewTooLarge && artifact.space?.writable !== false && (
             <button
               className="jx-canvas-actionBtn jx-canvas-saveBtn"
               ref={xlsxSaveButtonRef}

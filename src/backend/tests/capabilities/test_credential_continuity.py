@@ -25,8 +25,12 @@ def _token(user_id: str, nonce: str) -> str:
     return f"dcap2.{body}.sig"
 
 
-def _refusal(status: int) -> httpx.HTTPStatusError:
-    request = httpx.Request("GET", "https://cloud/api/v1/desktop/capability/plugins/manifest")
+def _refusal(status: int, state=None) -> httpx.HTTPStatusError:
+    request = httpx.Request(
+        "GET",
+        "https://cloud/api/v1/desktop/capability/plugins/manifest",
+        headers={"Authorization": f"Bearer {(state or bridge.get_state())['token']}"},
+    )
     return httpx.HTTPStatusError(
         str(status), request=request, response=httpx.Response(status, request=request)
     )
@@ -61,7 +65,10 @@ def test_renewal_after_a_refused_token_resyncs_once(forced):
     bridge.note_rejected_credential(snapshot, _refusal(500))
     bridge.set_state("https://cloud", _token("u-1", "c"), 600, device_id="device")
     assert len(forced) == 1
-    bridge.note_rejected_credential(snapshot, _refusal(401))
+    # A late refusal of b must not reject the already installed c.
+    bridge.note_rejected_credential(snapshot, _refusal(401, snapshot))
+    assert bridge._credential_rejected == ""
+    bridge.note_rejected_credential(bridge.get_state(), _refusal(401))
     bridge.set_state("https://cloud", _token("u-1", "d"), 600, device_id="device")
     assert len(forced) == 2
     bridge.set_state("https://cloud", _token("u-1", "e"), 600, device_id="device")
@@ -84,7 +91,11 @@ def test_definition_sync_records_a_refused_credential(forced, monkeypatch, kind)
     state = bridge.get_state()
     monkeypatch.setattr(desktop_cloud_bundles, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx, "get", lambda url, **_: httpx.Response(401, request=httpx.Request("GET", url))
+        httpx,
+        "get",
+        lambda url, **kw: httpx.Response(
+            401, request=httpx.Request("GET", url, headers=kw.get("headers"))
+        ),
     )
     assert desktop_cloud_bundles.sync_kind(kind, state) is False
     assert bridge._credential_rejected == bridge._state_fingerprint(state)
@@ -95,7 +106,11 @@ def test_skill_sync_records_a_refused_credential(forced, monkeypatch):
     state = bridge.get_state()
     monkeypatch.setattr(desktop_cloud_skills, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx, "get", lambda url, **_: httpx.Response(401, request=httpx.Request("GET", url))
+        httpx,
+        "get",
+        lambda url, **kw: httpx.Response(
+            401, request=httpx.Request("GET", url, headers=kw.get("headers"))
+        ),
     )
     desktop_cloud_skills.sync_blocking(state)
     assert bridge._credential_rejected == bridge._state_fingerprint(state)
@@ -109,7 +124,11 @@ def test_refusal_of_an_expired_token_is_still_recorded(forced, monkeypatch):
     assert bridge.get_state() is None
     monkeypatch.setattr(desktop_cloud_bundles, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx, "get", lambda url, **_: httpx.Response(401, request=httpx.Request("GET", url))
+        httpx,
+        "get",
+        lambda url, **kw: httpx.Response(
+            401, request=httpx.Request("GET", url, headers=kw.get("headers"))
+        ),
     )
     desktop_cloud_bundles.sync_kind("plugin", state)
     bridge.set_state("https://cloud", _token("u-1", "b"), 600, device_id="device")

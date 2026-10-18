@@ -190,3 +190,5 @@ document/
 - [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
 
 项目与智能体独立对话链接 / Standalone project and agent chat links：[中文](zh-CN/modules/chat.md#项目和智能体的独立对话链接) · [English](en/modules/chat.md#standalone-chat-links-for-projects-and-agents)。
+
+模块页面滚动与应用中心：[中文](zh-CN/architecture/frontend.md#模块页面滚动与应用中心) · [English](en/architecture/frontend.md#module-page-scrolling-and-app-center)。

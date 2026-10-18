@@ -65,7 +65,9 @@ def build_user_capability_manifest(user_id: str, *, use_cache: bool = True) -> D
                 "icon": (row.icon if row else "") or _DEFAULT_MCP_ICONS.get(sid, ""),
             }
         )
-    # The revision intentionally excludes credentials, URLs and timestamps.
+    from mcp_servers.registry import gateway_manifests, gateway_server
+    servers = [server for server in servers if gateway_server(server["server_id"]) is None]
+    servers.extend(gateway_manifests(user_id))
     return build_manifest(servers)
 
 
@@ -106,6 +108,10 @@ def resolve_gateway_tool(
     grant. Every invocation rechecks both server visibility and the current
     DB tool allowlist before any upstream connection is opened.
     """
+    from mcp_servers.registry import gateway_server
+    embedded = gateway_server(server_id)
+    if embedded is not None:
+        return embedded.interface().resolve(user_id, tool_name, schema_hash)
     target = resolve_gateway_target(user_id, server_id, fresh=True)
     wanted = str(tool_name or "").strip()
     if target is None or not wanted:
@@ -139,6 +145,12 @@ async def invoke_gateway_tool(
     target, preserving OAuth, upstream credentials and MCP result conversion
     without extending an MCP SSE session across the public gateway.
     """
+    from mcp_servers.registry import gateway_server
+    embedded = gateway_server(resolved["server_id"])
+    if embedded is not None:
+        return await asyncio.to_thread(
+            embedded.interface().execute, resolved["user_id"], resolved["tool"]["name"], arguments,
+        )
     import mcp.types
     from core.llm.mcp_pool import make_client
 

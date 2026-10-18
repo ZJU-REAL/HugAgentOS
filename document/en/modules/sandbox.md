@@ -47,7 +47,7 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 
 ## Agent-side tools
 
-`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `agent_factory` in Phase 3.5):
+`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `factory/tools/native.py`):
 
 | Tool | Purpose |
 |---|---|
@@ -233,3 +233,15 @@ Full list in the [environment variable reference](../deployment/environment-vari
 Related docs: [Agent skills](agent-skills.md) · [MCP tool system](mcp-tools.md) · [Projects & My Space](projects-myspace.md) · [Editions & licensing](../editions/overview.md)
 
 Each Docker OpenSandbox instance has its own bridge, joined only by the trusted backend and controller, with no published sandbox host ports. User isolation checks cover personal mounts, session permissions, and blocked access to another sandbox's execd.
+
+### Ownership checks during object mount recovery
+
+Sandbox creation and controller recovery share the user label defined in
+`core/sandbox/metadata.py`. The controller image copies this module at build time.
+Product ports must retain their existing label value and rebuild the controller.
+Do not change only one side or accept another product's label to bypass ownership.
+Recovery still checks the current user, permission revision, mount scope,
+credentials, and read-only attributes. Authorization conflicts return 409 and
+retain the sandbox and workspace. Mount service failures return 503.
+After a controller upgrade, verify existing sandbox recovery and cross-user
+denial before running user commands.

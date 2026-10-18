@@ -14,7 +14,8 @@ from tests.capabilities.test_dynamic_model_epoch_cache import state
 
 
 @pytest.fixture
-def memories(monkeypatch, caps_root):
+def memories(monkeypatch, tmp_path):
+    monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(tmp_path / "caps"))
     current = {"state": state(), "instances": [], "on_build": None}
     monkeypatch.setenv("HUGAGENT_DESKTOP_BRIDGE_SECRET", "synthetic")
     monkeypatch.setattr(bridge, "get_state", lambda: current["state"])
@@ -47,6 +48,10 @@ def memories(monkeypatch, caps_root):
         if current["on_build"]:
             current["on_build"]()
         instance = SimpleNamespace(
+            vector_store=SimpleNamespace(
+                client=SimpleNamespace(load_collection=lambda **kw: None, close=lambda: None)
+            ),
+            close=lambda: None,
             llm=SimpleNamespace(client=SimpleNamespace(close=lambda: None)),
             embedding_model=SimpleNamespace(client=SimpleNamespace(close=lambda: None)),
         )
@@ -56,6 +61,7 @@ def memories(monkeypatch, caps_root):
     monkeypatch.setitem(
         sys.modules, "mem0", SimpleNamespace(Memory=SimpleNamespace(from_config=build))
     )
+    monkeypatch.setitem(sys.modules, "mem0.memory.main", SimpleNamespace(MEM0_TELEMETRY=False))
     yield current
     for instance in current["instances"]:
         instance.llm.client.close()

@@ -1,0 +1,52 @@
+/* jx-mainRow: flex 行容器，Header 下方，撑满剩余高度 */
+
+.jx-mainRow{
+  display:flex;
+  flex-direction:row;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
+}
+
+.jx-content{
+  flex:1;
+  min-width:0;
+  height:100%;
+  display:flex;
+  justify-content:center;
+  overflow-y:auto;
+  overflow-x:hidden;
+  /* 滚动条槽位常驻：面板入场动画 translateY(6px) 会让满高面板瞬时溢出，
+   * 这里临时长出的滚动条会把居中的 .jx-panel 挤左又弹回（每次切换面板都水平抖一下）。
+   * 预留两侧槽位后滚动条出现/消失不再改变布局宽度。 */
+  scrollbar-gutter: stable both-edges;
+  background:var(--color-bg-container);
+}
+
+.jx-panel{
+  width:100%;
+  max-width:1400px;
+  min-height:100%;
+  height:auto;
+  padding:16px 24px 18px;
+}
+
+.jx-scroll{
+  min-height:0;
+  overflow:auto;
+}
+
+/* The page shell owns vertical scrolling. Reading columns inside modules only set content width.
+   Block flow also prevents percentage-height module roots from becoming nested viewports. */
+.jx-content--moduleSurface{
+  display:block;
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+.jx-panel.jx-panel--moduleSurface{
+  width:100%;
+  max-width:none;
+  height:auto;
+  min-height:100%;
+  padding:0;
+}

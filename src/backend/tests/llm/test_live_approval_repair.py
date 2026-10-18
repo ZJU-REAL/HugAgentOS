@@ -6,8 +6,7 @@ import pytest
 from core.llm.tool_permissions import ToolPermissionMiddleware
 from core.llm.tool_permissions.pending import approve_current_policy
 from tests.llm.test_approval_modes import _service, _tool_call
-from tests.edition_ee.test_team_workspace_access import team
-from tests.space_sync.test_personal_recovery import personal_environment
+from tests.storage.project_fixtures import team
 
 
 @pytest.mark.asyncio
@@ -19,7 +18,7 @@ async def test_running_dispatch_rechecks_account_mode(monkeypatch, initial, curr
     service.runtime = replace(service.runtime, account_approval=True)
     monkeypatch.setattr("core.llm.tool_permissions.account.read_account_mode", lambda *a: current)
     gate = AsyncMock(return_value={"error": "not approved"})
-    monkeypatch.setattr("core.llm.tools._myspace_confirm.gate", gate)
+    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
@@ -41,7 +40,7 @@ async def test_explicit_module_policy_is_not_replaced(monkeypatch):
         lambda *a: (_ for _ in ()).throw(AssertionError("account cannot replace module")),
     )
     gate = AsyncMock(return_value={"error": "not approved"})
-    monkeypatch.setattr("core.llm.tools._myspace_confirm.gate", gate)
+    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
@@ -66,7 +65,7 @@ async def test_unavailable_policy_blocks_without_prompt(monkeypatch):
 
     monkeypatch.setattr("core.llm.tool_permissions.account.read_account_mode", unavailable)
     gate = AsyncMock()
-    monkeypatch.setattr("core.llm.tools._myspace_confirm.gate", gate)
+    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
@@ -81,11 +80,13 @@ async def test_unavailable_policy_blocks_without_prompt(monkeypatch):
     gate.assert_not_called()
 
 
-def test_api_visitor_and_other_owner_cannot_use_account_policy(personal_environment):
+def test_api_visitor_and_other_owner_cannot_use_account_policy(team):
     from core.db.models import ChatSession
     from core.llm.tool_permissions.account import read_account_mode
 
-    db, _ = personal_environment
+    db, _ = team
+    from core.services.user_service import UserService
+    UserService(db).update_user_metadata("alice", {"tool_approval_mode": "full"})
     db.add_all(
         [
             ChatSession(

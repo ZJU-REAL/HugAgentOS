@@ -1,29 +1,23 @@
-# Workbench navigation preferences
+# Module navigation and the application directory
 
-Click “Manage app navigation” in either sidebar to pin, unpin, reorder, or reset navigation. Modern and classic layouts share preferences. Use the move buttons, or focus an item and press Alt+ArrowUp or Alt+ArrowDown.
+The sidebar switches modules. App Center discovers and opens individual applications. These surfaces do not share a pin list.
 
-Administrator-required entries cannot be unpinned. Personal order overrides the default order. Unpinning does not uninstall an app. Reset restores default placement without disabling apps. References to temporarily unavailable installations remain stored; they never grant access.
+The modern primary rail contains My Space, Automation and Ability Center. More lists Projects, Sites, App Center and Lab in that order. Page configuration can hide entries from this group. Disabling Lab access hides Sites and Lab. Local-only mode hides My Space; Automation retains its user permission gate.
 
-Preferences are independent for each authenticated user and environment: web, cloud, local, or dual. Different servers retain their own databases. Account and environment changes cancel old requests. Late responses cannot replace the new identity’s state.
+Opening a module from More displays its secondary sidebar. That sidebar uses the same module list and marks the current page. Reload preserves module navigation. Selecting a module from More on desktop reopens a collapsed sidebar. Classic layout uses the same module model, with text navigation in its primary sidebar and a separate secondary module column.
 
-The public endpoint is GET/PUT `/v1/workbench/me/navigation-preferences?environment=web`. The server derives identity from authentication and rejects user_id. PUT requires JSON with revision, pinned, and order. pinned=null restores defaults; pinned=[] removes personal pins. Administrator-required entries are merged separately.
+Plugin, external and individual scenario applications appear only in App Center. The icon/name/description card grid shows mode commands, plugin and external applications; source information, unavailable states and launch behavior remain available there. Neither sidebar nor the user menu lists individual applications. Page settings only select, confirm and save classic/modern layout; application pinning and ordering controls are removed.
 
-Only one concurrent write using the same revision succeeds. The other returns 409. The interface loads current preferences and keeps an explicit conflict notice. Review them and repeat the intended operation. It does not automatically overwrite another device’s configuration. Failed loads can be retried; failed saves retain confirmed preferences.
+## Code boundaries
 
-Storage uses an independent workbench_navigation namespace in content_blocks. It does not replace users_shadow or other preferences. No database schema migration, installation change, or permission change is required.
+`components/sidebar/moduleNavigation.ts` defines a finite ModuleId type, placement, order and visibility. `useModuleNavigation` reads page configuration, user permissions and deployment mode. It does not read the application directory or application navigation preferences. `MoreModules` and `ModuleSecondaryNavigation` consume this same model.
 
-## Many applications and keyboard navigation
+`applicationEntries.ts` converts the server directory into App Center view data; it no longer returns a sidebar model. New declarations, application count, application placement policies and stored pins cannot change module navigation. The old mixed navigation, overflow menu, navigation manager and frontend preferences client are deleted. There is no legacy fallback or compatibility switch.
 
-The sidebar measures available height and reserves space for public tools, navigation management, and More. Resizing changes placement without updating preferences. Overflow keeps the saved order.
+This frontend repair does not change the public GET/PUT `/v1/workbench/me/navigation-preferences?environment=web` contract. Authentication, environment isolation, revision concurrency checks and existing records remain server responsibilities. The current sidebar does not read or write that endpoint. The server still enforces application discovery and launch authorization.
 
-More opens a compact vertical menu showing icons and names. It includes navigation entries outside the visible rail, including pinned applications displaced by limited height. The current page is marked and unavailable applications are disabled. Browser apps open another window and keep the host page. Search is available in the app center; pinning and ordering remain in page settings.
+## Regression checks
 
-Tab focuses More; Enter opens its menu. Arrow keys move menu focus. Enter opens an entry. Escape closes More and restores trigger focus. Navigation management retains Alt+Arrow reordering.
+Run `npm run test:sidebar-navigation` from the frontend directory. It checks rendered menus and secondary sidebars, reload and reopen behavior, both layouts, application cards and launch, unavailable states, permissions, local-only mode, large directories and stale placement policies. Existing module tests also cover capability categories, task ownership and the mobile drawer.
 
-The app center shares the directory, icons, and opener. Modern pages without secondary menus show the rail without an empty secondary sidebar. Theme-specific images load separately. Color icons retain their colors. Failed images use a fallback icon. Unopened applications do not create iframes for navigation.
-
-This change requires no schema, installation, or permission migration. The composition layer injects plugin opening. A missing runner reports unavailable functionality. Navigation never treats a plugin as an ordinary external link.
-
-Navigation management is available under Settings → Page Settings, in the Manage app navigation module. Both sidebar layouts omit the separate navigation-management arrow button. Pinning, ordering and reset are performed directly in page settings.
-
-Classic mode shows pinned applications in the user menu instead of duplicating them above the conversation list. Pinning, unpinning and ordering update that menu immediately. Unpinned applications open directly from the More applications submenu. The Apply button follows all page settings modules and confirms sidebar layout changes.
+`.github/workflows/sidebar-navigation.yml` runs for relevant frontend/shared-package pull requests and development/product branch pushes. It does not deploy. Repository administrators can configure this check as a required branch-protection check.

@@ -1,256 +1,50 @@
-"""Personal project-file service for Community Edition."""
-
-from __future__ import annotations
-
+"""Files in a project's mounted directory."""
 import os
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import NamedTuple
 
-from core.db.models import Artifact, Project, UserFolder
+from core.spaces.projects import project_entries
 from core.storage import get_storage
-from fastapi import HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session
-
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-_DEFAULT_PROJECT_CAPACITY_BYTES = 200 * 1024 * 1024
 
 
-def _capacity_limit() -> int:
-    try:
-        return max(int(os.getenv("PROJECT_FILE_CAPACITY_BYTES", "")), 1)
-    except (TypeError, ValueError):
-        return _DEFAULT_PROJECT_CAPACITY_BYTES
-
-
-def _artifact_to_dict(artifact: Artifact, folder_path: str) -> Dict[str, Any]:
-    return {
-        "id": artifact.artifact_id,
-        "artifact_id": artifact.artifact_id,
-        "name": f"{folder_path}/{artifact.filename}" if folder_path else artifact.filename,
-        "title": artifact.title,
-        "mime_type": artifact.mime_type,
-        "size_bytes": int(artifact.size_bytes or 0),
-        "download_url": f"/files/{artifact.artifact_id}",
-        "type": artifact.type,
-        "folder_path": folder_path,
-        "created_at": (
-            (artifact.updated_at or artifact.created_at).isoformat()
-            if artifact.updated_at or artifact.created_at
-            else None
-        ),
-    }
+class ProjectFileListing(NamedTuple):
+    items: list[dict]
+    total: int
 
 
 class ProjectFileService:
+    def __init__(self, db):
+        self.db = db
 
     @staticmethod
     def matches_scope(project, scope):
-        return scope.kind == project.kind and scope.root_folder_id == project.linked_folder_id
+        from core.spaces.edition_access import matches_scope
+        return matches_scope(project, scope)
 
-    def source_file_scope(self, project: Project, actor: str, relative_path: str, *, create: bool = False):
-        """Resolve a project-relative path; newly created folders join the caller transaction."""
-        from fastapi import HTTPException
-        parts = relative_path.split("/")
-        if (not relative_path or relative_path.startswith("/") or "\\" in relative_path
-                or any(p in ("", ".", "..") or any(ord(c) < 32 for c in p) for p in parts)):
-            raise HTTPException(400, "源码路径必须是项目内相对路径")
-        filters, values = self.instruction_file_scope(project, actor)
-        model = UserFolder
-        folder_field = "user_folder_id"
-        owner_filter = {"user_id": project.owner_user_id}
-        folder_values = dict(owner_filter)
+    def list_files(self, project, *, limit=None):
+        items = project_entries(self.db, project, get_storage())
+        return ProjectFileListing(items if limit is None else items[:limit], len(items))
 
-        parent = filters[folder_field]
-        for name in parts[:-1]:
-            folder = self.db.query(model).filter_by(
-                **owner_filter, parent_folder_id=parent, name=name, deleted_at=None,
-            ).first()
-            if folder is None:
-                if not create:
-                    raise HTTPException(404, "源码文件不存在")
-                folder = model(folder_id="fld_" + uuid.uuid4().hex[:24],
-                               parent_folder_id=parent, name=name, **folder_values)
-                self.db.add(folder)
-                self.db.flush()
-            parent = folder.folder_id
-        filters = {**filters, folder_field: parent, "filename": parts[-1]}
-        values = {**values, folder_field: parent}
-        return filters, values
+    def capacity_used(self, project):
+        return sum(item["size_bytes"] for item in self.list_files(project).items)
 
-    def __init__(self, db: Session):
-        self.db = db
+    @staticmethod
+    def capacity_limit():
+        try:
+            return max(1, int(os.getenv("PROJECT_FILE_CAPACITY_BYTES", str(200 * 1024 * 1024))))
+        except ValueError:
+            return 200 * 1024 * 1024
 
-    def _user_subtree_ids(self, user_id: str, root: str) -> List[str]:
-        out: List[str] = []
-        stack = [root]
-        seen: set[str] = set()
-        while stack and len(seen) < 5000:
-            folder_id = stack.pop()
-            if folder_id in seen:
-                continue
-            seen.add(folder_id)
-            out.append(folder_id)
-            children = (
-                self.db.query(UserFolder.folder_id)
-                .filter(
-                    UserFolder.user_id == user_id,
-                    UserFolder.parent_folder_id == folder_id,
-                    UserFolder.deleted_at.is_(None),
-                )
-                .all()
-            )
-            stack.extend(row[0] for row in children)
-        return out
-
-    def instruction_file_scope(self, project: Project, actor: str) -> tuple[dict, dict]:
-        """Return exact root artifact filters and creation fields for AGENTS.md."""
-        from fastapi import HTTPException
-
-        if project.kind != "personal" or not project.linked_folder_id:
-            raise HTTPException(409, "项目未绑定可用文件夹")
-        folder = self.db.query(UserFolder).filter(
-            UserFolder.folder_id == project.linked_folder_id,
-            UserFolder.user_id == project.owner_user_id,
-            UserFolder.deleted_at.is_(None),
-        ).first()
-        if folder is None:
-            raise HTTPException(409, "项目文件夹不存在或不可访问")
-        filters = {"user_id": project.owner_user_id, "user_folder_id": project.linked_folder_id}
-        return filters, dict(filters)
-
-    def list_files(self, project: Project) -> List[Dict[str, Any]]:
-        if project.kind != "personal" or not project.linked_folder_id:
-            return []
-        out: List[Dict[str, Any]] = []
-        stack: List[Tuple[str, str]] = [(project.linked_folder_id, "")]
-        while stack:
-            folder_id, path = stack.pop()
-            artifacts = (
-                self.db.query(Artifact)
-                .filter(
-                    Artifact.user_id == project.owner_user_id,
-                    Artifact.user_folder_id == folder_id,
-                    Artifact.deleted_at.is_(None),
-                )
-                .order_by(Artifact.created_at.desc())
-                .all()
-            )
-            out.extend(_artifact_to_dict(item, path) for item in artifacts if item.filename)
-            children = (
-                self.db.query(UserFolder.folder_id, UserFolder.name)
-                .filter(
-                    UserFolder.user_id == project.owner_user_id,
-                    UserFolder.parent_folder_id == folder_id,
-                    UserFolder.deleted_at.is_(None),
-                )
-                .all()
-            )
-            for child_id, child_name in children:
-                stack.append((child_id, f"{path}/{child_name}" if path else child_name))
-        return out
-
-    def capacity_used(self, project: Project) -> int:
-        if project.kind != "personal" or not project.linked_folder_id:
-            return 0
-        folder_ids = self._user_subtree_ids(project.owner_user_id, project.linked_folder_id)
-        return int(
-            self.db.query(func.coalesce(func.sum(Artifact.size_bytes), 0))
-            .filter(
-                Artifact.user_id == project.owner_user_id,
-                Artifact.user_folder_id.in_(folder_ids),
-                Artifact.deleted_at.is_(None),
-            )
-            .scalar()
-            or 0
+    def upload(self, project, user_id, file_bytes, filename, mime_type=None):
+        from core.services.project_source import ProjectSourceService
+        ProjectSourceService(self.db).write_files(
+            project.project_id, user_id, [(filename, file_bytes)],
         )
+        return next(item for item in self.list_files(project).items if item["name"] == filename)
 
-    def capacity_limit(self) -> int:
-        return _capacity_limit()
-
-    def _ensure_user_subfolder_chain(
-        self,
-        user_id: str,
-        root_folder_id: Optional[str],
-        names: List[str],
-        *,
-        actor: str,
-    ) -> Optional[str]:
-        from core.services.user_folder_service import UserFolderService
-
-        parent_id = root_folder_id
-        for name in names:
-            existing = (
-                self.db.query(UserFolder)
-                .filter(
-                    UserFolder.user_id == user_id,
-                    UserFolder.parent_folder_id == parent_id,
-                    UserFolder.name == name,
-                    UserFolder.deleted_at.is_(None),
-                )
-                .first()
-            )
-            if existing is not None:
-                parent_id = existing.folder_id
-                continue
-            result = UserFolderService(self.db).create_folder(
-                user_id=user_id, parent_folder_id=parent_id, name=name, actor=actor
-            )
-            if not result.ok or not result.folder_id:
-                raise HTTPException(status_code=400, detail=result.message or "新建子文件夹失败")
-            parent_id = result.folder_id
-        return parent_id
-
-    def upload(
-        self,
-        project: Project,
-        user_id: str,
-        file_bytes: bytes,
-        filename: str,
-        mime_type: Optional[str],
-    ) -> Dict[str, Any]:
-        if project.kind != "personal":
-            raise HTTPException(status_code=404, detail="项目不存在")
-        if not filename or not file_bytes:
-            raise HTTPException(status_code=400, detail="文件名或内容为空")
-        if len(file_bytes) > _MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="单文件最大 50 MB")
-        if self.capacity_used(project) + len(file_bytes) > self.capacity_limit():
-            raise HTTPException(status_code=400, detail="项目容量不足")
-        parts = [
-            part
-            for part in filename.replace("\\", "/").strip("/").split("/")
-            if part not in ("", ".", "..")
-        ]
-        if not parts:
-            raise HTTPException(status_code=400, detail="文件名不合法")
-        leaf, directories = parts[-1], parts[:-1]
-        folder_id = self._ensure_user_subfolder_chain(
-            project.owner_user_id,
-            project.linked_folder_id,
-            directories,
-            actor=user_id,
-        )
-        artifact_id = f"pj_{uuid.uuid4().hex[:16]}"
-        storage_key = f"{os.getenv('ENVIRONMENT', 'dev')}/{project.owner_user_id}/user_uploads/{artifact_id}/{leaf}"
-        storage_url = get_storage().upload_bytes(file_bytes, storage_key)
-        artifact = Artifact(
-            artifact_id=artifact_id,
-            user_id=project.owner_user_id,
-            user_folder_id=folder_id,
-            type="other",
-            title=leaf,
-            filename=leaf,
-            size_bytes=len(file_bytes),
-            mime_type=mime_type or "application/octet-stream",
-            storage_key=storage_key,
-            storage_url=storage_url,
-            extra_data={"source": "user_upload", "via_project": project.project_id},
-        )
-        self.db.add(artifact)
-        self.db.commit()
-        self.db.refresh(artifact)
-        return _artifact_to_dict(artifact, "/".join(directories))
-
-
-__all__ = ["ProjectFileService"]
+    def delete(self, project_id, actor, path):
+        from core.services.project_source import ProjectSourceService
+        from core.spaces.files import SpaceFiles
+        from core.spaces.projects import project_location
+        project = ProjectSourceService(self.db).authorized_project(project_id, actor, write=True)
+        space, root, _ = project_location(self.db, project)
+        SpaceFiles(self.db, actor, get_storage()).delete(space, root + "/" + path)

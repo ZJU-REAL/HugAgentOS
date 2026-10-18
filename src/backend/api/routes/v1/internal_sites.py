@@ -182,14 +182,16 @@ def _project_root_has_package_json(project_id: str, user_id: str) -> bool:
     if not project_id:
         return False
     from core.db.engine import SessionLocal
-    from core.db.models import Artifact, Project
-    from core.services.project_file_service import ProjectFileService
+    from core.services.project_source import ProjectSourceService
     with SessionLocal() as db:
-        project = db.get(Project, project_id)
-        if project is None:
-            return False
-        filters, _ = ProjectFileService(db).source_file_scope(project, user_id, "package.json")
-        return db.query(Artifact.artifact_id).filter_by(**filters, deleted_at=None).first() is not None
+        try:
+            ProjectSourceService(db).read_bytes(project_id, user_id, "package.json")
+            return True
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                return False
+            raise
+
 
 
 @router.post("/list", summary="查询当前账号可编辑的已发布站点（内部接口）")

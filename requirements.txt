@@ -60,6 +60,7 @@ sqlalchemy>=2.0.25
 alembic>=1.13.0
 
 # Object Storage
+boto3>=1.36.0
 botocore>=1.34.0
 
 # File Utilities
@@ -105,7 +106,3 @@ lark-oapi>=1.4.0
 # 钉钉入站渠道机器人 Stream 模式（WebSocket 长连接）。回复/凭据校验走 httpx REST，
 # 仅 Stream 长连接需要本 SDK；缺失时该渠道不可用但不影响其他渠道与进程启动。
 dingtalk-stream>=0.21.0
-
-# 「我的空间」镜像目录的文件系统监听（core/myspace/watcher.py）。登记不再挂在工具上，
-# 而是由目录里真实发生的写入/删除驱动，所以这是必装依赖，缺了登记就整个不工作。
-watchdog>=4.0.0

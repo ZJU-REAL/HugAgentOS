@@ -1,0 +1,343 @@
+/* 出入场由 motion（AnimatePresence + x:'-50%'）接管：
+   这里不得再写 transform / animation，否则与 motion 的 transform 互相覆盖 */
+.jx-mySpace-bulkBar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: min(920px, calc(100vw - 48px));
+  min-height: 56px;
+  padding: 10px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  background: var(--color-bg-container);
+  box-shadow:
+    0 2px 10px rgba(15, 23, 42, 0.06),
+    0 18px 42px rgba(15, 23, 42, 0.12);
+}
+
+.jx-mySpace-bulkBar-count {
+  margin-right: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.jx-mySpace-bulkBar-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(226, 232, 240, 0.96);
+}
+
+.jx-mySpace-bulkBar-btn {
+  appearance: none;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: var(--color-bg-container);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.jx-mySpace-bulkBar-btn:hover {
+  border-color: rgba(18, 109, 255, 0.18);
+  color: var(--color-primary);
+  background: rgba(18, 109, 255, 0.04);
+}
+
+.jx-mySpace-bulkBar-btn--danger {
+  color: var(--color-error);
+}
+
+.jx-mySpace-bulkBar-btn--danger:hover {
+  border-color: rgba(252, 93, 93, 0.22);
+  color: var(--color-error);
+  background: rgba(252, 93, 93, 0.06);
+}
+
+.jx-mySpace-bulkBar-btn--cancel {
+  color: var(--color-text-tertiary);
+}
+
+.jx-mySpace-bulkBar-btn--cancel:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
+  border-color: rgba(203, 213, 225, 0.92);
+}
+
+.jx-mySpace-actionBtn {
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s, background 0.15s;
+  font-family: var(--font-family);
+}
+
+.jx-mySpace-actionBtn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.jx-mySpace-actionBtn--danger:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
+}
+
+.jx-mySpace-imgGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.jx-mySpace-imgItem {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.jx-mySpace-imgCell {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--color-bg-gray);
+  position: relative;
+}
+
+.jx-mySpace-imgThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: transform 0.2s, opacity 0.3s var(--motion-ease-standard);
+}
+
+.jx-mySpace-imgThumb.loaded {
+  opacity: 1;
+}
+
+.jx-mySpace-imgCell:hover .jx-mySpace-imgThumb {
+  transform: scale(1.05);
+}
+
+.jx-mySpace-imgPlaceholder,
+.jx-mySpace-imgCell--error::after {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-placeholder);
+}
+
+.jx-mySpace-imgCell--error::after {
+  content: '加载失败';
+  position: absolute;
+  inset: 0;
+}
+
+.jx-mySpace-imgOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, .45);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.jx-mySpace-imgItem:hover .jx-mySpace-imgOverlay {
+  opacity: 1;
+}
+
+.jx-mySpace-imgOverlay .jx-mySpace-actionBtn {
+  color: var(--color-text-white);
+  font-size: 16px;
+}
+
+.jx-mySpace-imgOverlay .jx-mySpace-actionBtn:hover {
+  color: var(--color-text-white);
+  background: rgba(255, 255, 255, .2);
+}
+
+.jx-mySpace-imgOverlay .jx-mySpace-actionBtn--danger:hover {
+  color: var(--color-text-white);
+  background: rgba(220, 53, 69, .6);
+}
+
+.jx-mySpace-favList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-mySpace-favCard {
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: var(--color-bg-container);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 28px rgba(15, 23, 42, 0.04);
+  /* 卡片现在是 motion.div（whileHover/layout/exit 都走 motion）——
+     不要在这里 transition transform，会和 motion 的逐帧 transform 打架 */
+  transition: box-shadow 0.18s ease;
+}
+
+.jx-mySpace-favCard:hover {
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 16px 36px rgba(15, 23, 42, 0.08);
+}
+
+.jx-mySpace-favHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.jx-mySpace-favSource {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.jx-mySpace-favTime {
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jx-mySpace-favPreview {
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  line-height: 1.75;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.jx-mySpace-favActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.jx-mySpace-favActions .jx-mySpace-actionBtn {
+  width: auto;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
+}
+
+.jx-mySpace-favActions .jx-mySpace-actionBtn:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.jx-mySpace-favActions .jx-mySpace-actionBtn--danger:hover {
+  color: var(--color-error);
+  background: rgba(252, 93, 93, 0.08);
+}
+
+.jx-mySpace-kbPicker {
+  padding: 8px 0;
+}
+
+.jx-mySpace-kbPickerText {
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.jx-mySpace-kbPickerSelect {
+  width: 100%;
+}
+
+.jx-mySpace-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  border: 1px dashed rgba(203, 213, 225, 0.9);
+  border-radius: 20px;
+  background: var(--color-bg-container);
+  text-align: center;
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+}
+
+@keyframes jx-mySpace-emptyFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-mySpace-emptyFloat { from, to { transform: translateY(0) } }
+}
+
+
+/* motion-stop: 空态插画漂浮，纯装饰 */
+.jx-mySpace-emptyIcon {
+  margin-bottom: 12px;
+  opacity: 0.54;
+  animation: jx-mySpace-emptyFloat 3.2s ease-in-out infinite;
+}
+
+.jx-mySpace-emptyText {
+  color: var(--color-text-secondary);
+  font-size: 16px;
+}
+
+.jx-mySpace-emptyHint {
+  margin-top: 6px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+}
+
+.jx-mySpace-loading,
+.jx-mySpace-loadMore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 0;
+}
+
+.jx-mySpace-noMore {
+  padding: 20px 0 0;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  text-align: center;
+}

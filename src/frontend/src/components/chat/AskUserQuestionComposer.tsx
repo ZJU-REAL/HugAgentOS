@@ -200,7 +200,6 @@ function RequestComposer({ chatId, request, resolveRequest }: RequestComposerPro
         );
         return;
       }
-      message.success(t('答案已提交，助手正在继续…'));
     } catch (error: unknown) {
       message.error(
         t('提交失败：{msg}', {

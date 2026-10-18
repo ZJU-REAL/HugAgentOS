@@ -194,8 +194,17 @@
   "src/styles/automation-timeline.css": {
     "css-literal-color": 6
   },
-  "src/styles/automation.css": {
-    "css-literal-color": 8
+  "src/styles/automation/cards.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/automation/creation.css": {
+    "css-literal-color": 2
+  },
+  "src/styles/automation/detail.css": {
+    "css-literal-color": 3
+  },
+  "src/styles/automation/overview.css": {
+    "css-literal-color": 2
   },
   "src/styles/canvas.css": {
     "css-literal-color": 16
@@ -273,8 +282,17 @@
   "src/styles/mobile/workspaces.css": {
     "css-literal-color": 8
   },
-  "src/styles/myspace.css": {
-    "css-literal-color": 37
+  "src/styles/myspace/assets.css": {
+    "css-literal-color": 17
+  },
+  "src/styles/myspace/feedback.css": {
+    "css-literal-color": 7
+  },
+  "src/styles/myspace/files.css": {
+    "css-literal-color": 8
+  },
+  "src/styles/myspace/layout.css": {
+    "css-literal-color": 5
   },
   "src/styles/onboarding.css": {
     "css-literal-color": 35

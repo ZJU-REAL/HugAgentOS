@@ -60,7 +60,7 @@ export function artifactUrl(
       && parsedSource.pathname.startsWith(apiPrefix);
     if (!ownApi) return /^(https?:)?\/\//i.test(source) ? source : '';
   }
-  if (!/^(?:\/api)?\/(?:files\/|v1\/projects\/)/.test(parsedSource.pathname)) return '';
+  if (!/^(?:\/api)?\/(?:files\/|v1\/projects\/|v1\/myspace\/content)/.test(parsedSource.pathname)) return '';
   const raw = source.startsWith(`${base}/`) ? source : `${base}${source.startsWith('/') ? '' : '/'}${source}`;
   const url = new URL(raw, 'http://artifact.invalid');
   if (options.preview) url.pathname += '/preview';

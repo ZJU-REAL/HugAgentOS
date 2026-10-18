@@ -47,6 +47,7 @@ async def agent_construction(
     # Complete the progressive-plugin runtime holder now that the real Toolkit
     # and the permission context exist (load_plugin mutates both mid-run).
     if _plugin_runtime is not None:
+        _plugin_runtime["read_only"] = request.read_only
         if _prepared_capabilities is not None:
             _plugin_runtime["prepared_run"] = _prepared_capabilities
             _plugin_runtime["prepared_servers"] = _desktop_prepared_servers

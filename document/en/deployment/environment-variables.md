@@ -130,7 +130,7 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 
 | Variable | Default | Description | Edition |
 |---|---|---|---|
-| `STORAGE_TYPE` | `local` | `local` / `s3` / `oss` | CE (s3 / oss: EE) |
+| `STORAGE_TYPE` | EE Docker: `s3`; CE / local: `local` | `local` / `s3` / `oss` / `obs` | Cloud storage: EE |
 | `STORAGE_PATH` | `./storage` (fixed at `/app/storage` in containers) | Local storage root | CE |
 | `S3_BUCKET` / `S3_REGION` / `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | (empty) / `us-east-1` / … | S3 or compatible service | EE |
 | `S3_CDN_DOMAIN` | (empty) | CDN-accelerated domain | EE |
@@ -229,7 +229,6 @@ the database has no value.
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | Snapshot persistence master switch (snapshot+kill when idle, restore on reconnect) |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | Snapshot retention (GC sweeps expired rows) |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | Maximum poll for snapshot readiness (s) |
-| `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | `true` | Direct myspace mount: binds the backend `myspace_cache/{uid}` into the sandbox at `/workspace/myspace/{uid}`, avoiding HTTP PUT sync; `false` falls back to the full-PUT path |
 
 ### CubeSandbox (E2B-compatible MicroVM, Enterprise Edition)
 

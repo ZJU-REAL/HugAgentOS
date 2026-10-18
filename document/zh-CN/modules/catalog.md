@@ -50,7 +50,7 @@ is_enabled("mcp", "internet_search")   # 单项判定
 get_enabled_ids("mcp")                 # 某类全部启用 id
 ```
 
-两者是全系统的能力开关读取口：`agent_factory.py::_effective_mcp_server_keys()` 用「DB 全部启用服务 ∩ 请求级 enabled_mcp_ids（缺省时退回 `get_enabled_ids("mcp")`）∩ AgentSpec 白名单」三层求交决定本次连接哪些 MCP server；技能注册缺省取 `get_enabled_ids("skills")`。改 catalog 即时影响下一次请求，无需重启。
+两者是全系统的能力开关读取口：`factory/tools/mcp_config.py::_effective_mcp_server_keys()` 用「DB 全部启用服务 ∩ 请求级 enabled_mcp_ids（缺省时退回 `get_enabled_ids("mcp")`）∩ AgentSpec 白名单」三层求交决定本次连接哪些 MCP server；技能注册缺省取 `get_enabled_ids("skills")`。改 catalog 即时影响下一次请求，无需重启。
 
 ## 用户级覆盖（catalog_overrides）
 
@@ -99,7 +99,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 
 **权限位**：每个端点先检查 `users_shadow.metadata` 中的布尔位——`can_add_mcp`、`can_add_skill`（个人 API-Key 同机制用 `can_use_api_key`，见 [模型接入](model-providers.md)）。这些权限位由 Config 管理平台的用户管理模块按用户授予：社区版单租户下默认放开即得完整自助；**按用户授予的组织级治理与技能上架审核为商业版（EE）**。
 
-运行时隔离：`agent_factory.py` 会把当前用户的私有 MCP 合入可连接集合（`get_owned_servers`），并用 `_filter_skill_ids_for_user()` 剔除属于他人的私有技能 id，防止越权调用；`/v1/catalog` 把私有项以 `owner: "self"`、`deletable: true` 注入该用户的响应。
+运行时隔离：`factory/build.py` 会把当前用户的私有 MCP 合入可连接集合（`get_owned_servers`），并用 `_filter_skill_ids_for_user()` 剔除属于他人的私有技能 id，防止越权调用；`/v1/catalog` 把私有项以 `owner: "self"`、`deletable: true` 注入该用户的响应。
 
 ## 前端能力中心（components/catalog/）
 

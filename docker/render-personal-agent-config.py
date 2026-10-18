@@ -1,7 +1,8 @@
 """Render the private PA controller config. Do not log credentials."""
 import json, os
 from pathlib import Path
-root = os.environ["HOST_STORAGE_PATH"].rstrip("/") + "/personal-agent"
+storage_root = os.environ["HOST_STORAGE_PATH"].rstrip("/")
+root = storage_root + "/personal-agent"
 key = os.environ["PERSONAL_AGENT_OPENSANDBOX_API_KEY"]
 network = os.environ["PERSONAL_AGENT_COMPUTE_NETWORK"]
 if not Path(root).is_absolute() or len(key) < 32:
@@ -17,7 +18,8 @@ level = "INFO"
 type = "docker"
 execd_image = "opensandbox/execd:v1.0.17"
 [storage]
-allowed_host_paths = [{json.dumps(root)}]
+allowed_host_paths = [{json.dumps(storage_root)}]
+ossfs_mount_root = {json.dumps(storage_root + "/object-mounts/personal-computers")}
 volume_default_size = "1Gi"
 [store]
 type = "sqlite"

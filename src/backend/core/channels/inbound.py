@@ -924,7 +924,7 @@ async def _process_inbound(msg: InboundMsg) -> None:
     # so pre-mark this session as allowed — equivalent to the owner approving their own write.
     # (Sub-agents remain non-interactive; their /myspace writes are still rejected.)
     try:
-        from core.llm.tools import _myspace_confirm as _mc
+        from core.llm.tools import _tool_confirmation as _mc
         if not (conn.config or {}).get("desktop_relay"):
             _mc.allow_session(chat_id)
     except Exception:  # noqa: BLE001 — a pre-authorization failure must not take down the whole run

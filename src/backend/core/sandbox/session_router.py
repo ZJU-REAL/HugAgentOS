@@ -30,11 +30,9 @@ class SessionSandboxRouter:
         if str(session_id or "").startswith("eval_") or sandbox_route(str(session_id or "")) is not None:
             return provider
         if getattr(provider, "name", "") in ("script_runner", "cube"):
-            import asyncio
-            from core.services.edition_workspace import resolve_workspaces
-            workspaces = await asyncio.to_thread(resolve_workspaces, user_id)
-            if workspaces:
-                raise SandboxError("当前沙盒服务不支持额外空间的权限挂载，请使用 OpenSandbox")
+            from core.config.local_mode import local_mode_enabled
+            if user_id and not local_mode_enabled():
+                raise SandboxError("云端文件挂载需要 OpenSandbox")
         return provider
 
     async def _ready(self, provider, session_id, user_id):

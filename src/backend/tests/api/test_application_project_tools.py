@@ -1,4 +1,4 @@
-"""Real Read/Edit -> filesystem registry -> project publication contract."""
+"""Direct Read/Edit operations feed project publication."""
 
 import asyncio
 import json
@@ -48,9 +48,9 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.edit_tool import register_edit
     from core.llm.tools.read_tool import register_read
-    from core.sandbox._common import myspace_cache_dir
+    from core.spaces.access import personal_grant
+    from core.storage import get_storage
     from core.services.project_scope import ProjectScope
-    from core.space_sync.personal_registry import flush_user, start_registry, stop_registry
 
     config = replace(
         settings,
@@ -63,15 +63,6 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
     ephemeral = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: ephemeral)
 
-    @asynccontextmanager
-    async def lifespan(app):
-        await start_registry()
-        try:
-            yield
-        finally:
-            await stop_registry()
-
-    projects.app.router.lifespan_context = lifespan
     with TestClient(projects.app) as client:
         app = data(client.post("/v1/applications", json={"title": "工具查询", "kind": "mcp"}))
         table(client, app["id"])
@@ -85,8 +76,7 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
         data(client.post(f"/v1/applications/{app['id']}/mcp", json={"tools": [tool]}))
         editor = data(client.post(f"/v1/applications/{app['id']}/editor"))
         project = data(client.get(f"/v1/projects/{editor['project_id']}"))
-        client.portal.call(flush_user, "owner")
-        root = myspace_cache_dir("owner")
+        root = get_storage().base_path / personal_grant("owner").prefix
         monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: FileTransport(root))
         scope = ProjectScope(
             editor["project_id"], "personal", project["linked_folder_id"], project["folder_name"]

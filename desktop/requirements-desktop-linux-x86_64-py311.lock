@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 607dc448935874fd60be944090c035ef34c56e1c037e93516cbd50e4a991cab3
+# input-sha256: d18da0b813b601a5c727eb280b730ddb3b307fb487ab2a2bb28d4c568a336990
 # Target: CPython 3.11 on Linux x86_64
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt
@@ -258,7 +258,7 @@ mdurl==0.1.2
     # via markdown-it-py
 mem0ai==2.0.14
     # via -r desktop/requirements-desktop.txt
-milvus-lite==3.1.0
+milvus-lite==3.2.2
     # via
     #   -r desktop/requirements-desktop.txt
     #   pymilvus
@@ -605,8 +605,6 @@ uvicorn==0.52.0
     # via
     #   -r desktop/requirements-desktop.txt
     #   mcp
-watchdog==6.0.0
-    # via -r desktop/requirements-desktop.txt
 websocket-client==1.9.0
     # via dashscope
 websockets==15.0.1

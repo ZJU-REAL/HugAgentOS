@@ -23,6 +23,8 @@ import time
 from typing import Dict, List, Optional
 
 from mcp_servers._ports import PORTS as _SERVER_PORTS, package_name
+from mcp_servers.registry import process_servers
+from core.config.local_mode import local_mode_enabled
 
 
 def _no_window() -> Dict[str, int]:
@@ -45,7 +47,8 @@ def _package_available(pkg: str) -> bool:
 
 
 _ALL_PKG_PORTS: Dict[str, int] = {
-    package_name(server_id): port for server_id, port in _SERVER_PORTS.items()
+    package_name(server.server_id): _SERVER_PORTS[server.server_id]
+    for server in process_servers("local" if local_mode_enabled() else "cloud")
 }
 PORTS: Dict[str, int] = {
     pkg: port for pkg, port in _ALL_PKG_PORTS.items() if _package_available(pkg)

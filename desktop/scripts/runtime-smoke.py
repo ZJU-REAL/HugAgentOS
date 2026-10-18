@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 NATIVE_PROCESS_FLAGS = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
@@ -30,7 +29,6 @@ REQUIRED_MODULES = (
     "scipy",
     "sqlalchemy",
     "uvicorn",
-    "watchdog.observers",
 )
 
 
@@ -129,30 +127,63 @@ def check_native_tools() -> dict:
 
 
 
-def check_file_watcher() -> None:
-    from watchdog.events import FileSystemEventHandler
-    from watchdog.observers import Observer
+def check_vector_store() -> dict:
+    """Verify index replacement, persistence, and reopen in an isolated database."""
+    from pymilvus import MilvusClient
+    from milvus_lite.server_manager import server_manager_instance
 
-    changed = threading.Event()
-
-    class Handler(FileSystemEventHandler):
-        def on_created(self, event):
-            if Path(event.src_path).name == "watchdog-probe.txt":
-                changed.set()
-
-    with tempfile.TemporaryDirectory(prefix="desktop-watcher-") as folder:
-        observer = Observer()
-        observer.schedule(Handler(), folder)
-        observer.start()
+    collection = "desktop_memory_probe"
+    with tempfile.TemporaryDirectory(prefix="desktop-vector-smoke-") as folder:
+        database = str(Path(folder) / "milvus.db")
+        client = MilvusClient(uri=database)
         try:
-            (Path(folder) / "watchdog-probe.txt").write_text("probe", encoding="utf-8")
-            if not changed.wait(10):
-                raise RuntimeError("Bundled file watcher did not receive a file creation event")
+            # Quick creation writes a manifest, then updates it to add an index.
+            # This used to fail on Windows when the manifest already existed.
+            client.create_collection(collection_name=collection, dimension=4,
+                                     metric_type="COSINE")
+            client.insert(collection_name=collection, data=[
+                {"id": 1, "vector": [1.0, 0.0, 0.0, 0.0]},
+            ])
+            client.flush(collection_name=collection)
         finally:
-            observer.stop()
-            observer.join(timeout=10)
-        if observer.is_alive():
-            raise RuntimeError("Bundled file watcher failed to stop")
+            try:
+                client.close()
+            finally:
+                server_manager_instance.release_server(database)
+        client = MilvusClient(uri=database)
+        try:
+            client.load_collection(collection_name=collection)
+            rows = client.query(collection_name=collection, filter="id == 1",
+                                output_fields=["id"])
+            if [row["id"] for row in rows] != [1]:
+                raise RuntimeError("Vector probe lost persisted data after reopen")
+            client.insert(collection_name=collection, data=[
+                {"id": 2, "vector": [0.0, 1.0, 0.0, 0.0]},
+            ])
+            client.flush(collection_name=collection)
+        finally:
+            try:
+                client.close()
+            finally:
+                server_manager_instance.release_server(database)
+        client = MilvusClient(uri=database)
+        try:
+            client.load_collection(collection_name=collection)
+            rows = client.query(collection_name=collection, filter="id in [1, 2]",
+                                output_fields=["id"])
+            if sorted(row["id"] for row in rows) != [1, 2]:
+                raise RuntimeError("Vector probe lost data after appending and reopening")
+            hits = client.search(collection_name=collection,
+                                 data=[[1.0, 0.0, 0.0, 0.0]], limit=1,
+                                 search_params={"metric_type": "COSINE"})
+            if not hits or not hits[0] or hits[0][0]["id"] != 1:
+                raise RuntimeError("Vector probe index search failed after reopen")
+        finally:
+            try:
+                client.close()
+            finally:
+                server_manager_instance.release_server(database)
+    return {"persisted_rows": 2}
 
 
 def check_application(source: Path) -> None:
@@ -185,7 +216,12 @@ def main() -> int:
     parser.add_argument("--native-only", action="store_true")
     parser.add_argument("--bash-only", action="store_true")
     parser.add_argument("--source-only", action="store_true")
+    parser.add_argument("--vector-only", action="store_true")
     args = parser.parse_args()
+    if args.vector_only:
+        print(json.dumps({"ok": True, "vector_store": check_vector_store()}))
+        return 0
+
     if args.source_only:
         if not args.source:
             parser.error("--source-only requires --source")
@@ -211,7 +247,7 @@ def main() -> int:
         importlib.import_module(module_name)
         imported.append(module_name)
 
-    check_file_watcher()
+    vector_store = check_vector_store()
     if args.source:
         check_application(args.source)
         imported.extend(["cli", "api.app"])
@@ -224,6 +260,7 @@ def main() -> int:
                 "executable": sys.executable,
                 "modules": imported,
                 "native_tools": native_tools,
+                "vector_store": vector_store,
             },
             ensure_ascii=False,
             sort_keys=True,

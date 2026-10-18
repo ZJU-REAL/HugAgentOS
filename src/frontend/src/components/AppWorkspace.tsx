@@ -23,7 +23,7 @@ import {
   Typography
 } from 'antd';
 import 'highlight.js/styles/github.css';
-import { lazy, Suspense, useEffect, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useRef, type CSSProperties } from 'react';
 import { t } from '../i18n';
 
 /* styles loaded via styles/index.ts in main.tsx */
@@ -57,7 +57,13 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
     // Preserve the module's own permission contract and existing revoked-route fallback.
     if (panel === 'personal_agent' && authUserLoaded && !personalAgentAvailable) handleSetPanel('chat');
   }, [panel, authUserLoaded, personalAgentAvailable, handleSetPanel]);
-  const generic = useLocation().pathname.startsWith('/apps');
+  const location = useLocation();
+  const generic = location.pathname.startsWith('/apps');
+  const moduleSurface = !chatSurface && !generic && panel !== 'personal_agent';
+  const moduleScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (moduleSurface && moduleScrollRef.current) moduleScrollRef.current.scrollTop = 0;
+  }, [location.pathname, moduleSurface]);
   const showProjectOverview = !generic && !!overviewProjectId;
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
   return (
@@ -185,7 +191,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
 
           <div className={`jx-mainRow${showProjectOverview ? ' jx-mainRow--project' : ''}`}>
-            <Content className={`jx-content${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}`}>
+            <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}`}>
               {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}
@@ -193,7 +199,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               <WorkspaceRuntime />
               <div
                 key={panel}
-                className="jx-panel jx-anim-fadeInUp"
+                className={`jx-panel jx-anim-fadeInUp${moduleSurface ? ' jx-panel--moduleSurface' : ''}`}
                 data-panel={panel}
                 style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
               >

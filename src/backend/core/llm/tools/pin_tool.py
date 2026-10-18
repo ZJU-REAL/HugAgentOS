@@ -5,7 +5,10 @@ inside the function; ``core.llm.tool`` re-exports ``register_pin_to_workspace``.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.services.project_scope import ProjectScope
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
@@ -55,7 +58,7 @@ def register_pin_to_workspace(
         项目文件展示原文件引用；当前会话工作目录文件自动登记后交付。
         已绑定项目时相对路径以项目目录为准，交付会话文件请传绝对路径。
         其他模式用 ``file_ids``，不要把路径放进 ID 列表。ID 来源：
-        沙盒文件先 ``sandbox_get_artifact`` 登记；word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``space_list_myspace_files``。
+        沙盒文件先 ``sandbox_get_artifact`` 登记；word/ppt/excel/pdf-cli 直接返回；空间文件同样通过 ``sandbox_get_artifact`` 登记。
 
         Args:
             file_ids (`List[str]`):
@@ -202,7 +205,7 @@ def register_pin_to_workspace(
 
         # Persist pinned files to the DB ``artifacts`` table NOW — not only
         # at run finalization. Otherwise in-run MySpace ("我的空间") tools (Move /
-        # space_stage_myspace_file / space_list_myspace_files) which resolve against the
+        # file operations) which resolve against the
         # DB can't see a file the agent just pinned (it only exists in the
         # file-index store + in-memory workspace until the run ends).
         # The deferred _persist_artifacts at run end dedups by artifact_id,

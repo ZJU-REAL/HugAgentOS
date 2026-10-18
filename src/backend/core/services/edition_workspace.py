@@ -1,14 +1,9 @@
 """Community Edition has no additional workspace volumes."""
 
-from fastapi import HTTPException
 
 
-def resolve_workspaces(actor):
-    return []
 
 
-def persist_user(actor):
-    return 0
 
 
 def project_directory(scope):
@@ -27,8 +22,6 @@ def is_organization_path(scope, actor, path):
     return False
 
 
-def write_organization_text(*args, **kwargs):
-    raise HTTPException(400, "Unsupported workspace kind")
 
 
 def resolve_alias(path):
@@ -57,11 +50,3 @@ def folder_scope_label(kind):
 
 def command_instructions(scope):
     return ""
-
-
-def refresh_artifact(item, file_id, db, actor=None):
-    return None
-
-
-def delete_organization_path(*args, **kwargs):
-    raise HTTPException(400, "Unsupported workspace kind")

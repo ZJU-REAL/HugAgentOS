@@ -39,7 +39,7 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
   const htmlDraft = useMemo(() => isHtml && document
     ? htmlPreviewDocument(draft, new URL(sourceUrl, window.location.href).href)
     : '', [isHtml, document, draft, sourceUrl]);
-  const editing = document?.can_edit === true;
+  const editing = document?.can_edit === true && artifact.space?.writable !== false;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
@@ -52,7 +52,9 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
   useEffect(() => {
     onStateChange?.({ canEdit: editing, dirty, saving });
   }, [onStateChange, editing, dirty, saving]);
-  const path = '/v1/file/' + encodeURIComponent(artifact.file_id) + '/text';
+  const path = artifact.space
+    ? '/v1/myspace/text?' + new URLSearchParams({ space: artifact.space.id, path: artifact.space.path })
+    : '/v1/file/' + encodeURIComponent(artifact.file_id) + '/text';
   const target = artifactOrigin(artifact);
 
   useEffect(() => {

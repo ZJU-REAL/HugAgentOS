@@ -41,7 +41,7 @@ The edition boundary is aligned with the public pricing page. The table below re
 | Automation | ✅ Scheduled tasks, cron, prompt/plan automation, retry on failure | — |
 | Data canvas | ✅ Online spreadsheet personal editing (free Univer presets) | ➕ Real-time multi-user collaboration (with the commercial `@univerjs/preset-sheets-advanced`) |
 | Code execution | ✅ Docker defaults to OpenSandbox: session files, environment reuse, snapshots; optional script-runner | ➕ Team workspace mounts, organization governance, Cube provider |
-| File storage | ✅ Local storage | ➕ Cloud storage (S3 / Alibaba Cloud OSS) |
+| File storage | ✅ S3 for cloud Docker; local files for desktop offline mode | ➕ Additional cloud providers (OSS / OBS) |
 | Authentication | ✅ Local account sign-up & login | ➕ Enterprise SSO, department sync, invite codes |
 | Personal workspace | ✅ Personal folders, favorites, chat sharing, personal projects | — |
 | Team collaboration | — | ➕ Teams, member management, team folders, permission matrix, team chat sharing |

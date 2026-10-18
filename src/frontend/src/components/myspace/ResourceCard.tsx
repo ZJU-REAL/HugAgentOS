@@ -26,6 +26,7 @@ interface ResourceCardProps {
   onNavigate?: (item: ResourceItem) => void;
   onDelete?: (item: ResourceItem) => void;
   onPreview?: (item: ResourceItem) => void;
+  onRename?: (item: ResourceItem) => void;
   onAddToKb?: (item: ResourceItem) => void;
   onMoveToPersonalFolder?: (item: ResourceItem) => void;
   onCopyToPersonalFolder?: (item: ResourceItem) => void;
@@ -40,6 +41,7 @@ export function ResourceCard({
   onNavigate,
   onDelete,
   onPreview,
+  onRename,
   onAddToKb,
   onMoveToPersonalFolder,
   onCopyToPersonalFolder,
@@ -88,6 +90,8 @@ export function ResourceCard({
       onClick: () => onNavigate(item),
     });
   }
+  if (onRename) menuItems.push({ key: 'rename', label: t('重命名'), onClick: () => onRename(item) });
+
   if (onDelete) {
     if (menuItems.length > 0) menuItems.push({ type: 'divider' });
     menuItems.push({

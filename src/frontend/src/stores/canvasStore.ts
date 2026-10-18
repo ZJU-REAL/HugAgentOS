@@ -6,6 +6,7 @@ import { artifactOrigin, type ArtifactLocation } from '../utils/artifactAccess';
 
 
 export interface CanvasArtifact extends ArtifactLocation {
+  space?: { id: string; path: string; writable: boolean };
   file_id: string;
   name: string;
   url: string;          // relative path, e.g. /files/xxx

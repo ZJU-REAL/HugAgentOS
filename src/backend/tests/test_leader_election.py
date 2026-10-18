@@ -105,7 +105,7 @@ def test_every_startup_step_declares_where_it_belongs():
     任务点燃 N 次这种事，线上是看不出堆栈的。所以让注册表的形状本身成为约束。
     """
     # `from api import app` 拿到的是 FastAPI 实例（api/__init__.py 导出的），不是模块。
-    from api.app import _PER_WORKER, _SINGLETON, _startup_steps
+    from api.lifecycle import _PER_WORKER, _SINGLETON, _startup_steps
 
     scopes = {_PER_WORKER, _SINGLETON}
     for entry in _startup_steps():

@@ -433,7 +433,7 @@ def test_fresh_manifests_bypass_worker_mcp_caches(monkeypatch, db_session):
     db_session.commit()
     for worker in workers:
         monkeypatch.setattr(mcp_service.McpServerConfigService, "_instance", worker)
-        assert cap.build_user_capability_manifest("user-1", use_cache=False)["servers"] == []
+        assert [s["server_id"] for s in cap.build_user_capability_manifest("user-1", use_cache=False)["servers"]] == ["hugagent-space-files"]
 
 
 def test_other_users_private_connector_does_not_change_manifest(monkeypatch, db_session):
@@ -458,4 +458,4 @@ def test_other_users_private_connector_does_not_change_manifest(monkeypatch, db_
     )
     db_session.commit()
     assert cap.build_user_capability_manifest("user-1", use_cache=False) == before
-    assert len(cap.build_user_capability_manifest("user-2", use_cache=False)["servers"]) == 1
+    assert len(cap.build_user_capability_manifest("user-2", use_cache=False)["servers"]) == 2

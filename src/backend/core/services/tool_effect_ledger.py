@@ -244,8 +244,6 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         "get_data_context",
         "read_image",
         "read_artifact",
-        "space_list_myspace_files",
-        "space_stage_myspace_file",
         "channel_read_attachment",
         "sandbox_get_artifact",
     ):
@@ -254,9 +252,6 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         "Write",
         "save_project_instructions",
         "Edit",
-        "space_delete",
-        "space_move",
-        "space_create_folder",
         "Bash",
         "sandbox_put_artifact",
         "pin_to_workspace",

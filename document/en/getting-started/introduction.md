@@ -58,7 +58,7 @@ In one sentence: **the Community Edition lets one person push the platform to it
        ┌─────────────┼───────────────────┬─────────────────────┐
        ▼             ▼                   ▼                     ▼
  core/llm/      orchestration/     orchestration/        core/memory/ (svc)
- agent_factory  strategy.py        citations.py          + memory_integration
+ factory/build  strategy.py        citations.py          + memory_integration
  (AgentScope    (routing           (citation parsing)    (mem0 retrieve/save)
   2.0 ReAct)     strategy)                                      │
        │                                                        ▼

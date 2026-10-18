@@ -99,11 +99,6 @@ def _run_backfill_once(user_id: str) -> None:
             _backfilling_users.discard(user_id)
 
 
-# 列「我的空间」之前先催一下登记器：沙箱写文件是随时发生的，去抖窗口里刚落盘的那几个
-# 不该等到下次刷新才出现。催的是同一个登记器（core.space_sync.personal），不是另开一条对账
-# 路径 —— 登记在哪儿发生、按什么判据发生，都还是它说了算。
-
-
 class AddArtifactToKBRequest(BaseModel):
     kb_id: str
 
@@ -291,17 +286,12 @@ async def list_user_artifacts(
     # backend for minutes. It also must not go through ``BackgroundTasks``: those run
     # on the shared request threadpool, which every endpoint needs via ``get_db``
     # (see the postmortem at the top of core/kb/index_queue.py). Detached to the
-    # default executor instead, like the mirror reconcile below. The rows it adds are
+    # default executor instead. The rows it adds are
     # historical, so the next listing picks them up.
     if uid not in _backfilled_users:
         task = asyncio.create_task(asyncio.to_thread(_run_backfill_once, uid))
         _backfill_tasks.add(task)
         task.add_done_callback(_backfill_tasks.discard)
-
-    if scope != "all":
-        from core.space_sync.personal_registry import flush_user
-
-        await flush_user(uid, metadata_only=True)
 
     repo = ArtifactRepository(db)
     mime_prefix = None

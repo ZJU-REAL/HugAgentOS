@@ -1,6 +1,6 @@
 """State-machine tests for the design_pick (site-design three-way choice) pending gate.
 
-Covers the design_pick branches of _myspace_confirm.pick() and set_decision():
+Covers the design_pick branches of _tool_confirmation.pick() and set_decision():
 chosen / skipped / invalid option / non-interactive downgrade / allow_session cascade not misfiring.
 """
 
@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from core.llm.tools import _myspace_confirm as mc
+from core.llm.tools import _tool_confirmation as mc
 
 _OPTIONS = [
     {"id": "a", "title": "深色科技风", "image_file_id": "fid_a", "brief": ""},

@@ -17,7 +17,7 @@ from core.config.settings import settings
 
 from ._common import stream_to_file
 from .errors import SandboxConnectError, SandboxError, SandboxFileTooLargeError, SandboxTimeoutError
-from .protocol import ProcessRequest, SandboxAdminCapabilities, SandboxAdminNotSupported, SandboxInfo, StagedFile, StageFile
+from .protocol import ProcessRequest, SandboxAdminCapabilities, SandboxAdminNotSupported, SandboxInfo
 from .runner_auth import auth_headers
 
 logger = logging.getLogger(__name__)
@@ -161,22 +161,6 @@ class ScriptRunnerProvider(CompletionMixin):
         except httpx.HTTPError as exc:
             raise SandboxError("Process service connection lost; execution state is uncertain. Do not automatically rerun the command.") from exc
 
-    async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]:
-        body = {
-            "user_id": user_id,
-            "files": [{"name": f.name, "content_b64": f.content_b64} for f in files],
-        }
-        try:
-            async with httpx.AsyncClient(timeout=30, headers=auth_headers()) as client:
-                resp = await client.post(f"{self._base_url}/stage", json=body)
-                resp.raise_for_status()
-                staged_raw = resp.json().get("staged", [])
-                return [StagedFile(name=item["name"], path=item["path"]) for item in staged_raw]
-        except httpx.ConnectError as e:
-            raise SandboxConnectError(_connect_error_message()) from e
-        except httpx.HTTPStatusError as e:
-            text = e.response.text if e.response is not None else str(e)
-            raise SandboxError(f"暂存文件失败: {text}") from e
 
     async def put_file(
         self,

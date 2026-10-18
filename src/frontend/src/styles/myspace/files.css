@@ -1,0 +1,296 @@
+/* ── 拖拽上传高亮层（仅 dragging 时挂载；pointer-events:none 不吃行点击） ── */
+.jx-mySpace-dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--color-primary);
+  border-radius: 12px;
+  background: rgba(18, 109, 255, 0.05);
+  pointer-events: none;
+}
+
+.jx-mySpace-dropOverlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 30px;
+  border-radius: 14px;
+  background: var(--color-bg-container);
+  color: var(--color-primary);
+  font-size: 14px;
+  box-shadow:
+    0 2px 10px rgba(15, 23, 42, 0.06),
+    0 18px 42px rgba(15, 23, 42, 0.12);
+}
+
+/* ── 上传进度条（工具栏下细条，spring 跟随 scaleX，compositor-only） ── */
+.jx-mySpace-uploadBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px 0;
+}
+
+.jx-mySpace-uploadBar-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(18, 109, 255, 0.10);
+  overflow: hidden;
+}
+
+.jx-mySpace-uploadBar-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary);
+  transform-origin: left;
+}
+
+.jx-mySpace-uploadBar-text {
+  display: inline-flex;
+  align-items: baseline;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-family: var(--font-family-number);
+}
+
+.jx-mySpace-uploadBar-num {
+  display: inline-block;
+}
+
+.jx-mySpace-docTable {
+  --jx-check-col-width: 18px;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  padding-top: 18px;
+}
+
+.jx-mySpace-docTable--hasSelection {
+  --jx-check-col-width: 34px;
+}
+
+.jx-mySpace-docTable-header,
+.jx-mySpace-docRow {
+  display: grid;
+  grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 96px 112px 156px 44px;
+  align-items: center;
+  transition: grid-template-columns 0.16s ease;
+}
+
+.jx-mySpace-docTable-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 44px;
+  background: var(--color-bg-container);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.jx-mySpace-docTable-col {
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.jx-mySpace-docTable-col--check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.jx-mySpace-docTable-col--name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-mySpace-docTable-col--size,
+.jx-mySpace-docTable-col--source,
+.jx-mySpace-docTable-col--time {
+  color: var(--color-text-tertiary);
+}
+
+.jx-mySpace-docTable-col--actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.jx-mySpace-docTable-header .jx-mySpace-docTable-col {
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.jx-mySpace-docTable-header .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.jx-mySpace-docTable--hasSelection .jx-mySpace-docTable-header .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.jx-mySpace-docRow {
+  min-height: 46px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.88);
+  transition: background 0.16s ease;
+}
+
+/* 文件行被 motion.div 包了一层（删除退场动画），:last-child 改判到表格直接子级 */
+.jx-mySpace-docTable > .jx-mySpace-docRow:last-child,
+.jx-mySpace-docTable > :last-child > .jx-mySpace-docRow {
+  border-bottom: none;
+}
+
+.jx-mySpace-docRow:hover {
+  background: var(--color-bg-layout);
+}
+
+.jx-mySpace-docRow--checked {
+  background: linear-gradient(180deg, rgba(18, 109, 255, 0.08), rgba(18, 109, 255, 0.04));
+}
+
+.jx-mySpace-docRow .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.jx-mySpace-docRow:hover .jx-mySpace-docTable-col--check .ant-checkbox-wrapper,
+.jx-mySpace-docRow--anySelected .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.jx-mySpace-docRow .ant-checkbox .ant-checkbox-inner,
+.jx-mySpace-docTable-header .ant-checkbox .ant-checkbox-inner {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border-color: var(--color-fill);
+}
+
+.jx-mySpace-docRow .ant-checkbox-checked .ant-checkbox-inner,
+.jx-mySpace-docTable-header .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.jx-mySpace-docRow-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.jx-mySpace-docRow-nameWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-mySpace-docRow-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text);
+  transition: color 0.16s ease;
+}
+
+.jx-mySpace-docRow:hover .jx-mySpace-docRow-name,
+.jx-mySpace-docRow--checked .jx-mySpace-docRow-name {
+  color: var(--color-primary);
+}
+
+.jx-mySpace-docRow-meta,
+.jx-mySpace-docRow-time {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.jx-mySpace-kbBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-text-placeholder) 22%, transparent);
+  border-radius: 999px;
+  background: var(--color-bg-container);
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.jx-mySpace-kbBadge:hover {
+  color: var(--color-primary);
+  border-color: rgba(18, 109, 255, 0.18);
+  background: rgba(18, 109, 255, 0.04);
+}
+
+.jx-mySpace-kbUsageOverlay .ant-popover-inner {
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.jx-mySpace-kbUsagePopover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jx-mySpace-kbUsageItem {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.jx-mySpace-moreBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--color-text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.jx-mySpace-docRow:hover .jx-mySpace-moreBtn,
+.jx-mySpace-docRow--checked .jx-mySpace-moreBtn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.jx-mySpace-moreBtn:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}

@@ -147,7 +147,7 @@ def _write_record_local(item: Dict[str, Any]) -> str:
 def _write_record(item: Dict[str, Any]) -> None:
     file_id = str(item["file_id"])
     text = _write_record_local(item)
-    if _storage_type() == "oss":
+    if _storage_type() in ("s3", "oss", "obs"):
         try:
             _get_oss_storage().upload_bytes(text.encode("utf-8"), _record_oss_key(file_id))
         except Exception as exc:  # noqa: BLE001 — the local record is authoritative
@@ -211,7 +211,7 @@ def restore_records_from_oss() -> int:
     the local-index-restored-from-OSS behaviour the monolithic index used to have.
     Enumerates every mirrored record, so it only ever runs from :func:`prepare_records`.
     """
-    if _storage_type() != "oss":
+    if _storage_type() not in ("s3", "oss", "obs"):
         return 0
     storage = _get_oss_storage()
     restored = 0
@@ -282,7 +282,7 @@ def save_artifact_bytes(
 
     mode = _storage_type()
 
-    if mode == "oss":
+    if mode in ("s3", "oss", "obs"):
         # ── OSS storage ──────────────────────────────────────────────
         storage_key = f"artifacts/{filename}"
         try:
@@ -362,7 +362,7 @@ def save_artifact_file(
     filename = f"{file_id}.{ext}" if ext else file_id
     storage_key = f"artifacts/{filename}"
 
-    if _storage_type() == "oss":
+    if _storage_type() in ("s3", "oss", "obs"):
         try:
             storage = _get_oss_storage()
             storage.upload(str(source), storage_key)

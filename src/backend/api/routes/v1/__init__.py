@@ -30,6 +30,8 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("project_api_keys", "router"),
     ("agents", "router"),
     ("artifacts", "router"),
+    ("space_files", "router"),
+    ("space_previews", "router"),
     ("plans", "router"),
     ("loops", "router"),
     ("automations", "router"),

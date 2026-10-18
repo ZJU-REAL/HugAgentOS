@@ -16,7 +16,7 @@ from .errors import SandboxConnectError
 # deferred to runtime to avoid cross-module circular dependencies at startup
 # (models.py also imports core.db.engine).
 # Provider internals moved to core.sandbox._opensandbox_internals; import back
-from core.sandbox._opensandbox_internals import logger, _LIGHT_ENTRYPOINT, _SETUP_ENTRYPOINT, _pool_metadata, _make_skills_volumes, _make_myspace_volume, _make_dws_creds_volumes, _make_lark_creds_volumes, _make_email_creds_volumes, _make_yida_creds_volumes, _Session
+from core.sandbox._opensandbox_internals import logger, _LIGHT_ENTRYPOINT, _SETUP_ENTRYPOINT, _pool_metadata, _make_skills_volumes, _make_dws_creds_volumes, _make_lark_creds_volumes, _make_email_creds_volumes, _make_yida_creds_volumes, _Session
 
 
 from . import _opensandbox_session as session_runtime
@@ -28,8 +28,10 @@ class _OpenSandboxCreationMixin:
         return _SETUP_ENTRYPOINT if user_id else _LIGHT_ENTRYPOINT
 
     async def _additional_workspace_mounts(self, user_id):
-        """Base runtime has personal mounts only; edition providers add workspaces."""
-        return [], {}
+        from core.spaces.mounts import prepare_volumes
+        if not user_id:
+            return [], {}
+        return await asyncio.to_thread(prepare_volumes, user_id)
 
     async def _create_jupyter_sandbox(
         self,
@@ -37,31 +39,7 @@ class _OpenSandboxCreationMixin:
         from_snapshot_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> Any:
-        """Create a user-bound persistent session sandbox (per-user myspace bind mount + cross-session reuse).
-
-        **No longer starts a Jupyter Server**: all languages (bash / python /
-        javascript) run through execd ``commands.run`` (see cloud_processes) and
-        need no code-interpreter kernel. Hence the entrypoint uses
-        ``_LIGHT_ENTRYPOINT`` (sleep infinity + injected execd) +
-        ``skip_health_check=True``, skipping the ~24s wait for the Jupyter endpoint
-        to become ready and cutting startup to ~3s. The cost is that python/js no
-        longer keep kernel variable state across executions — this product has no
-        such usage (execute is only called with language="bash"), so no impact. The
-        method name keeps ``jupyter`` purely for compatibility with the pool kind
-        label / adopt logic; semantically it is now a "heavy user-bound sandbox".
-
-        When ``from_snapshot_id`` is given, start from the snapshot: do not pass
-        image (mutually exclusive with snapshot_id), but all other parameters
-        (entrypoint / volumes / metadata / timeout) must still be passed — docker
-        commit does not preserve mount configuration, so volumes must be
-        re-declared, otherwise bind-mounts like /workspace/skills/ are lost
-        (verified in internal design docs appendix A).
-
-        ``user_id`` enables the Plan F bind mount: bind the myspace_cache/{uid}/
-        subdirectory under backend host storage into the sandbox at
-        /workspace/myspace/{uid}/, and tag it with ``hugagent-user-id`` metadata so
-        that adopt on backend restart can slot it back by user.
-        """
+        """Create an account sandbox with its authorized file volumes."""
         from opensandbox import Sandbox
 
         config = self._make_config()
@@ -72,7 +50,6 @@ class _OpenSandboxCreationMixin:
             volumes = []
         else:
             skills_vols = _make_skills_volumes(user_id)
-            myspace_vol = _make_myspace_volume(user_id)
             # dws (DingTalk CLI) credential persistence volumes: two bind-mounts per user,
             # mounted at the sandbox home's ~/.dws and ~/.local/share/dws-cli (where dws
             # reads/writes by default), so OAuth credentials survive across sessions.
@@ -91,7 +68,6 @@ class _OpenSandboxCreationMixin:
             yida_vols = _make_yida_creds_volumes(user_id)
             volumes = (
                 skills_vols
-                + [v for v in (myspace_vol,) if v is not None]
                 + extra_volumes
                 + dws_vols + lark_vols + email_vols + yida_vols
             )
@@ -361,8 +337,7 @@ class _OpenSandboxCreationMixin:
         been slotted per user into ``_jupyter_user_pool`` (see B.7).
 
         When ``user_id`` is absent (legacy / fallback), take the old path: grab one
-        from the general jupyter pool, without a myspace volume, relying on
-        ``_sync_inputs_to_sandbox`` HTTP PUT syncing.
+        from the general pool without account volumes.
         """
         use_user_pool = bool(user_id and (session_runtime._user_bound_sandbox_required() or str(user_id).startswith("api_ak_")))
 
@@ -376,7 +351,6 @@ class _OpenSandboxCreationMixin:
             sandbox=sandbox,
             interpreter=None,
             contexts={},
-            seeded_myspace_mtime={},
             user_id=user_id,
             pool_source="user" if use_user_pool else "general",
             last_renew_ts=time.monotonic(),
@@ -406,7 +380,6 @@ class _OpenSandboxCreationMixin:
             sandbox=sandbox,
             interpreter=None,
             contexts={},
-            seeded_myspace_mtime={},
             user_id=user_id,
             # The snapshot contains the filesystem results of the directory conventions; skip redundant setup
             setup_done=True,

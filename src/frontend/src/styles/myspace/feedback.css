@@ -1,0 +1,235 @@
+/* ── MySpace skeleton ── */
+.jx-mySpace-docRow--skeleton {
+  pointer-events: none;
+}
+.jx-mySpace-skHeaderCell {
+  width: 48px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-mySpace-skHeaderCell--narrow {
+  width: 32px;
+}
+.jx-mySpace-skDocIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.jx-mySpace-skDocName {
+  flex: 1;
+  max-width: 280px;
+  height: 14px;
+  border-radius: 6px;
+}
+.jx-mySpace-skDocCell {
+  width: 64px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-mySpace-skDocCell--wide {
+  width: 112px;
+}
+.jx-mySpace-skDocAction {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+.jx-mySpace-imgItem--skeleton {
+  pointer-events: none;
+}
+.jx-mySpace-skImgCell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+}
+.jx-mySpace-favCard--skeleton {
+  pointer-events: none;
+}
+.jx-mySpace-skFavSource {
+  width: 180px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-mySpace-skFavTime {
+  width: 96px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-mySpace-skFavLine {
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+.jx-mySpace-skFavLine--short {
+  width: 62%;
+}
+.jx-mySpace-skFavAction {
+  width: 96px;
+  height: 28px;
+  border-radius: 8px;
+}
+.jx-mySpace-skLoadMore {
+  width: 120px;
+  height: 10px;
+  border-radius: 6px;
+}
+
+.jx-mySpace-notifList {
+  padding-top: 4px;
+}
+
+.jx-mySpace-notifActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.jx-mySpace-notifActions-label {
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+.jx-mySpace-notifActions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-mySpace-notifCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  margin-bottom: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: var(--color-bg-container);
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.jx-mySpace-notifCard:hover {
+  border-color: rgba(18, 109, 255, 0.18);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+
+/* 渐变底不可 transition——改纯色 background-color，已读消退才有过渡 */
+.jx-mySpace-notifCard--unread {
+  background-color: rgba(18, 109, 255, 0.05);
+}
+
+.jx-mySpace-notifCard--selected {
+  border-color: rgba(18, 109, 255, 0.24);
+  background: rgba(18, 109, 255, 0.08);
+}
+
+.jx-mySpace-notifCard-left {
+  width: 20px;
+  padding-top: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.jx-mySpace-notifDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-error);
+}
+
+/* 未读点涟漪：只给列表前 3 个未读卡片挂 .jx-anim-ripple（motion.css 原语，
+   compositor-only，替代原 box-shadow 呼吸动画） */
+.jx-mySpace-notifDot.jx-anim-ripple {
+  --ripple-color: var(--color-error);
+  --ripple-dur: 2s;
+}
+
+.jx-mySpace-notifCard-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-mySpace-notifCard-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.jx-mySpace-notifCard-name {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.jx-mySpace-notifCard-summary {
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.jx-mySpace-notifCard-time {
+  margin-top: 8px;
+  color: var(--color-text-placeholder);
+  font-size: 12px;
+}
+
+.jx-mySpace-notifCard-deleteBtn {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--color-text-placeholder);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.jx-mySpace-notifCard:hover .jx-mySpace-notifCard-deleteBtn {
+  opacity: 1;
+}
+
+/* ── 文件预览（FilePreviewPane，共用于导入弹窗右栏 / 项目预览弹窗） ── */
+/* keyed 淡入容器：填满 .jx-spaceImportPreview-body（flex column） */
+.jx-filePreview-fade {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* iframe 类（PDF / office 预览）：禁 transform，onLoad 后纯 opacity 拉满 */
+iframe.jx-spaceImportPreview-frame {
+  opacity: 0;
+  transition: opacity 0.25s var(--motion-ease-standard);
+}
+
+iframe.jx-spaceImportPreview-frame.is-loaded {
+  opacity: 1;
+}
+
+/* 导入弹窗文件行：补 hover / 选中过渡（提高一级特异性覆盖 chat.css 基础规则） */
+.jx-spaceImportList .jx-spaceImportItem {
+  transition:
+    background-color 0.15s var(--motion-ease-standard),
+    border-color 0.15s var(--motion-ease-standard),
+    box-shadow 0.15s var(--motion-ease-standard);
+}
+
+.jx-mySpace-notifCard-deleteBtn:hover {
+  color: var(--color-error);
+  background: rgba(252, 93, 93, 0.08);
+}
