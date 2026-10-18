@@ -23,13 +23,8 @@ type = "docker"
 execd_image = "opensandbox/execd:v1.0.17"
 
 [storage]
-# Bind-mount host-path 前缀白名单。
-# ⚠️ 反直觉：留空 `[]` = 拒绝一切 bind mount（不是"允许任何"——POC 时的注释错了）。
-# 必须显式列出允许的 host path 前缀；OpenSandbox 用 startswith 匹配。
-#
-# 唯一允许：把仓库内的 agent skills 目录 read-only 挂进沙盒
-# /workspace/skills/，替代旧的 tar 上传 + Python 解包物化路径。
-#
+# Explicit host-path allowlist for sandbox bind mounts.
+# An empty list denies all host bind mounts.
 # The init service renders JSON-escaped TOML values for the host paths,
 # controller key and explicit Compose project name. No host-specific values
 # are stored in this template.
@@ -39,6 +34,7 @@ allowed_host_paths = [
     "@@HOST_STORAGE_PATH@@",
 ]
 volume_default_size = "1Gi"
+ossfs_mount_root = "@@HOST_STORAGE_PATH@@/object-mounts"
 
 [store]
 # SQLite 持久化沙盒元数据（容器重启不丢已有沙盒）

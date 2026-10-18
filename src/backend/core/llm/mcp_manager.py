@@ -176,12 +176,16 @@ class ManifestMCPClient(BareNameMCPClient):
     gateway_transport: Any = Field(default=None, exclude=True)
     gateway_plugin: str = Field(default="", exclude=True)
     manager_cloud_available: bool = Field(default=False, exclude=True)
+    read_only: bool = Field(default=False, exclude=True)
 
     def _raw_manifest_tools(self) -> List[mcp.types.Tool]:
         tools: List[mcp.types.Tool] = []
         from core.capabilities.paths import capabilities_enabled
         from core.services.management_contract import localize, declared, tools as manager_tools
         items = list(self.manifest_tools)
+        from mcp_servers.registry import gateway_server
+        if self.read_only and gateway_server(self.name) is not None:
+            items = [item for item in items if item.get("annotations", {}).get("readOnlyHint") is True]
         if capabilities_enabled() and self.gateway_plugin == "skill-manager":
             if any(t.get("name") == "install_skill" and declared(t, self.gateway_plugin) for t in items):
                 items += [t for t in manager_tools("skill-manager", "local") if t["name"] == "upload_skill_to_cloud" and not any(x.get("name") == t["name"] for x in items)]

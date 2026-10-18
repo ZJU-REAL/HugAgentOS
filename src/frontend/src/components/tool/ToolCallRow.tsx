@@ -26,7 +26,6 @@ import { renderToolOutputBody } from './ToolOutputRenderer';
 import { ThinkingStepRow } from './ThinkingStepRow';
 import { extractCodeFromInput, extractCodeFromStreamingArgs } from '../../utils/codeExecParser';
 import { CodeView } from './renderers/CodeView';
-import { MySpaceBodyContent } from './renderers/MySpaceRenderer';
 import { renderInternetSearchInline } from './renderers/SearchRenderer';
 import { coerceOutput, computeEffectiveStatus } from './renderers/utils';
 import { message } from 'antd';
@@ -117,11 +116,6 @@ function getRowLabel(
         const an = tool.displayName?.split('：')[1]?.trim() || '';
         return { prefix: t('调用智能体：'), value: an };
       }
-      case 'space_list_myspace_files': return { prefix: t('读取我的空间'), value: '' };
-      case 'space_stage_myspace_file': {
-        const fn = (tool.input as Record<string, string> | undefined)?.file_path?.split('/').pop() || '';
-        return { prefix: t('导入文件：'), value: fn };
-      }
       case 'query_database': return { prefix: t('数据库查询'), value: '' };
       case 'Bash':
     case 'bash': {
@@ -199,11 +193,6 @@ const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   get_mcp_tools: ThunderboltOutlined,
   call_subagent: RobotOutlined,
   get_agents: RobotOutlined,
-  space_list_myspace_files: FolderOutlined,
-  space_stage_myspace_file: FolderOutlined,
-  space_create_folder: FolderOutlined,
-  space_move: FolderOutlined,
-  space_delete: FolderOutlined,
   ...EDITION_STEP_ICONS,
   sandbox_put_artifact: FolderOutlined,
   sandbox_get_artifact: FolderOutlined,
@@ -327,9 +316,6 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   const renderBody = () => {
     if (!tool.output) return null;
     switch (tool.name) {
-      case 'space_list_myspace_files':
-      case 'space_stage_myspace_file':
-        return <MySpaceBodyContent tool={tool} />;
       case 'internet_search':
         return renderInternetSearchInline(parsed);
       default:

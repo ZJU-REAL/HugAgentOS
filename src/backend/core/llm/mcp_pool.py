@@ -155,6 +155,7 @@ def make_client(
                 gateway_transport=cfg.get("gateway_transport"),
                 gateway_plugin=str(cfg.get("gateway_plugin") or ""),
                 manager_cloud_available=bool(cfg.get("manager_cloud_available")),
+                read_only=bool(cfg.get("read_only")),
             )
         return client_cls(
             **client_kwargs,

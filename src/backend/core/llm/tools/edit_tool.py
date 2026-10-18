@@ -1,22 +1,4 @@
-"""Edit tool — exact string replacement, ported from Claude Code's FileEditTool.
-
-4 invariants (all required):
-1. **Must Read first**: path not in state → reject
-2. **Must be a full Read**: last Read used offset/limit → reject (make the model read the whole file first)
-3. **Unchanged externally**: sha256 of the current file in the sandbox ≠ sha256 recorded in state → reject (make the model re-Read)
-4. **old != new**: identical strings before/after replacement → reject
-
-Uniqueness:
-- ``replace_all=False`` + old_string appears multiple times in the file → reject, suggest widening context
-- ``replace_all=False`` + 0 occurrences → reject
-
-myspace auto-persistence:
-After an Edit completes, if the path is under ``/myspace/`` or the physical
-myspace area, reverse-sync **immediately**:
-- Find the artifact with the same name → overwrite its storage content (same file_id)
-- Also update myspace_cache so the next fresh sandbox seed sees it
-- The artifact is updated in-place in the DB (size_bytes / updated_at); artifact_id unchanged
-"""
+"""Read-checked mutations of files in the active sandbox."""
 
 from __future__ import annotations
 
@@ -25,11 +7,10 @@ import hashlib
 import logging
 from typing import Optional
 
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 from core.services.project_scope import ProjectScope
 
 from ._common import (
-    myspace_mutation_refusal,
     resolve_sandbox_session,
     resp_json,
 )
@@ -109,43 +90,12 @@ def register_edit(
             )
 
         from .project_source_access import current_scope_error
-        from core.services.edition_workspace import write_organization_text, is_organization_path
 
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
             return resp_json(scope_error)
         physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
 
-        if is_organization_path(scope, user_id, file_path):
-            from fastapi import HTTPException
-            import asyncio
-
-            try:
-                from core.sandbox import get_sandbox_provider
-
-                await get_sandbox_provider().ensure_user_workspace(_sess, user_id)
-                return resp_json(
-                    await asyncio.to_thread(
-                        write_organization_text,
-                        scope,
-                        user_id or "",
-                        file_path,
-                        physical,
-                        state,
-                        session_id=_sess,
-                        old_string=old_string,
-                        new_string=new_string,
-                        replace_all=replace_all,
-                    )
-                )
-            except HTTPException as exc:
-                return resp_json({"error": exc.detail, "status": exc.status_code})
-
-        # 与 Write 同理：只读作用域下改动要在落盘前拒绝，不能等到同步那一步才被拦。
-        if is_myspace_physical(physical, user_id):
-            _refusal = myspace_mutation_refusal(scope, file_path, "编辑文件")
-            if _refusal is not None:
-                return resp_json(_refusal)
 
         # ── invariant 1: must Read first (logical or physical path both fine) ──
         entry = state.get(file_path) or state.get(physical)
@@ -291,8 +241,6 @@ def register_edit(
         if physical != file_path:
             state.record(physical, new_entry)
 
-        # 改在 /myspace 下的文件这里不做登记：内容已经落在用户自己的目录里，
-        # core.space_sync.personal 从文件事件登记它 —— 和那里发生的任何其它写入一样。
         diff = _make_unified_diff(file_path, current_text, new_text)
         payload: dict = {
             "ok": True,

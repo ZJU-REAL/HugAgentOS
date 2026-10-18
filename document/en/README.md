@@ -42,7 +42,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | [Prompt System](modules/prompts.md) | Assembly precedence, version pool, prompt hub, cross-environment migration |
 | [Capability Catalog](modules/catalog.md) | Catalog as single source of truth, capability gating, self-service capabilities |
 | [Model Providers](modules/model-providers.md) | Provider & role system, dynamic switching, personal API keys, billing |
-| [MCP Tool System](modules/mcp-tools.md) | 8 built-in servers, connection pooling, admin/user custom MCP |
+| [MCP Tool System](modules/mcp-tools.md) | Built-in and plugin servers, connection pooling, admin/user custom MCP |
 | [Agent Skills](modules/agent-skills.md) | SKILL.md mechanics, bundle layering, skill marketplace, distillation |
 | [Sandbox Execution](modules/sandbox.md) | Three providers, bash tools, snapshot persistence, MySpace bind-mount |
 | [Memory System](modules/memory.md) | L1/L2/L3 layered memory, sanitization, audit, mem0 infrastructure |

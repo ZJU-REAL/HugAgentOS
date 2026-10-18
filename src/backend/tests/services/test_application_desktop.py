@@ -181,7 +181,7 @@ def test_real_local_bootstrap_retains_unmigrated_and_provisions(tmp_path):
     code = """
 import asyncio
 from sqlalchemy import inspect
-from api.app import _startup_ensure_tables
+from api.startup.bootstrap import _startup_ensure_tables
 from core.db.engine import engine
 from core.services.application_data import ApplicationDataService
 from core.services.application_store import application_engine

@@ -101,6 +101,8 @@ git clone https://github.com/ZJU-REAL/HugAgentOS.git
 cd HugAgentOS
 cp .env.example .env
 mkdir -p data/storage
+docker compose build backend
+sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -210,7 +212,7 @@ HugAgentOS 将用户渠道、智能体工作流、可复用能力引擎、本体
 | 7 个通用 MCP、个人技能与技能市场 | 行业数据工具、组织级能力治理与技能审核 |
 | 私有知识库、三层个人记忆 | 公共知识库管理与记忆审计 |
 | 自动化、个人数据画布 | 组织计费、用量汇总与画布多人协同 |
-| 轻量沙箱、本地文件存储 | 持久沙箱、云存储与离线商业交付 |
+| OpenSandbox、快照与 S3 文件存储 | 团队挂载、其他云存储与离线商业交付 |
 | 本地账号与保留 Powered-by 的品牌配置 | SSO、审计合规与完整 white-label |
 
 功能边界与升级路径以

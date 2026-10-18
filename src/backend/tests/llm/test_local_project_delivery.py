@@ -50,7 +50,7 @@ def test_session_delivery_deduplicates_and_rejects_conflicting_names(
 
 
 def test_design_picker_accepts_local_images_without_pinning(local_project, monkeypatch, tmp_path):
-    from core.llm.tools import _paths, _myspace_confirm
+    from core.llm.tools import _paths, _tool_confirmation
     from core.llm.tools.design_picker_tool import register_choose_design
     from core.services.local_grant_service import add_grant
     from core.llm.tool_permissions import (
@@ -78,7 +78,7 @@ def test_design_picker_accepts_local_images_without_pinning(local_project, monke
             assert get_artifact(option["image_file_id"])["mime_type"] == "image/png"
         return {"status": "chosen", "option_id": "b"}
 
-    monkeypatch.setattr(_myspace_confirm, "pick", choose)
+    monkeypatch.setattr(_tool_confirmation, "pick", choose)
     collector = ToolCollector()
     register_choose_design(collector, chat_id="pin-chat", user_id="pin-user")
     registry = ToolPermissionRegistry()

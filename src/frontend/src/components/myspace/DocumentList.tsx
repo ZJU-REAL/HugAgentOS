@@ -17,6 +17,7 @@ interface DocumentListProps {
   onNavigate?: (item: ResourceItem) => void;
   onDelete?: (item: ResourceItem) => void;
   onPreview?: (item: ResourceItem) => void;
+  onRename?: (item: ResourceItem) => void;
   onAddToKb?: (items: ResourceItem[]) => void;
   folders?: PersonalFolderNode[];
   onEnterFolder?: (folderId: string) => void;
@@ -34,6 +35,7 @@ export function DocumentList({
   onNavigate,
   onDelete,
   onPreview,
+  onRename,
   onAddToKb,
   folders,
   onEnterFolder,
@@ -151,6 +153,7 @@ export function DocumentList({
                 onNavigate={onNavigate}
                 onDelete={onDelete}
                 onPreview={onPreview}
+                onRename={onRename}
                 onAddToKb={onAddToKb ? (resource) => onAddToKb([resource]) : undefined}
                 onMoveToPersonalFolder={onMoveToPersonalFolder}
                 onCopyToPersonalFolder={onCopyToPersonalFolder}

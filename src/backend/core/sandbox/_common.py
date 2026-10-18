@@ -1,7 +1,7 @@
 """Shared constants and utility functions for sandbox providers.
 
 opensandbox_provider and future persistent/isolated providers share the same
-file streaming and myspace cache path rules,
+file streaming and mounted workspace path rules,
 keeping behavior aligned across providers.
 """
 
@@ -25,8 +25,6 @@ __all__ = [
     "SANDBOX_RUN_UID",
     "USER_ID_RE",
     "WORKSPACE",
-    "myspace_cache_dir",
-    "myspace_cache_root",
     "dws_cache_dir",
     "dws_home_dir",
     "dws_extra_envs",
@@ -128,22 +126,8 @@ def purge_credential_dir(root: Path) -> None:
                 logger.warning("[sandbox] purge credential file failed %s: %s", fp, exc)
 
 
-def myspace_cache_root() -> Path:
-    """All users' myspace mirror directories live under here, one subdirectory per user.
-
-    The filesystem watcher (:mod:`core.space_sync.personal`) watches this single root
-    rather than one watch per user: users appear and disappear at runtime, and a
-    recursive watch on the root sees the new ones without anyone re-registering.
-    """
-    return settings.storage.root / "myspace_cache"
 
 
-def myspace_cache_dir(user_id: str) -> Path:
-    """Backend-local myspace cache directory. The persistent sandbox (opensandbox) seeds
-    files from here into ``/workspace/myspace/{user_id}/`` when a session is first created,
-    then syncs incrementally by mtime.
-    """
-    return myspace_cache_root() / user_id
 
 
 def dws_cache_dir(user_id: str) -> Path:

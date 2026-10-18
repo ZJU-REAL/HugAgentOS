@@ -79,7 +79,7 @@ def test_default_plugin_marker_preserves_later_user_uninstall(db_session):
 
 @pytest.mark.asyncio
 async def test_ce_compose_startup_runs_default_plugin_bootstrap(monkeypatch):
-    app_module = importlib.import_module("api.app")
+    app_module = importlib.import_module("api.startup.plugins")
     engine_module = importlib.import_module("core.db.engine")
     calls = []
 

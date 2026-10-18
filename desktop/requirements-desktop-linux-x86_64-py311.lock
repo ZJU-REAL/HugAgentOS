@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 607dc448935874fd60be944090c035ef34c56e1c037e93516cbd50e4a991cab3
+# input-sha256: f52f94ffcf8f6c42305840647a6b6b9881de47cde0abca72144ad98266038b9d
 # Target: CPython 3.11 on Linux x86_64
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt
@@ -605,8 +605,6 @@ uvicorn==0.52.0
     # via
     #   -r desktop/requirements-desktop.txt
     #   mcp
-watchdog==6.0.0
-    # via -r desktop/requirements-desktop.txt
 websocket-client==1.9.0
     # via dashscope
 websockets==15.0.1

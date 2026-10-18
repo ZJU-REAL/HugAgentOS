@@ -242,7 +242,7 @@ Regular users (gated by the `can_add_skill` permission flag granted in the admin
 | `PUT /v1/me/skills/{id}/icon` | Set an icon |
 | `DELETE /v1/me/skills/{id}` | Delete |
 
-Private skills land in the same `AdminSkill` table (`owner_user_id` = the user); at runtime `agent_factory._filter_skill_ids_for_user` guarantees they never leak to others. Once a private skill matures, the community-publishing flow above brings it to the marketplace.
+Private skills land in the same `AdminSkill` table (`owner_user_id` = the user); at runtime `factory/selection/capabilities.py::_filter_skill_ids_for_user` guarantees they never leak to others. Once a private skill matures, the community-publishing flow above brings it to the marketplace.
 
 ## Desktop Local Files and Cloud Submission
 

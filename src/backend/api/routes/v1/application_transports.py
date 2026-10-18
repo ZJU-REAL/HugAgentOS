@@ -42,17 +42,7 @@ async def internal_operation(
                 chat_id=body.chat_id,
             )
         )
-    if body.action in {"source", "publish_project", "publish_mcp"}:
-        from core.services.application_projects import ApplicationProjectService
-
-        await ApplicationProjectService(db, ApplicationDataService().engine).flush_source(
-            body.app_id, body.user_id
-        )
     result = await run_in_threadpool(perform_operation, body, db)
-    if body.action in {"publish_project", "publish_mcp"}:
-        from core.services.application_publication import finish_application_publication
-
-        result = await finish_application_publication(body.user_id, result)
     return success_response(data=result)
 
 
@@ -80,9 +70,6 @@ async def internal_publish_mcp(
         from core.services.application_publication import ApplicationPublicationService
 
         publication = ApplicationPublicationService(db)
-        await ApplicationProjectService(db, publication.engine).flush_source(
-            body.app_id, body.user_id
-        )
         result = await run_in_threadpool(
             publication.publish,
             body.app_id,
@@ -91,9 +78,7 @@ async def internal_publish_mcp(
             install_personal=True,
             chat_id=body.chat_id,
         )
-        from core.services.application_publication import finish_application_publication
 
-        result = await finish_application_publication(body.user_id, result)
     return success_response(data=result)
 
 

@@ -120,6 +120,14 @@ def upload_user_file(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
 
+    if db_folder_id:
+        from core.spaces.files import SpaceFiles
+        from core.spaces.projects import folder_path
+        directory = folder_path(db, UserFolder, {"user_id": user_id}, db_folder_id)
+        SpaceFiles(db, user_id, get_storage()).write(
+            "personal", directory + "/" + file.filename, file_bytes,
+        )
+
     return {
         "file_id": artifact.artifact_id,
         "name": artifact.filename,

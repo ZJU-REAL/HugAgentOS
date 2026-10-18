@@ -1,13 +1,8 @@
-"""Single source of truth for MCP server → port mapping.
+"""Deployment-adjusted ports for registry-managed MCP processes.
 
-Both ``configs/mcp_config.py`` (which builds backend-side
-``http://mcp:NNNN/mcp/`` URLs) and ``mcp_servers/_launcher.py`` (which
-binds those ports inside the mcp container) read from this module.
-The alembic migration ``y5z6a7b8c9d0_migrate_mcp_to_streamable_http.py``
-keeps a frozen snapshot — that one is intentional.
-
-Port assignments are stable; never reassign without updating both
-catalog/display_names and any deployed configs.
+Base ports and installation placement live in mcp_servers.registry.
+Backend connection configuration and the process launcher consume this mapping.
+Deployed port assignments remain stable.
 """
 
 from __future__ import annotations
@@ -40,24 +35,11 @@ def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int
 
 _PORT_OFFSET = _parse_port_offset(os.getenv("HUGAGENT_LOCAL_MCP_PORT_OFFSET"))
 
-# server_id (the catalog/display_names key) → port
-_BASE_PORTS: dict[str, int] = {
-    "retrieve_dataset_content": 9100,  # historical KB port
-    "internet_search": 9102,
-    # 9105 reserved (retired report_export_mcp; document export now uses skills)
-    # 9104 reserved (retired chart MCP; charts use sandbox skills)
-    "web_fetch": 9106,
-    "automation_task": 9108,  # 定时任务管理（插件市场可装卸；身份走 X-Current-User-Id 头）
-    "skill_manager": 9112,  # 技能管理（skill-manager 插件；搜/装/创建/上架/删；身份走 X-Current-User-Id 头）
-    "site_publish": 9113,  # 对话建站发布（sites 插件；把沙箱静态站发布为托管站点；身份走 X-Current-User-Id / X-Conversation-Id 头）
-    "agent_manager": 9115,  # 智能体管理（agent-manager 插件；搜/装/建/改/删/上架子智能体；身份走 X-Current-User-Id 头）
-    "browser_runtime": 9117,
-    "plugin_manager": 9116,  # 插件管理（plugin-manager 插件；搜/装/导入/启停/卸载插件；身份走 X-Current-User-Id 头）
-    # 9108 was word_mcp (retired; Word → officecli-docx skill); reused for automation_task
-    # 9109 reserved (was excel_mcp; Excel capability moved into the officecli-xlsx skill)
-    # 9110 reserved (was ppt_mcp; PPT capability moved into the officecli-pptx skill)
-    # 9111 reserved (was pdf_mcp; PDF capability moved into pdf-editing skill)
-}
+# Installation placement and base ports share one registry.
+from mcp_servers.registry import SERVERS
+
+_BASE_PORTS = {key: server.port for key, server in SERVERS.items()
+               if server.exposure == "process" and server.port is not None}
 
 PORTS: dict[str, int] = {
     server_id: port + _PORT_OFFSET for server_id, port in _BASE_PORTS.items()
@@ -71,4 +53,5 @@ def package_name(server_id: str) -> str:
     in ``_mcp`` use it verbatim. The launcher needs the package name to
     spawn ``python -m mcp_servers.<pkg>.server``.
     """
-    return server_id if server_id.endswith("_mcp") else f"{server_id}_mcp"
+    server = SERVERS.get(server_id)
+    return server.package if server else (server_id if server_id.endswith("_mcp") else f"{server_id}_mcp")

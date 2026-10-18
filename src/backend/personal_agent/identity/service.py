@@ -33,7 +33,7 @@ class IdentityService:
             self.db.add(ChatSession(chat_id=chat_id, user_id=self.user_id, title=DEFAULT_NAME, extra_data={"personal_agent": True}))
             self.db.flush()
             row = PersonalAgent(id="pa_" + ident, user_id=self.user_id, chat_id=chat_id,
-                                sandbox_session_id="pa_box_" + ident, config={"name": DEFAULT_NAME, "concurrency": DEFAULT_CONCURRENCY, "space_enabled": True, "email_enabled": True,
+                                sandbox_session_id="pa_box_" + ident, config={"name": DEFAULT_NAME, "concurrency": DEFAULT_CONCURRENCY, "email_enabled": True,
                                 **{key: value or [] for key, value in defaults.items()}, "defaults_version": DEFAULTS_VERSION})
             self.db.add(row)
             try:
@@ -47,7 +47,7 @@ class IdentityService:
             config = dict(row.config or {})
             if config.get("defaults_version", 1) < 4:
                 # Connectors are on by default; email still needs a connected account and approval to send.
-                config.update(space_enabled=True, email_enabled=True)
+                config.update(email_enabled=True)
             named = "name" not in config
             if named: config["name"] = self._legacy_name(row.id)
             if "capability_selection" not in config:
@@ -99,7 +99,7 @@ class IdentityService:
 
     def configure(self, patch):
         self.ensure()
-        allowed = {"concurrency", "space_enabled", "email_enabled", "timezone", "name", "avatar", "heartbeat", "dreaming", "model_provider_id", "thinking_effort", "approval_mode", "skill_ids", "mcp_ids", "plugin_ids"}
+        allowed = {"concurrency", "email_enabled", "timezone", "name", "avatar", "heartbeat", "dreaming", "model_provider_id", "thinking_effort", "approval_mode", "skill_ids", "mcp_ids", "plugin_ids"}
         if set(patch) - allowed: raise ValueError("Unknown Personal Agent setting")
         if "approval_mode" in patch:
             from personal_agent.tasks.approvals import APPROVAL_MODES

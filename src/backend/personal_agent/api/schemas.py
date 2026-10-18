@@ -45,7 +45,6 @@ class Settings(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
     avatar: str | None = Field(default=None, max_length=400000)
-    space_enabled: bool | None = None
     email_enabled: bool | None = None
     # "" restores the platform default model.
     model_provider_id: str | None = Field(default=None, max_length=64)

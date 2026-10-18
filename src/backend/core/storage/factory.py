@@ -45,8 +45,12 @@ def get_storage_backend() -> StorageBackend:
     elif storage_type == "s3":
         from core.storage.s3 import S3StorageBackend
         return S3StorageBackend()
-    else:
+    elif storage_type == "obs":
+        from core.storage.obs import OBSStorageBackend
+        return OBSStorageBackend()
+    elif storage_type == "local":
         return LocalStorageBackend()
+    raise ValueError("STORAGE_TYPE must be local, s3, oss or obs")
 
 
 def generate_storage_key(

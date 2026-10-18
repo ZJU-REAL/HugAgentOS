@@ -199,7 +199,6 @@ class _OpenSandboxLifecycleMixin:
             sandbox=sbx,
             interpreter=None,
             contexts={},
-            seeded_myspace_mtime={},
             user_id=user_id,
             pool_source="none",
             last_renew_ts=time.monotonic(),

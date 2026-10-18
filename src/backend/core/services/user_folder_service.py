@@ -1,15 +1,4 @@
-"""Personal folder (UserFolder) business logic.
-
-Manages only the "My Space" personal file hierarchy:
-- same-name check among siblings (with soft-delete fallback)
-- cycle detection on move
-- cascading soft delete (itself + descendant folders + associated personal artifacts)
-- audit persistence
-
-Personal artifact ownership is determined by ``user_id`` and
-``user_folder_id``. Edition-specific ownership transitions are handled outside
-this shared service.
-"""
+"""Personal project directory bindings and file operations."""
 
 from __future__ import annotations
 from core.infra.time import utc_now
@@ -47,7 +36,7 @@ def _sanitize_name(name: str) -> Tuple[bool, str]:
         return False, "文件夹名称不能为空"
     if len(cleaned) > 255:
         return False, "文件夹名称过长"
-    if "/" in cleaned or cleaned in (".", ".."):
+    if "/" in cleaned or "\\" in cleaned or any(ord(c) < 32 for c in cleaned) or cleaned in (".", ".."):
         return False, "文件夹名称非法（不能包含 / 或仅为 . / ..）"
     return True, cleaned
 
@@ -161,6 +150,16 @@ class UserFolderService(PersonalFileOperations):
             parent_folder_id=parent_folder_id,
             name=cleaned,
         )
+        from core.spaces.files import SpaceFiles
+        if actor != user_id:
+            return FolderResult(False, "无权创建该用户的文件夹")
+        path = self._folder_rel(folder)
+        files = SpaceFiles(self.db, actor, get_storage())
+        info = files.storage.stat_object(files.grant("personal").key(path))
+        if info is None:
+            files.mkdir("personal", path)
+        elif not info.is_directory:
+            return FolderResult(False, "目标位置已有同名文件")
         self.db.add(folder)
         self.db.commit()
 
@@ -176,21 +175,6 @@ class UserFolderService(PersonalFileOperations):
         )
         return FolderResult(True, "文件夹已创建", folder_id=folder_id)
 
-    def _drop_mirror(self, user_id: str, rel: str, *, is_dir: bool) -> None:
-        """把沙箱镜像目录里旧路径上的副本清掉。
-
-        改名/移动只改数据库里的归属，镜像目录里旧路径上的文件还在。不清掉，沙箱里会同时
-        看到新旧两份，读时对账还会把旧路径当成"没登记过的新文件"重新登记回用户空间 ——
-        用户改个名字，界面上冒出两个文件。新路径由正向同步按需重新物化，这里只负责收拾旧的。
-        """
-        if not rel:
-            return
-        try:
-            from core.llm.tools.myspace_vfs import _remove_cache
-
-            _remove_cache(user_id, rel, is_dir=is_dir)
-        except Exception as exc:  # noqa: BLE001 — 清镜像失败不该让改名/移动失败
-            logger.warning("[user_folder] 清理镜像旧路径失败 %s: %s", rel, exc)
 
     def _folder_rel(self, folder: UserFolder) -> str:
         """文件夹相对用户根目录的路径（用当前 DB 状态算，调用方须在改动前调用）。"""
@@ -237,10 +221,13 @@ class UserFolderService(PersonalFileOperations):
             return FolderResult(False, "同级已有同名文件夹")
 
         old_rel = self._folder_rel(folder)
+        parent_path = old_rel.rpartition("/")[0]
+        new_rel = parent_path + "/" + cleaned if parent_path else cleaned
+        from core.spaces.files import SpaceFiles
+        SpaceFiles(self.db, actor, get_storage()).move("personal", old_rel, new_rel)
         folder.name = cleaned
         folder.updated_at = utc_now()
         self.db.commit()
-        self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
         self.audit.create(
             {
@@ -305,10 +292,13 @@ class UserFolderService(PersonalFileOperations):
             return FolderResult(False, "目标位置已有同名文件夹")
 
         old_rel = self._folder_rel(folder)
+        parent_path = self._folder_rel(parent) if new_parent_id else ""
+        new_rel = parent_path + "/" + folder.name if parent_path else folder.name
+        from core.spaces.files import SpaceFiles
+        SpaceFiles(self.db, actor, get_storage()).move("personal", old_rel, new_rel)
         folder.parent_folder_id = new_parent_id
         folder.updated_at = utc_now()
         self.db.commit()
-        self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
         self.audit.create(
             {
@@ -342,7 +332,7 @@ class UserFolderService(PersonalFileOperations):
         return ids
 
     def delete_folder(self, folder_id: str, actor: str) -> Tuple[FolderResult, int]:
-        """Cascading soft delete of the folder plus all descendant folders and associated artifacts. Returns the number of affected files."""
+        """Delete directory content, then remove its project bindings."""
         lock_folder_owner(self.db, UserShadow, "user_id", actor)
         folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
@@ -351,14 +341,8 @@ class UserFolderService(PersonalFileOperations):
         ids_to_delete = self._collect_descendants(folder_id)
         now = utc_now()
 
-        affected = (
-            self.db.query(Artifact)
-            .filter(
-                Artifact.user_folder_id.in_(ids_to_delete),
-                Artifact.deleted_at.is_(None),
-            )
-            .update({Artifact.deleted_at: now}, synchronize_session=False)
-        )
+        from core.spaces.files import SpaceFiles
+        affected = SpaceFiles(self.db, actor, get_storage()).delete_tree("personal", self._folder_rel(folder))
 
         self.db.query(UserFolder).filter(
             UserFolder.folder_id.in_(ids_to_delete),
@@ -383,18 +367,10 @@ class UserFolderService(PersonalFileOperations):
         return FolderResult(True, "文件夹已删除", folder_id=folder_id), int(affected or 0)
 
     def count_affected_artifacts(self, folder_id: str, user_id: str) -> int:
-        """Preflight: how many files deleting this folder would affect (including all descendant subfolders)."""
-        folder = self.get(folder_id)
-        if folder is None or folder.user_id != user_id:
+        from core.spaces.access import namespace
+        from core.spaces.tree import tree_entries
+        folder = self.get_owned(folder_id, user_id)
+        if folder is None:
             return 0
-        ids = self._collect_descendants(folder_id)
-        return (
-            self.db.query(Artifact)
-            .filter(
-                Artifact.user_folder_id.in_(ids),
-                Artifact.deleted_at.is_(None),
-            )
-            .count()
-        )
-
-    # ── Artifact moves ───────────────────────────────────
+        prefix = namespace("users", user_id) + self._folder_rel(folder) + "/"
+        return sum(not item.is_directory for item in tree_entries(get_storage(), prefix))

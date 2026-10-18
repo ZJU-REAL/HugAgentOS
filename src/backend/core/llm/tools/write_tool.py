@@ -1,18 +1,4 @@
-"""Write tool — create / fully overwrite sandbox files, ported from Claude Code's FileWriteTool.
-
-Invariants:
-- **Existing files must be Read first**: path missing from state -> reject (prevents blind overwrite)
-- **No external change**: state compared via sha256 (same as Edit)
-
-myspace auto-persistence (B + in-place + immediate sync):
-- When the path is under ``/myspace/...`` or ``/workspace/myspace/{user_id}/...``:
-  * Same-named artifact exists -> overwrite its storage content (**same file_id**, Canvas iframe needs no URL change)
-  * None exists -> create a new artifact
-  * Also write the bytes into the backend's ``myspace_cache/{user_id}/`` so the next fresh sandbox seed sees them
-- When the path is under ``/workspace/scratch/`` or other ``/workspace/`` subdirectories:
-  * No sync by default — this is the "intermediate output" area
-  * The model can explicitly pass ``register_as_artifact=True`` to register an output at any path as a downloadable
-"""
+"""Read-checked mutations of files in the active sandbox."""
 
 from __future__ import annotations
 
@@ -21,18 +7,16 @@ import hashlib
 import logging
 from typing import Optional
 
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 from core.services.project_scope import ProjectScope
 
-from core.llm.tools import myspace_vfs as _ms
 from ._common import (
     pin_artifact_to_workspace,
     resolve_sandbox_session,
     resp_json,
     sandbox_exec_bash,
     shell_quote,
-    myspace_mutation_refusal,
-    upsert_myspace_artifact,
+    register_file_artifact,
 )
 from ._paths import (
     basename,
@@ -117,14 +101,13 @@ def register_write(
                         f"Write 只能写 UTF-8 纯文本，不能直接生成 .{_ext} 二进制文档"
                         "（产物会是无法打开的假文档）。请用 Bash 调命令行工具生成"
                         "（docx 用 python-docx，xlsx 用 openpyxl，pdf 用 reportlab "
-                        "等），生成后写到同一路径即可自动同步。"
+                        "等），生成后写到目标目录即可。"
                     ),
                 }
             )
 
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
         from .project_source_access import current_scope_error
-        from core.services.edition_workspace import write_organization_text, is_organization_path
 
         scope_error = current_scope_error(scope, user_id, write=True)
         if scope_error:
@@ -132,35 +115,7 @@ def register_write(
         physical = to_physical_path(file_path, user_id, session_id=_sess, scope=scope)
         is_persistent = is_myspace_physical(physical, user_id)
 
-        if is_organization_path(scope, user_id, file_path):
-            from fastapi import HTTPException
-            import asyncio
 
-            try:
-                from core.sandbox import get_sandbox_provider
-
-                await get_sandbox_provider().ensure_user_workspace(_sess, user_id)
-                return resp_json(
-                    await asyncio.to_thread(
-                        write_organization_text,
-                        scope,
-                        user_id or "",
-                        file_path,
-                        physical,
-                        state,
-                        session_id=_sess,
-                        content=content,
-                    )
-                )
-            except HTTPException as exc:
-                return resp_json({"error": exc.detail, "status": exc.status_code})
-
-        # 只读作用域（团队项目）必须在写字节之前就拒绝，否则文件已经落在用户的镜像
-        # 目录里，而登记那一步才被拦下 —— 对模型是"成功"，对用户是哪儿都看不见。
-        if is_persistent:
-            _refusal = myspace_mutation_refusal(scope, file_path, "写入文件")
-            if _refusal is not None:
-                return resp_json(_refusal)
 
         from core.config.local_mode import local_mode_enabled as _local_on
 
@@ -186,23 +141,6 @@ def register_write(
             return resp_json({"error": f"沙盒连接失败: {exc}"})
         except OSError as exc:
             return resp_json({"error": f"读取现有文件失败: {exc}"})
-
-        # Absent from the sandbox != file does not exist: a myspace file may not yet be
-        # materialized into the sandbox (sandbox rebuild / provider without bind mount).
-        # In that case the artifact must be the authority, otherwise "overwriting an
-        # existing file" gets misjudged as "create" and bypasses the read-before-write
-        # protection below.
-        if existing is None and is_persistent and user_id:
-            try:
-                existing = await _ms.materialize_into_sandbox(
-                    provider,
-                    _sess,
-                    user_id,
-                    file_path,
-                    scope=scope,
-                )
-            except Exception as mexc:  # noqa: BLE001
-                logger.warning("[write] myspace 物化失败 %s: %s", file_path, mexc)
 
         is_update = existing is not None
         original_text: Optional[str] = None
@@ -332,10 +270,6 @@ def register_write(
                 ),
             )
 
-        # ── Artifact registration for non-myspace paths ──────────────────
-        # A write under /myspace needs nothing here: the file has landed in the user's
-        # own directory, and core.space_sync.personal registers it from the filesystem
-        # event — the same way it registers everything else written there, tool or not.
         artifact_ref: Optional[dict] = None
         from core.artifacts.local_project import is_project_file_path
 
@@ -361,7 +295,7 @@ def register_write(
                     }
                 )
         elif needs_registration:
-            artifact_ref = upsert_myspace_artifact(
+            artifact_ref = register_file_artifact(
                 user_id=user_id,
                 chat_id=chat_id,
                 filename=basename(physical),
@@ -398,7 +332,7 @@ def register_write(
     Write.__doc__ = (
         "创建文件或全量覆盖已存在文件。\n\n"
         "写 ``/myspace/<文件夹>/<文件名>`` 时目录层级会映射到我的空间目录树"
-        "（缺失文件夹自动建），同名文件保持同一 file_id。\n\n"
+        "（缺失文件夹自动建）。\n\n"
         "**前置**：覆盖现存文件前必须先 ``Read`` 完整读过（不传 offset/limit），否则被拒；"
         "小修改优先用 ``Edit``（只发 diff，比全量重写省 token）。\n\n"
         "Args:\n"
@@ -406,7 +340,7 @@ def register_write(
         "        仅在用户要求存入其「我的空间」时用 ``/myspace/...``。\n"
         "    content (`str`): 完整文件内容（UTF-8 文本）。\n"
         "    register_as_artifact (`bool`): 默认 false。写在沙盒里又想让用户\n"
-        "        能下载该文件时传 true。写到 ``/myspace/`` 下不需要（自动同步）。\n\n"
+        "        能下载该文件时传 true。写入 ``/myspace/`` 后，用户可在网页目录中查看。\n\n"
         "Returns:\n"
         "    JSON: ``{ok: true, type: 'create'|'update', file_path, physical_path,\n"
         "             size, persistent, diff?, artifact?, file_id?, note?}``\n"

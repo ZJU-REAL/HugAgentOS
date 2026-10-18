@@ -229,24 +229,3 @@ class ApplicationPublicationService:
         if tools is None:
             raise HTTPException(404, "MCP deployment not found")
         return self.publish(app_id, owner, [ToolDefinition.model_validate(tool) for tool in tools])
-
-
-async def finish_application_publication(owner, receipt):
-    """Return only after the mounted project reflects its committed new version.
-
-    A failed mirror refresh is partial completion: publication already committed,
-    so preserve the receipt and never turn it into an ambiguous HTTP failure.
-    """
-    if receipt.get("project_synced"):
-        from core.space_sync.personal_registry import flush_user
-
-        try:
-            await flush_user(owner, strict=True)
-        except HTTPException:
-            receipt["project_synced"] = False
-            logger.warning(
-                "MCP project refresh incomplete app=%s version=%s",
-                receipt.get("app_id"),
-                receipt.get("version"),
-            )
-    return receipt

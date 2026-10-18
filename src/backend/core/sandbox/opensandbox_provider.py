@@ -23,7 +23,7 @@ from core.sandbox._opensandbox_internals import (
 from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
 
 from . import session_registry
-from ._common import WORKSPACE, myspace_cache_dir, safe_user_id, stream_to_file
+from ._common import WORKSPACE, safe_user_id, stream_to_file
 from ._opensandbox_admin import _OpenSandboxAdminMixin
 from ._opensandbox_adoption import _OpenSandboxAdoptionMixin
 from ._opensandbox_connection import _OpenSandboxConnectionMixin
@@ -31,7 +31,7 @@ from ._opensandbox_loop import _on_service_loop
 from ._pool import SandboxPool
 from .errors import SandboxError, SandboxFileTooLargeError
 from .process_completion import CompletionMixin
-from .protocol import ProcessRequest, StagedFile, StageFile
+from .protocol import ProcessRequest
 
 
 class OpenSandboxProvider(
@@ -44,10 +44,6 @@ class OpenSandboxProvider(
 ):
     name = "opensandbox"
 
-    @property
-    def myspace_mirror_live(self) -> bool:
-        """开了 bind mount 时沙箱的 /workspace/myspace/{uid} 就是后端 myspace_cache 本身。"""
-        return bool(settings.sandbox.opensandbox_myspace_bind_mount_enabled)
 
     # 类属性兜底：有测试绕过 __init__ 直接造实例，亲和层读不到就会 AttributeError。
     # None 表示未锚定服务循环，装饰器退化为就地执行。
@@ -239,34 +235,6 @@ class OpenSandboxProvider(
         except Exception as exc:  # noqa: BLE001
             logger.warning("[opensandbox] close_session failed sid=%s: %s", session_id, exc)
 
-    async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]:
-        """Write into the backend-local myspace_cache/{user_id}/; seeded into the
-        sandbox on demand at execute time. The path the LLM sees is
-        /workspace/myspace/{user_id}/<name>, consistent with the script_runner
-        convention.
-        """
-        if not safe_user_id(user_id):
-            raise SandboxError(f"非法 user_id: {user_id!r}")
-
-        cache_dir = myspace_cache_dir(user_id)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-        staged: list[StagedFile] = []
-        for f in files:
-            if "/" in f.name or "\\" in f.name or ".." in f.name:
-                raise SandboxError(f"非法文件名: {f.name!r}")
-            try:
-                data = base64.b64decode(f.content_b64)
-            except Exception as e:
-                raise SandboxError(f"文件 {f.name} base64 解析失败") from e
-            (cache_dir / f.name).write_bytes(data)
-            staged.append(
-                StagedFile(
-                    name=f.name,
-                    path=f"{WORKSPACE}/myspace/{user_id}/{f.name}",
-                )
-            )
-        return staged
 
     @_on_service_loop
     async def put_file(

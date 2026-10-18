@@ -49,23 +49,18 @@ def _tool_call(name: str, arguments: dict) -> ToolCallBlock:
     [
         ("Write", "file_path"),
         ("Edit", "file_path"),
-        ("space_delete", "path"),
-        ("space_move", "src_path"),
-        ("space_create_folder", "path"),
     ],
 )
-def test_physical_myspace_path_still_requires_the_myspace_confirmation(tool_name, path_arg):
+def test_physical_myspace_path_still_requires_the_tool_confirmation(tool_name, path_arg):
     """``/workspace/myspace/<uid>/…`` must not skip the persistence gate.
 
-    Both spellings reach the same cross-session storage and both reverse-sync
-    to the artifact table, so judging on the raw argument prefix alone left a
-    silent bypass of the confirmation.
+    Both logical and physical spellings reach the mounted persistent directory
+    and require the same approval.
     """
     spec = builtin_tool_permission(tool_name)
     args = {
         path_arg: "/workspace/myspace/user-1/report.docx",
         "content": "x",
-        "dst_path": "/myspace/b.docx",
     }
 
     domains = [intent.domain for intent in spec.resolver(args, _runtime())]
@@ -109,20 +104,11 @@ def test_optional_path_argument_falls_back_to_the_tool_default(tool_name):
     assert [intent.domain for intent in intents] == [DOMAIN_LOCAL_PATH]
 
 
-# ── MCP tools are temporarily all whitelisted ────────────────────────────────
-
-
-
-
-# ── MCP whitelist scans do not touch the remote surface ─────────────────────
-
-
-
 
 
 
 @pytest.mark.asyncio
-async def test_trusted_unattended_run_bypasses_builtin_myspace_confirmation():
+async def test_trusted_unattended_run_bypasses_builtin_tool_confirmation():
     registry = ToolPermissionRegistry()
     registry.register("Write", builtin_tool_permission("Write"), source="native")
     service = ToolPermissionService(

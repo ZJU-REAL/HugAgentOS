@@ -12,11 +12,10 @@ from core.services.edition_workspace import is_shared_scope
 import logging
 from typing import Optional
 
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolResponse
 
 from core.services.project_scope import ProjectScope
 
-from core.llm.tools import myspace_vfs as _ms
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
 from ._paths import (
     to_physical_path,
@@ -69,18 +68,6 @@ def register_grep(
         scope_err = validate_project_scope_path(path, project_folder_name)
         if scope_err:
             return resp_json({"error": scope_err})
-
-        # Grep needs to search content → first materialize that subtree of "My Space" into the sandbox in bulk on demand
-        # (the batch version of lazy loading; already-in-sandbox files are not re-fetched), ensuring the search covers the real My Space.
-        materialized = 0
-        if user_id and not is_shared_scope(scope) and _ms.myspace_rel(path, user_id, scope) is not None:
-            try:
-                from core.sandbox import get_sandbox_provider as _gsp
-                materialized = await _ms.materialize_tree(
-                    _gsp(), _sess, user_id, path, scope=scope,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[grep] materialize_tree 失败 %s: %s", path, exc)
 
         # /myspace → /workspace/myspace/<uid>
         path = to_physical_path(path, user_id, session_id=_sess, scope=scope)
@@ -174,13 +161,11 @@ def register_grep(
             "matches": raw_lines,
             "num_matches": len(raw_lines),
             "truncated": truncated,
-            "myspace_materialized": materialized,
         })
 
     Grep.__doc__ = (
         "按正则搜索文件内容。优先用 ripgrep，缺失则 fallback grep。\n\n"
-        "搜 ``/myspace`` 时会先把该子树的**文本**文件批量物化进沙盒再搜"
-        "（返回 ``myspace_materialized`` 计数）；二进制文档搜不到，改用 Read 看解析文本。\n\n"
+        "直接搜索已挂载目录中的文本文件。二进制文档使用 Bash 调用文档工具处理。\n\n"
         "Args:\n"
         "    pattern (`str`): 正则表达式。\n"
         "    path (`str`): 搜索路径，默认 ``.``（本次会话的工作目录）；搜用户「我的空间」\n"
@@ -193,7 +178,7 @@ def register_grep(
         "    head_limit (`int`): 截断行数，0 = 默认 250，硬上限 1000。\n\n"
         "Returns:\n"
         "    JSON: ``{ok: true, engine, pattern, path, output_mode, matches: [...],\n"
-        "             num_matches, truncated, myspace_materialized}``。\n"
+        "             num_matches, truncated}``。\n"
     )
 
     toolkit.register_tool_function(Grep, namesake_strategy="override")

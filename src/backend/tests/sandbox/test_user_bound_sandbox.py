@@ -11,7 +11,6 @@ from core.sandbox import _opensandbox_internals as internals
 from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
 
 _FLAGS = (
-    "opensandbox_myspace_bind_mount_enabled",
     "dws_creds_bind_mount_enabled",
     "lark_creds_bind_mount_enabled",
     "email_creds_bind_mount_enabled",
@@ -42,10 +41,10 @@ def test_per_user_skill_view_requires_user_bound_sandbox(monkeypatch):
     assert internals._user_bound_sandbox_required() is True
 
 
-def test_all_private_mounts_disabled_allow_general_pool(monkeypatch):
+def test_space_mounts_require_user_bound_sandbox_without_credential_mounts(monkeypatch):
     monkeypatch.setattr(internals, "settings", _settings())
 
-    assert internals._user_bound_sandbox_required() is False
+    assert internals._user_bound_sandbox_required() is True
 
 
 def test_dingtalk_mount_uses_user_pool_when_myspace_mount_is_disabled(monkeypatch):

@@ -60,7 +60,7 @@ async def middleware_stack(
         _permission_registry.register(
             _tool_name,
             _permission_spec,
-            source="native",
+            source="tool_collector",
         )
     _permission_service = ToolPermissionService(
         _permission_registry,
@@ -77,6 +77,7 @@ async def middleware_stack(
                 automation_run=request.automation_run,
             ),
             approval_mode=request.approval_mode,
+            read_only=request.read_only,
             account_approval=not bool(request.profile) and not bool(_api_scope or _eval_scope),
         ),
     )

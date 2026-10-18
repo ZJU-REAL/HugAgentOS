@@ -98,10 +98,5 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Deprecated (kept for fallback display)
     "use_skill": "加载技能（已废弃）",
     # My Space access tools (code-execution mode)
-    "space_list_myspace_files": "浏览我的空间",
-    "space_stage_myspace_file": "导入文件到工作区",
-    "space_create_folder": "创建空间文件夹",
-    "space_move": "移动空间文件",
-    "space_delete": "删除空间文件",
     **edition_tool_display_names(),
 }

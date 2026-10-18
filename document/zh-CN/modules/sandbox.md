@@ -47,7 +47,7 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 ## Agent 侧工具
 
-`core/llm/tools/sandbox_tool.py` 向智能体注册四个工具（`agent_factory` 在 Phase 3.5 调用各 `register_*`）：
+`core/llm/tools/sandbox_tool.py` 向智能体注册四个工具（`factory/tools/native.py` 调用各 `register_*`）：
 
 | 工具 | 作用 |
 |---|---|

@@ -66,6 +66,16 @@ class GatewayMCPTool(ToolBase):
         )
 
     async def __call__(self, **kwargs: Any) -> ToolChunk:
+        from mcp_servers.registry import permission_specs
+        from core.llm.tool_permissions.models import (
+            CURRENT_PERMISSION_TICKET, PermissionEnforcementError, _json_hash,
+        )
+        spec = permission_specs(self.mcp_name).get(self.name)
+        if spec is not None:
+            ticket = CURRENT_PERMISSION_TICKET.get()
+            if (ticket is None or not ticket.active or ticket.tool_name != self.name
+                    or ticket.spec_key != spec.key or ticket.args_hash != _json_hash(kwargs)):
+                raise PermissionEnforcementError("云端空间工具缺少匹配的预执行授权票据")
         headers = dict(self._headers)
         from core.services.desktop_observation_context import context_headers
         headers.update(context_headers())

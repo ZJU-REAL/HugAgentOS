@@ -61,6 +61,11 @@ async def mcp_connections(
     # in-house tools/skills (the register_* functions barely change), then
     # construct the real Toolkit at the end.
     toolkit = ToolCollector()
+    # Policies must exist before deferred plugins become visible mid-run.
+    from mcp_servers.registry import SERVERS
+    for server in SERVERS.values():
+        for name, spec in server.permission_specs().items():
+            toolkit.register_tool_permission(name, spec)
     # ⚠️ This is a Jinja2 template, rendered by toolkit.get_skill_instructions()
     # with the ``skills`` variable. It MUST contain the
     # ``{% for skill in skills %}`` loop to actually list the skills — otherwise
@@ -71,10 +76,8 @@ async def mcp_connections(
     #
     # Skill.dir is supplied by the deployment's path policy.
 
-    # The declarative permission middleware governs built-in tools only. A
-    # resident web conversation can answer prompts; trusted unattended entry
-    # points (external channels and automation) bypass built-in policy checks.
-    # MCP tools are temporarily a whitelist and never enter this registry.
+    # Native tools and registry-governed MCP tools share the permission middleware.
+    # Other MCP servers retain their own declared permission behavior.
     _is_channel_run = bool((request.channel_origin or {}).get("channel_id"))
     _tool_approval_available = bool(
         request.chat_id is not None
@@ -143,7 +146,8 @@ async def mcp_connections(
             # not and must not connect(); a single list_tools serves as the
             # liveness probe (lazy connect + enumerate, verifying reachability),
             # after which the Toolkit opens a fresh connection on every call.
-            _http_cfg = {**cfg, "url": cfg.get("url", KB_MCP_HTTP_URL)}
+            _http_cfg = {**cfg, "url": cfg.get("url", KB_MCP_HTTP_URL),
+                         "read_only": request.read_only}
             if _http_cfg.get("schema_source") == "cloud_manifest" and not uses_manifest_schema(
                 _http_cfg
             ):

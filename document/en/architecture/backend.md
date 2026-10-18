@@ -43,13 +43,13 @@ Dependencies are one-directional: `api → orchestration → core`; `mcp_servers
 
 | File | Responsibility |
 |---|---|
-| `agent_factory.py` | The core factory `create_agent_executor`: assembles prompts, filters MCP servers, registers tools and skills, and produces an AgentScope 2.0 Agent |
+| `factory/build.py` | The core factory `create_agent_executor`: assembles prompts, filters MCP servers, registers tools and skills, and produces an AgentScope 2.0 Agent |
 | `chat_models.py` | Model factory (builds AgentScope ChatModels from DB model config) |
 | `mcp_manager.py` / `mcp_pool.py` | MCP client pool: stable connections are reused; transient ones are closed per request |
 | `tool_collector.py` | Adapts incremental `register_*` style to the 2.0 one-shot Toolkit |
 | `middlewares.py` | AgentScope 2.0 middlewares (replacing 1.x hooks): pre_reply / post_acting / post_reasoning |
 | `hooks.py` | Pure-logic helpers: file-context construction, per-turn state, model resolution |
-| `tools/` | Built-in tool registrations: `read/write/edit/glob/grep_tool.py` (general-purpose file read/write/search tools), `sandbox_tool.py` (bash + artifact staging), `myspace_tool.py` + `myspace_vfs.py` (MySpace virtual filesystem), `skill_tool.py` (skill loading), `pin_tool.py`, `read_artifact_tool.py`, `_myspace_confirm.py` (hard-pause confirmation gate for writes) |
+| `tools/` | Built-in tool registrations: `read/write/edit/glob/grep_tool.py` (general-purpose file read/write/search tools), `sandbox_tool.py` (bash + artifact staging), `skill_tool.py` (skill loading), `pin_tool.py`, `read_artifact_tool.py`, `_tool_confirmation/` (shared tool approval and interaction) |
 | `context_manager.py` / `history_summarizer.py` / `summarizer.py` | Context-window budgeting, structured history summarization, conversation summarization |
 | `offloader.py` | Spills oversized tool results to the sandbox `/workspace/.offload` for read-back |
 | `subagent_tool.py` | The `call_subagent` tool: lets the main agent dispatch tasks to sub-agents |
@@ -177,7 +177,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 |---|---|
 | Chat and streaming | `chats.py` (the SSE streaming entry point), `chat_runs.py`, `chat_shares.py`, `summary.py`, `classify.py`, `memories.py` |
 | Content and files | `content.py`, `file_upload.py`, `file_parse.py`, `artifacts.py`, `myspace_folders.py`, `kb.py` (+ `kb_models.py`, Pydantic models only), `projects.py` |
-| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `ontologies.py` (user setting, version governance, evidence loop), `agents.py`, `plans.py`, `automations.py`, `batch.py` + `internal_batch.py`, `meta.py` (edition / feature probe, unauthenticated) |
+| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `ontologies.py` (user setting, version governance, evidence loop), `agents.py`, `plans.py`, `automations.py`, `meta.py` (edition / feature probe, unauthenticated) |
 | Users and auth | `users.py`, `me.py`, `api_keys.py`, `mock_sso.py` (dev) |
 | Content console (Enterprise Edition, EE; backend of `/admin`) | `admin_skills.py`, `admin_prompts.py`, `admin_kb.py`, `admin_agents.py`, `admin_mcp_servers.py`, `admin_marketplace.py`, `admin_skill_drafts.py`, `admin_sandbox.py`, `admin_logs.py`, `admin_usage_logs.py`, `admin_billing.py`, `admin_chat_history.py` |
 | System console (Enterprise Edition, EE; backend of `/config`) | `config_users.py`, `config_teams.py`, `config_invites.py`, `config_security.py`, `config_verify.py`, `config_license.py`, `service_configs.py` |
@@ -185,7 +185,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 
 ## mcp_servers/ and sidecars
 
-`mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (spawns all processes inside the mcp container according to the `_ports.py` port table), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
+`mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (starts process servers using registry placement and ports), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
 
 `services/script_runner_service/server.py` is the skill-script execution sidecar: its own container, resource-limited subprocesses, and no database / Redis / API-key access.
 
@@ -214,4 +214,6 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 | Memory pipeline | `src/backend/core/memory/pipeline.py` |
 | EE License implementation / CE edition middleware | `src/backend/edition_ee/licensing/`, `src/backend/api/middleware/edition.py` |
 | Skill engine | `src/backend/core/agent_skills/loader.py` |
-| MCP port table | `src/backend/mcp_servers/_ports.py` |
+| MCP registry and ports | `src/backend/mcp_servers/registry.py`, `_ports.py` |
+
+The space MCP interface lives in `mcp_servers/space_files_mcp/`. The registry separates installation placement from exposure. Hybrid desktops access spaces through the capability gateway; mutations use unified approval. See [space file mounts](../deployment/space-files.md).

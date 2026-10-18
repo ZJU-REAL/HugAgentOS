@@ -310,7 +310,6 @@ def test_schedule_is_not_duplicated_and_scheduled_run_cannot_schedule(sessions, 
         def __init__(self): self.functions = {}
         def register_tool_function(self, fn): self.functions[fn.__name__] = fn
     toolkit = Toolkit()
-    monkeypatch.setattr("personal_agent.tools.space.register_space_tools", lambda *a: None)
     monkeypatch.setattr("personal_agent.tools.email.register_email_tools", lambda *a: None)
     monkeypatch.setattr("personal_agent.computer.computer.register_computer_tools", lambda *a: None)
     tools.register_personal_tools(toolkit, SimpleNamespace(profile_ref=task["id"], current_user_id="owner"))

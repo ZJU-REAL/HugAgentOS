@@ -50,20 +50,8 @@ class ProcessResult:
     execution_time_ms: int
 
 
-@dataclass
-class StageFile:
-    """Input file staged into myspace."""
-
-    name: str
-    content_b64: str
 
 
-@dataclass
-class StagedFile:
-    """Location of a staged file, referenced by scripts via absolute path."""
-
-    name: str
-    path: str
 
 
 class SandboxAdminNotSupported(Exception):
@@ -126,12 +114,6 @@ class SandboxProvider(Protocol):
 
     name: str
 
-    # 沙箱里的 ``/workspace/myspace/{uid}`` 是否就是后端的 myspace_cache 目录本身
-    # （bind mount），而不是一份需要来回搬运的副本。True 时沙箱里的写入立刻落在后端磁盘
-    # 上，对账可以直接读本地目录、不必再走沙箱取文件；也意味着"沙箱副本和镜像缓存一致"
-    # 不再等于"已登记进我的空间"，判定必须以 artifact 记录为准。
-    myspace_mirror_live: bool = False
-
     # 这个 provider 是不是直接在用户宿主机上起进程。True 表示除了 OS 沙箱之外
     # 没有别的隔离边界，命令必须带着 ``ProcessRequest.sandbox_launch`` 执行；
     # False 表示隔离由容器提供，OS 沙箱在那里既无处施加也无意义——调用方据此
@@ -153,7 +135,6 @@ class SandboxProvider(Protocol):
         """Wait for incremental output, or send Ctrl+C to this owner's command."""
         ...
 
-    async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]: ...
 
     async def put_file(
         self,

@@ -44,11 +44,6 @@ export const TOOL_NAME_OVERRIDES: Record<string, string> = {
   load_skill: t('加载技能'),
   load_plugin: t('加载插件'),
   // MySpace tools
-  space_list_myspace_files: t('浏览我的空间'),
-  space_stage_myspace_file: t('导入文件到工作区'),
-  space_create_folder: t('创建文件夹'),
-  space_move: t('移动文件'),
-  space_delete: t('删除文件'),
   ...EDITION_TOOL_NAME_OVERRIDES,
 };
 

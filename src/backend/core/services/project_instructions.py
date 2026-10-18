@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, attributes
 
-from core.db.models import Artifact, Project
+from core.db.models import Project
 from core.storage import get_storage
 
 AGENTS_FILENAME = "AGENTS.md"
@@ -84,19 +84,6 @@ class ProjectInstructionsService:
             raise HTTPException(409, "AGENTS.md 必须是项目根目录内的普通文件，不能是符号链接")
         return target
 
-    def _artifact(self, project: Project):
-        query = self.db.query(Artifact).filter(
-            Artifact.filename == AGENTS_FILENAME, Artifact.deleted_at.is_(None)
-        )
-        from core.services.project_file_service import ProjectFileService
-
-        filters, _ = ProjectFileService(self.db).instruction_file_scope(project, project.owner_user_id)
-        query = query.filter_by(**filters)
-        matches = query.limit(2).all()
-        if len(matches) > 1:
-            raise HTTPException(409, "项目根目录有多个 AGENTS.md，请保留一个后重试")
-        return matches[0] if matches else None
-
     def read(self, project: Project, *, remember_file: bool = True) -> dict:
         """Read fresh bytes, including external edits; never silently truncate."""
         try:
@@ -105,7 +92,7 @@ class ProjectInstructionsService:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(503, "同步 AGENTS.md 状态失败，请稍后重试") from exc
+            raise HTTPException(503, "读取 AGENTS.md 状态失败，请稍后重试") from exc
 
     def _read(self, project: Project, *, remember_file: bool) -> dict:
         data = None
@@ -120,11 +107,14 @@ class ProjectInstructionsService:
                             raise HTTPException(409, "AGENTS.md 必须是普通文件")
                         data = stream.read(MAX_INSTRUCTIONS_BYTES + 1)
             else:
-                artifact = self._artifact(project)
-                if artifact is not None:
-                    if artifact.size_bytes > MAX_INSTRUCTIONS_BYTES:
+                from core.spaces.projects import source_key
+                storage = get_storage()
+                key = source_key(self.db, project, AGENTS_FILENAME)
+                info = storage.stat_object(key)
+                if info is not None:
+                    if info.size > MAX_INSTRUCTIONS_BYTES:
                         raise HTTPException(413, "AGENTS.md 不能超过 32 KiB")
-                    data = get_storage().download_bytes(artifact.storage_key)
+                    data = storage.download_bytes(key)
         except HTTPException:
             raise
         except Exception as exc:
@@ -171,7 +161,8 @@ class ProjectInstructionsService:
         self, project: Project, user_id: str, text: str, *, expected_revision: str | None = None
     ) -> None:
         """Write the root file; participate in the caller's database transaction."""
-        lock = _local_write_lock(self._local_file(project)) if project.kind == "local" else nullcontext()
+        from core.spaces.leases import space_lock
+        lock = _local_write_lock(self._local_file(project)) if project.kind == "local" else space_lock(user_id, engine=self.db.get_bind())
         with lock:
             self._write_locked(project, user_id, text, expected_revision=expected_revision)
 
@@ -192,6 +183,8 @@ class ProjectInstructionsService:
         self.db.flush([project])
         # Serialize service writes to this project (PostgreSQL); read again under lock.
         self.db.query(Project).filter(Project.project_id == project.project_id).with_for_update().populate_existing().first()
+        if resolve_project_permission(self.db, user_id, project) not in ("admin", "edit"):
+            raise HTTPException(403, "需要项目编辑权限才能更新 AGENTS.md")
         current = self.read(project, remember_file=False)
         if expected_revision is not None and expected_revision != current["instructions_revision"]:
             raise HTTPException(409, "AGENTS.md 已发生变化，请重新打开编辑器并合并修改")
@@ -214,7 +207,7 @@ class ProjectInstructionsService:
                     if os.path.exists(temporary):
                         os.unlink(temporary)
             else:
-                self._write_artifact(project, user_id, data)
+                self._write_file(project, data)
         except HTTPException:
             raise
         except Exception as exc:
@@ -222,35 +215,20 @@ class ProjectInstructionsService:
         project.instructions = None
         project.extra_data = {**(project.extra_data or {}), "agents_file_managed": True}
 
-    def _write_artifact(self, project: Project, user_id: str, data: bytes) -> None:
+    def _write_file(self, project: Project, data: bytes) -> None:
         from core.services.project_file_service import ProjectFileService
-
-        artifact = self._artifact(project)
-        # Artifact schema requires a positive size. A newline represents cleared instructions.
-        content = data or b"\n"
+        from core.spaces.projects import source_key
+        storage = get_storage()
+        key = source_key(self.db, project, AGENTS_FILENAME)
+        current = storage.stat_object(key)
         files = ProjectFileService(self.db)
-        if files.capacity_used(project) - (artifact.size_bytes if artifact else 0) + len(content) > files.capacity_limit():
+        if files.capacity_used(project) - (current.size if current else 0) + len(data) > files.capacity_limit():
             raise HTTPException(413, "项目容量不足，无法保存 AGENTS.md")
-        artifact_id = artifact.artifact_id if artifact else f"pj_{uuid.uuid4().hex[:16]}"
-        key = f"project-instructions/{project.project_id}/{uuid.uuid4().hex}/AGENTS.md"
-        url = get_storage().upload_bytes(content, key)
-        if artifact is None:
-            _, fields = files.instruction_file_scope(project, user_id)
-            fields.update(
-                artifact_id=artifact_id,
-                type="document", title=AGENTS_FILENAME, filename=AGENTS_FILENAME,
-            )
-            artifact = Artifact(**fields)
-            self.db.add(artifact)
-        artifact.storage_key = key
-        artifact.storage_url = url
-        artifact.size_bytes = len(content)
-        artifact.mime_type = "text/markdown"
-        artifact.parsed_text = None
-        artifact.summary = None
-        artifact.parsed_at = None
-        artifact.parse_error = None
-        artifact.updated_at = utc_now()
+        from core.spaces.tree import ensure_parents
+        ensure_parents(storage, key)
+        if current and current.is_directory:
+            raise HTTPException(409, "AGENTS.md 不能是目录")
+        storage.upload_bytes(data, key)
 
 
 def read_authorized_project_instructions(project_id: str, user_id: str) -> dict:

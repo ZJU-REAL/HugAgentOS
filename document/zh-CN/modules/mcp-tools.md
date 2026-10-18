@@ -33,7 +33,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
                        └──────────────────────────────────────────────────────┘
 ```
 
-端口分配的唯一真源是 `src/backend/mcp_servers/_ports.py`：`core/config/mcp_config.py`（后端拼 `http://mcp:NNNN/mcp/` URL）和 `mcp_servers/_launcher.py`（容器内绑定端口）都从这里读取。
+内置服务的安装位置、包名和基础端口由 `src/backend/mcp_servers/registry.py` 统一声明。`_ports.py` 应用桌面端口偏移：`core/config/mcp_config.py`（后端拼 `http://mcp:NNNN/mcp/` URL）和 `mcp_servers/_launcher.py`（容器内绑定端口）都从这里读取。
 
 > 历史说明：办公文档编辑与导出（word / excel / ppt / pdf）已整体迁出
 > `mcp` 容器，改为以 [Agent 技能](agent-skills.md)（officecli-docx /
@@ -160,7 +160,8 @@ mcp_servers/<name>_mcp/
 |---|---|
 | `_serve.py` | 所有 Server `main()` 的统一入口：`run(mcp, default_port)` 按 `--transport` 选 stdio（本地调试默认）或 streamable-http（容器内），HTTP 模式下绑 `0.0.0.0` 并关闭 DNS-rebinding 防护（私有 Docker 网络） |
 | `_launcher.py` | `mcp` 容器的 CMD：为每个 Server 起一个 streamable-http 子进程，stdout/stderr 加 `[server]` 前缀，崩溃指数退避重启，60 秒内崩溃超 5 次则整容器退出交给 Docker 重启 |
-| `_ports.py` | server_id → 端口映射的唯一真源，含 `package_name()` 包名换算 |
+| `registry.py` | 内置 MCP 的本机、云端、两端安装位置，以及进程或桌面网关暴露方式 |
+| `_ports.py` | 从注册表生成实际端口映射，应用桌面端口偏移 |
 | `_common.py` | 共享工具函数 |
 
 两条铁律：**stdout 保留给 MCP 协议**（业务日志一律走 stderr，server.py 里用 `contextlib.redirect_stdout` 兜底）；**对 LLM 生成的畸形参数保持容错**（如 dict 误塞进字符串参数时自动拆包）。
@@ -356,7 +357,8 @@ docker-compose up -d --build mcp
 | `src/backend/mcp_servers/<name>_mcp/` | 各 MCP Server（server.py / impl / _selftest） |
 | `src/backend/mcp_servers/_launcher.py` | mcp 容器入口：多进程拉起 + 崩溃重启 |
 | `src/backend/mcp_servers/_serve.py` | stdio / streamable-http 双 transport 统一入口 |
-| `src/backend/mcp_servers/_ports.py` | server_id → 端口映射唯一真源 |
+| `src/backend/mcp_servers/registry.py` | 安装位置、暴露方式、包名和基础端口 |
+| `src/backend/mcp_servers/_ports.py` | 实际部署端口映射 |
 | `src/backend/core/llm/mcp_pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient 构造 + 工具裸名还原 |
 | `src/backend/core/llm/tool_permissions.py` | 受控工具 Registry、权限判定、确认路由与执行票据 |

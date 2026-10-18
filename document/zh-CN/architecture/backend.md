@@ -43,13 +43,13 @@ src/backend/
 
 | 文件 | 职责 |
 |---|---|
-| `agent_factory.py` | 核心工厂 `create_agent_executor`：装配提示词、筛选 MCP、注册工具与技能，产出 AgentScope 2.0 Agent |
+| `factory/build.py` | 核心工厂 `create_agent_executor`：装配提示词、筛选 MCP、注册工具与技能，产出 AgentScope 2.0 Agent |
 | `chat_models.py` | 模型工厂（按 DB 模型配置构造 AgentScope ChatModel） |
 | `mcp_manager.py` / `mcp_pool.py` | MCP 客户端池：stable 连接复用、transient 连接随请求关闭 |
 | `tool_collector.py` | 把增量 `register_*` 风格适配到 2.0 一次性 Toolkit |
 | `middlewares.py` | AgentScope 2.0 中间件（取代 1.x hooks）：pre_reply / post_acting / post_reasoning |
 | `hooks.py` | 纯逻辑 helper：文件上下文构建、per-turn 状态、模型解析 |
-| `tools/` | 自研工具注册：`read/write/edit/glob/grep_tool.py`（通用文件读写检索工具）、`sandbox_tool.py`（bash + 产物搬运）、`myspace_tool.py` + `myspace_vfs.py`（「我的空间」虚拟文件系统）、`skill_tool.py`（技能加载）、`pin_tool.py`、`read_artifact_tool.py`、`_myspace_confirm.py`（写操作真挂起确认门控） |
+| `tools/` | 自研工具注册：`read/write/edit/glob/grep_tool.py`（通用文件读写检索工具）、`sandbox_tool.py`（bash + 产物搬运）、`skill_tool.py`（技能加载）、`pin_tool.py`、`read_artifact_tool.py`、`_tool_confirmation/`（共享工具审批与交互） |
 | `context_manager.py` / `history_summarizer.py` / `summarizer.py` | 上下文窗口预算、历史结构化摘要、会话摘要 |
 | `offloader.py` | 超长工具结果落盘沙箱 `/workspace/.offload` 回读 |
 | `subagent_tool.py` | `call_subagent` 工具：主智能体向子智能体派发任务 |
@@ -177,7 +177,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 |---|---|
 | 会话与流式 | `chats.py`（流式 SSE 主入口）、`chat_runs.py`、`chat_shares.py`、`summary.py`、`classify.py`、`memories.py` |
 | 内容与文件 | `content.py`、`file_upload.py`、`file_parse.py`、`artifacts.py`、`myspace_folders.py`、`kb.py`（+ `kb_models.py` 纯 Pydantic 模型）、`projects.py` |
-| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`ontologies.py`（用户开关、版本治理与证据闭环）、`agents.py`、`plans.py`、`automations.py`、`batch.py` + `internal_batch.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
+| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`ontologies.py`（用户开关、版本治理与证据闭环）、`agents.py`、`plans.py`、`automations.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
 | 用户与认证 | `users.py`、`me.py`、`api_keys.py`、`mock_sso.py`（开发态） |
 | 内容管理台（商业版 EE，`/admin` 后端） | `admin_skills.py`、`admin_prompts.py`、`admin_kb.py`、`admin_agents.py`、`admin_mcp_servers.py`、`admin_marketplace.py`、`admin_skill_drafts.py`、`admin_sandbox.py`、`admin_logs.py`、`admin_usage_logs.py`、`admin_billing.py`、`admin_chat_history.py` |
 | 系统管理台（商业版 EE，`/config` 后端） | `config_users.py`、`config_teams.py`、`config_invites.py`、`config_security.py`、`config_verify.py`、`config_license.py`、`service_configs.py` |
@@ -185,7 +185,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 
 ## mcp_servers/ 与 sidecar
 
-`mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（mcp 容器内按 `_ports.py` 端口表拉起全部进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
+`mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（按注册表的安装位置和端口启动服务进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
 
 `services/script_runner_service/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
 
@@ -214,4 +214,6 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 | 记忆流水线 | `src/backend/core/memory/pipeline.py` |
 | EE License 实现 / CE 版本中间件 | `src/backend/edition_ee/licensing/`、`src/backend/api/middleware/edition.py` |
 | 技能引擎 | `src/backend/core/agent_skills/loader.py` |
-| MCP 端口表 | `src/backend/mcp_servers/_ports.py` |
+| MCP 注册表与端口 | `src/backend/mcp_servers/registry.py`、`_ports.py` |
+
+空间 MCP 接口位于 `mcp_servers/space_files_mcp/`。注册表分别管理安装位置和暴露方式；混合模式通过桌面能力网关访问空间，修改操作接入统一审批。详见[空间文件挂载](../deployment/space-files.md)。

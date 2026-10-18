@@ -130,7 +130,7 @@
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `STORAGE_TYPE` | `local` | `local` / `s3` / `oss` | CE（s3 / oss 为 EE） |
+| `STORAGE_TYPE` | EE Docker：`s3`；CE / 本机：`local` | `local` / `s3` / `oss` / `obs` | 云存储为 EE |
 | `STORAGE_PATH` | `./storage`（容器内固定 `/app/storage`） | 本地存储根目录 | CE |
 | `S3_BUCKET` / `S3_REGION` / `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | （空）/ `us-east-1` / …… | S3 或兼容服务配置 | EE |
 | `S3_CDN_DOMAIN` | （空） | CDN 加速域名 | EE |
@@ -227,7 +227,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
-| `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | `true` | myspace 直挂：把 backend `myspace_cache/{uid}` bind 进沙盒 `/workspace/myspace/{uid}`，免 HTTP PUT 同步；`false` 回退全量 PUT 路径 |
 
 ### CubeSandbox（E2B 兼容 MicroVM，商业版 EE）
 

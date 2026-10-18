@@ -19,6 +19,8 @@ def configure(root: Path, project: str, storage: Path) -> Path:
         "HOST_REPO_PATH": str(root),
         "HOST_STORAGE_PATH": str(storage),
         "OPENSANDBOX_API_KEY": secrets.token_urlsafe(32),
+        "S3_ACCESS_KEY": secrets.token_hex(16),
+        "S3_SECRET_KEY": secrets.token_urlsafe(48),
     }
     for name, value in values.items():
         # Compose single quotes prevent interpolation of path dollar signs.

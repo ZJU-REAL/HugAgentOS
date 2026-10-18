@@ -115,15 +115,11 @@ SKIP_TOOLS = frozenset(
         # 自研文件/沙盒操作
         "Write",
         "Edit",
-        "space_delete",
-        "space_move",
-        "space_create_folder",
         "Bash",
     "write_stdin",
         "sandbox_put_artifact",
         "sandbox_get_artifact",
         "pin_to_workspace",
-        "space_stage_myspace_file",
         "channel_read_attachment",
         "choose_design",
         "ask_user_question",
@@ -152,7 +148,6 @@ SKIP_TOOLS = frozenset(
         "delete_skill",
         "edit_skill",
         # 能力/资产发现
-        "space_list_myspace_files",
         "list_datasets",
         # 子智能体的引用由其内部工具的嵌套事件承载
         "call_subagent",

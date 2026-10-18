@@ -58,7 +58,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
        ┌─────────────┼───────────────────┬─────────────────────┐
        ▼             ▼                   ▼                     ▼
  core/llm/      orchestration/     orchestration/        core/memory/ (svc)
- agent_factory  strategy.py        citations.py          + memory_integration
+ factory/build  strategy.py        citations.py          + memory_integration
  （AgentScope    （路由策略）       （引用解析）           （mem0 检索/保存）
   2.0 ReAct）                                                  │
        │                                                       ▼

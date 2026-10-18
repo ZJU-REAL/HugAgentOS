@@ -20,7 +20,6 @@ from agentscope.tool import Toolkit
 from core.services.project_scope import ProjectScope
 from core.vision import VisionMode
 
-from core.llm.tools import myspace_vfs as _ms
 from ._common import ToolResponse, resolve_sandbox_session, resp_image, resp_json
 from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
 
@@ -234,15 +233,7 @@ async def _read_path_bytes(
     try:
         return await provider.get_file(session, physical, user_id=user_id)
     except SandboxError:
-        # Same self-healing path as Read: the sandbox has a TTL, the file may only
-        # live in "My Space" now.
-        try:
-            return await _ms.materialize_into_sandbox(
-                provider, session, user_id, file_path, scope=scope
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.info("[read_image] myspace materialize failed %s: %s", file_path, exc)
-            return None
+        return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("[read_image] read failed %s: %s", file_path, exc)
         return None
