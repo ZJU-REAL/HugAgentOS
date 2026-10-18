@@ -13,6 +13,9 @@ spec = importlib.util.spec_from_file_location("expirations", Path(__file__).reso
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
+requires_source = pytest.mark.skipif(
+    not SOURCE.is_dir(), reason="Set OPENSANDBOX_TEST_SOURCE to the pinned server source")
+
 
 def test_renewed_deadline_survives_store_recreation(tmp_path):
     path = tmp_path / "controller" / "leases.sqlite3"
@@ -25,6 +28,7 @@ def test_renewed_deadline_survives_store_recreation(tmp_path):
     assert module.ExpirationStore(path).get("sandbox") is None
 
 
+@requires_source
 def test_failed_persistence_retains_existing_timer_and_deadline():
     source = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
     existing = Mock()
@@ -42,6 +46,7 @@ def test_failed_persistence_retains_existing_timer_and_deadline():
     assert service._sandbox_expirations["sandbox"] == "original"
 
 
+@requires_source
 def test_restart_uses_durable_deadline_instead_of_immutable_creation_label(tmp_path):
     from unittest.mock import Mock
     import json
@@ -64,6 +69,7 @@ def test_restart_uses_durable_deadline_instead_of_immutable_creation_label(tmp_p
     service._expire_sandbox.assert_not_called()
 
 
+@requires_source
 def test_delete_store_failure_is_reported_and_does_not_block_resource_cleanup():
     source = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
     timer = Mock()
@@ -78,6 +84,7 @@ def test_delete_store_failure_is_reported_and_does_not_block_resource_cleanup():
     logger.exception.assert_called_once()
 
 
+@requires_source
 def test_failed_initial_lease_rolls_back_container_and_mounts():
     source = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
     box, sidecar = Mock(), Mock()
