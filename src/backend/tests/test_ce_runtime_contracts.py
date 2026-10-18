@@ -179,11 +179,11 @@ def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
 
 
 def test_ce_local_launcher_covers_default_plugin_mcp_servers():
-    from cli import _DEFAULT_PLUGINS
+    from cli import _default_plugins
     from mcp_servers._launcher import PORTS as LAUNCHER_PORTS
     from mcp_servers._ports import PORTS, package_name
 
-    assert _DEFAULT_PLUGINS == ["automation", "skill-manager", "sites"]
+    assert _default_plugins() == ["automation", "skill-manager", "sites"]
     assert {
         "automation_task": 9108,
         "skill_manager": 9112,
