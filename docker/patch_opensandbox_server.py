@@ -150,6 +150,7 @@ def patched_sources(root: Path) -> dict[str, str]:
         "import logging\nfrom starlette.concurrency import run_in_threadpool\n",
     )
     patch_shared_lifecycle(sources)
+    patch_durable_expirations(sources)
     name = "services/docker/docker_service.py"
     sources[name] = replace_once(sources[name], "import inspect\n",
         "import inspect\nfrom .object_mounts import install as install_object_mounts\ninstall_object_mounts()\n")
@@ -170,6 +171,56 @@ async def ensure_space_mounts(sandbox_id: str, request: RecoveryRequest):
     for name, source in sources.items():
         ast.parse(source, filename=name)
     return sources
+
+
+def patch_durable_expirations(sources):
+    name = "services/docker/docker_service.py"
+    source = sources[name]
+    source = replace_once(source, "import inspect\n",
+        "import inspect\nfrom .expirations import ExpirationStore\n")
+    source = replace_once(source, "        self._restore_existing_sandboxes()",
+        "        self._expiration_store = ExpirationStore()\n"
+        "        self._restore_existing_sandboxes()")
+    source = replace_once(source,
+        "        with self._expiration_lock:\n            # Replace existing timer",
+        "        with self._expiration_lock:\n"
+        "            if update_expiration:\n"
+        "                self._expiration_store.put(sandbox_id, expires_at.isoformat())\n"
+        "            # Replace existing timer")
+    source = replace_once(source,
+        '        """Remove expiration tracking and cancel any pending timers."""\n        with self._expiration_lock:\n',
+        '        """Remove expiration tracking and cancel any pending timers."""\n        with self._expiration_lock:\n'
+        '            try:\n'
+        '                self._expiration_store.delete(sandbox_id)\n'
+        '            except Exception:\n'
+        '                logger.exception("Failed to remove durable lease for sandbox %s; continuing resource cleanup", sandbox_id)\n')
+    source = replace_once(source,
+        '            expires_label = labels.get(SANDBOX_EXPIRES_AT_LABEL)',
+        '            expires_label = self._expiration_store.get(sandbox_id) or labels.get(SANDBOX_EXPIRES_AT_LABEL)')
+    # Lease creation belongs to the same rollback boundary as container creation.
+    source = replace_once(source,
+        "        sidecar_container = None\n        try:",
+        "        sidecar_container = None\n        created_container = None\n        try:")
+    source = replace_once(source,
+        "                request.platform,\n            )\n        except Exception:",
+        "                request.platform,\n            )\n"
+        "            if expires_at is not None:\n"
+        "                self._schedule_expiration(sandbox_id, expires_at)\n"
+        "        except Exception:\n"
+        "            if created_container is not None:\n"
+        "                try:\n"
+        "                    created_container.remove(force=True)\n"
+        "                except DockerException:\n"
+        "                    logger.exception(\"Failed to rollback sandbox %s after provisioning failure\", sandbox_id)")
+    source = replace_once(source,
+        "        if expires_at is not None:\n            self._schedule_expiration(sandbox_id, expires_at)\n\n        effective_platform",
+        "        effective_platform")
+    # Persist leases in the controller data volume. Docker's update endpoint
+    # ignores Labels; do not claim that an in-memory renewal changed them.
+    start = source.index("        # Persist the new timeout in memory;")
+    end = source.index("        return RenewSandboxExpirationResponse", start)
+    source = source[:start] + "        self._schedule_expiration(sandbox_id, new_expiration)\n\n" + source[end:]
+    sources[name] = source
 
 
 def patch_shared_lifecycle(sources):
