@@ -16,7 +16,6 @@ For a new deployment:
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
-sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -36,6 +35,13 @@ Follow deployment authorization rules to stop the old runner, build the runtime,
 Verify /health, /ready, files across commands, user isolation, restart adoption and idle snapshot recovery.
 Initialization and dependency failures raise errors without changing the provider.
 OpenSandbox preserves session files and snapshots. Python/JS commands use separate processes and do not retain variables.
+
+
+Each sandbox has an independent object-mount service. The controller does not own its FUSE connections.
+Initial mounting and recovery use one lifecycle. Controller restarts preserve connections; sandbox restarts require a live authorization and mount check.
+Host shared-propagation directories are unnecessary. Only the mount service needs `/dev/fuse` and mount privileges.
+Existing sandboxes with FUSE host binds have immutable Docker startup settings.
+Preserve their workspaces and volumes before a separate migration. Do not restart or delete them during an unplanned upgrade.
 
 ## Service topology
 
@@ -296,6 +302,17 @@ backend network, and matches `LITELLM_ADMIN_URL`. External DNS may return a prox
 address for a missing service name, so successful resolution alone does not
 prove that the gateway container exists.
 
-### Sandbox network boundary
+### Shared sandbox network
 
-The custom controller creates one Docker bridge per sandbox, connecting only that sandbox and the trusted backend and controller. Sandboxes publish no host ports and cannot directly reach another sandbox's execd. Instance lookup reconnects recreated trusted services; deleting a sandbox also removes its bridge. The management hostname stays on the main project network so deleting a sandbox bridge cannot interrupt a management request. This controller requires Compose project labels; shared sandbox networks and host-mapped sandbox endpoints are unsupported.
+Sandboxes again use the controller's configured shared Docker network. Creation,
+lookup, adoption, deletion and expiration do not create temporary networks or
+connect/disconnect backend and controller endpoints. No Docker or Compose
+upgrade is required. Discovery and cleanup remain scoped to the configured network.
+Sandbox-to-sandbox reachability and upstream direct-mode host port mappings are
+restored; this topology does not provide network isolation between sandboxes.
+
+Existing sandboxes on independent networks are not migrated or deleted automatically.
+Before deployment, inventory their files, mounts and snapshots, then authorize
+session downtime and recreation while preserving workspaces and data volumes.
+Do not force recovery by deleting networks. This cloud-controller change does not
+require a desktop client release.

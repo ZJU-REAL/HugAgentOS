@@ -74,7 +74,11 @@ async def agent_response(
     """
     run = await _start_response_run(request, user, db)
     if request.stream:
-        return sse_response(chat_run_executor.follow_run_as_sse(run.run_id, chat_id=run.chat_id))
+        response = sse_response(chat_run_executor.follow_run_as_sse(run.run_id, chat_id=run.chat_id))
+        # This is the user row committed by admission, available before any
+        # stream frames so clients can reconcile their optimistic message.
+        response.headers["x-hugagent-user-message-id"] = run.user_message_id
+        return response
     try:
         result = await _wait_response(run.run_id, chat_id=run.chat_id, message_id=run.message_id)
     except HTTPException as exc:

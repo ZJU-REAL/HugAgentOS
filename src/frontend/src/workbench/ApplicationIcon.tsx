@@ -1,3 +1,4 @@
+import './application-icon.css';
 import { useEffect, useState } from 'react';
 import { useUIStore } from '../stores/uiStore';
 import type { ApplicationDeclaration } from '@hugagent/workbench-protocol';

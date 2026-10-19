@@ -73,6 +73,7 @@ async def native_tools(
                 toolkit,
                 loader=loader,
                 loaded_skill_ids=loaded_skill_ids,
+                source_run_id=request.run_id,
                 chat_id=request.chat_id,
                 sandbox_session_id=_sbx_sess,
                 user_id=request.current_user_id,

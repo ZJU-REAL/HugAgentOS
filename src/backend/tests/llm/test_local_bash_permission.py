@@ -26,6 +26,9 @@ from core.llm.tool_permissions import (
     builtin_tool_permission,
 )
 from core.llm.tools.sandbox_tool import register_bash
+from tests.llm.command_test_support import command_tool_state
+
+pytestmark = pytest.mark.usefixtures("command_tool_state")
 from core.sandbox.local_policy import Grant, Policy
 from core.sandbox.oslayer import AccessMode, NetworkPolicy, SandboxUnavailableError
 
@@ -83,7 +86,7 @@ def _bash():
         toolkit,
         loader=None,
         loaded_skill_ids=set(),
-        chat_id="chat-1",
+        chat_id="chat-1", user_id="user-1",
     )
     assert toolkit.fn is not None
     return toolkit.fn

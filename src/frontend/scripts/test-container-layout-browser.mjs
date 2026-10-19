@@ -89,16 +89,29 @@ try {
      const problems=[],host=document.querySelector('#toolbar-host').getBoundingClientRect();
      const buttons=[...document.querySelectorAll('.jx-composerToolbar button')].filter(el=>el.getBoundingClientRect().width>0);
      for(const button of buttons){
+      // Extremely narrow panes scroll the icon strip, while send stays fixed.
+      button.scrollIntoView({block:'nearest',inline:'nearest'});
       const r=button.getBoundingClientRect(),name=button.getAttribute('aria-label')||button.title||button.className;
       if(r.left<host.left||r.right>host.right||r.bottom>host.bottom)problems.push('escaped: '+name);
       if(touch&&(r.width<43.9||r.height<43.9))problems.push('small touch target: '+name);
       const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
       if(hit!==button&&!button.contains(hit))problems.push('occluded: '+name);
+      const send=document.querySelector('.jx-sendBtn').getBoundingClientRect();
+      if(Math.abs((r.top+r.height/2)-(send.top+send.height/2))>1)problems.push('wrapped: '+name);
       for(const other of buttons){
        if(other===button)continue;
        const b=other.getBoundingClientRect();
+       const otherHit=document.elementFromPoint(b.x+b.width/2,b.y+b.height/2);
+       if(otherHit!==other&&!other.contains(otherHit))continue;
        if(Math.min(r.right,b.right)-Math.max(r.left,b.left)>1&&Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)>1)problems.push('overlap: '+name);
       }
+     }
+     const bar=document.querySelector('.jx-composerBar');
+     if(bar.hasAttribute('data-compact')){
+      for(const label of bar.querySelectorAll('.jx-composerChip-label,.jx-modelEffortAside,.jx-modeArrow')){
+       if(label.getBoundingClientRect().width>0)problems.push('compact label visible');
+      }
+      if(document.querySelector('.jx-modelEffortCompactIcon').getBoundingClientRect().width===0)problems.push('model icon missing');
      }
      for(const grid of document.querySelectorAll('#cards-host [class$="-grid"],.jx-kbLibraryGrid')){
       if(grid.scrollWidth>grid.clientWidth+1)problems.push('grid overflow: '+grid.className+' '+JSON.stringify({width:grid.clientWidth,scroll:grid.scrollWidth,columns:getComputedStyle(grid).gridTemplateColumns,children:[...grid.children].map(el=>({width:el.clientWidth,scroll:el.scrollWidth}))}));
@@ -108,6 +121,24 @@ try {
     assert.deepEqual(issues,[],JSON.stringify({width,touch,theme}));
    }
   }
+  // Width recovery must restore labels without remounting.
+  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='3000px';});
+  await page.waitForFunction(()=>!document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
+  assert.equal(await page.evaluate(()=>{
+   const label=document.querySelector('.jx-modelEffortBtn .jx-composerChip-label');
+   return label.clientWidth>=label.scrollWidth && getComputedStyle(label).textOverflow!=='ellipsis';
+  }),true,'full model name is visible without ellipsis when space permits');
+  assert.equal(await page.evaluate(()=>{
+   const host=document.querySelector('#toolbar-host').getBoundingClientRect();
+   return [...document.querySelectorAll('.jx-composerToolbar button')].every(el=>{
+    const r=el.getBoundingClientRect(); return r.left>=host.left&&r.right<=host.right;
+   });
+  }),true,'expanded controls fit after labels return');
+  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='1600px';});
+  await page.waitForFunction(()=>document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
+  assert.equal(await page.locator('.jx-modelEffortCompactIcon').isVisible(),true,'long model switches to an icon instead of truncating');
+  await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='320px';});
+  await page.waitForFunction(()=>document.querySelector('.jx-composerBar').hasAttribute('data-compact'));
   await page.screenshot({path:resolve(output,(touch?'touch-':'desktop-')+viewport+'.png'),fullPage:true});
   await page.evaluate(()=>{document.querySelector('#toolbar-host').style.width='240px';});
   await page.locator('.jx-attachBtn').focus();
@@ -127,5 +158,5 @@ try {
   await page.close();
  }
  }
- console.log('Container layout: 68 width/theme/pointer cases, long names, grids, hit targets, keyboard exits, send/stop and menu passed');
+ console.log('Container layout: single-row icons, label restoration, width/theme/pointer cases, long names, grids, hit targets, keyboard exits, send/stop and menu passed');
 }finally{await browser.close();}

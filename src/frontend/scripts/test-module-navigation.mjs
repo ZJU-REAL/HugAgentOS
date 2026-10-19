@@ -9,9 +9,14 @@ const catalog = {skills:[{id:'skill-one',name:'Writing skill',desc:'Write clear 
 const plugin = {install_id:'plugin-one',slug:'automation',name:'Report plugin',description:'Build and export useful reports',icon:'',enabled:true,source:'marketplace',components:[],created_at:'2026-09-30T10:00:00Z'};
 const agent = {agent_id:'agent-one',name:'Research agent',description:'Find sources and compare evidence',system_prompt:'',avatar:null,owner_type:'user',is_enabled:true,extra_config:{},created_at:'2026-09-30T10:00:00Z'};
 const liveSession = {chat_id:'live-task-chat',title:'[自动化] Live task conversation',created_at:'2026-09-30T12:00:00Z',updated_at:'2026-09-30T12:00:00Z',metadata:{automation_task_id:'task-one',automation_run:true}};
-const liveSessions=[liveSession];
+const liveSessions=[liveSession,
+ {chat_id:'normal-one',title:'Normal conversation',created_at:'2026-09-30T10:00:00Z',metadata:{}},
+ {chat_id:'task-chat',title:'Task execution',created_at:'2026-09-30T10:00:00Z',metadata:{automation_task_id:'task-one',automation_run:true}},
+ {chat_id:'setup-chat',title:'Unfinished setup',created_at:'2026-09-30T10:00:00Z',metadata:{automation_task_id:'new'}},
+];
 const task = {task_id:'task-one',name:'Daily report',status:'active',task_type:'prompt',schedule_type:'recurring',cron_expression:'0 9 * * *',created_at:'2026-09-30T10:00:00Z'};
-await build({stdin:{contents:`
+// Shared SDK React imports must use the frontend's peer dependency instance.
+await build({alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},plugins:[{name:'worklet-url',setup(b){b.onResolve({filter:/\?url$/},()=>({path:'worklet',namespace:'voice'}));b.onLoad({filter:/.*/,namespace:'voice'},()=>({contents:'export default "/capture.worklet.js"',loader:'js'}));}}],stdin:{contents:`
 import { createRoot } from 'react-dom/client';
 import { useEffect } from 'react';
 import { createBrowserRouter,RouterProvider,Outlet,useLocation } from 'react-router';
@@ -40,7 +45,7 @@ function Shell(){useAppBootstrap(isConversationPath());useChatSearch(); const pa
 const router=createBrowserRouter([{path:'/',element:<Shell/>,children:[{index:true,element:<p>Workspace</p>},{path:'*',element:<p>Module content</p>}]}]);bindRouter(router);
 window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),loaded:id=>!!useChatStore.getState().store.chats[id],owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>readComposer().activePlugin};
 createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
-`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
+`,resolveDir:process.cwd(),loader:'tsx'},outdir:output,entryNames:'fixture',splitting:true,bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
 const origin='http://127.0.0.1:5199';
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM?{executablePath:process.env.PLAYWRIGHT_CHROMIUM}:{})});
 try{
@@ -49,12 +54,12 @@ try{
  const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
  await page.route(origin+'/**',async route=>{
   const url=new URL(route.request().url());
-  if(url.pathname==='/fixture.js'||url.pathname==='/fixture.css')return route.fulfill({contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript',body:await readFile(resolve(output,url.pathname.slice(1)))});
+  if(url.pathname.endsWith('.js')||url.pathname.endsWith('.css'))return route.fulfill({contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript',body:await readFile(resolve(output,url.pathname.slice(1)))});
   if(url.pathname.startsWith('/home/')){const body=await readFile(resolve('public',decodeURIComponent(url.pathname.slice(1)))).catch(()=>null);return body?route.fulfill({contentType:'image/svg+xml',body}):route.fulfill({status:404});}
   if(url.pathname.startsWith('/api/')){
    let data=[];
    if(url.pathname==='/api/v1/workbench/catalog') data={items:[],policy:{revision:0,defaultPinned:[],forced:[]}};
-   if(url.pathname==='/api/v1/chats' && route.request().method()==='GET')data={items:liveSessions,pagination:{page:1,page_size:100,total_items:1,has_next:false}};
+   if(url.pathname==='/api/v1/chats' && route.request().method()==='GET')data={items:liveSessions,pagination:{page:1,page_size:100,total_items:liveSessions.length,has_next:false}};
    if(url.pathname==='/api/v1/catalog')data=catalog;
    if(url.pathname==='/api/v1/agents')data=[agent];
    if(url.pathname==='/api/v1/agents/available-resources')data={skills:[],mcp_servers:[],plugins:[],ontology_tags:[]};
@@ -70,7 +75,7 @@ try{
   return route.fulfill({contentType:'text/html',body:'<html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>'});
  });
  await page.goto(origin+'/');
- await page.getByText('Normal conversation',{exact:true}).waitFor();
+ await page.getByText('Normal conversation',{exact:true}).waitFor({timeout:7000});
  assert.equal(await page.locator('.jx-moduleSidebar').getByText('Task execution',{exact:true}).count(),0,'普通会话列表不混入任务结果');
  await page.getByRole('button',{name:'能力中心',exact:true}).click();
  const categories=page.locator('.jx-moduleCategories');
@@ -95,10 +100,11 @@ try{
   assert.equal(await page.getByRole('menuitem',{name,exact:true}).locator('img').count(),1,name+' 带图标');
  }
  await page.keyboard.press('Escape');
- assert.equal(await page.locator('.jx-moduleSidebar').count(),0,'无二级菜单的项目不显示空侧栏');
+ assert.deepEqual(await page.locator('.jx-moduleSidebar .jx-moduleCategories button').allTextContents(),['项目','站点','应用中心','实验室'],'项目保留四个模块的二级导航');
  await page.reload();
  await page.getByRole('button',{name:'更多',exact:true}).waitFor();
- assert.equal(await page.locator('.jx-moduleSidebar').count(),0,'刷新项目仍不显示空侧栏');
+ await page.locator('.jx-moduleSidebar').getByRole('button',{name:'项目',exact:true}).waitFor();
+ assert.equal(await page.locator('.jx-moduleSidebar').count(),1,'刷新项目仍显示模块二级侧栏');
  assert.equal(await page.locator('.jx-moduleSidebar').getByText('Normal conversation',{exact:true}).count(),0,'刷新项目仍保持模块侧栏');
  await page.getByRole('button',{name:'能力中心',exact:true}).click();
  for(const [name,slug,entry] of [['插件','plugins','Report plugin'],['技能','skills','Writing skill'],['连接器','connectors','Drive connector'],['智能体','agents','Research agent']]){
@@ -202,4 +208,4 @@ try{
  assert.equal(await page.evaluate(()=>window.__navigation.owner('task-chat')),undefined,'删除执行会话清理本地状态');
  assert.deepEqual(errors,[],'模块切换没有浏览器运行时错误');
  console.log('module navigation: 四类能力、任务创建与归属、搜索和通知入口、桌面与窄屏通过');
-}finally{await browser.close();}
+}catch(error){console.error('UI:',await browser.contexts()[0]?.pages()[0]?.locator('body').innerText());throw error;}finally{await browser.close();}

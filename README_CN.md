@@ -102,7 +102,6 @@ cd HugAgentOS
 cp .env.example .env
 mkdir -p data/storage
 docker compose build backend
-sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 

@@ -2,6 +2,7 @@
 from fastapi import HTTPException
 from core.spaces.access import require_grant
 from core.spaces.leases import authorized_operation
+from core.spaces.search import search_directory
 from core.spaces.tree import ensure_parents, tree_entries, copy_tree, remove_tree
 
 MAX_TRANSFER_BYTES = 50 * 1024 * 1024
@@ -14,10 +15,12 @@ class SpaceFiles:
         return require_grant(self.db, self.actor, space, write=write)
 
     @authorized_operation
-    def list(self, space, path="", *, cursor=None, limit=200):
+    def list(self, space, path="", *, cursor=None, limit=200, keyword=""):
         grant = self.grant(space)
         prefix = grant.key(path, directory=True)
-        page = self.storage.list_directory(prefix, cursor=cursor, limit=limit)
+        needle = keyword.strip().lower()
+        page = (search_directory(self.storage, prefix, needle, cursor=cursor, limit=limit)
+                if needle else self.storage.list_directory(prefix, cursor=cursor, limit=limit))
         entries = []
         for item in page.entries:
             if not item.key.startswith(grant.prefix):

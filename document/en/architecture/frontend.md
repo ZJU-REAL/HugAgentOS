@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-> Last updated: 2026-09-30
+> Last updated: 2026-10-18
 
 The frontend lives in `src/frontend/` and is a React 19 + TypeScript single-page application: built with Vite, styled with Ant Design, state-managed with Zustand, and uses React Router in the main workspace — the entry module switches between five independent app shells by URL path. Production builds are served by the Nginx container, and every backend call funnels through one typed client, `api.ts`.
 
@@ -23,6 +23,16 @@ The CE derived tree physically removes `AdminApp.tsx` / `ConfigApp.tsx` together
 The main workspace uses a module icon rail, a contextual sidebar, and a content area. Chat lists ordinary and project conversations. The capability sidebar selects agents, plugins, skills, and connectors; installed capabilities and their actions stay in the content area. My Space navigation covers files, knowledge bases, favorites, shares, and notifications. Scheduled-task setup and execution conversations remain in Scheduled Tasks, with consistent URLs across search, notifications, reloads, and browser history.
 
 App.tsx connects useAppController, AppAuthGate, and AppWorkspace. useAppBootstrap, useChatRecovery, useChatSearch, and useChatViewport own initialization, stream recovery, search, and scrolling. Sidebar components separate module menus, conversation rows, project groups, and account tools. My Space separates its controller, folder actions, knowledge picker, header, content, and dialogs. Routes own module location; automationStore owns the task list.
+
+## Module page scrolling and App Center
+
+AppWorkspace owns vertical scrolling for ordinary module pages. The scroll viewport spans the available page width, placing the scrollbar at that page's right edge. Maximum widths on project cards, My Space files and application cards only constrain reading content; they do not create page scroll containers. Module URL changes return to the top. The My Space header remains sticky. Chat, Canvas and plugin workspaces retain their dedicated layouts. Dialogs, editors and bounded previews can still own internal scrolling.
+
+Shared layout styles live in `styles/workspace-layout.css`. My Space and Automation styles are split by layout, files, assets, detail, creation and responsive responsibilities. Their entry files only import those modules. New pages must not combine full-page percentage heights and auto overflow inside a constrained reading column.
+
+App Center restores the icon/name/description card grid for mode commands such as Plan Mode, plugin applications and external scenario applications. Shell navigation modules are excluded. The server directory and launch checks still control discovery, availability and opening. Retired batch execution and token-in-URL behavior are not restored.
+
+Run `npm run test:module-pages` to verify nine modules across classic/modern layouts and wide/medium/narrow viewports, actual mouse wheel scrolling, scrollbar geometry, centered reading widths, application cards and keyboard Plan Mode launch. This command also runs chat/Canvas width regressions. `npm run test:sidebar-navigation` continues to cover More and secondary navigation.
 
 ## api.ts — the typed API client
 
@@ -176,3 +186,17 @@ Code, math, copy buttons, and chart components are not split. Completion or canc
 Markdown HTML uses DOMPurify to remove executable attributes and URLs while retaining new-tab behavior for external links.
 
 Run npm run test:grapheme-reveal for browser component coverage. For full-app coverage, scripts/grapheme-e2e-environment.py creates an isolated Docker network, Redis, temporary SQLite, test model, and Nginx; then run npm run test:grapheme-reveal-app. The environment does not read the real .env. Its down command removes only containers carrying the test label.
+
+## Conversation status indicators
+
+Running conversations show a gray rotating ring. Completed conversations with unread results show a blue breathing dot, which clears when the result is read. Waiting for input or confirmation and failed tasks retain amber and red indicators. Project groups place indicators in a fixed indentation slot to the left of the title, keeping titles aligned across states. The default project (conversation history) places indicators on the right. The running ring retains its work-indicator animation under reduced motion; the unread dot becomes static.
+
+## Asynchronous first-question titles
+
+After admitting the first question in an ordinary conversation, the server retains a question-based fallback and starts an independent summary-model call using only that question. The frontend reads the result while the answer stream is active. Temporary titles never block generation. Each conversation gets one automatic attempt; failure retains the fallback, later questions do not retry, and forks retain their inherited title. Explicit title edits pin the name on the server, with a fresh check when generation completes to prevent concurrent overwrites. Updating a title does not reorder conversations or add a dedicated text transition.
+
+### Message identity and session renewal
+
+The SSE response exposes `X-Hugagent-User-Message-Id`, the persisted user message ID for this admission, including to cross-origin clients. Before consuming the answer stream, the frontend binds this ID to the exact optimistic message and merges any raced history row with the same ID. Separate submissions with identical text retain distinct message IDs; content and timestamps are never deduplication keys.
+
+History loading depends on the user ID and conversation ID, rather than the entire authenticated user object. Session renewal continues to update expiry, profile, and capabilities. Changes to these fields alone do not reload a conversation while its answer is streaming.

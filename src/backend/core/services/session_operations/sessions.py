@@ -170,6 +170,14 @@ def update_chat(chat_id, request, user=None, db=None):
     if pair is None:
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
     session, level = pair
+    # Serialize metadata merges and explicit renames. Refresh the identity-map
+    # object under the lock so an older PATCH cannot clear a newer rename pin.
+    from core.db.models import ChatSession
+
+    session = db.query(ChatSession).filter(
+        ChatSession.chat_id == chat_id,
+        ChatSession.deleted_at.is_(None),
+    ).populate_existing().with_for_update().one()
 
     # title: modifiable by admin / edit
     title_change: Optional[str] = None
@@ -215,6 +223,10 @@ def update_chat(chat_id, request, user=None, db=None):
         fields["favorite"] = fav_change
     if metadata_change is not None:
         fields["extra_data"] = metadata_change
+    if title_change is not None or (session.extra_data or {}).get("title_manually_set"):
+        # Any explicit title PATCH is a user rename, including edits by shared
+        # conversation editors. Auxiliary model results must not overwrite it.
+        fields["extra_data"] = {**(fields.get("extra_data") or {}), "title_manually_set": True}
 
     if fields:
         chat_service.update_session_fields(chat_id, fields, actor_user_id=user_id)

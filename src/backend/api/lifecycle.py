@@ -1,4 +1,5 @@
 """Application lifecycle and worker ownership."""
+from api.startup.commands import startup_commands, shutdown_commands
 import os
 from contextlib import asynccontextmanager
 from typing import Callable
@@ -140,6 +141,7 @@ def _startup_steps():
         (_startup_backfill_api_protocol, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_local_sidecars, _shutdown_local_sidecars, True, _ALL_ROLES, _SINGLETON),
         (_startup_recover_chat_runs, None, True, _ALL_ROLES, _SINGLETON),
+        (startup_commands, shutdown_commands, True, _ALL_ROLES, _PER_WORKER),
         (_startup_device_link, _shutdown_device_link, False, _EXECUTION_PLANE_ONLY, _SINGLETON),
         (_startup_extensions, _shutdown_extensions, False, _SERVICE_ONLY, _PER_WORKER),
         (_startup_resume_loops, None, False, _ALL_ROLES, _SINGLETON),
@@ -290,6 +292,7 @@ async def lifespan(app: FastAPI):
         deferred.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await deferred
+    await shutdown_commands()
     await _shutdown_extensions()
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()

@@ -28,9 +28,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export async function listSpaceRoots(signal?: AbortSignal) {
   return request<{ items: SpaceRoot[]; revision: string }>('/mounts', { signal });
 }
-export async function listSpaceEntries(space: string, path: string, cursor?: string, signal?: AbortSignal) {
+export async function listSpaceEntries(space: string, path: string, cursor?: string, signal?: AbortSignal, keyword?: string) {
   const query = spaceQuery(space, path);
   if (cursor) query.set('cursor', cursor);
+  if (keyword) query.set('keyword', keyword);
   return request<SpacePage>('/entries?' + query, { signal });
 }
 export async function uploadSpaceFile(space: string, path: string, file: File) {

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { moduleNavigation, secondaryModule } from '../src/components/sidebar/moduleNavigation';
+const config = {sidebar: ['sites','sites','ability_center','my_space','external:report'], menu: ['lab','projects','settings','plugin:report','app_center','projects']};
+const ids = (items: ReturnType<typeof moduleNavigation>['more']) => items.map(item => item.id);
+const full = moduleNavigation(config, {labEnabled: true, localOnly: false, automationAllowed: true});
+assert.deepEqual(ids(full.primary), ['my_space','automation','ability_center']);
+assert.deepEqual(ids(full.more), ['projects','sites','app_center','lab']);
+for (const panel of ['projects','sites','app_center','lab'] as const) assert.equal(secondaryModule(panel, full.more), true);
+assert.equal(secondaryModule('workspace', full.more), false);
+const restricted = moduleNavigation(config, {labEnabled: false, localOnly: true, automationAllowed: false});
+assert.deepEqual(ids(restricted.primary), ['ability_center']);
+assert.deepEqual(ids(restricted.more), ['projects','app_center']);
+const hidden = moduleNavigation({sidebar: [], menu: ['projects']}, {labEnabled: true, localOnly: false, automationAllowed: true});
+assert.deepEqual(ids(hidden.more), ['projects'], 'administrator visibility remains effective');
+console.log('module navigation: placement, deduplication, app exclusion, secondary navigation and visibility passed');

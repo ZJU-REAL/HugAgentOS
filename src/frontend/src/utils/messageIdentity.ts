@@ -1,3 +1,4 @@
+import type { ChatMessage } from '../types';
 import { FRESH_ENTER_WINDOW_MS } from './motionTokens';
 /** 本地新建消息的身份。
  *
@@ -25,3 +26,15 @@ export function hasMessageEntrance(uid: string): boolean {
   return created !== undefined && Date.now() - created < FRESH_ENTER_WINDOW_MS;
 }
 export function completeMessageEntrance(uid: string) { entrances.delete(uid); }
+
+/** Bind admission to the exact optimistic row, including a raced history response.
+ * Content and timestamps are not identities: identical text can be sent twice.
+ */
+export function acknowledgeUserMessage(messages: ChatMessage[], uid: string, messageId: string): ChatMessage[] {
+  if (!messageId || !messages.some(m => m.uid === uid && m.role === 'user')) return messages;
+  return messages.flatMap(m => {
+    if (m.uid === uid && m.role === 'user') return [{ ...m, messageId }];
+    if (m.role === 'user' && m.messageId === messageId) return [];
+    return [m];
+  });
+}

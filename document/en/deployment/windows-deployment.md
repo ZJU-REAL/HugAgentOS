@@ -43,6 +43,14 @@ If installation fails, the service setup page retains recent logs. Fix the netwo
 Python, or disk issue, then select **Install and start** to retry idempotently. You
 don't need to reinstall the desktop client.
 
+Full desktop bundles allow up to five minutes for installation environment checks
+(previously two minutes). Native tools, document conversion, Python imports, file
+watching, and backend imports run sequentially and can take longer on a cold start.
+Existing per-check deadlines remain unchanged. Exceeding the total limit stops the
+check and reports failure; review the installer log before retrying. This change
+requires a new desktop package; updating the cloud service does not change the
+timeout in an installed client.
+
 ### Runtime and data
 
 The local service listens only on `http://127.0.0.1:32101`; it isn't exposed to the
@@ -84,6 +92,34 @@ Use **File → Set server address…** to switch to a team server. Use
 > high-availability, and full container sandbox use still require Docker Compose.
 
 The Windows/Linux title bar and the outer module rail share the current frontend colors and a gradient painted in window coordinates. The secondary sidebar and main content retain their existing backgrounds. The whole workspace starts below the title bar, including expanded, collapsed, and narrow layouts, and follows the light or dark theme. File, Edit, View, and Help use compact text aligned to the left, without back or forward arrows. The empty title area remains draggable, with minimize, maximize, and close controls on the right.
+
+### Local memory and log upload troubleshooting
+
+Full desktop bundles use Milvus Lite 3.2.2 to fix atomic replacement of existing
+index manifests on Windows. Initialization explicitly loads existing memory
+collections after restart. Failed initialization closes its owned clients to
+avoid connection leaks during retry. Upgrades retain the existing `milvus.db` directory.
+They do not delete or recreate memories. Installation backs up the complete
+directory. On startup failure, the client stops the local service before restoring
+the snapshot. Pre-rollback data stays under `.rollback-displaced-*` in the data
+directory for manual recovery. File-operation failures reverse completed moves.
+If reversal also fails, installation stops and reports the retained location;
+inspect it before restarting. Restore does not provide cross-file power-loss atomicity.
+
+The installation probe creates an isolated temporary database and checks index
+creation, writes, reopening, appending, and search without reading user memories.
+Run `python desktop/scripts/runtime-smoke.py --vector-only` for a focused check.
+Run `python desktop/scripts/verify-vector-upgrade.py --old-python <old-python> --new-python <new-python>`
+to verify existing memories, appended writes, and user filters across dependency
+versions using a disposable old-version fixture.
+
+Failed background log uploads record a locally generated trace ID, HTTP status,
+failure stage, elapsed time, event count, and batch size. The trace ID is sent to
+the cloud for correlation. Diagnostics exclude credentials, business payloads,
+and remote error bodies. A 401 requests re-synchronization on the next renewal
+only when the failed request used the current account's current credential.
+Late refusals of old credentials cannot invalidate renewed credentials. Failed
+batches remain pending and retry after recovery; local records are retained.
 
 ## Team deployment with Docker Desktop and WSL2
 

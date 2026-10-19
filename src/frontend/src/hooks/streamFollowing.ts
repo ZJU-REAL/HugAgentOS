@@ -16,12 +16,12 @@ export function createStreamFollowing(ctx: Pick<StreamingContext, 'generateClass
     chatId: string,
     opts: FollowStreamOptions = {},
   ) {
+    void ctx.generateSummary(chatId);
     const outcome = await processChatStreamWithHandoffRecovery(response, chatId, opts);
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     ctx.syncManualTitleToBackend(chatId);
     if (outcome.settled) {
-      setTimeout(() => ctx.generateSummary(chatId), 500);
       setTimeout(() => ctx.generateClassification(chatId), 800);
     }
     return outcome;

@@ -269,7 +269,6 @@ export const CHAT_DICT: Record<string, string> = {
   '该选择已过期（可能超时），助手将自行选择方案继续。': 'This picker has expired (possibly timed out); the assistant will pick an option and continue.',
   // AskUserQuestionComposer — model-initiated resident question UI
   '该问题已过期，无需再回答。': 'This question has expired; no answer is needed.',
-  '答案已提交，助手正在继续…': 'Answer submitted. The assistant is continuing…',
   '提交失败：{msg}': 'Submission failed: {msg}',
   '已取消本次提问，助手会根据已有信息继续。': 'Question cancelled. The assistant will continue with the available information.',
   '回答助手的问题': 'Answer the assistant\'s question',
@@ -417,6 +416,8 @@ export const CHAT_DICT: Record<string, string> = {
   // Job bar: the background batch job running above the composer.
   '模式': 'Mode',
   '后台作业': 'Background job',
+  '后台命令': 'Background commands',
+  '查看输出': 'View output',
   '批量作业': 'Batch job',
   '失败 {n}': '{n} failed',
   '已运行 {d}': 'Running {d}',

@@ -1,14 +1,14 @@
 """Recover FUSE connections without replacing a sandbox or its workspace."""
 import json
-from pathlib import PurePosixPath
+import os
 from threading import RLock
 from uuid import uuid4
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from opensandbox_server.api.schema import Volume
-from .isolated_networks import _trusted
-from .object_mounts import mount_identity, validated_options
+from . import sandbox_metadata
+from .object_mounts import MANIFEST, mount_manifest, validated_options
 
 EPOCH = uuid4().hex
 REVISION = "hugagent-space-revision"
@@ -26,25 +26,23 @@ def helper_name(sandbox_id):
 
 def _specifications(service, container, request):
     labels = container.attrs["Config"]["Labels"]
-    if (labels.get("hugagent-user-id") != request.actor
+    if (labels.get(sandbox_metadata.USER_ID_METADATA_KEY) != request.actor
             or labels.get(REVISION) != request.revision):
         raise HTTPException(409, "Sandbox file authorization changed")
-    root = service.app_config.storage.ossfs_mount_root.rstrip("/") + "/"
-    mounts = {m["Destination"]: m for m in container.attrs["Mounts"]
-              if m.get("Type") == "bind" and m.get("Source", "").startswith(root)}
     volumes = [v for v in request.volumes if v.ossfs is not None]
-    if len({v.mount_path for v in volumes}) != len(volumes) or set(mounts) != {v.mount_path for v in volumes}:
-        raise HTTPException(409, "Sandbox file mount scope changed")
+    try:
+        expected = json.loads(labels.get(MANIFEST, "[]"))
+        actual = mount_manifest(volumes)
+        matches = (isinstance(expected, list)
+            and len({v.mount_path for v in volumes}) == len(volumes)
+            and sorted(expected, key=lambda v: v["target"]) == sorted(actual, key=lambda v: v["target"]))
+    except (ValueError, TypeError, KeyError):
+        matches = False
+    if not matches:
+        raise HTTPException(409, "Sandbox file mount authorization changed")
     specs = []
     for volume in volumes:
         service._validate_ossfs_volume(volume)
-        mount = mounts[volume.mount_path]
-        # Configuration, credentials, prefix and read-only flags must match the
-        # original authorized bind. The generation suffix is connection-local.
-        expected = mount_identity(volume)
-        actual = PurePosixPath(mount["Source"]).name.split("-")[0]
-        if expected != actual or bool(mount["RW"]) == volume.read_only:
-            raise HTTPException(409, "Sandbox file mount specification changed")
         specs.append({"target": volume.mount_path,
             "source": volume.ossfs.bucket + ":/" + volume.sub_path,
             "endpoint": volume.ossfs.endpoint,
@@ -67,7 +65,7 @@ for line in Path('/proc/self/mountinfo').read_text().splitlines():
 for target, readonly in json.loads(sys.argv[1]):
     filesystem, options = mounts[target]
     assert filesystem.startswith('fuse'), 'Object filesystem is absent'
-    assert not readonly or 'ro' in options, 'Read-only mount is required'
+    assert ('ro' in options) == readonly, 'Mount access mode differs'
     os.stat(target)
 """
     result = container.exec_run(["timeout", "4", "python3", "-c", script,
@@ -80,7 +78,8 @@ def remove_helper(service, sandbox_id):
         helper = service.docker_client.containers.get(helper_name(sandbox_id))
     except NotFound:
         return
-    if helper.labels.get(HELPER_LABEL) != sandbox_id:
+    if (helper.labels.get(HELPER_LABEL) != sandbox_id
+            or helper.attrs.get("HostConfig", {}).get("NetworkMode") != service.network_mode):
         raise RuntimeError("Mount helper ownership mismatch")
     helper.remove(force=True)
 
@@ -94,14 +93,14 @@ def ensure_mounts(service, sandbox_id, request):
         specs = _specifications(service, container, request)
         if _healthy(container, specs):
             return {"epoch": EPOCH, "recovered": False}
-        project, trusted = _trusted(service)
-        controller = trusted[0][0]
+        controller = service.docker_client.containers.get(os.environ["HOSTNAME"])
+        project = controller.attrs["Config"]["Labels"]["com.docker.compose.project"]
         remove_helper(service, sandbox_id)
         helper = service.docker_client.containers.run(
             controller.image.id, ["sleep", "infinity"], entrypoint=[],
             name=helper_name(sandbox_id), detach=True,
             pid_mode="container:" + container.id,
-            network_mode=controller.attrs["HostConfig"]["NetworkMode"],
+            network_mode=service.network_mode,
             cap_drop=["ALL"], cap_add=["SYS_ADMIN", "SYS_PTRACE", "SYS_CHROOT", "DAC_OVERRIDE"],
             devices=["/dev/fuse:/dev/fuse:rwm"],
             security_opt=["apparmor=unconfined", "no-new-privileges:true"],
@@ -131,3 +130,26 @@ def ensure_mounts(service, sandbox_id, request):
             remove_helper(service, sandbox_id)
             raise
         return {"epoch": EPOCH, "recovered": True}
+
+
+def initialize_mounts(service, sandbox_id, request):
+    if any(volume.ossfs is not None for volume in (request.volumes or [])):
+        metadata = request.metadata or {}
+        ensure_mounts(service, sandbox_id, RecoveryRequest(
+            actor=metadata[sandbox_metadata.USER_ID_METADATA_KEY],
+            revision=metadata[REVISION], volumes=request.volumes))
+
+
+def cleanup_helpers(service):
+    """Reap only this controller project's helpers whose sandboxes are gone."""
+    controller = service.docker_client.containers.get(os.environ["HOSTNAME"])
+    project = controller.attrs["Config"]["Labels"]["com.docker.compose.project"]
+    helpers = service.docker_client.containers.list(all=True, filters={
+        "label": [HELPER_LABEL, "hugagent.project=" + project], "network": service.network_mode})
+    for helper in helpers:
+        try:
+            service._get_container_by_sandbox_id(helper.labels[HELPER_LABEL])
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            helper.remove(force=True)

@@ -2,7 +2,6 @@
 
 .jx-sites-body {
   padding: var(--space-md) 0;
-  overflow-y: auto;
 }
 
 .jx-sites-list {

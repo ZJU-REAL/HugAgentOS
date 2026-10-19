@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.llm.steer_middleware import SteerMiddleware
+from core.llm.command_middleware import CommandCompletionMiddleware
 
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.factory.request import AgentRequest
@@ -106,6 +107,7 @@ async def middleware_stack(
     _policy_middlewares: list = [
         DynamicModelMiddleware(),  # on_reply: switch models by chat_mode
         FileContextMiddleware(),  # on_reply: inject file context
+        *([CommandCompletionMiddleware()] if _eval_scope is None and _api_scope is None else []),
         SteerMiddleware(),  # on_acting/on_reasoning: inject queued user steer before tool I/O
         WorkspacePinHintMiddleware(),  # on_reasoning: remind to pin
         IterBudgetReminderMiddleware(),  # on_reasoning: inject a wrap-up reminder near max_iters
