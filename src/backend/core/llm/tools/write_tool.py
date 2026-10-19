@@ -271,17 +271,15 @@ def register_write(
             )
 
         artifact_ref: Optional[dict] = None
-        from core.artifacts.local_project import is_project_file_path
-
         needs_registration = bool(register_as_artifact and user_id and not is_persistent)
-        if needs_registration and (
-            is_project_file_path(file_path, scope) or is_project_file_path(physical, scope)
-        ):
-            from core.artifacts.local_project import reference_project_file
+        if needs_registration and _is_local:
+            from core.artifacts.local_reference import reference_local_file
             from fastapi import HTTPException
 
             try:
-                artifact_ref = reference_project_file(physical, scope=scope, user_id=user_id)
+                artifact_ref = reference_local_file(
+                    physical, scope=scope, user_id=user_id, session_id=_sess
+                )
                 artifact_ref = {
                     k: artifact_ref[k] for k in ("file_id", "name", "mime_type", "size")
                 }
@@ -291,7 +289,7 @@ def register_write(
                     {
                         "error": str(getattr(exc, "detail", exc)),
                         "file_path": file_path,
-                        "note": "文件已写入，但未交付。请将最终文件保存在当前项目内后再 pin。",
+                        "note": "文件已写入，但未交付。请将最终文件保存在当前会话或项目目录内后再 pin。",
                     }
                 )
         elif needs_registration:

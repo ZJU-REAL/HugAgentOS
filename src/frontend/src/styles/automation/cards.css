@@ -1,0 +1,114 @@
+/* Automation Panel Styles */
+
+.jx-automation-body {
+  flex: 1;
+  padding: 0 0 24px;
+}
+
+.jx-automation-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 80px 0;
+}
+
+.jx-automation-section {
+  margin-bottom: 24px;
+}
+
+.jx-automation-sectionTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary, var(--color-text-secondary));
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+/* ── Automation Card ─────────────────────────────────────── */
+
+.jx-automation-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.jx-automation-card:hover {
+  border-color: var(--color-primary-light, #d6e4ff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.jx-automation-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-automation-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.jx-automation-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.jx-automation-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-tertiary, var(--color-text-placeholder));
+  flex-wrap: wrap;
+}
+
+.jx-automation-card-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.jx-automation-card-type {
+  background: var(--color-fill-light, var(--color-bg-gray));
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.jx-automation-card-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.jx-automation-card:hover .jx-automation-card-actions {
+  opacity: 1;
+}
+
+/* ── Cron preview ────────────────────────────────────────── */
+
+.jx-automation-cronPreview {
+  font-size: 12px;
+  color: var(--color-text-secondary, var(--color-text-secondary));
+  background: var(--color-fill-light, var(--color-bg-gray));
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}

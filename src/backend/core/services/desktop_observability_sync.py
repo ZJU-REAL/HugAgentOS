@@ -338,8 +338,8 @@ class DesktopSyncWorker:
         self.reconciled_at = 0.0
 
     async def sync_once(self):
-        import httpx
         from core.services import desktop_cloud_bridge as bridge
+        from core.services.desktop_observability_delivery import deliver_batch
 
         state, identity = bridge.get_state(), bridge.get_identity_state()
         if not state or not identity or not identity.get("device_id"):
@@ -365,19 +365,7 @@ class DesktopSyncWorker:
                 return batch
 
         batch = await asyncio.to_thread(prepare)
-        bridge.require_current_account(state)
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(8.0, connect=3.0),
-            transport=self.transport,
-            follow_redirects=False,
-        ) as client:
-            reply = await client.post(
-                state["cloud_base"].rstrip("/") + "/api/v1/desktop/observability/batch",
-                headers=bridge.cloud_headers(state),
-                json=batch,
-            )
-            reply.raise_for_status()
-            body = reply.json()
+        body = await deliver_batch(state, batch, transport=self.transport)
         bridge.require_current_account(state)
         result = body.get("data", {})
         # Accept acknowledgements only for this exact sent batch.

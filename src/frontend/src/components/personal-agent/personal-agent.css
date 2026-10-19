@@ -272,7 +272,4 @@ button.pa-side-row:disabled{cursor:default}
 @media (hover:none){.pa-activity .pa-activity-stop{opacity:1;pointer-events:auto}}
 
 .pa-delivery-artifacts{margin-top:10px;min-width:0;max-width:100%}
-.pa-delivery-artifacts .jx-dlCard{min-width:0;flex-wrap:wrap}
-.pa-delivery-artifacts .jx-dlCard-left{flex:1 1 180px}
-.pa-delivery-artifacts .jx-dlCard-meta{flex:1}
-.pa-delivery-artifacts .jx-dlCard-actions{margin-left:auto}
+.pa-message[data-delivery]{width:100%}

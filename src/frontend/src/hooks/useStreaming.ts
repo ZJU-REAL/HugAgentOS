@@ -1,3 +1,4 @@
+import { useCommandCompletions } from './useCommandCompletions';
 import { useComposerFiles } from './useComposerFiles';
 import { useEffect, useRef } from 'react';
 import { useChatStore } from '../stores';
@@ -52,6 +53,7 @@ generateClassification: (chatId: string) => Promise<void>
 
   /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
   const reconcilingRef = useRef<Set<string>>(new Set());
+  const serverRunDiscoveryRef = useRef<Set<string>>(new Set());
 
   const queue = createStreamQueue({
     abortControllersRef,
@@ -86,9 +88,12 @@ generateClassification: (chatId: string) => Promise<void>
     processRegenerateStream: following.processRegenerateStream,
     reconcileDurableSteerQueue: queue.reconcileDurableSteerQueue,
     reconcilingRef,
+    serverRunDiscoveryRef,
     settleQueuedMessageAfterRun: queue.settleQueuedMessageAfterRun
   });
 
+
+  useCommandCompletions(recovery.attachServerStartedRun);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

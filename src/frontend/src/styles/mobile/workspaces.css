@@ -129,10 +129,7 @@
   }
 
   .jx-projects{
-    height:100%;
     padding:10px 20px 56px;
-    overflow-x:hidden;
-    scrollbar-gutter:auto;
     background:transparent;
   }
 

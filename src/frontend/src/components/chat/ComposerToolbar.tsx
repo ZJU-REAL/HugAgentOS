@@ -1,3 +1,4 @@
+import { useCompactComposerToolbar } from './useCompactComposerToolbar';
 import { OrderedListOutlined, SyncOutlined, PartitionOutlined } from '@ant-design/icons';
 import { ContentErrorBoundary } from '../common';
 import ApprovalPill from './ApprovalPill';
@@ -22,9 +23,10 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
     onCloseMode, showLoopEntry, loopMode, setLoopMode, uploadingFiles } = state;
   const { forkPending, sendFromComposer } = editor;
   const { abort } = options;
+  const toolbarRef = useCompactComposerToolbar();
   return (
     <div className="jx-composerToolbar">
-      <div className="jx-composerBar">
+      <div className="jx-composerBar" ref={toolbarRef}>
         <div className="jx-composerTools">
           <ComposerAttachmentMenu state={state} editor={editor} options={options} fileInputRef={fileInputRef} />
           {/* 提示词中心：社区版没有这个能力；商业版按 Config「权限配置 → 应用可见范围」
@@ -34,6 +36,7 @@ export function ComposerToolbar({ state, editor, options, fileInputRef, showStop
               type="button"
               className={`jx-composerChip jx-promptHubBtn${promptHubOpen ? ' active' : ''}`}
               onClick={() => setPromptHubOpen(!promptHubOpen)}
+              title={t('提示词中心')}
               aria-label={t('提示词中心')}
               aria-pressed={promptHubOpen}
             >

@@ -39,8 +39,8 @@ def mounts(user: UserContext = Depends(get_current_user), db: Session = Depends(
 
 @router.get("/entries")
 def entries(space: str, path: str = "", cursor: str | None = None,
-    limit: int = Query(200, ge=1, le=1000), files: SpaceFiles = Depends(service)):
-    return success_response(data=files.list(space, path, cursor=cursor, limit=limit))
+    limit: int = Query(200, ge=1, le=1000), keyword: str = "", files: SpaceFiles = Depends(service)):
+    return success_response(data=files.list(space, path, cursor=cursor, limit=limit, keyword=keyword))
 
 @router.get("/content")
 def download(space: str, path: str, inline: bool = False, files: SpaceFiles = Depends(service)):

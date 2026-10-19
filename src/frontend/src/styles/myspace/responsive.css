@@ -1,0 +1,133 @@
+@media (max-width: 1100px) {
+  .jx-mySpace-shell {
+    max-width: none;
+  }
+
+  .jx-mySpace-imgGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .jx-mySpace-header {
+    padding-top: 8px;
+  }
+
+  .jx-mySpace-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .jx-mySpace-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .jx-mySpace-tab {
+    flex-shrink: 0;
+    margin-right: 22px;
+    font-size: 17px;
+  }
+
+  .jx-mySpace-assetBar,
+  .jx-mySpace-filterTools {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jx-mySpace-search.ant-input-affix-wrapper,
+  .jx-mySpace-sourceFilter {
+    width: 100%;
+  }
+
+  .jx-mySpace-docTable-header,
+  .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 80px 96px 132px 36px;
+  }
+
+  .jx-mySpace-imgGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .jx-mySpace-bulkBar {
+    width: calc(100vw - 24px);
+    bottom: 12px;
+    padding: 12px;
+  }
+
+  .jx-mySpace-bulkBar-divider {
+    display: none;
+  }
+}
+
+/* ══════════════════════════════════════════
+   容器查询：当 MySpace 面板本身变窄（例如右侧 Canvas 预览打开）时，
+   按容器宽度渐进隐藏次要列，保证文件名始终有空间显示，
+   避免中文字符被压到一个字一行。
+   ══════════════════════════════════════════ */
+
+@container myspace (max-width: 900px) {
+  .jx-mySpace-shell {
+    max-width: none;
+    padding: 0 12px;
+  }
+
+  .jx-mySpace-docTable-header,
+  .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 80px 96px 132px 36px;
+  }
+
+  .jx-mySpace-imgGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 隐藏"来源"列，腾出更多空间给名称 */
+@container myspace (max-width: 720px) {
+  .jx-mySpace-docTable-header,
+  .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 80px 132px 36px;
+  }
+
+  .jx-mySpace-docTable-col--source {
+    display: none;
+  }
+}
+
+/* 再窄时隐藏"大小"，只保留 名称 + 时间 + 操作 */
+@container myspace (max-width: 560px) {
+  .jx-mySpace-docTable-header,
+  .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 112px 36px;
+  }
+
+  .jx-mySpace-docTable-col--size {
+    display: none;
+  }
+
+  .jx-mySpace-assetBar,
+  .jx-mySpace-filterTools {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jx-mySpace-search.ant-input-affix-wrapper,
+  .jx-mySpace-sourceFilter {
+    width: 100%;
+  }
+
+  .jx-mySpace-imgGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 极窄时只保留 名称 + 操作 */
+@container myspace (max-width: 420px) {
+  .jx-mySpace-docTable-header,
+  .jx-mySpace-docRow {
+    grid-template-columns: var(--jx-check-col-width) minmax(0, 1fr) 36px;
+  }
+
+  .jx-mySpace-docTable-col--time {
+    display: none;
+  }
+}

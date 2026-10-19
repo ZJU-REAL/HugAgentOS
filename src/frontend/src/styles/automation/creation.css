@@ -1,0 +1,244 @@
+/* ══════════════════════════════════════════════════════════════════
+   Schedule Selector (共享于创建 Modal 和详情编辑态)
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-schedule-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jx-schedule-selector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.jx-schedule-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-schedule-selector-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.jx-schedule-selector-preview {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+/* ── Plan option in select dropdown ─────────────────────── */
+
+.jx-automation-planOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.jx-automation-planOption-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text, var(--color-text));
+}
+
+.jx-automation-planOption-steps {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary, var(--color-text-tertiary));
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Plan preview frame (refined specimen container) ─────── */
+
+.jx-automation-planFrame {
+  position: relative;
+  margin: 6px 0 24px;
+  padding: 6px;
+  background: linear-gradient(
+    180deg,
+    rgba(18, 109, 255, 0.045) 0%,
+    rgba(18, 109, 255, 0.00) 72%
+  );
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-bg-container) 90%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
+}
+
+.jx-automation-planFrame--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 16px;
+  font-size: 13px;
+  color: var(--color-text-tertiary, var(--color-text-tertiary));
+}
+
+.jx-automation-planFrame-label {
+  position: absolute;
+  top: -9px;
+  left: 18px;
+  padding: 2px 10px;
+  background: var(--color-bg-container);
+  color: var(--color-primary, var(--color-primary));
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-primary-light, var(--color-primary-light));
+  border-radius: 999px;
+  line-height: 1.6;
+}
+
+.jx-automation-planFrame-scroll {
+  max-height: 460px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 10px;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+}
+
+.jx-automation-planFrame-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.jx-automation-planFrame-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-fill, var(--color-fill));
+  border-radius: 2px;
+}
+.jx-automation-planFrame-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-placeholder, #B3B3B3);
+}
+
+.jx-automation-planFrame-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-primary, var(--color-primary));
+  background: var(--color-primary-light, var(--color-primary-light));
+  padding: 6px 12px;
+  border-radius: 999px;
+  line-height: 1.6;
+}
+
+/* Embed variant: PlanCard sits inside the refined frame,
+   so strip its own outer decoration to avoid double borders. */
+.jx-plan-card.jx-plan-card--embed {
+  margin: 0;
+  padding: 16px 18px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 10px;
+}
+
+/* 步骤行入场 stagger 由 plan.css 的 .jx-plan-steps.jx-anim-stagger 统一承担
+   （embed / 非 embed 共用，keyframes 为 motion.css 的 jx-kf-fadeInUp 原语）。 */
+
+
+/* ── Automation Skeleton ─────────────────────────────────── */
+.jx-automation-card--skeleton {
+  pointer-events: none;
+  border-color: var(--color-border) !important;
+  box-shadow: none !important;
+}
+.jx-automation-skSectionTitle {
+  width: 72px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.jx-automation-skName {
+  width: 180px;
+  height: 14px;
+  border-radius: 6px;
+}
+.jx-automation-skBadge {
+  width: 48px;
+  height: 18px;
+  border-radius: 6px;
+}
+.jx-automation-skMeta {
+  width: 64px;
+  height: 10px;
+  border-radius: 6px;
+}
+.jx-automation-skMeta--wide {
+  width: 120px;
+}
+.jx-automation-skAction {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+.jx-automation-skDetailIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+.jx-automation-skDetailName {
+  flex: 1;
+  max-width: 320px;
+  height: 18px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailBadge {
+  width: 56px;
+  height: 22px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailMeta {
+  width: 84px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailMeta--wide {
+  width: 140px;
+}
+.jx-automation-skFieldLabel {
+  width: 64px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.jx-automation-skFieldValue {
+  width: 80%;
+  height: 14px;
+  border-radius: 6px;
+}

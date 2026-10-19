@@ -47,6 +47,7 @@ async def test_recovery_uses_actual_provider_registry(monkeypatch):
         user_id="user",
         sandbox_id="sandbox",
         execution_id="command",
+        cursor=0,
     )
     result = await recovery.recover_execution(facade, ref, request)
     assert result["session_id"] == "recovered"

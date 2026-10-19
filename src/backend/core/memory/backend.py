@@ -329,6 +329,27 @@ def _desktop_memory_epoch() -> str:
     return _state_fingerprint(get_state())
 
 
+def _close_failed_memory(instance) -> None:
+    """Close clients owned by an unpublished mem0 instance, preserving stored data."""
+    from mem0.memory.main import MEM0_TELEMETRY
+
+    closers = [
+        instance.vector_store.client.close,
+        instance.embedding_model.client.close,
+        instance.llm.client.close,
+        instance.close,
+    ]
+    if MEM0_TELEMETRY:
+        closers.append(instance._telemetry_vector_store.client.close)
+    for close in closers:
+        try:
+            close()
+        except Exception as exc:
+            logger.warning(
+                "[MemoryService] failed initialization cleanup error_type=%s", type(exc).__name__
+            )
+
+
 def _get_memory() -> Optional[object]:
     """Thread-safe lazy initialization: cache the instance on success; on failure allow retry next time."""
     global _memory_instance, _memory_init_failed, _memory_epoch
@@ -349,6 +370,7 @@ def _get_memory() -> Optional[object]:
         _memory_instance = None
         _memory_epoch = None
 
+        instance = None
         try:
             _patch_mem0_embedding()
             from mem0 import Memory
@@ -360,6 +382,8 @@ def _get_memory() -> Optional[object]:
                 "[MemoryService] 初始化 mem0.Memory (graph=%s)", settings.memory.graph_enabled
             )
             instance = Memory.from_config(cfg)
+            # Existing collections remain released after a local database restart.
+            instance.vector_store.client.load_collection(collection_name=MEMORY_COLLECTION_NAME)
             from core.services.desktop_model_credentials import is_reference, sync_client_kwargs
             from openai import OpenAI
 
@@ -394,6 +418,8 @@ def _get_memory() -> Optional[object]:
             _memory_init_failed = False
             return _memory_instance
         except Exception as exc:
+            if instance is not None:
+                _close_failed_memory(instance)
             _memory_init_failed = True
             logger.error("[MemoryService] 初始化失败，记忆功能将降级为空: %s", exc)
             return None

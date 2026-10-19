@@ -120,6 +120,7 @@ class ChatSequencer:
         user_content: str,
         request_payload: Dict[str, Any],
         model: Optional[str] = None,
+        on_accept=None,
         user_extra_data: Optional[Dict[str, Any]] = None,
     ) -> AcceptedChatRun:
         """Commit the user input and pending run in one transaction.
@@ -146,8 +147,11 @@ class ChatSequencer:
                 self.db,
                 chat_id,
                 count=2,
-                owner_user_id=user_id,
             )
+            from core.services.chat_service import ChatService
+            access = ChatService(self.db).get_session_with_access(chat_id, user_id)
+            if access is None or access[1] not in ("admin", "edit"):
+                raise PermissionError("Conversation is not writable")
             user_message = ChatMessage(
                 message_id=user_message_id,
                 chat_id=chat_id,
@@ -181,6 +185,8 @@ class ChatSequencer:
                 created_at=now,
             )
             self.db.add_all((user_message, assistant_message, run))
+            if on_accept is not None:
+                on_accept(self.db, run)
             self._recount(chat_id, now, touch_last_message=True)
             self.db.commit()
             self.db.refresh(user_message)

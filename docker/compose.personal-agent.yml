@@ -22,10 +22,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.opensandbox-server
-    devices:
-      - /dev/fuse:/dev/fuse
-    cap_add: [SYS_ADMIN]
-    security_opt: [apparmor:unconfined]
     profiles: [personal-agent]
     restart: unless-stopped
     depends_on:
@@ -33,16 +29,10 @@ services:
         condition: service_completed_successfully
     environment:
       SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
-      HUGAGENT_BACKEND_CONTAINER: hugagent-backend
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - personal_agent_config:/etc/opensandbox:ro
       - personal_agent_controller:/var/lib/opensandbox
-      - type: bind
-        source: ${HOST_STORAGE_PATH}/object-mounts
-        target: ${HOST_STORAGE_PATH}/object-mounts
-        bind:
-          propagation: rshared
     networks: [hugagent-network, personal-agent-compute]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]

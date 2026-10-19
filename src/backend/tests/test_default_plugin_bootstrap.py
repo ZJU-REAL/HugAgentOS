@@ -32,7 +32,7 @@ def test_ce_default_plugins_bootstrap_once_and_are_globally_available(db_session
         .order_by(InstalledPlugin.slug)
         .all()
     )
-    assert [row.slug for row in installs] == ["automation", "sites", "skill-manager"]
+    assert [row.slug for row in installs] == ["automation", "sites", "skill-manager", "visualize"]
     assert all(row.created_by == "system_bootstrap" for row in installs)
 
     plugin_mcps = {
@@ -54,13 +54,14 @@ def test_ce_default_plugins_bootstrap_once_and_are_globally_available(db_session
         "automation",
         "skill-manager",
         "sites",
+        "visualize",
     }
     assert all(item["enabled"] is True for item in visible_to_user)
 
     marker = db_session.get(ContentBlock, plugin_service.DEFAULT_BOOTSTRAP_MARKER_ID)
     assert marker.payload == {
         "version": 1,
-        "plugins": ["automation", "skill-manager", "sites"],
+        "plugins": ["automation", "skill-manager", "sites", "visualize"],
     }
     assert plugin_service.ensure_default_plugins_bootstrapped(db_session) is False
 
@@ -102,6 +103,10 @@ async def test_ce_compose_startup_runs_default_plugin_bootstrap(monkeypatch):
         "ensure_default_plugins_bootstrapped",
         lambda db: calls.append(db) or True,
     )
+    monkeypatch.setattr(
+        "core.plugins.management.defaults.ensure_visualize_plugin_bootstrapped",
+        lambda db: calls.append(("visualize", db)) or True,
+    )
     # 启动钩子同时负责把 ui_contributions 与 bundle 清单对齐（存量安装回填）
     monkeypatch.setattr(
         plugin_ui,
@@ -111,4 +116,4 @@ async def test_ce_compose_startup_runs_default_plugin_bootstrap(monkeypatch):
 
     await app_module._startup_seed_default_plugins()
 
-    assert calls == [session, ("refresh_ui", session), "close"]
+    assert calls == [session, ("visualize", session), ("refresh_ui", session), "close"]

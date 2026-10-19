@@ -43,6 +43,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
     ]
   ), [manualOrder.length, resetSidebarOrder]);
 
+  const inProjectGroup = scopeKey.startsWith('project:');
   const listLen = groupItems.length;
   const isActive = active ?? ((panel === 'chat' || panel === 'automation') && chatIdFromPath() === item.id);
   const isEditing = editingChatId === item.id;
@@ -143,7 +144,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
       exit={{ opacity: 0, height: 0, minHeight: 0, transition: HISTORY_ITEM_EXIT }}
       transition={HISTORY_ITEM_ENTER}
       style={{ overflow: 'hidden' }}
-      className={`jx-historyItem${isActive ? ' active' : ''}${isEditing ? ' editing' : ''}${isDragging ? ' jx-historyItem--dragging' : ''
+      className={`jx-historyItem${inProjectGroup ? ' jx-historyItem--project' : ''}${isActive ? ' active' : ''}${isEditing ? ' editing' : ''}${isDragging ? ' jx-historyItem--dragging' : ''
         }${dropHint === 'before' ? ' jx-historyItem--dropBefore' : ''}${dropHint === 'after' ? ' jx-historyItem--dropAfter' : ''
         }`}
       draggable={!isEditing}
@@ -163,6 +164,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
           maxLength={30} className="jx-historyEditInput" />
       ) : (
         <div className="jx-historyMain">
+          {inProjectGroup && <span className="jx-historyStatusSlot"><TaskStatusDot {...indicator} /></span>}
           {item.pinned ? (
             <Tooltip title={t('已置顶')}>
               <span className="jx-historyPinIcon" onClick={(e) => e.stopPropagation()}>
@@ -186,7 +188,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
           <span className="jx-historyTitle">
             {conversationTitle(item.title) || t('对话')}
           </span>
-          <TaskStatusDot {...indicator} />
+          {!inProjectGroup && <TaskStatusDot {...indicator} />}
         </div>
       )}
       <div className="jx-historyActions">

@@ -1,9 +1,8 @@
-import { useLocation } from 'react-router';
-import { useApplicationEntries } from '../../applicationEntries';
-import { useApplicationOpen } from '../../applicationOpen';
+import { useState } from 'react';
+import { useModuleNavigation } from './useModuleNavigation';
+import { secondaryModule } from './moduleNavigation';
 import { ClassicNavigation } from './ClassicNavigation';
 import { ClassicModuleSidebar } from './ClassicModuleSidebar';
-import { applicationRoute } from '../../workbench/workspaceNavigation';
 import { Layout, Tooltip } from 'antd';
 import { usePageConfig } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
@@ -15,14 +14,19 @@ import { SidebarUtilities } from './SidebarUtilities';
 import '../../styles/classic-sidebar.css';
 
 export function ClassicSidebar(actions: SidebarProps) {
+  const [moduleCollapsed, setModuleCollapsed] = useState(() => window.matchMedia('(max-width: 960px)').matches);
   const count = useMySpaceStore(s => s.notifUnreadCount);
-  const { pinned, entries } = useApplicationEntries();
-  const { open, feedback } = useApplicationOpen(actions.onSetPanel);
-  const location = useLocation();
+  const { primary, more } = useModuleNavigation();
   const panel = usePanel();
-  const currentKey = applicationRoute(location.pathname, location.search, location.hash)?.applicationKey || 'builtin:' + panel;
-  const navigation = (expanded: boolean) => <ClassicNavigation entries={entries} pinned={pinned}
-    currentKey={currentKey} expanded={expanded} count={count} onOpen={open} />;
+  const select: SidebarProps['onSetPanel'] = (target, sub) => {
+    actions.onSetPanel(target, sub);
+    if (!window.matchMedia('(max-width: 960px)').matches) {
+      useUIStore.getState().setSiderCollapsed(false);
+      setModuleCollapsed(false);
+    }
+  };
+  const navigation = (expanded: boolean) => <ClassicNavigation primary={primary} more={more}
+    panel={panel} expanded={expanded} count={count} onSelect={select} />;
   const collapsed = useUIStore(s => s.siderCollapsed);
   const setCollapsed = useUIStore(s => s.setSiderCollapsed);
   const openSearch = useUIStore(s => s.openSearchModal);
@@ -47,7 +51,7 @@ export function ClassicSidebar(actions: SidebarProps) {
         <button className="jx-miniRailBtn" aria-label={t('搜索对话')} onClick={openSearch}><img src="/home/search.svg" alt="" className="jx-miniRailIcon" /></button>
       </Tooltip>
       {navigation(false)}
-      <SidebarUtilities onSetPanel={actions.onSetPanel} classic />
+      <SidebarUtilities onSetPanel={actions.onSetPanel} />
     </div> : <aside className="jx-classicInner" aria-label={t('导航')}>
       <header className="jx-classicBrand">
         <button className="jx-classicHome" title={t('回到首页')} onClick={actions.onNewChat}>
@@ -58,10 +62,9 @@ export function ClassicSidebar(actions: SidebarProps) {
         <button className="jx-collapseBtn" aria-label={t('收起侧边栏')} onClick={() => setCollapsed(true)}><img src="/home/expand.svg" alt="" /></button>
       </header>
       <ChatSidebar actions={actions} navigation={navigation(true)} />
-      <SidebarUtilities onSetPanel={actions.onSetPanel} classic expanded />
+      <SidebarUtilities onSetPanel={actions.onSetPanel} expanded />
     </aside>}
-    <span className="jx-applicationFeedback" role="status">{feedback}</span>
   </Layout.Sider>
-    {(panel === 'automation' || panel === 'my_space') && <ClassicModuleSidebar key={panel} actions={actions} panel={panel} />}
+    {(panel === 'automation' || panel === 'my_space' || secondaryModule(panel, more)) && <ClassicModuleSidebar key={panel} actions={actions} panel={panel} more={more} onSelect={select} collapsed={moduleCollapsed} onCollapse={setModuleCollapsed} />}
   </>;
 }

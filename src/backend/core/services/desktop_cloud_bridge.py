@@ -151,13 +151,19 @@ def current_credentials(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def note_rejected_credential(state: Dict[str, Any], exc: BaseException) -> None:
-    """A 401 means this account's current token was refused; the next renewal re-syncs."""
+    """Only a refusal of the live token schedules re-sync on its next renewal."""
     global _credential_rejected
     import httpx
 
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 401:
+        authorization = exc.request.headers.get("Authorization")
         with _state_lock:
-            _credential_rejected = _state_fingerprint(state)
+            if (
+                _state
+                and authorization == f"Bearer {_state.get('token')}"
+                and _state_fingerprint(_state) == _state_fingerprint(state)
+            ):
+                _credential_rejected = _state_fingerprint(state)
 
 
 def cloud_headers(state: Dict[str, Any]) -> Dict[str, str]:

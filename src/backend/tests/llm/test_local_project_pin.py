@@ -189,10 +189,10 @@ def test_live_spreadsheet_sheet_read_and_artifact_input(local_project):
     assert base64.b64decode(content["input.xlsx"]) == sheet.read_bytes()
 
 
-def test_scratch_export_keeps_copy_behavior(local_project, monkeypatch, tmp_path):
+def test_scratch_export_references_original(local_project, monkeypatch, tmp_path):
     from core.llm.tools.sandbox_tool import register_sandbox_get_artifact
     from core.artifacts.store import get_artifact
-    from core.artifacts.local_project import is_local_project_ref
+    from core.artifacts.local_reference import is_local_file_ref
 
     source, scope = local_project
     from core.llm.tools import _paths
@@ -202,6 +202,14 @@ def test_scratch_export_keeps_copy_behavior(local_project, monkeypatch, tmp_path
     root.mkdir(parents=True)
     scratch = root / "scratch.txt"
     scratch.write_text("scratch output")
+    from core.services.local_grant_service import add_grant
+    from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
+
+    add_grant(str(root))
+    ticket_token = CURRENT_PERMISSION_TICKET.set(PermissionTicket(
+        "sandbox_get_artifact", "export", "", "test-export",
+        (PermissionIntent("local_path", "read", str(scratch), "export original"),),
+    ))
 
     original_resolve = _paths.to_physical_path
     monkeypatch.setattr(
@@ -231,9 +239,10 @@ def test_scratch_export_keeps_copy_behavior(local_project, monkeypatch, tmp_path
         .content[0]
         .text
     )
+    CURRENT_PERMISSION_TICKET.reset(ticket_token)
     assert result.get("ok"), result
-    assert not is_local_project_ref(result["file_id"])
-    assert get_artifact(result["file_id"])["path"] != str(scratch)
+    assert is_local_file_ref(result["file_id"])
+    assert get_artifact(result["file_id"])["path"] == str(scratch)
     assert scratch.read_text() == "scratch output"
 
 
@@ -472,4 +481,4 @@ def test_session_relative_delivery_reports_partial_failure(local_project, monkey
     assert len(result["failed"]) == 1
     source.unlink()
     item = get_artifact(result["pinned"][0]["file_id"])
-    assert Path(item["path"]).read_text() == "delivered"
+    assert item is None

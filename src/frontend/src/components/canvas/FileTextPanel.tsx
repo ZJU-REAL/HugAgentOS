@@ -1,10 +1,11 @@
+import { useCanvasPane, useCanvasPaneId } from './useCanvasPane';
 import { createPortal } from 'react-dom';
 import { EyeOutlined, CodeOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState, useImperativeHandle, useMemo, type ReactNode, type Ref } from 'react';
 import { Button } from 'antd';
 import { apiRequest, unwrapData } from '../../api';
 import { t } from '../../i18n';
-import { useCanvasStore, type CanvasArtifact } from '../../stores/canvasStore';
+import { type CanvasArtifact } from '../../stores/canvasStore';
 import { artifactOrigin, artifactUrl } from '../../utils/artifactAccess';
 import './FileTextPanel.css';
 import { MarkdownFileEditor } from './MarkdownFileEditor';
@@ -31,6 +32,8 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
   onStateChange?: (state: FileTextState) => void;
   preview: (revision?: string) => ReactNode;
 }) {
+  const paneId = useCanvasPaneId();
+  const activePane = useCanvasPane(s => s.activePane);
   const [document, setDocument] = useState<TextDocument>();
   const [draft, setDraft] = useState('');
   const [htmlView, setHtmlView] = useState<'preview' | 'source'>('preview');
@@ -46,8 +49,9 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
   const mounted = useRef(false);
   const savingRef = useRef(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const tabId = useCanvasStore(s => s.activeTabId);
-  const setTabDirty = useCanvasStore(s => s.setTabDirty);
+  const tabId = useCanvasPane(s => s.activeTabId);
+  const updateArtifact = useCanvasPane(s => s.updateArtifact);
+  const setTabDirty = useCanvasPane(s => s.setTabDirty);
   const dirty = editing && document !== undefined && draft !== document.content;
   useEffect(() => {
     onStateChange?.({ canEdit: editing, dirty, saving });
@@ -111,7 +115,7 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
       if (!mounted.current) return;
       setDocument(saved);
       setDraft(saved.content);
-      useCanvasStore.getState().updateArtifact({ size: saved.size });
+      updateArtifact({ size: saved.size });
     } catch (cause: unknown) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : t('保存失败'));
     } finally {
@@ -122,7 +126,7 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
 
   // Capture while editing, before the panel's generic Ctrl+S browser guard.
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || activePane !== paneId) return;
     const keydown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();

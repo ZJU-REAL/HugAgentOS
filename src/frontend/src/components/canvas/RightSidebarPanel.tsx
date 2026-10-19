@@ -1,10 +1,15 @@
-import { useEffect } from 'react';
+import { useCanvasPane } from './useCanvasPane';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCanvasStore } from '../../stores/canvasStore';
+import { CanvasPaneContext } from './CanvasPaneContext';
+import { useCanvasPaneId } from './useCanvasPane';
+import './CanvasSplit.css';
 import { CanvasLauncher } from './CanvasLauncher';
 import { useCanvasLauncherStore } from './canvasLauncherStore';
 import { InsertRowRightOutlined } from '@ant-design/icons';
 
 import { t } from '../../i18n';
-import { useCanvasStore } from '../../stores';
+
 import { ContentErrorBoundary } from '../common';
 import { SubagentSidebarPanel } from './SubagentSidebarPanel';
 import { CanvasPanel } from './CanvasPanel';
@@ -14,11 +19,76 @@ import { PluginCanvasPanel } from './PluginCanvasPanel';
 import { canvasRenderer } from './customCanvasRegistry';
 
 export function RightSidebarPanel() {
-  const launcherOpen = useCanvasLauncherStore(s => s.open);
+  const isSplit = useCanvasStore(s => s.isSplit);
+  const focusPane = useCanvasStore(s => s.focusPane);
+  const root = useRef<HTMLDivElement>(null);
+  const cleanup = useRef<(() => void) | null>(null);
+  const [fraction, setFraction] = useState(.5);
+  const [dragging, setDragging] = useState(false);
+  const [width, setWidth] = useState(0);
+  const minimum = Math.max(.2, Math.min(.5, 200 / (width || 400)));
+  const clamp = (value: number) => Math.max(minimum, Math.min(1 - minimum, value));
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const observer = new ResizeObserver(entries => setWidth(entries[0].contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => () => cleanup.current?.(), []);
+  useEffect(() => { if (!isSplit) cleanup.current?.(); }, [isSplit]);
+  return <div ref={root} className={'jx-canvasSplit' + (isSplit ? ' is-split' : '')}
+    style={{ '--canvas-split': clamp(fraction) } as CSSProperties}>
+    <section className="jx-canvasSplit-pane" aria-label={t('左侧分屏')}
+      onPointerDownCapture={() => focusPane('primary')} onFocusCapture={() => focusPane('primary')}>
+      <CanvasPaneContext.Provider value="primary"><CanvasPane /></CanvasPaneContext.Provider>
+    </section>
+    {isSplit && <>
+      <div className="jx-canvasSplit-divider" role="separator" aria-orientation="vertical"
+        aria-label={t('调整分屏大小')} aria-valuemin={Math.round(minimum * 100)} aria-valuemax={Math.round((1 - minimum) * 100)}
+        aria-valuenow={Math.round(clamp(fraction) * 100)} tabIndex={0}
+        onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          setFraction(value => event.key === 'Home' ? minimum : event.key === 'End' ? 1 - minimum
+            : clamp(value + (event.key === 'ArrowLeft' ? -.05 : .05)));
+        }}
+        onPointerDown={event => {
+          event.preventDefault();
+          const rect = root.current?.getBoundingClientRect();
+          if (!rect) return;
+          const move = (e: PointerEvent) => setFraction(clamp((e.clientX - rect.left) / rect.width));
+          const stop = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', stop);
+            window.removeEventListener('pointercancel', stop);
+            setDragging(false); cleanup.current = null;
+          };
+          cleanup.current?.(); cleanup.current = stop; setDragging(true);
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', stop);
+          window.addEventListener('pointercancel', stop);
+        }} onDoubleClick={() => setFraction(.5)} />
+      <section className="jx-canvasSplit-pane" aria-label={t('右侧分屏')}
+        onPointerDownCapture={() => focusPane('secondary')} onFocusCapture={() => focusPane('secondary')}>
+        <CanvasPaneContext.Provider value="secondary"><CanvasPane /></CanvasPaneContext.Provider>
+      </section>
+    </>}
+    {dragging && <div className="jx-canvasSplit-mask" />}
+  </div>;
+}
+
+function CanvasPane() {
+  const pane = useCanvasPaneId();
+  const explicitLauncher = useCanvasLauncherStore(s => s.open && s.pane === pane);
   const dismiss = useCanvasLauncherStore(s => s.dismiss);
-  const activeTabId = useCanvasStore(s => s.activeTabId);
-  useEffect(() => { dismiss(); }, [activeTabId, dismiss]);
-  useEffect(() => () => dismiss(), [dismiss]);
+  const activeTabId = useCanvasPane(s => s.activeTabId);
+  const launcherOpen = explicitLauncher || activeTabId === null;
+  useEffect(() => {
+    const launcher = useCanvasLauncherStore.getState();
+    if (launcher.pane === pane) dismiss();
+  }, [activeTabId, dismiss, pane]);
+
   return <div className={'jx-canvasWorkspace' + (launcherOpen ? ' is-launching' : '')}>
     <div className="jx-canvasWorkspace-current" inert={launcherOpen || undefined}><SidebarContent /></div>
     {launcherOpen && <CanvasLauncher />}
@@ -26,10 +96,10 @@ export function RightSidebarPanel() {
 }
 
 function SidebarContent() {
-  const activeView = useCanvasStore((state) => state.activeView);
-  const artifact = useCanvasStore((state) => state.artifact);
-  const activeTabId = useCanvasStore((state) => state.activeTabId);
-  const ontologyTarget = useCanvasStore((state) => state.ontologyTarget);
+  const activeView = useCanvasPane((state) => state.activeView);
+  const artifact = useCanvasPane((state) => state.artifact);
+  const activeTabId = useCanvasPane((state) => state.activeTabId);
+  const ontologyTarget = useCanvasPane((state) => state.ontologyTarget);
 
   // key=页签 id：切换页签必须换一份面板实例，否则上一份的预览状态（xlsx 编辑缓冲、
   // 画布视口、加载中的 blob）会漏到新页签上。
@@ -87,7 +157,7 @@ function SidebarContent() {
 }
 
 function CustomCanvasPanel() {
-  const target = useCanvasStore((state) => state.customTarget);
+  const target = useCanvasPane((state) => state.customTarget);
   const View = target ? canvasRenderer(target.renderer)?.component : undefined;
   return (
     <aside className="jx-rightSidebar jx-rightSidebar--custom" aria-label={target?.title}>

@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 
 from ._common import safe_user_id
+from .metadata import USER_ID_METADATA_KEY
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ _METADATA_POOL_KIND_KEY = "hugagent-pool-kind"
 # service carries this tag; after a backend restart _adopt_existing_sandboxes uses it to
 # reclaim orphan sandboxes into the correct user's pool — cross-user reuse would let one
 # user see another's myspace bind contents, a security hole that must be prevented.
-_METADATA_USER_ID_KEY = "hugagent-user-id"
+_METADATA_USER_ID_KEY = USER_ID_METADATA_KEY
 # Which skill layout a sandbox was created with. Mounts are fixed at creation, so a
 # sandbox from before the per-user skill view still has the whole shared dir bound at
 # /workspace/skills and would miss its user's private skills once those move into the

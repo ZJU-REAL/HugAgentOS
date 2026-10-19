@@ -1,11 +1,10 @@
-import { useLocation } from 'react-router';
-import { applicationRoute } from '../../workbench/workspaceNavigation';
-import { useApplicationEntries } from '../../applicationEntries';
-import { useApplicationOpen } from '../../applicationOpen';
-import { ApplicationButton } from '../../workbench/ApplicationButton';
-import { MoreApplications } from '../../workbench/MoreApplications';
-import { useRailCapacity } from '../../workbench/useRailCapacity';
-import { navigationKeyboard } from '../../workbench/navigationKeyboard';
+import { useModuleNavigation } from './useModuleNavigation';
+import { ModuleButton } from './ModuleButton';
+import { MoreModules } from './MoreModules';
+import { ModuleSecondaryNavigation } from './ModuleSecondaryNavigation';
+import { secondaryModule } from './moduleNavigation';
+import { LAYOUT_ITEMS } from './items';
+import { navigationKeyboard } from './navigationKeyboard';
 import { useSidebarLayoutStore } from '../../stores/sidebarLayoutStore';
 import { ClassicSidebar } from './ClassicSidebar';
 import { Layout, Tooltip } from 'antd';
@@ -36,11 +35,9 @@ function ModernSidebar(actions: SidebarProps) {
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
   const logo = usePageConfig('branding.logo_url', '/home/logo.svg');
   const config = usePageConfigAll();
-  const { items: LAYOUT_ITEMS, railPinned, sidebar, menu, entries } = useApplicationEntries();
-  const {ref,capacity} = useRailCapacity(railPinned);
-  const location = useLocation();
-  const currentKey = applicationRoute(location.pathname, location.search, location.hash)?.applicationKey || 'builtin:' + panel;
-  const hasSecondary = ['chat','personal_agent','ability_center','my_space','automation'].includes(panel);
+  const { primary, more } = useModuleNavigation();
+  const moreModule = secondaryModule(panel, more);
+  const hasSecondary = moreModule || ['chat','personal_agent','ability_center','my_space','automation'].includes(panel);
   const chatModule = panel === 'chat' || panel === 'personal_agent';
   const title = chatModule ? brandName : LAYOUT_ITEMS[panel]?.label || brandName;
   const select = (target: typeof panel, sub?: string) => {
@@ -54,17 +51,12 @@ function ModernSidebar(actions: SidebarProps) {
     } else actions.onSetPanel(target, sub);
     if (!window.matchMedia('(max-width: 960px)').matches) setCollapsed(false);
   };
-  const {open,feedback} = useApplicationOpen(select);
-  const rail = railPinned.map(key => entries.find(entry => entry.key === key)).filter(entry => entry !== undefined);
-  const visibleRail = rail.slice(0, capacity);
-  const moreEntries = entries.filter(entry => !visibleRail.some(visible => visible.key === entry.key)
-    && (!entry.key.startsWith('builtin:') || [...sidebar, ...menu].includes(entry.item.declaration.id)));
   return <Layout.Sider width={344} collapsedWidth={64} collapsed={collapsed || !hasSecondary} theme="light" className="jx-sider jx-moduleShell">
-    <nav ref={ref} onKeyDown={navigationKeyboard} className="jx-moduleRail" aria-label={t('导航')}>
+    <nav onKeyDown={navigationKeyboard} className="jx-moduleRail" aria-label={t('导航')}>
       <Tooltip title={t('对话')} placement="right"><button className={`jx-moduleButton${chatModule ? ' active' : ''}`} aria-label={t('对话')} aria-pressed={chatModule} onClick={() => select('chat')}><img className="jx-moduleLogo" src={logo} alt="" /></button></Tooltip>
-      {visibleRail.map(entry => <ApplicationButton key={entry.key} entry={entry} current={entry.key === currentKey}
-        className="jx-moduleButton" onOpen={open} count={entry.key === 'builtin:my_space' ? count : 0} />)}
-      <MoreApplications entries={moreEntries} currentKey={currentKey} onOpen={open} />
+      {primary.map(entry => <ModuleButton key={entry.id} entry={entry} active={panel === entry.meta.targetPanel}
+        className="jx-moduleButton" onSelect={select} count={entry.id === 'my_space' ? count : 0} />)}
+      <MoreModules entries={more} panel={panel} onSelect={select} />
       <SidebarUtilities onSetPanel={select} />
     </nav>
     {!collapsed && hasSecondary && <aside className="jx-moduleSidebar" aria-label={title}>
@@ -73,8 +65,7 @@ function ModernSidebar(actions: SidebarProps) {
       {panel === 'ability_center' && <nav className="jx-moduleCategories" aria-label={t('能力中心')}>{ABILITY_TABS.map(item => <button key={item.key} className={`jx-navItem${abilityTab === item.key ? ' active' : ''}`} aria-current={abilityTab === item.key ? 'page' : undefined} onClick={() => select('ability_center', abilitySlug(item.key))}><img className="jx-navItemIcon" src={item.icon} alt="" />{t(config.navigation.panel_titles[item.key] || item.label)}</button>)}</nav>}
       {panel === 'my_space' && <MySpaceRail />}
       {panel === 'automation' && <AutomationSidebar actions={actions} />}
-
+      {moreModule && <ModuleSecondaryNavigation entries={more} panel={panel} onSelect={select} />}
     </aside>}
-    <span className="jx-applicationFeedback" role="status">{feedback}</span>
   </Layout.Sider>;
 }

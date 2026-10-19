@@ -154,8 +154,8 @@ def _resolve_artifact_files(
     storage = get_storage()
 
     for filename, artifact_id in artifact_refs.items():
-        from core.artifacts.local_project import is_local_project_ref
-        if is_local_project_ref(artifact_id):
+        from core.artifacts.local_reference import is_local_file_ref
+        if is_local_file_ref(artifact_id):
             from core.llm.hooks import _download_artifact_bytes
             file_bytes = _download_artifact_bytes(artifact_id, filename, "artifact input", user_id=user_id)
             if file_bytes is None:

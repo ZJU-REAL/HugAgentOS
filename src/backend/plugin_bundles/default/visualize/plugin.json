@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "visualize",
+  "version": "1.0.0",
+  "description": "交互可视化：图表、原理演示、模拟、地图和界面原型，生成可预览的 HTML。",
+  "author": {
+    "name": "HugAgentOS"
+  },
+  "license": "Apache-2.0"
+}

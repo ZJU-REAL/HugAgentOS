@@ -5,7 +5,7 @@ Install and enable `browser-automation` in the plugin marketplace, then ask the 
 ## Use
 
 - Navigate, go back/forward, reload, manage tabs, observe pages, operate locators and capture screenshots.
-- Select **Take control** to use the mouse, keyboard, Chinese input and paste. Agent observation and actions pause until **Return to agent**.
+- Direct clicks, scrolling and typing acquire user control automatically and pause agent observation and actions. Control returns after 15 idle seconds while the panel is focused. There is no release button.
 - Select **Private login** before taking control for login or verification. **Save login** encrypts the browser state. Explicitly provide the restore ID to `browser_open(checkpoint_id=...)`; passwords and cookies are never tool outputs.
 - Uploads total at most 8 MiB. Download through the Canvas file list, or ask the agent to `retain_download` as a conversation artifact. Retained files remain available after the browser closes.
 - Closing Canvas stops viewing; **Close browser** ends the session. Reconnect never replays operations. Manual control requires a new lease after disconnection.
@@ -118,6 +118,10 @@ Missing and duplicate locators return element_not_found and ambiguous_locator. T
 
 Reopening a chat discovers resources belonging to the current user, chat and installation revision. Live resources restore Canvas. Expired sessions are never recreated from historical tool results. The browser_open card includes Open in Canvas.
 
-Inputs submitted before the current frame is ready report non-delivery. Losing focus keeps human ownership. Regaining focus restarts the15-second idle timer. Users can release control explicitly.
+Inputs submitted before the current frame is ready report non-delivery. Losing focus keeps human ownership. Regaining focus restarts the15-second idle timer.
 
 Downloads retain at most50 entries. Clearing removes temporary files without deleting saved chat attachments. Overlay scrollbars on macOS need not reserve layout width.
+
+### 1.0.13 Remove the release button
+
+The browser toolbar no longer displays a release-control button. Control still returns automatically after 15 idle seconds while focused; IME composition and active dragging prevent release. Update the installed browser plugin and reopen the browser session. Desktop hybrid mode also needs a cloud capability sync.

@@ -1,0 +1,325 @@
+/* ══════════════════════════════════════════════════════════════════
+   Automation Detail Page (整页详情，对齐 .jx-agentDetail-*)
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-automation-detail-top {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 24px 24px;
+  flex: 1;
+  position: relative;
+}
+
+.jx-automation-detail-backBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-right: 16px;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-placeholder);
+  font-size: 14px;
+  transition: color .12s;
+}
+.jx-automation-detail-backBtn:hover { color: var(--color-text); }
+
+.jx-automation-detail-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 840px;
+}
+
+/* ── Edit sticky bar ────────────────────────────────────────── */
+.jx-automation-detail-editBar {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-primary-light) 96%, transparent);
+  border: 1px solid var(--color-border);
+  backdrop-filter: blur(8px);
+}
+.jx-automation-detail-editBar-text {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+.jx-automation-detail-editBar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Name row ────────────────────────────────────────── */
+.jx-automation-detail-nameRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-automation-detail-iconWrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--color-bg-container);
+}
+.jx-automation-detail-iconWrap img {
+  width: 28px;
+  height: 28px;
+}
+
+.jx-automation-detail-name {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-automation-detail-badge {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
+  line-height: 1.5;
+  transition: color .25s var(--motion-ease-standard), background-color .25s var(--motion-ease-standard);
+}
+.jx-automation-detail-badge.is-active {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+.jx-automation-detail-badge.is-paused {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+.jx-automation-detail-badge.is-disabled,
+.jx-automation-detail-badge.is-completed,
+.jx-automation-detail-badge.is-expired {
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
+}
+
+.jx-automation-detail-runSwitch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.jx-automation-detail-runSwitch-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* ── Meta row ────────────────────────────────────────── */
+.jx-automation-detail-metaRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  margin-bottom: 18px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  flex-wrap: wrap;
+}
+.jx-automation-detail-metaRow-sep {
+  color: var(--color-fill);
+}
+
+/* ── Error alert ────────────────────────────────────────── */
+.jx-automation-detail-errorAlert {
+  margin-bottom: 18px;
+}
+
+/* ── Divider ────────────────────────────────────────── */
+.jx-automation-detail-divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 0 0 20px;
+}
+
+/* ── Sections ────────────────────────────────────────── */
+.jx-automation-detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.jx-automation-detail-section {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-container);
+  padding: 18px 20px 20px;
+}
+
+.jx-automation-detail-sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.jx-automation-detail-sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-automation-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.jx-automation-detail-field {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+}
+
+.jx-automation-detail-field.is-multiline {
+  grid-column: 1 / -1;
+}
+
+.jx-automation-detail-fieldLabel {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-automation-detail-fieldValue {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--color-text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.jx-automation-detail-fieldValue.is-muted {
+  color: var(--color-text-placeholder);
+}
+
+/* ── Run list ────────────────────────────────────────── */
+.jx-automation-detail-runList {
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-automation-detail-runRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #F1F3F6;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.jx-automation-detail-runRow:last-child { border-bottom: none; }
+.jx-automation-detail-runRow:hover { background: var(--color-bg-layout); }
+
+.jx-automation-runDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+/* 运行中扩散涟漪：组件层挂 .jx-anim-ripple（motion.css 原语，compositor-only），
+   这里只调色与扩散倍数（8px 圆点 ×2.5 ≈ 原 6px box-shadow 扩散幅度） */
+.jx-automation-runDot.is-running {
+  background: var(--color-primary);
+  --ripple-color: var(--color-primary);
+  --ripple-scale: 2.5;
+}
+.jx-automation-runDot.is-success { background: var(--color-success); }
+.jx-automation-runDot.is-failed  { background: var(--color-error); }
+
+.jx-automation-detail-runRow-time {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  width: 150px;
+}
+
+.jx-automation-detail-runRow-duration {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  width: 60px;
+}
+
+.jx-automation-detail-runRow-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.jx-automation-detail-runRow-error {
+  flex-basis: 100%;
+  color: var(--color-error);
+  font-size: 12px;
+  padding-left: 20px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.jx-automation-detail-runEmpty {
+  font-size: 13px;
+  color: var(--color-text-placeholder);
+  padding: 20px 4px;
+  text-align: center;
+}
+
+/* ── Actions ────────────────────────────────────────── */
+.jx-automation-detail-actionsWrap {
+  position: sticky;
+  bottom: 18px;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  margin-top: 8px;
+  z-index: 8;
+}
+
+.jx-automation-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px;
+  border: 1px solid rgba(229, 234, 240, 0.96);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  pointer-events: auto;
+  /* 悬浮操作条入场复用计划卡揭晓动画（编辑态退出重挂时再播一次） */
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
+}

@@ -86,6 +86,8 @@ def _load_history(chat_service: Any, chat_id: str, *, repair: bool = True) -> Li
     ``repair`` is forwarded to :func:`_rows_after_seq`; see the warning there
     about taking a row lock on a session that outlives the read.
     """
+    from core.services.commands.context import append_active_completions
+
     ckpt = (
         chat_service.get_latest_compaction_checkpoint(chat_id)
         if config_settings.settings.compaction.enabled
@@ -93,13 +95,15 @@ def _load_history(chat_service: Any, chat_id: str, *, repair: bool = True) -> Li
     )
     if ckpt is None:
         rows = _rows_after_seq(chat_service, chat_id, 0, repair=repair)
-        return normalize_rows(rows, _live_run_ids(chat_service, rows))
+        return append_active_completions(
+            chat_service.db, chat_id, normalize_rows(rows, _live_run_ids(chat_service, rows)))
 
     extra = getattr(ckpt, "extra_data", None) or {}
     replacement: List[Dict[str, Any]] = list(extra.get("replacement_history") or [])
     covered_seq = chat_service._checkpoint_covered_seq(ckpt)
     tail_rows = _rows_after_seq(chat_service, chat_id, covered_seq, repair=repair)
-    return replacement + normalize_rows(tail_rows, _live_run_ids(chat_service, tail_rows))
+    return append_active_completions(chat_service.db, chat_id,
+        replacement + normalize_rows(tail_rows, _live_run_ids(chat_service, tail_rows)))
 
 
 def load_session_history(

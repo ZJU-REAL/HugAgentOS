@@ -1,10 +1,25 @@
-/* A static colored dot and accessible label retain status when motion is reduced. */
+/*! Spinner adapted from DeepSeek Harness StateDot (MIT), commit 687f282e.
+   Source and license: /licenses/deepseek-harness.txt. */
 .jx-taskStatus{--task-status-color:var(--color-primary);display:inline-flex;position:relative;align-items:center;justify-content:center;flex-shrink:0;width:8px;height:8px;margin-left:6px;border-radius:50%;background:var(--task-status-color);animation:jx-taskBreathe 2.4s ease-in-out infinite}
-.jx-taskStatus--completed{--task-status-color:var(--color-success);animation-duration:2.8s}
+.jx-taskStatus--completed{--task-status-color:var(--color-primary);animation-duration:2.8s}
 .jx-taskStatus--waiting{--task-status-color:var(--color-warning)}
 .jx-taskStatus--failed{--task-status-color:var(--color-error)}
 .jx-taskStatus--completed:not(.jx-taskStatus--seen)::after{content:"";position:absolute;inset:-3px;border-radius:50%;background:var(--task-status-color);opacity:.13}
 .jx-taskStatus--seen{animation:none}
+/* The running state paints a neutral track and arc instead of a solid dot. */
+.jx-taskStatus--running{width:14px;height:14px;background:transparent;color:var(--color-text-tertiary);animation:none}
+.jx-taskStatus--running svg{display:block;overflow:visible}
+/* motion-keep: Rotation communicates a task that is still running. */
+.jx-taskSpinnerMotion{transform-origin:12px 12px;animation:jx-taskSpin 1.5s linear infinite}
+.jx-taskSpinnerTrack,.jx-taskSpinnerArc{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.jx-taskSpinnerTrack{opacity:.25}
+/* motion-keep: Arc length changes communicate ongoing work. */
+.jx-taskSpinnerArc{stroke-dasharray:12 150;animation:jx-taskDash 1.5s ease-in-out infinite}
+@keyframes jx-taskSpin{to{transform:rotate(360deg)}}
+@keyframes jx-taskDash{
+  0%,100%{stroke-dasharray:12 150;stroke-dashoffset:0}
+  50%{stroke-dasharray:24 150;stroke-dashoffset:-6}
+}
 .jx-personalStatus{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;margin-left:auto}
 .jx-personalUnread{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:6px;background:var(--color-success-bg);color:var(--color-success);font-size:11px;font-variant-numeric:tabular-nums}
 .jx-personalNavName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -14,3 +29,5 @@
 .jx-personalStatus--compact{position:absolute;inset:0;pointer-events:none}
 .jx-personalStatus--compact .jx-taskStatus{position:absolute;top:3px;right:3px;width:6px;height:6px;margin:0}
 .jx-personalStatus--compact .jx-personalUnread{position:absolute;bottom:0;right:0;min-width:15px;height:15px;padding:0 2px}
+
+.jx-personalStatus--compact .jx-taskStatus--running{width:14px;height:14px}

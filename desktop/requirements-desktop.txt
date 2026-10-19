@@ -57,7 +57,8 @@ dingtalk-stream>=0.21.0
 mem0ai>=0.1.50
 protobuf<7
 pymilvus==2.5.18
-milvus-lite==3.1.0
+# 3.2.2 uses atomic replacement for existing manifests on every platform.
+milvus-lite==3.2.2
 
 # File parsing, scripts, charts, and document generation. Remote OpenSandbox
 # and E2B clients are omitted because desktop execution uses the host runner.

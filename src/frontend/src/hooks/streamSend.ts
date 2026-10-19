@@ -11,7 +11,7 @@ import { useChatStore, useCatalogStore, useChatModeStore, useUIStore, useModelCa
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream } from './chatStream';
 import { captureChatInvocation, chatInvocationMessageProps, chatInvocationRequestFields, normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
-import { newMessageUid } from '../utils/messageIdentity';
+import { acknowledgeUserMessage, newMessageUid } from '../utils/messageIdentity';
 import type { ChatItem, ChatMessage } from '../types';
 import type { StreamingContext } from './streamingContext';
 
@@ -239,6 +239,20 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       });
       if (!r.ok || !r.body) throw new Error(await r.text());
 
+      // Admission already persisted the user row. Bind it before exposing the
+      // session to history loaders or consuming any assistant stream frames.
+      const userMessageId = r.headers.get('x-hugagent-user-message-id');
+      if (userMessageId) updateStore(prev => {
+        const chat = prev.chats[streamChatId];
+        if (!chat) return prev;
+        const messages = acknowledgeUserMessage(chat.messages, userMsg.uid, userMessageId);
+        if (messages === chat.messages) return prev;
+        return { ...prev, chats: { ...prev.chats, [streamChatId]: { ...chat, messages } } };
+      });
+      addBackendSessionId(currentChatId);
+      syncManualTitleToBackend(currentChatId);
+      if (!compactCommand) void ctx.generateSummary(currentChatId);
+
       const outcome = await ctx.processChatStreamWithHandoffRecovery(r, streamChatId, {
         enableThinking: isThinkingMode(chatMode),
         signal: abortController.signal,
@@ -250,7 +264,6 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       syncManualTitleToBackend(currentChatId);
 
       if (!compactCommand) {
-        setTimeout(() => ctx.generateSummary(currentChatId), 500);
         setTimeout(() => ctx.generateClassification(currentChatId), 800);
       }
 

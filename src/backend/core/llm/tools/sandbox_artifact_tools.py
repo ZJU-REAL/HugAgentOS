@@ -134,24 +134,20 @@ def register_sandbox_get_artifact(
         from ._paths import to_physical_path
 
         if local_mode_enabled():
-            from core.artifacts.local_project import reference_project_file, is_project_file_path
+            from core.artifacts.local_reference import reference_local_file
             from fastapi import HTTPException
 
-            local_scope = scope
-            if local_scope and local_scope.is_local:
-                physical = to_physical_path(src_path, user_id, session_id=_sess)
-                # Project files are already durable. Only scratch exports need a copy.
-                if is_project_file_path(src_path, local_scope) or is_project_file_path(physical, local_scope):
-                    try:
-                        ref = await asyncio.to_thread(
-                            reference_project_file, physical, scope=local_scope,
-                            user_id=user_id or "", name=name,
-                        )
-                    except (HTTPException, OSError, ValueError) as exc:
-                        return _resp_json({"error": str(getattr(exc, "detail", exc))})
-                    ref = {k: ref[k] for k in ("file_id", "name", "mime_type", "size")}
-                    ref["url"] = f"/files/{ref['file_id']}"
-                    return _resp_json({"ok": True, **ref, "artifacts": [ref]})
+            physical = to_physical_path(src_path, user_id, session_id=_sess, scope=scope)
+            try:
+                ref = await asyncio.to_thread(
+                    reference_local_file, physical, scope=scope, session_id=_sess,
+                    user_id=user_id or "", name=name,
+                )
+            except (HTTPException, OSError, ValueError) as exc:
+                return _resp_json({"error": str(getattr(exc, "detail", exc))})
+            ref = {k: ref[k] for k in ("file_id", "name", "mime_type", "size")}
+            ref["url"] = f"/files/{ref['file_id']}"
+            return _resp_json({"ok": True, **ref, "artifacts": [ref]})
 
         from ._paths import to_physical_path, workspace_directory
 
@@ -232,7 +228,7 @@ def register_sandbox_get_artifact(
             tmp_path.unlink(missing_ok=True)
 
     sandbox_get_artifact.__doc__ = (
-        "登记文件并返回 file_id。本机项目文件只引用原文件，不复制到 artifacts；临时沙盒文件才导出保存。\n\n"
+        "登记文件并返回 file_id。本机项目和会话目录文件统一引用原文件，不复制到 artifacts；云端沙盒文件导出保存。\n\n"
         "⚠️ **登记 ≠ 交付**：返回的 url 默认对用户隐藏，必须再调\n"
         "`pin_to_workspace(file_ids=[...])` 文件才作为附件出现在对话区；\n"
         "**禁止**把 file_id 或 url 写进正文当下载链接。\n\n"

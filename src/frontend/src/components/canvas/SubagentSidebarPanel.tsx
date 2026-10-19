@@ -1,7 +1,8 @@
+import { useCanvasPane } from './useCanvasPane';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getToolCallResult } from '../../api';
 import { t } from '../../i18n';
-import { useCanvasStore, useChatStore, useUIStore } from '../../stores';
+import { useChatStore, useUIStore } from '../../stores';
 import type { SubagentPanelTarget } from '../../stores/canvasStore';
 import type { ChatMessage, ToolCall } from '../../types';
 import { subagentDisplayText, subagentStatus } from '../../utils/subagentView';
@@ -18,7 +19,7 @@ import { ToolMessageContext } from '../tool/ToolMessageContext';
 import { CanvasTabBar } from './CanvasTabBar';
 
 export function SubagentSidebarPanel() {
-  const target = useCanvasStore((state) => state.subagentTarget);
+  const target = useCanvasPane((state) => state.subagentTarget);
   const message = useChatStore((state) => target
     ? state.store.chats[target.chatId]?.messages.find((item) => item.uid === target.messageUid)
     : undefined);

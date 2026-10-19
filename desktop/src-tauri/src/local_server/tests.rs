@@ -3,7 +3,7 @@ use super::process::{linux_server_command_matches, mac_server_command_matches};
 use super::*;
 
 fn manager(name: &str) -> Arc<LocalServerManager> {
-    let base = std::env::temp_dir().join(format!(
+    let base = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "hugagent-desktop-local-server-{name}-{}",
         std::process::id()
     ));

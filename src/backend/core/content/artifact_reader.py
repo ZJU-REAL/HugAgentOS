@@ -100,8 +100,8 @@ def fetch_parsed_text(
     if not file_id:
         return ""
 
-    from core.artifacts.local_project import authorized_reference, is_local_project_ref
-    if is_local_project_ref(file_id):
+    from core.artifacts.local_reference import authorized_reference, is_local_file_ref
+    if is_local_file_ref(file_id):
         item = authorized_reference(file_id, user_id)
         if not item:
             return ""
@@ -190,8 +190,8 @@ def load_artifact_meta(file_id: str, user_id: Optional[str] = None) -> Optional[
     """Return lightweight artifact metadata (no parsed_text), or None if inaccessible."""
     if not file_id:
         return None
-    from core.artifacts.local_project import authorized_reference, is_local_project_ref
-    if is_local_project_ref(file_id):
+    from core.artifacts.local_reference import authorized_reference, is_local_file_ref
+    if is_local_file_ref(file_id):
         item = authorized_reference(file_id, user_id)
         if not item:
             return None

@@ -21,6 +21,7 @@ DEFAULT_BOOTSTRAP_PLUGIN_SLUGS: Tuple[str, ...] = (
     "automation",
     "skill-manager",
     "sites",
+    "visualize",
 )
 
 
@@ -46,6 +47,7 @@ BUILTIN_PLUGIN_MARKET_META: Dict[str, Dict[str, Any]] = {
     "security-manager": {"display_name": "安全管理·系统自察", "category": "信息处理"},
     "sites": {"display_name": "站点·对话建站", "category": "信息处理"},
     "skill-manager": {"display_name": "技能管理", "category": "效率工具"},
+    "visualize": {"display_name": "交互可视化", "category": "信息处理"},
     "yida": {"display_name": "宜搭低代码平台", "category": "办公协同"},
 }
 

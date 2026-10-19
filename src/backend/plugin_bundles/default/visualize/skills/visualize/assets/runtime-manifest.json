@@ -1,0 +1,32 @@
+{
+  "files": {
+    "visualize.html": {
+      "sha256": "46da9c75afad2876957859911202848d545a62036e63dc6e0b3697b8aea62571"
+    },
+    "interactions.html": {
+      "sha256": "45c9f73d1c6372246299b60b9e4be70c7c03694710309ac1edd3c84c574559ec"
+    },
+    "calendar.js": {
+      "sha256": "bea18cffb1446f07c25a3c126738a3f5e838852f7e91b6ec3874acf26f9092ad"
+    },
+    "standalone-host-bridge.js": {
+      "sha256": "e7cf2a2ed57eae9c512bd0a81c6986c7608118afa5a7bd1f77c424b95568382b"
+    },
+    "standalone-shell.js": {
+      "sha256": "3fdd1bb660f7b610785fc90304b4042f2ad4ff4762af7976e72b90f4b5160bb7"
+    },
+    "visualize-1.css": {
+      "sha256": "0ce656112c28d0b7703c31932c126df77c3630b83e56ac55b91151dcb79dd261"
+    },
+    "visualize-2.css": {
+      "sha256": "aff0dc7dea9e4cf5d21bf37bb006968711009140a2d5c0df572a7c7974543852"
+    },
+    "visualize-3.css": {
+      "sha256": "79f317b4019deb39fe8db25f352e58d16d11fd7e05eb1538db29a096cd361919"
+    },
+    "visualize-4.css": {
+      "sha256": "c1af63d6c76d7f80fae9313537dfa2c102b5ba3ce3d144dac004bede9417019d"
+    }
+  },
+  "adaptation": "Modified for HugAgentOS standalone previews; see plugin NOTICE."
+}

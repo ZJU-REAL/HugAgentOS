@@ -19,7 +19,6 @@ type = "docker"
 execd_image = "opensandbox/execd:v1.0.17"
 [storage]
 allowed_host_paths = [{json.dumps(storage_root)}]
-ossfs_mount_root = {json.dumps(storage_root + "/object-mounts/personal-computers")}
 volume_default_size = "1Gi"
 [store]
 type = "sqlite"

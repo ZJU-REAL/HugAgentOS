@@ -51,7 +51,7 @@ class _EvaluationCollector:
 def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=True, vision_mode="none"):
     from core.config.local_mode import local_mode_enabled
     from core.llm.tools import (
-        ReadStateTracker, register_bash, register_read, register_write,
+        ReadStateTracker, register_read, register_write,
         register_edit, register_glob, register_grep,
     )
     if local_mode_enabled():
@@ -64,7 +64,8 @@ def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=Tru
     token = CURRENT_EVALUATION_SCOPE.set(scope)
     try:
         if not read_only and allow_bash:
-            register_bash(collector, **common, loader=None, loaded_skill_ids=set())
+            from core.llm.evaluation_process_tools import register_evaluation_process_tools
+            register_evaluation_process_tools(collector, scope)
         state = ReadStateTracker()
         register_read(collector, **common, state=state, vision_mode=vision_mode)
         register_glob(collector, **common)

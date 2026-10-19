@@ -7,6 +7,7 @@ import pytest
 
 from tests.llm.local_project_test_support import local_project, pin_tool
 from core.llm.tool_collector import ToolCollector
+from tests.llm.command_test_support import command_tool_state
 
 
 def payload(result):
@@ -66,7 +67,7 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
 
 
 @pytest.fixture
-async def local_tools(local_project, tmp_path, monkeypatch):
+async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     import asyncio
     import socket
     import uvicorn

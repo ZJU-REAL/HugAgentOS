@@ -16,7 +16,6 @@ CE 的 Docker 部署默认使用 OpenSandbox；无 Docker 安装及桌面本机�
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
-sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -35,6 +34,13 @@ HOST_STORAGE_PATH 和强随机 OPENSANDBOX_API_KEY，并显式设置 COMPOSE_PRO
 检查 /health、/ready、连续命令文件保留、用户隔离、后端重启接管和空闲快照恢复。
 初始化或依赖失败会报错，不会自动切换 provider。
 OpenSandbox 保留会话文件与快照；每次 Python/JS 命令启动独立进程，不保留内存变量。
+
+
+空间对象挂载由每个沙盒独立的挂载服务管理，控制器不持有 FUSE 连接。
+首次挂载和恢复使用同一流程；控制器重启不会中断该连接，沙盒重启后会按当前授权检查并恢复。
+不需要在宿主机准备共享传播目录。只有挂载服务需要 `/dev/fuse` 和挂载权限。
+旧版创建的沙盒若含 FUSE 宿主 bind 配置，升级不能原地修改其 Docker 启动参数；
+须先保全工作区和数据卷，再单独安排迁移，不直接重启或删除这些旧沙盒。
 
 ## 服务拓扑
 
@@ -278,6 +284,13 @@ healthy，再在管理台验证用量统计和调用日志。保留原有 `litel
 同一网络，以及 `LITELLM_ADMIN_URL` 是否正确。缺失的服务名可能被外部 DNS
 返回代理地址；能解析出地址并不代表网关容器存在。
 
-### 沙盒网络边界
+### 沙盒共享网络
 
-定制控制器为每个沙盒创建独立 Docker bridge，仅接入该沙盒及受信任的后端、控制器；沙盒不发布宿主端口，无法直接访问其他沙盒的 execd。后端和控制器重新创建后，在实例查询时重新接入所属私有网络；删除沙盒时同时删除专属网络。控制器管理域名保留在主项目网络，避免删除沙盒网络时中断管理连接。此控制器需要 Compose 项目标签，不支持旧的共享沙盒网络或 host 映射端口方式。
+沙盒恢复使用控制器配置的共享 Docker 网络。创建、查询、接管、删除和到期回收
+均不再创建临时网络，也不接入或断开后端、控制器的网络端点。
+此回退不要求升级 Docker 或 Compose。控制器仍按配置网络限定实例查询和回收范围。
+沙盒间恢复共享网络可达性及上游 direct 模式的宿主端口映射，不能将其称为网络隔离。
+
+已有独立网络中的沙盒不自动迁移或删除。部署前记录其文件、挂载和快照，
+按授权安排会话停机与重建，保留工作区和数据卷；不要直接删除网络来强制恢复。
+此变更只影响云端控制器，无需桌面客户端发版。

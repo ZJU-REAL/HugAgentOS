@@ -1,6 +1,6 @@
 # 沙箱执行系统
 
-> 最后更新：2026-09-24
+> 最后更新：2026-10-18
 
 沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `Bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
@@ -47,19 +47,23 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 ## Agent 侧工具
 
-`core/llm/tools/sandbox_tool.py` 向智能体注册四个工具（`factory/tools/native.py` 调用各 `register_*`）：
+`core/llm/tools/sandbox_tool.py` 向智能体注册命令与产物工具（`factory/tools/native.py` 调用各 `register_*`）：
 
 | 工具 | 作用 |
 |---|---|
-| `Bash(command, timeout=None, yield_time_ms=60000)` | 启动命令，默认等待 60 秒；未完成返回进程 `session_id`，命令继续运行。省略 timeout 不设命令执行期限，命令工具统一使用首字母大写的 `Bash` |
-| `write_stdin(session_id, chars="", yield_time_ms=60000)` | 等待同一进程并读取新增输出；空输入等待，Ctrl+C（\u0003）请求中断 |
+| `Bash(command, timeout=None, yield_time_ms=60000, run_in_background=False)` | 启动命令，默认等待 60 秒；未完成自动转后台。run_in_background=True 立即转后台。返回受管任务 ID，完成后自动通知原会话。省略 timeout 不设命令执行期限，命令工具统一使用首字母大写的 `Bash` |
+| `write_stdin(session_id, chars="", yield_time_ms=0)` | 默认立即读取新增输出；最多短等 3000 毫秒。后台完成后自动通知会话。Ctrl+C（\u0003）请求中断 |
+| `background_process(session_id)` | 接管已启动的原进程，不重新执行命令 |
+| `list_processes()` | 列出当前用户在本会话的命令任务 |
 | `sandbox_put_artifact(artifact_id, dest_path)` | 把平台 artifact（用户上传文件、图表工具产物等）的字节拷入沙箱路径——沙箱不会自动看到上传文件 |
 | `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——Bash 产物不会自动出现在附件区 |
 
 
-命令执行期限与等待窗口分开：首次等待范围 250–30000 毫秒，后续等待上限 300000 毫秒；等待到期不会终止命令。显式 `timeout` 仍作为执行期限，但不再截成 120 秒。所有命令和内部 Python/JavaScript 脚本统一走进程接口；旧同步执行入口和默认/最大执行时限配置已删除。进程 ID 绑定启动时的用户与会话，不能跨会话读取或中断。当前为非 PTY 执行，stdin 关闭，除空输入和 Ctrl+C 外的输入会被拒绝；Windows 无控制台时中断采用终止进程树。
+命令执行期限与等待窗口分开：Bash 首次等待范围 250–60000 毫秒；普通会话 write_stdin 默认不等待，等待上限 3000 毫秒。provider 内部等待与评测工具保留各自契约；等待到期不会终止命令。显式 `timeout` 仍作为执行期限，但不再截成 120 秒。所有命令和内部 Python/JavaScript 脚本统一走进程接口；旧同步执行入口和默认/最大执行时限配置已删除。进程 ID 绑定启动时的用户与会话，不能跨会话读取或中断。当前为非 PTY 执行，stdin 关闭，除空输入和 Ctrl+C 外的输入会被拒绝；Windows 无控制台时中断采用终止进程树。
 
-框架保留最多 64 个进程记录，仅回收已完成记录；新增输出有界，省略内容通过 `output_omitted_chars` 明示。本地及 script_runner 的完整输出存于当前会话工作区的 `.__process_*/stdout.log` 和 `stderr.log`，通过 `output_files` 返回真实路径；单流超过 64 MiB 时停止命令，已写日志仍可读。OpenSandbox 后台日志合并 stdout/stderr；Cube 总输出超过 64 MiB 时停止。运行期间定期调用沙箱保活：OpenSandbox 可续租，Cube 的兼容服务可能不支持延长服务端 TTL，返回 `lifetime_note` 说明这一边界。进程会话是运行时状态，不保证跨后端/runner 重启恢复；显式关闭会话或服务正常退出会清理进程。团队项目在命令终态返回后同步源码；必须等待完成，不能把 running 当成已经保存。
+框架保留最多 64 个进程记录，仅回收已完成记录；新增输出有界，省略内容通过 `output_omitted_chars` 明示。本地及 script_runner 的完整输出存于当前会话工作区的 `.__process_*/stdout.log` 和 `stderr.log`，通过 `output_files` 返回真实路径；单流超过 64 MiB 时停止命令，已写日志仍可读。OpenSandbox 后台日志合并 stdout/stderr；Cube 总输出超过 64 MiB 时停止。运行期间定期调用沙箱保活：OpenSandbox 可续租，Cube 的兼容服务可能不支持延长服务端 TTL，返回 `lifetime_note` 说明这一边界。普通会话的命令账本保存任务状态与有界输出。OpenSandbox 使用原执行标识和日志游标恢复；不重跑命令。其他 provider 正常退出时停止进程；异常重启后标记 unknown。显式删除会话会停止任务。团队项目在命令终态返回后同步源码；必须等待完成，不能把 running 当成已经保存。
+
+后台执行由服务端采集状态、保存日志并保持沙箱活动。模型可以执行独立工作；没有其他工作时，模型结束当前运行。完成事件在下一次推理前进入活动会话，或使用现有会话运行入口唤醒空闲模型。write_stdin 用于按需读取新增输出、短时等待和取消，不用于反复轮询。认证日志 API 的读取不消耗模型输出游标。聊天界面不展示独立的后台命令栏。页面预先订阅 /v1/commands/events 长连接，后端在唤醒运行就绪后立即推送运行标识，页面随即接入现有输出流，不等待任务轮询。重连时补发已就绪的运行；已结束的短回复从历史加载。实现边界见 [后台 Bash ADR](../../internal/adr/20261018-background-bash-completion.md)。
 
 沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：非空显式 ID 优先，未传或传空值时统一回落到 `chat_id`。主智能体、计划执行、批量项和所有子智能体因此使用同一个会话沙箱；子智能体结束时不会销毁它。
 
@@ -221,3 +225,12 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 相关文档：[技能系统](agent-skills.md) · [MCP 工具系统](mcp-tools.md) · [个人空间](projects-myspace.md) · [版本与许可](../editions/overview.md)
 
 Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控制器接入，不发布实例宿主端口。用户隔离验收同时检查个人挂载、会话权限及跨沙盒 execd 不可达。
+
+### 对象挂载恢复的用户归属校验
+
+后端创建沙盒与控制器恢复挂载共用 `core/sandbox/metadata.py` 的用户标签定义。
+控制器镜像在构建时复制该模块。移植产品时保留该产品现有的标签值，并重新构建控制器；
+不要单独改动一端，也不要通过接受其它产品标签绕过归属校验。
+恢复时继续校验当前用户、权限版本、挂载范围、凭据和只读属性。
+校验冲突返回 409，并保留沙盒和工作区；挂载服务故障返回 503。
+控制器升级后，先验证现有沙盒恢复和跨用户拒绝，再执行用户命令。

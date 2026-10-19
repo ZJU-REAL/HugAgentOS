@@ -1,3 +1,4 @@
+import { useCanvasPane, useCanvasPaneId } from './useCanvasPane';
 /**
  * Canvas panel for a plugin-contributed view.
  *
@@ -11,23 +12,24 @@ import { useCallback, useEffect, useState } from 'react';
 import { resourceBinding } from '../../plugin-ui/module/resource';
 import { t } from '../../i18n';
 import { PluginModuleFrame, PluginView, resolveText } from '../../plugin-ui';
-import { useCanvasStore } from '../../stores';
+
 import { usePluginUiStore } from '../../stores/pluginUiStore';
 import { useCanvasLauncherStore } from './canvasLauncherStore';
 import { CanvasTabBar } from './CanvasTabBar';
 import { bindCanvasResourceSource, runForCurrentCanvas } from './canvasResourceSource';
 
 export function PluginCanvasPanel() {
+  const pane = useCanvasPaneId();
   const [headerInset, setHeaderInset] = useState(0);
-  const activeTabId = useCanvasStore(s => s.activeTabId);
+  const activeTabId = useCanvasPane(s => s.activeTabId);
   const showLauncher = useCanvasLauncherStore(s => s.show);
   const bindNavigation = useCanvasLauncherStore(s => s.bindNavigation);
   const onNavigateReady = useCallback((navigate: ((url: string) => Promise<void>) | null) => {
     if (activeTabId) bindNavigation(activeTabId, navigate);
   }, [activeTabId, bindNavigation]);
-  const target = useCanvasStore((state) => state.pluginTarget);
-  const openPluginView = useCanvasStore((state) => state.openPluginView);
-  const updatePluginView = useCanvasStore((state) => state.updatePluginView);
+  const target = useCanvasPane((state) => state.pluginTarget);
+  const openPluginView = useCanvasPane((state) => state.openPluginView);
+  const updatePluginView = useCanvasPane((state) => state.updatePluginView);
   const findCanvas = usePluginUiStore((state) => state.findCanvas);
   const findModule = usePluginUiStore((state) => state.findModule);
 
@@ -40,9 +42,9 @@ export function PluginCanvasPanel() {
   useEffect(() => {
     if (binding && module && target
         && (target.slug !== binding.slug || target.canvasId !== binding.module_id)) {
-      bindCanvasResourceSource(binding);
+      bindCanvasResourceSource(binding, activeTabId);
     }
-  }, [binding, module, target]);
+  }, [binding, module, target, activeTabId]);
 
   const embeddedHeader = module?.contribution.canvas_header === 'module';
 
@@ -62,7 +64,7 @@ export function PluginCanvasPanel() {
     if (module) {
       return (
         <PluginModuleFrame
-          onNewTab={showLauncher}
+          onNewTab={() => showLauncher(pane)}
           onNavigateReady={onNavigateReady}
           slug={module.slug}
           module={module.contribution}

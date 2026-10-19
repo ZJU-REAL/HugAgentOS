@@ -79,6 +79,16 @@ export function withUrlParams(source: string, params: Record<string, string>): s
   return externalUrl(source) ? url.toString() : url.pathname + url.search + url.hash;
 }
 
+export function localArtifactLocationUrl(file: ArtifactLocation): string {
+  const source = new URL(sourceUrl(file), 'http://artifact.invalid');
+  const projectFile = source.pathname.match(/^(?:\/api)?(\/v1\/projects\/[^/]+\/local-files)\/raw$/);
+  return projectFile
+    ? artifactUrl({ ...file, url: `${projectFile[1]}/location?path=${encodeURIComponent(source.searchParams.get('path') || '')}` })
+    : file.file_id
+      ? artifactUrl({ ...file, url: `/files/${encodeURIComponent(file.file_id)}/local-path` })
+      : '';
+}
+
 /** Only the authenticated local backend may resolve an artifact to an OS path. */
 export async function openLocalArtifact(
   file: ArtifactLocation,
@@ -87,13 +97,7 @@ export async function openLocalArtifact(
 ): Promise<void> {
   if (isArchiveMember(file)) throw new Error(t('包内文件请下载后打开'));
   if (artifactOrigin(file) !== 'local') throw new Error(t('此文件不在本机'));
-  const source = new URL(sourceUrl(file), 'http://artifact.invalid');
-  const projectFile = source.pathname.match(/^(?:\/api)?(\/v1\/projects\/[^/]+\/local-files)\/raw$/);
-  const locationUrl = projectFile
-    ? artifactUrl({ ...file, url: `${projectFile[1]}/location?path=${encodeURIComponent(source.searchParams.get('path') || '')}` })
-    : file.file_id
-      ? artifactUrl({ ...file, url: `/files/${encodeURIComponent(file.file_id)}/local-path` })
-      : '';
+  const locationUrl = localArtifactLocationUrl(file);
   if (!locationUrl) throw new Error(t('缺少文件标识'));
   const response = await authFetch(locationUrl);
   const payload = await response.json().catch(() => ({}));

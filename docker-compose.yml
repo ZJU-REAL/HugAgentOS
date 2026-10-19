@@ -33,6 +33,7 @@ services:
       retries: 5
     networks:
     - hugagent-network
+    restart: unless-stopped
   redis:
     image: redis:7-alpine
     container_name: hugagent-redis
@@ -437,22 +438,10 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSANDBOX_INSECURE_SERVER: 'NO'
-      HUGAGENT_BACKEND_CONTAINER: hugagent-backend
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - opensandbox_config:/etc/opensandbox:ro
     - opensandbox_data:/var/lib/opensandbox
-    - type: bind
-      source: ${HOST_STORAGE_PATH}/object-mounts
-      target: ${HOST_STORAGE_PATH}/object-mounts
-      bind:
-        propagation: rshared
-    devices:
-    - /dev/fuse:/dev/fuse
-    cap_add:
-    - SYS_ADMIN
-    security_opt:
-    - apparmor:unconfined
     ports: []
     healthcheck:
       test:
