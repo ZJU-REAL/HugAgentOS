@@ -15,7 +15,8 @@ const liveSessions=[liveSession,
  {chat_id:'setup-chat',title:'Unfinished setup',created_at:'2026-09-30T10:00:00Z',metadata:{automation_task_id:'new'}},
 ];
 const task = {task_id:'task-one',name:'Daily report',status:'active',task_type:'prompt',schedule_type:'recurring',cron_expression:'0 9 * * *',created_at:'2026-09-30T10:00:00Z'};
-await build({plugins:[{name:'worklet-url',setup(b){b.onResolve({filter:/\?url$/},()=>({path:'worklet',namespace:'voice'}));b.onLoad({filter:/.*/,namespace:'voice'},()=>({contents:'export default "/capture.worklet.js"',loader:'js'}));}}],stdin:{contents:`
+// Shared SDK React imports must use the frontend's peer dependency instance.
+await build({alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},plugins:[{name:'worklet-url',setup(b){b.onResolve({filter:/\?url$/},()=>({path:'worklet',namespace:'voice'}));b.onLoad({filter:/.*/,namespace:'voice'},()=>({contents:'export default "/capture.worklet.js"',loader:'js'}));}}],stdin:{contents:`
 import { createRoot } from 'react-dom/client';
 import { useEffect } from 'react';
 import { createBrowserRouter,RouterProvider,Outlet,useLocation } from 'react-router';
