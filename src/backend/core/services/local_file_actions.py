@@ -13,9 +13,9 @@ from core.infra.proc import no_window_kwargs
 from core.services.native_app_icons import desktop_icon, windows_icon
 
 
-def _run(arguments: list[str], *, input_text: str | None = None) -> str:
+def _run(arguments: list[str], *, input_text: str | None = None, timeout: int = 10) -> str:
     result = subprocess.run(
-        arguments, input=input_text, capture_output=True, text=True, timeout=10,
+        arguments, input=input_text, capture_output=True, text=True, timeout=timeout,
         **no_window_kwargs(),
     )
     if result.returncode:
@@ -55,7 +55,9 @@ function run(args) {
     return JSON.stringify({applications: apps, default_id: defaultId});
 }
 """
-        return json.loads(_run(["/usr/bin/osascript", "-l", "JavaScript", "-", path], input_text=script))
+        # AppKit can take longer on first access when many applications provide icons.
+        # Keep open/reveal actions on the shorter default timeout.
+        return json.loads(_run(["/usr/bin/osascript", "-l", "JavaScript", "-", path], input_text=script, timeout=45))
     if sys.platform == "win32":
         return _windows_applications(path)
     mime = _run(["xdg-mime", "query", "filetype", path]) or mimetypes.guess_type(path)[0]
