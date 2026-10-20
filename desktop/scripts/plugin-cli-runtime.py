@@ -28,7 +28,7 @@ def member(root, relative):
 
 def check(root):
     root = Path(root).resolve()
-    manifest = json.loads((root / "plugin-clis.json").read_text())
+    manifest = json.loads((root / "plugin-clis.json").read_text(encoding="utf-8"))
     if manifest.get("schema") != 1 or manifest["openyida"]["version"] != VERSION:
         raise RuntimeError("Bundled plugin CLI version is invalid")
     node = member(root, manifest["node"])
@@ -76,7 +76,7 @@ def install(root, source):
     subprocess.run([str(node), str(npm_cli), "ci", "--ignore-scripts", "--no-audit", "--no-fund",
                     "--prefix", str(destination)], check=True, timeout=300, **PROCESS_FLAGS)
     package = destination / "node_modules/openyida"
-    if json.loads((package / "package.json").read_text())["version"] != VERSION:
+    if json.loads((package / "package.json").read_text(encoding="utf-8"))["version"] != VERSION:
         raise RuntimeError("Locked OpenYida package version differs")
     script = package / "bin/yida.js"
     manifest = {"schema": 1, "node": node.relative_to(root).as_posix(),
@@ -84,7 +84,7 @@ def install(root, source):
                 "openyida": {"version": VERSION, "script": script.relative_to(root).as_posix(),
                              "utils": (package / "lib/core/utils.js").relative_to(root).as_posix(),
                              "sha256": digest(script)}}
-    (root / "plugin-clis.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (root / "plugin-clis.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     # Bash in local conversations uses the same package and private Node as the
     # login API. Resolve relative to the shim so runtime relocation remains valid.
     binary_dir = Path(sys.executable).absolute().parent.resolve()
