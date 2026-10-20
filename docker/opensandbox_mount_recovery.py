@@ -1,5 +1,6 @@
 """Recover FUSE connections without replacing a sandbox or its workspace."""
 import json
+import os
 from pathlib import PurePosixPath
 from threading import RLock
 from uuid import uuid4
@@ -7,7 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from opensandbox_server.api.schema import Volume
-from .isolated_networks import _trusted
+from . import sandbox_metadata
 from .object_mounts import mount_identity, validated_options
 
 EPOCH = uuid4().hex
@@ -26,7 +27,7 @@ def helper_name(sandbox_id):
 
 def _specifications(service, container, request):
     labels = container.attrs["Config"]["Labels"]
-    if (labels.get("hugagent-user-id") != request.actor
+    if (labels.get(sandbox_metadata.USER_ID_METADATA_KEY) != request.actor
             or labels.get(REVISION) != request.revision):
         raise HTTPException(409, "Sandbox file authorization changed")
     root = service.app_config.storage.ossfs_mount_root.rstrip("/") + "/"
@@ -94,8 +95,8 @@ def ensure_mounts(service, sandbox_id, request):
         specs = _specifications(service, container, request)
         if _healthy(container, specs):
             return {"epoch": EPOCH, "recovered": False}
-        project, trusted = _trusted(service)
-        controller = trusted[0][0]
+        controller = service.docker_client.containers.get(os.environ["HOSTNAME"])
+        project = controller.attrs["Config"]["Labels"]["com.docker.compose.project"]
         remove_helper(service, sandbox_id)
         helper = service.docker_client.containers.run(
             controller.image.id, ["sleep", "infinity"], entrypoint=[],

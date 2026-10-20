@@ -20,4 +20,8 @@ My Space reads the authorized directory directly. Cloud sandboxes mount the same
 
 Directory moves contain multiple object operations and are not atomic. See the space-files deployment guide for import, mount recovery and permission checks.
 
+File list search matches names across all direct children of the current directory, regardless of loaded pages. Matching is case-insensitive. The server filters before pagination; clearing the keyword restores the directory listing.
+
+If a large directory exceeds the scan time budget, search reports an error instead of displaying incomplete results as empty.
+
 [Space files](../deployment/space-files.md)

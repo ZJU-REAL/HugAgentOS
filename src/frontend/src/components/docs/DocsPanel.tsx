@@ -1,20 +1,7 @@
-import { useRef } from 'react';
 import { motion } from 'motion/react';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { useUIStore } from '../../stores';
 import type { UpdateFilter } from '../../stores/uiStore';
-
-function showScrollbar(ref: React.RefObject<HTMLDivElement | null>) {
-  return () => {
-    if (ref.current) ref.current.classList.add('show-scrollbar');
-  };
-}
-
-function hideScrollbar(ref: React.RefObject<HTMLDivElement | null>) {
-  return () => {
-    if (ref.current) ref.current.classList.remove('show-scrollbar');
-  };
-}
 
 export default function DocsPanel() {
   const {
@@ -23,18 +10,13 @@ export default function DocsPanel() {
     featureUpdates,
   } = useUIStore();
 
-  const updatesViewRef = useRef<HTMLDivElement>(null);
-
   const filteredUpdates = activeUpdateFilter === '全部'
     ? featureUpdates
     : featureUpdates.filter((e) => e.category === activeUpdateFilter);
 
   return (
     <div className="jx-docsNew">
-      <div className="jx-updatesView" ref={updatesViewRef}
-        onMouseEnter={showScrollbar(updatesViewRef)}
-        onMouseLeave={hideScrollbar(updatesViewRef)}
-      >
+      <div className="jx-updatesView">
         <div className="jx-updateFilters">
           {(['全部', '模型迭代', '信息处理', '应用上新', '体验优化'] as UpdateFilter[]).map((f) => (
             <button

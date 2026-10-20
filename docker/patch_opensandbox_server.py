@@ -1,8 +1,4 @@
-"""Pinned OpenSandbox Docker integration: private bridges and nonblocking APIs.
-
-Validate upstream sources before applying changes. Each sandbox has one private
-bridge with no host ports; only the Compose controller and backend may join it.
-"""
+"""Pinned OpenSandbox integration: configured shared network and nonblocking APIs."""
 
 from __future__ import annotations
 
@@ -12,12 +8,40 @@ import hashlib
 from pathlib import Path
 
 EXPECTED = {
-    "services/docker/networking.py": "4381dae957afc90233b3a52f0759d13d0e0890986213e14e40806f8457b176ee",
     "api/lifecycle.py": "6d6f437db5fc2de9645021fc8afdcd980883e1178b2d57737a4c9cb87ae738ba",
     "api/proxy.py": "a0f22b64dd5e9f2a045d4d8e6a66a2b118cd9addb934550224945f48b67e317e",
     "services/docker/docker_service.py": "0cf2ab543c44705a7118e08135f945f732699f74a76946f419d1a91460fbcf9f",
 }
-LOOKUP = '''    def _get_container_by_sandbox_id(self, sandbox_id: str):
+LOOKUP = '''    def _owns_sandbox(self, container):
+        """Resolve the actual Docker network namespace before checking ownership."""
+        networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+        mode = container.attrs.get("HostConfig", {}).get("NetworkMode", "")
+        if mode.startswith("container:"):
+            sandbox_id = container.attrs.get("Config", {}).get("Labels", {}).get(SANDBOX_ID_LABEL)
+            try:
+                sidecar = self.docker_client.containers.get(mode.split(":", 1)[1])
+            except NotFound:
+                return False
+            if not sandbox_id or sidecar.attrs.get("Config", {}).get("Labels", {}).get(EGRESS_SIDECAR_LABEL) != sandbox_id:
+                return False
+            networks = sidecar.attrs.get("NetworkSettings", {}).get("Networks", {})
+        return self.network_mode in networks
+
+    def _owned_sandboxes(self):
+        """Enumerate only sandboxes using this controller's configured network."""
+        containers = self.docker_client.containers.list(
+            all=True, filters={"label": [SANDBOX_ID_LABEL]},
+        )
+        return [container for container in containers if self._owns_sandbox(container)]
+
+    def _owned_runtime_containers(self):
+        """Include network-scoped policy sidecars for startup orphan cleanup."""
+        sidecars = self.docker_client.containers.list(
+            all=True, filters={"label": [EGRESS_SIDECAR_LABEL], "network": self.network_mode},
+        )
+        return self._owned_sandboxes() + sidecars
+
+    def _get_container_by_sandbox_id(self, sandbox_id: str):
         """Inspect the deterministic name, then verify the sandbox ownership label."""
         try:
             container = self.docker_client.containers.get(f"sandbox-{sandbox_id}")
@@ -35,6 +59,7 @@ LOOKUP = '''    def _get_container_by_sandbox_id(self, sandbox_id: str):
             container is None
             or (container.attrs.get("Config", {}).get("Labels") or {}).get(SANDBOX_ID_LABEL)
             != sandbox_id
+            or not self._owns_sandbox(container)
         ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -43,7 +68,6 @@ LOOKUP = '''    def _get_container_by_sandbox_id(self, sandbox_id: str):
                     "message": f"Sandbox {sandbox_id} not found.",
                 },
             )
-        ensure_network(self, container, sandbox_id)
         return container
 
 '''
@@ -125,7 +149,8 @@ def patched_sources(root: Path) -> dict[str, str]:
         "import logging\n",
         "import logging\nfrom starlette.concurrency import run_in_threadpool\n",
     )
-    patch_isolated_networks(sources)
+    patch_shared_lifecycle(sources)
+    patch_durable_expirations(sources)
     name = "services/docker/docker_service.py"
     sources[name] = replace_once(sources[name], "import inspect\n",
         "import inspect\nfrom .object_mounts import install as install_object_mounts\ninstall_object_mounts()\n")
@@ -148,71 +173,86 @@ async def ensure_space_mounts(sandbox_id: str, request: RecoveryRequest):
     return sources
 
 
-def patch_isolated_networks(sources):
+def patch_durable_expirations(sources):
     name = "services/docker/docker_service.py"
     source = sources[name]
     source = replace_once(source, "import inspect\n",
-        "import inspect\nfrom .isolated_networks import (NETWORK_LABEL, create_network, ensure_network, remove_network, owned_sandboxes)\n")
-    source = replace_once(source, "        sidecar_container = None\n        try:",
-        "        sidecar_container = None\n        isolated_network_name = None\n        try:")
-    start = source.index("            if request.network_policy:", source.index("    def _provision_sandbox("))
-    end = source.index("            # Inject volume bind mounts", start)
-    source = source[:start] + """            if request.network_policy:
-                raise RuntimeError("networkPolicy is not supported by isolated Docker bridges")
-            isolated_network_name = create_network(self, sandbox_id)
-            labels[NETWORK_LABEL] = isolated_network_name
-            host_config_kwargs = self._base_host_config_kwargs(
-                effective_mem_limit, effective_nano_cpus, isolated_network_name,
-                gpu_count=effective_gpu_count,
-            )
-            container_exposed_ports = None
+        "import inspect\nfrom .expirations import ExpirationStore\n")
+    source = replace_once(source, "        self._restore_existing_sandboxes()",
+        "        self._expiration_store = ExpirationStore()\n"
+        "        self._restore_existing_sandboxes()")
+    source = replace_once(source,
+        "        with self._expiration_lock:\n            # Replace existing timer",
+        "        with self._expiration_lock:\n"
+        "            if update_expiration:\n"
+        "                self._expiration_store.put(sandbox_id, expires_at.isoformat())\n"
+        "            # Replace existing timer")
+    source = replace_once(source,
+        '        """Remove expiration tracking and cancel any pending timers."""\n        with self._expiration_lock:\n',
+        '        """Remove expiration tracking and cancel any pending timers."""\n        with self._expiration_lock:\n'
+        '            try:\n'
+        '                self._expiration_store.delete(sandbox_id)\n'
+        '            except Exception:\n'
+        '                logger.exception("Failed to remove durable lease for sandbox %s; continuing resource cleanup", sandbox_id)\n')
+    source = replace_once(source,
+        '            expires_label = labels.get(SANDBOX_EXPIRES_AT_LABEL)',
+        '            expires_label = self._expiration_store.get(sandbox_id) or labels.get(SANDBOX_EXPIRES_AT_LABEL)')
+    # Lease creation belongs to the same rollback boundary as container creation.
+    source = replace_once(source,
+        "        sidecar_container = None\n        try:",
+        "        sidecar_container = None\n        created_container = None\n        try:")
+    source = replace_once(source,
+        "                request.platform,\n            )\n        except Exception:",
+        "                request.platform,\n            )\n"
+        "            if expires_at is not None:\n"
+        "                self._schedule_expiration(sandbox_id, expires_at)\n"
+        "        except Exception:\n"
+        "            if created_container is not None:\n"
+        "                try:\n"
+        "                    created_container.remove(force=True)\n"
+        "                except DockerException:\n"
+        "                    logger.exception(\"Failed to rollback sandbox %s after provisioning failure\", sandbox_id)")
+    source = replace_once(source,
+        "        if expires_at is not None:\n            self._schedule_expiration(sandbox_id, expires_at)\n\n        effective_platform",
+        "        effective_platform")
+    # Persist leases in the controller data volume. Docker's update endpoint
+    # ignores Labels; do not claim that an in-memory renewal changed them.
+    start = source.index("        # Persist the new timeout in memory;")
+    end = source.index("        return RenewSandboxExpirationResponse", start)
+    source = source[:start] + "        self._schedule_expiration(sandbox_id, new_expiration)\n\n" + source[end:]
+    sources[name] = source
 
-""" + source[end:]
-    source = replace_once(source,
-        "            self._cleanup_managed_volumes(sandbox_id, auto_created_volumes or [])\n",
-        "            if isolated_network_name is not None:\n"
-        "                remove_network(self, sandbox_id)\n"
-        "            self._cleanup_managed_volumes(sandbox_id, auto_created_volumes or [])\n")
-    source = replace_once(source,
-        "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n",
-        "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n"
-        "        remove_network(self, sandbox_id)\n")
+
+def patch_shared_lifecycle(sources):
+    # Keep project/controller ownership and later mount recovery; restore the
+    # upstream configured network and host-port endpoint implementation unchanged.
+    name = "services/docker/docker_service.py"
+    source = sources[name]
+    source = replace_once(source, "import inspect\n",
+        "import inspect\nfrom .mount_recovery import remove_helper\n")
     start = source.index("    def _restore_existing_sandboxes(")
     end = source.index("    def _container_to_sandbox(", start)
-    block = source[start:end]
-    block = replace_once(block, "self.docker_client.containers.list(all=True)", "owned_sandboxes(self)")
+    block = replace_once(source[start:end],
+        "self.docker_client.containers.list(all=True)", "self._owned_runtime_containers()")
     source = source[:start] + block + source[end:]
     source = replace_once(source,
         '            containers = self.docker_client.containers.list(\n                all=True,\n                filters={"label": [SANDBOX_ID_LABEL]},\n            )',
-        "            containers = owned_sandboxes(self)")
+        "            containers = self._owned_sandboxes()")
     source = replace_once(source,
-        '        status_section = container.attrs.get("State", {})',
-        '        ensure_network(self, container, resolved_id)\n        status_section = container.attrs.get("State", {})')
+        "            self._cleanup_managed_volumes(sandbox_id, auto_created_volumes or [])\n",
+        "            remove_helper(self, sandbox_id)\n"
+        "            self._cleanup_managed_volumes(sandbox_id, auto_created_volumes or [])\n")
+    source = replace_once(source,
+        "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n",
+        "            remove_helper(self, sandbox_id)\n"
+        "            self._cleanup_managed_volumes(sandbox_id, managed_volumes)\n")
     start = source.index("    def _expire_sandbox(")
     end = source.index("    def _restore_existing_sandboxes(", start)
     block = replace_once(source[start:end],
         "        self._release_ossfs_mounts(mount_keys)\n",
-        "        self._release_ossfs_mounts(mount_keys)\n        remove_network(self, sandbox_id)\n")
-    source = source[:start] + block + source[end:]
-    sources[name] = source
-
-    name = "services/docker/networking.py"
-    source = sources[name]
-    # Import immediately after future imports, before any endpoint is resolved.
-    marker = "from __future__ import annotations\n"
-    source = replace_once(source, marker, marker + "from .isolated_networks import network_ip\n")
-    start = source.index("        if resolve_internal:", source.index("    def get_endpoint("))
-    end = source.index("    def _resolve_host_mapped_endpoint(", start)
-    source = source[:start] + """        container = self._get_container_by_sandbox_id(sandbox_id)
-        return Endpoint(endpoint=f"{network_ip(container)}:{port}")
-
-""" + source[end:]
-    # Proxy and direct SDK endpoints use the same private network identity.
-    start = source.index("    def _extract_bridge_ip(")
-    source = source[:start] + """    def _extract_bridge_ip(self, container) -> str:
-        return network_ip(container)
-"""
-    sources[name] = source
+        "        remove_helper(self, sandbox_id)\n"
+        "        self._release_ossfs_mounts(mount_keys)\n")
+    sources[name] = source[:start] + block + source[end:]
 
 
 def apply(root: Path) -> None:

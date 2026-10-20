@@ -34,7 +34,8 @@ export function ComposerModeChip({
         aria-label={closeLabel}
         title={closeLabel}
       >
-        <CloseOutlined />
+        <span className="jx-modeChip-closeIcon"><CloseOutlined /></span>
+        <span className="jx-modeChip-compactIcon" aria-hidden="true">{icon}</span>
       </motion.button>
     </motion.span>
   );

@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 
 const output = resolve('node_modules/.tmp/workbench-browser');
 await mkdir(output, { recursive: true });
-await build({
+await build({plugins:[{name:'worklet-url',setup(b){b.onResolve({filter:/\?url$/},()=>({path:'worklet',namespace:'voice'}));b.onLoad({filter:/.*/,namespace:'voice'},()=>({contents:'export default "/capture.worklet.js"',loader:'js'}));}}],
   stdin: { contents: `
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
@@ -29,7 +29,7 @@ window.__workbench = {
 const router = createAppRouter(); bindRouter(router);
 createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
 `, resolveDir: process.cwd(), loader: 'tsx' },
-  outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
+  alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},outdir:output,entryNames:'fixture',splitting:true, bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' },
   loader: { '.css': 'css', '.svg': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
   external: ['/loader.gif', '/loader-done.png'],
@@ -51,7 +51,7 @@ await page.addInitScript(() => localStorage.setItem('jx_lang','zh-CN'));
 try {
   await page.route(origin+'/**',async route => {
     const url = new URL(route.request().url());
-    if (['/fixture.js','/fixture.css'].includes(url.pathname)) return route.fulfill({
+    if ((url.pathname.endsWith('.js')||url.pathname.endsWith('.css'))) return route.fulfill({
       contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript',
       body:await readFile(resolve(output,url.pathname.slice(1))),
     });
@@ -61,7 +61,7 @@ try {
     }
     const path=url.pathname.slice(4);
     let data = [];
-    if (path==='/v1/workbench/catalog') data={policy:{revision:0,defaultPinned:[],forced:[]},items:[
+    if (path==='/v1/workbench/catalog') data={origin:{kind:'cloud',id:'a'.repeat(32)},revision:'fixture-1',policy:{revision:0,defaultPinned:[],forced:[]},items:[
       ...['chat','projects','my_space','ability_center','app_center','automation','sites','lab','settings','docs'].map(id=>({
         applicationKey:'builtin:'+id,revision:1,enabled:true,declaration:{schemaVersion:'1.0.0',id,title:id,target:{kind:'builtin',componentId:id}},
         availability:{available:true,reason:null},navigation:{defaultPinned:false,forced:false}})),
@@ -105,9 +105,6 @@ try {
   await page.getByText('计划模式',{exact:true}).first().waitFor();
   await page.getByRole('button',{name:'更多',exact:true}).click();
   await page.getByRole('menuitem',{name:'应用中心',exact:true}).click();
-  await page.getByRole('button',{name:/批量执行/}).click();
-  await page.locator('.jx-composerEditor').waitFor();
-  await page.getByText('批量执行',{exact:true}).first().waitFor();
   await page.goto(origin+'/c/project-chat');
   await page.getByText('Saved message project-chat',{exact:true}).waitFor();
   await page.locator('.jx-chatTopbarProject').filter({hasText:'Research project'}).waitFor();
@@ -128,17 +125,15 @@ try {
   await page.locator('[data-panel="projects"]').getByText('Research project',{exact:true}).waitFor();
   await page.evaluate(()=>window.__workbench.layout('classic'));
   await page.locator('.jx-classicShell').waitFor();
-  await page.getByRole('button',{name:'用户菜单',exact:true}).click();
-  await page.getByRole('menuitem',{name:'定时任务',exact:true}).click();
+  await page.locator('.jx-classicNav').getByRole('button',{name:'定时任务',exact:true}).click();
   await page.locator('.jx-taskSidebar').getByText('Task saved chat',{exact:true}).click();
   await page.waitForURL('**/automation/task-one/conversations/task-chat');
   await page.getByText('Saved message task-chat',{exact:true}).waitFor();
   await page.evaluate(()=>window.__workbench.availability(false,true));
-  await page.getByRole('button',{name:'用户菜单',exact:true}).click();
-  await page.getByRole('menuitem',{name:'更多应用',exact:true}).waitFor();
-  assert.equal(await page.locator('[data-user-application="builtin:sites"]:visible').count(),0);
-  assert.equal(await page.locator('[data-user-application="builtin:my_space"]:visible').count(),0);
-  await page.getByRole('button',{name:'用户菜单',exact:true}).click();
+  await page.getByRole('button',{name:'更多',exact:true}).click();
+  assert.deepEqual(await page.getByRole('menu').getByRole('menuitem').allTextContents(),['项目','应用中心']);
+  assert.equal(await page.locator('.jx-classicNav').getByRole('button',{name:'我的空间',exact:true}).count(),0);
+  await page.keyboard.press('Escape');
   await page.evaluate(()=>window.__workbench.layout('modern'));
   await page.locator('.jx-moduleShell').waitFor();
   assert.equal(await page.getByRole('button',{name:'我的空间',exact:true}).count(),0);

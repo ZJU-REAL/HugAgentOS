@@ -57,7 +57,6 @@
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:module-navigation": "node scripts/test-module-navigation.mjs",
     "test:workbench-registry": "esbuild scripts/test-workbench-registry.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=node_modules/.tmp/test-workbench-registry.mjs && node node_modules/.tmp/test-workbench-registry.mjs",
-    "test:workbench-navigation": "esbuild scripts/test-workbench-navigation.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-workbench-navigation.mjs && node node_modules/.tmp/test-workbench-navigation.mjs",
     "test:workbench-browser": "node scripts/test-workbench-browser.mjs",
     "test:workbench-external-browser": "node scripts/test-workbench-external-browser.mjs",
     "test:hybrid-plugin-routing": "esbuild scripts/test-hybrid-plugin-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-hybrid-plugin-routing.mjs && node node_modules/.tmp/test-hybrid-plugin-routing.mjs",
@@ -100,7 +99,10 @@
     "test:grapheme-reveal-app": "node scripts/test-grapheme-reveal-app.mjs",
     "test:container-layout-browser": "node scripts/test-container-layout-browser.mjs",
     "test:voice-input": "node scripts/test-voice-input-browser.mjs",
-    "test:chat-customization": "node scripts/test-chat-customization.mjs"
+    "test:chat-customization": "node scripts/test-chat-customization.mjs",
+    "test:sidebar-navigation": "npm run test:module-navigation-model && node scripts/test-sidebar-navigation-browser.mjs && npm run test:module-navigation && npm run test:workbench-browser",
+    "test:module-navigation-model": "esbuild scripts/test-module-navigation-model.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-module-navigation-model.mjs && node node_modules/.tmp/test-module-navigation-model.mjs",
+    "test:module-pages": "node scripts/test-module-pages-browser.mjs && npm run test:chat-width-browser"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

@@ -22,12 +22,9 @@
   .jx-classicShell--collapsed .jx-classicMini{display:none;}
 }
 
-.jx-classicApplicationsMenu > .ant-dropdown-menu{max-height:min(70vh,560px);overflow-y:auto;overscroll-behavior:contain;}
-.jx-classicApplicationsMenu .jx-applicationIcon{width:16px;height:16px;font-size:16px;}
 
 .jx-classicNav{flex:none;max-height:35vh;overflow-y:auto;margin:0 0 8px;}
 .jx-classicNav .jx-navItem{width:100%;gap:10px;}
-.jx-classicNav .jx-applicationIcon{width:20px;height:20px;flex:none;}
 .jx-classicMiniNav{display:flex;flex-direction:column;align-items:center;gap:6px;}
 
 .jx-classicSubList{display:flex;flex-direction:column;gap:2px;padding:2px 0 4px;}
@@ -45,3 +42,6 @@
 }
 
 .jx-classicModuleInner .jx-spaceNavigation{flex:1;min-height:0;overflow-y:auto;}
+
+.jx-classicInner,.jx-classicMini{box-sizing:border-box;}
+.jx-classicInner > .jx-sidebarScrollArea{min-height:0;flex:1;}

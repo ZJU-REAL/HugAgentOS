@@ -8,17 +8,13 @@ import { DesktopUpdateEntry } from '../../desktop/DesktopUpdateEntry';
 import { useDesktopUpdateStatus } from '../../desktop/useDesktopUpdateStatus';
 import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
 import { FeedbackModal } from '../../feedbackEdition';
-import { usePageConfig, usePageConfigAll } from '../../hooks/usePageConfig';
-import { abilitySlug } from '../../routing/subPages';
-import { useApplicationEntries } from '../../applicationEntries';
-import { useApplicationOpen } from '../../applicationOpen';
-import { ApplicationIcon } from '../../workbench/ApplicationIcon';
+import { usePageConfig } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
 import { useAuthStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import type { SidebarProps } from './sidebarTypes';
-export function SidebarUtilities({ onSetPanel, classic = false, expanded = false }: Pick<SidebarProps, 'onSetPanel'> & { classic?: boolean; expanded?: boolean }) {
+export function SidebarUtilities({ onSetPanel, expanded = false }: Pick<SidebarProps, 'onSetPanel'> & { expanded?: boolean }) {
   const { authUser, doLogout, loggingOut } = useAuthStore();
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -27,11 +23,6 @@ export function SidebarUtilities({ onSetPanel, classic = false, expanded = false
   const cfgLogoutTitle = usePageConfig('texts.dialog_logout_confirm_title', '确认退出登录？');
   const cfgLogoutContent = usePageConfig('texts.dialog_logout_confirm_content', '退出登录不会丢失任何数据，你仍可以登录此账号。');
   const cfgLogoutOk = usePageConfig('texts.dialog_logout_confirm_ok', '退出登录');
-  const config = usePageConfigAll();
-  const { items: LAYOUT_ITEMS, pinned, entries } = useApplicationEntries();
-  const { open: openApplication, feedback } = useApplicationOpen(onSetPanel);
-  const extraMenu = classic ? entries.filter(entry => !pinned.includes(entry.key)
-    && !['builtin:chat', 'builtin:settings', 'builtin:docs', 'builtin:plan_mode'].includes(entry.key)) : [];
   const footerSettingsMenu: MenuProps = {
     items: [
       {
@@ -40,22 +31,6 @@ export function SidebarUtilities({ onSetPanel, classic = false, expanded = false
         icon: <img src="/home/settings.svg" alt="" style={{ width: 16, height: 16 }} />,
         onClick: () => onSetPanel('settings'),
       },
-      ...extraMenu.map(entry => {
-        const meta = entry.key.startsWith('builtin:') ? LAYOUT_ITEMS[entry.item.declaration.id] : undefined;
-        return {
-          key: entry.key,
-          label: <span data-user-application={entry.key}>{entry.title}</span>,
-          icon: <ApplicationIcon icon={entry.icon} builtinIcon={entry.builtinIcon} />,
-          disabled: !entry.item.availability.available,
-          ...(meta?.children?.length ? {
-            children: meta.children.map(child => ({
-              key: entry.key + ':' + child.key,
-              label: t(config.navigation.panel_titles[child.key] || child.label),
-              onClick: () => onSetPanel(meta.targetPanel, abilitySlug(child.key)),
-            })),
-          } : { onClick: () => { setFooterMenuOpen(false); openApplication(entry); } }),
-        };
-      }),
       ...(!IS_COMMUNITY_EDITION_BUILD && (authUser?.can_system_config || authUser?.can_content_manage)
         ? [{ type: 'divider' as const }]
         : []),
@@ -150,7 +125,7 @@ export function SidebarUtilities({ onSetPanel, classic = false, expanded = false
           </Tooltip>
         </Dropdown>
       </DesktopUpdateEntry>
-      <Dropdown open={footerMenuOpen} onOpenChange={setFooterMenuOpen} menu={footerSettingsMenu} trigger={['click']} placement="topLeft" overlayClassName={classic ? "jx-settingsMenu jx-classicApplicationsMenu" : "jx-settingsMenu"}>
+      <Dropdown open={footerMenuOpen} onOpenChange={setFooterMenuOpen} menu={footerSettingsMenu} trigger={['click']} placement="topLeft" overlayClassName="jx-settingsMenu">
         <Tooltip title={authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')} placement="right">
           <button type="button" className={expanded ? 'jx-classicUser' : 'jx-miniRailBtn jx-miniRailAvatarBtn'} aria-label={t('用户菜单')}>
             <img src={resolveAvatarUrl(authUser?.avatar_url)} alt="" className="jx-miniRailAvatar" />
@@ -159,7 +134,6 @@ export function SidebarUtilities({ onSetPanel, classic = false, expanded = false
         </Tooltip>
       </Dropdown>
     </div>
-    <span className="jx-applicationFeedback" role="status">{feedback}</span>
     <Modal
       title={(
         <span>

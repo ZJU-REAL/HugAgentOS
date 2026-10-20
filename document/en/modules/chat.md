@@ -12,6 +12,8 @@ Chat is the core pipeline of HugAgentOS: a user message travels through the Fast
 
 The home page, conversation page, and project panel share the message composer. Long text expands the editor up to its maximum height, then scrolls inside it. Shift+Enter, typing, and pasting keep the current line visible above the bottom toolbar. Editing earlier text follows the caret; manually scrolling to read preserves the scroll position.
 
+The bottom composer toolbar stays on one line. When zooming or split panes leave insufficient space, all labeled controls collapse to icons and the send button stays visible. Hover for descriptions and click to use the existing controls. Labels return when space permits; no additional overflow menu is introduced. At extremely narrow widths, the tool icons scroll horizontally while the send button stays fixed and visible.
+
 ### Unsent drafts
 
 Each conversation, new conversation, and project keeps its own unsent draft. Switching shows the destination draft; returning restores text, formatting, capability references, quoted follow-up questions, and attachments. Returning home, clicking “New conversation”, or clicking the conversation icon within the chat module restores the current unsent new-conversation draft. After sending it, entering again creates an empty draft.

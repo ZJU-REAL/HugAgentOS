@@ -1,0 +1,216 @@
+/* ══════════════════════════════════════════
+   My Space (我的空间) Styles
+   Prefix: .jx-mySpace-*
+   ══════════════════════════════════════════ */
+
+.jx-mySpace {
+  position: relative; /* 拖拽上传高亮层的定位锚点 */
+  background: var(--color-bg-container);
+  container-type: inline-size;
+  container-name: myspace;
+}
+
+.jx-mySpace-shell {
+  display: flex;
+  flex-direction: column;
+  max-width: 980px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.jx-mySpace-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--color-bg-container);
+  flex-shrink: 0;
+  padding: 24px 0 0;
+}
+
+.jx-mySpace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.jx-mySpace-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-mySpace-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 10px 0 16px;
+  margin-right: 28px;
+  font-family: var(--font-family);
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.jx-mySpace-tab:last-child {
+  margin-right: 0;
+}
+
+.jx-mySpace-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.jx-mySpace-tab.active {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* 共享滑动下划线（motion layoutId 驱动，替代原 ::after scaleX） */
+.jx-mySpace-tabInk {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  pointer-events: none;
+}
+
+.jx-mySpace-tabInk--filter {
+  height: 2px;
+  bottom: 2px;
+}
+
+.jx-mySpace-tabBadge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-error);
+  color: var(--color-text-white);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  font-family: var(--font-family-number);
+}
+
+.jx-mySpace-assetBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 24px;
+  flex-wrap: wrap;
+}
+
+.jx-mySpace-assetTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-mySpace-assetChip {
+  appearance: none;
+  border: 1px solid transparent;
+  background: var(--color-fill-hover);
+  color: var(--color-text-secondary);
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 14px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.jx-mySpace-assetChip:hover {
+  color: var(--color-text);
+  background: var(--color-fill-hover);
+}
+
+.jx-mySpace-assetChip.active {
+  background: rgba(18, 109, 255, 0.10);
+  color: var(--color-primary);
+  border-color: rgba(18, 109, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(18, 109, 255, 0.02);
+}
+
+.jx-mySpace-filterTools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-mySpace-sourceFilter {
+  min-width: 136px;
+}
+
+.jx-mySpace-sourceFilter .ant-select-selector {
+  height: 40px !important;
+  border-radius: 12px !important;
+  border-color: color-mix(in srgb, var(--color-text-placeholder) 28%, transparent) !important;
+  box-shadow: none !important;
+  padding: 0 14px !important;
+}
+
+.jx-mySpace-sourceFilter .ant-select-selection-item {
+  line-height: 38px !important;
+  font-size: 14px !important;
+}
+
+.jx-mySpace-search.ant-input-affix-wrapper {
+  width: 220px;
+  max-width: 100%;
+  height: 40px;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--color-text-placeholder) 28%, transparent);
+  box-shadow: none;
+  padding: 0 12px;
+}
+
+.jx-mySpace-search.ant-input-affix-wrapper:hover,
+.jx-mySpace-search.ant-input-affix-wrapper:focus,
+.jx-mySpace-search.ant-input-affix-wrapper.ant-input-affix-wrapper-focused {
+  border-color: rgba(18, 109, 255, 0.32);
+  box-shadow: 0 0 0 2px rgba(18, 109, 255, 0.06);
+}
+
+.jx-mySpace-search .ant-input {
+  font-size: 14px;
+}
+
+.jx-mySpace-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 0 40px;
+}
+
+/* Tab 内容交叉淡切容器（key={tab+assetScope} 的 motion.div，纯 opacity） */
+.jx-mySpace-bodyFade {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.jx-mySpace-bodyFade > .jx-team-workspace {
+  flex: 1;
+  height: auto;
+}
+
+/* 文件夹进出方向感容器（key 绑 scope+filter，不绑数组引用） */
+.jx-mySpace-scopeSlide {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}

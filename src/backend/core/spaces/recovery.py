@@ -33,6 +33,8 @@ async def ensure_mounts(sandbox, actor, info, *, domain, api_key):
                 headers=headers, json={"actor": actor, "revision": current[MOUNT_REVISION_TAG],
                     "volumes": [v.model_dump(mode="json", by_alias=True) for v in volumes]},
             )
+        if response.status_code == 409:
+            raise HTTPException(409, "文件挂载权限或配置已变更，沙盒和工作区已保留，请联系管理员")
         if response.status_code != 200:
             raise HTTPException(503, "文件挂载恢复失败，沙盒和工作区已保留，请重试")
         if response.json().get("epoch") != epoch:

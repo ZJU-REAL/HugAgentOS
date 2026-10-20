@@ -33,7 +33,6 @@ services:
         condition: service_completed_successfully
     environment:
       SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
-      HUGAGENT_BACKEND_CONTAINER: hugagent-backend
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - personal_agent_config:/etc/opensandbox:ro

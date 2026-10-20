@@ -296,6 +296,17 @@ backend network, and matches `LITELLM_ADMIN_URL`. External DNS may return a prox
 address for a missing service name, so successful resolution alone does not
 prove that the gateway container exists.
 
-### Sandbox network boundary
+### Shared sandbox network
 
-The custom controller creates one Docker bridge per sandbox, connecting only that sandbox and the trusted backend and controller. Sandboxes publish no host ports and cannot directly reach another sandbox's execd. Instance lookup reconnects recreated trusted services; deleting a sandbox also removes its bridge. The management hostname stays on the main project network so deleting a sandbox bridge cannot interrupt a management request. This controller requires Compose project labels; shared sandbox networks and host-mapped sandbox endpoints are unsupported.
+Sandboxes again use the controller's configured shared Docker network. Creation,
+lookup, adoption, deletion and expiration do not create temporary networks or
+connect/disconnect backend and controller endpoints. No Docker or Compose
+upgrade is required. Discovery and cleanup remain scoped to the configured network.
+Sandbox-to-sandbox reachability and upstream direct-mode host port mappings are
+restored; this topology does not provide network isolation between sandboxes.
+
+Existing sandboxes on independent networks are not migrated or deleted automatically.
+Before deployment, inventory their files, mounts and snapshots, then authorize
+session downtime and recreation while preserving workspaces and data volumes.
+Do not force recovery by deleting networks. This cloud-controller change does not
+require a desktop client release.

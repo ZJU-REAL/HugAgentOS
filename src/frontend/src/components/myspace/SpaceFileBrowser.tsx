@@ -17,16 +17,16 @@ const joinPath = (parent: string, name: string) => parent ? parent + '/' + name 
 const imageName = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i;
 
 export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
-  const s = useSpaceDirectory(kind);
+  const [query, setQuery] = useState('');
+  const s = useSpaceDirectory(kind, query);
   const { roots, selected, setSelected, path, setPath, page, loading, busy, error, root,
     writable, reload, perform, loadMore, dialog, setDialog, name, setName, permissions, setPermissions } = s;
   const [filter, setFilter] = useState<'document' | 'image'>('document');
-  const [query, setQuery] = useState('');
   const openFile = useSpaceCanvas();
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
-  const entries = (page?.entries ?? []).filter(entry => entry.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const entries = page?.entries ?? [];
   const folders: PersonalFolderNode[] = entries.filter(entry => entry.is_directory).map(entry => ({
     folder_id: entry.path, parent_folder_id: path || null, name: entry.name, created_at: entry.modified_at, children: [],
   }));
