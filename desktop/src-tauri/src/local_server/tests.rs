@@ -216,9 +216,9 @@ fn existing_dot_hugagent_wins_without_overwriting_or_deleting_legacy_data() {
 
 #[test]
 fn mac_stale_process_match_is_scoped_to_this_install_and_port() {
-    let root = Path::new("/Users/test/Library/Application Support/HugAgentOS/local-server");
+    let root = Path::new("/Users/test/Library/Application Support/HugAgent/local-server");
     assert!(mac_server_command_matches(
-            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgentOS/local-server/releases/sources/def/src/backend/cli.py serve --host 127.0.0.1 --port 32101",
+            "/Users/test/Library/Application Support/HugAgent/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgent/local-server/releases/sources/def/src/backend/cli.py serve --host 127.0.0.1 --port 32101",
             root,
         ));
     assert!(!mac_server_command_matches(
@@ -226,7 +226,7 @@ fn mac_stale_process_match_is_scoped_to_this_install_and_port() {
         root,
     ));
     assert!(!mac_server_command_matches(
-            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgentOS/local-server/releases/sources/def/src/backend/cli.py serve --port 32102",
+            "/Users/test/Library/Application Support/HugAgent/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgent/local-server/releases/sources/def/src/backend/cli.py serve --port 32102",
             root,
         ));
 }
