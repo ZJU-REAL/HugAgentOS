@@ -97,7 +97,6 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
     if not project_id:
         return None
     from core.db.models import Project, UserFolder
-    from core.services.project_file_service import ProjectFileService
     from core.services.project_instructions import ProjectInstructionsService
 
     project = (
@@ -123,26 +122,15 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
         )
         folder_name = row[0] if row else None
     if is_local:
-        # Mount the real host folder under local/<slug> in the sandbox workspace
-        # (idempotent) and list its real contents. A moved/removed folder leaves
-        # files empty rather than failing project resolution.
-        from core.sandbox.local_mount import ensure_local_project_link, list_local_files
+        # Preserve the host-directory mount; discover its contents through tools.
+        from core.sandbox.local_mount import ensure_local_project_link
 
-        path = local.get("path")
-        slug = local.get("slug")
-        files = []
-        if path:
+        path, slug = local.get("path"), local.get("slug")
+        if path and slug:
             try:
-                if slug:
-                    ensure_local_project_link(slug, path)
-                files = list_local_files(path)
+                ensure_local_project_link(slug, path)
             except Exception:
-                files = []
-    else:
-        try:
-            files = ProjectFileService(db).list_files(project)
-        except Exception:
-            files = []
+                pass
     return {
         "project_id": project_id,
         "project_environment_config": (project.extra_data or {}).get("environment")
@@ -152,7 +140,6 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
         "project_folder_name": folder_name,
         "project_folder_kind": "personal" if project.linked_folder_id else None,
         "project_folder_id": project.linked_folder_id,
-        "project_files": files,
         "project_kind": project_kind,
         "project_is_local": is_local,
         "project_local_path": local.get("path"),

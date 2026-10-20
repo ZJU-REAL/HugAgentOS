@@ -117,6 +117,7 @@ async def interactive_tools(
                 allowed_skill_dirs,
                 loader,
                 loaded_skill_ids=loaded_skill_ids,
+                user_id=request.current_user_id,
             )
 
     return (

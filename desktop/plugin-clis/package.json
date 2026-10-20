@@ -1,0 +1,8 @@
+{
+  "name": "hugagent-desktop-plugin-clis",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "openyida": "2026.7.12-1"
+  }
+}

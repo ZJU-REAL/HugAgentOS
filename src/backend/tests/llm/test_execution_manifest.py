@@ -206,12 +206,12 @@ def test_context_hash_uses_full_nested_content_but_persists_only_hashes_and_refs
             "workspace_id": "ws-1",
             "project_id": "project-1",
             "project_instructions": prefix + "A",
-            "project_files": [{"name": "private-a.txt", "size_bytes": 10}],
+            "uploaded_files": [{"name": "private-a.txt", "file_id": "private-file"}],
         }
     )
     two = _manifest(
         context={
-            "project_files": [{"size_bytes": 10, "name": "private-a.txt"}],
+            "uploaded_files": [{"file_id": "private-file", "name": "private-a.txt"}],
             "project_instructions": prefix + "B",
             "project_id": "project-1",
             "workspace_id": "ws-1",

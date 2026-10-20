@@ -31,7 +31,6 @@ export const CANVAS_EN: Record<string, string> = {
   '返回对话': 'Return to chat',
   '插件快捷功能': 'Plugin shortcuts',
   '请先打开对话': 'Open a chat first',
-  '已打开内容': 'Open content',
   '正在处理…': 'Working…',
   '新建标签页': 'New tab',
 };

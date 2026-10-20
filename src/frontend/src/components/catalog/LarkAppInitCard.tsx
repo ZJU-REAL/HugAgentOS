@@ -6,13 +6,14 @@ import {
   resetLarkAppInit,
   startLarkAppInit,
   type LarkAppInitStatus,
+  type RequestTarget,
 } from '../../api';
 import { t } from '../../i18n';
 
 const { Text } = Typography;
 
 /** CE/EE instance-admin control for the org-wide Feishu app used by the plugin. */
-export function LarkAppInitCard() {
+export function LarkAppInitCard({ target }: { target?: RequestTarget } = {}) {
   const [status, setStatus] = useState<LarkAppInitStatus | null>(null);
   const [accessible, setAccessible] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,14 +28,14 @@ export function LarkAppInitCard() {
 
   const load = useCallback(async () => {
     try {
-      setStatus(await getLarkAppInitStatus());
+      setStatus(await getLarkAppInitStatus(target));
       setAccessible(true);
     } catch {
       // Regular users do not have system-settings permission. They still see
       // the personal account connection below, but not the instance-wide app control.
       setAccessible(false);
     }
-  }, []);
+  }, [target]);
 
   useEffect(() => {
     void load();
@@ -52,25 +53,25 @@ export function LarkAppInitCard() {
   const handleInit = useCallback(async () => {
     setBusy(true);
     try {
-      setStatus(await startLarkAppInit());
+      setStatus(await startLarkAppInit(target));
     } catch (error) {
       message.error(t('初始化失败：{msg}', { msg: (error as Error).message }));
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [target]);
 
   const handleReset = useCallback(async () => {
     stopPolling();
     setBusy(true);
     try {
-      setStatus(await resetLarkAppInit());
+      setStatus(await resetLarkAppInit(target));
     } catch (error) {
       message.error(t('初始化失败：{msg}', { msg: (error as Error).message }));
     } finally {
       setBusy(false);
     }
-  }, [stopPolling]);
+  }, [stopPolling, target]);
 
   if (accessible !== true) return null;
 

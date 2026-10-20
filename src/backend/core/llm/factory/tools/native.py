@@ -61,6 +61,7 @@ async def native_tools(
             allowed_skill_dirs,
             loader,
             loaded_skill_ids=loaded_skill_ids,
+            user_id=request.current_user_id,
         )
 
         # ── Phase 3.5: Register sandbox tools (Bash + artifact in/out) ──
@@ -307,6 +308,7 @@ async def native_tools(
             allowed_skill_dirs,
             loader,
             loaded_skill_ids=loaded_skill_ids,
+            user_id=request.current_user_id,
         )
         register_agent_api_tools(
             toolkit,

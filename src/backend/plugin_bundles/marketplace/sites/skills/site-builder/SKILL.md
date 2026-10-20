@@ -1,6 +1,6 @@
 ---
 name: site-builder
-version: 1.8.1
+version: 1.8.2
 description: 用对话把用户的想法做成一个真实可访问的网站并一键发布上线。当用户说"做一个网站/页面/门户/展示站/落地页/看板/H5 并要能打开访问""帮我搭个站""把这份内容做成网页发布出去"，或要在已发布站点上继续迭代修改时，或需要应用数据库、MCP 托管时，务必使用本技能。它教你两条建站路径——简单内容手写静态站、复杂/精美需求用预装的 React 工程模板构建——并用 choose_design 让用户三选一设计方案，最后用 publish_site 发布为平台托管站点，拿到形如 /site/<slug>/ 的访问链接交付给用户。
 ---
 
@@ -33,7 +33,7 @@ description: 用对话把用户的想法做成一个真实可访问的网站并�
 ### 云端模式
 
 发布后平台自动为站点建同名项目并保存源码；用户可从站点卡片的编辑按钮继续修改。
-已有项目中先查看原文件，增量修改，不在其他目录重新生成整站。具体发布参数同样遵循
+已有项目中先查看原文件并保存增量修改；构建时复制当前源码到 /tmp，不重新生成整站。具体发布参数同样遵循
 下文「编辑已有站点」，不能因绑定项目而省略 site_id 或 src_dir。
 
 ## 沟通原则（面向非技术用户）
@@ -66,15 +66,18 @@ description: 用对话把用户的想法做成一个真实可访问的网站并�
 
 ## 路径 B：React 工程（复杂/精美站点）
 
-### B1. 初始化（一条命令，秒级完成）
+### B1. 确认源码与构建位置
 
-```bash
-bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/site-src/<英文短名>
-```
+云端 Linux 沙箱的 React 工程必须先读 [临时目录构建与发布](references/tmp-build.md)。
+源码保存在当前项目；**依赖安装、源码扫描、构建缓存和产物生成均在 /tmp 执行**。
+不能在持久挂载目录（包括 /workspace、/myspace）及其子目录内运行 npm install/ci/build。
+不能把 /tmp 下的 src 软链接回挂载源码，那仍然会读取慢挂载。
 
-模板预装 React 18 + antd + echarts + tailwind v4 + lucide/motion/dayjs，依赖开箱即用。
-脚本幂等，可反复执行（重开会话后也先跑它自愈环境）；它会打印本工程的构建
-命令、产物目录与发布参数，后续步骤以其输出为准。
+模板预装 React 18 + antd + echarts + tailwind v4 + lucide/motion/dayjs。
+先把源码复制到 /tmp 的真实工程目录，再在那里运行 init 脚本，复用预装依赖。
+缺 vite、依赖链接失效时也按该流程恢复；不在持久项目里补装依赖。
+init 默认打印的 /workspace 构建命令和产物路径不适用于此流程；使用参考文档中的显式覆盖。
+桌面本机 / 混合模式继续遵循上文授权目录边界，不能直接套用云端软链接发布入口。
 
 ### B2. 设计三选一（choose_design，新建站点必做）
 
@@ -115,11 +118,12 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
      emoji 当图标**（跨系统渲染不一致、色相杂乱，是"AI 生成感"最强的元素）；
    - echarts 图表注意数值标签防裁切：柱状图外置 label 要给 `grid.top` 留够
      空间或适当抬高 `yAxis.max`；轴刻度单位归口到标题一处，不要每个刻度都带；
-   - 优先用预装库（antd/echarts/…）；确需新依赖：编辑 `package.json` 后**重跑
-     init 脚本**（此时会物化独立依赖副本并增量安装，可能需要几分钟——bash 调用
-     记得给足超时），**禁止**在工程目录里直接 `npm install`。
-2. 构建：`cd /workspace/site-src/<名> && npm run build`（产物自动落
-   `/workspace/.site-dist/<名>/`）。构建报错先修再继续，禁止带错发布。
+   - 优先用预装库（antd/echarts/…）；确需新依赖，先将依赖声明保存到项目，
+     再更新 /tmp 副本并在那里重跑 init。安装生成的锁文件按参考文档保存并核对。
+     不使用 --no-save 临时补包，不在持久项目里运行 npm install/ci。
+2. 云端按 [临时目录构建与发布](references/tmp-build.md) 在 /tmp 的真实源码副本里构建，
+   显式设置 SITE_DIST、SITE_CACHE 和 SITE_NODE_BASE；然后准备工作区发布入口。
+   构建失败先修再继续。命令须保留真实退出码，不用未开启 pipefail 的管道接 tail。
 3. **发布前自检清单**（逐条过，都是高频遗漏）：
    - `index.html` 的 `<title>` 已改成真实站点名（不是"站点建设中"）；
    - 图表上的统计标注（均值线/合计等）由数据**计算得出**，不是拍脑袋写死的数；
@@ -129,8 +133,8 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 3. 发布（**两个参数都必传**）：
    ```
    publish_site(title='站点名',
-                src_dir='/workspace/.site-dist/<名>',
-                source_dir='/workspace/site-src/<名>')
+                src_dir='<本次工作区发布入口>',
+                source_dir='<持久源码目录>')
    ```
    产物进托管，**源码工程**镜像进项目文件夹（保证「编辑」进来的是可改的源码）。
    漏传 `source_dir` 会导致项目里的源码被产物覆盖——绝不允许。
@@ -153,7 +157,8 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
    项目根目录和 `sites/<名字>/` 各有 index.html 时，不能混淆二者。
    发布记录与文件不一致时先查明正确页面目录，再显式指定；不要复制到根目录掩盖问题。
 3. **原地修改**：静态站修改实际页面；React 工程修改 source_dir 中的源码，
-   恢复依赖并重新构建，确认构建成功、产物根 index.html 存在。
+   云端重新复制到 /tmp 构建，不在 source_dir 运行构建或补装依赖。
+   确认构建成功、产物根 index.html 存在，并准备本次工作区发布入口。
 4. **显式发布**：
    - 静态站：`publish_site(title='站点名称', site_id='<查询得到的原编号>', src_dir='<实际页面目录>')`。
    - 构建型：`publish_site(title='站点名称', site_id='<查询得到的原编号>', source_dir='<源码工程目录>', src_dir='<本次构建输出目录>')`。
@@ -173,7 +178,7 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 `source_dir` 当前就可直接读写（云端是项目文件夹、本机是绑定的本地目录），按这四步走即可：
 
 1. `list_sites()` → 按用户说的网址或标题认出目标，多个拿不准就问；
-2. 去该条的 `source_dir` 原地改（构建型在 `source_dir` 改完重新构建）；
+2. 去该条的 `source_dir` 原地改（构建型保存修改后复制到 /tmp 构建）；
 3. `publish_site(title=…, site_id='<查到的编号>', src_dir='<静态站用 publish_dir／构建型用本次产物目录>')`；
 4. 核对返回的 site_id 与 URL 没变、版本号 +1，再打开线上首页确认改动真的在，才交付。
 
@@ -182,13 +187,14 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 
 ## 云端沙箱生命周期规则（React 工程务必遵守）
 
-沙箱空闲一段时间会被回收销毁，只有**项目文件夹**（`/myspace/...`）里的文件永久幸存：
-- **源码只能放项目文件夹或尽快通过发布进入项目**；`/workspace/` 其余区域随沙箱销毁丢失。
-- `node_modules` / 构建产物 / 缓存**永远不进项目文件夹**（工程里的 `node_modules`
-  是指向 `/workspace` 临时区的符号链接，不要删除或替换成真实目录）。
-- 重开会话后发现依赖目录消失/链接失效 → **重跑 init 脚本**即自愈（秒级）。
-- 发布或 init 过程中 `package.json` / `package-lock.json` 落入项目文件夹时可能弹一次
-  「同步到我的空间」确认，属正常，等用户确认即可。
+沙箱空闲后可能被回收，项目文件夹中的持久源码才是后续编辑的事实来源：
+- /tmp 只存构建副本、依赖、缓存、产物；不要把唯一源码或新修改只留在那里。
+- node_modules、构建产物、缓存不进项目文件夹；不要递归删除挂载目录里的历史依赖。
+  构建复制时排除它们，遗留目录的清理另行处理。
+- 软链接只作临时发布入口，不能替换项目根目录或持久源码；产物内部不允许链接。
+- 新会话、沙箱重建或 /tmp 被清理后，从持久源码重建临时副本，不复用失效链接。
+- 发布与线上核验成功前保留本次 /tmp 产物和发布入口；后续编辑仍从 source_dir 开始。
+- package.json / package-lock.json 保存到项目时若触发同步确认，按现有确认流程处理。
 
 ## 约束与要点
 
@@ -230,8 +236,8 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 ## 示例
 
 用户："做一个部门数据看板网站，能看各科室的月度指标，要好看。"
-你（路径 B）：init 模板 → 问一句"指标数据我先用示例数据占位，之后您可以发我真实数据"
+你（路径 B）：确认持久源码目录与 /tmp 构建副本 → 问一句"指标数据我先用示例数据占位，之后您可以发我真实数据"
 → 写 3 个 mockup（深色科技风 / 明亮商务风 / 极简卡片风）截图 → `choose_design` 等用户
-选 → 按选中方案实现（antd 布局 + echarts 图表 + 按需定义应用数据库）→ `npm run build` →
-`publish_site(title='部门数据看板', src_dir='/workspace/.site-dist/dashboard',
-source_dir='/workspace/site-src/dashboard')` → 交付链接 + 管理/编辑指引。
+选 → 按选中方案实现（antd 布局 + echarts 图表 + 按需定义应用数据库）→ 在 /tmp 构建并准备发布入口 →
+`publish_site(title='部门数据看板', src_dir='<本次工作区发布入口>',
+source_dir='<持久源码目录>')` → 交付链接 + 管理/编辑指引。

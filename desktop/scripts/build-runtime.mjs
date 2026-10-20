@@ -129,6 +129,9 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   ], { cwd: repoRoot });
   run(executable, [join(desktopDir, "scripts", "browser-runtime.py"), "--runtime", runtimeRoot], { cwd: repoRoot });
   copyFileSync(join(desktopDir, "scripts", "browser-runtime.py"), join(runtimeRoot, "browser-runtime.py"));
+  run(executable, [join(desktopDir, "scripts", "plugin-cli-runtime.py"),
+    "--runtime", runtimeRoot, "--source", join(desktopDir, "plugin-clis")], { cwd: repoRoot });
+  copyFileSync(join(desktopDir, "scripts", "plugin-cli-runtime.py"), join(runtimeRoot, "plugin-cli-runtime.py"));
   mkdirSync(join(runtimeRoot, "licenses"), { recursive: true });
   for (const name of ["OfficeCLI-LICENSE.txt", "Pandoc-COPYING.md", "Office-runtime-NOTICES.txt", "Git-Bash-NOTICES.txt"]) {
     copyFileSync(join(desktopDir, "licenses", name), join(runtimeRoot, "licenses", name));

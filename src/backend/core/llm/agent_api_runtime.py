@@ -68,7 +68,7 @@ def apply_api_scope(context: dict) -> dict:
         sandbox_session_id=scope.sandbox_session_id,
         visible_subagents=[], enabled_agents=[], mention_agent_id=None,
         explicit_subagent_command=None, channel_origin=None, project_id=None,
-        project_name=None, project_instructions=None, project_files=None,
+        project_name=None, project_instructions=None,
         project_folder_id=None, project_folder_kind=None, project_folder_name=None,
         project_local_path=None, project_is_local=False,
         plan_chat=False, workflow_chat=False, site_chat=False,

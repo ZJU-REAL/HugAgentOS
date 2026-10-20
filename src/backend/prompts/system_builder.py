@@ -410,8 +410,6 @@ def build_system_prompt(
                 project_instructions=ctx.get("project_instructions") or "",
                 folder_name=ctx.get("project_folder_name") or "",
                 folder_kind=ctx.get("project_folder_kind") or "",
-                project_files=ctx.get("project_files") or [],
-                project_file_count=ctx.get("project_file_count"),
             )
         if proj_section:
             base = (base + "\n\n" + proj_section).strip()

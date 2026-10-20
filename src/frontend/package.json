@@ -93,6 +93,8 @@
     "test:chat-component-polish": "node scripts/test-chat-component-polish.mjs",
     "test:chat-component-app": "node scripts/test-chat-component-app.mjs",
     "prebuild": "node ../../scripts/build-chat-sdk.mjs && node ../../scripts/build-workbench.mjs --build",
+    "test:plugin-upgrade": "node scripts/test-plugin-upgrade-browser.mjs",
+    "test:workbench-origins": "esbuild scripts/test-workbench-origins.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-workbench-origins.mjs && node node_modules/.tmp/test-workbench-origins.mjs",
     "test:workbench-protocol": "esbuild scripts/test-workbench-protocol.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-workbench-protocol.mjs && node node_modules/.tmp/test-workbench-protocol.mjs",
     "test:workbench-policy-browser": "node scripts/test-workbench-policy-browser.mjs",
     "test:workbench-plugin": "node scripts/test-workbench-plugin-browser.mjs",

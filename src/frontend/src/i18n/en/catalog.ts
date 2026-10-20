@@ -1,5 +1,7 @@
 /** 英文字典（catalog 域）：key 为中文原文，value 为英文译文。 */
 export const CATALOG_DICT: Record<string, string> = {
+  '账号连接位置': 'Account connection location',
+  '本机服务尚未就绪，请稍候重试。': 'The local service is not ready. Please try again shortly.',
   '技能标识已存在，未覆盖原技能': 'Skill ID already exists; the original was not overwritten',
   '技能文件夹无效或尚未复制完成': 'Invalid skill folder or copying is not complete',
   '文件已保存到云端，尚未启用为云端能力': 'Files saved to the cloud; not activated as a cloud capability',

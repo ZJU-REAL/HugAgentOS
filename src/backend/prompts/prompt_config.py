@@ -17,11 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# Hard cap on the project file listing: the prompt lists at most this many files,
-# so the chat context only ever needs to carry that many.
-PROJECT_FILE_LIST_CAP = 50
-
-
 # repo default: <backend_root>/prompts/config/default.json (next to this module)
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "default.json"
 

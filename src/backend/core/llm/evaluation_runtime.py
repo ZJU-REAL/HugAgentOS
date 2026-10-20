@@ -53,7 +53,7 @@ def apply_evaluation_scope(context: dict) -> dict:
         memory_enabled=False, memory_write_enabled=False,
         memory_scope_user_id=scope.session_id, workspace_id=scope.session_id,
         channel_origin=None, project_id=None, project_name=None, project_instructions=None,
-        project_files=None, project_folder_id=None, project_folder_kind=None,
+        project_folder_id=None, project_folder_kind=None,
         project_folder_name=None, project_local_path=None, project_is_local=False,
         plan_chat=False, workflow_chat=False, site_chat=False,
         ontology_enabled=False, ontology_runtime={}, mention_agent_id=None,

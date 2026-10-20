@@ -8,25 +8,7 @@ these names for backward compatibility.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
-# The prompt lists at most PROJECT_FILE_LIST_CAP files; it lives in the stdlib-only
-# config module so the chat context can be trimmed to that size without importing
-# the prompt runtime.
-from prompts.prompt_config import PROJECT_FILE_LIST_CAP
 from prompts.prompt_runtime import _load_db_prompt_parts  # noqa: E402 (cycle-safe)
-
-
-def _format_size(n: int) -> str:
-    """Human-readable byte size (1.2 MB / 480 KB / 12 B)."""
-    n = int(n or 0)
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 * 1024:
-        return f"{n/1024:.1f} KB"
-    if n < 1024 * 1024 * 1024:
-        return f"{n/1024/1024:.1f} MB"
-    return f"{n/1024/1024/1024:.1f} GB"
 
 
 # part_id of the project-mode section in AdminPromptPart. Editable/versionable in
@@ -42,42 +24,14 @@ PROJECT_MODE_DISPLAY_NAME = "项目模式段（动态附加）"
 #   {folder_name}         bound folder name (may be empty)
 #   {folder_scope_text}   edition-specific folder label
 #   {folder_scope_block}  pre-rendered "bound to folder xx..." section (empty without a folder)
-#   {file_count}          total file count (int)
-#   {file_list_block}     pre-rendered "### project sandbox file list..." section (empty without files)
 #   {instructions_block}  pre-rendered "### project instructions..." section (empty without instructions)
 _PROJECT_MODE_DEFAULT_TEMPLATE = """## 项目模式
 本次对话挂载在项目「{project_name}」下。
 {folder_scope_block}
-{file_list_block}
 {instructions_block}"""
 
 
-def _render_file_list_block(files: list, total: int) -> str:
-    """Markdown section for the file listing (heading + entries + truncation notice + hint). Returns '' for an empty list."""
-    if total <= 0:
-        return ""
-    shown = min(total, PROJECT_FILE_LIST_CAP)
-    lines: list[str] = [f"### 项目沙盒文件清单（共 {total} 个，列出前 {shown}）"]
-    for item in files[:PROJECT_FILE_LIST_CAP]:
-        rel = (item.get("name") or "").strip()  # the name returned by the service already includes the subpath
-        if not rel:
-            continue
-        mime = (item.get("mime_type") or "").strip()
-        size = _format_size(item.get("size_bytes") or 0)
-        meta = f"{mime}, {size}" if mime else size
-        lines.append(f"- {rel} ({meta})")
-    if total > PROJECT_FILE_LIST_CAP:
-        lines.append(
-            f"...还有 {total - PROJECT_FILE_LIST_CAP} 个未列出，"
-            "用 Bash 的 ls 查看项目目录。"
-        )
-    lines.append(
-        "用户提到的文件名默认指上面这些文件——直接用 Read/Edit/Glob/Grep 等工具操作即可。"
-    )
-    return "\n".join(lines)
-
-
-def _render_folder_scope_block(folder_name: str, folder_scope_text: str, file_count: int, workspace_path: str = "") -> str:
+def _render_folder_scope_block(folder_name: str, folder_scope_text: str, workspace_path: str = "") -> str:
     """Bound-folder description section. Returns '' without a folder_name."""
     f = (folder_name or "").strip()
     if not f:
@@ -88,8 +42,7 @@ def _render_folder_scope_block(folder_name: str, folder_scope_text: str, file_co
         f"项目相关的文件读写应当严格限定在 `{path}`（及其子文件夹）下，"
         f"不要把项目无关的文件写到此处，也不要假设其它路径下的文件属于本项目。"
     )
-    if file_count <= 0:
-        base += "\n该项目沙盒目前还没有任何文件；用户可能在对话中补充上传。"
+    base += "\n需要了解项目文件时，使用目录、搜索和读取工具按需查看。"
     return base
 
 
@@ -147,8 +100,6 @@ def _build_project_section(
     project_instructions: str,
     folder_name: str,
     folder_kind: str,
-    project_files: list | None = None,
-    project_file_count: int | None = None,
     workspace_path: str = "",
 ) -> str:
     """Build the "project mode" system-prompt section.
@@ -160,16 +111,14 @@ def _build_project_section(
     - the outer frame (heading, assembly order of the sections) goes through
       ``AdminPromptPart(part_id='project_mode')``, editable/versionable in the
       Config console;
-    - the file listing / folder-binding section / project-instructions section are
+    - the folder-binding section and project-instructions section are
       pre-rendered into strings in Python and injected via the
-      ``{file_list_block}`` / ``{folder_scope_block}`` / ``{instructions_block}``
+      ``{folder_scope_block}`` / ``{instructions_block}``
       variables, working around str.format_map's lack of loops/conditionals.
     """
     from prompts.provider import render_template
 
     name = (project_name or "").strip() or "(未命名项目)"
-    files = list(project_files or [])
-    total = len(files) if project_file_count is None else int(project_file_count)
     from core.services.edition_workspace import folder_scope_label
     scope_text = folder_scope_label(folder_kind)
 
@@ -178,9 +127,7 @@ def _build_project_section(
         "project_name": name,
         "folder_name": (folder_name or "").strip(),
         "folder_scope_text": scope_text,
-        "folder_scope_block": _render_folder_scope_block(folder_name, scope_text, total, workspace_path),
-        "file_count": total,
-        "file_list_block": _render_file_list_block(files, total),
+        "folder_scope_block": _render_folder_scope_block(folder_name, scope_text, workspace_path),
         "instructions_block": _render_instructions_block(project_instructions),
     }
     template = _get_project_mode_template()

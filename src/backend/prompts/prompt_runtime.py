@@ -360,12 +360,9 @@ def _prompt_cache_context_hash(ctx: Dict[str, Any]) -> str:
 
 # Project-mode section moved to prompts.project_section; re-export for compat
 from prompts.project_section import (  # noqa: E402
-    _format_size,
-    PROJECT_FILE_LIST_CAP,
     PROJECT_MODE_PART_ID,
     PROJECT_MODE_DISPLAY_NAME,
     _PROJECT_MODE_DEFAULT_TEMPLATE,
-    _render_file_list_block,
     _render_folder_scope_block,
     _render_instructions_block,
     _collapse_blanks,

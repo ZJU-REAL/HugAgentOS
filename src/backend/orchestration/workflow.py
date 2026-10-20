@@ -58,8 +58,6 @@ _PROJECT_CTX_KEYS = (
     "project_folder_name",
     "project_folder_kind",
     "project_folder_id",
-    "project_files",
-    "project_file_count",
     # Desktop local project — needed so the prompt renders the local-mode section
     # with the real host folder path instead of the cloud /workspace section.
     "project_kind",

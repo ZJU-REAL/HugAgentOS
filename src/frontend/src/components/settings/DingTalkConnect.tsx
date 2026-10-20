@@ -9,6 +9,7 @@ import {
   pollDingTalkLogin,
   disconnectDingTalk,
   type DingTalkStatus,
+  type RequestTarget,
 } from '../../api';
 import { t } from '../../i18n';
 
@@ -24,7 +25,7 @@ const STATUS_META: Record<DingTalkStatus['status'], { cls: string; label: string
  * click "Connect" → the backend runs dws auth login --device in the user sandbox → shows the verification URL + user_code
  * → the user approves on DingTalk → the frontend polls until connected. Credentials are persisted in the backend per-user volume and survive across sessions.
  */
-export function DingTalkConnect() {
+export function DingTalkConnect({ target }: { target?: RequestTarget } = {}) {
   const [status, setStatus] = useState<DingTalkStatus | null>(null);
   const [loading, setLoading] = useState(false);     // Initial/manual refresh
   const [connecting, setConnecting] = useState(false); // Initiating login
@@ -42,13 +43,13 @@ export function DingTalkConnect() {
   const refresh = useCallback(async (probe = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setStatus(await getDingTalkStatus(probe));
+      setStatus(await getDingTalkStatus(probe, target));
     } catch {
       if (!silent) message.error(t('获取钉钉连接状态失败'));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [target]);
 
   // Do a real liveness probe once when the panel opens: the local DB may still say "connected" while the credentials are actually invalid,
   // and without probing the user would keep seeing a fake connected state.
@@ -70,7 +71,7 @@ export function DingTalkConnect() {
     if (status?.status === 'pending' && !pollTimer.current) {
       pollTimer.current = setInterval(async () => {
         try {
-          const s = await pollDingTalkLogin();
+          const s = await pollDingTalkLogin(target);
           setStatus(s);
           if (s.status === 'connected') {
             stopPolling();
@@ -83,12 +84,12 @@ export function DingTalkConnect() {
     }
     if (status && status.status !== 'pending') stopPolling();
     return undefined;
-  }, [status, stopPolling]);
+  }, [status, stopPolling, target]);
 
   const onConnect = async () => {
     setConnecting(true);
     try {
-      const s = await startDingTalkLogin();
+      const s = await startDingTalkLogin(target);
       setStatus(s);
       if (s.status === 'pending' && !s.verification_url) {
         message.warning(s.last_error || t('未能获取授权链接，请重试'));
@@ -103,7 +104,7 @@ export function DingTalkConnect() {
   const onDisconnect = async () => {
     stopPolling();
     try {
-      setStatus(await disconnectDingTalk());
+      setStatus(await disconnectDingTalk(target));
       message.success(t('已断开钉钉连接'));
     } catch {
       message.error(t('断开失败'));

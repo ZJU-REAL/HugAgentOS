@@ -9,6 +9,7 @@ import {
   pollLarkLogin,
   disconnectLark,
   type LarkStatus,
+  type RequestTarget,
 } from '../../api';
 import { t } from '../../i18n';
 
@@ -24,7 +25,7 @@ const STATUS_META: Record<LarkStatus['status'], { cls: string; label: string }> 
  * click "Connect" → backend initiates lark-cli auth login --no-wait → presents the auth QR code + user_code
  * → user scans and confirms with the Feishu App → frontend polls until connected. Credentials are persisted in the backend per-user volume and survive across sessions.
  */
-export function LarkConnect() {
+export function LarkConnect({ target }: { target?: RequestTarget } = {}) {
   const [status, setStatus] = useState<LarkStatus | null>(null);
   const [loading, setLoading] = useState(false);     // initial/manual refresh
   const [connecting, setConnecting] = useState(false); // initiating login
@@ -42,13 +43,13 @@ export function LarkConnect() {
   const refresh = useCallback(async (probe = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setStatus(await getLarkStatus(probe));
+      setStatus(await getLarkStatus(probe, target));
     } catch {
       if (!silent) message.error(t('获取飞书连接状态失败'));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [target]);
 
   // Do a real liveness check once when the panel opens: the local DB may still say "connected" while the credentials are actually invalid.
   useEffect(() => {
@@ -68,7 +69,7 @@ export function LarkConnect() {
     if (status?.status === 'pending' && !pollTimer.current) {
       pollTimer.current = setInterval(async () => {
         try {
-          const s = await pollLarkLogin();
+          const s = await pollLarkLogin(target);
           setStatus(s);
           if (s.status === 'connected') {
             stopPolling();
@@ -81,12 +82,12 @@ export function LarkConnect() {
     }
     if (status && status.status !== 'pending') stopPolling();
     return undefined;
-  }, [status, stopPolling]);
+  }, [status, stopPolling, target]);
 
   const onConnect = async () => {
     setConnecting(true);
     try {
-      const s = await startLarkLogin();
+      const s = await startLarkLogin(target);
       setStatus(s);
       if (s.status === 'error' && s.last_error) {
         message.warning(s.last_error);
@@ -103,7 +104,7 @@ export function LarkConnect() {
   const onDisconnect = async () => {
     stopPolling();
     try {
-      setStatus(await disconnectLark());
+      setStatus(await disconnectLark(target));
       message.success(t('已断开飞书连接'));
     } catch {
       message.error(t('断开失败'));

@@ -45,7 +45,6 @@ def test_project_instructions_after_character_200_do_not_share_cache(monkeypatch
         "project_name": "private project",
         "project_folder_name": "folder",
         "project_folder_kind": "personal",
-        "project_files": [],
         "now": "2026-08-24",
     }
 
@@ -76,7 +75,6 @@ def test_cache_hit_replays_identical_section_manifest(monkeypatch):
         "project_instructions": "complete instructions",
         "project_folder_name": "folder",
         "project_folder_kind": "personal",
-        "project_files": [{"name": "private.txt", "size_bytes": 20}],
         "now": "2026-08-24",
     }
     first_builder = PromptManifestBuilder(context=context)
@@ -109,7 +107,6 @@ def test_literal_date_in_project_instructions_is_not_rewritten_on_cache_hit(monk
         "project_instructions": "The fixed deadline is 2026-08-24; literal {now} stays.",
         "project_folder_name": "folder",
         "project_folder_kind": "personal",
-        "project_files": [],
     }
 
     first = prompt_runtime.build_system_prompt(config, ctx={**common, "now": "2026-08-24"})

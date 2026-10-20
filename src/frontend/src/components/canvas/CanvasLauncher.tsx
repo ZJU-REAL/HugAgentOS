@@ -141,7 +141,6 @@ export function CanvasLauncher() {
           dismiss(); useCanvasStore.getState().closeCanvas(); useCatalogStore.getState().setPanel('chat');
         }, 'all')}>{entry.icon ? <img src={entry.icon} alt="" /> : <AppstoreOutlined aria-hidden />}<span>{resolveText(entry.label)}</span></button>)}</div>
       </>}
-      <h2>{t('已打开内容')}</h2>
       <div className="jx-canvasLauncher-suggested">{tabs.map(tab => <button key={tab.id} disabled={busy} onClick={() => activate(tab.id)}>
         <span>{tabIcon(tab)}</span><span title={tabTitle(tab)}>{tabTitle(tab)}</span>
       </button>)}</div>

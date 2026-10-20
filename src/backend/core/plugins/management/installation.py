@@ -203,6 +203,7 @@ def _apply_normalized(
             "icon": fields["icon"],
             "components": component_ids,
             "ui_contributions": np.ui,
+            "connection": np.connection,
             "import_report": import_report,
         },
         owner_user_id=owner_user_id,

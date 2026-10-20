@@ -631,3 +631,12 @@ SQLite 初始化、归档、代理 HTTP 路由及源码测试不代替原生安�
 ### 语音输入
 
 聊天输入框的麦克风录音后转写为可编辑文字，再由用户发送。服务端需在模型管理中配置 audio 类型并分配 audio_transcription 角色；默认未配置。远程/双端走云端音频服务，纯本机模式使用本机配置。macOS 的 Info.plist 和 microphone.entitlements.plist 提供系统用途声明与签名权限；用户仍需在系统中批准麦克风访问。旧客户端需要更新内置前端；本次代码检查不代表原生录音已验收。详见 [音频模型说明](../document/zh-CN/modules/model-providers.md#语音输入与音频模型)。
+
+### 插件账号连接与宜搭运行时
+
+完整桌面包携带 OpenYida 2026.7.12-1 与 desktop/plugin-clis/package-lock.json 锁定的依赖，
+复用 Playwright 随包 Node。构建时由 plugin-cli-runtime.py 使用 npm ci --ignore-scripts
+准备依赖；安装激活前在隔离 HOME/PATH 中运行真实 agent-capabilities 和模块导入检查。
+清单、脚本和依赖锁计入运行时指纹，已有客户端升级时替换旧运行时。
+本机 API 与 Bash 的 openyida 入口使用同一份私有包；Cookie 保存在当前本机用户的持久目录。
+混合模式插件详情可分别管理本机和云端连接，凭据不随能力同步。

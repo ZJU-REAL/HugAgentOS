@@ -5,13 +5,13 @@
 .jx-canvasTabs--strip .jx-canvasTab:hover { background: var(--color-bg-gray); }
 .jx-canvasTabs--strip .jx-canvasTab.is-active { background: var(--color-bg-gray); color: var(--color-text); }
 .jx-canvasTabs--strip .jx-canvasTab-content { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; }
-.jx-canvasTabs--strip .jx-canvasTab-title { flex: 1 1 auto; overflow: hidden; padding-right: 14px; font-weight: 400; line-height: 1.4; white-space: nowrap; text-overflow: clip; mask-image: linear-gradient(to right, black calc(100% - 16px), transparent); }
+.jx-canvasTabs--strip .jx-canvasTab-title { flex: 1 1 auto; overflow: hidden; padding-right: 0; font-weight: 400; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; mask-image: none; }
 .jx-canvasTabs--strip .jx-canvasTab-icon { display: inline-flex; flex: none; width: 16px; height: 16px; margin: 0; }
 .jx-canvasTabs--strip .jx-canvasTab-icon img { width: 16px; height: 16px; }
-.jx-canvasTabs--strip .jx-canvasTab-close { position: absolute; display: flex; align-items: center; justify-content: center; inset: 4px 4px auto auto; width: 20px; height: 20px; margin: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-tertiary); opacity: 0; pointer-events: none; font-size: 10px; cursor: pointer; }
+.jx-canvasTabs--strip .jx-canvasTab-close { position: static; flex: 0 0 20px; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-tertiary); opacity: 0; pointer-events: none; font-size: 10px; cursor: pointer; }
 .jx-canvasTabs--strip .jx-canvasTab:hover .jx-canvasTab-close, .jx-canvasTabs--strip .jx-canvasTab:focus-within .jx-canvasTab-close, .jx-canvasTabs--strip .jx-canvasTab.is-active .jx-canvasTab-close { opacity: 1; pointer-events: auto; }
 .jx-canvasTabs--strip .jx-canvasTab-close:hover { color: var(--color-text); background: var(--color-bg-gray); }
-.jx-canvasTabs--strip .jx-canvasTab-dot { position: absolute; right: 28px; top: 11px; }
+.jx-canvasTabs--strip .jx-canvasTab-dot { position: static; flex: 0 0 6px; }
 .jx-canvasTabs--strip .jx-canvasTabs-spacer { flex: 1 1 0; min-width: 0; }
 .jx-canvasTabs-add { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .jx-canvasTabs-add:hover { background: var(--color-bg-gray); }

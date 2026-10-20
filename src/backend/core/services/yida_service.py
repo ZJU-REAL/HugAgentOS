@@ -41,7 +41,7 @@ from typing import Any, Dict, Optional
 
 from core.config.settings import settings
 from core.infra.ephemeral import get_ephemeral_state
-from core.sandbox._common import safe_user_id, yida_shared_workspace_dir, yida_workspace_dir
+from core.sandbox._common import safe_user_id
 from core.services.dingtalk_service import make_qr_data_uri
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ _PENDING_TTL_S = 10 * 60
 # triggering openyida's automatic browser-login fallback.  The script prints
 # only a three-state verdict and never prints credentials or response data.
 _PROBE_SCRIPT = """
-const utils = require('/opt/node/v22.2.0/lib/node_modules/openyida/lib/core/utils');
+const utils = require(process.env.HUGAGENT_OPENYIDA_UTILS || '/opt/node/v22.2.0/lib/node_modules/openyida/lib/core/utils');
 (async () => {
   try {
     const cookieData = utils.loadCookieData();
@@ -131,15 +131,25 @@ def extract_result_json(stdout: str) -> Optional[Dict[str, Any]]:
 
 
 def _host_workspace_dir(user_id: str) -> Path:
-    """Host source-of-truth path for this user's Yida workspace (where the cookie files live).
+    from core.services.yida_execution import workspace_dir
 
-    script_runner is a shared container (the provider ignores user_id), so the
-    login state is one per deployment → shared directory; the other providers
-    (opensandbox / cube) are per-user.
-    """
-    if (settings.sandbox.provider or "").strip() == "script_runner":
-        return yida_shared_workspace_dir()
-    return yida_workspace_dir(user_id)
+    return workspace_dir(user_id)
+
+
+def _valid_session_file(user_id: str, value: str) -> bool:
+    if not settings.deploy.is_local:
+        return bool(_SESSION_FILE_RE.fullmatch(value))
+    if not value or len(value) > 4096:
+        return False
+    workspace = _host_workspace_dir(user_id).resolve()
+    path = Path(value)
+    if not path.is_absolute():
+        path = workspace / path
+    try:
+        path.resolve().relative_to(workspace / ".cache")
+        return path.name.endswith(".json")
+    except (ValueError, OSError):
+        return False
 
 
 def _cookie_files(ws: Path) -> list[Path]:
@@ -240,66 +250,11 @@ class YidaService:
     async def _run_in_sandbox(
         self, user_id: str, sub_command: str, timeout: int
     ) -> tuple[str, int]:
-        """Run a command in the Yida workspace of this user's **persistent** sandbox; returns (stdout, exit_code).
+        from core.services.yida_execution import run_local, run_sandbox
 
-        A synthetic session_id (``yida-connect-{uid}``) is mandatory:
-        opensandbox routes session-less requests to the light ephemeral pool —
-        those sandboxes mount no per-user volumes, ``/home/ubuntu/yida-workspace``
-        does not exist, and login cookies have nowhere to persist. Only with a
-        session_id does the request route to the user-bound persistent sandbox.
-
-        Self-healing: the user's existing sandbox may predate the yida volume /
-        new image (adopted and reused after a backend restart), manifesting as a
-        missing working directory (cd fails, echoing _NO_WS_MARKER) or a missing
-        openyida (rc 127). On detection, ``close_session`` genuinely destroys it
-        and we retry, rebuilding at most twice (the user's pool may hoard several
-        stale idle sandboxes); if it still fails, log stderr and return as-is for
-        the caller to report the error.
-        """
-        from core.sandbox.factory import get_sandbox_provider
-        from core.sandbox.protocol import ProcessRequest
-
-        provider = get_sandbox_provider()
-        session_id = f"yida-connect-{user_id}"
-        guarded = (
-            f"cd {YIDA_WORKSPACE_MOUNT} 2>/dev/null "
-            f"|| {{ echo {_NO_WS_MARKER}; exit 97; }}; {sub_command}"
-        )
-        req = ProcessRequest(
-            script_content=guarded,
-            script_name="_yida_connect.sh",
-            language="bash",
-            timeout=timeout,
-            user_id=user_id,
-            session_id=session_id,
-        )
-        for attempt in range(3):
-            result = await provider.run_to_completion(req)
-            out = result.stdout or ""
-            err = getattr(result, "stderr", "") or ""
-            rc = int(result.exit_code or 0)
-            stale = _NO_WS_MARKER in out or rc == 127 or "command not found" in err
-            if stale and attempt < 2:
-                logger.info(
-                    "[yida] 检测到陈旧沙箱（无工作目录挂载或无 openyida），销毁重建 "
-                    "user=%s attempt=%d",
-                    user_id,
-                    attempt + 1,
-                )
-                try:
-                    await provider.close_session(session_id)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("[yida] close_session 失败 user=%s: %s", user_id, exc)
-                continue
-            if rc != 0:
-                logger.info(
-                    "[yida] 沙箱命令非零退出 user=%s rc=%s stderr=%.300s",
-                    user_id,
-                    rc,
-                    err,
-                )
-            return out, rc
-        return "", 97  # theoretically unreachable (the loop always returns); a fuse
+        if settings.deploy.is_local:
+            return await run_local(user_id, sub_command, timeout)
+        return await run_sandbox(user_id, sub_command, timeout)
 
     # ── Status ──────────────────────────────────────────────────────────
 
@@ -404,10 +359,10 @@ class YidaService:
         stdout, rc = await self._run_in_sandbox(uid, "openyida login --agent-qr", timeout=90)
         data = extract_result_json(stdout)
         if not data or data.get("status") != "need_qr_scan":
-            logger.warning("[yida] agent-qr 无法解析 user=%s rc=%s out=%.200s", uid, rc, stdout)
-            return {"status": "error", "error": "启动扫码登录失败，请稍后重试"}
+            logger.warning("[yida] agent-qr 无法解析 user=%s rc=%s", uid, rc)
+            return {"status": "error", "error": (data.get("error") if data and rc in (124, 127) else None) or "启动扫码登录失败，请稍后重试"}
         session_file = str(data.get("session_file") or "")
-        if not _SESSION_FILE_RE.match(session_file):
+        if not _valid_session_file(uid, session_file):
             logger.warning("[yida] session_file 非法 user=%s: %.100s", uid, session_file)
             return {"status": "error", "error": "登录会话异常，请重试"}
         qr_url = str(data.get("qr_url") or "")
@@ -434,7 +389,7 @@ class YidaService:
             return await self.get_status(uid or "")
         if corp_id and not _CORP_ID_RE.match(corp_id):
             return {"status": "error", "error": "corp_id 非法"}
-        sf = pending["session_file"]
+        sf = shlex.quote(pending["session_file"])
         # Multi-org stage two: with corp_id go through --agent-select; otherwise --agent-poll waits for the scan
         if corp_id and pending.get("corp_selection"):
             sub = f"openyida login --agent-select {sf} --corp-id {corp_id}"
@@ -533,6 +488,8 @@ class YidaService:
             _connection_meta_path(uid).unlink(missing_ok=True)
         except OSError:
             pass
+        if settings.deploy.is_local:
+            return {"status": "disconnected"}
         # Best-effort cleanup of the sandbox-side copy (the copy injected by cube does not disappear automatically when the host copy is deleted)
         try:
             await self._run_in_sandbox(uid, "rm -f .cache/cookies*.json || true", timeout=30)

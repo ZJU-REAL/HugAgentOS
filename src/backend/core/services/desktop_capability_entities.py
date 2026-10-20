@@ -184,6 +184,8 @@ def _agent_files(serialized: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
+    from core.plugins.connections import connection_type
+
     uploaded = installed.get("_uploaded_files")
     definition = {
         "install_id": installed["install_id"],
@@ -192,6 +194,7 @@ def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
         "version": installed.get("version") or "",
         "description": installed.get("description") or "",
         "category": installed.get("category") or "",
+        "connection": connection_type(installed.get("connection")),
         "icon": installed.get("icon"),
         "components": _declaration_groups(
             installed.get("components")
@@ -241,8 +244,11 @@ def _user_plugins(user_id: str) -> List[Dict[str, Any]]:
                 InstalledPlugin.install_id.in_([r["install_id"] for r in rows] or [""])
             )
         }
+    from core.plugins.management.admin_config import _connection_for_slug
+
     for r in rows:
         r.update(metadata.get(r["install_id"], {}))
+        r["connection"] = _connection_for_slug(r["slug"])
     return rows
 
 

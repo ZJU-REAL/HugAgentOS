@@ -86,3 +86,29 @@ under their established installation and configuration flows.
 The bundled visualize plugin installs once at CE, EE, and local-service startup, including existing databases. Local installs respect the installer default-plugin switch; hybrid mode continues to use authenticated cloud capability synchronization. Later removal is respected, and existing disabled settings are preserved.
 
 Use it for charts, simulations, explanations, maps, and interface mockups. Complete HTML documents open through existing file cards and the Canvas preview. Common chart libraries are embedded during export and require no account. Interaction state remains local to the page and never reaches the model; the preview sandbox may prevent persistent storage. Use the sites plugin to publish a website.
+
+## Plugin account connections
+
+Plugins declaring an account connection (Yida, Lark, DingTalk, and email) show
+connection status and login controls in their detail page. Local mode manages the
+account on this computer. Hybrid mode offers Local and Cloud selectors. Each
+location has its own login; status, login, polling, and disconnect requests stay
+on the selected location. Capability synchronization does not copy credentials.
+
+Installing a plugin does not install its runtime dependencies. Local login needs
+the corresponding CLI; Yida also needs Node.js and Bash. Updated full desktop packages include pinned OpenYida and locked dependencies,
+using the private Node already shipped with the browser runtime. No system Node
+or npm installation is needed. Other plugins retain their CLI prerequisites;
+standalone local deployments can use an installed CLI. Cloud connections use
+server dependencies. An unavailable local service never redirects
+login to the cloud.
+
+Local Yida login stores cookies in the current user's persistent directory.
+Skill instructions read in later local conversations use that same directory.
+Disconnect removes login cookies for that user without clearing other users or
+cloud connections.
+
+This fix requires updated cloud backend and full desktop packages. Resynchronize
+older cloud plugin snapshots with Sync cloud capabilities. Update older locally
+imported plugins from their original package to retain the connection declaration.
+There is no need to delete accounts or the database.
