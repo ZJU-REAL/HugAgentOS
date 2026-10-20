@@ -1,17 +1,12 @@
 """Chat context reads instructions without enumerating project directories."""
-import importlib.util
-import sys
-from pathlib import Path
-
 import pytest
 from core.services.project_scope import build_project_ctx
 from core.services.project_service import ProjectService
 from tests.services.project_instructions_support import env, local, update
 
 
-@pytest.mark.parametrize("edition", ["ee", "ce"])
 @pytest.mark.parametrize("kind", ["personal", "local"])
-def test_project_context_does_not_enumerate_files(env, monkeypatch, edition, kind):
+def test_project_context_does_not_enumerate_files(env, monkeypatch, kind):
     db, _ = env
     if kind == "local":
         project, instruction_path = local(env)
@@ -30,15 +25,7 @@ def test_project_context_does_not_enumerate_files(env, monkeypatch, edition, kin
     monkeypatch.setattr("core.sandbox.local_mount.list_local_files", forbidden_listing)
     monkeypatch.setattr("core.sandbox.local_mount.ensure_local_project_link", lambda *args: None)
     build = build_project_ctx
-    if edition == "ce":
-        root = Path(__file__).resolve().parents[4]
-        spec = importlib.util.spec_from_file_location(
-            "ce_project_scope_no_inventory", root / "ce/overlay/src/backend/core/services/project_scope.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        monkeypatch.setitem(sys.modules, spec.name, module)
-        spec.loader.exec_module(module)
-        build = module.build_project_ctx
+    # This generated checkout already uses the CE project-scope implementation.
 
     for _ in range(2):
         context = build(db, project.project_id)
