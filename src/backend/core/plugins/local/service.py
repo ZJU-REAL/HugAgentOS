@@ -121,6 +121,7 @@ def _prepare(user_id, root, key=None, *, skill_ids=None, server_ids=None):
         "component_identity_map": {"skills": skill_ids, "mcp": server_ids},
         "local_servers": servers,
         "manager_executor": executor,
+        "connection": np.connection,
         "ui_contributions": np.ui,
         "import_report": {"dropped": np.dropped},
     }

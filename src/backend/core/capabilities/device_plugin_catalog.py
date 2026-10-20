@@ -126,6 +126,11 @@ def plugin_detail(install_id_or_slug: str, user_id=None) -> Optional[Dict[str, A
     inst = _projected_plugin(install_id_or_slug, user_id)
     if inst is None:
         return None
+    from core.plugins.connections import manifest_connection
+    from . import plugins, store
+
+    comp = store.get("plugin", inst.profile_id, inst.key, inst.resolved_revision)
+    manifest = plugins.load_manifest(comp) if comp else {}
     profile = inst.profile_id
     components = dict(inst.payload.get("components") or {})
     skills = [
@@ -151,5 +156,5 @@ def plugin_detail(install_id_or_slug: str, user_id=None) -> Optional[Dict[str, A
         "skills": skills,
         "mcp": [_component_connector(str(mid), known) for mid in components.get("mcp") or []],
         "admin_config": None,
-        "connection": None,
+        "connection": manifest_connection(manifest),
     }

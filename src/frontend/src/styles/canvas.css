@@ -996,29 +996,6 @@ button.jx-canvas-actionBtn { width: 30px; }
   background: var(--color-bg-container);
 }
 
-/* ══ Artifact card preview button (in MessageBubble) ══ */
-.jx-dlCard-previewBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid rgba(203,213,225,.9);
-  border-radius: 10px;
-  background: var(--color-bg-container);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background .15s, border-color .15s, color .15s;
-  white-space: nowrap;
-}
-.jx-dlCard-previewBtn:hover {
-  background: var(--color-bg-layout);
-  border-color: color-mix(in srgb, var(--color-text-placeholder) 95%, transparent);
-  color: var(--color-text);
-}
-
 /* ══ Univer Spreadsheet Container ══ */
 .jx-canvas-univer {
   width: 100%;

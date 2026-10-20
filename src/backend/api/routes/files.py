@@ -26,9 +26,11 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from api.routes.file_archive import router as archive_router
+from api.routes.local_file_actions import router as local_actions_router
 
 router = APIRouter(prefix="/files", tags=["files"])
 router.include_router(archive_router)
+router.include_router(local_actions_router)
 POWERPOINT_EXTENSIONS = {".ppt", ".pptx"}
 POWERPOINT_MIME_MARKERS = ("presentationml", "powerpoint")
 WORD_EXTENSIONS = {".doc", ".docx"}

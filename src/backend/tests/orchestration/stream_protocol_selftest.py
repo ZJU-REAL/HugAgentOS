@@ -30,7 +30,7 @@ async def _collect_stream() -> str:
 
     async def fake_start(request, user, db):
         assert request.stream is True
-        return SimpleNamespace(run_id="stream-selftest", message_id="reply-1", chat_id=request.chat_id)
+        return SimpleNamespace(run_id="stream-selftest", message_id="reply-1", user_message_id="user-1", chat_id=request.chat_id)
 
     async def fake_follow(run_id, *, from_offset=0):
         assert run_id == "stream-selftest"

@@ -103,6 +103,7 @@ def register_sandboxed_view_text_file(
     allowed_dirs: list[str],
     loader: Any,
     loaded_skill_ids: set[str] | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Register a sandboxed view_text_file tool."""
     import os as _os
@@ -176,6 +177,17 @@ def register_sandboxed_view_text_file(
             else:
                 _selected = _lines
             _text = "".join(_selected)
+            from core.config.local_mode import local_mode_enabled
+            if local_mode_enabled() and "/home/ubuntu/yida-workspace" in _text and user_id:
+                from core.sandbox._common import safe_user_id
+                from core.services.yida_execution import workspace_dir
+                import shlex
+
+                if safe_user_id(user_id):
+                    _text = _text.replace(
+                        "/home/ubuntu/yida-workspace",
+                        shlex.quote(workspace_dir(user_id).as_posix()),
+                    )
         except Exception as _e:  # noqa: BLE001
             return ToolResponse(content=[TextBlock(
                 type="text", text=f"Error reading file: {_e}",

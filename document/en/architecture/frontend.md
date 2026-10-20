@@ -186,3 +186,17 @@ Code, math, copy buttons, and chart components are not split. Completion or canc
 Markdown HTML uses DOMPurify to remove executable attributes and URLs while retaining new-tab behavior for external links.
 
 Run npm run test:grapheme-reveal for browser component coverage. For full-app coverage, scripts/grapheme-e2e-environment.py creates an isolated Docker network, Redis, temporary SQLite, test model, and Nginx; then run npm run test:grapheme-reveal-app. The environment does not read the real .env. Its down command removes only containers carrying the test label.
+
+## Conversation status indicators
+
+Running conversations show a gray rotating ring. Completed conversations with unread results show a blue breathing dot, which clears when the result is read. Waiting for input or confirmation and failed tasks retain amber and red indicators. Project groups place indicators in a fixed indentation slot to the left of the title, keeping titles aligned across states. The default project (conversation history) places indicators on the right. The running ring retains its work-indicator animation under reduced motion; the unread dot becomes static.
+
+## Asynchronous first-question titles
+
+After admitting the first question in an ordinary conversation, the server retains a question-based fallback and starts an independent summary-model call using only that question. The frontend reads the result while the answer stream is active. Temporary titles never block generation. Each conversation gets one automatic attempt; failure retains the fallback, later questions do not retry, and forks retain their inherited title. Explicit title edits pin the name on the server, with a fresh check when generation completes to prevent concurrent overwrites. Updating a title does not reorder conversations or add a dedicated text transition.
+
+### Message identity and session renewal
+
+The SSE response exposes `X-Hugagent-User-Message-Id`, the persisted user message ID for this admission, including to cross-origin clients. Before consuming the answer stream, the frontend binds this ID to the exact optimistic message and merges any raced history row with the same ID. Separate submissions with identical text retain distinct message IDs; content and timestamps are never deduplication keys.
+
+History loading depends on the user ID and conversation ID, rather than the entire authenticated user object. Session renewal continues to update expiry, profile, and capabilities. Changes to these fields alone do not reload a conversation while its answer is streaming.

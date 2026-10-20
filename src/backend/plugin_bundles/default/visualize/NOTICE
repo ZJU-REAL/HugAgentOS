@@ -1,0 +1,9 @@
+Visualize plugin
+Copyright 2026 Z.AI Co., Ltd
+Source: https://github.com/zai-org/ZCode/tree/0a1fc56d279fd1001f78387bd81aec1c26767411/apps/zcode-cli/packages/visualize-plugin
+License: Apache-2.0 (see LICENSE).
+
+Modified for HugAgentOS on 2026-10-19: native plugin manifest, HTML artifact
+ delivery, standalone runtime namespace, local-only state, removal of host-only
+ agent and design-control APIs, and split runtime assets. Vendor files retain
+ their original licenses and hashes. Product naming changes do not change attribution.

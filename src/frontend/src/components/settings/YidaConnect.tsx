@@ -9,6 +9,7 @@ import {
   pollYidaLogin,
   disconnectYida,
   type YidaStatus,
+  type RequestTarget,
 } from '../../api';
 import { t } from '../../i18n';
 
@@ -28,7 +29,7 @@ const STATUS_META: Record<YidaStatus['status'], { cls: string; label: string }> 
  * organizations, let the user pick an organization then re-poll with corp_id → connected.
  * Login cookie is persisted in the server-side Yida working directory, surviving across sessions; in-chat QR login writes to the same one.
  */
-export function YidaConnect() {
+export function YidaConnect({ target }: { target?: RequestTarget } = {}) {
   const [status, setStatus] = useState<YidaStatus | null>(null);
   const [loading, setLoading] = useState(false);      // initial / manual refresh
   const [connecting, setConnecting] = useState(false); // login in progress
@@ -38,13 +39,13 @@ export function YidaConnect() {
   const refresh = useCallback(async (probe = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setStatus(await getYidaStatus(probe));
+      setStatus(await getYidaStatus(probe, target));
     } catch {
       if (!silent) message.error(t('获取宜搭连接状态失败'));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [target]);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -71,7 +72,7 @@ export function YidaConnect() {
         if (cancelledRef.current) return;
         let s: YidaStatus;
         try {
-          s = await pollYidaLogin(corpId);
+          s = await pollYidaLogin(corpId, target);
         } catch {
           // single failure (network jitter, etc.) — retry after a short delay
           await new Promise((r) => setTimeout(r, 3000));
@@ -97,12 +98,12 @@ export function YidaConnect() {
     } finally {
       pollingRef.current = false;
     }
-  }, []);
+  }, [target]);
 
   const onConnect = async () => {
     setConnecting(true);
     try {
-      const s = await startYidaLogin();
+      const s = await startYidaLogin(target);
       setStatus(s);
       if (s.status === 'pending') {
         void pollLoop();
@@ -124,7 +125,7 @@ export function YidaConnect() {
   const onDisconnect = async () => {
     cancelledRef.current = true;
     try {
-      setStatus(await disconnectYida());
+      setStatus(await disconnectYida(target));
       message.success(t('已断开宜搭连接'));
     } catch {
       message.error(t('断开失败'));

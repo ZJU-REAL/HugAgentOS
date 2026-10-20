@@ -25,6 +25,10 @@ export function applicationOrigin(key: string): WorkbenchOrigin | undefined {
 }
 export function requestOrigin(path: string): WorkbenchOrigin | undefined {
   if (!path.startsWith('/v1/workbench/')) return undefined;
+  // Upgrade routes address installation IDs, not application keys. Their caller
+  // selects the source; the backend validates installation ownership.
+  if (/^\/v1\/workbench\/(?:admin\/)?plugin-upgrades\/[^/?#]+(?:\/decision)?(?:[?#]|$)/.test(path))
+    return undefined;
   for (const component of path.split(/[/?#]/)) {
     let key: string;
     try { key = decodeURIComponent(component); } catch { throw new Error('invalid_application_key'); }

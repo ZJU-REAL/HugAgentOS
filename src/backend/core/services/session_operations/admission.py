@@ -27,6 +27,7 @@ class StartedResponse:
     run_id: str
     message_id: str
     chat_id: str
+    user_message_id: str
 
 
 async def _read_preferences(request: ChatRequest, user_id: str):
@@ -233,7 +234,15 @@ async def _start_response_run(
                 )
         except ChatBusyError as exc:
             raise chat_admission.chat_busy_http_exception(exc) from exc
-        return StartedResponse(run.run_id, run.message_id, request.chat_id)
+        # Title work is auxiliary: it starts after first-message admission and
+        # never waits for the agent answer or blocks a successfully launched run.
+        from core.services.chat_titles import schedule_first_title
+
+        try:
+            schedule_first_title(request.chat_id, user_id, run.run_id)
+        except Exception as title_error:
+            logger.warning("chat_title_schedule_failed: %s", type(title_error).__name__)
+        return StartedResponse(run.run_id, run.message_id, request.chat_id, accepted.user_message.message_id)
     except Exception as exc:
         if call_id:
             status = exc.status_code if isinstance(exc, HTTPException) else 500

@@ -124,23 +124,30 @@ async def _startup_seed_default_plugins():
     startup seam so CE never imports enterprise implementations.
     """
     edition = settings.edition.edition
-    if edition == "ce" and settings.deploy.is_local:
-        return
     if edition not in {"ce", "ee"}:
         return
+    if settings.deploy.is_local:
+        from core.capabilities import device_catalog
+
+        # Hybrid capabilities come from the authenticated cloud account. Local
+        # defaults also respect the installer's explicit onboarding opt-in.
+        if os.getenv("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS") != "1" or device_catalog.active():
+            return
 
     from core.db.engine import SessionLocal
     from core.services.edition_startup import bootstrap_edition_plugins
     from core.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS, ensure_default_plugins_bootstrapped
     from core.plugins.ui.contributions import refresh_builtin_ui_contributions
+    from core.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
 
     db = SessionLocal()
     try:
-        if edition == "ce" and ensure_default_plugins_bootstrapped(db):
+        if edition == "ce" and not settings.deploy.is_local and ensure_default_plugins_bootstrapped(db):
             logger.info(
                 "[startup] default plugins bootstrapped: %s",
                 ", ".join(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS),
             )
+        ensure_visualize_plugin_bootstrapped(db)
         edition_plugins = bootstrap_edition_plugins(db) if edition == "ee" else ()
         if edition_plugins:
             logger.info(

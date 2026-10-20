@@ -71,12 +71,14 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 ### 项目上下文如何进入对话
 
-在项目内发起对话时（请求携带 `project_id`），`api/routes/v1/chats/__init__.py` 组装 workflow context：
+在项目内发起对话时（请求携带 `project_id`），`core/services/session_operations/request_context.py` 组装 workflow context：
 
-1. 读取项目元信息——`project_name`、`project_instructions`、挂钩文件夹名与文件清单；
+1. 读取项目元信息——`project_name`、`project_instructions`、挂钩文件夹名和工作目录；项目指令仍读取 `AGENTS.md`，不递归枚举云端或本机项目文件；
 2. `core/llm/factory/build.py` 把这些经 `_build_project_section` 注入 system prompt（`build_system_prompt(cfg, ctx=...)`）；
 3. 项目级记忆作用域随之生效：workspace 为 `project:<project_id>`，团队项目的 mem0 桶为 `team:<team_id>`（成员共享记忆），项目自身的 `metadata.memory_enabled` / `memory_write_enabled` 覆盖用户级开关（项目内缺省开启）——详见 [记忆系统](./memory.md)；
 4. 沙箱侧路径作用域：项目对话中 agent 的 `/myspace/...` 文件操作被重定向到挂钩文件夹之下（`core/llm/tools/myspace_vfs/__init__.py` 的 `ProjectScope` 显式传参机制）。
+
+项目模式自定义提示词模板使用项目名称、目录范围和项目指令变量。升级已有部署前，须从已保存的模板中移除旧文件清单及文件总数占位符；运行时不再提供这些变量。
 
 团队项目权限沿用团队角色：owner/admin 恒为管理权限，member 按 `file_permission`（editor/viewer）二级控制（`core/auth/permissions_iface.py::require_project_access`）。
 
@@ -157,7 +159,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 三条路径，互为补充：
 
 1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。`core/llm/hooks.py` 按 `file_id` 延迟下载、解析并缓存 `parsed_text` 与摘要；首轮只注入文件元数据和最多 5,000 字符的有界预览，xlsx 额外提供总行列数、表头和少量数据行。模型需要预览外的正文时通过 `read_artifact` 按需读取；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
-2. **项目文件清单**：项目对话的 system prompt 携带挂钩文件夹的文件列表（见上文），agent 按需用 `read_artifact` / 沙箱工具读取具体内容；
+2. **项目文件访问**：项目对话的 system prompt 提供项目指令和目录范围，不自动携带文件列表或文件总数。agent 按需使用目录、搜索和读取工具获取文件信息；
 3. **沙箱虚拟文件系统**：开启代码执行时，`/myspace/...` 路径把我的空间映射进沙箱（懒加载 + 文件系统实时登记），团队项目映射团队文件夹——见 [沙箱](./sandbox.md)。
 
 ## 相关源码

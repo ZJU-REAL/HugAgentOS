@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from tests.llm.command_test_support import command_tool_state
 from types import SimpleNamespace
 
 import httpx
@@ -108,7 +109,7 @@ async def test_missing_child_snapshot_does_not_fall_back_to_root(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_bash_preserves_prepared_scope(monkeypatch):
+async def test_bash_preserves_prepared_scope(monkeypatch, command_tool_state):
     from core.llm.tools import sandbox_tool
 
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
@@ -136,7 +137,7 @@ async def test_bash_preserves_prepared_scope(monkeypatch):
 
     toolkit = Toolkit()
     loader = SimpleNamespace(capability_run=SimpleNamespace(run_id="run-1", scope_id="step:two"))
-    sandbox_tool.register_bash(toolkit, loader=loader, loaded_skill_ids=set(), chat_id="chat-1")
+    sandbox_tool.register_bash(toolkit, loader=loader, loaded_skill_ids=set(), chat_id="chat-1", user_id="user-1")
     await toolkit.fn(command="echo ok")
     assert captured[0].capability_run_id == "run-1"
     assert captured[0].capability_scope == "step:two"

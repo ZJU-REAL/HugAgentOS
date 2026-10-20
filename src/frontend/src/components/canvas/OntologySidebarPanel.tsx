@@ -1,15 +1,16 @@
+import { useCanvasPane } from './useCanvasPane';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useRef } from 'react';
 
 import { t } from '../../i18n';
-import { useCanvasStore, useChatStore, useUIStore } from '../../stores';
+import { useChatStore, useUIStore } from '../../stores';
 import { OntologyRevisionPanel } from '../chat/OntologyRevisionPanel';
 import { CanvasTabBar } from './CanvasTabBar';
 
 const AUTO_FOLLOW_THRESHOLD = 72;
 
 export function OntologySidebarPanel() {
-  const target = useCanvasStore((state) => state.ontologyTarget);
+  const target = useCanvasPane((state) => state.ontologyTarget);
   const dispatchProcessVisible = useUIStore((state) => state.dispatchProcessVisible);
   const message = useChatStore((state) => {
     if (!target) return undefined;

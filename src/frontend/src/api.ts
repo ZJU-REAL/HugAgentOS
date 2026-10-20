@@ -2441,18 +2441,18 @@ export interface LarkAppInitStatus {
   error: string | null;
 }
 
-export async function getLarkAppInitStatus(): Promise<LarkAppInitStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/status');
+export async function getLarkAppInitStatus(target?: RequestTarget): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/status', undefined, target);
   return unwrapData<LarkAppInitStatus>(wrapped);
 }
 
-export async function startLarkAppInit(): Promise<LarkAppInitStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/init', { method: 'POST' });
+export async function startLarkAppInit(target?: RequestTarget): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/init', { method: 'POST' }, target);
   return unwrapData<LarkAppInitStatus>(wrapped);
 }
 
-export async function resetLarkAppInit(): Promise<LarkAppInitStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/reset', { method: 'POST' });
+export async function resetLarkAppInit(target?: RequestTarget): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/reset', { method: 'POST' }, target);
   return unwrapData<LarkAppInitStatus>(wrapped);
 }
 
@@ -3639,23 +3639,23 @@ function _coerceDingTalkStatus(data: JsonObject): DingTalkStatus {
   };
 }
 
-export async function getDingTalkStatus(probe = false): Promise<DingTalkStatus> {
-  const wrapped = await apiRequest<unknown>(`/v1/integrations/dingtalk/status${probe ? '?probe=true' : ''}`);
+export async function getDingTalkStatus(probe = false, target?: RequestTarget): Promise<DingTalkStatus> {
+  const wrapped = await apiRequest<unknown>(`/v1/integrations/dingtalk/status${probe ? '?probe=true' : ''}`, undefined, target);
   return _coerceDingTalkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function startDingTalkLogin(): Promise<DingTalkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/login', { method: 'POST' });
+export async function startDingTalkLogin(target?: RequestTarget): Promise<DingTalkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/login', { method: 'POST' }, target);
   return _coerceDingTalkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function pollDingTalkLogin(): Promise<DingTalkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/login/poll', { method: 'POST' });
+export async function pollDingTalkLogin(target?: RequestTarget): Promise<DingTalkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/login/poll', { method: 'POST' }, target);
   return _coerceDingTalkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function disconnectDingTalk(): Promise<DingTalkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/disconnect', { method: 'POST' });
+export async function disconnectDingTalk(target?: RequestTarget): Promise<DingTalkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/dingtalk/disconnect', { method: 'POST' }, target);
   return _coerceDingTalkStatus(unwrapData<JsonObject>(wrapped));
 }
 
@@ -3690,23 +3690,23 @@ function _coerceLarkStatus(data: JsonObject): LarkStatus {
   };
 }
 
-export async function getLarkStatus(probe = false): Promise<LarkStatus> {
-  const wrapped = await apiRequest<unknown>(`/v1/integrations/lark/status${probe ? '?probe=true' : ''}`);
+export async function getLarkStatus(probe = false, target?: RequestTarget): Promise<LarkStatus> {
+  const wrapped = await apiRequest<unknown>(`/v1/integrations/lark/status${probe ? '?probe=true' : ''}`, undefined, target);
   return _coerceLarkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function startLarkLogin(): Promise<LarkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/login', { method: 'POST' });
+export async function startLarkLogin(target?: RequestTarget): Promise<LarkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/login', { method: 'POST' }, target);
   return _coerceLarkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function pollLarkLogin(): Promise<LarkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/login/poll', { method: 'POST' });
+export async function pollLarkLogin(target?: RequestTarget): Promise<LarkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/login/poll', { method: 'POST' }, target);
   return _coerceLarkStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function disconnectLark(): Promise<LarkStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/disconnect', { method: 'POST' });
+export async function disconnectLark(target?: RequestTarget): Promise<LarkStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/lark/disconnect', { method: 'POST' }, target);
   return _coerceLarkStatus(unwrapData<JsonObject>(wrapped));
 }
 
@@ -3963,27 +3963,27 @@ function _coerceYidaStatus(data: JsonObject): YidaStatus {
   };
 }
 
-export async function getYidaStatus(probe = false): Promise<YidaStatus> {
-  const wrapped = await apiRequest<unknown>(`/v1/integrations/yida/status${probe ? '?probe=true' : ''}`);
+export async function getYidaStatus(probe = false, target?: RequestTarget): Promise<YidaStatus> {
+  const wrapped = await apiRequest<unknown>(`/v1/integrations/yida/status${probe ? '?probe=true' : ''}`, undefined, target);
   return _coerceYidaStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function startYidaLogin(): Promise<YidaStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/yida/login', { method: 'POST' });
+export async function startYidaLogin(target?: RequestTarget): Promise<YidaStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/yida/login', { method: 'POST' }, target);
   return _coerceYidaStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function pollYidaLogin(corpId?: string): Promise<YidaStatus> {
+export async function pollYidaLogin(corpId?: string, target?: RequestTarget): Promise<YidaStatus> {
   const wrapped = await apiRequest<unknown>('/v1/integrations/yida/login/poll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(corpId ? { corp_id: corpId } : {}),
-  });
+  }, target);
   return _coerceYidaStatus(unwrapData<JsonObject>(wrapped));
 }
 
-export async function disconnectYida(): Promise<YidaStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/yida/disconnect', { method: 'POST' });
+export async function disconnectYida(target?: RequestTarget): Promise<YidaStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/integrations/yida/disconnect', { method: 'POST' }, target);
   return _coerceYidaStatus(unwrapData<JsonObject>(wrapped));
 }
 

@@ -70,7 +70,6 @@
       clear.onclick = () => act('clear_downloads');
       $('files').append(clear);
     }
-    $('release-control').hidden = !control.owns();
     if (state.filechoosers.length) {
       const button = document.createElement('button');
       button.textContent = t('选择上传文件');
@@ -87,7 +86,6 @@
   };
   control = window.installBrowserControl(channel, () => state, render, report);
   const view = window.installBrowserViewport($('stage'), screen, channel, () => state, report, control.busy, value => { $('zoom-reset').textContent = Math.round(value * 100) + '%'; });
-  $('release-control').onclick = () => { void control.release(); };
   $('zoom-out').onclick = () => view.zoom(-1);
   $('zoom-in').onclick = () => view.zoom(1);
   $('zoom-reset').onclick = () => view.zoom(0);

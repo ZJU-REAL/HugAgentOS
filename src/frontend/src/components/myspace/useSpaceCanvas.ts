@@ -18,7 +18,7 @@ export function useSpaceCanvas() {
         if (id && !root) throw new Error('无权访问此文件');
         open({ file_id: item.file_id || item.id, name: item.name, url,
           size: item.size, mime_type: item.mime_type, origin: item.origin,
-          ...(root && path !== null ? { space: { id: root.space_id, path, writable: root.permission !== 'view' } } : {}),
+          ...(root && path !== null ? { space: { id: root.space_id, path, name: root.name, kind: root.kind, writable: root.permission !== 'view' } } : {}),
         });
       })().catch(error => message.error(error instanceof Error ? error.message : '无法打开文件'));
     });

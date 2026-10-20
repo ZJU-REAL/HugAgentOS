@@ -1,0 +1,17 @@
+/* DSH document toolbar and PathLabel geometry, adapted to existing product tokens. */
+.jx-canvas-fileHeader { display: flex; flex: none; align-items: center; box-sizing: border-box; height: 38px; min-width: 0; gap: 4px; padding: 0 6px 0 16px; border-bottom: .5px solid var(--color-border); background: var(--color-bg-container); }
+.jx-filePath { display: flex; flex: 1 1 auto; justify-content: flex-end; min-width: 0; margin-right: 12px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--color-text); }
+.jx-filePath[data-path-clipped] { mask-image: linear-gradient(to right, transparent, black 28px); }
+.jx-filePath-text { flex: none; margin-right: auto; }
+.jx-filePath-directory { color: var(--color-text-tertiary); }
+.jx-fileHeader-actions { display: flex; flex: none; align-items: center; gap: 4px; min-width: 0; }
+.jx-canvas-fileHeader .jx-canvas-actionBtn { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 0; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); line-height: 1; font-size: 15px; cursor: pointer; }
+.jx-canvas-fileHeader .jx-canvas-actionBtn svg { width: 15px; height: 15px; }
+.jx-canvas-fileHeader .jx-canvas-actionBtn:hover { color: var(--color-text); background: var(--color-bg-gray); }
+.jx-canvas-fileHeader .jx-canvas-actionBtn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.jx-canvas-fileHeader .hg-delivery-split { height: 28px; border-radius: 6px; }
+.jx-canvas-fileHeader .hg-delivery-open { padding: 6px; }
+.jx-canvas-fileHeader .hg-delivery-more { padding: 4px; }
+.jx-fileHeader-note { overflow: hidden; max-width: 130px; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--color-text-secondary); }
+.jx-fileHeader-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.jx-canvas-fileHeader button:disabled { opacity: .5; cursor: default; }

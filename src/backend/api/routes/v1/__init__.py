@@ -44,6 +44,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     # agent_factory 已经注册了 run_job 工具，少了回调路由，作业会在第一发回调 404 当场死掉。
     ("internal_jobs", "router"),
     ("jobs", "router"),
+    ("commands", "router"),
     ("internal_sites", "router"),
     ("applications", "router"),
     ("workbench", "router"),

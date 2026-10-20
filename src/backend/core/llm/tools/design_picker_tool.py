@@ -114,8 +114,8 @@ def register_choose_design(
                 import asyncio
                 from fastapi import HTTPException
                 from core.infra.logging import user_id_var
-                from core.artifacts.local_project import project_file_path
-                from .local_delivery import prepare_local_delivery
+                from core.artifacts.local_reference import project_file_path
+                from core.artifacts.local_reference import reference_local_file
 
                 if not isinstance(image_path, str):
                     return _err(f"options[{i}].image_path 必须为字符串")
@@ -123,7 +123,7 @@ def register_choose_design(
                     owner = user_id or user_id_var.get() or ""
                     physical = project_file_path(image_path, scope, owner, sandbox_session_id or chat_id)
                     ref = await asyncio.to_thread(
-                        prepare_local_delivery, physical, scope=scope, user_id=owner,
+                        reference_local_file, physical, scope=scope, user_id=owner,
                         session_id=sandbox_session_id or chat_id,
                     )
                     fid = ref["file_id"]
@@ -202,7 +202,7 @@ def register_choose_design(
     from core.llm.tool_permissions import ToolPermissionSpec, local_path_tool, READ
 
     def resolve_image_paths(args, runtime):
-        from core.artifacts.local_project import project_file_path
+        from core.artifacts.local_reference import project_file_path
 
         intents = []
         for option in args.get("options") or []:

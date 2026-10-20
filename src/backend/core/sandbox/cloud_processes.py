@@ -194,6 +194,7 @@ class OpenSandboxHandle(CloudHandle):
         self.commands = commands
         self.execution_id = execution_id
         self.cursor = 0
+        self.metadata["execution_cursor"] = 0
         self.detached = False
 
     async def poll(self):
@@ -209,6 +210,7 @@ class OpenSandboxHandle(CloudHandle):
                 "Background log API returned no cursor; cannot safely read incremental output"
             )
         self.cursor = logs.cursor
+        self.metadata["execution_cursor"] = self.cursor
         if status.error and status.exit_code is None:
             raise SandboxError(status.error)
         code = None

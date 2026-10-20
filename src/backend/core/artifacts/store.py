@@ -410,7 +410,7 @@ def get_artifact(file_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     if (item.get("metadata") or {}).get("source") == "local_project_reference":
-        from .local_project import resolve_project_reference
+        from .local_reference import resolve_project_reference
 
         return resolve_project_reference(item)
 

@@ -416,6 +416,8 @@ export const CHAT_DICT: Record<string, string> = {
   // Job bar: the background batch job running above the composer.
   '模式': 'Mode',
   '后台作业': 'Background job',
+  '后台命令': 'Background commands',
+  '查看输出': 'View output',
   '批量作业': 'Batch job',
   '失败 {n}': '{n} failed',
   '已运行 {d}': 'Running {d}',

@@ -1,0 +1,9 @@
+.hg-delivery-split { display: inline-flex; align-items: stretch; box-sizing: border-box; height: 24px; overflow: hidden; border: .5px solid var(--delivery-control-border, var(--color-border)); border-radius: 8px; }
+.hg-delivery-open, .hg-delivery-more { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--delivery-text, var(--color-text)); font-size: 11px; line-height: 16px; white-space: nowrap; cursor: pointer; }
+.hg-delivery-open { gap: 4px; padding: 3px 5px; }
+.hg-delivery-more { padding: 3px 4px 3px 3px; border-left: .5px solid var(--delivery-control-border, var(--color-border)); color: var(--delivery-secondary, var(--color-text-secondary)); }
+.hg-delivery-open:hover:not(:disabled), .hg-delivery-more:hover:not(:disabled) { background: var(--delivery-control-hover, var(--color-bg-gray)); }
+.hg-delivery-open:disabled, .hg-delivery-more:disabled { cursor: default; }
+.hg-delivery-skeleton { width: 13px; height: 13px; border-radius: 3px; background: var(--delivery-control-hover, var(--color-bg-gray)); }
+
+.hg-delivery-split button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }

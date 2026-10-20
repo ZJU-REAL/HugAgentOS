@@ -238,6 +238,9 @@ def main() -> int:
     native_tools = check_native_tools()
     browser_script = Path(__file__).resolve().parent / "browser-runtime.py"
     subprocess.run([sys.executable, str(browser_script), "--runtime", str(browser_script.parent), "--check"], check=True, timeout=60, **NATIVE_PROCESS_FLAGS)
+    plugin_script = Path(__file__).resolve().parent / "plugin-cli-runtime.py"
+    subprocess.run([sys.executable, str(plugin_script), "--runtime", str(plugin_script.parent), "--check"],
+                   check=True, timeout=60, **NATIVE_PROCESS_FLAGS)
     if args.native_only:
         print(json.dumps({"ok": True, "native_tools": native_tools}))
         return 0

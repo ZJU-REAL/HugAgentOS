@@ -342,6 +342,10 @@ def test_both_transports_share_preferences_and_release_request_transaction(
         )
         assert not db.in_transaction()
         assert result.run_id
+        saved_user = db.get(ChatMessage, result.user_message_id)
+        assert saved_user.role == "user"
+        assert saved_user.chat_id == result.chat_id
+        assert saved_user.message_id == db.get(ChatRun, result.run_id).user_message_id
     assert captured["memory_enabled"] is True
     assert captured["memory_write_enabled"] is True
     assert captured["reranker_enabled"] is True

@@ -64,3 +64,5 @@ For native acceptance, use the desktop's private Python to run `src/backend/test
 It uses isolated SQLite data, workspaces and loopback ports to verify real `run_job` startup, partial progress,
 completion callbacks, the disk receipt, a system proxy simulation, expired token rejection and interpreter failure classification.
 It does not package or update the installed client.
+
+Local project and session deliveries reference original files without creating delivery copies. Reopening reads the current content; Canvas saves edit the original. Moving or deleting the file invalidates its historical card. Click a card to preview. Local cards retain native default opening, associated applications and Reveal in folder, with no download action. Cloud cards show a labelled Download button. One file fills a row; multiple files use two columns and collapse after four, with one column in narrow windows. Cloud files retain download delivery.

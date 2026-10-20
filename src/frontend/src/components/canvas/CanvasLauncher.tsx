@@ -1,3 +1,4 @@
+import { useCanvasPane, useCanvasPaneId } from './useCanvasPane';
 import { useEffect, useRef, useState } from 'react';
 import { AppstoreOutlined, FileOutlined, GlobalOutlined, MessageOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { apiRequest, unwrapData, uploadFile } from '../../api';
@@ -26,10 +27,12 @@ export function CanvasLauncher() {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  const tabs = useCanvasStore(s => s.tabs);
-  const activeTabId = useCanvasStore(s => s.activeTabId);
+  const pane = useCanvasPaneId();
+  const paneState = useCanvasPane();
+  const tabs = paneState.tabs;
+  const activeTabId = paneState.activeTabId;
   const items = usePluginUiStore(s => s.items);
-  const navigation = useCanvasLauncherStore(s => s.navigation);
+  const navigateBound = useCanvasLauncherStore(s => activeTabId ? s.navigations[activeTabId] : undefined);
   const dismiss = useCanvasLauncherStore(s => s.dismiss);
   const guard = useCanvasGuard();
   useEffect(() => {
@@ -39,16 +42,16 @@ export function CanvasLauncher() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [busy, dismiss]);
-  const navigator = navigation?.tabId === activeTabId ? navigation : null;
+  const navigator = navigateBound ? { navigate: navigateBound } : null;
   const activate = (id: string) => {
     if (id === activeTabId) { dismiss(); return; }
-    guard(() => { dismiss(); useCanvasStore.getState().activateTab(id); });
+    guard(() => { dismiss(); useCanvasStore.getState().activateTab(id, pane); });
   };
   const openPanel = (panel: 'ability_center' | 'chat') => guard(() => {
     dismiss();
     useCanvasStore.getState().closeCanvas();
     useCatalogStore.getState().setPanel(panel);
-  });
+  }, 'all');
   const openFile = async (file: File) => {
     setBusy(true); setError('');
     const { currentChatId, currentUserId } = useChatStore.getState();
@@ -57,6 +60,7 @@ export function CanvasLauncher() {
       const current = useChatStore.getState();
       if (!mounted.current || current.currentUserId !== currentUserId || current.currentChatId !== currentChatId) return;
       dismiss();
+      useCanvasStore.getState().focusPane(pane);
       useCanvasStore.getState().openCanvas({
         file_id: uploaded.file_id, name: uploaded.name || file.name,
         url: uploaded.download_url, mime_type: uploaded.mime_type, size: uploaded.size,
@@ -75,7 +79,7 @@ export function CanvasLauncher() {
     finally { if (mounted.current) setBusy(false); }
   };
   const openModule = async (slug: string, module: ModuleContribution) => {
-    const canvas = useCanvasStore.getState();
+    const canvas = paneState;
     const chat = useChatStore.getState();
     const chatId = canvas.pluginTarget?.chatId || canvas.artifact?.chat_id || chat.currentChatId;
     const existing = tabs.find(tab => tab.kind === 'plugin' && tab.target.slug === slug
@@ -93,6 +97,7 @@ export function CanvasLauncher() {
           if (!mounted.current || current.currentUserId !== chat.currentUserId || current.currentChatId !== chat.currentChatId) return;
           const output = unwrapData<{ resource: ResourceBinding }>(response);
           dismiss();
+          useCanvasStore.getState().focusPane(pane);
           useCanvasStore.getState().openPluginView({
             slug, canvasId: module.id, chatId, title: resolveText(module.title),
             status: 'success', output,
@@ -134,9 +139,8 @@ export function CanvasLauncher() {
           if (!owner) { setError(t('请先打开对话')); return; }
           composerActions(owner).setInput(resolveText(entry.prompt));
           dismiss(); useCanvasStore.getState().closeCanvas(); useCatalogStore.getState().setPanel('chat');
-        })}>{entry.icon ? <img src={entry.icon} alt="" /> : <AppstoreOutlined aria-hidden />}<span>{resolveText(entry.label)}</span></button>)}</div>
+        }, 'all')}>{entry.icon ? <img src={entry.icon} alt="" /> : <AppstoreOutlined aria-hidden />}<span>{resolveText(entry.label)}</span></button>)}</div>
       </>}
-      <h2>{t('已打开内容')}</h2>
       <div className="jx-canvasLauncher-suggested">{tabs.map(tab => <button key={tab.id} disabled={busy} onClick={() => activate(tab.id)}>
         <span>{tabIcon(tab)}</span><span title={tabTitle(tab)}>{tabTitle(tab)}</span>
       </button>)}</div>

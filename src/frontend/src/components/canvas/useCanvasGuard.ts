@@ -1,13 +1,15 @@
 import { useCallback } from 'react';
 import { Modal } from 'antd';
 import { t } from '../../i18n';
+import { useCanvasPaneId } from './useCanvasPane';
 import { useCanvasStore } from '../../stores/canvasStore';
 
 export function useCanvasGuard() {
-  return useCallback((action: () => void) => {
+  const pane = useCanvasPaneId();
+  return useCallback((action: () => void, scope: 'pane' | 'all' = 'pane') => {
     const state = useCanvasStore.getState();
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    if (!active || active.kind !== 'file' || !active.dirty) {
+    const ids = scope === 'all' ? Object.values(state.paneTabs) : [state.paneTabs[pane]];
+    if (!state.tabs.some(tab => ids.includes(tab.id) && tab.kind === 'file' && tab.dirty)) {
       action();
       return;
     }
@@ -19,6 +21,6 @@ export function useCanvasGuard() {
       okButtonProps: { danger: true },
       onOk: action,
     });
-  }, []);
+  }, [pane]);
 
 }

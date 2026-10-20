@@ -408,7 +408,7 @@ export function UnsupportedView({ item }: { item: ResourceItem }) {
       <div className="jx-spaceImportPreview-statusText">{t('此格式暂不支持预览')}</div>
       <div className="jx-spaceImportPreview-statusSub">{item.name}</div>
       {dl && (
-        <ArtifactFileAction file={item} className="jx-dlCard-btn" />
+        <ArtifactFileAction file={item} className="jx-fileAction-button" />
       )}
     </div>
   );
@@ -427,7 +427,7 @@ export function LargeFileView({ item, limitBytes }: { item: ResourceItem; limitB
         })}
       </div>
       {dl && (
-        <ArtifactFileAction file={item} className="jx-dlCard-btn" />
+        <ArtifactFileAction file={item} className="jx-fileAction-button" />
       )}
     </div>
   );

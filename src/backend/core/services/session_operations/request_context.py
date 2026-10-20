@@ -65,8 +65,6 @@ def _build_ctx(
         "project_folder_name": None,
         "project_folder_kind": None,
         "project_folder_id": None,
-        "project_files": None,
-        "project_file_count": None,
     }
     if project_id:
         try:

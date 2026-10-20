@@ -20,8 +20,8 @@ Cloud sandboxes require SANDBOX_PROVIDER=opensandbox.
 CE Docker and desktop local mode use local storage.
 
 The backend and controller must reach the storage endpoint.
-The Docker host needs FUSE and shared mount propagation.
-Run docker/prepare-object-mounts.sh with the absolute HOST_STORAGE_PATH as root.
+The Docker host must provide `/dev/fuse` to the sandbox mount service.
+The controller needs no host FUSE mount or shared-propagation directory.
 
 ## Local S3 service (CE / EE)
 
@@ -68,11 +68,13 @@ File search returns paths in order. Pass next_cursor to continue with the same p
 
 ### Mount lifecycle and controller restarts
 
-Each sandbox object volume uses a separate host mount path. Validation, mounting, and container binding use the same path for that volume. A new sandbox does not reuse an old FUSE connection or a retained Docker Desktop bind alias. Volumes retain the current user's authorized prefix and read-only settings. Synchronous Docker and mount operations run in a thread pool during sandbox creation. This keeps other controller requests responsive.
+Each sandbox has one mount service for initial mounting and recovery. Object volumes are attached inside the sandbox namespace. Docker startup settings do not contain FUSE host binds. Synchronous Docker operations run in a thread pool.
 
-After a controller restart, the next file operation or sandbox renewal checks the mounts. The system reads current permissions and restores the existing sandbox mounts. The sandbox container and workspace files remain intact. Users do not need to create another sandbox.
+Controller restarts preserve the independent mount service. Each file operation checks current permissions and live mounts. After a sandbox restart, the service reconnects authorized prefixes in the same container. Workspace files and read-only settings remain intact.
 
-A separate helper container holds the restored FUSE connections. These connections survive subsequent controller restarts. The helper receives only authorized paths and read-only settings. It has no Docker socket. Sandbox deletion also removes the helper. Recovery errors retain the sandbox and workspace and allow another attempt.
+The mount service has no Docker socket. Credentials travel through a private input stream, not container labels or environment variables. Deletion and expiry remove its service. Recovery errors retain the sandbox and workspace.
+
+Old sandboxes created with FUSE host binds need a separate data-preserving migration before upgrade. Their immutable Docker startup settings cannot be rewritten in place.
 
 ## Hybrid desktop MCP
 

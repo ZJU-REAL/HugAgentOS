@@ -34,7 +34,6 @@ allowed_host_paths = [
     "@@HOST_STORAGE_PATH@@",
 ]
 volume_default_size = "1Gi"
-ossfs_mount_root = "@@HOST_STORAGE_PATH@@/object-mounts"
 
 [store]
 # SQLite 持久化沙盒元数据（容器重启不丢已有沙盒）

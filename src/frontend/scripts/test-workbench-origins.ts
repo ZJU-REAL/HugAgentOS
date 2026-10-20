@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {workbenchRequest, preferenceSource, WorkbenchSourceError,setHostedWorkbenchOrigin} from '../src/workbench/sourceRequest';
 import {useDeploymentModeStore} from '../src/stores/deploymentModeStore';
-import {applicationOrigin,packageAssetPath,sourceTargets} from '../src/workbench/sourceIdentity';
+import {applicationOrigin,packageAssetPath,sourceTargets,requestOrigin} from '../src/workbench/sourceIdentity';
 
 const scope='a'.repeat(32), hash='b'.repeat(64);
 const local='plugin:local:'+scope+':'+hash+':20261014T120000.123456Z:reports';
@@ -58,4 +58,16 @@ assert.equal(new URL(packageAssetPath(path,local),'https://host.invalid').search
 assert.throws(()=>packageAssetPath(path,cloud),/package_binding_mismatch/);
 assert.deepEqual(applicationOrigin(local),{kind:'local',id:scope});
 assert.equal(applicationOrigin('plugin:reports'),undefined);
+// Installation IDs belong to the upgrade endpoint, not the application namespace.
+for (const prefix of ['/v1/workbench/', '/v1/workbench/admin/']) {
+  for (const id of ['plugin:local:visualize', 'plugin:account_123:visualize', 'visualize@owner']) {
+    for (const suffix of ['', '/decision', '?fresh=1']) {
+      assert.equal(requestOrigin(prefix+'plugin-upgrades/'+encodeURIComponent(id)+suffix),undefined);
+    }
+  }
+}
+for (const route of ['applications/', 'me/application-state/']) {
+  assert.throws(()=>requestOrigin('/v1/workbench/'+route+encodeURIComponent('plugin:local:visualize')),
+    /invalid_application_key/,'installation IDs must still be rejected as application keys');
+}
 console.log('workbench source HTTP boundary: passed (simulated transport; not native/E2E)');

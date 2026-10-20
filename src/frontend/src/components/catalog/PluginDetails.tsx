@@ -7,11 +7,7 @@ import { t } from '../../i18n';
 import { stripMarkdown, mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_DETAIL } from '../../utils/motionVariants';
-import { DingTalkConnect } from '../settings/DingTalkConnect';
-import { LarkConnect } from '../settings/LarkConnect';
-import { EmailConnect } from '../settings/EmailConnect';
-import { YidaConnect } from '../settings/YidaConnect';
-import { LarkAppInitCard } from './LarkAppInitCard';
+import { PluginAccountConnection } from './PluginAccountConnection';
 import { PluginAvatar } from './PluginIconPicker';
 import type { InstalledPluginDetail, PluginSkillComponent, PluginMcpComponent } from '../../types';
 export type SelectedComponent = { kind: 'skill'; data: PluginSkillComponent } | { kind: 'mcp'; data: PluginMcpComponent };
@@ -158,21 +154,9 @@ export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handle
 
           {!d.is_global && <PluginUpgradeCard installId={d.install_id} onChanged={onUpgradeChanged} />}
 
-          {d.slug === 'feishu-cli' && <LarkAppInitCard />}
-
           {/* Account connection (per-user OAuth device flow): when a plugin declares a connection, the one-time authorization is completed here.
               It used to be under "Settings → Integrations"; now it's consolidated into the corresponding plugin detail page. */}
-          {d.connection && (
-            <div style={{ marginTop: 12 }}>
-              <h4 className="jx-sectionTitle">{t('账号连接')}</h4>
-              <div className="jx-settings-card">
-                {d.connection === 'dingtalk' && <DingTalkConnect />}
-                {d.connection === 'lark' && <LarkConnect />}
-                {d.connection === 'email' && <EmailConnect />}
-                {d.connection === 'yida' && <YidaConnect />}
-              </div>
-            </div>
-          )}
+          {d.connection && <PluginAccountConnection key={d.install_id} connection={d.connection} />}
 
           {/* Admin config (read-only on the user side: only see whether it's provisioned, can't modify; if not configured, prompt to contact the admin) */}
           {d.admin_config && (

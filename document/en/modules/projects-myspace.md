@@ -71,12 +71,14 @@ In the project overview, the model and thinking-effort menu always opens downwar
 
 ### How project context enters a conversation
 
-When a conversation is started inside a project (the request carries `project_id`), `api/routes/v1/chats/__init__.py` assembles the workflow context:
+When a conversation is started inside a project (the request carries `project_id`), `core/services/session_operations/request_context.py` assembles the workflow context:
 
-1. Project metadata is loaded — `project_name`, `project_instructions`, the linked folder name and file inventory;
+1. Project metadata is loaded — `project_name`, `project_instructions`, the linked folder name and working directory. Instructions still come from `AGENTS.md`; cloud and local project files are not recursively enumerated;
 2. `core/llm/factory/build.py` injects these into the system prompt via `_build_project_section` (`build_system_prompt(cfg, ctx=...)`);
 3. The project-level memory scope takes effect: the workspace becomes `project:<project_id>`; team projects use the mem0 bucket `team:<team_id>` (members share memories), and the project's own `metadata.memory_enabled` / `memory_write_enabled` override the user-level toggles (defaulting to on inside projects) — see [Memory System](./memory.md);
 4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/llm/tools/myspace_vfs/__init__.py`).
+
+Custom project-mode prompt templates use project names, directory scope and instructions. Before upgrading an existing deployment, remove obsolete file-inventory and file-count placeholders from saved templates; the runtime no longer supplies those variables.
 
 Team project permissions follow team roles: owner/admin always have admin rights; members are governed by `file_permission` (editor/viewer) (`core/auth/permissions_iface.py::require_project_access`).
 
@@ -166,7 +168,7 @@ Permission model: `TeamMember.role` (owner/admin/member) + `file_permission` (vi
 Three complementary paths:
 
 1. **Attachment injection (hooks)**: frontend requests send only `file_id`, `name`, and `mime_type` in each `attachments[]` item, never the file body. `core/llm/hooks.py` lazily downloads and parses by `file_id`, caching `parsed_text` and its summary; the first turn injects only metadata and a bounded preview of at most 5,000 characters, while xlsx previews also include total dimensions, headers, and a few data rows. The model reads content beyond the preview on demand through `read_artifact`; images still use multimodal injection. Every read validates `user_id` ownership to block forged cross-user access;
-2. **Project file inventory**: a project conversation's system prompt carries the linked folder's file list (see above); the agent reads specific contents on demand via `read_artifact` or sandbox tools;
+2. **Project file access**: a project conversation's system prompt supplies project instructions and directory scope without an automatic file inventory or count. The agent discovers files on demand through directory, search and read tools;
 3. **Sandbox virtual filesystem**: with code execution enabled, the `/myspace/...` path maps MySpace into the sandbox (lazy loading + reverse sync); team projects map the team folder — see [Sandbox](./sandbox.md).
 
 ## Source map

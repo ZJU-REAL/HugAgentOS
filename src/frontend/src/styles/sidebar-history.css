@@ -143,8 +143,14 @@
   transition:background .12s, color .12s;
 }
 .jx-projectRowActionBtn:hover{ background:var(--color-fill-hover); color:color-mix(in srgb, var(--color-text) 72%, transparent); }
-/* 子会话内容与项目名称共用同一文字起点：项目图标宽度 + 图标间距。 */
-.jx-projectChatList{ padding-left:calc(var(--project-icon-size) + var(--project-label-gap)); }
+/* Project rows use the existing indentation as a stable status slot. */
+.jx-projectChatList{ padding-left:0; }
+.jx-historyStatusSlot{
+  display:inline-flex; align-items:center; justify-content:flex-start;
+  flex:0 0 calc(var(--project-icon-size, 13px) + var(--project-label-gap, 7px));
+}
+.jx-historyStatusSlot .jx-taskStatus{ margin-left:0; }
+.jx-historyItem--project .jx-historyStatusSlot{ align-self:stretch; }
 .jx-projectChatList .jx-historyTitle{ max-width:210px; }
 
 .jx-historyItem{

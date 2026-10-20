@@ -24,6 +24,23 @@ Panel state is managed by `stores/canvasStore.ts` (`openCanvas` / `closeCanvas` 
 
 File actions in preview headers and cards reserve enough width for their labels. Long filenames use ellipsis while download and open controls remain on one line. On phones, the space import dialog stacks the file list above the preview, with separate scrolling areas.
 
+### Right panel controls and split view
+
+When no content is selected, expanding the panel shows New tab. The new-tab surface fills the available panel width in fullscreen.
+The top-right controls are Split, Fullscreen, and Collapse. Split creates two side-by-side panes.
+Each pane selects its own tabs and edits files independently. A tab appears in only one pane; new content opens in the focused pane.
+Drag the divider to resize, use the arrow keys while it is focused, or double-click it to restore equal widths.
+Merge panes restores a single pane. Press Esc to exit fullscreen. The conversation's panel button reopens a collapsed panel.
+Actions that discard unsaved edits ask for confirmation.
+
+File tabs use a compact layout with a separate path and actions row underneath.
+Local files show an authorized native path and offer refresh, applicable save actions, and a system application menu.
+If no application is associated, the file can be revealed in its folder.
+Cloud files show their actual My Space or team-space path and a download action.
+Unfiled or unavailable locations have explicit states; server filesystem paths are never shown.
+Long paths preserve the filename suffix and expose the full path on hover. Refresh asks before discarding unsaved edits.
+Each split pane owns its tabs; merging panes reunites their tabs.
+
 ### Large-file preview protection
 
 Online preview limits are lower than upload limits because an Office archive can

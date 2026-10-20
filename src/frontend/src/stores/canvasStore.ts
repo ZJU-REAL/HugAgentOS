@@ -6,7 +6,7 @@ import { artifactOrigin, type ArtifactLocation } from '../utils/artifactAccess';
 
 
 export interface CanvasArtifact extends ArtifactLocation {
-  space?: { id: string; path: string; writable: boolean };
+  space?: { id: string; path: string; writable: boolean; name?: string; kind?: 'personal' | 'team' };
   file_id: string;
   name: string;
   url: string;          // relative path, e.g. /files/xxx
@@ -103,7 +103,7 @@ const pluginTabId = (target: PluginPanelTarget) =>
     : `plugin:${target.slug}:${target.canvasId}:${target.chatId || 'global'}:${target.toolId || 'latest'}`;
 
 /** 活动页签投影出的视图字段：老调用方（App / chatStream / 各面板）继续读这些即可。 */
-interface DerivedView {
+export interface DerivedView {
   activeView: RightSidebarView;
   artifact: CanvasArtifact | null;
   ontologyTarget: OntologyPanelTarget | null;
@@ -113,7 +113,7 @@ interface DerivedView {
   openSeq: number;
 }
 
-function derive(tabs: CanvasTab[], activeTabId: string | null): DerivedView {
+export function derive(tabs: CanvasTab[], activeTabId: string | null): DerivedView {
   const active = tabs.find((tab) => tab.id === activeTabId) || null;
   return {
     activeView: active ? active.kind : 'empty',
@@ -138,7 +138,15 @@ function clearDirty(tabs: CanvasTab[], tabId: string | null): CanvasTab[] {
   ));
 }
 
-interface CanvasState extends DerivedView {
+export type CanvasPaneId = 'primary' | 'secondary';
+
+export interface CanvasState extends DerivedView {
+  isSplit: boolean;
+  activePane: CanvasPaneId;
+  paneTabs: Record<CanvasPaneId, string | null>;
+  tabPanes: Record<string, CanvasPaneId>;
+  focusPane: (pane: CanvasPaneId) => void;
+  toggleSplit: () => void;
   isOpen: boolean;
   isFullscreen: boolean;
   /** 浏览器式页签：文件 / 本体校验 / 产业链图谱共用一条页签栏 */
@@ -152,9 +160,10 @@ interface CanvasState extends DerivedView {
   /** One tab per renderer: reopening activates it and updates its title. */
   openCustom: (target: CustomPanelTarget) => void;
   openPluginView: (target: PluginPanelTarget) => void;
-  updatePluginView: (patch: Partial<PluginPanelTarget>) => void;
-  activateTab: (tabId: string) => void;
+  updatePluginView: (patch: Partial<PluginPanelTarget>, tabId?: string | null) => void;
+  activateTab: (tabId: string, pane?: CanvasPaneId) => void;
   closeTab: (tabId: string) => void;
+  reloadTab: (tabId: string) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
   setPanelWidth: (width: number | null) => void;
   openSidebar: () => void;
@@ -163,12 +172,30 @@ interface CanvasState extends DerivedView {
   toggleCanvasFullscreen: () => void;
   resetSidebar: () => void;
   /** Update artifact metadata without re-triggering content reload */
-  updateArtifact: (patch: Partial<CanvasArtifact>) => void;
+  updateArtifact: (patch: Partial<CanvasArtifact>, tabId?: string | null) => void;
+}
+
+/** One mounted owner per tab. Reopening a visible tab focuses its existing pane. */
+function selectTab(state: CanvasState, tabs: CanvasTab[], id: string, pane = state.activePane) {
+  const owner = state.tabPanes[id];
+  const activePane = owner || pane;
+  const oldId = state.paneTabs[activePane];
+  const nextTabs = oldId !== id ? clearDirty(tabs, oldId) : tabs;
+  return {
+    isOpen: true, tabs: nextTabs, activeTabId: id, activePane,
+    paneTabs: { ...state.paneTabs, [activePane]: id },
+    tabPanes: { ...state.tabPanes, [id]: activePane },
+    ...derive(nextTabs, id),
+  };
 }
 
 export const useCanvasStore = create<CanvasState>((set) => ({
   isOpen: false,
   isFullscreen: false,
+  isSplit: false,
+  activePane: 'primary',
+  paneTabs: { primary: null, secondary: null },
+  tabPanes: {},
   tabs: [],
   activeTabId: null,
   panelWidth: null,
@@ -187,21 +214,21 @@ export const useCanvasStore = create<CanvasState>((set) => ({
       dirty: false,
     };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
-    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+    return selectTab(state, tabs, id);
   }),
   openCustom: (target) => set((state) => {
     const id = `custom:${target.renderer}`;
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const tab: CanvasCustomTab = { id, kind: 'custom', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
-    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+    return selectTab(state, tabs, id);
   }),
   openSubagent: (target) => set((state) => {
     const id = `subagent:${JSON.stringify([target.chatId, target.messageUid, target.toolId])}`;
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const tab: CanvasSubagentTab = { id, kind: 'subagent', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
-    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+    return selectTab(state, tabs, id);
   }),
   openOntology: (target) => set((state) => {
     // 每个会话一个本体校验页签：同会话的新一轮校验刷新它，不再堆页签。
@@ -209,7 +236,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const tab: CanvasOntologyTab = { id, kind: 'ontology', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
-    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+    return selectTab(state, tabs, id);
   }),
   openPluginView: (input) => set((state) => {
     const module = usePluginUiStore.getState().findModule(input.slug, input.canvasId)?.contribution;
@@ -236,12 +263,21 @@ export const useCanvasStore = create<CanvasState>((set) => ({
         : target,
     };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
-    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+    if (previous && previous.id !== id) {
+      const tabPanes = { ...state.tabPanes, [id]: state.tabPanes[previous.id] || state.activePane };
+      delete tabPanes[previous.id];
+      const paneTabs = {
+        primary: state.paneTabs.primary === previous.id ? id : state.paneTabs.primary,
+        secondary: state.paneTabs.secondary === previous.id ? id : state.paneTabs.secondary,
+      };
+      return selectTab({ ...state, tabPanes, paneTabs }, tabs, id);
+    }
+    return selectTab(state, tabs, id);
   }),
-  updatePluginView: (patch) => set((state) => {
-    const index = state.tabs.findIndex((tab) => patch.resource
+  updatePluginView: (patch, tabId) => set((state) => {
+    const index = state.tabs.findIndex((tab) => tabId ? tab.id === tabId : patch.resource
       ? tab.kind === 'plugin' && tab.target.resource?.resource_id === patch.resource.resource_id
-      : tab.id === state.activeTabId);
+      : tab.id === (tabId ?? state.activeTabId));
     const active = index >= 0 ? state.tabs[index] : null;
     if (!active || active.kind !== 'plugin') return {};
     const combined = { ...active.target, ...patch };
@@ -251,27 +287,60 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     const id = pluginTabId(target);
     const tabs = replaceAt(state.tabs, index, { ...active, id, target });
     const activeTabId = state.activeTabId === active.id ? id : state.activeTabId;
-    return { tabs, activeTabId, ...derive(tabs, activeTabId) };
+    const paneTabs = {
+      primary: state.paneTabs.primary === active.id ? id : state.paneTabs.primary,
+      secondary: state.paneTabs.secondary === active.id ? id : state.paneTabs.secondary,
+    };
+    const tabPanes = { ...state.tabPanes, [id]: state.tabPanes[active.id] || state.activePane };
+    if (active.id !== id) delete tabPanes[active.id];
+    return { tabs, activeTabId, paneTabs, tabPanes, ...derive(tabs, activeTabId) };
   }),
-  activateTab: (tabId) => set((state) => {
-    if (!state.tabs.some((tab) => tab.id === tabId)) return {};
-    // 切走会卸载上一个页签的内容，它的「未保存」标记也随之失效（回来时是重新加载的
-    // 干净副本）—— 就地清掉，免得下次操作弹一次假的确认框。
-    const tabs = clearDirty(state.tabs, state.activeTabId);
-    return { isOpen: true, tabs, activeTabId: tabId, ...derive(tabs, tabId) };
+  focusPane: (pane) => set(state => {
+    if (pane === state.activePane || (pane === 'secondary' && !state.isSplit)) return {};
+    const activeTabId = state.paneTabs[pane];
+    return { activePane: pane, activeTabId, ...derive(state.tabs, activeTabId) };
   }),
-  closeTab: (tabId) => set((state) => {
-    const index = state.tabs.findIndex((tab) => tab.id === tabId);
-    if (index < 0) return {};
-    const tabs = state.tabs.filter((tab) => tab.id !== tabId);
-    if (!tabs.length) {
-      return { tabs, activeTabId: null, isOpen: false, isFullscreen: false, ...derive(tabs, null) };
+  toggleSplit: () => set(state => {
+    if (!state.isSplit) {
+      const secondary = state.tabs.find(tab => tab.id !== state.activeTabId)?.id || null;
+      return { isSplit: true, paneTabs: { primary: state.activeTabId, secondary },
+        tabPanes: { ...state.tabPanes, ...(secondary ? { [secondary]: 'secondary' as const } : {}) } };
     }
-    // 关掉当前页签后接管右邻页签（没有右邻则取左邻），与浏览器一致。
-    const activeTabId = state.activeTabId === tabId
-      ? tabs[Math.min(index, tabs.length - 1)].id
-      : state.activeTabId;
-    return { tabs, activeTabId, ...derive(tabs, activeTabId) };
+    const activeTabId = state.activeTabId || state.paneTabs.primary || state.paneTabs.secondary;
+    const tabs = state.tabs.map(tab => tab.kind === 'file' && tab.id !== activeTabId
+      ? { ...tab, dirty: false } : tab);
+    return { isSplit: false, activePane: 'primary', activeTabId,
+      paneTabs: { primary: activeTabId, secondary: null },
+      tabPanes: Object.fromEntries(tabs.map(tab => [tab.id, 'primary' as const])), tabs, ...derive(tabs, activeTabId) };
+  }),
+  activateTab: (tabId, pane) => set(state => {
+    if (!state.tabs.some(tab => tab.id === tabId)) return {};
+    return selectTab(state, state.tabs, tabId, pane);
+  }),
+  closeTab: (tabId) => set(state => {
+    const index = state.tabs.findIndex(tab => tab.id === tabId);
+    if (index < 0) return {};
+    const tabs = state.tabs.filter(tab => tab.id !== tabId);
+    const paneTabs = { ...state.paneTabs };
+    for (const pane of ['primary', 'secondary'] as const) {
+      if (paneTabs[pane] !== tabId) continue;
+      const ownerIndex = state.tabs.filter(tab => state.tabPanes[tab.id] === pane).findIndex(tab => tab.id === tabId);
+      const available = tabs.filter(tab => state.tabPanes[tab.id] === pane);
+      paneTabs[pane] = available[Math.min(ownerIndex, available.length - 1)]?.id || null;
+    }
+    const activeTabId = paneTabs[state.activePane];
+    const tabPanes = { ...state.tabPanes };
+    delete tabPanes[tabId];
+    return {
+      tabs, paneTabs, tabPanes, activeTabId, ...derive(tabs, activeTabId),
+      ...(!tabs.length ? { isOpen: false, isFullscreen: false, isSplit: false,
+        activePane: 'primary' as const, paneTabs: { primary: null, secondary: null } } : {}),
+    };
+  }),
+  reloadTab: (tabId) => set(state => {
+    const tabs = state.tabs.map(tab => tab.id === tabId && tab.kind === 'file'
+      ? { ...tab, openSeq: tab.openSeq + 1, dirty: false } : tab);
+    return { tabs, ...derive(tabs, state.activeTabId) };
   }),
   setTabDirty: (tabId, dirty) => set((state) => {
     const index = state.tabs.findIndex((tab) => tab.id === tabId);
@@ -286,21 +355,22 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   closeCanvas: () => set((state) => ({
     isOpen: false,
     isFullscreen: false,
-    tabs: clearDirty(state.tabs, state.activeTabId),
+    tabs: clearDirty(clearDirty(state.tabs, state.paneTabs.primary), state.paneTabs.secondary),
   })),
   setCanvasFullscreen: (isFullscreen) => set({ isFullscreen }),
   toggleCanvasFullscreen: () => set((state) => ({
     isFullscreen: !state.isFullscreen,
   })),
   resetSidebar: () => set({
+    isSplit: false, activePane: 'primary', paneTabs: { primary: null, secondary: null }, tabPanes: {},
     isOpen: false,
     isFullscreen: false,
     tabs: [],
     activeTabId: null,
     ...derive([], null),
   }),
-  updateArtifact: (patch) => set((state) => {
-    const index = state.tabs.findIndex((tab) => tab.id === state.activeTabId);
+  updateArtifact: (patch, tabId) => set((state) => {
+    const index = state.tabs.findIndex((tab) => tab.id === (tabId ?? state.activeTabId));
     const active = index >= 0 ? state.tabs[index] : null;
     if (!active || active.kind !== 'file') return {};
     const tabs = replaceAt(state.tabs, index, {

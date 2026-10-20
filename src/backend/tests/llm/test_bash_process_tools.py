@@ -20,9 +20,26 @@ def payload(result):
     return json.loads(block["text"] if isinstance(block, dict) else block.text)
 
 
-async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypatch):
+async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypatch, tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from core.db.engine import Base
+    from core.db.models import ChatSession, UserShadow
+    from core.services.commands import store
+    from orchestration.commands.runtime import runtime
+    engine = create_engine("sqlite:///" + str(tmp_path / "tools.sqlite"),
+                           connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(store, "SessionLocal", factory)
+    with factory() as db:
+        db.add(UserShadow(user_id="u", username="test"))
+        db.flush()
+        db.add(ChatSession(chat_id="chat-a", user_id="u", title="test"))
+        db.commit()
+
     provider = SimpleNamespace(
-        runs_on_host=False,
+        name="script_runner", touch_session=AsyncMock(), runs_on_host=False,
         start_process=AsyncMock(
             return_value={
                 "status": "running",
@@ -46,18 +63,20 @@ async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypat
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: provider)
     toolkit = Toolkit()
-    register_bash(toolkit, loader=None, loaded_skill_ids=set(), chat_id="chat-a")
+    register_bash(toolkit, loader=None, loaded_skill_ids=set(), chat_id="chat-a", user_id="u")
     assert "write_stdin" in toolkit.functions
     first = payload(await toolkit.functions["Bash"]("long-command", yield_time_ms=250))
-    assert first["session_id"] == "p1"
+    assert first["session_id"].startswith("cmd_")
     req = provider.start_process.call_args.args[0]
     assert req.timeout is None
     assert req.session_id == "chat-a"
-    second = payload(await toolkit.functions["write_stdin"]("p1", yield_time_ms=1000))
+    second = payload(await toolkit.functions["write_stdin"](first["session_id"], yield_time_ms=1000))
     assert second["stdout"] == "second"
     assert second["exit_code"] == 7
     assert provider.start_process.await_count == 1
     assert provider.write_stdin.call_args.kwargs["sandbox_session_id"] == "chat-a"
+    await runtime.shutdown()
+    engine.dispose()
 
 
 async def test_registered_schemas_expose_two_tool_contract(monkeypatch):
@@ -71,10 +90,12 @@ async def test_registered_schemas_expose_two_tool_contract(monkeypatch):
         s["function"]["name"]: s["function"]
         for s in await AgentToolkit(tools=collector.function_tools).get_tool_schemas()
     }
-    assert set(schemas) == {"Bash", "write_stdin"}
+    assert set(schemas) == {"Bash", "write_stdin", "background_process", "list_processes"}
+    assert schemas["Bash"]["parameters"]["properties"]["run_in_background"]["default"] is False
     assert "run_to_completion" not in schemas
     assert "execute" not in schemas
     assert schemas["Bash"]["parameters"]["properties"]["yield_time_ms"]["default"] == 60000
     assert "timeout" not in schemas["Bash"]["parameters"]["required"]
+    assert schemas["write_stdin"]["parameters"]["properties"]["yield_time_ms"]["default"] == 0
     assert schemas["write_stdin"]["parameters"]["properties"]["chars"]["default"] == ""
     assert schemas["write_stdin"]["parameters"]["required"] == ["session_id"]

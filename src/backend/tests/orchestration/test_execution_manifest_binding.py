@@ -274,6 +274,15 @@ import core.agent_skills.loader as skill_loader
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 
 Base.metadata.create_all(engine)
+from core.db.models import Project, UserShadow
+with SessionLocal() as db:
+    db.add(UserShadow(user_id="owner-context-71", username="Context Owner"))
+    db.flush()
+    db.add(Project(
+        project_id="project-context-71", name="Context Project", kind="personal",
+        owner_user_id="owner-context-71",
+    ))
+    db.commit()
 
 class EmptySkillLoader:
     def load_all_metadata(self):
@@ -304,6 +313,7 @@ async def build(run_id, project_ctx=None):
     agent, clients = await agent_factory.create_agent_executor(
         disable_tools=True,
         run_id=run_id,
+        current_user_id="owner-context-71",
         workspace_id="workspace-context-71",
         max_iters=1,
         project_ctx=project_ctx,
@@ -335,7 +345,6 @@ async def main():
             "project_id": "project-context-71",
             "project_name": "Context Project",
             "project_instructions": "PROJECT-IR-MARKER-71",
-            "project_files": [],
         },
     )
     await success.reply(UserMsg(name="custom-user", content="hello final context"))

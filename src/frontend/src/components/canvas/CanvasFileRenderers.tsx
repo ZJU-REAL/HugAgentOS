@@ -332,7 +332,7 @@ export function LargeFileRenderer({
           limit: formatPreviewBytes(limitBytes),
         })}
       </p>
-      <ArtifactFileAction file={artifact} className="jx-dlCard-btn" onDownload={onDownload} />
+      <ArtifactFileAction file={artifact} className="jx-fileAction-button" onDownload={onDownload} />
     </div>
   );
 }

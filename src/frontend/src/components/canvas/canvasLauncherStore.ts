@@ -4,16 +4,20 @@ import { create } from 'zustand';
 type Navigate = (url: string) => Promise<void>;
 interface LauncherState {
   open: boolean;
-  navigation: { tabId: string; navigate: Navigate } | null;
-  show: () => void;
+  pane: 'primary' | 'secondary';
+  navigations: Record<string, Navigate>;
+  show: (pane?: 'primary' | 'secondary') => void;
   dismiss: () => void;
   bindNavigation: (tabId: string, navigate: Navigate | null) => void;
 }
 export const useCanvasLauncherStore = create<LauncherState>((set) => ({
-  open: false, navigation: null,
-  show: () => set({ open: true }),
+  open: false, pane: 'primary', navigations: {},
+  show: (pane = 'primary') => set({ open: true, pane }),
   dismiss: () => set({ open: false }),
-  bindNavigation: (tabId, navigate) => set(state => navigate
-    ? { navigation: { tabId, navigate } }
-    : state.navigation?.tabId === tabId ? { navigation: null } : {}),
+  bindNavigation: (tabId, navigate) => set(state => {
+    const navigations = { ...state.navigations };
+    if (navigate) navigations[tabId] = navigate;
+    else delete navigations[tabId];
+    return { navigations };
+  }),
 }));
