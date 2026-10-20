@@ -1,6 +1,6 @@
 import { extractArtifactOutputs } from '../../utils/fileParser';
 import type { ChatMessage } from '../../types';
-import { ArtifactCardList, type ArtifactRef } from './ArtifactCardList';
+import { DeliveredFiles, type ArtifactRef } from './DeliveredFiles';
   /** Render file download/image artifact cards */
 export function MessageArtifacts({ m, currentChatId }: { m: ChatMessage; currentChatId: string }) {
     if (!m.toolCalls || m.isStreaming) return null;
@@ -36,5 +36,5 @@ export function MessageArtifacts({ m, currentChatId }: { m: ChatMessage; current
       artifacts = artifacts.filter((a) => allow.has(String(a.file_id)));
     }
     if (artifacts.length === 0) return null;
-    return <ArtifactCardList artifacts={artifacts} chatId={currentChatId} />;
+    return <DeliveredFiles artifacts={artifacts} chatId={currentChatId} />;
 }

@@ -1,19 +1,18 @@
+import { useCanvasPane, useCanvasPaneId } from './useCanvasPane';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   SaveOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { getFileIconSrc } from '../../utils/fileIcon';
+import { CanvasFileHeader } from './CanvasFileHeader';
+import { useCanvasGuard } from './useCanvasGuard';
 import { message } from 'antd';
-import { useCanvasStore } from '../../stores/canvasStore';
-import type { CanvasArtifact } from '../../stores/canvasStore';
 import { UniverSpreadsheet } from './UniverSpreadsheet';
 import { CanvasTabBar } from './CanvasTabBar';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
 import { overwriteFile, LOCAL_TARGET_HEADER } from '../../api';
 import { uploadSpaceFile } from '../myspace/spaceFilesApi';
 import { artifactUrl, artifactOrigin, withUrlParams } from '../../utils/artifactAccess';
-import { ArtifactFileAction } from '../file/ArtifactFileAction';
 import {
   exceedsPreviewLimit,
   getPreviewLimitBytes,
@@ -29,15 +28,16 @@ import { getFileCategory } from './canvasFileCategory';
 import { FileTextPanel, type FileTextHandle, type FileTextState } from './FileTextPanel';
 import { DocxRenderer, PdfRenderer, PptRenderer, ImageRenderer, TextRenderer, MarkdownRenderer, HtmlRenderer, UnknownRenderer, LargeFileRenderer } from './CanvasFileRenderers';
 
-function getFileIcon(artifact: CanvasArtifact) { return <img src={getFileIconSrc(artifact.name)} width="20" height="20" alt="" aria-hidden="true" />; }
-
 /* ── Main Panel ── */
 
 export function CanvasPanel() {
+  const paneId = useCanvasPaneId();
+  const activePane = useCanvasPane(s => s.activePane);
   const {
     isOpen, activeView, artifact, updateArtifact, openSeq,
-    activeTabId, setTabDirty, panelWidth, setPanelWidth,
-  } = useCanvasStore();
+    activeTabId, setTabDirty, panelWidth, setPanelWidth, reloadTab,
+  } = useCanvasPane();
+  const guardDirty = useCanvasGuard();
   // Drag-resize in progress: kills the width transition (frame-accurate follow)
   // and mounts a full-screen transparent mask so iframes (PDF/HTML preview)
   // can't swallow mousemove events mid-drag.
@@ -62,24 +62,21 @@ export function CanvasPanel() {
   const xlsxSaveButtonRef = useRef<HTMLButtonElement>(null);
   const xlsxSavingRef = useRef(false);
   const univerRef = useRef<UniverSpreadsheetHandle>(null);
-  // Lock the initial load URL so saves don't trigger Univer reload
-  const xlsxLoadUrlRef = useRef<string | null>(null);
 
   // Reset when a new file is opened (openSeq changes on every openCanvas call)
   useEffect(() => {
     setXlsxDirty(false);
-    xlsxLoadUrlRef.current = null;
   }, [openSeq]);
 
   // 未保存状态提给 store：页签栏在关闭页签 / 切页签 / 收起面板前据此确认，
   // 因为这三条路径都会把本面板连同编辑缓冲一起卸载。
   useEffect(() => {
-    if (activeTabId) setTabDirty(activeTabId, xlsxDirty);
-  }, [activeTabId, setTabDirty, xlsxDirty]);
+    if (activeTabId && artifact && getFileCategory(artifact) === 'xlsx') setTabDirty(activeTabId, xlsxDirty);
+  }, [activeTabId, artifact, setTabDirty, xlsxDirty]);
 
   // Intercept Ctrl+S to prevent browser "Save Page" and trigger xlsx save instead
   useEffect(() => {
-    if (!isOpen || activeView !== 'file') return;
+    if (!isOpen || activeView !== 'file' || activePane !== paneId) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -89,12 +86,12 @@ export function CanvasPanel() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeView, isOpen]);
+  }, [activeView, isOpen, activePane, paneId]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = panelRef.current?.offsetWidth || 700;
+    const startWidth = panelRef.current?.closest('.jx-canvasSplit')?.clientWidth || panelRef.current?.offsetWidth || 700;
 
     const onMove = (ev: MouseEvent) => {
       const delta = startX - ev.clientX; // dragging left = wider
@@ -119,7 +116,7 @@ export function CanvasPanel() {
 
   if (!isOpen || activeView !== 'file' || !artifact) return null;
 
-  const fileUrl = artifactUrl(artifact);
+  const fileUrl = artifactUrl(artifact, { params: { v: String(openSeq) } });
   const category = getFileCategory(artifact);
   const isXlsx = category === 'xlsx';
   const previewLimitBytes = getPreviewLimitBytes(category);
@@ -128,12 +125,6 @@ export function CanvasPanel() {
 
   const isTextFile = !previewTooLarge && ['text', 'markdown', 'html'].includes(category)
     && (!!artifact.space || (!artifact.file_id.startsWith('lpf_') && artifact.url.startsWith('/files/')));
-
-  // For xlsx: lock the load URL so saves (which update artifact.url) don't reload Univer
-  if (isXlsx && !xlsxLoadUrlRef.current) {
-    xlsxLoadUrlRef.current = fileUrl;
-  }
-  const xlsxLoadUrl = xlsxLoadUrlRef.current || fileUrl;
 
   const handleDownload = async () => {
     // If xlsx has been edited, export the current state instead of re-downloading the original
@@ -204,7 +195,7 @@ export function CanvasPanel() {
         return (
           <UniverSpreadsheet
             ref={univerRef}
-            url={xlsxLoadUrl}
+            url={fileUrl}
             fileName={artifact.name}
             readOnly={artifact.space?.writable === false}
             maxBytes={maxPreviewBytes}
@@ -238,24 +229,16 @@ export function CanvasPanel() {
         onKeyDown={(event) => {
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
           event.preventDefault();
-          resizeWidth((panelRef.current?.clientWidth || panelWidth || 700) + (event.key === 'ArrowLeft' ? 32 : -32));
+          resizeWidth((panelRef.current?.closest('.jx-canvasSplit')?.clientWidth || panelWidth || 700) + (event.key === 'ArrowLeft' ? 32 : -32));
         }}
       />
       {/* 拖拽期间的全屏透明遮罩：防 iframe 吞 mousemove */}
       {dragging && <div className="jx-canvas-dragMask" />}
       <CanvasTabBar />
-      {/* Header */}
-      <div className="jx-canvas-header">
-        <div className="jx-canvas-header-left">
-          <span className="jx-canvas-fileIcon">{getFileIcon(artifact)}</span>
-          <div className="jx-canvas-fileMeta">
-            <span className="jx-canvas-fileName" title={artifact.name}>
-              {artifact.name}
-              {isXlsx && xlsxDirty && <span className="jx-canvas-editedBadge jx-anim-statusIn">({t('已编辑')})</span>}
-            </span>
-          </div>
-        </div>
-        <div className="jx-canvas-header-actions">
+      <CanvasFileHeader artifact={artifact} revision={openSeq}
+        dirty={xlsxDirty || textState.dirty} saving={saving || textState.saving}
+        onReload={() => guardDirty(() => { if (activeTabId) reloadTab(activeTabId); })}
+        onDownload={isXlsx && xlsxDirty ? () => { void handleDownload(); } : undefined}>
           {isTextFile && category === 'html' && <div ref={setHtmlControls} className="jx-canvas-htmlControls" />}
           {isXlsx && !previewTooLarge && artifact.space?.writable !== false && (
             <button
@@ -277,13 +260,10 @@ export function CanvasPanel() {
               <SaveOutlined />
             </button>
           )}
-          <ArtifactFileAction file={artifact} iconOnly className="jx-canvas-actionBtn"
-            onDownload={handleDownload} disabled={isXlsx && xlsxDirty} />
-        </div>
-      </div>
+      </CanvasFileHeader>
 
       {/* Content */}
-      <div className="jx-canvas-body">
+      <div className="jx-canvas-body" key={activeTabId + ":" + openSeq}>
         {isTextFile ? (
           <FileTextPanel headerControls={htmlControls} ref={textRef} onStateChange={setTextState} key={`${activeTabId}-${openSeq}`} artifact={artifact} preview={renderContent} />
         ) : renderContent()}

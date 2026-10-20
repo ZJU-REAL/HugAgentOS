@@ -1,3 +1,4 @@
+import { PanelToggleGlyph } from './canvas/CanvasControlIcons';
 import { ChatSlot } from '../customization/ChatCustomization';
 import {WorkspaceRuntime} from '../workbench/WorkspaceRuntime';
 import {ActivityPanel} from '../workbench/ActivityPanel';
@@ -11,7 +12,6 @@ import { useAuthStore } from '../stores/authStore';
 import { usePersonalAgentAvailable } from '../personalAgentEdition';
 import {
   CloseOutlined,
-  InsertRowRightOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
 import {
@@ -115,7 +115,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               <Button
                 type="text"
                 className="jx-rightSidebarToggle"
-                icon={<InsertRowRightOutlined />}
+                icon={<PanelToggleGlyph />}
                 onClick={handleRightSidebarToggle}
                 aria-label={t('展开右侧面板')}
                 aria-pressed="false"

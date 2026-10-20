@@ -1,4 +1,4 @@
-"""References to existing local project files; never stores or copies their bytes."""
+"""Live references to local project and session files."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from fastapi import HTTPException
 PREFIX = "lpf_"
 
 
-def is_local_project_ref(file_id: str) -> bool:
+def is_local_file_ref(file_id: str) -> bool:
     return isinstance(file_id, str) and file_id.startswith(PREFIX)
 
 
@@ -109,6 +109,8 @@ def resolve_project_reference(item: dict) -> dict | None:
     if not local_mode_enabled():
         return None
     meta = item.get("metadata") or {}
+    if meta.get("reference_kind") == "session":
+        return resolve_session_reference(item)
     try:
         with SessionLocal() as db:
             project = ProjectSourceService(db).authorized_project(
@@ -139,7 +141,7 @@ def is_project_file_path(path: str, scope) -> bool:
 def authorized_reference(file_id: str, user_id: str | None) -> dict | None:
     from core.artifacts.store import get_artifact
 
-    if not user_id or not is_local_project_ref(file_id):
+    if not user_id or not is_local_file_ref(file_id):
         return None
     item = get_artifact(file_id)
     if not item or item["metadata"].get("user_id") != user_id:
@@ -156,7 +158,8 @@ def overwrite_reference(file_id: str, user_id: str, content: bytes, db) -> dict:
     item = authorized_reference(file_id, user_id)
     if not item:
         raise HTTPException(404, "文件不存在或无权访问")
-    ProjectSourceService(db).authorized_project(item["metadata"]["project_id"], user_id, write=True)
+    if item["metadata"].get("reference_kind") != "session":
+        ProjectSourceService(db).authorized_project(item["metadata"]["project_id"], user_id, write=True)
     source = Path(item["path"])
     if not _allows_live_access(str(source), user_id, "write"):
         raise HTTPException(403, "项目文件夹未授权写入，请在本地权限中调整")
@@ -185,3 +188,66 @@ def overwrite_reference(file_id: str, user_id: str, content: bytes, db) -> dict:
         "mime_type": item["mime_type"],
         "download_url": f"/files/{file_id}",
     }
+
+
+def reference_local_file(path: str, *, scope, user_id: str, session_id: str | None, name: str = "") -> dict:
+    from core.config.local_mode import local_mode_enabled
+    from core.config.settings import settings
+    from core.llm.tools._paths import workspace_directory
+    from core.llm.tool_permissions import require_local_path_permission
+    from core.artifacts.store import _write_record_local, _now_iso
+
+    if not local_mode_enabled():
+        raise HTTPException(400, "仅本机模式支持按文件路径交付")
+    if not user_id:
+        raise HTTPException(401, "交付文件需要登录")
+    if is_project_file_path(path, scope):
+        return reference_project_file(path, scope=scope, user_id=user_id, name=name)
+    source = Path(path).expanduser().resolve()
+    root = Path(workspace_directory(session_id)).resolve() if session_id else None
+    if root is None or not source.is_relative_to(root):
+        raise HTTPException(403, "文件必须位于当前会话工作目录或绑定的本机项目目录内")
+    require_local_path_permission(str(source), "read")
+    if not source.is_file():
+        raise HTTPException(404, "文件已移动或删除")
+    size = source.stat().st_size
+    if size > settings.sandbox.artifact_max_bytes:
+        raise HTTPException(413, "文件超过交付大小限制")
+    relative = source.relative_to(root).as_posix()
+    identity = f"{user_id}\0session\0{session_id}\0{root}\0{relative}"
+    item = {
+        "file_id": PREFIX + uuid5(NAMESPACE_URL, identity).hex,
+        "name": name.strip() or source.name,
+        "mime_type": mimetypes.guess_type(source.name)[0] or "application/octet-stream",
+        "size": size,
+        "path": str(source),
+        "created_at": _now_iso(),
+        "metadata": {
+            "source": "local_project_reference",
+            "reference_kind": "session",
+            "user_id": user_id,
+            "session_id": session_id,
+            "session_root": str(root),
+            "relative_path": relative,
+        },
+    }
+    _write_record_local(item)
+    return item
+
+
+def resolve_session_reference(item: dict) -> dict | None:
+    from core.llm.tools._paths import workspace_directory
+
+    meta = item.get("metadata") or {}
+    try:
+        root = Path(workspace_directory(meta["session_id"])).resolve()
+        if str(root) != meta["session_root"]:
+            return None
+        source = (root / meta["relative_path"]).resolve()
+        if not source.is_relative_to(root) or not source.is_file():
+            return None
+        if not _allows_live_access(str(source), meta["user_id"]):
+            return None
+        return {**item, "path": str(source), "size": source.stat().st_size}
+    except (HTTPException, KeyError, OSError, ValueError):
+        return None

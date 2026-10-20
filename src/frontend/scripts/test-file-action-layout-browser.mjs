@@ -12,7 +12,7 @@ import { createRoot } from 'react-dom/client';
 import { FilePreviewPane } from './src/components/file/FilePreviewPane';
 import { MySpaceImportModal } from './src/components/file/MySpaceImportModal';
 import { ArtifactFileAction } from './src/components/file/ArtifactFileAction';
-import { ArtifactCardList } from './src/components/chat/ArtifactCardList';
+import { DeliveredFiles } from './src/components/chat/DeliveredFiles';
 import FileAttachmentCard from './src/components/file/FileAttachmentCard';
 import { useDeploymentModeStore } from './src/stores/deploymentModeStore';
 import './src/styles/variables.css';
@@ -28,9 +28,8 @@ const modal = new URLSearchParams(location.search).get('modal');
 createRoot(document.getElementById('root')).render(modal ? <MySpaceImportModal open onClose={()=>{}} mode={modal} /> : <main>
  <section id="preview" style={{ display:'flex', height:180 }}><FilePreviewPane item={file} /></section>
  <section className="jx-canvas-header"><div className="jx-canvas-header-left"><span className="jx-canvas-fileName">{file.name}</span></div><div className="jx-canvas-header-actions"><button className="jx-canvas-actionBtn" aria-label="Save">S</button><ArtifactFileAction file={file} className="jx-canvas-actionBtn" /></div></section>
- <section className="jx-imgCard-overlayBtns" style={{ position:'static',opacity:1 }}><button className="jx-imgCard-overlayBtn" aria-label="Copy">C</button><ArtifactFileAction file={file} className="jx-imgCard-overlayBtn" /></section>
  <section><FileAttachmentCard name={file.name} artifact={file} /></section>
- <section><ArtifactCardList artifacts={[{ ...file, url:file.download_url }]} /></section>
+ <section><DeliveredFiles artifacts={[{ ...file, url:file.download_url }]} /></section>
  </main>);
 `, resolveDir: process.cwd(), loader:'tsx' }, outfile: resolve(output,'fixture.js'), bundle:true,
  format:'esm', jsx:'automatic', define:{'import.meta.env':'{}'},
@@ -49,6 +48,7 @@ try {
     if (path === '/api/v1/artifacts') return route.fulfill({json:{code:0,data:{items:Array.from({length:20},(_,i)=>({id:'report-'+i,file_id:'report',name:'quarterly_report_20261012_183333_very_long_filename.txt',type:'document',origin,download_url:'/files/report',created_at:'2026-10-12'})),total:20,has_more:false}}});
     if (path === '/api/v1/myspace/folders') return route.fulfill({json:{code:0,data:{tree:[]}}});
     if (path === '/api/v1/my-teams') return route.fulfill({json:{code:0,data:{items:[]}}});
+    if (path.endsWith('/applications')) return route.fulfill({json:{applications:[{id:'editor',name:'Editor',icon:null}],default_id:'editor'}});
     if (path.startsWith('/api/files/')) return route.fulfill({contentType:'text/plain',body:'Preview content'});
     if (path.endsWith('.svg')) return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"/>'});
     return route.fulfill({contentType:'text/html',body:'<html><head><link rel="stylesheet" href="/fixture.css"><style>body{margin:0;font:14px Arial}main{padding:12px}section{margin-bottom:16px}</style></head><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>'});
@@ -58,7 +58,7 @@ try {
    for (const width of [720,420,320,240]) {
     await page.setViewportSize({width,height:800});
     const layout = await page.evaluate(() => {
-     const selectors = ['.jx-spaceImportPreview-headerAction','.jx-canvas-header-actions > a','.jx-canvas-header-actions > .jx-artifactOpen','.jx-imgCard-overlayBtns > a','.jx-imgCard-overlayBtns > .jx-artifactOpen','.jx-fileCard-nativeAction','.jx-dlCard-btn'];
+     const selectors = ['.jx-spaceImportPreview-headerAction','.jx-canvas-header-actions > a','.jx-canvas-header-actions > .jx-artifactOpen','.jx-fileCard-nativeAction','.jx-fileAction-button'];
      return selectors.flatMap(selector => [...document.querySelectorAll(selector)].map(action => {
       const target = action.querySelector('.jx-artifactOpen-main') || action;
       const box = target.getBoundingClientRect();
@@ -73,7 +73,11 @@ try {
       return {selector,text:target.textContent,box:{left:box.left,right:box.right,top:box.top,bottom:box.bottom},rects,icon:icon && {top:icon.top,bottom:icon.bottom},overflow:target.scrollWidth-target.clientWidth};
      }));
     });
-    assert.ok(layout.length >= 5);
+    assert.equal(layout.length, 3);
+    const delivery = page.locator('[data-presented-file]');
+    assert.equal(await delivery.count(), 1);
+    assert.equal(await delivery.locator('button button').count(), 0);
+    assert.ok((await delivery.locator('.hg-delivery-name').boundingBox()).width >= 60, JSON.stringify({lang,origin,width}));
     for (const action of layout) {
      const context = JSON.stringify({lang,origin,width,...action});
      assert.ok(action.rects.length && Math.max(...action.rects.map(r=>r.top))-Math.min(...action.rects.map(r=>r.top))<2, 'label wraps: '+context);
@@ -89,6 +93,11 @@ try {
     assert.ok(header.name<=header.action && header.right<=header.header,'preview filename overlaps action');
    }
    await page.screenshot({path:resolve(output,lang+'-'+origin+'.png'),animations:'disabled'});
+   if (process.argv.includes('--cards-only')) {
+    assert.deepEqual(errors, []);
+    await page.close();
+    continue;
+   }
    for (const mode of ['attach','project']) {
     await page.goto('http://fixture.test/?origin='+origin+'&modal='+mode);
     await page.locator('.jx-spaceImportItem').first().click();
@@ -129,5 +138,7 @@ try {
    await page.close();
   }
  }
- console.log('file action layout passed: 16 width/locale/origin combinations across 5 surfaces; 48 desktop/phone modal combinations across import/reference modes');
+ console.log(process.argv.includes('--cards-only')
+  ? 'file action layout passed: 16 width/locale/origin combinations, delivery filenames and independent actions'
+  : 'file action and import-modal layout passed');
 } finally { await browser.close(); }

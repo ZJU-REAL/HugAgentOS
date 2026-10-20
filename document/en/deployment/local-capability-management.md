@@ -80,3 +80,9 @@ Subsequent uploads increment the highest published version. The current version 
 publisher is retained before the next update or selection of an older snapshot. Built-in skill changes
 update runtime contents; existing installed copies of other market resources remain
 under their established installation and configuration flows.
+
+## Default interactive visualization plugin
+
+The bundled visualize plugin installs once at CE, EE, and local-service startup, including existing databases. Local installs respect the installer default-plugin switch; hybrid mode continues to use authenticated cloud capability synchronization. Later removal is respected, and existing disabled settings are preserved.
+
+Use it for charts, simulations, explanations, maps, and interface mockups. Complete HTML documents open through existing file cards and the Canvas preview. Common chart libraries are embedded during export and require no account. Interaction state remains local to the page and never reaches the model; the preview sandbox may prevent persistent storage. Use the sites plugin to publish a website.

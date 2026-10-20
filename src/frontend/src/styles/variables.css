@@ -3,6 +3,26 @@
    Based on UI design spec (img/设计规范/)
    ══════════════════════════════════════════ */
 :root{
+  --delivery-fill:#FAFAFA;
+  --delivery-hover:#F5F5F5;
+  --delivery-border:rgba(0,0,0,.04);
+  --delivery-control-border:rgba(0,0,0,.16);
+  --delivery-text:#0F1115;
+  --delivery-secondary:#61666B;
+  --delivery-tertiary:#81858C;
+  --delivery-control-hover:rgba(38,49,72,.06);
+  --delivery-error:#EC1313;
+  --delivery-focus:#4176E6;
+  --delivery-art-white:#FFFFFF;
+  --delivery-art-muted:#A2A4A6;
+  --delivery-icon-code:#4176E6;
+  --delivery-icon-excel:#22C55E;
+  --delivery-icon-folder:#F7AD31;
+  --delivery-icon-image:#8B76F6;
+  --delivery-icon-other:#CFD3D6;
+  --delivery-icon-pdf:#EC1313;
+  --delivery-icon-ppt:#F59E0B;
+  --delivery-icon-word:#5686FE;
   /* Personal Agent: neutral conversation with blue outgoing messages. */
   --color-personal-bg:#FCFCFC;
   --color-personal-assistant:#EAEAEA;
@@ -188,6 +208,16 @@
    只重定义颜色/阴影令牌，几何与 motion 令牌两个主题共用。
    ══════════════════════════════════════════ */
 :root[data-theme="dark"]{
+  --delivery-fill:#212123;
+  --delivery-hover:#292929;
+  --delivery-border:rgba(255,255,255,.06);
+  --delivery-control-border:rgba(255,255,255,.2);
+  --delivery-text:#F9FAFB;
+  --delivery-secondary:#CFD3D6;
+  --delivery-tertiary:#ADB2B8;
+  --delivery-control-hover:rgba(255,255,255,.08);
+  --delivery-error:#F25A5A;
+  --delivery-focus:#7AAAFF;
   --color-personal-bg:var(--color-bg-container);
   --color-personal-assistant:#2A3039;
   --color-personal-user:#254766;

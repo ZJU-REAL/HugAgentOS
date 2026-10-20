@@ -100,6 +100,10 @@ try{
 
  await page.evaluate(value=>window.showBrowser(value),opened);
  const frame=page.frameLocator('iframe');
+ const waitForAutoRelease = async () => {
+  await frame.locator('#address').focus();
+  await page.waitForTimeout(15500);
+ };
  try { await frame.locator('#screen').waitFor(); } catch(error) { console.log('Browser fixture output',JSON.stringify(opened)); console.log(await page.locator('body').innerText()); console.log(await page.locator('iframe').evaluateAll(nodes=>nodes.map(n=>n.src))); throw error; }
  try{await frame.locator('#tabs [role=tab]').first().waitFor();}catch(error){await page.screenshot({path:resolve(output,'failure.png')});console.log(await page.locator('body').innerText());throw error;}
  assert.equal(await page.evaluate(()=>window.boundCanvasSource()),opened.resource.slug);
@@ -116,10 +120,12 @@ try{
  await frame.locator('#overlay').waitFor({state:'hidden'});
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
- assert.equal(await frame.locator('#release-control').isVisible(), true);
- checks.push('Leaving browser focus preserves human control until explicit release');
+ assert.equal(await frame.locator('#release-control').count(),0);
+ const humanOwned=await fetch(backend+'/test/tool/browser_observe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({resource_id:id})});
+ assert.equal(humanOwned.status,409);
+ checks.push('Leaving browser focus preserves human control without a release button');
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  const initialState=await tool('browser_observe',{resource_id:id,action:'state'});
@@ -148,7 +154,7 @@ try{
  await frame.locator('#keyboard').pressSequentially('人工中文输入');
  await page.waitForTimeout(300);
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#result'})).text,'工具自动填写');
@@ -165,7 +171,7 @@ try{
  await page.mouse.wheel(0,450);
  await page.waitForTimeout(600);
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>0);
@@ -177,7 +183,7 @@ try{
  await page.mouse.wheel(0,250);
  await page.waitForTimeout(600);
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>previousScroll);
@@ -196,7 +202,7 @@ try{
  await touchCdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
  await touchCdp.detach();
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();await page.waitForTimeout(300);
  assert.ok(Number((await tool('browser_observe',{resource_id:id,action:'text',selector:'#scroll-result'})).text)>beforeTouch);
  checks.push('Touch drag scrolls the remote nested container without mouse drag selection');
@@ -213,7 +219,7 @@ try{
  await page.waitForTimeout(500);
  assert.equal(await canvas.evaluate(el=>el.width),baseWidth);
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();await page.waitForTimeout(300);
  checks.push('Ctrl plus reflows the remote viewport and Ctrl zero restores 100 percent');
 
@@ -225,7 +231,7 @@ try{
  await dialogClick;
  await frame.locator('#dialog').waitFor({state:'hidden'});
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  checks.push('Live JavaScript dialog handled without blocking the operation lock');
@@ -237,7 +243,7 @@ try{
  await (await chooser).setFiles({name:'中文.txt',mimeType:'text/plain',buffer:Buffer.from('实机上传')});
  await page.waitForTimeout(300);
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#filename'})).text,'中文.txt');
@@ -257,7 +263,7 @@ try{
  await page.mouse.click(box.x+200*box.width/size.width,box.y+45*box.height/size.height);
 
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  assert.equal((await tool('browser_observe',{resource_id:id,action:'text',selector:'#result'})).text,'人工中文输入');
@@ -281,7 +287,7 @@ try{
  checks.push('Target-blank link automatically selects its new page, updates the address and renders its live frame');
  await frame.locator('[role=tab]').nth(1).locator('.chrome-tab-close').click();
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  state=await tool('browser_observe',{resource_id:id,action:'state'});
@@ -289,7 +295,7 @@ try{
  assert.equal(state.tabs.length,2);
  await frame.locator('[role=tab][active] .chrome-tab-close').click();
  await page.waitForTimeout(300);
- if (await frame.locator('#release-control').isVisible()) await frame.locator('#release-control').click();
+ await waitForAutoRelease();
  await page.locator('#outside').click();
  await page.waitForTimeout(300);
  state=await tool('browser_observe',{resource_id:id,action:'state'});

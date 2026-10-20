@@ -20,12 +20,14 @@ window.BrowserChannel={listen(fn){window.listener=fn;},epoch(){},connection(){re
  window.state={type:'state',tabs:[{id:'1',url:'about:blank',title:''}],active_tab:'1',controller:'agent',connection_id:'',epoch:0,viewport_revision:1,viewport_limits:{min_width:320,max_width:1600,min_height:200,max_height:1200},downloads:[],dialogs:[],filechoosers:[]};
  window.listener({type:'attached'});window.listener(window.state);
  });
+ assert.equal(await page.locator('#release-control').count(),0);
  assert.equal(await page.locator('#overlay').textContent(),'输入网址或搜索内容，按 Enter 打开');
  assert.equal(await page.locator('.chrome-tab-title').textContent(),'新标签页');
  await page.locator('#address').fill(' example.com/path ');
  await page.locator('#address').press('Enter');
  await page.waitForFunction(()=>window.calls.some(c=>c.action==='navigate'));
  assert.equal(await page.evaluate(()=>window.calls.find(c=>c.action==='navigate').params.url),'https://example.com/path');
+ assert.equal(await page.locator('#release-control').count(),0,'Human control must not add a release button');
  await page.locator('#address').fill('javascript:alert(1)');
  await page.locator('#address').press('Enter');
  await page.waitForTimeout(100);

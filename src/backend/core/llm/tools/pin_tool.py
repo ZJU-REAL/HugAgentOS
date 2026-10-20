@@ -55,7 +55,7 @@ def register_pin_to_workspace(
         重复调用会累加、已 pin 的自动去重，个别 ID 失败不影响其余文件交付。
 
         **本机模式**：直接用 ``file_paths=["项目内相对路径或绝对路径"]`` 交付已生成的文件，无需先调用 sandbox_get_artifact。
-        项目文件展示原文件引用；当前会话工作目录文件自动登记后交付。
+        项目和当前会话工作目录文件均展示原文件引用，不复制文件内容。
         已绑定项目时相对路径以项目目录为准，交付会话文件请传绝对路径。
         其他模式用 ``file_ids``，不要把路径放进 ID 列表。ID 来源：
         沙盒文件先 ``sandbox_get_artifact`` 登记；word/ppt/excel/pdf-cli 直接返回；空间文件同样通过 ``sandbox_get_artifact`` 登记。
@@ -125,7 +125,7 @@ def register_pin_to_workspace(
             from core.infra.logging import user_id_var
             from fastapi import HTTPException
 
-            from .local_delivery import prepare_local_delivery
+            from core.artifacts.local_reference import reference_local_file
 
             if not isinstance(file_paths, list):
                 file_paths = [file_paths]
@@ -135,7 +135,7 @@ def register_pin_to_workspace(
                     failed_results.append({"path": str(path), "error": "文件路径必须是非空字符串"})
                     continue
                 try:
-                    from core.artifacts.local_project import project_file_path
+                    from core.artifacts.local_reference import project_file_path
                     from core.infra.logging import chat_id_var
 
                     physical = project_file_path(
@@ -146,7 +146,7 @@ def register_pin_to_workspace(
                     import asyncio
 
                     item = await asyncio.to_thread(
-                        prepare_local_delivery,
+                        reference_local_file,
                         physical,
                         scope=scope,
                         user_id=user_id_var.get() or "",
@@ -263,7 +263,7 @@ def register_pin_to_workspace(
     from core.llm.tool_permissions import READ, ToolPermissionSpec, local_path_tool
 
     def resolve_pin_paths(args, runtime):
-        from core.artifacts.local_project import project_file_path
+        from core.artifacts.local_reference import project_file_path
 
         paths = args.get("file_paths") or []
         if isinstance(paths, str):
