@@ -59,6 +59,8 @@ HugAgentOS 内置两种「把一句话变成可重复的生产力」机制，两
 
 执行会话使用 /automation/:taskId/conversations/:chatId；创建会话使用任务段 new。刷新、前进后退、搜索命中及通知入口均保留任务归属；搜索执行结果直接打开命中的会话，避免误跳到最新执行。RunTimelinePanel 提供按日期分组的执行记录。automationStore 管理唯一任务列表，automationChatStore 仅管理当前执行组和任务置顶、收藏偏好。
 
+执行会话打开右侧 Canvas 时，执行记录面板暂时隐藏，为对话和 Canvas 留出空间。收起 Canvas 后恢复执行记录面板，保留当前任务、选中的执行和会话。
+
 ## 计划模式
 
 计划模式把复杂任务拆成结构化步骤再执行，分两阶段（`orchestration/subagents/plan_mode.py`）：

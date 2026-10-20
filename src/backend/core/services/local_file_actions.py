@@ -23,7 +23,7 @@ def _run(arguments: list[str], *, input_text: str | None = None, timeout: int = 
     return result.stdout.strip()
 
 
-def file_applications(path: str) -> dict:
+def file_applications(path: str, *, include_icons: bool = True) -> dict:
     if sys.platform == "darwin":
         script = """
 ObjC.import('AppKit');
@@ -42,13 +42,16 @@ function run(args) {
     const preferred = workspace.URLForApplicationToOpenURL(url);
     const urls = workspace.URLsForApplicationsToOpenURL(url);
     const apps = [];
+    const seen = new Set();
+    const includeIcons = args[1] === 'true';
     for (let index = 0; index < urls.count; index++) {
         const bundle = $.NSBundle.bundleWithURL(urls.objectAtIndex(index));
         const id = ObjC.unwrap(bundle.bundleIdentifier);
-        if (!id) continue;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
         const name = ObjC.unwrap(bundle.objectForInfoDictionaryKey('CFBundleDisplayName'))
             || ObjC.unwrap(bundle.objectForInfoDictionaryKey('CFBundleName')) || id;
-        apps.push({id, name, icon: appIcon(bundle)});
+        apps.push({id, name, icon: includeIcons ? appIcon(bundle) : null});
     }
     const defaultId = preferred
         ? ObjC.unwrap($.NSBundle.bundleWithURL(preferred).bundleIdentifier) : null;
@@ -56,10 +59,13 @@ function run(args) {
 }
 """
         # AppKit can take longer on first access when many applications provide icons.
-        # Keep open/reveal actions on the shorter default timeout.
-        return json.loads(_run(["/usr/bin/osascript", "-l", "JavaScript", "-", path], input_text=script, timeout=45))
+        # Registration validation excludes icons and retains the shorter timeout.
+        return json.loads(_run(
+            ["/usr/bin/osascript", "-l", "JavaScript", "-", path, str(include_icons).lower()],
+            input_text=script, timeout=45 if include_icons else 10,
+        ))
     if sys.platform == "win32":
-        return _windows_applications(path)
+        return _windows_applications(path, include_icons=include_icons)
     mime = _run(["xdg-mime", "query", "filetype", path]) or mimetypes.guess_type(path)[0]
     if not mime:
         return {"applications": [], "default_id": None}
@@ -69,7 +75,7 @@ function run(args) {
     for identifier in identifiers:
         entry = _desktop_entry(identifier)
         if entry is not None:
-            applications.append({"id": identifier, "name": entry[1], "icon": desktop_icon(str(entry[0]))})
+            applications.append({"id": identifier, "name": entry[1], "icon": desktop_icon(str(entry[0])) if include_icons else None})
     return {"applications": applications, "default_id": identifiers[0] if identifiers else None}
 
 
@@ -100,7 +106,7 @@ def _registry_value(root, key: str, name: str = "") -> str | None:
         return None
 
 
-def _windows_applications(path: str) -> dict:
+def _windows_applications(path: str, *, include_icons: bool = True) -> dict:
     import winreg
 
     extension = Path(path).suffix
@@ -123,19 +129,21 @@ def _windows_applications(path: str) -> dict:
         command = _registry_value(winreg.HKEY_CLASSES_ROOT, identifier + r"\shell\open\command")
         if not command:
             continue
-        name = (_windows_default_name(identifier) if sys.platform == "win32" else None) or _registry_value(winreg.HKEY_CLASSES_ROOT, identifier) or identifier
-        icon_path = path
-        if sys.platform == "win32":
+        name = _windows_default_name(identifier) or _registry_value(winreg.HKEY_CLASSES_ROOT, identifier) or identifier
+        icon = None
+        if include_icons:
+            icon_path = path
             try:
                 icon_path = _windows_command(command, path)[0]
             except (OSError, ValueError, RuntimeError):
                 pass
-        applications.append({"id": identifier, "name": name, "icon": windows_icon(icon_path)})
+            icon = windows_icon(icon_path)
+        applications.append({"id": identifier, "name": name, "icon": icon})
     if preferred and preferred not in {item["id"] for item in applications}:
         applications.insert(0, {
             "id": "system-default",
             "name": _windows_default_name(extension) or "系统默认应用",
-            "icon": windows_icon(path),
+            "icon": windows_icon(path) if include_icons else None,
         })
         preferred = "system-default"
     return {"applications": applications, "default_id": preferred}
@@ -190,7 +198,7 @@ def open_file(path: str, *, action: str, application: str | None = None) -> None
     if action not in ("open", "reveal"):
         raise ValueError("无效的文件操作")
     if application is not None:
-        choices = file_applications(path)
+        choices = file_applications(path, include_icons=False)
         if application not in {item["id"] for item in choices["applications"]}:
             raise ValueError("关联应用已不可用，请重试")
     if sys.platform == "darwin":

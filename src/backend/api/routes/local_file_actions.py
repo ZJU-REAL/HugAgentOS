@@ -22,13 +22,16 @@ class FileOpenRequest(BaseModel):
 
 
 @router.get("/{file_id}/applications")
-def applications(file_id: str, user: UserContext = Depends(require_auth()), db: Session = Depends(get_db)):
+def applications(
+    file_id: str, user: UserContext = Depends(require_auth()), db: Session = Depends(get_db),
+    include_icons: bool = True,
+):
     from api.routes.files import local_file_location
     from core.services.local_file_actions import file_applications
 
     location = local_file_location(file_id, user, db)
     try:
-        return {**file_applications(location["path"]), "path": location["path"]}
+        return {**file_applications(location["path"], include_icons=include_icons), "path": location["path"]}
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         raise HTTPException(503, "无法读取关联应用，请重试") from exc
 

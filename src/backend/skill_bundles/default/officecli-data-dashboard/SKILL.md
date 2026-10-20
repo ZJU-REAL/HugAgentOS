@@ -1,7 +1,7 @@
 ---
 name: officecli-data-dashboard
 display_name: Excel 数据看板
-description: "**把 CSV / 表格数据做成 Excel 数据看板**：打开即见 Dashboard 页，含多个公式驱动的 KPI 卡片、多张图表、迷你图与条件格式。单表预算 / 一次性 CSV 美化不要用它。 Use this skill to build a multi-element Excel dashboard — Dashboard sheet on open, multiple formula-driven KPI cards, multiple charts, sparklines, and conditional formatting — from CSV or tabular input. Trigger on: 'dashboard', 'KPI dashboard', 'analytics dashboard', 'executive dashboard', 'metrics dashboard', 'CSV to dashboard', 'data visualization'. Output is a single .xlsx. Scene-layer on officecli-xlsx: inherits every xlsx hard rule. DO NOT invoke for: a single budget tracker / one-sheet CSV-with-formatting (use xlsx), a 3-statement / DCF / LBO financial model (use financial-model), a weekly report with ≤ 1 chart and < 10 rows (use xlsx)."
+description: "**把 CSV / 表格数据做成 Excel 数据看板**：打开即见 Dashboard 页，含多个公式驱动的 KPI 卡片、多张图表、迷你图与条件格式。单表预算 / 一次性 CSV 美化不要用它。 Use this skill to build a multi-element Excel dashboard — Dashboard sheet on open, multiple formula-driven KPI cards, multiple charts, sparklines, and conditional formatting — from CSV or tabular input. Trigger on: 'dashboard', 'KPI dashboard', 'analytics dashboard', 'executive dashboard', 'metrics dashboard', 'CSV to dashboard', 'data visualization'. Output is a single .xlsx. Scene-layer on officecli-xlsx: inherits every xlsx hard rule. DO NOT invoke for: a single budget tracker / one-sheet CSV-with-formatting (use xlsx), a 3-statement / DCF / LBO financial model (use financial-model), a weekly report with at most 1 chart and fewer than 10 rows (use xlsx)."
 tags: xlsx, excel, dashboard, kpi, officecli
 ---
 

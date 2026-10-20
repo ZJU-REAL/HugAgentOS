@@ -349,6 +349,8 @@ During capability synchronization, local change capture snapshots account identi
 
 ## File previews and opening local files
 
+Local delivery cards also provide a separate Open containing folder button. Default opening does not wait for application discovery. Expanding the menu loads application names first, followed by optional icons. The menu stays within the window and long lists support wheel and scrollbar navigation. Menu results are briefly reused for the same file; opening a selected application still rechecks file access and the registered association on the local service. Switching files clears the previous action status. Icon loading does not prevent expired application choices from refreshing.
+
 Desktop output cards show **Open** for files stored on the computer and open the saved original in the system default application. The adjacent dropdown offers **Open containing folder**. Cloud files keep **Download**. Dual mode chooses the action from the file's ownership; switching conversations does not change an open file's source. The browser application keeps downloading files.
 
 Local image, PDF, Office and text previews route to the local service. Office files in local folder projects also support PDF previews. Path lookup uses the existing file or project access checks. Moved or deleted files and unavailable local services produce an error instead of downloading a replacement copy. Save pending spreadsheet edits before opening the file in a system application.
@@ -370,7 +372,7 @@ Local project references read the current original contents on subsequent access
 
 ### Office commands and preview troubleshooting
 
-Full desktop runtimes include pinned OfficeCLI 1.0.144, available through the local `bash` tool as `officecli --version`.
+Full desktop runtimes include pinned OfficeCLI 1.0.157, available through the local `bash` tool as `officecli --version`.
 The release builder downloads and verifies its SHA-256 before bundling it; first installation requires no additional download.
 Native tool manifests and runtime build/smoke scripts participate in the dependency fingerprint, so changes replace old runtimes.
 Full desktop runtimes also bundle Pandoc 3.11 and LibreOffice 26.2.6 in private application directories.

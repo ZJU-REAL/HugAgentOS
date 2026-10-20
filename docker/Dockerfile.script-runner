@@ -107,7 +107,7 @@ ENV PDF_SKILL_DIR=/workspace/skills/pdf-editing
 # 「curl 联网安装」改成「沙盒已预装」，沙箱本身也不保证有外网。
 # 这里**硬失败**而不是像 himalaya 那样降级跳过：十个技能已默认安装并对用户可见，
 # 二进制缺失会让它们全部在运行时报错，比构建期失败更难排查。
-ARG OFFICECLI_VERSION=v1.0.144
+ARG OFFICECLI_VERSION=v1.0.157
 RUN OFFICECLI_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo arm64 || echo x64)" && \
     curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
         "https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/officecli-linux-${OFFICECLI_ARCH}" \

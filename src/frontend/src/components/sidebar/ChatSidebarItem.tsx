@@ -54,8 +54,11 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
   const waitingForConfirmation = statusIds.some(id => (pendingConfirm[id]?.length ?? 0) > 0 || !!pendingDesignPick[id]);
   const indicator = taskIndicator(statusIds.flatMap(id => {
     const notice = notices['chat:' + id];
+    // A journal pause can outlive its interaction. Only the actionable UI
+    // queues above may light the conversation's yellow reminder.
+    if (notice?.status === 'waiting') return [];
     // A newly admitted run supersedes a previous verdict before the next poll arrives.
-    return notice && (!(sendingChatIds.has(id) || remoteRunningChatIds.has(id)) || notice.status === 'waiting' || notice.status === 'running') ? [notice] : [];
+    return notice && (!(sendingChatIds.has(id) || remoteRunningChatIds.has(id)) || notice.status === 'running') ? [notice] : [];
   }), running, waitingForAnswer || waitingForConfirmation);
 
 

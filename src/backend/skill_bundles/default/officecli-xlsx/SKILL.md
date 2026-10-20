@@ -383,6 +383,7 @@ Other common `type` values: `decimal`, `whole`, `date`, `textLength`, `custom`. 
 - **Tables** (ListObjects) — `add --type table` with a range; gives auto-filter + structured refs. `officecli help xlsx table`.
 - **Comments** — `add --type comment`; use for documenting hardcoded assumptions. `officecli help xlsx comment`.
 - **Sheet reordering** — `officecli move`, not `swap`. `swap` only works on row/cell paths.
+- **New row/column with the neighbours' formatting** — `add "$FILE" /Sheet1 --from "/Sheet1/row[5]" --index 5` clones fills, fonts and formulas (refs shift); `add --type row` inserts a bare row.
 
 ## Chart Axis-by-Role
 

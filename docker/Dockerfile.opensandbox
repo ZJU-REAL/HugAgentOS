@@ -165,7 +165,7 @@ RUN cd /opt/site-template/react-vite \
 # 原生二进制，内嵌 .NET runtime，不依赖 Office 或 LibreOffice。版本随镜像固定，
 # 禁止容器内自升级——技能文档里已把上游的「curl 联网安装」改成「沙盒已预装」，
 # 沙箱本身也不保证有外网。走 gh-proxy 与同文件的 dws / himalaya 保持一致。
-ARG OFFICECLI_VERSION=v1.0.144
+ARG OFFICECLI_VERSION=v1.0.157
 RUN OFFICECLI_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo arm64 || echo x64)" \
     && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
         "https://gh-proxy.com/https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/officecli-linux-${OFFICECLI_ARCH}" \
