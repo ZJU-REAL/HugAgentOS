@@ -28,7 +28,7 @@ def response_client(monkeypatch):
     seen = {}
     async def start(request, user, session):
         seen["stream"] = request.stream
-        return SimpleNamespace(run_id="run-1", message_id="message-1", chat_id=request.chat_id)
+        return SimpleNamespace(run_id="run-1", message_id="message-1", user_message_id="user-message-1", chat_id=request.chat_id)
     async def follow(run_id, *, chat_id):
         yield 'event: run_started\ndata: {"run_id":"run-1"}\n\n'
         yield 'data: [DONE]\n\n'
@@ -52,6 +52,7 @@ def test_one_endpoint_selects_response_transport(response_client, stream):
     assert seen == {"stream": stream}
     if stream:
         assert result.headers["content-type"].startswith("text/event-stream")
+        assert result.headers["x-hugagent-user-message-id"] == "user-message-1"
         assert "run_started" in result.text
         assert result.text.endswith("data: [DONE]\n\n")
     else:
@@ -113,3 +114,20 @@ def test_scoped_json_logs_actual_http_result(response_client, monkeypatch, statu
     })
     assert result.status_code == status
     assert recorded == [("run-1", status)]
+
+
+def test_cross_origin_client_can_read_admitted_user_identity(response_client, monkeypatch):
+    from api.middleware import cors
+
+    client, _seen, app = response_client
+    monkeypatch.setattr(cors, "settings", SimpleNamespace(server=SimpleNamespace(
+        cors_origins="http://localhost:3000", is_prod=False,
+    )))
+    cors.setup_cors(app)
+    response = client.post("/v1/agents/responses", headers={"Origin": "http://localhost:3000"}, json={
+        "chat_id": "chat-1", "message": "hello", "stream": True,
+    })
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    exposed = response.headers["access-control-expose-headers"].lower()
+    assert "x-hugagent-user-message-id" in {name.strip() for name in exposed.split(",")}
+    assert response.headers["x-hugagent-user-message-id"] == "user-message-1"

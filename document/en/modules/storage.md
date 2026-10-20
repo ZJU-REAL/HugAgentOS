@@ -8,7 +8,7 @@ The optional docker/compose.object-storage.yml starts an independent S3 service.
 
 CE initialization generates separate random access and secret keys. Run python3 scripts/configure-ce-docker.py in a new CE checkout. It refuses to overwrite an existing .env.
 
-Build the backend image before starting the bucket initializer. Run sudo bash docker/prepare-object-mounts.sh with the absolute host storage path. Then start the services.
+Build the backend image before starting the bucket initializer. Object mounts use per-sandbox services and need no host shared-propagation directory. Then start the services.
 
 Existing installations must back up configuration, databases and file references before changing providers. Copy required objects and verify their SHA-256 values. Preserve the source objects.
 

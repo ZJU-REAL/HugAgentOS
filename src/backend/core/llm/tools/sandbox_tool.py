@@ -60,6 +60,7 @@ def register_bash(
     sandbox_session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     scope: Any = None,
+    source_run_id: Optional[str] = None,
 ) -> None:
     """Register the generic ``Bash`` tool.
 
@@ -86,6 +87,7 @@ def register_bash(
 
     async def Bash(
         command: str, timeout: int | None = None, yield_time_ms: int = 60000,
+        run_in_background: bool = False,
     ) -> ToolResponse:
         from core.sandbox import ProcessRequest as _ProcessRequest
         from core.sandbox import SandboxConnectError as _SandboxConnectError
@@ -177,7 +179,10 @@ def register_bash(
         )
         from fastapi import HTTPException
         try:
-            payload = await provider.start_process(req, yield_time_ms=yield_time_ms)
+            from orchestration.commands.runtime import runtime
+            payload = await runtime.start(provider, req, chat_id=chat_id,
+                source_run_id=source_run_id, background=run_in_background,
+                yield_time_ms=yield_time_ms)
         except HTTPException as exc:
             return _resp_json({"error": exc.detail, "status": exc.status_code})
         except _SandboxTimeoutError as exc:
@@ -189,19 +194,31 @@ def register_bash(
             return _resp_json(payload)
         return await finish(payload)
 
-    async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 60000) -> ToolResponse:
-        from core.sandbox import get_sandbox_provider
-        from fastapi import HTTPException
-        try:
-            payload = await get_sandbox_provider().write_stdin(
-                session_id, sandbox_session_id=_sess, user_id=user_id,
-                chars=chars, yield_time_ms=yield_time_ms,
-            )
-        except HTTPException as exc:
-            return _resp_json({"error": exc.detail, "status": exc.status_code})
-        if payload.get("status") == "running":
-            return _resp_json(payload)
+    async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 0) -> ToolResponse:
+        from core.services.commands import store
+        from orchestration.commands.runtime import runtime
+        tid = await asyncio.to_thread(store.resolve_id, session_id, user_id, _sess)
+        if chars not in ("", "\x03"):
+            return _resp_json({"error": "stdin is closed; use empty input or Ctrl+C"})
+        if chars:
+            await runtime.cancel(tid, user_id, _sess)
+        else:
+            await runtime.wait(tid, user_id, _sess, max(0, min(yield_time_ms, 3000)))
+        payload = await asyncio.to_thread(store.read, tid, user_id, _sess)
         return await finish(payload)
+
+    async def background_process(session_id: str) -> ToolResponse:
+        """Adopt an existing Bash process without executing the command again."""
+        from core.sandbox import get_sandbox_provider
+        from orchestration.commands.runtime import runtime
+        payload = await runtime.adopt(get_sandbox_provider(), session_id,
+            user_id=user_id, session_id=_sess, chat_id=chat_id, source_run_id=source_run_id)
+        return _resp_json(payload)
+
+    async def list_processes() -> ToolResponse:
+        """List this user's command tasks in the current chat."""
+        from core.services.commands import store
+        return _resp_json({"tasks": await asyncio.to_thread(store.list_owned, user_id, chat_id)})
 
     async def finish(payload: dict) -> ToolResponse:
         # dws (DingTalk CLI) PAT per-scope authorization interception: exit code 4
@@ -234,10 +251,11 @@ def register_bash(
         "    command (`str`): 完整 shell 命令字符串。可以包含管道、重定向、\n"
         "        here-doc、命令链 (&&, ;, ||) 等任意 Bash 语法。\n"
         "    yield_time_ms (`int`): 首次等待毫秒数，默认 60000，范围 250–60000。等待到期不会杀进程。\n"
+        "    run_in_background (`bool`): 立即转后台，默认 false；前台等待到期仍运行也自动转后台。\n"
         "    timeout (`int`, 可选): 显式命令执行期限（秒）。默认不设置；不再有 120 秒硬上限。\n\n"
         "Returns:\n"
         "    JSON: {stdout, stderr, exit_code, execution_time_ms, status, session_id}。\n"
-        "    status=running 时使用 write_stdin(session_id, chars='') 等待同一命令；不要重新启动或用 nohup/tail 轮询。\n"
+        "    status=running 时已交给后台管理；完成后自动通知。继续独立工作，不要轮询或重启命令。没有独立工作时结束本次回复，等待完成事件唤醒。\n"
         "    只有 exited 且 exit_code=0 才表示执行成功。当前为非交互执行，stdin 关闭，不提供 PTY。\n"
         "    或失败时 {error, exit_code: -1}。\n"
     )
@@ -246,15 +264,17 @@ def register_bash(
     Bash.__doc__ += command_instructions(scope)
 
     write_stdin.__doc__ = (
-        "继续等待 Bash 返回的进程会话，读取新增输出；不会重新执行命令。\n\n"
+        "按需读取 Bash 新增输出、短时等待或取消；不会重新执行命令。后台完成会自动通知，不要循环调用本工具或用 sleep 等待。\n\n"
         "Args:\n"
         "    session_id (`str`): Bash 返回的进程会话 ID，不是对话 ID。\n"
         "    chars (`str`): 空字符串表示等待；\\u0003 表示 Ctrl+C 中断。非 PTY 模式不接受其它输入。\n"
-        "    yield_time_ms (`int`): 最多等待毫秒数，默认 60000，上限 300000。等待到期不杀进程。\n\n"
+        "    yield_time_ms (`int`): 按需短读的等待毫秒数，默认 0，最多 3000。完成通知由后端负责，不要主动等待或循环读取。\n\n"
         "Returns:\n"
         "    JSON: {stdout, stderr, exit_code, execution_time_ms, status, session_id}；输出仅含新增内容。\n"
         "    running 表示继续运行；exited 时检查 exit_code 和 error。\n"
     )
+    toolkit.register_tool_function(background_process, namesake_strategy="override")
+    toolkit.register_tool_function(list_processes, namesake_strategy="override")
     toolkit.register_tool_function(write_stdin, namesake_strategy="override")
     toolkit.register_tool_function(Bash, namesake_strategy="override")
 

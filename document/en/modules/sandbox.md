@@ -1,6 +1,6 @@
 # Sandbox Execution System
 
-> Last updated: 2026-09-24
+> Last updated: 2026-10-18
 
 The sandbox is the isolated environment where HugAgentOS's agents execute code: every `Bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
@@ -47,19 +47,21 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 
 ## Agent-side tools
 
-`core/llm/tools/sandbox_tool.py` registers four tools with the agent (their `register_*` functions are invoked by `factory/tools/native.py`):
+`core/llm/tools/sandbox_tool.py` registers process and artifact tools with the agent (their `register_*` functions are invoked by `factory/tools/native.py`):
 
 | Tool | Purpose |
 |---|---|
-| `Bash(command, timeout=None, yield_time_ms=60000)` | Start a command and wait 60 seconds by default; unfinished commands return a process `session_id` and keep running. Omitted timeout sets no command deadline; the command tool uses the name `Bash` with an uppercase B |
-| `write_stdin(session_id, chars="", yield_time_ms=60000)` | Wait for the same process and read incremental output; empty input waits, Ctrl+C (\u0003) requests interruption |
+| `Bash(command, timeout=None, yield_time_ms=60000, run_in_background=False)` | Start a command and wait 60 seconds by default; unfinished commands enter background management and return a managed task ID. Set run_in_background=True to hand off immediately. Omitted timeout sets no command deadline; the command tool uses the name `Bash` with an uppercase B |
+| `write_stdin(session_id, chars="", yield_time_ms=0)` | Read new output immediately by default; optional waits stop at 3000 ms. Completion automatically notifies the chat. Ctrl+C (\u0003) requests interruption |
+| `background_process(session_id)` | Adopt the original process handle without restarting it |
+| `list_processes()` | List this user's tasks in the current chat |
 | `sandbox_put_artifact(artifact_id, dest_path)` | Copy a platform artifact's bytes (user uploads, chart-tool outputs, …) into a sandbox path — uploads are never auto-visible in the sandbox |
 | `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — Bash outputs never auto-appear in the attachment area |
 
 
-Execution deadlines and wait windows are separate: initial waits are 250–30000 ms; follow-up waits are capped at 300000 ms. A wait expiring never terminates the command. Explicit `timeout` remains an execution deadline and is no longer clamped to 120 seconds. All commands and internal Python/JavaScript scripts use the process API. The synchronous execution endpoint and default/maximum execution timeout settings have been removed. Process IDs are bound to the initiating user and conversation. This is non-PTY execution with closed stdin: only empty input and Ctrl+C are accepted. On headless Windows, interruption terminates the process tree.
+Execution deadlines and wait windows are separate: Bash initially waits 250–60000 ms. Ordinary-chat write_stdin defaults to zero wait and caps optional waits at 3000 ms. Provider operations and evaluation tools retain their own wait contracts. A wait expiring never terminates the command. Explicit `timeout` remains an execution deadline and is no longer clamped to 120 seconds. All commands and internal Python/JavaScript scripts use the process API. The synchronous execution endpoint and default/maximum execution timeout settings have been removed. Process IDs are bound to the initiating user and conversation. This is non-PTY execution with closed stdin: only empty input and Ctrl+C are accepted. On headless Windows, interruption terminates the process tree.
 
-The runtime retains at most 64 process records and only evicts completed records. Pending output is bounded; `output_omitted_chars` reports omissions. Local/script_runner logs remain in the conversation workspace at `.__process_*/stdout.log` and `stderr.log`; `output_files` returns their real readable paths. A stream exceeding 64 MiB stops the command and preserves the written log. OpenSandbox background logs merge stdout/stderr; Cube commands stop above 64 MiB total output. Active commands periodically touch their sandbox: OpenSandbox can renew its lease, while compatible Cube servers may not support extending their server-side TTL; `lifetime_note` reports that limitation. Handles are runtime state, with no guarantee of recovery across backend/runner restarts. Explicit session close and graceful service shutdown clean up managed commands. Team source changes synchronize when terminal output is collected; running does not mean saved.
+The runtime retains at most 64 process records and only evicts completed records. Pending output is bounded; `output_omitted_chars` reports omissions. Local/script_runner logs remain in the conversation workspace at `.__process_*/stdout.log` and `stderr.log`; `output_files` returns their real readable paths. A stream exceeding 64 MiB stops the command and preserves the written log. OpenSandbox background logs merge stdout/stderr; Cube commands stop above 64 MiB total output. Active commands periodically touch their sandbox: OpenSandbox can renew its lease, while compatible Cube servers may not support extending their server-side TTL; `lifetime_note` reports that limitation. The ordinary-chat ledger persists task state and bounded output. OpenSandbox restores the original execution and committed log cursor. Other providers stop commands on orderly shutdown and report unknown after an unexpected restart. Explicit chat deletion stops its commands. Team source changes synchronize when terminal output is collected; running does not mean saved.
 
 The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: a non-empty explicit ID wins, while a missing or empty value falls back to `chat_id`. The main agent, plan execution, batch items, and every subagent therefore use one conversation sandbox, and a child run never destroys it when it finishes.
 
@@ -245,3 +247,15 @@ credentials, and read-only attributes. Authorization conflicts return 409 and
 retain the sandbox and workspace. Mount service failures return 503.
 After a controller upgrade, verify existing sandbox recovery and cross-user
 denial before running user commands.
+
+## Background Bash in ordinary chats
+
+Bash accepts `run_in_background=True`. A command also enters background management if its foreground wait ends before process exit. The runtime starts each command once. `background_process(session_id)` adopts an existing handle. It does not execute the command again. `list_processes()` lists the current user's tasks in the current chat.
+
+The backend collects status and logs and keeps the sandbox active. The model can do independent work. If it has no other work, the current model run ends. Completion enters the next reasoning step in an active run. If the chat is idle, the existing run admission and execution path starts a follow-up in the original chat.
+
+`write_stdin` reads new output, waits briefly, or sends Ctrl+C. The model must not poll for completion. Authenticated log API reads do not consume the model's log cursor. The chat has no separate background-command strip. The page keeps /v1/commands/events open before wakeup. The backend pushes the ready run ID. The page immediately joins its existing output stream without task polling. Reconnection sends a snapshot of ready runs. Completed short replies load from history. A task remains managed until process exit is confirmed. Deleting the chat or revoking edit access stops its commands.
+
+The command ledger stores bounded logs, execution leases and completion delivery state. OpenSandbox recovery uses the original execution identity, sandbox binding and committed log cursor. It never restarts the command. Other providers stop owned processes on orderly shutdown. After an unexpected restart, an unrecoverable execution is reported as `unknown`.
+
+Migration `bashbackground01` creates the command ledger. Apply it through the normal release procedure before using the feature. Tests use isolated databases and disposable sandbox sessions. See the [architecture decision](../../internal/adr/20261018-background-bash-completion.md) and [validation record](../../internal/background-bash-validation-20261018.md).

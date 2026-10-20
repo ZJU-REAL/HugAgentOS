@@ -151,6 +151,7 @@ def patched_sources(root: Path) -> dict[str, str]:
     )
     patch_shared_lifecycle(sources)
     patch_durable_expirations(sources)
+    patch_namespace_mounts(sources)
     name = "services/docker/docker_service.py"
     sources[name] = replace_once(sources[name], "import inspect\n",
         "import inspect\nfrom .object_mounts import install as install_object_mounts\ninstall_object_mounts()\n")
@@ -171,6 +172,33 @@ async def ensure_space_mounts(sandbox_id: str, request: RecoveryRequest):
     for name, source in sources.items():
         ast.parse(source, filename=name)
     return sources
+
+
+def patch_namespace_mounts(sources):
+    name = "services/docker/docker_service.py"
+    source = sources[name]
+    source = replace_once(source, "import inspect\n",
+        "import inspect\nfrom .object_mounts import MANIFEST, mount_manifest\n"
+        "from .mount_recovery import initialize_mounts, cleanup_helpers\n")
+    source = replace_once(source, "        self._restore_existing_sandboxes()",
+        "        self._restore_existing_sandboxes()\n        cleanup_helpers(self)")
+    start = source.index("        # Prepare OSSFS mounts first")
+    end = source.index("        sidecar_container = None", start)
+    source = source[:start] + (
+        "        labels[MANIFEST] = json.dumps(mount_manifest(request.volumes))\n"
+        "        ossfs_mount_keys = []\n\n") + source[end:]
+    source = replace_once(source,
+        "self._build_volume_binds(request.volumes, pvc_inspect_cache)",
+        "self._build_volume_binds([v for v in (request.volumes or []) if v.ossfs is None], pvc_inspect_cache)")
+    source = replace_once(source,
+        "            if expires_at is not None:\n                self._schedule_expiration(sandbox_id, expires_at)",
+        "            initialize_mounts(self, sandbox_id, request)\n"
+        "            if expires_at is not None:\n                self._schedule_expiration(sandbox_id, expires_at)")
+    source = replace_once(source,
+        "                self._cleanup_windows_oem_volume(sandbox_id, None)",
+        "                remove_helper(self, sandbox_id)\n"
+        "                self._cleanup_windows_oem_volume(sandbox_id, None)")
+    sources[name] = source
 
 
 def patch_durable_expirations(sources):

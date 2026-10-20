@@ -16,7 +16,6 @@ For a new deployment:
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
-sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -36,6 +35,13 @@ Follow deployment authorization rules to stop the old runner, build the runtime,
 Verify /health, /ready, files across commands, user isolation, restart adoption and idle snapshot recovery.
 Initialization and dependency failures raise errors without changing the provider.
 OpenSandbox preserves session files and snapshots. Python/JS commands use separate processes and do not retain variables.
+
+
+Each sandbox has an independent object-mount service. The controller does not own its FUSE connections.
+Initial mounting and recovery use one lifecycle. Controller restarts preserve connections; sandbox restarts require a live authorization and mount check.
+Host shared-propagation directories are unnecessary. Only the mount service needs `/dev/fuse` and mount privileges.
+Existing sandboxes with FUSE host binds have immutable Docker startup settings.
+Preserve their workspaces and volumes before a separate migration. Do not restart or delete them during an unplanned upgrade.
 
 ## Service topology
 

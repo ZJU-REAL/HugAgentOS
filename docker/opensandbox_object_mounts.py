@@ -1,8 +1,9 @@
 """S3-compatible object volumes for the trusted execution controller."""
 import hashlib
 import json
-import posixpath
-from uuid import uuid4
+from pathlib import PurePosixPath
+
+MANIFEST = "hugagent-space-mounts"
 
 def mount_identity(volume):
     prefix = volume.sub_path or ""
@@ -17,20 +18,6 @@ def mount_identity(volume):
         ).hexdigest(),
     }
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-
-def resolve_paths(self, volume):
-    root = self.app_config.storage.ossfs_mount_root
-    if not root or not root.startswith("/"):
-        raise ValueError("An absolute object mount root is required")
-    key = mount_identity(volume)
-    # A FUSE connection belongs to one sandbox volume. Docker Desktop retains
-    # bind aliases after unmount; a new connection must get a new host path.
-    generation = getattr(volume, "_hugagent_mount_generation", None)
-    if generation is None:
-        generation = uuid4().hex
-        object.__setattr__(volume, "_hugagent_mount_generation", generation)
-    path = posixpath.join(root, key + "-" + generation)
-    return path, path
 
 def validated_options(service, volume):
     service._validate_bucket_name(volume.ossfs.bucket)
@@ -50,19 +37,27 @@ def validated_options(service, volume):
         raise ValueError("Object mount options must match the access permission")
     return options
 
-def build_command(self, volume, source, backend_path, endpoint_url, passwd_file):
-    self._validate_endpoint_url(endpoint_url)
-    self._validate_mount_path(backend_path)
-    command = ["s3fs", source, backend_path, "-o", "url=" + endpoint_url,
-        "-o", "passwd_file=" + passwd_file,
-        # Keep a fixed 2 GiB reserve for temporary writes. The s3fs default
-        # reserves 10% of the whole host disk and can reject healthy data volumes.
-        "-o", "ensure_diskfree=2048"]
-    for option in validated_options(self, volume):
-        command.extend(["-o", option])
-    return command
+def validate_volume(service, volume):
+    if not volume.ossfs.access_key_id or not volume.ossfs.access_key_secret:
+        raise ValueError("Object volume credentials are required")
+    service._validate_bucket_name(volume.ossfs.bucket)
+    service._validate_endpoint_url(volume.ossfs.endpoint)
+    service._validate_mount_path(volume.mount_path)
+    mount_identity(volume)
+    validated_options(service, volume)
+    target = PurePosixPath(volume.mount_path)
+    if (not target.is_absolute() or str(target) != volume.mount_path
+            or ".." in target.parts or str(target) == "/"):
+        raise ValueError("A canonical absolute object mount target is required")
+
+
+def mount_manifest(volumes):
+    return [{"target": volume.mount_path, "identity": mount_identity(volume),
+             "read_only": volume.read_only}
+            for volume in (volumes or []) if volume.ossfs is not None]
+
 
 def install():
     from opensandbox_server.services.docker.ossfs_mixin import OSSFSMixin
-    OSSFSMixin._resolve_ossfs_paths = resolve_paths
-    OSSFSMixin._build_ossfs_v1_command = build_command
+    # Object mounts have one namespace-based lifecycle. No host FUSE paths.
+    OSSFSMixin._validate_ossfs_volume = validate_volume

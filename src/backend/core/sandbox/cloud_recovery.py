@@ -45,6 +45,7 @@ async def execution_reference(provider, process_id, req):
         return {
             "provider": "opensandbox",
             "execution_id": handle.execution_id,
+            "cursor": handle.cursor,
             "sandbox_id": await provider.current_sandbox_id(req.session_id),
             "session_id": req.session_id,
             "user_id": req.user_id,
@@ -70,9 +71,12 @@ async def recover_execution(provider, reference, req):
             raise SandboxError("Sandbox was replaced; refusing to adopt an unrelated command")
 
         async def factory():
-            return OpenSandboxHandle(
+            handle = OpenSandboxHandle(
                 provider, req, sess.sandbox.commands, reference["execution_id"]
             )
+            handle.cursor = reference["cursor"]
+            handle.metadata["execution_cursor"] = handle.cursor
+            return handle
 
         return await service.sessions.start(
             factory, (req.session_id, req.user_id), yield_time_ms=250, timeout=req.timeout

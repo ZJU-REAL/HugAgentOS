@@ -24,6 +24,7 @@ import './src/styles/sidebar-history.css';
 import './src/styles/task-status.css';
 const tasks=[['a','分析报告','running'],['b','企业名录','completed'],['c','发送邮件','waiting'],['d','导入数据','failed']];
 const chats=tasks.map(([id,title])=>({id,title,createdAt:1,updatedAt:1,messages:[]}));
+const projectChats=[...chats.map(c=>({...c,projectId:'project-status'})),{id:'idle',title:'已读会话',createdAt:1,updatedAt:1,messages:[]}];
 useAuthStore.setState({authUser:{user_id:'test-owner',can_use_personal_agent:true},authChecking:false});
 useChatStore.setState({store:{chats:Object.fromEntries(chats.map(c=>[c.id,c])),order:chats.map(c=>c.id)},sendingChatIds:new Set(['a','c']),remoteRunningChatIds:new Set()});
 useTaskNotificationStore.getState().hydrate('browser-test',0);
@@ -45,6 +46,7 @@ function Fixture(){
  const open=useCallback(id=>setSelected(id),[]);
  const actions={onSelectChat:open,onCommitRename:()=>{},onStartRename:()=>{},onTogglePinned:()=>{},onToggleFavorite:()=>{},onExportChat:()=>{},onDeleteChat:()=>{}};
  return <main><nav id='ordinary'>{chats.map(item=><ChatSidebarItem key={item.id} item={item} groupItems={chats} scopeKey='history' dragScopeRef={{current:null}} actions={actions} active={selected===item.id}/>)}</nav>
+ <nav id='project' className='jx-projectGroup'><div className='jx-projectRow'><span className='jx-projectRowIcon'/><span className='jx-projectRowName'>测试项目</span></div><div className='jx-projectChatList'>{projectChats.map(item=><ChatSidebarItem key={item.id} item={item} groupItems={projectChats} scopeKey='project:project-status' dragScopeRef={{current:null}} actions={actions} active={selected===item.id}/>)}</div></nav>
  <nav id='personal'><PersonalAgentSidebarEntry onOpen={()=>open('personal')}/></nav>
  <div id='compact' style={{position:'relative',width:48,height:48}}><ApplicationButton entry={{key:'builtin:personal_agent',title:'Personal Agent',item:{availability:{available:true}}}} onOpen={()=>open('personal')} current={false} className='rail' expanded={false}/></div>
  <Reader selected={selected}/><button id='open-dialog' onClick={()=>{useTaskNotificationStore.getState().observe([{key:'personal:dialogtask',id:'dialogtask:current-run',status:'completed',startedAt:0,updatedAt:2}]);setDialog(true)}}>Open task</button>{dialog&&<PersonalTaskDialog task={{id:'dialogtask',status:'completed',goal:'Result identity test',run_id:'current-run'}} onClose={()=>setDialog(false)} onChange={async()=>{}}/>}</main>;
@@ -90,8 +92,19 @@ try{
  for(const status of ['running','completed','waiting','failed']){
    const dot=page.locator('#ordinary [data-task-status="'+status+'"]');
    assert.equal(await dot.getAttribute('data-task-unread'),'true');
-   assert.equal(await dot.evaluate(el=>getComputedStyle(el).animationName),'jx-taskBreathe');
+   assert.equal(await dot.evaluate(el=>getComputedStyle(el).animationName),status==='running'?'none':'jx-taskBreathe');
+   const ordinaryBounds=await dot.evaluate(el=>({mark:el.getBoundingClientRect().left,title:el.parentElement.querySelector('.jx-historyTitle').getBoundingClientRect().right}));
+   assert.ok(ordinaryBounds.mark>=ordinaryBounds.title,'default project status stays to the right');
+   const projectDot=page.locator('#project [data-task-status="'+status+'"]');
+   const projectBounds=await projectDot.evaluate(el=>({mark:el.getBoundingClientRect().right,title:el.closest('.jx-historyMain').querySelector('.jx-historyTitle').getBoundingClientRect().left}));
+   assert.ok(projectBounds.mark<projectBounds.title,'project status uses the left indentation');
  }
+ const projectTitles=await page.locator('#project .jx-historyTitle').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().left));
+ assert.ok(projectTitles.every(left=>Math.abs(left-projectTitles[0])<1),'idle, running and unread project titles remain aligned');
+ const spinner=page.locator('#ordinary [data-task-status="running"]');
+ assert.equal(await spinner.locator('circle').count(),2,'running shows a track and arc');
+ assert.equal(await spinner.locator('.jx-taskSpinnerMotion').evaluate(el=>getComputedStyle(el).animationDuration),'1.5s');
+ assert.equal(await page.locator('#ordinary [data-task-status="completed"]').evaluate(el=>getComputedStyle(el).backgroundColor),await page.locator('#ordinary').evaluate(el=>{const probe=document.createElement('span');probe.style.color='var(--color-primary)';el.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;}),'unread completion uses the primary blue');
  await page.locator('#personal .jx-personalUnread').waitFor();assert.equal(await page.locator('#personal .jx-personalUnread').innerText(),'3');
  assert.equal(await page.locator('#personal [data-task-status="running"]').count(),1,'running and unread coexist');
  assert.match(await page.locator('#compact button').getAttribute('aria-label'),/运行中.*3 条未读消息/,'compact navigation announces task state and unread count');
@@ -122,7 +135,8 @@ try{
  await page.waitForFunction(()=>window.reminders.getState().notices['personal:dialogtask'].seen);
  await page.locator('.ant-modal-close').click();
  await page.emulateMedia({reducedMotion:'reduce'});
- for(const status of ['running','waiting','failed']){
+ assert.equal(await spinner.locator('.jx-taskSpinnerMotion').evaluate(el=>getComputedStyle(el).animationName),'jx-taskSpin','reduced motion retains the working indicator');
+ for(const status of ['waiting','failed']){
    const motion=await page.locator('#ordinary [data-task-status="'+status+'"]').evaluate(el=>el.getAnimations().map(a=>a.effect.getKeyframes()));
    assert.ok(motion.every(frames=>frames.every(f=>!f.transform||f.transform==='scale(1)')),'reduced motion keeps static state');
  }
@@ -140,5 +154,5 @@ try{
  await other.waitForFunction(()=>window.reminders.getState().notices['chat:a']?.id==='new-a'&&window.reminders.getState().notices['chat:a'].seen);
  await other.close();
  assert.deepEqual(errors,[]);
- console.log('PASS browser: four breathing states; approval priority; actual viewport read; dismissed viewed failure and new failure reminder; Personal Agent simultaneous running/unread and new completion; reduced motion; dark mode; narrow rail.');
+ console.log('PASS browser: running ring, blue unread dot, left project slots and right default markers; approval priority; actual viewport read; dismissed viewed failure and new failure reminder; Personal Agent simultaneous running/unread and new completion; reduced motion; dark mode; narrow rail.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

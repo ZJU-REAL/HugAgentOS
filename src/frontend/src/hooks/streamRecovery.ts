@@ -11,7 +11,7 @@ import { processLoopStream } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
 import type { StreamingContext } from './streamingContext';
 
-export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControllersRef' | 'interruptedNoticeShownRef' | 'processRegenerateStream' | 'reconcileDurableSteerQueue' | 'reconcilingRef' | 'settleQueuedMessageAfterRun'>) {
+export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControllersRef' | 'interruptedNoticeShownRef' | 'processRegenerateStream' | 'reconcileDurableSteerQueue' | 'reconcilingRef' | 'settleQueuedMessageAfterRun'> & { serverRunDiscoveryRef: { current: Set<string> } }) {
 
 
   /** Plan F short-term fix: when resume / an SSE error discovers the chat's run is already
@@ -108,7 +108,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
         await new Promise((r) => setTimeout(r, 250));
       }
       if (useChatStore.getState().sendingChatIds.has(chatId)) return; // 没让开就等下一轮
-      await resumeRunIfAny(chatId);
+      await resumeRun(chatId);
     } finally {
       ctx.reconcilingRef.current.delete(chatId);
     }
@@ -121,31 +121,40 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
    *  用户离开时的样子。这里在当前会话空闲时补一眼，发现有活的 run 就照常跟随。 */
   async function attachServerStartedRun(chatId: string) {
     const store = useChatStore.getState();
-    if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return;
+    if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return false;
     let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
     try {
       active = await getActiveChatRun(chatId, useAuthStore.getState().authUser?.user_id);
     } catch {
-      return;
+      return false;
     }
-    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return;
+    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return true;
     // 用户按过停止的那一轮：后端可能还没落终态，但用户的意图是终局的，不许重挂
-    if (isRunCancelledByUser(active.run_id)) return;
+    if (isRunCancelledByUser(active.run_id)) return true;
     // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
-    if (hasStreamedRun(active.run_id)) return;
+    if (hasStreamedRun(active.run_id)) return true;
     // 这轮的用户侧消息（唤醒指令）和助手行都是后端落的库；resumeRunIfAny 会先把历史
     // 拉齐、再以库里那行为基态接上流。
-    await resumeRunIfAny(chatId);
+    return await resumeRunIfAny(chatId);
   }
 
-
   async function resumeRunIfAny(chatId: string) {
+    if (ctx.reconcilingRef.current.has(chatId) || ctx.serverRunDiscoveryRef.current.has(chatId)) return false;
+    ctx.serverRunDiscoveryRef.current.add(chatId);
+    try {
+      return await resumeRun(chatId);
+    } finally {
+      ctx.serverRunDiscoveryRef.current.delete(chatId);
+    }
+  }
+
+  async function resumeRun(chatId: string) {
     const uid = useAuthStore.getState().authUser?.user_id;
     let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
     try {
       active = await getActiveChatRun(chatId, uid);
     } catch {
-      return;
+      return false;
     }
     const restoredQueued = useChatStore.getState().queuedMessages[chatId];
     const durableRunId = restoredQueued?.targetRunId || active?.run_id;
@@ -158,7 +167,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
 
     if (!active || !active.run_id) {
       ctx.settleQueuedMessageAfterRun(chatId, undefined, false);
-      return;
+      return true;
     }
     // 用户已经按过停止：即便后端这一轮还挂着 running（协作式取消尚未落终态、
     // 或取消请求失败），也不许再挂上去重放——那正是"中断的任务又开始执行了"。
@@ -167,7 +176,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
       cancelChatRun(active.run_id, uid, chatId).catch(() => { /* noop */ });
       cleanupZombieRunState(chatId, 'cancelled');
       ctx.settleQueuedMessageAfterRun(chatId, undefined, false);
-      return;
+      return true;
     }
     if (active.status !== 'running' && active.status !== 'pending') {
       // Run already terminal (failed / cancelled / completed) — the backend's
@@ -177,13 +186,12 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
       // failed path show a toast once so the user resends.
       cleanupZombieRunState(chatId, active.status);
       // 终态的行已经在库里定稿（正文、工具卡、错误或计划快照都在），拉一次就是最终样子。
-      await reloadChatHistory(chatId);
-      return;
+      return await reloadChatHistory(chatId);
     }
 
     // Re-read state at the latest moment — user may have started a fresh send
     // during the active-run round-trip.
-    if (useChatStore.getState().sendingChatIds.has(chatId)) return;
+    if (useChatStore.getState().sendingChatIds.has(chatId)) return false;
 
     // activeRun 在锁外登记：即使本标签页没拿到跟随权，停止按钮也能取消该 run
     useChatStore.getState().setActiveRun(chatId, {
@@ -201,13 +209,13 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
     const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
     const locksApi = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (locksApi?.request) {
-      await locksApi.request(runLockName, { ifAvailable: true }, async (lock: unknown) => {
-        if (!lock) return; // 另一个标签页正在跟随该 run
-        if (useChatStore.getState().sendingChatIds.has(chatId)) return;
-        await doFollowRun();
+      return await locksApi.request(runLockName, { ifAvailable: true }, async (lock: unknown) => {
+        if (!lock) return false; // 另一个标签页正在跟随该 run
+        if (useChatStore.getState().sendingChatIds.has(chatId)) return false;
+        return await doFollowRun();
       });
     } else {
-      await doFollowRun();
+      return await doFollowRun();
     }
   }
 
@@ -295,16 +303,15 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
 
     try {
       const r = await openRunSubscription(active.run_id, abortController.signal, chatId);
-      if (!r.ok || !r.body) return;
+      if (!r.ok || !r.body) return false;
       streamOutcome = await ctx.processRegenerateStream(r, chatId, {
         enableThinking: !!active.enable_thinking,
         signal: abortController.signal,
         seedFrom,
       });
+      return streamOutcome.settled || streamOutcome.aborted;
     } catch (e) {
-      if (!(e instanceof Error && e.name === 'AbortError')) {
-        // Resume failure is handled silently — UX-wise it's equivalent to "the task runs in the background and the final message arrives via the next refresh"
-      }
+      return e instanceof Error && e.name === 'AbortError' && isRunCancelledByUser(active.run_id);
     } finally {
       ctx.abortControllersRef.current.delete(chatId);
       removeSendingChatId(chatId);

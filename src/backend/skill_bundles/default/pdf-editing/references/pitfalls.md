@@ -23,8 +23,7 @@ render_cover.js）。**沙盒/mcp 镜像里 node + chromium 都已经装好**；
 
 如果用户给你的是 `.MD`、`.Markdown` 等大小写不对的后缀，本机 Linux 区分
 大小写——`Path.suffix.lower()` 在 cli 里做了 normalize，但 stage 文件用的
-是 source 后缀。一般不会踩坑，但若用户上传的文件名带空格或非 ASCII 字符
-后跟非常规后缀，先 `Move` 一下到规范名字。
+是 source 后缀。一般不会踩坑。
 
 ---
 

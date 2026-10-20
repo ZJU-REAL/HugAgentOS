@@ -85,7 +85,8 @@ def test_delete_store_failure_is_reported_and_does_not_block_resource_cleanup():
 
 
 @requires_source
-def test_failed_initial_lease_rolls_back_container_and_mounts():
+@pytest.mark.parametrize("failed_step", ["lease", "mount"])
+def test_failed_initial_lease_rolls_back_container_and_mounts(failed_step):
     source = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
     box, sidecar = Mock(), Mock()
     service = Mock()
@@ -98,20 +99,24 @@ def test_failed_initial_lease_rolls_back_container_and_mounts():
     service._base_host_config_kwargs.return_value = {}
     service._start_egress_sidecar.return_value = sidecar
     service._create_and_start_container.return_value = box
-    service._schedule_expiration.side_effect = OSError("disk full")
+    if failed_step == "lease":
+        service._schedule_expiration.side_effect = OSError("disk full")
     request = SimpleNamespace(platform=None, volumes=[], network_policy=True,
         resource_limits=SimpleNamespace(root={}), entrypoint=["sh"])
     namespace = {"json": __import__("json"), "is_windows_platform": lambda p: False,
         "generate_egress_token": lambda: "token", "allocate_port_bindings": lambda p: {"44772": ("", 1), "8080": ("", 2)},
-        "DockerException": RuntimeError, "logger": Mock(), "remove_helper": Mock()}
+        "DockerException": RuntimeError, "logger": Mock(), "remove_helper": Mock(), "initialize_mounts": Mock(),
+        "MANIFEST": "manifest", "mount_manifest": lambda volumes: []}
     for name in ["SANDBOX_MANAGED_VOLUMES_LABEL", "SANDBOX_OSSFS_MOUNTS_LABEL",
                  "SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY", "SANDBOX_EMBEDDING_PROXY_PORT_LABEL", "SANDBOX_HTTP_PORT_LABEL"]:
         namespace[name] = name
+    if failed_step == "mount":
+        namespace["initialize_mounts"].side_effect = OSError("disk full")
     provision = extract(source, "_provision_sandbox", namespace)
     with pytest.raises(OSError, match="disk full"):
         provision(service, "sandbox", request, datetime.now(timezone.utc), datetime(2099,1,1,tzinfo=timezone.utc))
     box.remove.assert_called_once_with(force=True)
     sidecar.remove.assert_called_once_with(force=True)
-    service._release_ossfs_mounts.assert_called_once_with(["mount"])
+    service._release_ossfs_mounts.assert_called_once_with([])
     service._cleanup_managed_volumes.assert_called_once_with("sandbox", [])
     namespace["remove_helper"].assert_called_once_with(service, "sandbox")

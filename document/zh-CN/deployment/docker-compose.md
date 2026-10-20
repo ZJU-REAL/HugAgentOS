@@ -16,7 +16,6 @@ CE 的 Docker 部署默认使用 OpenSandbox；无 Docker 安装及桌面本机�
 python3 scripts/configure-ce-docker.py
 docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
-sudo bash docker/prepare-object-mounts.sh "$(pwd)/data/storage"
 docker compose up -d --build
 ```
 
@@ -35,6 +34,13 @@ HOST_STORAGE_PATH 和强随机 OPENSANDBOX_API_KEY，并显式设置 COMPOSE_PRO
 检查 /health、/ready、连续命令文件保留、用户隔离、后端重启接管和空闲快照恢复。
 初始化或依赖失败会报错，不会自动切换 provider。
 OpenSandbox 保留会话文件与快照；每次 Python/JS 命令启动独立进程，不保留内存变量。
+
+
+空间对象挂载由每个沙盒独立的挂载服务管理，控制器不持有 FUSE 连接。
+首次挂载和恢复使用同一流程；控制器重启不会中断该连接，沙盒重启后会按当前授权检查并恢复。
+不需要在宿主机准备共享传播目录。只有挂载服务需要 `/dev/fuse` 和挂载权限。
+旧版创建的沙盒若含 FUSE 宿主 bind 配置，升级不能原地修改其 Docker 启动参数；
+须先保全工作区和数据卷，再单独安排迁移，不直接重启或删除这些旧沙盒。
 
 ## 服务拓扑
 

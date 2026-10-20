@@ -302,9 +302,10 @@ export function useChatInit() {
     st.setPlanProgress(chatId, persisted);
   }, [currentChatId, sessionLoadEpoch]);
 
-  // Lazy-load messages for current chat
+  // User identity owns history. Renewed expiry/profile/capability fields must
+  // not restart hydration while the same account is streaming a response.
   useEffect(() => {
-    if (authChecking || !authUser) return;
+    if (authChecking || !authUserId) return;
     const chatId = currentChatId;
     const state = useChatStore.getState();
     if (state.loadedMsgIds.has(chatId)) return;
@@ -399,7 +400,7 @@ export function useChatInit() {
 
     fetchMessages();
     return () => { cancelled = true; };
-  }, [currentChatId, effectiveApiUrl, authUser, authChecking, sessionLoadEpoch]);
+  }, [currentChatId, effectiveApiUrl, authUserId, authChecking, sessionLoadEpoch]);
 
   useChatResourceRecovery(currentChatId, authChecking ? null : authUserId);
 

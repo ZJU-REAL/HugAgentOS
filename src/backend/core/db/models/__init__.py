@@ -124,3 +124,6 @@ from personal_agent.models import (
 __all__ += ["PersonalAgent", "PersonalWorkItem", "PersonalDevice",
             "PersonalDeviceCommand", "PersonalMessageTask", "PersonalMessageInbox",
             "PersonalSessionOperation"]
+
+from core.db.models.command import CommandTask
+__all__ += ["CommandTask"]

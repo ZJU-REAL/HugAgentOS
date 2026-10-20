@@ -25,7 +25,9 @@ export function mergeHistoryPage(
   for (const m of local) if (m.messageId) localById.set(m.messageId, m);
   const resolved = page.map((m) => {
     const mine = m.messageId ? localById.get(m.messageId) : undefined;
-    return mine?.isStreaming && opts.localIsWriter ? mine : m;
+    if (mine?.isStreaming && opts.localIsWriter) return mine;
+    // Acknowledgment keeps the optimistic user's render key through history hydration.
+    return mine?.role === 'user' ? { ...m, uid: mine.uid } : m;
   });
 
   const pageIds = new Set(page.map((m) => m.messageId).filter(Boolean) as string[]);

@@ -442,17 +442,6 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock
     - opensandbox_config:/etc/opensandbox:ro
     - opensandbox_data:/var/lib/opensandbox
-    - type: bind
-      source: ${HOST_STORAGE_PATH}/object-mounts
-      target: ${HOST_STORAGE_PATH}/object-mounts
-      bind:
-        propagation: rshared
-    devices:
-    - /dev/fuse:/dev/fuse
-    cap_add:
-    - SYS_ADMIN
-    security_opt:
-    - apparmor:unconfined
     ports: []
     healthcheck:
       test:

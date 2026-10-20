@@ -51,6 +51,7 @@ class Entry:
     error: str | None = None
     deadline_timer: NativeDeadline | None = None
     deadline_binding: str | None = None
+    deadline_at: float | None = None
 
     def append(self, stream: str, text: str) -> None:
         pending = getattr(self, stream) + text
@@ -93,7 +94,8 @@ class ProcessSessions:
                 )
             del self.entries[completed]
         sid = uuid.uuid4().hex
-        entry = Entry(owner, yield_on_output=yield_on_output)
+        entry = Entry(owner, yield_on_output=yield_on_output,
+                      deadline_at=time.time() + timeout if timeout else None)
         self.entries[sid] = entry  # reserve before the first await
         entry.task = asyncio.create_task(self._launch(entry, factory, timeout))
         await entry.ready.wait()
@@ -236,6 +238,7 @@ class ProcessSessions:
             if entry.omitted_chars:
                 result["output_omitted_chars"] = entry.omitted_chars
             result.update(entry.metadata)
+            result["deadline_at"] = entry.deadline_at
             paths = entry.log_paths
             if paths:
                 result["output_files"] = paths

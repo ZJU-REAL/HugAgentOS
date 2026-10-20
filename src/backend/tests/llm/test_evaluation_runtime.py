@@ -203,3 +203,14 @@ def test_readonly_surface_and_local_mode_fail_closed(monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     with pytest.raises(ValueError, match="container"):
         register_evaluation_tools(Collector(), scope)
+
+
+def test_evaluation_command_registration_respects_disabled_tools(monkeypatch):
+    from types import SimpleNamespace
+    from core.llm.evaluation_process_tools import register_evaluation_process_tools
+    from core.llm.evaluation_runtime import EvaluationExecutionScope
+    monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "false")
+    registered = []
+    toolkit = SimpleNamespace(register_tool_function=lambda *args, **kw: registered.append(args))
+    register_evaluation_process_tools(toolkit, EvaluationExecutionScope("u", SESSION))
+    assert registered == []

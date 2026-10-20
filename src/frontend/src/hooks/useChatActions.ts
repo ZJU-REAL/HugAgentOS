@@ -1,3 +1,4 @@
+import { syncConversationTitle } from './chatTitle';
 import { useRef } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
@@ -261,38 +262,8 @@ export function useChatActions(effectiveApiUrl: string) {
     return payload?.data as { share_id: string; preview_url: string; expires_at?: string | null; expiry_option: '3d' | '15d' | '3m' | 'permanent' };
   }
 
-  async function generateSummary(chatId: string) {
-    const chat = storeRef.current.chats[chatId];
-    if (!chat || !effectiveApiUrl) return;
-    // 用户手动重命名过的会话不再用自动摘要覆盖标题（问题13）
-    if (chat.titleManuallySet) return;
-    // 标题定下来就不再改：原来前 3 轮每轮都重新生成一次，用户每追问一句，历史列表里
-    // 这段会话的名字就跟着变一次，找不回自己刚才在哪一条（对齐 DeepSeek / 豆包：取
-    // 首轮问题定名后固定）。这里以「标题还是默认占位」为准，首次生成失败也还能重试，
-    // 下面的 SUMMARY_MAX_ROUNDS 仍作为重试次数上界。
-    if (chat.title && chat.title !== t('新对话')) return;
-    const userMessages = chat.messages.filter(m => m.role === 'user');
-    const assistantMessages = chat.messages.filter(m => m.role === 'assistant');
-    if (userMessages.length === 0 || assistantMessages.length === 0) return;
-    const exchangeCount = Math.min(userMessages.length, assistantMessages.length);
-    if (exchangeCount > SUMMARY_MAX_ROUNDS) return;
-
-    try {
-      const response = await authFetch(`${effectiveApiUrl}/v1/summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chat.messages.map(m => ({ role: m.role, content: m.content })) })
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      if (data?.data?.enabled === false) return;
-      const summary = data?.data?.summary;
-      if (summary && summary !== '新对话') {
-        patchChat(chatId, { title: summary });
-      }
-    } catch (error) {
-      console.warn('Failed to generate summary:', error);
-    }
+  function generateSummary(chatId: string) {
+    return syncConversationTitle(effectiveApiUrl, chatId);
   }
 
   async function generateClassification(chatId: string) {
