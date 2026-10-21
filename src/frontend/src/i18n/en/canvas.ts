@@ -20,6 +20,7 @@ export const CANVAS_EN: Record<string, string> = {
   '已打开文件': 'File opened',
   '使用 {app} 打开': 'Open with {app}',
   '{app}（默认）': '{app} (default)',
+  '正在读取关联应用…': 'Loading applications…',
   '重新读取关联应用': 'Retry loading applications',
   '请输入有效的网页地址': 'Enter a valid web address',
   '打开失败': 'Unable to open',

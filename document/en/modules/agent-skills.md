@@ -73,6 +73,11 @@ Each source can be disabled individually via `HUGAGENT_DISABLE_{ADMIN,USER,PROJE
   replaced by this system's runtime/delivery-chain section. **OfficeCLI does not
   handle PDF** — reading, merging, splitting and form-filling still go through `pdf-editing`.
 
+  The CLI baseline is `1.0.157` for both sandbox images and full desktop runtimes. Skills
+  have been checked and synchronized against upstream commit
+  [`2900a4a20f49`](https://github.com/iOfficeAI/OfficeCLI/commit/2900a4a20f49d6a94384d6ea7fb8cc0120999825)
+  (2026-10-20), preserving this system's Chinese triggers and runtime/delivery rules.
+
 - **`marketplace/` — 45 installable skill packages** (install-to-use): each directory holds the raw SKILL.md, referenced files and a `marketplace.json` manifest. Because they sit two levels deep at `marketplace/<slug>/SKILL.md`, the built-in loader **never** auto-loads them — before installation they don't appear in the catalog and aren't registered with agents; only an explicit install persists them.
 
   Ten of these are industry/brand skills (economic-indicator query, enterprise profiling, industry-chain analysis, etc.) hard-wired to the [EE industry MCP servers](mcp-tools.md) and are therefore **Enterprise EE**; the CE derivation strips them via `ce/manifest.yaml`.

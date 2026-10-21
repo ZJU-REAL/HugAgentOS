@@ -31,7 +31,7 @@ useTaskNotificationStore.getState().hydrate('browser-test',0);
 useTaskNotificationStore.getState().establishPersonalBaseline(0);
 useTaskNotificationStore.getState().observe(tasks.map(([id,title,status])=>({key:'chat:'+id,id:'run-'+id,messageId:'msg-'+id,status,startedAt:1,updatedAt:2})));
 useUIStore.setState({pendingConfirm:{c:[{confirmId:'confirm-c'}]}});
-window.reminders=useTaskNotificationStore;window.chats=useChatStore;
+window.reminders=useTaskNotificationStore;window.chats=useChatStore;window.ui=useUIStore;
 function Reader({selected}){
  const [viewport,setViewport]=useState(null);
  const messages=selected==='b'?[{uid:'b',messageId:'msg-b',role:'assistant',content:'result',ts:1}]:selected==='d'?[{uid:'d',messageId:'msg-d',role:'assistant',content:'error',ts:1}]:[];
@@ -85,6 +85,7 @@ const evidence=resolve('../../.scratch/sidebar-task-status');await mkdir(evidenc
 try{
  const context=await browser.newContext({viewport:{width:960,height:820}});
  const page=await context.newPage();page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});page.on('console',message=>{if(message.type()==='error')console.error('BROWSER',message.text());});
+ await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
  await page.goto('http://127.0.0.1:'+server.address().port);await page.bringToFront();
  const row=id=>page.locator('#ordinary .jx-historyItem').filter({has:page.locator('[data-task-status="'+id+'"]')});
  await page.locator('#ordinary [data-task-status="running"]').waitFor({timeout:6000}).catch(async error=>{console.error('FIXTURE DOM',await page.locator('#root').innerHTML());console.error('ERRORS',errors);await page.screenshot({path:resolve(evidence,'failure.png'),fullPage:true});throw error;});
@@ -99,6 +100,18 @@ try{
    const projectBounds=await projectDot.evaluate(el=>({mark:el.getBoundingClientRect().right,title:el.closest('.jx-historyMain').querySelector('.jx-historyTitle').getBoundingClientRect().left}));
    assert.ok(projectBounds.mark<projectBounds.title,'project status uses the left indentation');
  }
+ // Backend waiting verdicts can outlive the interactive request after a restart.
+ await page.evaluate(()=>window.ui.setState({pendingConfirm:{}}));
+ await page.waitForFunction(()=>!document.querySelector('#ordinary [data-task-status="waiting"]'));
+ assert.equal(await page.locator('#project [data-task-status="waiting"]').count(),0,'a backend waiting verdict alone has no yellow reminder');
+ await page.evaluate(()=>window.ui.setState({pendingUserQuestions:{c:[{requestId:'question-c',questions:[{id:'q',question:'Choose'}]}]}}));
+ await page.locator('#ordinary [data-task-status="waiting"]').waitFor();
+ await page.evaluate(()=>window.ui.setState({pendingDesignPick:{c:{requestId:'design-c'}},pendingUserQuestions:{}}));
+ assert.equal(await page.locator('#ordinary [data-task-status="waiting"]').count(),1,'another actionable interaction keeps the reminder');
+ await page.evaluate(()=>window.ui.setState({pendingDesignPick:{}}));
+ await page.waitForFunction(()=>!document.querySelector('#ordinary [data-task-status="waiting"]'));
+ await page.evaluate(()=>window.ui.setState({pendingConfirm:{c:[{confirmId:'confirm-c'}]}}));
+ await page.locator('#ordinary [data-task-status="waiting"]').waitFor();
  const projectTitles=await page.locator('#project .jx-historyTitle').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().left));
  assert.ok(projectTitles.every(left=>Math.abs(left-projectTitles[0])<1),'idle, running and unread project titles remain aligned');
  const spinner=page.locator('#ordinary [data-task-status="running"]');

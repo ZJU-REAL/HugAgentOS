@@ -59,6 +59,8 @@ Scheduled Tasks is a dedicated module under src/frontend/src/components/automati
 
 Execution conversations use /automation/:taskId/conversations/:chatId, with new as the task segment for setup conversations. Reloads, browser history, search hits, and notifications preserve task ownership. Search opens the exact matching conversation instead of the latest run. RunTimelinePanel groups executions by date. automationStore owns the single task list; automationChatStore owns the current run group and task pin/favorite preferences.
 
+Opening the right-side Canvas in an execution conversation temporarily hides the run timeline to make room for the conversation and Canvas. Collapsing Canvas restores the timeline and preserves the current task, selected execution, and conversation.
+
 ## Plan mode
 
 Plan mode decomposes a complex task into structured steps before executing them, in two phases (`orchestration/subagents/plan_mode.py`):

@@ -72,6 +72,10 @@
   《运行环境与交付链》。**OfficeCLI 不处理 PDF**，
   读取 / 合并 / 拆分 / 填表单仍走 `pdf-editing`。
 
+  当前 CLI 基线为 `1.0.157`，沙箱与桌面完整包使用同一版本。技能已核对并同步至上游提交
+  [`2900a4a20f49`](https://github.com/iOfficeAI/OfficeCLI/commit/2900a4a20f49d6a94384d6ea7fb8cc0120999825)
+  （2026-10-20），保留本系统的中文触发说明与运行环境、交付规则。
+
 - **`marketplace/` — 45 个可安装技能包**（安装制）：每个目录含原始 SKILL.md + 引用文件 + 一份 `marketplace.json` 清单。因为它们位于两层深的 `marketplace/<slug>/SKILL.md`，**不会**被内置加载器当作 default 技能自动加载——安装前不出现在 catalog、不注册给智能体，只有显式安装后才落库生效。
 
   其中 10 个行业/品牌技能（经济指标查询、企业画像查询、产业链结构分析等，硬依赖 [EE 行业 MCP](mcp-tools.md)）属**商业版 EE**，社区版派生树通过 `ce/manifest.yaml` 剔除。

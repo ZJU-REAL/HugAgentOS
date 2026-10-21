@@ -228,12 +228,11 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
             <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && chatSurface} panelKey="prompt-hub">
               <PromptHubPanel draftKey={chatDraftKey(useChatStore.getState().currentChatId)} />
             </SlidePanel>
-            {/* Automation run timeline — persistent panel (not mutually exclusive with SlidePanels).
-            * During exit store.activeGroup is already null; RunTimelinePanel falls back to a
-            * snapshot internally to render the last frame. */}
-            <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface && !showProjectOverview} panelKey="run-timeline" x={24} duration={0.24}>
-              <Suspense fallback={<PanelLoadingSkeleton />}><RunTimelinePanel /></Suspense>
-            </SlidePanel>
+            {!canvasOpen && (
+              <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface && !showProjectOverview} panelKey="run-timeline" x={24} duration={0.24}>
+                <Suspense fallback={<PanelLoadingSkeleton />}><RunTimelinePanel /></Suspense>
+              </SlidePanel>
+            )}
           </div>
         </div>
 
