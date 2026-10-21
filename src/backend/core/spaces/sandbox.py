@@ -2,7 +2,7 @@
 import asyncio
 
 from fastapi import HTTPException
-from core.sandbox._opensandbox_loop import _on_service_loop
+from core.sandbox.processes.dispatch import _on_service_loop
 from core.spaces.access import resolve_grants
 from core.spaces.mounts import MOUNT_REVISION_TAG, mount_revision
 

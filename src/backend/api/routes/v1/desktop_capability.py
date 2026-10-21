@@ -516,7 +516,7 @@ async def gateway_mcp_call(
     try:
         result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
     except HTTPException:
-        from mcp_servers.registry import gateway_server
+        from extensions.mcp_servers.registry import gateway_server
         if gateway_server(resolved["server_id"]) is not None:
             raise
         raise HTTPException(502, "Cloud tool call failed") from None

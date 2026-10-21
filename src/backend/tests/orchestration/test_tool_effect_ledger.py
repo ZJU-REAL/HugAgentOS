@@ -928,7 +928,7 @@ async def test_scheduled_create_reconciliation_uses_exact_atomic_receipt(
 
     import core.db.engine as engine_module
     import orchestration.tool_effect_recovery as recovery_module
-    from mcp_servers.automation_task_mcp import impl
+    from extensions.mcp_servers.automation_task_mcp import impl
 
     monkeypatch.setattr(engine_module, "SessionLocal", sessions)
     monkeypatch.setattr(recovery_module, "SessionLocal", sessions)

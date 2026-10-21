@@ -16,7 +16,7 @@ def payload(result):
 
 
 async def test_relative_write_lands_in_project_and_pin_keeps_original(local_project, monkeypatch):
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", ScriptRunnerProvider)
     from core.llm.tools.write_tool import register_write
@@ -71,8 +71,8 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     import asyncio
     import socket
     import uvicorn
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
-    from services.script_runner_service import server
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
+    from core.sandbox.runner import server
     from core.llm.tools import _paths
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.write_tool import register_write
@@ -94,7 +94,7 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     scratch_root.mkdir()
     scratch = str(scratch_root)
     monkeypatch.setattr(server, "WORKSPACE_ROOT", scratch)
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", scratch)
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", scratch)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", scratch)
     monkeypatch.setattr(server, "_AUTH_TOKEN", "")
     monkeypatch.setenv("DEPLOY_PROFILE", "local")

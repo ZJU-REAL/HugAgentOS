@@ -17,5 +17,5 @@
 **不要手工改写这些文件。** 它们是「默认全关（`deny default`）+ 逐条放行」这套模型
 的基座：每一条 `allow` 都对应一个真实的系统调用/服务依赖，删掉任意一条都可能让沙箱
 里的进程在某个 macOS 版本上莫名其妙地起不来。需要放行新路径时，走
-`core.sandbox.oslayer.policy` 的策略条目，由 `seatbelt.py` 生成动态规则，而不是往
+`core.sandbox.oslayer.models` 的策略条目，由 `seatbelt.py` 生成动态规则，而不是往
 基座里加规则。同步上游更新时整文件替换。

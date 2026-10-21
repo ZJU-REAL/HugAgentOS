@@ -11,10 +11,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
-from agentscope.agent import Agent, ContextConfig
+from agentscope.agent import ContextConfig
 from agentscope.message import DataBlock, TextBlock, ToolResultBlock
 from agentscope.model import ChatUsage
 from agentscope.workspace import Offloader
+from core.llm.context_safety import enforce_context_budget
 from core.llm.execution_manifest import stable_hash
 from core.llm.manifest_agent import ManifestBoundAgent
 
@@ -103,11 +104,7 @@ class _ContextObservation:
 
 
 class CompactingAgent(ManifestBoundAgent):
-    """Agent whose step-boundary compaction uses the shared persisted engine.
-
-    Framework fallbacks call ``Agent.compress_context`` directly because
-    ``ManifestBoundAgent`` intentionally implements that method as a no-op.
-    """
+    """Agent whose step-boundary compaction uses the shared persisted engine."""
 
     offloader: Offloader | None
 
@@ -144,7 +141,8 @@ class CompactingAgent(ManifestBoundAgent):
                 output = [b for b in output if not self._is_image(b)]
             try:
                 path = await self.offloader.offload_tool_result(
-                    self.state.session_id, tool_result.model_copy(update={"output": output})
+                    self.state.session_id,
+                    tool_result.model_copy(update={"output": output}),
                 )
                 if path:
                     notice = (
@@ -158,7 +156,10 @@ class CompactingAgent(ManifestBoundAgent):
         blocks = kept.output
         if isinstance(blocks, str):
             blocks = [TextBlock(text=blocks)]
-        return kept.model_copy(update={"output": [*blocks, TextBlock(text=reminder)]}), None
+        return (
+            kept.model_copy(update={"output": [*blocks, TextBlock(text=reminder)]}),
+            None,
+        )
 
     @staticmethod
     def _is_image(block: Any) -> bool:
@@ -271,17 +272,13 @@ class CompactingAgent(ManifestBoundAgent):
     # ── MidTurn compaction ───────────────────────────────────────────────────
 
     async def compress_context(self, context_config: ContextConfig | None = None) -> None:
-        """Compact at a ReAct step boundary, falling back to AgentScope on failure."""
-        cfg: ContextConfig = context_config or self.context_config
+        """Compact at a ReAct step boundary without replacing failed work with a summary."""
+        del context_config
+        await enforce_context_budget(self)
 
         from core.config.settings import settings
 
         if not settings.compaction.enabled:
-            # Disabling checkpoints must not disable live overflow protection.
-            try:
-                await self._compress_with_framework(cfg)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[compaction] framework compression failed: %r", exc)
             return
 
         try:
@@ -346,14 +343,7 @@ class CompactingAgent(ManifestBoundAgent):
             replacement = None
 
         if not replacement:
-            logger.warning("[compaction] mid-turn falling back to framework compression")
-            try:
-                await self._compress_with_framework(cfg)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[compaction] framework compression failed too: %r", exc)
-                return
-            self._jx_observation = None
-            self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
+            logger.warning("[compaction] failed; preserving context for final budget admission")
             return
 
         await self._apply_replacement(replacement)
@@ -372,33 +362,6 @@ class CompactingAgent(ManifestBoundAgent):
             "请使用现有摘要与保留的消息继续，勿尝试读取不存在的文件。"
             "</system-reminder>"
         )
-
-    async def _compress_with_framework(self, cfg: ContextConfig) -> None:
-        # SDK 2.0 updates summary BEFORE offloading, but removes old messages
-        # AFTER it. A write failure would otherwise leave summary + full history
-        # together. Let the SDK commit compression, then publish a safe notice.
-        import asyncio
-        from core.services.compaction_progress import start_progress, finish_progress
-        chat_id = str(getattr(self.state, "chat_id", "") or "")
-        progress = await start_progress(chat_id, "", "mid_turn") if chat_id else None
-        before = self.state.context
-        offloader = self.offloader
-        self.offloader = None
-        try:
-            await Agent.compress_context(self, cfg)
-        finally:
-            self.offloader = offloader
-            if progress is not None:
-                task = asyncio.current_task()
-                await finish_progress(progress, "completed" if self.state.context is not before else
-                                      "interrupted" if task and task.cancelling() else "failed")
-        # The SDK replaces the list on successful compression, including when
-        # it splits blocks inside one Msg without changing the message count.
-        # Archive the complete pre-compression snapshot to retain that boundary.
-        if self.state.context is not before:
-            self.state.summary += await self._context_offload_notice(list(before))
-            self._jx_observation = None
-            self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
 
     async def _should_compact(self) -> tuple[Optional[int], int]:
         """Return ``(limit, measured_tokens)``; ``limit`` is None when undeterminable."""
@@ -445,7 +408,9 @@ class CompactingAgent(ManifestBoundAgent):
         self._jx_observation = None
         self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
         logger.info(
-            "[compaction] mid-turn applied msgs=%d→%d", len(dropped), len(self.state.context)
+            "[compaction] mid-turn applied msgs=%d→%d",
+            len(dropped),
+            len(self.state.context),
         )
 
 

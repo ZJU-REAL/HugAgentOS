@@ -12,15 +12,17 @@ Two views are maintained, both link-only:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import threading
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
-import hashlib
-from collections import OrderedDict
-import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+from extensions.paths import SKILLS_DIR
 
 from . import registry, store
 from . import view as view_mod
@@ -28,11 +30,10 @@ from .paths import (
     BUILTIN_PROFILE,
     KIND_SKILL,
     LOCAL_PROFILE,
-    capabilities_enabled,
     capability_root,
     revision_for_hash,
 )
-from .ref import ResourceRef, builtin_ref, local_ref, profile_id
+from .ref import builtin_ref, local_ref, profile_id
 from .resolver import (
     SOURCE_BUILTIN,
     SOURCE_CLOUD,
@@ -73,7 +74,7 @@ def bump_view_generation() -> int:
 
 
 def builtin_dir() -> Path:
-    return Path(__file__).resolve().parent.parent.parent / "skill_bundles" / "default"
+    return SKILLS_DIR / "default"
 
 
 def allowed_link_roots() -> List[Path]:
@@ -390,9 +391,8 @@ def resolve_for_user(user_id: Optional[str], *, requested: Optional[Set[str]] = 
     eligibility fixpoint walks every candidate's package each time, so without
     this the same answer was recomputed from disk two or three times a turn.
     """
-    from .readiness import eligible_skill_candidates
-
     from .discovery import scan
+    from .readiness import eligible_skill_candidates
     scan(user_id)
     key = user_id or ""
     signal = (

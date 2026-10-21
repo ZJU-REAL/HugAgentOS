@@ -233,7 +233,7 @@ def validate_params(schema: Dict[str, Any], raw: Dict[str, Any]) -> Dict[str, An
 async def _call_provider(provider: str, params: Dict[str, Any], *, slug: str) -> Any:
     """Dispatch to an in-process data provider published by a host module.
 
-    The contract already constrains the reference to ``mcp_servers.*:name``;
+    The contract already constrains the reference to ``extensions.mcp_servers.*:name``;
     on top of that, only callables the module deliberately lists in its
     ``DATA_PROVIDERS`` dict are reachable — a manifest cannot invoke arbitrary
     importable functions.
@@ -241,7 +241,7 @@ async def _call_provider(provider: str, params: Dict[str, Any], *, slug: str) ->
     import importlib
 
     module_path, _, name = provider.partition(":")
-    if not module_path.startswith("mcp_servers.") or not name:
+    if not module_path.startswith("extensions.mcp_servers.") or not name:
         raise PluginDataSourceError("插件数据源 provider 引用非法", status_code=400)
     try:
         module = importlib.import_module(module_path)

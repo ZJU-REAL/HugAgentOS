@@ -7,11 +7,13 @@ user-created agents editable and removable.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from extensions.paths import DEFAULT_AGENTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -43,44 +45,26 @@ class BuiltinSubagentSpec:
     allow_bash: bool
     capability_policy: str
     max_iters: int
+    sort_order: int = 0
 
     @property
     def agent_id(self) -> str:
         return f"{BUILTIN_AGENT_PREFIX}{self.role}"
 
 
-BUILTIN_SUBAGENTS = (
-    BuiltinSubagentSpec(
-        role="explorer",
-        name="探索员",
-        description="只读检索代码、文档、知识库与公开信息，返回可核验的事实和证据。",
-        shared_context=False,
-        read_only=True,
-        allow_bash=False,
-        capability_policy="read_only_intersection",
-        max_iters=12,
-    ),
-    BuiltinSubagentSpec(
-        role="worker",
-        name="执行员",
-        description="继承当前对话约束，在同一项目工作区完成边界清晰的实施任务并验证结果。",
-        shared_context=True,
-        read_only=False,
-        allow_bash=True,
-        capability_policy="inherit_parent",
-        max_iters=30,
-    ),
-    BuiltinSubagentSpec(
-        role="reviewer",
-        name="审查员",
-        description="独立、只读地检查产出与证据，给出通过、修改或升级结论。",
-        shared_context=False,
-        read_only=True,
-        allow_bash=False,
-        capability_policy="read_only_intersection",
-        max_iters=16,
-    ),
-)
+def _load_builtin_subagents() -> tuple[BuiltinSubagentSpec, ...]:
+    specs = []
+    for manifest in sorted(DEFAULT_AGENTS_DIR.glob("*/agent.json")):
+        spec = BuiltinSubagentSpec(**json.loads(manifest.read_text(encoding="utf-8")))
+        if spec.role != manifest.parent.name:
+            raise ValueError(f"builtin agent role does not match its directory: {manifest}")
+        specs.append(spec)
+    if not specs or len({spec.agent_id for spec in specs}) != len(specs):
+        raise ValueError("builtin agent definitions are missing or duplicated")
+    return tuple(sorted(specs, key=lambda spec: spec.sort_order))
+
+
+BUILTIN_SUBAGENTS = _load_builtin_subagents()
 
 _BUILTIN_BY_ID = {spec.agent_id: spec for spec in BUILTIN_SUBAGENTS}
 
@@ -247,13 +231,7 @@ def load_builtin_subagent_prompt(spec: BuiltinSubagentSpec) -> str:
     except Exception:
         logger.debug("failed to load active builtin subagent prompt", exc_info=True)
 
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "prompts"
-        / "prompt_text"
-        / "subagents"
-        / f"{spec.role}.system.md"
-    )
+    path = DEFAULT_AGENTS_DIR / spec.role / "system.md"
     if not path.is_file():
         raise RuntimeError(f"missing builtin subagent prompt: {path}")
     return path.read_text(encoding="utf-8").strip()

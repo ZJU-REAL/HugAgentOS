@@ -27,7 +27,7 @@ from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, UserAgen
 
 OWNER = "am_test_user"
 OTHER = "am_other_user"
-BUNDLE_DIR = Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace" / "agent-manager"
+BUNDLE_DIR = Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace" / "agent-manager"
 
 
 @pytest.fixture()
@@ -52,7 +52,7 @@ def am_env(tmp_path, monkeypatch):
 
 
 def _create(**kw):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     payload = {
         "user_id": OWNER,
@@ -78,7 +78,7 @@ def test_bundle_manifest_is_wellformed():
 
     # The declared tool list must match what the server actually exposes — a manifest that
     # advertises a tool the server doesn't have is a silently broken promise to the model.
-    from mcp_servers.agent_manager_mcp import server
+    from extensions.mcp_servers.agent_manager_mcp import server
 
     declared = {t["name"] for t in ext_mcp["agent_manager"]["tools"]}
     actual = {t.name for t in asyncio.run(server.mcp.list_tools())}
@@ -117,7 +117,7 @@ def test_routing_description_is_short_and_disambiguating():
 
 
 def test_port_is_registered():
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     assert PORTS["agent_manager"] == 9115
     assert package_name("agent_manager") == "agent_manager_mcp"
@@ -159,7 +159,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(am_env):
 
 # ── Create → list → edit → delete ───────────────────────────────────────────
 def test_create_list_edit_delete_loop(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     res = _create()
     assert res["ok"], res
@@ -190,7 +190,7 @@ def test_create_list_edit_delete_loop(am_env):
 
 
 def test_create_rejects_missing_core_fields(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     assert not impl.create_agent(user_id=OWNER, name="", description="x", system_prompt="y")["ok"]
     assert not impl.create_agent(user_id=OWNER, name="x", description="", system_prompt="y")["ok"]
@@ -200,7 +200,7 @@ def test_create_rejects_missing_core_fields(am_env):
 
 
 def test_edit_requires_at_least_one_field(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create()["agent"]["agent_id"]
     res = impl.edit_agent(user_id=OWNER, agent_ref=agent_id)
@@ -209,7 +209,7 @@ def test_edit_requires_at_least_one_field(am_env):
 
 def test_bindings_are_replaced_not_appended(am_env):
     """The replace-not-append semantics the skill warns about must actually hold."""
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create(skill_ids=["a", "b"])["agent"]["agent_id"]
     impl.edit_agent(user_id=OWNER, agent_ref=agent_id, skill_ids=["c"])
@@ -219,7 +219,7 @@ def test_bindings_are_replaced_not_appended(am_env):
 
 
 def test_binding_ids_are_deduped_and_capped(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     res = _create(skill_ids=["a", " a ", "b", "", "b"])
     assert res["ok"]
@@ -239,7 +239,7 @@ def test_binding_ids_are_deduped_and_capped(am_env):
 
 # ── Ambiguity: must ask, never guess ────────────────────────────────────────
 def test_ambiguous_ref_returns_candidates_instead_of_guessing(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     _create(name="报告助手A")
     _create(name="报告助手B")
@@ -258,7 +258,7 @@ def test_ambiguous_ref_returns_candidates_instead_of_guessing(am_env):
 
 # ── Isolation: only my own agents ───────────────────────────────────────────
 def test_cannot_touch_other_users_agents(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     mine = _create()["agent"]["agent_id"]
 
@@ -273,7 +273,7 @@ def test_cannot_touch_other_users_agents(am_env):
 def test_admin_agents_are_not_listed_as_mine(am_env):
     """list_for_user also returns admin-owned agents; the self-serve entry must not claim them."""
     from core.services.user_agent_service import UserAgentService
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     with am_env.Session() as db:
         UserAgentService(db).create(
@@ -289,7 +289,7 @@ def test_admin_agents_are_not_listed_as_mine(am_env):
 
 # ── Capability flag gating ──────────────────────────────────────────────────
 def test_write_verbs_blocked_without_capability(am_env, monkeypatch):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create()["agent"]["agent_id"]
 
@@ -310,7 +310,7 @@ def test_write_verbs_blocked_without_capability(am_env, monkeypatch):
 
 
 def test_missing_user_header_is_refused(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     for res in (
         impl.list_my_agents(user_id=""),
@@ -323,7 +323,7 @@ def test_missing_user_header_is_refused(am_env):
 
 # ── Bindable capabilities / market verbs ────────────────────────────────────
 def test_list_bindable_capabilities_shape(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     res = impl.list_bindable_capabilities(user_id=OWNER)
     assert res["ok"], res
@@ -332,7 +332,7 @@ def test_list_bindable_capabilities_shape(am_env):
 
 
 def test_search_agent_market_lists_preset_bundles(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     res = impl.search_agent_market(user_id=OWNER)
     assert res["ok"], res
@@ -345,7 +345,7 @@ def test_search_agent_market_lists_preset_bundles(am_env):
 
 
 def test_install_market_agent_then_owned_by_me(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     listed = impl.search_agent_market(user_id=OWNER)
     slug = listed["agents"][0]["slug"]
@@ -364,14 +364,14 @@ def test_install_market_agent_then_owned_by_me(am_env):
 
 
 def test_install_unknown_market_slug_fails_cleanly(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     res = impl.install_market_agent(user_id=OWNER, slug="__nope__")
     assert not res["ok"] and res["message"].startswith("❌")
 
 
 def test_submit_agent_to_market_creates_pending_submission(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create()["agent"]["agent_id"]
     res = impl.submit_agent_to_market(
@@ -385,7 +385,7 @@ def test_submit_agent_to_market_creates_pending_submission(am_env):
 def test_submit_rejects_wrong_category_and_lists_valid_ones(am_env):
     """子智能体市场的分类是自己的一套（与技能市场的 8 类不同）。传错要挡下来并回列合法值，
     否则模型只能靠猜，每次上架都要先失败一轮。"""
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create()["agent"]["agent_id"]
     res = impl.submit_agent_to_market(user_id=OWNER, agent_id=agent_id, category="办公效率")
@@ -398,7 +398,7 @@ def test_tool_description_lists_the_real_categories():
     """工具描述里的分类清单必须与代码里的单一真相源一致，否则描述会悄悄过期。"""
     import json
 
-    from mcp_servers.agent_manager_mcp import impl, server
+    from extensions.mcp_servers.agent_manager_mcp import impl, server
 
     cats = impl.valid_categories()
     assert len(cats) == 9
@@ -413,7 +413,7 @@ def test_tool_description_lists_the_real_categories():
 
 
 def test_submit_rejects_agent_not_mine(am_env):
-    from mcp_servers.agent_manager_mcp import impl
+    from extensions.mcp_servers.agent_manager_mcp import impl
 
     agent_id = _create()["agent"]["agent_id"]
     res = impl.submit_agent_to_market(user_id=OTHER, agent_id=agent_id)
@@ -422,7 +422,7 @@ def test_submit_rejects_agent_not_mine(am_env):
 
 # ── Server layer: header plumbing + tool surface ────────────────────────────
 def test_server_tools_forward_user_header(am_env, monkeypatch):
-    from mcp_servers.agent_manager_mcp import server
+    from extensions.mcp_servers.agent_manager_mcp import server
 
     captured = {}
 
@@ -447,7 +447,7 @@ def test_server_tools_forward_user_header(am_env, monkeypatch):
 
 
 def test_every_server_tool_is_async_and_documented():
-    from mcp_servers.agent_manager_mcp import server
+    from extensions.mcp_servers.agent_manager_mcp import server
 
     tools = asyncio.run(server.mcp.list_tools())
     assert len(tools) == 8

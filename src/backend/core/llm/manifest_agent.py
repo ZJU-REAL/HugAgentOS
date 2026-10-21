@@ -10,6 +10,7 @@ from agentscope.agent import Agent
 from core.llm.context_adapter import AgentScopeContextAdapter
 from core.llm.context_ir import VISIBILITY_MANIFEST_ONLY, ContextAssembler, estimate_context_tokens
 from core.llm.context_manager import FALLBACK_CONTEXT_WINDOW, usable_context_window
+from core.llm.context_safety import enforce_context_budget
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class ManifestBoundAgent(Agent):
         """Publish one final assembly through the same evidence listener."""
         self._jx_context_assembly = assembly
         self._jx_context_manifest = assembly.manifest
+        await enforce_context_budget(self, assembly)
         if base_manifest is None:
             return
         request_manifest = base_manifest.with_context_manifest(assembly.manifest)
@@ -116,6 +118,25 @@ class ManifestBoundAgent(Agent):
         await self._publish_context_assembly(assembly, base_manifest)
         return adapter.provider_messages_from_items(assembly.included)
 
+    async def _prepare_candidate_context(self, candidate, messages, tools):
+        await enforce_context_budget(self)
+        adapter = self._context_adapter_factory()
+        items = adapter.items_from_messages(messages, summary_text=self.state.summary)
+        window = int(getattr(candidate, "context_size", 0) or FALLBACK_CONTEXT_WINDOW)
+        reserve = estimate_context_tokens(tools or [])
+        budget = max(0, usable_context_window(window) - reserve)
+        details = {
+            "context_window": window,
+            "tool_reserve_tokens": reserve,
+            "message_budget": budget,
+        }
+        assembly = ContextAssembler(total_budget=budget, budget_details=details).assemble(items)
+        self._jx_context_budget = budget
+        self._jx_context_budget_details = details
+        base_manifest = getattr(self, "_jx_base_execution_manifest", None)
+        await self._publish_context_assembly(assembly, base_manifest)
+        return adapter.messages_from_items(assembly.included)
+
     def _tool_reserve_tokens(self, snapshot: Any, tools: Any) -> int:
         """Token cost of the frozen tool schemas, recomputed only when they change.
 
@@ -136,6 +157,7 @@ class ManifestBoundAgent(Agent):
         return reserve
 
     async def _prepare_model_input(self):  # noqa: ANN202
+        await enforce_context_budget(self)
         snapshot = None
         freeze = getattr(self.toolkit, "freeze_execution_surface", None)
         if freeze is not None:
@@ -180,23 +202,7 @@ class ManifestBoundAgent(Agent):
             total_budget=request_budget,
             budget_details=budget_details,
         ).assemble(items)
-        if assembly.over_budget:
-            # The protected material alone (system prompt, current request,
-            # the turn's own steps) does not fit the estimate. Nothing inside
-            # it may be shortened; compaction already ran at the step boundary.
-            # The request goes out intact — the provider's count is the only
-            # exact one — and this line makes the overflow visible instead of
-            # a silently mutilated history.
-            logger.warning(
-                "[context] protected content exceeds the request budget: "
-                "used=%d budget=%d protected_units=%d cut_units=%d pruned_items=%d",
-                assembly.used_tokens,
-                assembly.total_budget,
-                assembly.manifest.get("protected_units", 0),
-                assembly.cut_units,
-                assembly.pruned_items,
-            )
-        elif assembly.cut_units or assembly.pruned_items:
+        if assembly.cut_units or assembly.pruned_items:
             logger.info(
                 "[context] history reduced to fit the request budget: "
                 "cut_units=%d pruned_items=%d used=%d budget=%d",
@@ -209,6 +215,9 @@ class ManifestBoundAgent(Agent):
         self._jx_context_budget = request_budget
         self._jx_context_budget_details = budget_details
         await self._publish_context_assembly(assembly, base_manifest)
+        set_candidate_listener = getattr(self.model, "set_candidate_context_listener", None)
+        if callable(set_candidate_listener):
+            set_candidate_listener(self._prepare_candidate_context)
         set_rewrite_listener = getattr(self.model, "set_context_rewrite_listener", None)
         if callable(set_rewrite_listener):
             set_rewrite_listener(self._rebind_provider_context)

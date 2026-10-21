@@ -222,7 +222,7 @@ make migrate-new msg="describe change"
 | 后端入口（自动迁移） | `src/backend/scripts/backend_entrypoint.sh` |
 | OpenSandbox 配置模板 | `docker/opensandbox-config.toml.tpl` |
 | 迁移脚本 | `alembic.ini`、`src/backend/alembic/` |
-| MCP 端口单一真源 | `src/backend/mcp_servers/_ports.py` |
+| MCP 端口单一真源 | `src/backend/extensions/mcp_servers/_ports.py` |
 
 ### OpenSandbox 命令延迟与控制器镜像
 

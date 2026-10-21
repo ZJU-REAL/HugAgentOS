@@ -99,8 +99,8 @@ async def native_tools(
             )
         # Site publishing is now plugin-based: the sites plugin's site_publish
         # MCP provides the publish_site tool; the built-in native tool is no
-        # longer registered here (see mcp_servers/site_publish_mcp +
-        # plugin_bundles/marketplace/sites).
+        # longer registered here (see extensions/mcp_servers/site_publish_mcp +
+        # extensions/plugins/marketplace/sites).
 
         # Site-builder design pick (choose one of three): registered only for
         # sessions with the site-builder skill enabled (per-run conditional

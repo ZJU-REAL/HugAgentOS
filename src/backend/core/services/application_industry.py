@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 
 def fetch_enterprises(keyword: str, limit: int) -> list[dict]:
-    from mcp_servers.ai_chain_information_mcp.impl_company import _resolve_company_config
+    from extensions.mcp_servers.ai_chain_information_mcp.impl_company import _resolve_company_config
 
     try:
         url, token = _resolve_company_config()

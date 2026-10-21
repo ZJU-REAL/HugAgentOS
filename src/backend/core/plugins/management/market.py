@@ -134,7 +134,7 @@ def set_market_meta(
 def list_plugins(
     db: Session, owner_user_id: Optional[str], *, include_disabled: bool = False
 ) -> List[Dict[str, Any]]:
-    """Plugin marketplace list (scans plugin_bundles/{default,marketplace}, annotated with installed status).
+    """Plugin marketplace list (scans extensions/plugins/{default,marketplace}, annotated with installed status).
 
     ``include_disabled``: the admin panel passes True (sees everything +
     ``market_enabled`` annotation); the user side defaults to False (sees only

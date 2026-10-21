@@ -49,7 +49,7 @@ def schedule(provider, chat_id, user_id, sandbox_id):
         _jobs[key] = loop.create_task(_run(provider, chat_id, user_id, str(sandbox_id)))
 
 async def _run(provider, chat_id, user_id, sandbox_id):
-    from core.sandbox.bound_session import bind
+    from core.sandbox.sessions.binding import bind
     with bind(sandbox_id):
         try:
             from core.db.models import ChatSession

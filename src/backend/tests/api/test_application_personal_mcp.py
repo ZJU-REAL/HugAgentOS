@@ -216,7 +216,7 @@ def test_manual_updates_and_rollback_refresh_personal_credentials(personal):
 
 
 def test_publish_tool_has_typed_tools_and_requires_injected_identity(monkeypatch):
-    from mcp_servers.site_publish_mcp.server import mcp, publish_mcp
+    from extensions.mcp_servers.site_publish_mcp.server import mcp, publish_mcp
 
     tool = next(item for item in asyncio.run(mcp.list_tools()) if item.name == "publish_mcp")
     assert set(tool.inputSchema["required"]) == {"app_id", "tools"}
@@ -227,7 +227,7 @@ def test_publish_tool_has_typed_tools_and_requires_injected_identity(monkeypatch
 
 def test_publish_tool_forwards_only_injected_identity_and_typed_tools(monkeypatch):
     from core.services.application_schema import ToolDefinition
-    from mcp_servers.site_publish_mcp import server
+    from extensions.mcp_servers.site_publish_mcp import server
 
     calls = []
     monkeypatch.setattr(server, "_identity", lambda _: {"user_id": "owner", "chat_id": "chat"})

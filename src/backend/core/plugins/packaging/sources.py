@@ -72,7 +72,7 @@ def _make_server_id(slug: str, server_name: str, owner_user_id: Optional[str]) -
 
 
 def builtin_plugin_component_ids() -> Tuple[set, set]:
-    """Component ids provided by builtin plugin bundles (``plugin_bundles/{default,marketplace}``).
+    """Component ids provided by builtin plugin bundles (``extensions/plugins/{default,marketplace}``).
 
     Returns ``(skill_ids, mcp_ids)``, derived by scanning each bundle's
     ``skills/*/`` directories and its MCP declarations (standard ``mcp.json`` /

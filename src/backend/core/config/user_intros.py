@@ -378,10 +378,10 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 来源可靠性提示（官媒 / 自媒体 / 论坛等）
 """,
     # Word / Excel / PPT capability has migrated to the officecli-* skills
-    # (see src/backend/skill_bundles/default/officecli-*), which drive the
+    # (see src/backend/extensions/skills/default/officecli-*), which drive the
     # pre-installed `officecli` binary through Bash — word_mcp / excel_mcp /
     # ppt_mcp no longer exist.
-    # PDF capability has migrated to the pdf-editing skill (see src/backend/skill_bundles/default/pdf-editing/).
+    # PDF capability has migrated to the pdf-editing skill (see src/backend/extensions/skills/default/pdf-editing/).
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
     "web_fetch": """\
 ## 用途

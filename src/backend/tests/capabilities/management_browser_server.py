@@ -52,7 +52,7 @@ patch.object(catalog, "get_runtime_catalog", return_value={"skills": [], "agents
 patch.object(catalog, "is_enabled", return_value=False).start()
 patch.object(plugins.ps, "list_plugins", return_value=[]).start()
 
-package_root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace"
+package_root = Path(__file__).resolve().parents[2] / "extensions/plugins/marketplace"
 for manager in ("skill-manager", "plugin-manager"):
     local_plugin_service.install(user, str(package_root / manager))
 

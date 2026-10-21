@@ -5,7 +5,7 @@ import json
 import tarfile
 
 from api.routes.v1 import desktop_capability as route
-from core.sandbox.process_completion import CompletionMixin
+from core.sandbox.processes.completion import CompletionMixin
 from core.services.desktop_gateway_uploads import UPLOAD_OPTIONS_HEADER, UPLOAD_SCHEMA_HEADER
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

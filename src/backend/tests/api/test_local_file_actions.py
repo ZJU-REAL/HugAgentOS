@@ -11,7 +11,7 @@ def test_native_actions_use_authorized_file_identity(monkeypatch):
     monkeypatch.setattr("api.routes.files.local_file_location",
                         lambda fid, user, db: {"path": "/authorized/report.txt"})
     monkeypatch.setattr("core.services.local_file_actions.file_applications",
-                        lambda path: {"applications": [{"id": "editor", "name": "Editor", "icon": None}],
+                        lambda path, **kwargs: {"applications": [{"id": "editor", "name": "Editor", "icon": None}],
                                       "default_id": "editor"})
     monkeypatch.setattr("core.services.local_file_actions.open_file",
                         lambda path, **kwargs: calls.append((path, kwargs)))
@@ -35,7 +35,7 @@ def test_native_open_rejects_unregistered_application(monkeypatch):
     from core.services.local_file_actions import open_file
 
     monkeypatch.setattr("core.services.local_file_actions.file_applications",
-                        lambda path: {"applications": [], "default_id": None})
+                        lambda path, **kwargs: {"applications": [], "default_id": None})
     with pytest.raises(ValueError, match="关联应用"):
         open_file("/authorized/report.txt", action="open", application="/untrusted/program")
 
@@ -53,12 +53,12 @@ def test_windows_delegate_default_keeps_system_open(monkeypatch):
     monkeypatch.setattr(local_file_actions, "_registry_value",
                         lambda root, key, name="": "AppXDefault" if name == "ProgId" else None)
     monkeypatch.setattr(local_file_actions, "_windows_default_name", lambda extension: "System Viewer")
+    monkeypatch.setattr(local_file_actions.sys, "platform", "win32")
     choices = local_file_actions._windows_applications("report.pdf")
     assert choices["default_id"] == "system-default"
     assert choices["applications"][0]["name"] == "System Viewer"
     opened = []
-    monkeypatch.setattr(local_file_actions.sys, "platform", "win32")
-    monkeypatch.setattr(local_file_actions, "file_applications", lambda path: choices)
+    monkeypatch.setattr(local_file_actions, "file_applications", lambda path, **kwargs: choices)
     monkeypatch.setattr(local_file_actions.os, "startfile", opened.append, raising=False)
     local_file_actions.open_file("report.pdf", action="open", application="system-default")
     assert opened == ["report.pdf"]
@@ -92,3 +92,47 @@ def test_application_icon_failure_has_no_external_fallback(monkeypatch):
                         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="not a PNG"))
     assert native_app_icons.windows_icon("C:/Apps/invalid.exe") is None
     native_app_icons.windows_icon.cache_clear()
+
+def test_selected_application_does_not_read_icons(monkeypatch, tmp_path):
+    from core.services import local_file_actions as actions
+
+    entry = tmp_path / "viewer.desktop"
+    entry.write_text("[Desktop Entry]\nName=Viewer\nExec=viewer %f\n")
+    monkeypatch.setattr(actions.sys, "platform", "linux")
+    monkeypatch.setattr(actions, "_run", lambda args, **kwargs:
+                        "text/plain" if args[0] == "xdg-mime" else "viewer.desktop")
+    monkeypatch.setattr(actions, "_desktop_entry", lambda identifier: (entry, "Viewer"))
+    def slow_icon(path):
+        pytest.fail("Opening a selected application must not decode application icons")
+    monkeypatch.setattr(actions, "desktop_icon", slow_icon)
+    launched = []
+    monkeypatch.setattr(actions.subprocess, "Popen", lambda args, **kwargs: launched.append(args))
+    actions.open_file(str(tmp_path / "report.txt"), action="open", application="viewer.desktop")
+    assert launched == [["gio", "launch", str(entry), str(tmp_path / "report.txt")]]
+
+def test_windows_lightweight_choices_do_not_parse_icon_commands(monkeypatch):
+    import sys
+    from core.services import local_file_actions as actions
+
+    def missing_key(*args):
+        raise OSError
+
+    monkeypatch.setitem(sys.modules, "winreg", SimpleNamespace(
+        HKEY_CURRENT_USER="user", HKEY_CLASSES_ROOT="classes", OpenKey=missing_key,
+    ))
+    monkeypatch.setattr(actions.sys, "platform", "win32")
+    def value(root, key, name=""):
+        if name == "ProgId":
+            return "Viewer"
+        if key.endswith(r"\shell\open\command"):
+            return 'viewer "%1"'
+        return None
+    monkeypatch.setattr(actions, "_registry_value", value)
+    monkeypatch.setattr(actions, "_windows_default_name", lambda value: "Viewer")
+    def unexpected_parse(*args):
+        pytest.fail("Lightweight application discovery must not parse icon executable paths")
+    monkeypatch.setattr(actions, "_windows_command", unexpected_parse)
+    assert actions.file_applications("report.txt", include_icons=False) == {
+        "applications": [{"id": "Viewer", "name": "Viewer", "icon": None}],
+        "default_id": "Viewer",
+    }

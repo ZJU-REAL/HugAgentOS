@@ -5,7 +5,7 @@ from tests.sandbox.runner_client import run_runner
 
 
 def test_script_runner_has_no_session_reaping_endpoint():
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     routes = {getattr(r, "path", "") for r in server.app.routes}
     assert "/sessions/reap" not in routes
@@ -15,7 +15,7 @@ def test_script_runner_has_no_session_reaping_endpoint():
 
 def test_script_runner_provider_exposes_no_session_reaper():
     """周期回收器靠 ``getattr(provider, "reap_idle_sessions", None)`` 发现实现。"""
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     assert not hasattr(ScriptRunnerProvider, "reap_idle_sessions")
     # 显式销毁仍然保留：它由调用方在会话确实坏掉时主动触发，不是定时器。
@@ -25,7 +25,7 @@ def test_script_runner_provider_exposes_no_session_reaper():
 def test_execution_runs_in_the_session_directory_itself(tmp_path, monkeypatch):
     """bash 的 cwd 就是会话工作目录本身，不是另开的临时子目录。"""
     import asyncio
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
     req = server.ProcessRequest(

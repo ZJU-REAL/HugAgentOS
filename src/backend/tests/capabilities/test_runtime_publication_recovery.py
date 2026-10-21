@@ -29,7 +29,7 @@ async def test_concurrent_runs_in_same_chat_cannot_repoint_running_script(
     import asyncio
     from core.capabilities import runtime
     from core.services.desktop_capability_protocol import skill_content_hash
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
     monkeypatch.setattr(skills, "current_account_profile", lambda: None)

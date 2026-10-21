@@ -26,7 +26,7 @@ from core.plugins.ui.contract import SUPPORTED_UI_VERSION, find_data_source, fin
 
 IKC_MANIFEST = (
     Path(__file__).resolve().parents[1]
-    / "plugin_bundles/marketplace/industry-knowledge-center/plugin.json"
+    / "extensions/plugins/marketplace/industry-knowledge-center/plugin.json"
 )
 
 

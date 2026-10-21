@@ -1,7 +1,8 @@
 """Upgrade installed official manager bundles; retain a rollback snapshot per owner."""
-from pathlib import Path
-from core.db.models import InstalledPlugin, AdminSkill, AdminMcpServer, ContentBlock
+
+from core.db.models import AdminMcpServer, AdminSkill, ContentBlock, InstalledPlugin
 from core.services.management_contract import MANAGERS
+from extensions.paths import PLUGINS_DIR
 
 
 def refresh(db):
@@ -9,7 +10,7 @@ def refresh(db):
     if capabilities_enabled():
         return 0  # Device legacy packages are handled by local_legacy_plugin_migration.
     from core.plugins import management as ps
-    root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace"
+    root = PLUGINS_DIR / "marketplace"
     count = 0
     for row in db.query(InstalledPlugin).filter(InstalledPlugin.slug.in_(list(MANAGERS))).all():
         if row.version == "2.0.0" or row.source != "builtin":
@@ -18,7 +19,7 @@ def refresh(db):
             AdminMcpServer.owner_user_id == row.owner_user_id).all()
         # Only platform-managed endpoints qualify; an external server with the same name does not.
         from core.config.settings import settings
-        from mcp_servers._ports import PORTS
+        from extensions.mcp_servers._ports import PORTS
         name = row.slug.replace("-", "_")
         expected_url = f"http://{settings.server.mcp_host}:{PORTS[name]}/mcp/"
         if not servers or any(s.url != expected_url for s in servers):

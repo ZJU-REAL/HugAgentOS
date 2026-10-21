@@ -9,8 +9,9 @@ def launch_policy(provider, user_id, chat_id):
         return None
     from core.llm.tool_permissions import resolve_approval_mode, LocalCommandAuthorization
     from core.services.local_grant_service import policy_for_gate
-    from core.sandbox.os_sandbox import LocalAccessDecision, protected_read_paths
-    from core.sandbox.local_policy import NETWORK
+    from core.sandbox.permissions.os_gate import LocalAccessDecision
+    from core.sandbox.permissions.os_gate import protected_read_paths
+    from core.sandbox.permissions.models import NETWORK
     from core.llm.tools._paths import workspace_directory
     mode = resolve_approval_mode(None, user_id=user_id)
     policy = policy_for_gate(mode)

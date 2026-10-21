@@ -1,7 +1,7 @@
 """ChatModel implementations + constructors for non-OpenAI-compat vendors.
 
 - Native vendors (Anthropic / Gemini / DashScope / Ollama): thin subclasses that attach the
-  L3 fallback mixin + the corresponding formatter; the underlying client is constructed by the
+  the corresponding formatter; the underlying client is constructed by the
   native AgentScope class inside _call_api. A request/stream-read deadline enforces the
   configured timeout even when a vendor SDK has no timeout injection point.
 - litellm vendors (Bedrock, etc.): subclass OpenAIChatModel and only override _call_api to call
@@ -41,12 +41,10 @@ from agentscope.model import (
     OpenAIChatModel,
 )
 from agentscope.tool._types import ToolChoice
-
 from core.llm.reasoning_replay import ReasoningReplayMixin
 from core.llm.tool_call_identity import ToolCallIdentityMixin
 from core.llm.tool_result_media import NoDiskToolMediaMixin
 
-from ._fallback import StructuredFallbackMixin
 from ._image_tokens import ImageTokenCountingMixin
 from .registry import ProviderSpec
 
@@ -130,7 +128,6 @@ class NativeAnthropicChatModel(
     NativeRequestTimeout,
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     AnthropicChatModel,
 ):
     pass
@@ -140,7 +137,6 @@ class NativeGeminiChatModel(
     NativeRequestTimeout,
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     GeminiChatModel,
 ):
     pass
@@ -150,7 +146,6 @@ class NativeDashScopeChatModel(
     NativeRequestTimeout,
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     DashScopeChatModel,
 ):
     pass
@@ -160,7 +155,6 @@ class NativeOllamaChatModel(
     NativeRequestTimeout,
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     OllamaChatModel,
 ):
     pass
@@ -260,7 +254,6 @@ class LiteLLMChatModel(
     NativeRequestTimeout,
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     OpenAIChatModel,
 ):
     """Call any vendor via litellm; reuse OpenAIChatModel's OpenAI-format parser.
@@ -285,9 +278,7 @@ class LiteLLMChatModel(
         provider_id: str = "litellm",
     ) -> None:
         super().__init__(
-            credential=OpenAICredential(
-                api_key="litellm", base_url="https://litellm.invalid"
-            ),
+            credential=OpenAICredential(api_key="litellm", base_url="https://litellm.invalid"),
             model=model or "litellm-model",
             parameters=parameters,
             stream=stream,
@@ -369,9 +360,7 @@ def build_litellm_model(
         if provider_extra.get("aws_access_key_id"):
             litellm_kwargs["aws_access_key_id"] = provider_extra["aws_access_key_id"]
         if provider_extra.get("aws_secret_access_key"):
-            litellm_kwargs["aws_secret_access_key"] = provider_extra[
-                "aws_secret_access_key"
-            ]
+            litellm_kwargs["aws_secret_access_key"] = provider_extra["aws_secret_access_key"]
 
     return LiteLLMChatModel(
         litellm_model=f"{spec.litellm_prefix}{model}",

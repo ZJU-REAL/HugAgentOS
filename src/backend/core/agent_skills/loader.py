@@ -87,7 +87,7 @@ class MultiSourceSkillLoader:
     """Loads skills from multiple sources with priority-based conflict resolution.
 
     This loader uses the backend abstraction layer to support loading skills from:
-    - Built-in skills (skill_bundles/)
+    - Built-in skills (extensions/skills/)
     - User skills (~/.hugagent/skills/)
     - Project skills (.hugagent/skills/)
 

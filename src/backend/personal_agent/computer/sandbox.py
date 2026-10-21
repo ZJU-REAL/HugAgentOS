@@ -9,8 +9,8 @@ from datetime import timedelta
 from pathlib import Path
 from sqlalchemy import select
 from core.db.engine import SessionLocal
-from core.sandbox.opensandbox_provider import OpenSandboxProvider
-from core.sandbox._opensandbox_internals import _Session
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+from core.sandbox.providers.opensandbox.models import _Session
 from core.sandbox.errors import SandboxError
 from personal_agent.models import PersonalAgent
 

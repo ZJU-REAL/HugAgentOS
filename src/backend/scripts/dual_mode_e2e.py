@@ -501,7 +501,7 @@ from cli import apply_local_env
 apply_local_env(port=int(os.environ.get("BACKEND_PORT") or "32101"))
 from core.capabilities import runtime
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.script_runner_provider import ScriptRunnerProvider
+from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 async def main():
     values=json.loads(sys.stdin.read())
     run_id="offline-"+values["skill_id"]

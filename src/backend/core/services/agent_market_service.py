@@ -4,7 +4,7 @@ The sub-agent marketplace replicates the skill marketplace's "user submits → a
 everyone can install" loop, but the marketplace items are **sub-agents** (role prompt +
 capability bindings) rather than skill files:
 
-- Preset sub-agents: shipped with the repo, stored at ``agent_bundles/marketplace/<slug>/agent.json``
+- Preset sub-agents: shipped with the repo, stored at ``extensions/agents/marketplace/<slug>/agent.json``
   (pure data, no attachments). The initial content was curated and adapted from Cherry Studio.
 - Community listings (``agent_market_submissions``): users **submit** their self-built sub-agents
   for listing; once an admin approves, they appear in the marketplace with ``source=community``
@@ -19,32 +19,32 @@ The clone records ``source_market_slug`` to mark it "installed".
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import json
 import logging
 import re
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.db.models import AgentMarketSubmission, UserAgent
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.infra.time import utc_now
 from core.services import marketplace_listing as ml
 from core.services.agent_market_categories import (
     AGENT_MARKETPLACE_CATEGORIES,
     DEFAULT_AGENT_CATEGORY,
     validate_category,
 )
+from extensions.paths import AGENTS_DIR
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
 
-# Preset sub-agent root directory: ``src/backend/agent_bundles/marketplace/<slug>/agent.json``.
-AGENT_MARKET_DIR = Path(__file__).resolve().parents[2] / "agent_bundles" / "marketplace"
+# Preset sub-agent root directory: ``src/backend/extensions/agents/marketplace/<slug>/agent.json``.
+AGENT_MARKET_DIR = AGENTS_DIR / "marketplace"
 AGENT_JSON = "agent.json"
 
 # Sentinel owner for admin direct uploads to the marketplace (distinguishes "admin upload" from real users' community submissions).
@@ -346,8 +346,8 @@ def _resolve_bindings(
     - unresolvable items go into ``dropped``; auto-installed skills/plugins requiring credentials go into ``needs_secret``.
     """
     from core.config.catalog import get_enabled_ids
-    from core.services import marketplace_service as mk
     from core.plugins import management as plugin_service
+    from core.services import marketplace_service as mk
     from core.services.user_agent_service import UserAgentService
 
     avail = UserAgentService(db).list_available_resources(owner_user_id=owner_user_id)

@@ -1,5 +1,7 @@
 """Regression coverage at skill loading, publication and sandbox preparation boundaries."""
 
+from tests.sandbox.provider_test_support import patch_open_settings
+
 from pathlib import Path
 
 from core.agent_skills.backends.composite import CompositeBackend
@@ -180,7 +182,7 @@ def test_new_mounts_exclude_deleted_global_private_and_historical_dirs(cloud, mo
     from core.db.models import AdminSkill
     from core.agent_skills.publication import prepare_skill_view
     from core.agent_skills.loader import get_skill_loader
-    from core.sandbox._opensandbox_internals import _make_skills_volumes
+    from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes
     from core.config.settings import settings
 
     upload(cloud.client, {"nested/old.txt": "old"})
@@ -215,17 +217,12 @@ def test_new_mounts_exclude_deleted_global_private_and_historical_dirs(cloud, mo
     prepare_skill_view("alice")
     cloud.client.delete("/v1/me/skills/sample")
     from dataclasses import replace
-    import core.sandbox._opensandbox_internals as internals
 
-    monkeypatch.setattr(
-        internals,
-        "settings",
-        SimpleNamespace(
+    patch_open_settings(monkeypatch, SimpleNamespace(
             sandbox=replace(
                 settings.sandbox, opensandbox_host_storage_path=str(cloud.storage.parent)
             )
-        ),
-    )
+        ))
     volumes = _make_skills_volumes("alice")
     assert len(volumes) == 2
     assert all(volume.read_only for volume in volumes)
@@ -253,24 +250,20 @@ def test_shipped_package_replacement_removes_retired_files(cloud):
 
 def test_mount_preparation_fails_if_authoritative_source_unavailable(cloud, monkeypatch):
     from core.agent_skills.backends.database import DatabaseBackend
-    from core.sandbox._opensandbox_internals import _make_skills_volumes
+    from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes
     from core.config.settings import settings
 
     def unavailable(self):
         raise ConnectionError("test database unavailable")
 
     from dataclasses import replace
-    import core.sandbox._opensandbox_internals as internals
+    import core.sandbox.providers.opensandbox.runtime as internals
 
-    monkeypatch.setattr(
-        internals,
-        "settings",
-        SimpleNamespace(
+    patch_open_settings(monkeypatch, SimpleNamespace(
             sandbox=replace(
                 settings.sandbox, opensandbox_host_storage_path=str(cloud.storage.parent)
             )
-        ),
-    )
+        ))
     monkeypatch.setattr(DatabaseBackend, "list_skill_files", unavailable)
     with pytest.raises(ConnectionError):
         _make_skills_volumes("alice")
@@ -399,7 +392,7 @@ def test_prepared_view_repairs_stale_shared_link(cloud):
 @pytest.mark.asyncio
 async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monkeypatch):
     from core.agent_skills.publication import prepare_skill_view
-    import core.sandbox._opensandbox_session as sessions
+    import core.sandbox.providers.opensandbox.lifecycle as sessions
     from unittest.mock import AsyncMock
 
     upload(cloud.client, {"old.txt": "old"})
@@ -407,11 +400,7 @@ async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monk
     upload(cloud.client, {"new.txt": "new"})
     # Existing pooled mount still points to the same parent, with v1 until delivery.
     assert (view / "sample/old.txt").exists()
-    module_class = next(
-        value
-        for value in vars(sessions).values()
-        if isinstance(value, type) and "_create_session_for" in value.__dict__
-    )
+    module_class = sessions._OpenSandboxLifecycleMixin
     fake = SimpleNamespace(
         _lookup_snapshot=AsyncMock(return_value=None),
         _jupyter_user_pool=SimpleNamespace(has_idle=lambda user: True),
@@ -545,7 +534,7 @@ def test_cube_current_archive_rechecks_owner_and_freezes_bytes(cloud):
 async def test_cube_prepush_uses_users_private_override(cloud, monkeypatch):
     import tarfile
     from unittest.mock import AsyncMock
-    from core.sandbox.cube.provider import CubeSandboxProvider
+    from core.sandbox.providers.cube.provider import CubeSandboxProvider
 
     package = cloud.builtin / "sample"
     package.mkdir()

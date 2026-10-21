@@ -193,7 +193,7 @@ async def test_local_task_rejects_identity_change_during_authorization(local_cha
     from core.capabilities.errors import CloudUnavailable
     from core.services import desktop_cloud_bridge as bridge
     from core.services.automation_tool_routing import local_automation_result
-    from mcp_servers.automation_task_mcp import impl
+    from extensions.mcp_servers.automation_task_mcp import impl
 
     async def authorize():
         if change == "switch":
@@ -269,7 +269,7 @@ async def test_local_task_rejects_account_switch_before_queued_dispatch(local_ch
     import asyncio
     from core.capabilities.errors import CloudUnavailable
     from core.services.automation_tool_routing import local_automation_result
-    from mcp_servers.automation_task_mcp import impl
+    from extensions.mcp_servers.automation_task_mcp import impl
 
     original = asyncio.to_thread
 

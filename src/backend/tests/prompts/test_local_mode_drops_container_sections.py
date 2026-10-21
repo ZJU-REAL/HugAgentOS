@@ -22,7 +22,7 @@ def test_container_sections_only_ship_off_desktop(monkeypatch, local):
 
 def test_real_paths_are_not_rewritten_in_local_mode(monkeypatch, tmp_path):
     """本机模式下模型给什么路径就是什么路径，不再映射到会话目录。"""
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path))
     monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     from core.llm.tools._paths import to_physical_path

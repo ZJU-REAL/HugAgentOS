@@ -17,7 +17,7 @@ from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
 
 OWNER = "pm_test_user"
 OTHER = "pm_other_user"
-BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace"
+BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace"
 BUNDLE_DIR = BUNDLE_ROOT / "plugin-manager"
 
 @pytest.fixture()
@@ -90,7 +90,7 @@ def test_bundle_manifest_is_wellformed():
     assert set(ext_mcp) == set(mcp_json["mcpServers"]), "扩展段的服务名必须与 mcp.json 一一对应"
     assert mcp_json["mcpServers"]["plugin_manager"]["url"] == "http://mcp:9116/mcp/"
 
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     declared = {t["name"] for t in ext_mcp["plugin_manager"]["tools"]}
     actual = {t.name for t in asyncio.run(server.mcp.list_tools())}
@@ -101,7 +101,7 @@ def test_bundle_manifest_is_wellformed():
     assert (BUNDLE_DIR / "skills" / "plugin-creator" / "scripts" / "validate_plugin.py").is_file()
 
 def test_port_is_registered():
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     assert PORTS["plugin_manager"] == 9116
     assert package_name("plugin_manager") == "plugin_manager_mcp"
@@ -155,7 +155,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
 
 # ── Market verbs ────────────────────────────────────────────────────────────
 def test_search_plugin_market_lists_builtin_bundles(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.search_plugin_market(user_id=OWNER)
     assert res["ok"], res
@@ -166,7 +166,7 @@ def test_search_plugin_market_lists_builtin_bundles(pm_env):
     assert narrowed["count"] == 0
 
 def test_get_plugin_info_previews_components(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.get_plugin_info(user_id=OWNER, slug="agent-manager")
     assert res["ok"], res
@@ -179,7 +179,7 @@ def test_get_plugin_info_previews_components(pm_env):
     assert impl.get_plugin_info(user_id=OWNER, slug="agent-manager")["installed"] is True
 
 def test_get_plugin_info_unknown_slug_fails_cleanly(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.get_plugin_info(user_id=OWNER, slug="__nope__")
     assert not res["ok"] and res["message"].startswith("❌")
@@ -196,7 +196,7 @@ def test_plugin_root_detection_matches_the_importer(pm_env):
     导入器认原生 / .claude-plugin / .codex-plugin 三种布局；本地若少认一种，
     同一个包就会"后台上传能装、对话里说不是插件包"。
     """
-    from mcp_servers._packaging import is_plugin_root, locate_root
+    from extensions.mcp_servers._packaging import is_plugin_root, locate_root
 
     for layout in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
         d = Path(pm_env.engine.url.database).parent / f"pkg_{layout.replace('/', '_')}"
@@ -216,7 +216,7 @@ def test_plugin_root_detection_matches_the_importer(pm_env):
 
 # ── Server layer ────────────────────────────────────────────────────────────
 def test_server_tools_forward_user_header(pm_env, monkeypatch):
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     captured = {}
 
@@ -241,7 +241,7 @@ def test_server_tools_forward_user_header(pm_env, monkeypatch):
     assert captured["user_id"] == ""
 
 def test_every_server_tool_is_async_and_documented():
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     tools = asyncio.run(server.mcp.list_tools())
     assert len(tools) == 8

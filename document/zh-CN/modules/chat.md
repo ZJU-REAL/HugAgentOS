@@ -133,7 +133,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | 替我批准 | `auto` | 普通写入 / 编辑直接放行；**删除类操作**（`DESTRUCTIVE_OPS`）与本地策略标了 `danger:<类别>` 的命令仍然停下来问 |
 | 完全放开 | `full` | 所有工具确认一律不再询问 |
 
-档位在 `core/llm/tool_permissions.py` 里统一声明（`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`），随对话上下文传到 `PermissionRuntime`，是所有工具确认闸的唯一判据；任何一档都只跳过"问"这一步，本地安全策略判定的硬拒绝仍然拒绝。"这次危不危险"由 `core/sandbox/local_policy.danger_categories()` 从裁决理由里的 `danger:` 前缀还原，不靠匹配提示文案。读到早期版本存下的 `standard` / `readonly` 时按最保守的 `ask` 兜底。
+档位在 `core/llm/tool_permissions.py` 里统一声明（`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`），随对话上下文传到 `PermissionRuntime`，是所有工具确认闸的唯一判据；任何一档都只跳过"问"这一步，本地安全策略判定的硬拒绝仍然拒绝。"这次危不危险"由 `core/sandbox/permissions/models.py::danger_categories()` 从裁决理由里的 `danger:` 前缀还原，不靠匹配提示文案。读到早期版本存下的 `standard` / `readonly` 时按最保守的 `ask` 兜底。
 
 渠道机器人、定时任务这类无人值守入口走 `default_allow` 分支，不受该档位影响。
 
@@ -147,7 +147,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 - **技能**：经 `core/agent_skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
 - **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
-- **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长和 AgentScope 溢出兜底，兜底也复用同一提示词。若兜底的结构化调用仍失败，模型适配层会返回 L3 占位摘要，避免当前回答因压缩异常直接中断。
+- **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长。压缩只使用统一协调器，不再运行框架的第二条摘要回退。压缩失败时保留原始上下文；最终请求仍超预算时保存断点并暂停，不继续调用回复模型。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。
 - **迭代上限**：主智能体默认 `max_iters=50`，隔离子智能体默认 10。
 
@@ -282,7 +282,7 @@ data: [DONE]
 
 这三个角色会直接显示在用户侧「子智能体」页面并标记为「内置」，所有用户初始默认开启。用户可逐个启停；停用状态保存在该用户的 `users_shadow.metadata.disabled_builtin_subagent_ids` 中，因此可跨浏览器保持。已停用角色仍留在子智能体列表和 `@` 候选中，并标记为「未启用，仅本轮调用」；它不会进入主智能体的初始上下文或自主路由表，只有用户通过 `@` 或严格的自然语言调用明确指定时才临时加入本轮。角色提示词在详情页只读展示，不再作为 Config 提示词管理的可编辑标签页。详情页的「能力策略」会显示这些角色跟随主智能体在运行时动态加载能力，并明确探索员、审查员的只读收窄规则，不再把动态继承误显示为「未绑定」。
 
-上下文和工作区是两个独立维度：探索员、审查员能检查当前文件，但不会被主对话或执行过程锚定；执行员则需要完整继承用户约束和既有决定。主智能体的动态路由表只展示本轮最终启用且角色策略允许下放的技能、MCP、知识库和基础工具；主智能体已关闭、未授权或被运行时过滤的能力既不会展示，也不会传给默认子智能体。三个角色都不能继续调用子智能体。默认列表不含 planner：普通主对话已用 `update_plan` 维护计划，避免形成“计划里的计划”。角色提示词在运行时仍来自版本池 `subagents` kind 的 `explorer / worker / reviewer` 三个独立 part，文件系统目录 `prompts/prompt_text/subagents/` 只负责种子和故障回退；该 kind 保留在后端与迁移快照中，以兼容既有环境。
+上下文和工作区是两个独立维度：探索员、审查员能检查当前文件，但不会被主对话或执行过程锚定；执行员则需要完整继承用户约束和既有决定。主智能体的动态路由表只展示本轮最终启用且角色策略允许下放的技能、MCP、知识库和基础工具；主智能体已关闭、未授权或被运行时过滤的能力既不会展示，也不会传给默认子智能体。三个角色都不能继续调用子智能体。默认列表不含 planner：普通主对话已用 `update_plan` 维护计划，避免形成“计划里的计划”。角色提示词在运行时仍来自版本池 `subagents` kind 的 `explorer / worker / reviewer` 三个独立 part，随包提示词 `extensions/agents/default/<role>/system.md` 只负责种子和故障回退；该 kind 保留在后端与迁移快照中，以兼容既有环境。
 
 除此之外，用户自建子智能体（`api/routes/v1/agents.py`，DB 表 `UserAgent`）可绑定独立的系统提示词、MCP / 技能 / 插件 / KB 集合与模型参数（provider / temperature / max_tokens / max_iters）。创建或编辑时，资源选择器支持以下来源：
 
@@ -337,7 +337,7 @@ Enter / Tab 确认和 Escape 返回或关闭。个人在能力中心关闭的技
 |---|---|---|
 | 会话标题摘要 | `core/llm/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
 | 统一上下文检查点 | `core/services/compaction_service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
-| 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败或持久化关闭时，AgentScope 兜底复用同一交接提示词压缩当前内存上下文 | 单条工具结果过大，或统一压缩暂时不可用时 |
+| 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败时保留原始上下文，最终请求超预算则保存断点并暂停 | 单条工具结果过大，或统一压缩暂时不可用时 |
 
 压缩只在合法边界切分：历史先按步骤展开，从尾部保留装得下
 `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` 的完整近期区域（切点只落在用户消息或某一步的
@@ -522,3 +522,8 @@ Personal Agent 的消息滚动条位于会话区域右边缘，正文和输入�
 在可见且获得焦点的会话中，滚动到已加载的本轮最终回复后，完成提醒消失，不显示对勾或其他完成标记。点击带有失败红点的历史记录后，本次红点立即消失，无需滚动到失败回复。同一会话之后再次失败时，会显示新的红点。切换页面后，后台任务结果仍会更新。网络请求失败保留现有提醒，不把断线判断为任务完成。开启减弱动态效果时，状态点静态显示。
 
 已读记录按账号和后端环境保存在当前浏览器，并在同浏览器标签页之间同步；不提供跨设备已读同步。首次启用或从旧版升级时，已有结果统一按已读处理，不补发历史完成提醒；之后新完成的任务正常提醒。运行中和需要处理的任务继续显示状态。
+
+普通会话的黄色提醒仅跟随有效的提问框、文件操作确认框或方案选择框。最后一个待操作交互消失后，黄色提醒立即清除；后台暂停状态或历史缓存不会单独点亮黄灯。此变更需更新桌面客户端内置前端。
+
+
+模型历史与展示记录分开管理。压缩进度、展示思考块和工具卡不参与模型历史重建；规范步骤记录保留模型实际产生的推理、工具调用和工具结果。每次切换回退模型前都会重新检查该模型的窗口预算。超预算暂停会保留已完成结果，避免从原提示词自动重放工具。

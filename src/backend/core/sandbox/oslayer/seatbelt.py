@@ -32,19 +32,22 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
-from .backend import BasePlatformBackend, SandboxLaunch
-from .policy import (
+from core.sandbox.oslayer.models import (
     AccessMode,
     AccessRoot,
     NetworkPolicy,
     PolicyContext,
     ResolvedFileSystem,
     SandboxPolicy,
+)
+from core.sandbox.oslayer.paths import (
     filesystem_root,
     is_within,
     normalize_trusted_top_level_alias,
     resolve_symlinks,
 )
+
+from .backend import BasePlatformBackend, SandboxLaunch
 
 # Only ever the system binary: an attacker who can put a different
 # ``sandbox-exec`` earlier on PATH would otherwise choose the sandbox. If this

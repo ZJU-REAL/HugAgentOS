@@ -50,10 +50,6 @@ class ProcessResult:
     execution_time_ms: int
 
 
-
-
-
-
 class SandboxAdminNotSupported(Exception):
     """The current provider does not support this read-only admin capability
     (e.g. ScriptRunner cannot enumerate instances).
@@ -129,12 +125,16 @@ class SandboxProvider(Protocol):
         ...
 
     async def write_stdin(
-        self, session_id: str, *, sandbox_session_id: str,
-        user_id: Optional[str] = None, chars: str = "", yield_time_ms: int = 60000,
+        self,
+        session_id: str,
+        *,
+        sandbox_session_id: str,
+        user_id: Optional[str] = None,
+        chars: str = "",
+        yield_time_ms: int = 60000,
     ) -> dict:
         """Wait for incremental output, or send Ctrl+C to this owner's command."""
         ...
-
 
     async def put_file(
         self,
@@ -227,7 +227,7 @@ class SandboxProvider(Protocol):
         """Mark a live session as active without executing anything in it.
 
         Long-running workflows call this on a timer (see
-        ``core/sandbox/keepalive.py``) so the idle reaper does not destroy
+        ``core/sandbox/sessions/keepalive.py``) so the idle reaper does not destroy
         their session during long model-streaming phases with no sandbox
         calls. Returns False when the session does not exist (yet); providers
         with no session lifecycle implement it as a no-op returning False.

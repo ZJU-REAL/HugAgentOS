@@ -218,7 +218,7 @@ System prompts are no longer hardcoded: the version pool is stored in the `conte
 
 ### MCP tools as independent processes
 
-Each tool is a standalone MCP server under `src/backend/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `mcp_servers/_ports.py` is the single source of truth). The backend connects through the HTTP client pool in `core/llm/mcp_manager.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
+Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the HTTP client pool in `core/llm/mcp_manager.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
 
 ### Runs decoupled from connections
 
@@ -237,7 +237,7 @@ The commercial main repository carries the full code; the Community Edition is d
 | Run executor | `src/backend/orchestration/chat_run_executor.py` |
 | Streaming orchestration | `src/backend/orchestration/workflow.py` |
 | Agent factory | `src/backend/core/llm/factory/build.py` |
-| MCP config and ports | `src/backend/core/config/mcp_config.py`, `src/backend/mcp_servers/_ports.py` |
+| MCP config and ports | `src/backend/core/config/mcp_config.py`, `src/backend/extensions/mcp_servers/_ports.py` |
 | Capability catalog | `src/backend/core/config/catalog.json`, `catalog.py` |
 | Response envelope | `src/backend/core/infra/responses.py` |
 | Prompt assembly | `src/backend/prompts/prompt_runtime.py` |

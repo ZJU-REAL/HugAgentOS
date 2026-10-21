@@ -183,7 +183,7 @@ class ManifestMCPClient(BareNameMCPClient):
         from core.capabilities.paths import capabilities_enabled
         from core.services.management_contract import localize, declared, tools as manager_tools
         items = list(self.manifest_tools)
-        from mcp_servers.registry import gateway_server
+        from extensions.mcp_servers.registry import gateway_server
         if self.read_only and gateway_server(self.name) is not None:
             items = [item for item in items if item.get("annotations", {}).get("readOnlyHint") is True]
         if capabilities_enabled() and self.gateway_plugin == "skill-manager":

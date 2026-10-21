@@ -179,7 +179,11 @@ class ToolPermissionService:
         桌面端不再另存一份权限档：粗档就是 ``runtime.approval_mode``，本机策略
         由它翻译而来，授权目录与分类处置仍来自本机存储。
         """
-        from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
+        from core.sandbox.permissions.models import DELETE
+        from core.sandbox.permissions.models import NETWORK
+        from core.sandbox.permissions.models import PRIVILEGE
+        from core.sandbox.permissions.models import SYSTEM_WRITE
+        from core.sandbox.permissions.models import Policy
 
         mode = self.runtime.approval_mode
         try:
@@ -216,8 +220,8 @@ class ToolPermissionService:
 
         项目目录仍按用户现有授权判断；切换 cwd 不新增隐式文件权限。
         """
-        from core.sandbox._common import WORKSPACE
-        from services.script_runner_service.workspace_paths import session_root
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.workspace.paths import session_root
 
         session = self.runtime.sandbox_session_id or self.runtime.chat_id
         return session_root(WORKSPACE, str(session)) if session else WORKSPACE
@@ -227,7 +231,8 @@ class ToolPermissionService:
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox.local_policy import danger_categories, evaluate_local_path
+        from core.sandbox.permissions.models import danger_categories
+        from core.sandbox.permissions.evaluator import evaluate_local_path
 
         _mode, grants, policy = self._safe_local_security()
         verdict = evaluate_local_path(
@@ -287,12 +292,10 @@ class ToolPermissionService:
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.local_policy import (
-            Grant,
-            danger_categories,
-            evaluate_local_command,
-        )
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.permissions.models import Grant
+        from core.sandbox.permissions.models import danger_categories
+        from core.sandbox.permissions.evaluator import evaluate_local_command
 
         platform = "windows" if os.name == "nt" else "posix"
         approval_mode, grants, policy = self._safe_local_security()
@@ -381,13 +384,11 @@ class ToolPermissionService:
         entry point is confined exactly like an interactive one — it only skips
         the asking, never the sandbox.
         """
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.local_policy import (
-            NETWORK,
-            SYSTEM_WRITE,
-            intersects_system_write_area,
-        )
-        from core.sandbox.os_sandbox import LocalAccessDecision
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.permissions.models import NETWORK
+        from core.sandbox.permissions.models import SYSTEM_WRITE
+        from core.sandbox.permissions.paths import intersects_system_write_area
+        from core.sandbox.permissions.os_gate import LocalAccessDecision
 
         platform = "windows" if os.name == "nt" else "posix"
         may_write = policy.workspace_write != "block"
@@ -419,7 +420,7 @@ class ToolPermissionService:
                 if root:
                     _admit(root)
 
-        from core.sandbox.os_sandbox import protected_read_paths
+        from core.sandbox.permissions.os_gate import protected_read_paths
 
         return LocalCommandAuthorization(
             command=command,

@@ -5,9 +5,9 @@ import json
 import secrets
 import shlex
 
-from core.sandbox import evaluation_binding as bindings
+import core.sandbox.providers.evaluation.binding as bindings
 from core.sandbox.errors import SandboxError
-from core.sandbox.evaluation_provider import get_evaluation_provider
+from core.sandbox.providers.evaluation.provider import get_evaluation_provider
 from core.sandbox.protocol import ProcessRequest
 from core.services import evaluation_sandbox_service as service
 

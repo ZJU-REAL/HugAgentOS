@@ -227,7 +227,7 @@ make migrate-new msg="describe change"
 | Backend entrypoint (auto migration) | `src/backend/scripts/backend_entrypoint.sh` |
 | OpenSandbox config template | `docker/opensandbox-config.toml.tpl` |
 | Migrations | `alembic.ini`, `src/backend/alembic/` |
-| MCP port single source of truth | `src/backend/mcp_servers/_ports.py` |
+| MCP port single source of truth | `src/backend/extensions/mcp_servers/_ports.py` |
 
 ### OpenSandbox command latency and controller image
 

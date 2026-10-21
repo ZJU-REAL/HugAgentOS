@@ -582,7 +582,8 @@ def _probe_host_tools() -> dict:
 
 def _os_sandbox_status() -> tuple[str, str]:
     """``(backend name, reason it is unavailable)``; the reason is empty when ready."""
-    from core.sandbox.os_sandbox import backend_name, confinement_unavailable_reason
+    from core.sandbox.permissions.os_gate import backend_name
+    from core.sandbox.permissions.os_gate import confinement_unavailable_reason
 
     return backend_name(), confinement_unavailable_reason()
 

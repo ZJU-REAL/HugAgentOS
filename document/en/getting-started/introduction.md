@@ -84,7 +84,7 @@ Main request path: browser → nginx inside the frontend container (`/api` proxy
 | FastAPI app & router registration | `src/backend/api/app.py`, `src/backend/api/routes/v1/` |
 | Streaming orchestration (SSE) | `src/backend/orchestration/workflow.py`, `orchestration/streaming.py` |
 | Agent construction | `src/backend/core/llm/factory/build.py` |
-| MCP servers & port mapping | `src/backend/mcp_servers/`, `src/backend/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
+| MCP servers & port mapping | `src/backend/extensions/mcp_servers/`, `src/backend/extensions/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
 | Capability catalog | `src/backend/core/config/catalog.json`, `core/config/catalog.py` |
 | Sandbox providers | `src/backend/core/sandbox/`, `src/backend/core/config/settings.py::SandboxSettings` |
 | Memory system | `src/backend/core/memory/` (service.py / pipeline.py), `src/backend/orchestration/memory_integration.py` |

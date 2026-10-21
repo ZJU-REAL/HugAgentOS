@@ -24,9 +24,9 @@ def test_ce_registry_launcher_and_ports_agree(profile, offset, tmp_path):
     }
     code = """
 import os
-from mcp_servers.registry import SERVERS, process_servers
-from mcp_servers._ports import PORTS
-from mcp_servers._launcher import PORTS as launcher_ports
+from extensions.mcp_servers.registry import SERVERS, process_servers
+from extensions.mcp_servers._ports import PORTS
+from extensions.mcp_servers._launcher import PORTS as launcher_ports
 
 excluded = {"query_database", "ai_chain_information_mcp", "security_ops"}
 assert excluded.isdisjoint(SERVERS)

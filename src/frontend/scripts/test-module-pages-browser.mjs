@@ -16,8 +16,16 @@ import { bindRouter, navigateTo } from './src/routing/navigation';
 import { useSidebarLayoutStore } from './src/stores/sidebarLayoutStore';
 import { useAuthStore } from './src/stores/authStore';
 import { useDeploymentModeStore } from './src/stores/deploymentModeStore';
+import { useCanvasStore } from './src/stores/canvasStore';
+import { useAutomationChatStore } from './src/stores/automationChatStore';
+import { useChatStore } from './src/stores/chatStore';
 import './src/styles/index';
 window.__workbench = {
+  preview: () => useCanvasStore.getState().openCanvas({file_id:'report',name:'Report.txt',url:'/files/report',mime_type:'text/plain'}),
+  automationSelection: () => {
+    const state = useAutomationChatStore.getState();
+    return {taskId:state.activeGroup?.taskId,runId:state.selectedRunId,chatId:useChatStore.getState().currentChatId};
+  },
   permissions: apps => useAuthStore.setState({authUser:{...useAuthStore.getState().authUser,allowed_apps:apps}}),
   open: path => navigateTo(path),
   layout: layout => useSidebarLayoutStore.setState({layout}),
@@ -67,8 +75,10 @@ try {
       return route.fulfill({contentType:'text/html',body:'<html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>'});
     }
     const path=url.pathname.slice(4);
+    if (path==='/files/report') return route.fulfill({contentType:'text/plain',body:'Scheduled report preview'});
     let data = [];
-    if (path==='/v1/workbench/catalog') data={origin:{kind:'cloud',id:'a'.repeat(32)},revision:'fixture-1',policy:{revision:0,defaultPinned:[],forced:[]},items:[
+    if (path==='/v1/file/report/text') data={content:'Scheduled report preview',revision:'fixture-1',can_edit:false};
+    else if (path==='/v1/workbench/catalog') data={origin:{kind:'cloud',id:'a'.repeat(32)},revision:'fixture-1',policy:{revision:0,defaultPinned:[],forced:[]},items:[
       ...['chat','projects','my_space','ability_center','app_center','automation','sites','lab','settings','docs'].map(id=>({
         applicationKey:'builtin:'+id,revision:1,enabled:true,declaration:{schemaVersion:'1.0.0',id,title:id,target:{kind:'builtin',componentId:id}},
         availability:{available:true,reason:null},navigation:{defaultPinned:false,forced:false}})),
@@ -104,6 +114,40 @@ try {
   await page.goto(origin + '/');
   await page.locator('.jx-composerEditor').waitFor();
   await page.getByText('Ordinary saved chat', {exact:true}).waitFor();
+  await page.evaluate(() => window.__workbench.open('/automation/task-one/conversations/task-chat'));
+  await page.locator('.jx-runTimeline').waitFor();
+  const selection = {taskId:'task-one',runId:'run-one',chatId:'task-chat'};
+  assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
+  for (const width of [1920, 1280]) {
+    await page.setViewportSize({width, height:900});
+    for (const fullscreen of [false, true]) {
+      await page.evaluate(() => window.__workbench.preview());
+      await page.locator('.jx-canvas').waitFor();
+      assert.equal(await page.locator('.jx-runTimeline').count(), 0, 'Canvas must remove the timeline from layout immediately');
+      if (fullscreen) {
+        await page.getByRole('button',{name:'全屏',exact:true}).click();
+        await page.getByRole('button',{name:'退出全屏',exact:true}).waitFor();
+      }
+      await page.getByText('Scheduled report preview', {exact:true}).waitFor();
+      assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
+      assert.equal(new URL(page.url()).pathname, '/automation/task-one/conversations/task-chat');
+      await page.screenshot({path:resolve(output,'automation-canvas-'+width+'-'+fullscreen+'.png'),animations:'disabled'});
+      await page.getByRole('button',{name:'收起右侧面板',exact:true}).click();
+      await page.locator('.jx-canvas').waitFor({state:'detached'});
+      await page.locator('.jx-runTimeline').waitFor();
+      assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
+    }
+  }
+  await page.evaluate(() => window.__workbench.preview());
+  await page.locator('.jx-canvas').waitFor();
+  await page.evaluate(() => window.__workbench.open('/c/ordinary'));
+  await page.locator('.jx-canvas').waitFor({state:'detached'});
+  await page.locator('.jx-runTimeline').waitFor({state:'detached'});
+  assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), {taskId:undefined,runId:null,chatId:'ordinary'});
+  await page.evaluate(() => window.__workbench.open('/automation/task-one/conversations/task-chat'));
+  await page.locator('.jx-runTimeline').waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
+  console.log('automation Canvas: timeline hides during preview and fullscreen, then returns with selection preserved at two desktop widths');
   if (!process.argv.includes('--scroll-only')) {
   await page.evaluate(() => window.__workbench.open('/app-center'));
   const center = page.locator('.jx-agentPage');

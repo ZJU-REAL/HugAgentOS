@@ -11,6 +11,7 @@ from core.db.models import AdminMcpServer, AdminSkill, ContentBlock, InstalledPl
 from core.plugins.local import service as lifecycle
 from core.plugins.packaging import sources as plugin_sources
 from core.services.management_package import serialized
+from extensions.paths import PLUGINS_DIR
 
 
 def _backup(db, row, children, servers):
@@ -41,12 +42,12 @@ def _package(root, row, children, servers):
     official = row.source == "builtin" and row.slug in MANAGERS
     if official:
         from core.config.settings import settings
-        from mcp_servers._ports import PORTS
+        from extensions.mcp_servers._ports import PORTS
 
         expected = f"http://{settings.server.mcp_host}:{PORTS[row.slug.replace('-', '_')]}/mcp/"
         official = bool(servers) and all(s.url == expected for s in servers)
     if official:
-        package = Path(__file__).resolve().parents[3] / "plugin_bundles/marketplace" / row.slug
+        package = PLUGINS_DIR / "marketplace" / row.slug
         archive.write_files(root, {n: p.read_bytes() for n, p in archive.iter_files(package)})
         from core.plugins.packaging.importer import normalize_plugin_dir
 

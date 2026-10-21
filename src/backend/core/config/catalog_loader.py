@@ -38,7 +38,7 @@ DB_UMBRELLA_DESC = (
 def _database_query_capability_available() -> bool:
     """Whether this edition ships a runnable database-query implementation."""
     try:
-        from mcp_servers._ports import PORTS
+        from extensions.mcp_servers._ports import PORTS
 
         return "query_database" in PORTS
     except Exception as exc:

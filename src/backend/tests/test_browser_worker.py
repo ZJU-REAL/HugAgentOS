@@ -5,7 +5,7 @@ import sys
 import uuid
 from pathlib import Path
 import pytest
-sys.path.insert(0, str(Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/runtime"))
+sys.path.insert(0, str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"))
 from browser_worker.protocol import Command
 from browser_worker.commands import execute
 from browser_worker.session import BrowserSession

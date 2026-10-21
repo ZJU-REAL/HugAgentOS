@@ -112,7 +112,7 @@ def test_bigint_pk_autoincrements_on_sqlite(db_session):
 def test_seed_builtin_mcp_is_idempotent_and_templates_url(db_session):
     from core.db.models import AdminMcpServer
     from core.services.mcp_service import BUILTIN_MCP_SERVERS, seed_builtin_mcp_servers_if_empty
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     seeded = seed_builtin_mcp_servers_if_empty(db_session)
     expected_ids = {spec["server_id"] for spec in BUILTIN_MCP_SERVERS if spec["server_id"] in PORTS}
@@ -149,7 +149,7 @@ def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
 def test_retired_report_export_mcp_is_not_seeded_and_legacy_row_is_pruned(db_session):
     from core.db.models import AdminMcpServer
     from core.services.mcp_service import BUILTIN_MCP_SERVERS, prune_removed_builtin_mcp_servers
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     assert "report_export_mcp" not in PORTS
     assert "report_export_mcp" not in {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}

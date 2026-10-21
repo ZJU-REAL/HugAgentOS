@@ -16,7 +16,7 @@ async def test_observer_reads_actual_owner_process_without_consuming_output(monk
     monkeypatch.setenv("WB19_METRICS_TESTONLY", "1")
     monkeypatch.setenv("SANDBOX_RUNNER_TOKEN", "wb19-isolated-control")
     monkeypatch.setenv("SCRIPT_RUNNER_WORKSPACE", str(root))
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setattr(server, "_AUTH_TOKEN", "wb19-isolated-control")
     monkeypatch.setattr(server.app.router, "routes", list(server.app.routes))

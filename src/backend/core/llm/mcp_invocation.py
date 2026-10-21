@@ -28,7 +28,7 @@ def issue(audience, user_id, chat_id, plugin_id=""):
 
 def for_url(url, user_id, chat_id, plugin_id=""):
     from core.config.mcp_config import _mcp_http_url
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
     audience = next((name for name in PORTS if _mcp_http_url(name).rstrip("/") == str(url).rstrip("/")), None)
     if not audience:
         return {}

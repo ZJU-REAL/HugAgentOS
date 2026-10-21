@@ -4,7 +4,7 @@ import sys
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/runtime"))
+sys.path.insert(0, str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"))
 from browser_worker.commands import execute
 from browser_worker.protocol import Command
 from browser_worker.session import BrowserSession
@@ -36,7 +36,7 @@ async def test_worker_ready_marker_follows_chromium_initialization():
     import time
     import httpx
 
-    runtime = Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/runtime"
+    runtime = Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"
     script = """
 import asyncio
 from browser_worker.session import BrowserSession

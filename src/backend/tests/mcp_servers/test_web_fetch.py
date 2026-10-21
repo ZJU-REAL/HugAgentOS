@@ -3,7 +3,7 @@
 import asyncio
 
 import httpx
-from mcp_servers.web_fetch_mcp import impl
+from extensions.mcp_servers.web_fetch_mcp import impl
 
 
 def test_fetch_keeps_url_title_and_marks_truncation(monkeypatch):

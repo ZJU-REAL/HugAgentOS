@@ -1,594 +1,24 @@
-"""Model factory utilities (AgentScope 2.0 backend) — multi-vendor dispatch.
-
-Important: do NOT construct model instances at import time.
-This keeps the FastAPI app importable even when the DB has no rows.
-
-All model configuration is resolved from the DB via ModelConfigService.
-
-Dispatches by provider (vendor) to three engine kinds (see core/llm/providers/registry.py):
-  - openai : OpenAI-compatible (incl. domestic compatible-vendor presets + Azure OpenAI) → OpenAICompatChatModel
-  - native : AgentScope native classes (Anthropic / Gemini / DashScope / Ollama)
-  - litellm: adapted via litellm (Bedrock etc.)
-
-Two hard requirements for subclassing ``OpenAIChatModel`` (OpenAI-compatible path only):
-  1. A unified 600-second timeout applies to connect/read/write/pool, including
-     streaming reads, through an owned ``httpx.AsyncClient``.
-  2. Qwen/minimax go through OpenAI-compat, where the thinking-chain switch lives in
-     ``extra_body.chat_template_kwargs`` rather than OpenAI-native reasoning_effort. Done by
-     injecting extra_body into every call.
-
-The L3 placeholder-summary fallback for failed compaction calls is provided uniformly by
-``providers._fallback.StructuredFallbackMixin``.
-"""
+"""Build configured chat models without creating instances at import time."""
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
-from datetime import datetime
-from time import monotonic as _monotonic
-from time import perf_counter as _perf_counter
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
 
 import httpx
 from agentscope.credential import OpenAICredential
-from agentscope.formatter import OpenAIChatFormatter
-from agentscope.message import (
-    DataBlock,
-    HintBlock,
-    Msg,
-    TextBlock,
-    ThinkingBlock,
-    ToolCallBlock,
-    ToolResultBlock,
+from agentscope.model import ChatModelBase, OpenAIChatModel, OpenAIResponseModel
+from core.llm.providers.openai_compat import (
+    OpenAICompatChatModel,
+    ReasoningEchoChatFormatter,
+    _build_chat_template_kwargs,
 )
-from agentscope.model import (
-    ChatModelBase,
-    ChatResponse,
-    OpenAIChatModel,
-    OpenAIResponseModel,
-)
-from agentscope.tool._types import ToolChoice
-from core.llm.context_adapter import PROVIDER_CONTEXT_META_KEY
-from core.llm.providers._fallback import (  # noqa: F401
-    L3_SYNTHETIC_METADATA,
-    StructuredFallbackMixin,
-)
-from core.llm.providers._image_tokens import ImageTokenCountingMixin
-from core.llm.providers.registry import get_spec, split_provider_extra
+from core.llm.providers.registry import get_spec
 from core.llm.providers.vendor_models import build_litellm_model, build_native_model
-from core.llm.reasoning_replay import ReasoningReplayMixin
-from core.llm.tool_call_identity import ToolCallIdentityMixin
-from core.llm.tool_result_media import NoDiskToolMediaMixin
 from prompts.prompt_config import ModelConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_exception_chain(exc: BaseException) -> list[dict[str, str]]:
-    """Identify wrapped SDK failures without serializing messages or requests."""
-    from core.capabilities.errors import CapabilityError
-
-    known_codes = {
-        "capability_error", "package_missing", "name_conflict", "view_unavailable",
-        "integrity_failed", "install_conflict", "cloud_unavailable",
-        "permission_denied", "dependency_missing",
-    }
-    chain: list[dict[str, str]] = []
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and len(chain) < 8 and id(current) not in seen:
-        seen.add(id(current))
-        kind = type(current)
-        entry = {"type": f"{kind.__module__}.{kind.__qualname__}"}
-        if isinstance(current, CapabilityError) and kind.code in known_codes:
-            entry["code"] = kind.code
-        chain.append(entry)
-        current = current.__cause__ or current.__context__
-    return chain
-
-
-# Off unless someone creates the marker file inside the container:
-#   docker exec <backend> touch /tmp/jx-wire-dump
-# Then the next model call writes its exact request body to /tmp/jx-wire.json.
-# A marker file rather than an env var so it can be flipped on a running
-# container without a restart — the point is to capture what a live
-# conversation actually sends when a first token comes back slow.
-_WIRE_DUMP_MARKER = "/tmp/jx-wire-dump"
-_WIRE_DUMP_PATH = "/tmp/jx-wire.json"
-
-
-def _dump_wire_payload(kwargs: dict) -> None:
-    """Write the outgoing request body to disk when the marker file exists."""
-    try:
-        if not os.path.exists(_WIRE_DUMP_MARKER):
-            return
-        import json as _json
-
-        with open(_WIRE_DUMP_PATH, "w") as handle:
-            _json.dump(
-                {
-                    "messages": kwargs.get("messages"),
-                    "tools": kwargs.get("tools"),
-                    "extra_body": kwargs.get("extra_body"),
-                    "params": {
-                        k: v
-                        for k, v in kwargs.items()
-                        if k not in ("messages", "tools", "extra_body")
-                    },
-                },
-                handle,
-                ensure_ascii=False,
-            )
-    except Exception:  # pragma: no cover - diagnostics must never break a run
-        logger.debug("[wire] payload dump failed", exc_info=True)
-
-
-def _collapse_nullable(node: Any) -> Any:
-    """Rewrite ``anyOf: [T, {"type": "null"}]`` in place as plain ``T``.
-
-    Pydantic renders every ``Optional[str] = None`` parameter that way, which
-    costs roughly 45 characters per optional field while saying nothing the
-    sibling ``default: null`` doesn't already say. Across a 64-tool surface
-    that is real prefill on every request and every ReAct round.
-    """
-    if isinstance(node, dict):
-        variants = node.get("anyOf")
-        if (
-            isinstance(variants, list)
-            and len(variants) == 2
-            and {"type": "null"} in variants
-        ):
-            other = next((v for v in variants if v != {"type": "null"}), None)
-            if isinstance(other, dict):
-                node.pop("anyOf")
-                for key, value in other.items():
-                    node.setdefault(key, value)
-        for value in list(node.values()):
-            _collapse_nullable(value)
-    elif isinstance(node, list):
-        for value in node:
-            _collapse_nullable(value)
-    return node
-
-
-def _slim_tool_schemas(tools: list[dict]) -> list[dict]:
-    """Strip prefill-only waste from tool schemas without changing their meaning.
-
-    Two transforms, both purely syntactic:
-      * nullable unions collapsed (see :func:`_collapse_nullable`);
-      * descriptions run through ``inspect.cleandoc``, which drops the uniform
-        indentation every Python docstring inherits from its ``def`` body while
-        preserving relative indentation inside examples.
-
-    Measured on this deployment's 64-tool surface: 28,049 → 26,888 prompt
-    tokens (-4.1%), paid back on every round of every run. The model sees the
-    same names, types, constraints and prose.
-
-    Both OpenAI tool shapes are accepted: chat completions nests the schema under
-    ``function``, Responses puts the same keys on the tool itself.
-    """
-    import copy
-    import inspect
-
-    slimmed = _collapse_nullable(copy.deepcopy(tools))
-    for tool in slimmed:
-        fn = tool.get("function")
-        if not isinstance(fn, dict):
-            fn = tool
-        if isinstance(fn.get("description"), str):
-            fn["description"] = inspect.cleandoc(fn["description"])
-        props = (fn.get("parameters") or {}).get("properties")
-        if isinstance(props, dict):
-            for prop in props.values():
-                if isinstance(prop, dict) and isinstance(prop.get("description"), str):
-                    prop["description"] = inspect.cleandoc(prop["description"])
-    return slimmed
-
-
-def _build_chat_template_kwargs(
-    *,
-    disable_thinking: bool,
-    reasoning_effort: str | int | None,
-) -> dict:
-    """Build chat_template_kwargs (Qwen/minimax thinking-chain switch, via extra_body)."""
-    if disable_thinking:
-        return {"enable_thinking": False}
-    if reasoning_effort is None:
-        return {"enable_thinking": True}
-    if reasoning_effort == "medium":
-        return {"thinking": True}
-    return {"thinking": True, "reasoning_effort": reasoning_effort}
-
-
-def _reasoning_steps(msg: Msg) -> list[list[Any]]:
-    """Split one Msg's blocks into the ReAct steps it accumulated.
-
-    A whole ReAct loop lands in a single Msg: ``AgentScope`` extends the last assistant
-    message in place on every step (``agent/_agent.py``), so one Msg can hold
-    think → call → result → think → call → result → think → answer. The parent formatter
-    already flushes a separate assistant row per step; splitting on the same boundaries is
-    what lets each row carry the reasoning that produced *it*. Attaching the Msg's whole
-    reasoning to every row instead would rewrite history — the second tool call would
-    appear to have been reasoned with conclusions drawn after it — and would resend the
-    same text once per step, diverging from what the IR budgeted for it once.
-
-    The parent flushes when a tool result or hint arrives and something is pending, so a
-    step ends exactly there. Thinking blocks never make a row pending on their own.
-    """
-
-    steps: list[list[Any]] = []
-    current: list[Any] = []
-    pending = False
-    for block in msg.get_content_blocks():
-        if isinstance(block, (ToolResultBlock, HintBlock)) and pending:
-            steps.append(current)
-            current = []
-            pending = False
-        current.append(block)
-        if isinstance(block, (TextBlock, DataBlock, ToolCallBlock)):
-            pending = True
-    if current:
-        steps.append(current)
-    return steps or [[]]
-
-
-class ReasoningEchoChatFormatter(
-    ReasoningReplayMixin, NoDiskToolMediaMixin, OpenAIChatFormatter
-):
-    """OpenAI wire format, except the model's own reasoning is handed back to it.
-
-    ``OpenAIChatFormatter`` drops every ThinkingBlock, since the OpenAI API has no field
-    for reasoning in conversation history. Thinking-mode endpoints such as DeepSeek V4
-    invert that rule: an assistant message that arrives without the ``reasoning_content``
-    it produced is refused with a 400, which in practice kills exactly the turns that
-    called a tool — the only ones that send an assistant message back — so the symptom is
-    an answer cut off the moment the tools finish.
-
-    A step that did no thinking sends no field at all, matching deepseek-harness
-    (``reasoning.length > 0 ? { reasoning_content } : {}``). Endpoints that never emit
-    reasoning on this channel, OpenAI included, therefore see a byte-identical request.
-    """
-
-    async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
-        self.assert_list_of_msgs(msgs)
-        msgs = self.prepare_replay(msgs)
-
-        messages: list[dict[str, Any]] = []
-        for msg in msgs:
-            for step in _reasoning_steps(msg):
-                rows = await super().format([msg.model_copy(update={"content": step})])
-                reasoning = "\n".join(
-                    block.thinking
-                    for block in step
-                    if isinstance(block, ThinkingBlock) and block.thinking
-                )
-                if reasoning:
-                    for row in rows:
-                        if row.get("role") == "assistant":
-                            row["reasoning_content"] = reasoning
-                messages.extend(rows)
-        return messages
-
-
-class OpenAICompatChatModel(
-    ToolCallIdentityMixin, ImageTokenCountingMixin, StructuredFallbackMixin, OpenAIChatModel
-):
-    """OpenAIChatModel subclass: injects a custom http_client + extra_body; optional Azure OpenAI client.
-
-    Pinned to agentscope==2.0.0: the ``_call_api`` body is copied from the parent class (2.0.0);
-    sync it when upgrading upstream. The L3 compaction fallback is provided by StructuredFallbackMixin.
-    """
-
-    # Recorded on every model step so replay knows which wire format produced it.
-    wire_protocol = "openai_chat"
-
-    def __init__(
-        self,
-        *,
-        credential: OpenAICredential,
-        model: str,
-        parameters: "OpenAIChatModel.Parameters",
-        stream: bool,
-        http_client: httpx.AsyncClient,
-        # Required, no default: AS2 uses context_size to compute the compaction trigger threshold
-        # (trigger_ratio × context_size). We once silently inherited the upstream 128000 default,
-        # causing a real 256k model to repeatedly trigger compaction at half its window.
-        # The source of truth is context_length from the Config admin model configuration
-        # (resolved inside make_chat_model).
-        context_size: int,
-        provider_id: str = "openai_compatible",
-        extra_body: dict | None = None,
-        azure: dict | None = None,
-        structured_reasoning: bool = False,
-    ) -> None:
-        super().__init__(
-            credential=credential,
-            model=model,
-            parameters=parameters,
-            stream=stream,
-            # max_retries=0: let the agent layer (ModelConfig.max_retries) own retries
-            # exclusively, avoiding the retry multiplication of documented risk 7 (worst case 24 attempts).
-            max_retries=0,
-            context_size=context_size,
-            formatter=ReasoningEchoChatFormatter(
-                replay_provider=provider_id, replay_model=model, replay_protocol="openai_chat"
-            ),
-        )
-        self._http_client = http_client
-        self.provider_id = provider_id
-        self._extra_body = extra_body or {}
-        self._azure = (
-            azure  # when {"api_version": ...} is non-empty, use AsyncAzureOpenAI
-        )
-        # The SSE layer uses this to distinguish structured reasoning_content from
-        # legacy models that embed reasoning in content as <think>...</think>.
-        self.structured_reasoning = structured_reasoning
-        self._context_rewrite_listener = None
-
-    def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001
-        """Observe and optionally canonicalize a provider-level retry request."""
-        self._context_rewrite_listener = listener
-
-    async def _publish_context_rewrite(
-        self,
-        messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        listener = self._context_rewrite_listener
-        if listener is not None:
-            rendered = listener(messages)
-            if inspect.isawaitable(rendered):
-                rendered = await rendered
-            if rendered is not None:
-                messages = list(rendered)
-        # Harness metadata is never a provider API field, including when this
-        # model is invoked outside ManifestBoundAgent.
-        cleaned = []
-        for message in messages:
-            row = dict(message)
-            row.pop(PROVIDER_CONTEXT_META_KEY, None)
-            cleaned.append(row)
-        return cleaned
-
-    def _build_client(self):
-        import openai
-
-        # Built once per model instance: the SDK client is a thin wrapper over
-        # the shared httpx client, but it is re-created on every ReAct round
-        # otherwise, which re-parses the base_url and re-builds the auth headers
-        # for each of the 15-20 rounds a tool-heavy run makes.
-        cached = getattr(self, "_openai_client", None)
-        if cached is not None:
-            return cached
-
-        if self._azure:
-            client = openai.AsyncAzureOpenAI(
-                api_key=self.credential.api_key.get_secret_value(),
-                azure_endpoint=self.credential.base_url,
-                api_version=self._azure.get("api_version", ""),
-                http_client=self._http_client,
-            )
-        else:
-            client = openai.AsyncClient(
-                api_key=self.credential.api_key.get_secret_value(),
-                organization=self.credential.organization,
-                base_url=self.credential.base_url,
-                http_client=self._http_client,
-            )
-        self._openai_client = client
-        return client
-
-    async def _call_api(  # type: ignore[override]
-        self,
-        model_name: str,
-        messages: list[Msg],
-        tools: list[dict] | None = None,
-        tool_choice: ToolChoice | None = None,
-        **generate_kwargs: Any,
-    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        # ⭐ Only difference from the parent class: inject the reused http_client (with the configured timeout) / optional Azure client
-        client = self._build_client()
-
-        formatted_messages = await self.formatter.format(messages)
-
-        kwargs: dict[str, Any] = {
-            "model": model_name,
-            "messages": formatted_messages,
-            "stream": self.stream,
-        }
-        if self.parameters.max_tokens is not None:
-            kwargs["max_tokens"] = self.parameters.max_tokens
-        if self.parameters.temperature is not None:
-            kwargs["temperature"] = self.parameters.temperature
-        if self.parameters.top_p is not None:
-            kwargs["top_p"] = self.parameters.top_p
-
-        # ⭐ Inject the Qwen/minimax thinking-chain switch (via extra_body.chat_template_kwargs).
-        # Azure OpenAI doesn't recognize this custom field; skip it to avoid 4xx.
-        if self._extra_body and not self._azure:
-            merged = dict(self._extra_body)
-            merged.update(generate_kwargs.pop("extra_body", {}) or {})
-            kwargs["extra_body"] = merged
-
-        kwargs.update(generate_kwargs)
-
-        fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
-        if fmt_tools:
-            kwargs["tools"] = _slim_tool_schemas(fmt_tools)
-            if not self.parameters.parallel_tool_calls:
-                kwargs["parallel_tool_calls"] = False
-        if fmt_tool_choice is not None:
-            kwargs["tool_choice"] = fmt_tool_choice
-        if self.stream:
-            kwargs["stream_options"] = {"include_usage": True}
-
-        start_datetime = datetime.now()
-        try:
-            # Prefill size is the dominant TTFT term against a gateway without
-            # prefix caching, and it is invisible from the outside — this line
-            # is what lets a slow first token be attributed to the payload
-            # (system prompt + tool schemas) rather than to the network.
-            _t_req = _perf_counter()
-            _usage_started = _monotonic()
-            _dump_wire_payload(kwargs)
-            if logger.isEnabledFor(logging.INFO):
-                import json as _json
-
-                logger.info(
-                    "[wire] OUT model=%s msgs=%d msg_chars=%d tools=%d tool_chars=%d",
-                    model_name,
-                    len(kwargs.get("messages") or []),
-                    len(_json.dumps(kwargs.get("messages") or [], ensure_ascii=False)),
-                    len(kwargs.get("tools") or []),
-                    len(_json.dumps(kwargs.get("tools") or [], ensure_ascii=False)),
-                )
-            response = await client.chat.completions.create(**kwargs)
-            logger.info(
-                "[wire] response headers in %.0fms", (_perf_counter() - _t_req) * 1000
-            )
-        except Exception as exc:
-            from core.llm.model_usage import record_provider_failure
-
-            logger.warning("Model request failed: exception_chain=%s", _safe_exception_chain(exc))
-            await record_provider_failure(
-                self,
-                model_name,
-                exc,
-                started=_usage_started,
-                provider=self.provider_id,
-            )
-            raise
-
-        audio_cfg = kwargs.get("audio")
-        audio_fmt = (
-            audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
-        )
-        if self.stream:
-            return _stream_with_bounded_retry(
-                self,
-                reissue=lambda: client.chat.completions.create(**kwargs),
-                parse=lambda started, raw: self._parse_stream_response(
-                    started, raw, audio_fmt
-                ),
-                model_name=model_name,
-                start_datetime=start_datetime,
-                response=response,
-                request_started=_usage_started,
-            )
-        return self._parse_completion_response(start_datetime, response, audio_fmt)
-
-
-def _is_retryable_stream_start_error(exc: BaseException) -> bool:
-    """Whether a failure *before the first stream event* may be answered by one more attempt.
-
-    Classified by exception type, never by message text: transport drops,
-    timeouts, 429 and 5xx are transient by definition, and a bare ``APIError``
-    is how the OpenAI client surfaces an error event the provider put inside the
-    SSE stream. Every other status error describes the request itself (auth,
-    bad request, not found) and repeating it would only repeat the answer.
-    """
-    import openai
-
-    if isinstance(exc, (openai.APIConnectionError, openai.RateLimitError, openai.InternalServerError)):
-        return True
-    if isinstance(exc, openai.APIStatusError):
-        return False
-    return type(exc) is openai.APIError
-
-
-async def _stream_with_bounded_retry(
-    model,
-    *,
-    reissue,
-    parse,
-    model_name: str,
-    start_datetime: datetime,
-    response,
-    request_started: float,
-):
-    """Yield the parsed stream; re-issue the request once if it fails before its first event.
-
-    ``reissue`` re-sends the identical request and ``parse`` turns a raw stream into
-    ``ChatResponse`` objects; both are supplied by the caller so the two wire protocols
-    (``/chat/completions`` and ``/responses``) share one retry/telemetry path instead of
-    keeping two copies of it.
-
-    A streaming completion is a read-only call and stays idempotent until the
-    first chunk has been consumed, so exactly one more attempt is made at that
-    point (bounded retry, see the capability plan's call rules). A failure after
-    the first chunk, or one that is not transient, propagates unchanged — the
-    run then ends with a structured error rather than a fabricated reply.
-    """
-    gen = parse(start_datetime, response)
-    _t_wait = _perf_counter()
-    try:
-        first = await gen.__anext__()
-    except StopAsyncIteration:
-        return
-    except Exception as exc:  # noqa: BLE001 - classified below
-        if not _is_retryable_stream_start_error(exc):
-            raise
-        from core.llm.model_usage import note_provider_retry_started, record_provider_failure
-
-        await record_provider_failure(
-            model,
-            model_name,
-            exc,
-            started=request_started,
-            provider=model.provider_id,
-            metadata={"fallback": "stream_start_retry"},
-        )
-        logger.warning(
-            "Model %s stream failed before its first event (%s); retrying once",
-            model_name,
-            type(exc).__name__,
-        )
-        retry_started = _monotonic()
-        note_provider_retry_started(model, model_name, retry_started)
-        try:
-            response = await reissue()
-            gen = parse(datetime.now(), response)
-            _t_wait = _perf_counter()
-            first = await gen.__anext__()
-        except StopAsyncIteration:
-            return
-        except Exception as retry_exc:  # noqa: BLE001 - recorded, then surfaced
-            await record_provider_failure(
-                model,
-                model_name,
-                retry_exc,
-                started=retry_started,
-                provider=model.provider_id,
-                metadata={"fallback": "stream_start_retry_failed"},
-            )
-            raise
-    # Delivery cadence, not just the first byte. A run behind a relay can answer
-    # as fast on its first token and still read slowly, and the difference is
-    # invisible from either end alone — cloud and desktop emit the same line, so
-    # the same model over the two paths is directly comparable.
-    _t_first = _perf_counter()
-    _events, _t_prev, _max_gap = 1, _t_first, 0.0
-    try:
-        yield first
-        async for item in gen:
-            _now = _perf_counter()
-            _max_gap = max(_max_gap, _now - _t_prev)
-            _t_prev = _now
-            _events += 1
-            yield item
-    finally:
-        _span = _t_prev - _t_first
-        logger.info(
-            "[wire] stream model=%s first_event=%.0fms events=%d span=%.0fms rate=%.1f/s max_gap=%.0fms",
-            model_name,
-            (_t_first - _t_wait) * 1000,
-            _events,
-            _span * 1000,
-            (_events - 1) / _span if _span > 0 else 0.0,
-            _max_gap * 1000,
-        )
-
 
 # Shared per-event-loop, per-timeout httpx clients. A model instance is built
 # fresh on every chat turn (``create_agent_executor`` → ``make_chat_model``), so
@@ -623,7 +53,9 @@ async def close_loop_http_clients() -> None:
         await client.aclose()
 
 
-def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: str = "") -> httpx.AsyncClient:
+def _make_http_client(
+    timeout: int, *, desktop_reference: str = "", base_url: str = ""
+) -> httpx.AsyncClient:
     import asyncio
 
     from core.config.local_mode import install_local_network_tuning
@@ -645,8 +77,9 @@ def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: st
     hooks = {}
     identity = ""
     if desktop_reference:
-        from core.services.desktop_model_credentials import request_hook
         from core.services.desktop_cloud_bridge import _state_fingerprint
+        from core.services.desktop_model_credentials import request_hook
+
         hook, captured = request_hook(desktop_reference, base_url)
         identity = (desktop_reference, base_url, _state_fingerprint(captured))
         hooks = {"request": [hook]}
@@ -700,7 +133,10 @@ def _make_openai_compatible(
         )
     }
     if reasoning_effort_is_wire and reasoning_effort is not None:
-        extra_body["chat_template_kwargs"] = {"thinking": True, "reasoning_effort": reasoning_effort}
+        extra_body["chat_template_kwargs"] = {
+            "thinking": True,
+            "reasoning_effort": reasoning_effort,
+        }
     if spec.reasoning_effort_top_level and reasoning_effort is not None:
         # OpenAI Responses-backed Chat Completions gateways expose reasoning
         # only when the effort is sent at the request root. Keep the nested
@@ -718,15 +154,17 @@ def _make_openai_compatible(
         model=actual_model or "dummy-model",
         parameters=parameters,
         stream=stream,
-        http_client=_make_http_client(timeout, desktop_reference=api_key if api_key.startswith("desktop-capability:") else "", base_url=base_url),
+        http_client=_make_http_client(
+            timeout,
+            desktop_reference=(api_key if api_key.startswith("desktop-capability:") else ""),
+            base_url=base_url,
+        ),
         context_size=context_size,
         provider_id=spec.id,
         extra_body=extra_body,
         azure=azure,
         structured_reasoning=(
-            spec.structured_reasoning
-            if structured_reasoning is None
-            else structured_reasoning
+            spec.structured_reasoning if structured_reasoning is None else structured_reasoning
         ),
     )
 
@@ -805,7 +243,7 @@ def _make_openai_responses(
         stream=stream,
         http_client=_make_http_client(
             timeout,
-            desktop_reference=api_key if api_key.startswith("desktop-capability:") else "",
+            desktop_reference=(api_key if api_key.startswith("desktop-capability:") else ""),
             base_url=base_url,
         ),
         context_size=context_size,
@@ -921,13 +359,13 @@ def _resolve_or_dummy(role_key: str):
 
         return ModelConfigService.get_instance().resolve(role_key)
     except Exception as exc:
-        logger.warning(
-            "ModelConfigService unavailable for role '%s': %s", role_key, exc
-        )
+        logger.warning("ModelConfigService unavailable for role '%s': %s", role_key, exc)
         return None
 
 
-def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool = True) -> ChatModelBase:
+def build_model_for_mode(
+    resolved, *, mode: Optional[str] = None, stream: bool = True
+) -> ChatModelBase:
     """Build one chat model from a resolved provider config for a chat mode.
 
     The single place that turns a ``ResolvedModelConfig`` plus a chat mode into
@@ -936,6 +374,7 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
     """
     disable_thinking = mode in ("fast", "turbo")
     from core.llm.reasoning_effort import resolve_reasoning_effort
+
     reasoning_effort = resolve_reasoning_effort(resolved.extra, mode)
     model = make_chat_model(
         model=resolved.model_name.replace("openai:", ""),
@@ -950,9 +389,7 @@ def build_model_for_mode(resolved, *, mode: Optional[str] = None, stream: bool =
         reasoning_effort=reasoning_effort,
         context_size=resolved.context_length or None,
         stream=stream,
-        structured_reasoning=(
-            True if (resolved.extra or {}).get("structured_reasoning") else None
-        ),
+        structured_reasoning=(True if (resolved.extra or {}).get("structured_reasoning") else None),
         api_protocol=(resolved.extra or {}).get("api_protocol"),
         reasoning_effort_is_wire="reasoning_effort_levels" in (resolved.extra or {}),
     )
@@ -971,7 +408,9 @@ def get_default_model(
     resolved = _resolve_or_dummy("main_agent")
     if resolved:
         return build_model_for_mode(
-            resolved, mode="fast" if disable_thinking else reasoning_effort, stream=stream
+            resolved,
+            mode="fast" if disable_thinking else reasoning_effort,
+            stream=stream,
         )
     return make_chat_model(
         model="dummy-model",
@@ -1017,3 +456,15 @@ def get_summarize_model(cfg: ModelConfig | None = None) -> ChatModelBase:
         api_key="",
         context_size=4096,  # dummy placeholder, same as above: participates in no computation
     )
+
+
+__all__ = [
+    "OpenAICompatChatModel",
+    "ReasoningEchoChatFormatter",
+    "make_chat_model",
+    "build_model_for_mode",
+    "get_default_model",
+    "get_summarize_model",
+    "close_loop_http_clients",
+    "wants_responses",
+]

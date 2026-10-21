@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from core.infra.ephemeral import LocalEphemeralState
-from core.sandbox import evaluation_binding as binding
+import core.sandbox.providers.evaluation.binding as binding
 from core.sandbox.errors import SandboxError, SandboxConnectError
-from core.sandbox.evaluation_provider import EvaluationSandboxProvider
+from core.sandbox.providers.evaluation.provider import EvaluationSandboxProvider
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.session_router import SessionSandboxRouter
+from core.sandbox.sessions.router import SessionSandboxRouter
 
 
 SESSION = "eval_" + "a" * 32
@@ -39,7 +39,7 @@ def arguments(method, session):
 @pytest.fixture
 def providers(monkeypatch):
     import core.config.settings as config
-    import core.sandbox.evaluation_provider as evaluation
+    import core.sandbox.providers.evaluation.provider as evaluation
     ordinary = SimpleNamespace(name="opensandbox", runs_on_host=False)
     strict = SimpleNamespace()
     for method in METHODS:
@@ -81,7 +81,7 @@ async def test_evaluation_never_falls_back_to_other_provider(providers, monkeypa
 
 
 async def test_missing_invalid_foreign_and_frozen_bindings_never_reach_normal_provider(providers, monkeypatch):
-    import core.sandbox.evaluation_provider as evaluation
+    import core.sandbox.providers.evaluation.provider as evaluation
     router, ordinary, _ = providers
     state = LocalEphemeralState()
     monkeypatch.setattr(binding, "get_ephemeral_state", lambda: state)
@@ -104,7 +104,7 @@ async def test_missing_invalid_foreign_and_frozen_bindings_never_reach_normal_pr
 
 
 async def test_attach_failure_does_not_create_replacement(providers, monkeypatch):
-    import core.sandbox.evaluation_provider as evaluation
+    import core.sandbox.providers.evaluation.provider as evaluation
     router, ordinary, _ = providers
     state = LocalEphemeralState()
     monkeypatch.setattr(binding, "get_ephemeral_state", lambda: state)

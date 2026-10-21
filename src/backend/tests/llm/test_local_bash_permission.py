@@ -29,10 +29,11 @@ from core.llm.tools.sandbox_tool import register_bash
 from tests.llm.command_test_support import command_tool_state
 
 pytestmark = pytest.mark.usefixtures("command_tool_state")
-from core.sandbox.local_policy import Grant, Policy
+from core.sandbox.permissions.models import Grant
+from core.sandbox.permissions.models import Policy
 from core.sandbox.oslayer import AccessMode, NetworkPolicy, SandboxUnavailableError
 
-_CONFINE = "core.sandbox.os_sandbox.confine"
+_CONFINE = "core.sandbox.permissions.os_gate.confine"
 
 
 def _host_provider(execute=None):

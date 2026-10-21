@@ -20,9 +20,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from core.sandbox import session_registry
-from core.sandbox._opensandbox_internals import _JupyterUserPool, _pool_metadata
-from core.sandbox.opensandbox_provider import OpenSandboxProvider
+import core.sandbox.sessions.registry as session_registry
+from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
+from core.sandbox.providers.opensandbox.volumes import _pool_metadata
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 
 def _sbx(sandbox_id: str):
@@ -144,7 +145,7 @@ def _server_info(sandbox_id: str, user_id: str = "u1"):
 def _provider(monkeypatch):
     """一个只装了认领这条路所需部件的 provider。"""
     monkeypatch.setattr(
-        "core.sandbox.opensandbox_provider._user_bound_sandbox_required", lambda: True
+        "core.sandbox.providers.opensandbox.provider._user_bound_sandbox_required", lambda: True
     )
     provider = object.__new__(OpenSandboxProvider)
     provider._make_config = lambda: None

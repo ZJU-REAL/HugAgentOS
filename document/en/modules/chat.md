@@ -150,7 +150,7 @@ A permission chip sits next to the project selector in the composer toolbar. It 
 | Approve for me | `auto` | Ordinary writes and edits pass silently; **destructive operations** (`DESTRUCTIVE_OPS`) and commands the local policy tagged `danger:<category>` still stop and ask |
 | Full access | `full` | No tool confirmation is ever raised |
 
-The vocabulary is declared once in `core/llm/tool_permissions.py` (`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`), travels with the chat context into `PermissionRuntime`, and is the single criterion every tool confirmation gate consults. No preset does more than skip the *asking* — a hard deny from the local security policy still denies. Whether a given call counts as dangerous is recovered by `core/sandbox/local_policy.danger_categories()` from the `danger:` prefix in the verdict reasons, never by matching prose. Legacy stored values (`standard`, `readonly`) fall back to the most conservative preset, `ask`.
+The vocabulary is declared once in `core/llm/tool_permissions.py` (`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`), travels with the chat context into `PermissionRuntime`, and is the single criterion every tool confirmation gate consults. No preset does more than skip the *asking* — a hard deny from the local security policy still denies. Whether a given call counts as dangerous is recovered by `core/sandbox/permissions/models.py::danger_categories()` from the `danger:` prefix in the verdict reasons, never by matching prose. Legacy stored values (`standard`, `readonly`) fall back to the most conservative preset, `ask`.
 
 Trusted unattended entry points (channel bots, scheduled automation) take the `default_allow` branch and are unaffected by the preset.
 
@@ -164,7 +164,7 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 - **Skills**: registered as AgentScope Agent Skills via `core/agent_skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
 - **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `FinishPinGuardMiddleware`.
-- **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting and AgentScope overflow fallback, and that fallback reuses the same prompt. If its structured call still fails, the model adapter returns an L3 synthetic summary so the active reply is not aborted by a compression error.
+- **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting. Compaction uses the unified coordinator without a second framework summary fallback. Failure preserves the original context. If the final request still exceeds its budget, the run saves a checkpoint and pauses before calling the reply model.
 - **Permissions**: every registered tool gets a native `PermissionRule(ALLOW)` seed, preserving AgentScope's built-in dangerous-operation checks (no blanket BYPASS).
 - **Iteration caps**: main agent defaults to `max_iters=50`, isolated sub-agents to 10.
 
@@ -349,7 +349,7 @@ maintains plans via `update_plan`, avoiding “plans inside plans.” At runtime
 their prompts remain the independent `explorer / worker / reviewer` parts of
 the `subagents` prompt-pool kind. That kind stays in backend storage and
 migration snapshots for compatibility;
-`prompts/prompt_text/subagents/` is only the seed and failure fallback.
+`extensions/agents/default/<role>/system.md` is only the seed and failure fallback.
 
 In addition, user-created sub-agents (`api/routes/v1/agents.py`, DB table `UserAgent`)
 can carry their own system prompt, MCP, skill, plugin, and knowledge base
@@ -440,7 +440,7 @@ Three complementary layers:
 |---|---|---|
 | Chat title summary | `core/llm/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
 | Unified context checkpoint | `core/services/compaction_service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
-| Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; when unified compaction fails or persistence is disabled, the AgentScope fallback compacts the live in-memory context with the same handoff prompt | A tool result is oversized or unified compaction is temporarily unavailable |
+| Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; failed compaction preserves the original context, and an over-budget final request saves a checkpoint and pauses | A tool result is oversized or unified compaction is temporarily unavailable |
 
 Compaction cuts only at legal boundaries: history is first split into steps,
 the longest recent region that fits `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` is
@@ -648,3 +648,8 @@ Conversation rows use a blue breathing dot while running, green for completed un
 When the conversation is visible and focused, scrolling to its loaded final reply acknowledges that result. The completion indicator disappears without leaving a check icon; clicking a failed history row immediately clears its red dot, without requiring a scroll to the failed reply. A later failed run in the same conversation shows a new red dot. Reminders continue to update while navigating to other pages. Failed network requests preserve the existing state; disconnection never implies completion. Reduced-motion mode displays static indicators.
 
 Read acknowledgements are stored in this browser per account and backend, and synchronized between same-browser tabs. Cross-device read synchronization is not provided. On first use or upgrade, existing results are acknowledged once as history; only later completions create new unread reminders. Active tasks and tasks needing attention retain their status.
+
+For ordinary conversations, amber reminders follow actionable question, file confirmation, or design selection requests only. Removing the last pending interaction clears the amber reminder immediately. A backend pause or cached waiting verdict alone does not show amber. Desktop clients need an updated bundled frontend.
+
+
+Model history is separate from display records. Compaction progress, display reasoning and tool cards do not reconstruct model history. Canonical steps preserve the model's actual reasoning, tool calls and results. Each fallback candidate is checked against its own context window before dispatch. A budget pause retains completed results and prevents automatic replay from the original prompt.

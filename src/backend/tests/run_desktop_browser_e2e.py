@@ -61,7 +61,7 @@ def main():
                     [
                         "-m",
                         "uvicorn",
-                        "services.script_runner_service.server:app",
+                        "core.sandbox.runner.server:app",
                         "--host",
                         "127.0.0.1",
                         "--port",
@@ -84,7 +84,7 @@ def main():
                     "mcp",
                     [
                         "-m",
-                        "mcp_servers.browser_runtime_mcp.server",
+                        "extensions.mcp_servers.browser_runtime_mcp.server",
                         "--transport",
                         "streamable-http",
                         "--port",

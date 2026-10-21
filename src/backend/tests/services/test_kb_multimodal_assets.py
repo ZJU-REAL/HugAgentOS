@@ -642,7 +642,7 @@ def test_explicit_loop_wins_over_anyio(monkeypatch):
 def test_media_only_parent_falls_back_to_the_asset_row_content():
     """单独上传的图片，其父块正文就是一条 markdown 图片链接。父块无条件覆盖的话，
     调用方拿到的只是个 URL，而命中的图片行里恰好装着描述与转写。"""
-    from mcp_servers.retrieve_dataset_content_mcp.local_impl import _pick_content
+    from extensions.mcp_servers.retrieve_dataset_content_mcp.local_impl import _pick_content
 
     link = "![](/api/v1/catalog/kb/assets/abc)"
     rich = "柱状图：Q4 达到峰值 42\nQuarterly Revenue 2026"

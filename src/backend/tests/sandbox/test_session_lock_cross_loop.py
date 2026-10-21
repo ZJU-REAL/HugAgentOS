@@ -136,7 +136,7 @@ def test_same_loop_still_serializes():
 
 @pytest.mark.parametrize(
     "module_name",
-    ["core.sandbox.opensandbox_provider", "core.sandbox.cube.provider"],
+    ["core.sandbox.providers.opensandbox.provider", "core.sandbox.providers.cube.provider"],
 )
 def test_providers_use_thread_lock_for_registry(module_name):
     """两个 provider 都必须用线程锁守注册表 —— 换回 asyncio.Lock 就会重现事故。"""

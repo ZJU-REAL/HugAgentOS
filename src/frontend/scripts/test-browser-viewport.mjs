@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 const window={};
-vm.runInNewContext(await readFile('../backend/plugin_bundles/marketplace/browser-automation/web/browser/viewport.js','utf8'),
+vm.runInNewContext(await readFile('../backend/extensions/plugins/marketplace/browser-automation/web/browser/viewport.js','utf8'),
  {window,setTimeout,clearTimeout,ResizeObserver:class{observe(){}}});
 let state={active_tab:'a',tabs:[{id:'a'},{id:'b'}],viewport_limits:{min_width:160,max_width:3840,min_height:120,max_height:2880}};
 const calls=[];let resume;

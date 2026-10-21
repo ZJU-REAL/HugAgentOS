@@ -1,25 +1,35 @@
-"""Sandbox driver abstraction layer.
+"""Sandbox contracts and provider selection, loaded only when requested.
 
-Callers only depend on ``get_sandbox_provider()`` + ``ProcessRequest``;
-the concrete implementation is decided by the environment variable ``SANDBOX_PROVIDER``.
+The runner image contains a small subset of this package. Importing its HTTP
+service must not load backend settings, databases or cloud SDKs.
 """
 
-from .errors import SandboxConnectError, SandboxError, SandboxFileTooLargeError, SandboxTimeoutError
-from .factory import get_sandbox_provider, reset_provider_cache
-from .protocol import (
-    ProcessRequest,
-    ProcessResult,
-    SandboxProvider,
-)
+_EXPORTS = {
+    "ProcessRequest": "protocol",
+    "ProcessResult": "protocol",
+    "SandboxProvider": "protocol",
+    "SandboxConnectError": "errors",
+    "SandboxError": "errors",
+    "SandboxFileTooLargeError": "errors",
+    "SandboxTimeoutError": "errors",
+    "get_sandbox_provider": "factory",
+    "reset_provider_cache": "factory",
+}
 
-__all__ = [
-    "ProcessRequest",
-    "ProcessResult",
-    "SandboxConnectError",
-    "SandboxError",
-    "SandboxFileTooLargeError",
-    "SandboxProvider",
-    "SandboxTimeoutError",
-    "get_sandbox_provider",
-    "reset_provider_cache",
-]
+
+def __getattr__(name):
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
+
+    value = getattr(import_module(f".{module}", __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(_EXPORTS))
+
+
+__all__ = sorted(_EXPORTS)

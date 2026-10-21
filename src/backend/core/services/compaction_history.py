@@ -64,6 +64,8 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
         owner = inflight.marker(extra)
         if owner and owner["run_id"] in live_run_ids:
             continue
+        if role == "assistant" and extra.get("model_history_display_only"):
+            continue
         content = getattr(msg, "content", "")
         if role == "user":
             quoted = extra.get("quoted_follow_up")
@@ -79,11 +81,6 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
                 row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
             out.append(row)
         elif role == "assistant":
-            # The model-facing sequence comes from the step record; rows that
-            # predate it fall back to the streamed display order, and rows
-            # older than that are replayed as an explicit digest. A cancelled
-            # turn is marked so the next turn does not mistake a cut-off answer
-            # for a finished one.
             out.extend(
                 assistant_row_replay(
                     content=content or "",
@@ -92,9 +89,6 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
                         if extra.get("cancelled")
                         else getattr(msg, "model_steps", None)
                     ),
-                    thinking=getattr(msg, "thinking", None),
-                    tool_calls=getattr(msg, "tool_calls", None),
-                    segments=extra.get("segments"),
                     cancelled=bool(extra.get("cancelled")),
                 )
             )

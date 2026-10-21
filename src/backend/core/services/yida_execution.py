@@ -20,7 +20,8 @@ _NO_WS_MARKER = "__JX_YIDA_NO_WS__"
 
 
 def workspace_dir(user_id: str) -> Path:
-    from core.sandbox._common import yida_shared_workspace_dir, yida_workspace_dir
+    from core.sandbox.workspace.credentials import yida_shared_workspace_dir
+    from core.sandbox.workspace.credentials import yida_workspace_dir
 
     if not settings.deploy.is_local and settings.sandbox.provider == "script_runner":
         return yida_shared_workspace_dir()
@@ -85,7 +86,7 @@ async def run_local(user_id: str, command: str, timeout: int) -> tuple[str, int]
             raise ValueError("unsupported local Yida command")
         env["HUGAGENT_OPENYIDA_UTILS"] = utils
     else:
-        from services.script_runner_service.runtime_tools import resolve_bash_executable
+        from core.sandbox.runner.runtime_tools import resolve_bash_executable
         bash = resolve_bash_executable()
         if not bash or not shutil.which("openyida"):
             return json.dumps({"error": "本机缺少 OpenYida CLI，请升级完整客户端或准备运行依赖。"}), 127

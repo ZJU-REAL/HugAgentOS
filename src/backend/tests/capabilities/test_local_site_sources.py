@@ -318,11 +318,11 @@ def test_unbound_site_can_publish_open_edit_and_republish(local_project, monkeyp
     from core.services import local_site_sources as sources
     from core.services.desktop_site_publish import package_local_site, localize_site_result
     from core.services.site_listing import list_sites
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import session_root
 
     _, factory = local_project
     workspace = str(tmp_path / "workspace 中文")
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", workspace)
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", workspace)
     monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", workspace)
     monkeypatch.setattr(sources, "current_cloud", lambda: ("https://cloud.example", "cloud-user"))
     with factory() as db:

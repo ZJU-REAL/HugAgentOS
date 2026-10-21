@@ -87,9 +87,15 @@ COPY docker/requirements-skills.txt /opt/skill-deps/requirements-skills.txt
 RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
     (echo "[script-runner] skill-deps install failed; continuing with empty set"; true)
 
-COPY src/backend/services/script_runner_service/ /app/
-COPY src/backend/core/sandbox/process_sessions.py /app/process_sessions.py
-COPY src/backend/core/sandbox/process_deadlines.py /app/process_deadlines.py
+# Preserve the canonical package layout without copying backend business code.
+COPY src/backend/core/__init__.py /app/core/__init__.py
+COPY src/backend/core/sandbox/__init__.py /app/core/sandbox/__init__.py
+COPY src/backend/core/sandbox/runner/ /app/core/sandbox/runner/
+COPY src/backend/core/sandbox/processes/__init__.py /app/core/sandbox/processes/__init__.py
+COPY src/backend/core/sandbox/workspace/__init__.py /app/core/sandbox/workspace/__init__.py
+COPY src/backend/core/sandbox/workspace/paths.py /app/core/sandbox/workspace/paths.py
+COPY src/backend/core/sandbox/processes/sessions.py /app/core/sandbox/processes/sessions.py
+COPY src/backend/core/sandbox/processes/deadlines.py /app/core/sandbox/processes/deadlines.py
 WORKDIR /app
 
 # Install the pdf-cli shim so the agent can call ``pdf-cli read …`` from bash
@@ -97,7 +103,7 @@ WORKDIR /app
 # entry at runtime via /workspace/skills/pdf-editing/ (where register_bash
 # materializes the skill). It is the only built-in skill shim left — Word /
 # Excel / PPT now go through the `officecli` binary installed below.
-COPY src/backend/skill_bundles/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
+COPY src/backend/extensions/skills/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
 RUN chmod +x /usr/local/bin/pdf-cli
 ENV PDF_SKILL_DIR=/workspace/skills/pdf-editing
 
@@ -107,7 +113,7 @@ ENV PDF_SKILL_DIR=/workspace/skills/pdf-editing
 # 「curl 联网安装」改成「沙盒已预装」，沙箱本身也不保证有外网。
 # 这里**硬失败**而不是像 himalaya 那样降级跳过：十个技能已默认安装并对用户可见，
 # 二进制缺失会让它们全部在运行时报错，比构建期失败更难排查。
-ARG OFFICECLI_VERSION=v1.0.144
+ARG OFFICECLI_VERSION=v1.0.157
 RUN OFFICECLI_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo arm64 || echo x64)" && \
     curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
         "https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/officecli-linux-${OFFICECLI_ARCH}" \
@@ -132,7 +138,7 @@ RUN mkdir -p /workspace /tmp/scripts && chown -R runner:runner /workspace /tmp/s
 USER runner
 EXPOSE 8900
 
-CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8900"]
+CMD ["python", "-m", "uvicorn", "core.sandbox.runner.server:app", "--host", "0.0.0.0", "--port", "8900"]
 
 # Real launch detects driver/browser revision mismatches before delivery.
 COPY docker/verify-browser-runtime.py /opt/verify-browser-runtime.py

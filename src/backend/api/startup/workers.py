@@ -147,7 +147,7 @@ async def _startup_preload():
             # created by dockerd as root and the runner can't write into it →
             # backend must create it first. opensandbox/cube don't use this one.
             try:
-                from core.sandbox._common import yida_shared_workspace_dir
+                from core.sandbox.workspace.credentials import yida_shared_workspace_dir
 
                 p = yida_shared_workspace_dir()
                 p.mkdir(parents=True, exist_ok=True)

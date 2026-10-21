@@ -82,8 +82,8 @@ Hybrid desktop sessions install the My Space connector from the cloud capability
 manifest. Cloud Agent sessions continue using sandbox mounts directly. Local-only
 sessions do not install this cloud connector.
 
-The MCP interface lives in `src/backend/mcp_servers/space_files_mcp/`.
-The built-in registry, `mcp_servers/registry.py`, declares installation placement
+The MCP interface lives in `src/backend/extensions/mcp_servers/space_files_mcp/`.
+The built-in registry, `extensions/mcp_servers/registry.py`, declares installation placement
 (`local`, `cloud`, or `both`) separately from exposure (`process` or
 `desktop_gateway`). The space connector runs in the cloud through the desktop
 gateway and does not open another listening port. Installation does not grant

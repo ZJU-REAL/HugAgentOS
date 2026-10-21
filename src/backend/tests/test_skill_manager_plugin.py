@@ -15,7 +15,7 @@ import core.db.engine as dbe
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, MarketplaceSubmission
 
 OWNER = "sm_test_user"
-BUNDLE_DIR = Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace" / "skill-manager"
+BUNDLE_DIR = Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace" / "skill-manager"
 
 @pytest.fixture()
 def sm_env(tmp_path, monkeypatch):
@@ -174,7 +174,7 @@ def test_plan_mode_includes_global_plugin_components(sm_env):
 
 def test_install_marketplace_tool_exposes_and_forwards_secrets(monkeypatch):
     """MCP tool schema must expose secrets and pass them to impl.install_from_marketplace."""
-    from mcp_servers.skill_manager_mcp import server
+    from extensions.mcp_servers.skill_manager_mcp import server
 
     sig = inspect.signature(server.install_from_marketplace)
     assert "secrets" in sig.parameters
@@ -263,7 +263,7 @@ def test_runtime_skill_loader_reads_db_skills_without_route_specific_refresh(
 
 # ── Search + install from the marketplace ────────────────────────────────────
 def test_search_marketplace(sm_env):
-    from mcp_servers.skill_manager_mcp import impl
+    from extensions.mcp_servers.skill_manager_mcp import impl
 
     out = impl.search_marketplace(user_id=OWNER, query="")
     assert out["ok"] is True
@@ -272,7 +272,7 @@ def test_search_marketplace(sm_env):
 
 def test_install_from_marketplace(sm_env):
     """Pick a real preloaded marketplace skill, install it as private, and assert the AdminSkill row is persisted."""
-    from mcp_servers.skill_manager_mcp import impl
+    from extensions.mcp_servers.skill_manager_mcp import impl
 
     # Find a preloaded slug that is neither built-in nor requires mandatory credentials
     listed = impl.search_marketplace(user_id=OWNER, query="")

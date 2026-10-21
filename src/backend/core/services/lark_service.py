@@ -231,7 +231,7 @@ def _lark_env(user_id: str) -> Dict[str, str]:
     config lands in HOME via config init. OPENCLAW_HOME/HERMES_HOME are
     stripped — otherwise ``config init`` decides it is in an Agent context
     and refuses to run."""
-    from core.sandbox._common import lark_home_dir
+    from core.sandbox.workspace.credentials import lark_home_dir
 
     home = lark_home_dir(user_id)
     try:
@@ -295,7 +295,7 @@ _APP_STORE_SUB = ".local/share/lark-cli"
 
 def _app_configured() -> Optional[str]:
     """Whether the shared app has been initialized (the admin's one-click config init --new completed). Returns the app_id or None."""
-    from core.sandbox._common import lark_app_home_dir
+    from core.sandbox.workspace.credentials import lark_app_home_dir
 
     cfg = lark_app_home_dir() / _APP_CFG_SUB
     try:
@@ -318,7 +318,8 @@ def _seed_user_from_shared_app(user_id: str) -> bool:
     User token files are never touched (those belong to each individual)."""
     import shutil
 
-    from core.sandbox._common import lark_app_home_dir, lark_home_dir
+    from core.sandbox.workspace.credentials import lark_app_home_dir
+    from core.sandbox.workspace.credentials import lark_home_dir
 
     app_home = lark_app_home_dir()
     user_home = lark_home_dir(user_id)
@@ -489,7 +490,7 @@ _app_init_state: Dict[str, Any] = {
 
 def _app_env() -> Dict[str, str]:
     """Environment for running the shared app's config init: HOME = the shared app HOME; Agent/LARK_APP_* interference stripped."""
-    from core.sandbox._common import lark_app_home_dir
+    from core.sandbox.workspace.credentials import lark_app_home_dir
 
     home = lark_app_home_dir()
     try:
@@ -682,7 +683,9 @@ class LarkService:
             old.cancel()
         await _run_lark(user_id, ["auth", "logout"], timeout=30)
         try:
-            from core.sandbox._common import lark_cache_dir, purge_credential_dir, safe_user_id
+            from core.sandbox.workspace.credentials import lark_cache_dir
+            from core.sandbox.workspace.credentials import purge_credential_dir
+            from core.sandbox.workspace.identity import safe_user_id
 
             # Empty in place — never rmtree the root. ~/.lark-cli and
             # ~/.local/share/lark-cli under it are bind-mounted into this user's
@@ -739,7 +742,7 @@ class LarkService:
         try:
             import shutil
 
-            from core.sandbox._common import lark_app_home_dir
+            from core.sandbox.workspace.credentials import lark_app_home_dir
 
             shutil.rmtree(lark_app_home_dir(), ignore_errors=True)
         except Exception as exc:  # noqa: BLE001

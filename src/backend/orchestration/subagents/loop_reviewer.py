@@ -254,7 +254,7 @@ async def review_requirement(
     text = ""
     # The review phase can also stream for minutes with no sandbox calls —
     # same keepalive as the worker phase so the shared session survives it.
-    from core.sandbox.keepalive import start_session_keepalive
+    from core.sandbox.sessions.keepalive import start_session_keepalive
 
     _keepalive_task = start_session_keepalive(session_id)
     try:

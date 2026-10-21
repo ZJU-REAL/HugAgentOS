@@ -1,5 +1,5 @@
 
-from core.sandbox.process_completion import CompletionMixin
+from core.sandbox.processes.completion import CompletionMixin
 from tests.sandbox.runner_client import run_runner
 
 import ntpath
@@ -15,14 +15,14 @@ import pytest
     ("D:/Users/Aaron/workspace/site", False),
 ])
 def test_windows_publish_boundary(monkeypatch, path, allowed):
-    from core.sandbox import _common
+    import core.sandbox.workspace.paths as _common_paths
     from core.llm.tools._tool_helpers import _validate_workspace_path
-    monkeypatch.setattr(_common, "WORKSPACE", "C:/Users/Aaron/workspace")
+    monkeypatch.setattr(_common_paths, "WORKSPACE", "C:/Users/Aaron/workspace")
     assert (_validate_workspace_path(path) is None) == allowed
 
 
 def test_portable_archive_enforces_contents_and_limits(tmp_path):
-    from core.sandbox.directory_archive import pack_directory
+    from core.sandbox.workspace.archive import pack_directory
     from core.services.site_packaging import safe_extract_tar
     source=tmp_path/"source"
     source.mkdir()
@@ -39,7 +39,7 @@ def test_portable_archive_enforces_contents_and_limits(tmp_path):
     assert not target.exists()
 
 def test_portable_archive_rejects_links(tmp_path):
-    from core.sandbox.directory_archive import pack_directory
+    from core.sandbox.workspace.archive import pack_directory
     source=tmp_path/"source"
     source.mkdir()
     (tmp_path/"outside").write_text("private")
@@ -55,7 +55,7 @@ def test_paths_are_used_as_given(tmp_path, monkeypatch):
     """
     from core.llm.tools import _paths
     from core.config import local_mode
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
@@ -68,7 +68,7 @@ def test_paths_are_used_as_given(tmp_path, monkeypatch):
 def test_publish_uses_real_runner_and_same_session_files(tmp_path, monkeypatch):
     import asyncio
     import base64
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
     from core.services import site_packaging
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr("core.llm.tools._paths.WORKSPACE_ROOT", str(tmp_path))
@@ -96,11 +96,12 @@ def test_publish_uses_real_runner_and_same_session_files(tmp_path, monkeypatch):
 async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypatch):
     from core.llm.tools import _paths
     from core.config import local_mode
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
     from core.llm.tools.write_tool import register_write
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET
-    from core.sandbox.local_policy import Grant, Policy
+    from core.sandbox.permissions.models import Grant
+    from core.sandbox.permissions.models import Policy
     from tests.llm.test_local_file_permission import _Toolkit, _service, _call, _payload
     monkeypatch.setattr(local_mode,"local_mode_enabled",lambda:True)
     monkeypatch.setattr(_paths,"WORKSPACE_ROOT",str(tmp_path))
@@ -108,7 +109,7 @@ async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypat
     monkeypatch.setattr("core.services.local_grant_service.grants_for_gate",lambda:[Grant(str(tmp_path),"readwrite")])
     monkeypatch.setattr("core.services.local_grant_service.policy_for_gate",lambda *args:Policy())
     monkeypatch.setattr("core.services.local_snapshot_service.maybe_snapshot_local",lambda path:None)
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     monkeypatch.setattr("core.sandbox.get_sandbox_provider",lambda:ScriptRunnerProvider())
     toolkit=_Toolkit()
     register_write(toolkit,chat_id="chat-1",user_id="user-1",state=ReadStateTracker(),interactive=False)

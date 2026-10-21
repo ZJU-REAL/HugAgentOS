@@ -56,7 +56,7 @@ def _make_pool():
 
 def _stdio_configs(names: List[str], stable: bool = True) -> Dict[str, dict]:
     return {
-        name: {"command": "python", "args": ["-m", f"mcp_servers.{name}"], "is_stable": stable}
+        name: {"command": "python", "args": ["-m", f"extensions.mcp_servers.{name}"], "is_stable": stable}
         for name in names
     }
 
