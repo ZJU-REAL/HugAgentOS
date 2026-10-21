@@ -85,6 +85,7 @@ const evidence=resolve('../../.scratch/sidebar-task-status');await mkdir(evidenc
 try{
  const context=await browser.newContext({viewport:{width:960,height:820}});
  const page=await context.newPage();page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});page.on('console',message=>{if(message.type()==='error')console.error('BROWSER',message.text());});
+ await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
  await page.goto('http://127.0.0.1:'+server.address().port);await page.bringToFront();
  const row=id=>page.locator('#ordinary .jx-historyItem').filter({has:page.locator('[data-task-status="'+id+'"]')});
  await page.locator('#ordinary [data-task-status="running"]').waitFor({timeout:6000}).catch(async error=>{console.error('FIXTURE DOM',await page.locator('#root').innerHTML());console.error('ERRORS',errors);await page.screenshot({path:resolve(evidence,'failure.png'),fullPage:true});throw error;});
