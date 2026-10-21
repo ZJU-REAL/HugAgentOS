@@ -9,7 +9,7 @@ import signal
 import sys
 from pathlib import Path
 
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 def test_local_profile_skips_uid_wide_nproc_limit(monkeypatch):
@@ -183,7 +183,7 @@ def test_local_managed_officecli_disables_self_update(tmp_path):
 
     code = """
 from fastapi.testclient import TestClient
-from services.script_runner_service.server import app
+from core.sandbox.runner.server import app
 with TestClient(app) as client:
     response = client.post('/processes/start', json={
         'script_content': "import os; print(os.getenv('OFFICECLI_SKIP_UPDATE', 'unset'))",

@@ -6,7 +6,7 @@ import tarfile
 from types import SimpleNamespace
 
 import pytest
-from mcp_servers import _serve
+from extensions.mcp_servers import _serve
 from orchestration import local_subprocess
 
 
@@ -26,7 +26,7 @@ def test_child_env_binds_local_mcp_to_loopback(monkeypatch):
 
 
 def test_site_publish_callback_uses_local_listener_port(monkeypatch):
-    from mcp_servers.site_publish_mcp import impl
+    from extensions.mcp_servers.site_publish_mcp import impl
 
     monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
     monkeypatch.delenv("BACKEND_PORT", raising=False)
@@ -75,8 +75,8 @@ def test_streamable_http_bind_host_defaults_to_compose_and_supports_local(monkey
 
 
 def test_required_default_plugin_servers_are_launchable():
-    from mcp_servers._launcher import PORTS as launcher_ports
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._launcher import PORTS as launcher_ports
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     for server_id, expected_tool in local_subprocess._REQUIRED_PLUGIN_MCP_TOOLS.items():
         assert expected_tool
@@ -150,7 +150,7 @@ async def test_required_plugin_tool_contract_rejects_missing_registration():
 
 
 def test_mcp_port_namespace_offset_is_validated():
-    from mcp_servers import _ports
+    from extensions.mcp_servers import _ports
 
     assert _ports._parse_port_offset("23200") == 23200
     assert _ports._parse_port_offset(None) == 0
@@ -200,19 +200,23 @@ def test_dev_interpreter_skips_reaping(monkeypatch):
     assert local_subprocess._packaged_install_root() is None
 
 
-def test_find_stale_sidecar_pids_matches_only_own_install():
+@pytest.mark.parametrize(
+    "runner_module",
+    ["core.sandbox.runner.server:app", "services.script_runner_service.server:app"],
+)
+def test_find_stale_sidecar_pids_matches_only_own_install(runner_module):
     root = "/Users/u/AS/cn.x.desktop/local-server"
     ps = "\n".join(
         [
-            f"  100 {root}/releases/a/venv/bin/python -m uvicorn services.script_runner_service.server:app --host 127.0.0.1 --port 8900",
-            f"  101 {root}/releases/a/venv/bin/python -m mcp_servers._launcher",
-            f"  102 {root}/releases/a/venv/bin/python -m mcp_servers.internet_search_mcp.server --port 9102",
+            f"  100 {root}/releases/a/venv/bin/python -m uvicorn {runner_module} --host 127.0.0.1 --port 8900",
+            f"  101 {root}/releases/a/venv/bin/python -m extensions.mcp_servers._launcher",
+            f"  102 {root}/releases/a/venv/bin/python -m extensions.mcp_servers.internet_search_mcp.server --port 9102",
             # 其它产品同名 sidecar：安装根不同，不能杀
-            "  103 /Users/u/AS/com.other.desktop/local-server/releases/b/venv/bin/python -m mcp_servers._launcher",
+            "  103 /Users/u/AS/com.other.desktop/local-server/releases/b/venv/bin/python -m extensions.mcp_servers._launcher",
             # 主服务进程不是 sidecar
             f"  104 {root}/releases/a/venv/bin/hugagent serve --port 32101",
             # 指纹撞车但没有本安装根路径
-            "  105 /bin/bash -c 'echo services.script_runner_service.server:app'",
+            f"  105 /bin/bash -c 'echo {runner_module}'",
             "  garbage line",
         ]
     )
@@ -222,7 +226,7 @@ def test_find_stale_sidecar_pids_matches_only_own_install():
 
 def test_find_stale_sidecar_pids_excludes_self():
     root = "/r/local-server"
-    ps = f"  42 {root}/venv/bin/python -m mcp_servers._launcher"
+    ps = f"  42 {root}/venv/bin/python -m extensions.mcp_servers._launcher"
     assert (
         local_subprocess._find_stale_sidecar_pids(ps, root_marker=root, my_pid=42) == []
     )
@@ -268,13 +272,17 @@ async def test_start_fails_fast_when_runner_port_is_occupied(monkeypatch):
         await local_subprocess.start_local_sidecars()
 
 
-def test_stale_sidecar_match_folds_case_for_windows_paths():
+@pytest.mark.parametrize(
+    "runner_module",
+    ["core.sandbox.runner.server:app", "services.script_runner_service.server:app"],
+)
+def test_stale_sidecar_match_folds_case_for_windows_paths(runner_module):
     root = r"C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server"
     table = "\n".join(
         [
-            r"1200 c:\users\aaron\appdata\local\com.hugagent.desktop\local-server\r\p\x\python\python.exe -m uvicorn services.script_runner_service.server:app --port 32202",
-            r"1201 C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\r\p\x\python\python.exe -m mcp_servers._launcher",
-            r"1202 C:\Users\Aaron\AppData\Local\cn.hugagent.agent.desktop\local-server\r\p\x\python\python.exe -m uvicorn services.script_runner_service.server:app --port 8900",
+            rf"1200 c:\users\aaron\appdata\local\com.hugagent.desktop\local-server\r\p\x\python\python.exe -m uvicorn {runner_module} --port 32202",
+            r"1201 C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\r\p\x\python\python.exe -m extensions.mcp_servers._launcher",
+            rf"1202 C:\Users\Aaron\AppData\Local\cn.hugagent.agent.desktop\local-server\r\p\x\python\python.exe -m uvicorn {runner_module} --port 8900",
             r"1203 C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\r\p\x\python\python.exe cli.py serve --port 32201",
         ]
     )
@@ -303,7 +311,7 @@ async def test_windows_reap_terminates_stale_trees_before_starting(monkeypatch):
     killed = []
     tables = iter(
         [
-            r"77 C:\app\local-server\r\p\x\python\python.exe -m uvicorn services.script_runner_service.server:app --port 32202",
+            r"77 C:\app\local-server\r\p\x\python\python.exe -m uvicorn core.sandbox.runner.server:app --port 32202",
             "",
         ]
     )

@@ -55,7 +55,7 @@ def _link_run(db, automation_run_id, task_id, chat_id):
 async def _wait(run) -> Tuple[str, str, Dict]:
     """Observe durable state without taking ownership of the executor's asyncio tasks.
 
-    Cancellation of the scheduler (timeout/shutdown) must also fence the child run.
+    Cancellation of the scheduler (shutdown/ownership loss) must also fence the child run.
     User cancellation is an outcome, not cancellation of the scheduler itself.
     """
     try:
@@ -102,6 +102,29 @@ async def _wait(run) -> Tuple[str, str, Dict]:
                 break
             run = successor
         raise
+
+
+async def resume_conversation(chat_id, user_id, started_at):
+    """Observe this invocation's original child and its durable successors."""
+    with db_engine.SessionLocal() as db:
+        # Prompt/Plan use fresh chats; Loop reuses its chat. The first main run
+        # after this invocation started is its root, not a later user message.
+        run = (
+            db.query(ChatRun)
+            .filter(
+                ChatRun.chat_id == chat_id,
+                ChatRun.user_id == user_id,
+                ChatRun.created_at >= started_at,
+                ChatRun.request_payload["kind"]
+                .as_string()
+                .in_(("chat", "plan_execute", "autonomous_loop")),
+            )
+            .order_by(ChatRun.created_at.asc())
+            .first()
+        )
+        if run is None:
+            raise RuntimeError("定时任务关联的会话执行记录不存在")
+    return await _wait(run)
 
 
 async def execute_prompt(

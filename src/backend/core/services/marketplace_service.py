@@ -2,9 +2,9 @@
 
 The skill marketplace is a set of **preloaded, curated** installable skill
 packages, shipped with the repo/image and stored under
-``skill_bundles/marketplace/<slug>/`` (each directory holds the original
+``extensions/skills/marketplace/<slug>/`` (each directory holds the original
 SKILL.md + referenced files + a ``marketplace.json`` manifest). The built-in
-loader scans ``skill_bundles/*/SKILL.md`` with single-level matching; market
+loader scans ``extensions/skills/*/SKILL.md`` with single-level matching; market
 skills live two levels deep at ``marketplace/<slug>/SKILL.md`` and are NOT
 auto-loaded as built-ins — so before "installation" a market skill never
 appears in the catalog nor gets registered with the agent. Only after a
@@ -32,7 +32,6 @@ rejecting an already-approved submission delists it.
 """
 
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import hashlib
 import io
@@ -42,13 +41,8 @@ import os
 import re
 import uuid
 import zipfile
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from core.agent_skills.binary_files import (
     BINARY_EXTENSIONS,
@@ -69,22 +63,27 @@ from core.agent_skills.registry import (
 )
 from core.db.models import AdminSkill, MarketplaceSubmission
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.infra.time import utc_now
 from core.ontology.build_validator import ensure_ontology_build_valid
+from extensions.paths import SKILLS_DIR
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
 
-# Root directory of preloaded market skill packages: ``src/backend/skill_bundles/marketplace/``.
-# Lives in the same tree as built-in skills (``skill_bundles/<slug>/``), making
-# additions/removals uniform under skill_bundles; but the built-in loader's scan
+# Root directory of preloaded market skill packages: ``src/backend/extensions/skills/marketplace/``.
+# Lives in the same tree as built-in skills (``extensions/skills/<slug>/``), making
+# additions/removals uniform under extensions/skills; but the built-in loader's scan
 # is single-level ``glob("*/SKILL.md")`` — market skills at
 # ``marketplace/<slug>/SKILL.md`` (two levels deep) are not auto-loaded as
 # built-ins, preserving the install-based model.
-MARKETPLACE_DIR = Path(__file__).resolve().parents[2] / "skill_bundles" / "marketplace"
-# Built-in default skills directory: ``skill_bundles/default/<slug>/``. These
+MARKETPLACE_DIR = SKILLS_DIR / "marketplace"
+# Built-in default skills directory: ``extensions/skills/default/<slug>/``. These
 # skills are globally resident and always available to everyone; they are also
 # shown in the skill marketplace as "built-in" entries (read from their own
 # folders, not copied into marketplace/ to avoid 4MB+ duplication).
-DEFAULT_SKILLS_DIR = Path(__file__).resolve().parents[2] / "skill_bundles" / "default"
+DEFAULT_SKILLS_DIR = SKILLS_DIR / "default"
 
 MANIFEST_NAME = "marketplace.json"
 SKILL_MD_NAME = "SKILL.md"
@@ -213,7 +212,7 @@ def _approved_submissions(db: Session) -> List[MarketplaceSubmission]:
 
 
 def _default_skill_public_meta(slug: str) -> Optional[Dict[str, Any]]:
-    """Built-in default skill (skill_bundles/default/<slug>) → market-list metadata isomorphic to the preloaded form.
+    """Built-in default skill (extensions/skills/default/<slug>) → market-list metadata isomorphic to the preloaded form.
 
     The Chinese name comes from SKILL.md's ``display_name``; category/summary
     come from ``DEFAULT_SKILL_MARKET``. Marked ``source='builtin'`` +
@@ -354,7 +353,7 @@ def get_marketplace_skill(slug: str, db: Optional[Session] = None) -> Dict[str, 
     The preloaded directory takes priority; when not found, fall back to the
     community listing (approved submission).
     """
-    # Built-in default skills: read skill_bundles/default/<slug>; the body comes from SKILL.md, the file list from the directory.
+    # Built-in default skills: read extensions/skills/default/<slug>; the body comes from SKILL.md, the file list from the directory.
     if slug in DEFAULT_SKILL_MARKET:
         meta = _default_skill_public_meta(slug)
         if meta is None:

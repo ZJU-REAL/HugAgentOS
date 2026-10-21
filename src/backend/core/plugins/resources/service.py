@@ -183,7 +183,7 @@ async def create(
     db.add(row)
     db.commit()
     from core.sandbox.factory import get_sandbox_provider
-    from core.sandbox.interactive import launch
+    from core.sandbox.processes.interactive import launch
 
     provider = _provider or get_sandbox_provider()
     try:

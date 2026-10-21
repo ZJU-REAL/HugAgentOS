@@ -23,7 +23,8 @@ from core.llm.tools._paths import to_physical_path
 from core.llm.tools._state import ReadEntry, ReadStateTracker
 from core.llm.tools.edit_tool import register_edit
 from core.llm.tools.write_tool import register_write
-from core.sandbox.local_policy import Grant, Policy
+from core.sandbox.permissions.models import Grant
+from core.sandbox.permissions.models import Policy
 
 
 @pytest.fixture(autouse=True)
@@ -377,9 +378,9 @@ async def test_remote_edit_handles_a_sandbox_read_error_without_a_scope_error():
 def test_gate_treats_the_session_directory_as_the_workspace(monkeypatch, tmp_path):
     """权限闸里的"工作区"就是本次对话的工作目录，不是部署级工作区根。"""
     from core.llm.tool_permissions import PermissionRuntime, ToolPermissionRegistry, ToolPermissionService
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import session_root
 
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path))
     runtime = PermissionRuntime(chat_id="chat-1", user_id="u1", interactive=False, approval_available=False)
     service = ToolPermissionService(ToolPermissionRegistry(), runtime)
 

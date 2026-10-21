@@ -36,7 +36,7 @@ async def test_owned_bundled_server_is_supervised_once(monkeypatch):
     monkeypatch.setattr(host, "_WATCHDOG", SimpleNamespace(get_loop=lambda: owner_loop))
     await asyncio.to_thread(lambda: asyncio.run(native.ensure_native_servers({"owned": cfg})))
     assert sum(isinstance(c, tuple) for c in calls) == 1
-    assert calls[0][1][2] == "mcp_servers.browser_runtime_mcp.server"
+    assert calls[0][1][2] == "extensions.mcp_servers.browser_runtime_mcp.server"
     assert "ready" in calls and "watchdog" in calls
     for changed in [{"origin": "cloud"}, {"owner_user_id": None},
                     {"url": "https://third-party.example/mcp"}, {"execution_scope": "cloud"}]:
@@ -65,7 +65,7 @@ async def test_demand_spawn_and_watchdog_reuse_one_lifecycle_owner(monkeypatch):
         spawned.append(args)
         return proc
     monkeypatch.setattr(lifecycle.asyncio, "create_subprocess_exec", create)
-    argv = ["python", "-m", "mcp_servers.browser_runtime_mcp.server"]
+    argv = ["python", "-m", "extensions.mcp_servers.browser_runtime_mcp.server"]
     # A demand activation during watchdog backoff is allowed to replace the
     # dead child. The watchdog's captured restart then reuses that same child.
     host._SPECS["plugin_mcp:browser_runtime"] = argv

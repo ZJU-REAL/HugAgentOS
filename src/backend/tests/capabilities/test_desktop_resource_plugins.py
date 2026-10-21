@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-ROOT = Path(__file__).parents[2] / "plugin_bundles/marketplace/browser-automation"
+ROOT = Path(__file__).parents[2] / "extensions/plugins/marketplace/browser-automation"
 
 
 def test_export_includes_exact_worker_and_canvas(monkeypatch):

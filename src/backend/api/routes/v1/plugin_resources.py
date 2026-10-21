@@ -169,7 +169,7 @@ async def tool_resource(body: ToolRequest, request: Request, db: Session = Depen
     from .internal_site_auth import _check_internal_token
     _check_internal_token(request.headers.get("x-internal-token"))
     from core.llm.mcp_invocation import verify
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
     audience = request.headers.get("x-hugagent-mcp-audience", "")
     if audience not in PORTS or request.headers.get("x-chat-id") != body.chat_id:
         raise HTTPException(401, "invocation_context_required")

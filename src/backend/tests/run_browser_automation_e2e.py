@@ -49,9 +49,9 @@ def main():
         logs = []
         try:
             for name, args in [
-                ("runner", ["-m", "uvicorn", "services.script_runner_service.server:app", "--host", "127.0.0.1", "--port", str(runner)]),
+                ("runner", ["-m", "uvicorn", "core.sandbox.runner.server:app", "--host", "127.0.0.1", "--port", str(runner)]),
                 ("backend", ["-m", "uvicorn", "tests.browser_automation_server:app", "--host", "127.0.0.1", "--port", str(backend)]),
-                ("mcp", ["-m", "mcp_servers.browser_runtime_mcp.server", "--transport", "streamable-http", "--port", str(mcp)])]:
+                ("mcp", ["-m", "extensions.mcp_servers.browser_runtime_mcp.server", "--transport", "streamable-http", "--port", str(mcp)])]:
                 log = open(home / (name + ".log"), "w+")
                 logs.append(log)
                 processes.append(subprocess.Popen([sys.executable, *args], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True))

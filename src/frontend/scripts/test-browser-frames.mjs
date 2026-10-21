@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-const source = await readFile('../backend/plugin_bundles/marketplace/browser-automation/web/browser/frames.js', 'utf8');
+const source = await readFile('../backend/extensions/plugins/marketplace/browser-automation/web/browser/frames.js', 'utf8');
 const window = {};
 const decodes = [], draws = [], errors = [], images = [];
 let current = {active_tab: '1', viewport_revision: 1}, width = 800, height = 600, resets = 0;

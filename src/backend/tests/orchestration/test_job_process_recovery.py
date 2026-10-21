@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 from core.sandbox import ProcessRequest
-from core.sandbox import cloud_recovery as recovery
+import core.sandbox.providers.opensandbox.recovery as recovery
 from core.sandbox.errors import SandboxError
-from core.sandbox.session_router import SessionSandboxRouter
+from core.sandbox.sessions.router import SessionSandboxRouter
 
 
 @pytest.mark.asyncio
@@ -60,7 +60,7 @@ async def test_recovery_uses_actual_provider_registry(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_detached_handle_cleanup_does_not_interrupt_adopted_command():
-    from core.sandbox.cloud_processes import OpenSandboxHandle
+    from core.sandbox.processes.cloud import OpenSandboxHandle
 
     calls = []
 

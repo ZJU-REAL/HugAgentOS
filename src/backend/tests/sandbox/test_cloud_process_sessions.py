@@ -1,3 +1,4 @@
+from tests.sandbox.provider_test_support import install_session_scope
 """Cloud SDK contract tests for managed commands (no production connection)."""
 
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ from core.sandbox.protocol import ProcessRequest
 
 
 async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner_only():
-    from core.sandbox.cloud_processes import CloudProcesses
+    from core.sandbox.processes.cloud import CloudProcesses
 
     commands = SimpleNamespace(
         run=AsyncMock(return_value=SimpleNamespace(id="remote-1")),
@@ -28,6 +29,7 @@ async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         first = await service.start(
@@ -69,7 +71,7 @@ async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner
 
 
 async def test_opensandbox_final_logs_and_nonzero_exit_are_not_lost():
-    from core.sandbox.cloud_processes import CloudProcesses
+    from core.sandbox.processes.cloud import CloudProcesses
 
     commands = SimpleNamespace(
         run=AsyncMock(return_value=SimpleNamespace(id="remote-1")),
@@ -90,6 +92,7 @@ async def test_opensandbox_final_logs_and_nonzero_exit_are_not_lost():
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -112,7 +115,7 @@ async def test_opensandbox_final_logs_and_nonzero_exit_are_not_lost():
 
 async def test_cube_uses_background_without_connection_deadline_and_bounds_lifetime():
     import asyncio
-    from core.sandbox.cloud_processes import CloudProcesses
+    from core.sandbox.processes.cloud import CloudProcesses
 
     command = SimpleNamespace(
         wait=AsyncMock(return_value=SimpleNamespace(exit_code=0)), kill=AsyncMock()
@@ -135,6 +138,7 @@ async def test_cube_uses_background_without_connection_deadline_and_bounds_lifet
         _myspace_prefix=lambda uid: "",
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -157,7 +161,7 @@ async def test_cube_uses_background_without_connection_deadline_and_bounds_lifet
 async def test_runner_provider_checks_capability_integrity_before_returning_output(monkeypatch):
     import httpx
     from core.capabilities.errors import IntegrityFailed
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     requests = []
 
@@ -179,7 +183,7 @@ async def test_runner_provider_checks_capability_integrity_before_returning_outp
 
     client_type = httpx.AsyncClient
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kwargs: client_type(transport=httpx.MockTransport(request), **kwargs),
     )
     monkeypatch.setattr("core.capabilities.runtime.get", lambda *args, **kwargs: object())
@@ -199,7 +203,7 @@ async def test_runner_provider_checks_capability_integrity_before_returning_outp
 
 async def test_runner_start_does_not_retry_an_ambiguous_network_failure(monkeypatch):
     import httpx
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     from core.sandbox.errors import SandboxError
 
     calls = []
@@ -210,11 +214,11 @@ async def test_runner_start_does_not_retry_an_ambiguous_network_failure(monkeypa
 
     client_type = httpx.AsyncClient
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kwargs: client_type(transport=httpx.MockTransport(request), **kwargs),
     )
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider._refresh_skill_view", lambda *args: None
+        "core.sandbox.providers.script_runner.provider._refresh_skill_view", lambda *args: None
     )
     with pytest.raises(SandboxError, match="uncertain"):
         await ScriptRunnerProvider().start_process(
@@ -226,7 +230,7 @@ async def test_runner_start_does_not_retry_an_ambiguous_network_failure(monkeypa
 
 
 async def test_completion_client_waits_same_process_and_joins_increments():
-    from core.sandbox.process_completion import CompletionMixin
+    from core.sandbox.processes.completion import CompletionMixin
 
     provider = SimpleNamespace(
         start_process=AsyncMock(
@@ -256,7 +260,7 @@ async def test_completion_client_waits_same_process_and_joins_increments():
 
 
 async def test_completion_client_fails_on_omitted_output_instead_of_parsing_a_partial_result():
-    from core.sandbox.process_completion import CompletionMixin
+    from core.sandbox.processes.completion import CompletionMixin
     from core.sandbox import SandboxError
 
     provider = SimpleNamespace(
@@ -278,7 +282,7 @@ async def test_completion_client_fails_on_omitted_output_instead_of_parsing_a_pa
 @pytest.mark.parametrize("language", ["python", "javascript"])
 async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeypatch, language):
     import asyncio
-    from core.sandbox.cloud_processes import CloudProcesses
+    from core.sandbox.processes.cloud import CloudProcesses
 
     captured = {}
     (tmp_path / "helper.py").write_text("VALUE=42")
@@ -289,7 +293,7 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
         if language == "python"
         else "const fs=require('fs'); console.log(process.argv[2]); console.log(JSON.parse(fs.readFileSync(0,'utf8')).value); console.log(require('./helper').VALUE); console.log(fs.readFileSync(require('path').join(__dirname,'sibling.txt'),'utf8'));"
     )
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path))
 
     async def run(command, opts):
         proc = await asyncio.create_subprocess_exec(
@@ -325,6 +329,7 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -346,7 +351,7 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
 
 async def test_completion_cancellation_during_start_cleans_launched_process():
     import asyncio
-    from core.sandbox.process_completion import CompletionMixin
+    from core.sandbox.processes.completion import CompletionMixin
 
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -376,7 +381,7 @@ async def test_completion_cancellation_during_start_cleans_launched_process():
 async def test_internal_provider_completion_returns_final_result_without_harness(monkeypatch):
     import json
     import httpx
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     requests = []
 
@@ -412,10 +417,10 @@ async def test_internal_provider_completion_returns_final_result_without_harness
 
     client = httpx.AsyncClient
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kwargs: client(transport=httpx.MockTransport(respond), **kwargs),
     )
-    monkeypatch.setattr("core.sandbox.script_runner_provider._refresh_skill_view", lambda *a: None)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider._refresh_skill_view", lambda *a: None)
     result = await ScriptRunnerProvider().run_to_completion(
         ProcessRequest("sleep 150", "job.sh", language="bash", session_id="internal-job")
     )
@@ -426,7 +431,7 @@ async def test_internal_provider_completion_returns_final_result_without_harness
 
 
 async def test_opensandbox_waits_for_execd_before_staging_without_replaying_launch():
-    from core.sandbox.cloud_processes import CloudProcesses
+    from core.sandbox.processes.cloud import CloudProcesses
     calls = []
     async def healthy():
         calls.append("health")
@@ -445,6 +450,7 @@ async def test_opensandbox_waits_for_execd_before_staging_without_replaying_laun
         _get_or_create_session=AsyncMock(return_value=SimpleNamespace(
             sandbox=SimpleNamespace(commands=commands, is_healthy=healthy))),
         _sync_inputs=stage, touch_session=AsyncMock())
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(ProcessRequest(

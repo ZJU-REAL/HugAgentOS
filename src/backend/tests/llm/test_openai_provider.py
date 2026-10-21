@@ -93,3 +93,14 @@ def test_azure_never_uses_responses():
     )
 
     assert isinstance(model, OpenAICompatChatModel)
+
+
+def test_config_lookup_failure_does_not_mask_original_failure(monkeypatch):
+    from core.llm.chat_models import _resolve_or_dummy
+    from core.services.model_config import ModelConfigService
+
+    def unavailable():
+        raise RuntimeError("configuration unavailable")
+
+    monkeypatch.setattr(ModelConfigService, "get_instance", unavailable)
+    assert _resolve_or_dummy("main_agent") is None

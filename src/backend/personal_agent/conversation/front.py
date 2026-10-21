@@ -188,10 +188,11 @@ def history(db, ident):
             role = "user"
             text = "[Task result: " + (task.label_text if task else "?") + "]\n" + row.content[:EVENT_CHARS if last else HISTORY_CHARS // 2]
         elif row.role == "assistant":
-            # The same replay as the ordinary chat: the tool calls a reply made stay visible to the model,
-            # so a past reply never reads as an action that no tool performed.
-            out.extend(assistant_row_replay(content=row.content or "", model_steps=None, thinking=row.thinking,
-                tool_calls=row.tool_calls, segments=extra.get("segments")))
+            if extra.get("model_history_display_only"):
+                continue
+            out.extend(assistant_row_replay(
+                content=row.content or "", model_steps=row.model_steps,
+            ))
             continue
         else:
             role, text = row.role, row.content if last else row.content[:HISTORY_CHARS]
@@ -209,7 +210,7 @@ def history(db, ident):
 class Reply(StreamRecord):
     """The agent's reply in the main conversation, written while it streams.
 
-    The row keeps the full record (tool calls, segments) for replay; the page shows only the answer."""
+    Canonical steps serve model history; display columns serve the page."""
 
     def __init__(self, state):
         super().__init__()
@@ -230,6 +231,7 @@ class Reply(StreamRecord):
             session.message_count += 1
         else:
             # A retried turn starts its reply again.
+            row.model_steps = []
             row.content, row.tool_calls, row.thinking, row.extra_data = "", [], [], {**(row.extra_data or {}), **extra, "segments": []}
         self.id = ident
 

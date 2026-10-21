@@ -61,6 +61,12 @@ class EphemeralState(Protocol):
     async def put(self, key: str, value: str, *, ttl: int) -> None:
         """Write a value that expires after *ttl* seconds."""
 
+    async def mutate_if(
+        self, expected: dict[str, Optional[str]], values: dict[str, str],
+        *, remove: tuple[str, ...] = (), ttl: int,
+    ) -> bool:
+        """Atomically mutate TTL entries only while all ownership guards match."""
+
     async def take(self, key: str) -> Optional[str]:
         """Read and remove in one step (one-shot handoffs)."""
 
@@ -118,6 +124,28 @@ class RedisEphemeralState:
 
     async def put(self, key: str, value: str, *, ttl: int) -> None:
         await get_redis().set(key, value, ex=_seconds(ttl))
+
+    async def mutate_if(
+        self, expected: dict[str, Optional[str]], values: dict[str, str],
+        *, remove: tuple[str, ...] = (), ttl: int,
+    ) -> bool:
+        expiry = _seconds(ttl)
+        async with get_redis().pipeline() as pipe:
+            try:
+                if expected:
+                    await pipe.watch(*expected)
+                    for key, value in expected.items():
+                        if await pipe.get(key) != value:
+                            return False
+                pipe.multi()
+                for key, value in values.items():
+                    pipe.set(key, value, ex=expiry)
+                if remove:
+                    pipe.delete(*remove)
+                await pipe.execute()
+                return True
+            except WatchError:
+                return False
 
     async def take(self, key: str) -> Optional[str]:
         redis = get_redis()
@@ -235,6 +263,23 @@ class LocalEphemeralState:
         with self._lock:
             self._prune(expires_at - ttl)
             self._entries[key] = (expires_at, value)
+
+    async def mutate_if(
+        self, expected: dict[str, Optional[str]], values: dict[str, str],
+        *, remove: tuple[str, ...] = (), ttl: int,
+    ) -> bool:
+        expiry = _seconds(ttl)
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            for key, value in expected.items():
+                entry = self._entries.get(key)
+                if (entry[1] if entry is not None else None) != value:
+                    return False
+            self._entries.update({key: (now + expiry, value) for key, value in values.items()})
+            for key in remove:
+                self._entries.pop(key, None)
+            return True
 
     async def take(self, key: str) -> Optional[str]:
         return self._read(key, pop=True)

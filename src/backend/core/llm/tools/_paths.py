@@ -1,7 +1,7 @@
 """Select desktop or container path rules for the registered file tools."""
 
 from typing import Optional
-from core.sandbox._common import WORKSPACE as WORKSPACE_ROOT
+from core.sandbox.workspace.paths import WORKSPACE as WORKSPACE_ROOT
 
 SCRATCH_ROOT = f"{WORKSPACE_ROOT}/scratch"
 MYSPACE_LOGICAL = "/myspace"
@@ -17,17 +17,17 @@ def path_rules():
     from core.config.local_mode import local_mode_enabled
 
     if local_mode_enabled():
-        from core.sandbox import desktop_paths
+        import core.sandbox.workspace.desktop as desktop_paths
 
         return desktop_paths
-    from core.sandbox import sandbox_paths
+    import core.sandbox.workspace.container as sandbox_paths
 
     return sandbox_paths
 
 
 def workspace_directory(session_id: str | None, *, scope=None) -> str:
     rules = path_rules()
-    from core.sandbox import desktop_paths
+    import core.sandbox.workspace.desktop as desktop_paths
 
     if rules is desktop_paths:
         return rules.workspace_directory(WORKSPACE_ROOT, session_id, scope=scope)
@@ -42,7 +42,7 @@ def to_physical_path(
     path: str, user_id: Optional[str], *, session_id: Optional[str] = None, scope=None
 ) -> str:
     rules = path_rules()
-    from core.sandbox import desktop_paths
+    import core.sandbox.workspace.desktop as desktop_paths
 
     if rules is desktop_paths:
         return rules.resolve_path(path, WORKSPACE_ROOT, session_id, user_id, scope=scope)

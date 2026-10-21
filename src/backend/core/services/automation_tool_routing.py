@@ -92,7 +92,7 @@ async def local_automation_result(source_plugin, tool_name, arguments, headers, 
     bridge.ensure_current_authorization(identity_state)
     if tool_name != "create_scheduled_task":
         args.pop("execution_location", None)
-    from mcp_servers.automation_task_mcp import impl
+    from extensions.mcp_servers.automation_task_mcp import impl
     def dispatch():
         # Account changes must not race the queued local database operation.
         with bridge.account_scope(identity_state):

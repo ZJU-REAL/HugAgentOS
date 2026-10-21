@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from time import monotonic as _monotonic
 from functools import lru_cache
+from time import monotonic as _monotonic
 from typing import Any, AsyncGenerator, Optional, get_args
 
 import httpx
@@ -26,8 +26,7 @@ from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import Msg, ThinkingBlock, ToolCallBlock
 from agentscope.model import ChatResponse, OpenAIResponseModel
 from agentscope.tool._types import ToolChoice
-
-from core.llm.providers._fallback import StructuredFallbackMixin
+from core.llm.context_safety import check_request_admission
 from core.llm.providers._image_tokens import ImageTokenCountingMixin
 from core.llm.reasoning_replay import ReasoningReplayMixin
 from core.llm.tool_call_identity import ToolCallIdentityMixin
@@ -183,9 +182,7 @@ def _attach_reasoning_items(content: Any, items: list[dict[str, Any]]) -> None:
             return
 
 
-def _restore_reasoning_items(
-    msgs: list[Msg], items: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
+def _restore_reasoning_items(msgs: list[Msg], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """把 AgentScope 发的精简 reasoning 条目换回上游原本给的那一条。
 
     AgentScope 只保留了最后一个 reasoning 条目的 id，一轮里若有多条，它也只发一条
@@ -289,7 +286,6 @@ class ResponsesReplayFormatter(
 class OpenAICompatResponsesModel(
     ToolCallIdentityMixin,
     ImageTokenCountingMixin,
-    StructuredFallbackMixin,
     OpenAIResponseModel,
 ):
     """OpenAIResponseModel 子类：复用本项目的 http 客户端、失败记账与思考留存。
@@ -313,8 +309,6 @@ class OpenAICompatResponsesModel(
         parameters: "OpenAIResponseModel.Parameters",
         stream: bool,
         http_client: httpx.AsyncClient,
-        # 无默认值：AS2 用 context_size 算压缩触发阈值，静默继承上游默认值会让
-        # 真 256k 的模型在半窗就开始压缩（与 OpenAICompatChatModel 同因）。
         context_size: int,
         provider_id: str = "openai_compatible",
         extra_body: dict | None = None,
@@ -340,7 +334,8 @@ class OpenAICompatResponsesModel(
         self.provider_id = provider_id
         self._extra_body = extra_body or {}
         self._reasoning_effort = (
-            reasoning_effort if reasoning_effort_is_wire
+            reasoning_effort
+            if reasoning_effort_is_wire
             else native_reasoning_effort(reasoning_effort)
         )
         self._context_rewrite_listener = None
@@ -373,11 +368,8 @@ class OpenAICompatResponsesModel(
         tool_choice: ToolChoice | None = None,
         **generate_kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        from core.llm.chat_models import (
-            _dump_wire_payload,
-            _slim_tool_schemas,
-            _stream_with_bounded_retry,
-        )
+        from core.llm.providers.openai_compat import _dump_wire_payload, _slim_tool_schemas
+        from core.llm.providers.stream_retry import _stream_with_bounded_retry
 
         client = self._build_client()
         formatted_input = await self.formatter.format(messages)
@@ -415,6 +407,7 @@ class OpenAICompatResponsesModel(
         _dump_wire_payload(kwargs)
 
         async def _issue():  # noqa: ANN202
+            check_request_admission()
             return await client.responses.create(**kwargs)
 
         try:

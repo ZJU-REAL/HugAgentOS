@@ -157,7 +157,8 @@ def _dws_env(user_id: str) -> Dict[str, str]:
     isolated ``HOME`` (the root of credential isolation) + deployment-level
     Custom App client credentials + domain whitelist. Multi-tenant isolation
     is guaranteed by the per-user HOME."""
-    from core.sandbox._common import dws_extra_envs, dws_home_dir
+    from core.sandbox.providers.account_env import dws_extra_envs
+    from core.sandbox.workspace.credentials import dws_home_dir
 
     home = dws_home_dir(user_id)
     try:
@@ -489,7 +490,9 @@ class DingTalkService:
         # unlinking a mount source makes dws report "not logged in" in every open
         # chat even after a successful re-login (see [[purge_credential_dir]]).
         try:
-            from core.sandbox._common import dws_cache_dir, purge_credential_dir, safe_user_id
+            from core.sandbox.workspace.credentials import dws_cache_dir
+            from core.sandbox.workspace.credentials import purge_credential_dir
+            from core.sandbox.workspace.identity import safe_user_id
 
             if safe_user_id(user_id):
                 purge_credential_dir(dws_cache_dir(user_id))

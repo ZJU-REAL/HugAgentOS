@@ -57,7 +57,7 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
         storage=replace(settings.storage, path=str(tmp_path / "storage")),
         sandbox=replace(settings.sandbox, provider="opensandbox"),
     )
-    monkeypatch.setattr("core.sandbox._common.settings", config)
+    monkeypatch.setattr("core.config.settings.settings", config)
     monkeypatch.setattr("core.config.settings.settings", config)
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     ephemeral = LocalEphemeralState()

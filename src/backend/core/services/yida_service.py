@@ -41,7 +41,7 @@ from typing import Any, Dict, Optional
 
 from core.config.settings import settings
 from core.infra.ephemeral import get_ephemeral_state
-from core.sandbox._common import safe_user_id
+from core.sandbox.workspace.identity import safe_user_id
 from core.services.dingtalk_service import make_qr_data_uri
 
 logger = logging.getLogger(__name__)

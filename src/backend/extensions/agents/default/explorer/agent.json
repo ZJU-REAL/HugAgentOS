@@ -1,0 +1,11 @@
+{
+  "role": "explorer",
+  "name": "探索员",
+  "description": "只读检索代码、文档、知识库与公开信息，返回可核验的事实和证据。",
+  "shared_context": false,
+  "read_only": true,
+  "allow_bash": false,
+  "capability_policy": "read_only_intersection",
+  "max_iters": 12,
+  "sort_order": 0
+}

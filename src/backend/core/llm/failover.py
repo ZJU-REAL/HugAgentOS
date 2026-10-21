@@ -49,7 +49,6 @@ _cooldown: dict[str, float] = {}
 # shared by every concurrent run, so "who is answering" cannot live on it: one
 # run falling back would otherwise rewrite the context window and the
 # reasoning-channel flag that another run's SSE parsing reads.
-_active_var: ContextVar[Optional["ChatModelBase"]] = ContextVar("jx_failover_active", default=None)
 
 
 def mark_provider_down(provider_id: str) -> None:
@@ -160,18 +159,20 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
         builder: Callable[[Any], ChatModelBase],
     ) -> None:
         self._primary = primary
+        self._active_candidate = ContextVar("failover_active_candidate", default=None)
         self._fallback_specs = list(fallback_specs)
         self._builder = builder
         self._built: dict[int, ChatModelBase] = {}
         self._listener: Any = None
+        self._candidate_listener = ContextVar("candidate_context_listener", default=None)
         self.max_retries = 0
 
     @property
     def _active(self) -> ChatModelBase:
-        return _active_var.get() or self._primary
+        return self._active_candidate.get() or self._primary
 
     def _adopt(self, model: ChatModelBase) -> None:
-        _active_var.set(model)
+        self._active_candidate.set(model)
 
     # What downstream reads off a model is per-endpoint: the SSE layer branches
     # on structured_reasoning, replay keys off wire_protocol, and AS2 derives
@@ -210,6 +211,9 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
         if name.startswith("_"):
             raise AttributeError(name)
         return getattr(self._active, name)
+
+    def set_candidate_context_listener(self, listener: Any) -> None:
+        self._candidate_listener.set(listener)
 
     def set_context_rewrite_listener(self, listener: Any) -> None:
         self._listener = listener
@@ -303,9 +307,14 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
                 continue
             is_last = position == len(order) - 1
 
+            listener = self._candidate_listener.get()
+            candidate_messages = (
+                await listener(candidate, messages, tools) if listener is not None else messages
+            )
+            self._adopt(candidate)
             try:
                 result = await candidate._call_api(
-                    candidate.model, messages, tools, tool_choice, **kwargs
+                    candidate.model, candidate_messages, tools, tool_choice, **kwargs
                 )
             except Exception as exc:  # noqa: BLE001 - classified below
                 last_exc = exc

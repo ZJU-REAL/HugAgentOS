@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import httpx
 import openai
 import pytest
-from core.llm import chat_models
+from core.llm.providers import stream_retry as chat_models
 
 
 class _FakeModel:
@@ -32,7 +32,10 @@ class _FakeModel:
 
 def _client(second_response="resp-2"):
     create = AsyncMock(return_value=second_response)
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))), create
+    return (
+        SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+        create,
+    )
 
 
 async def _collect(model, client, kwargs=None):
@@ -91,8 +94,16 @@ def test_second_failure_propagates_without_a_third_attempt(_quiet_usage):
 @pytest.mark.parametrize(
     "exc",
     [
-        openai.AuthenticationError("no", response=httpx.Response(401, request=httpx.Request("POST", "http://x")), body=None),
-        openai.BadRequestError("bad", response=httpx.Response(400, request=httpx.Request("POST", "http://x")), body=None),
+        openai.AuthenticationError(
+            "no",
+            response=httpx.Response(401, request=httpx.Request("POST", "http://x")),
+            body=None,
+        ),
+        openai.BadRequestError(
+            "bad",
+            response=httpx.Response(400, request=httpx.Request("POST", "http://x")),
+            body=None,
+        ),
         RuntimeError("not an API error"),
     ],
 )
@@ -130,3 +141,28 @@ def test_transient_classification():
     assert not chat_models._is_retryable_stream_start_error(
         openai.NotFoundError("x", response=httpx.Response(404, request=req), body=None)
     )
+
+
+@pytest.mark.asyncio
+async def test_stopped_run_cannot_reissue_after_transient_first_event_failure():
+    from core.llm.context_safety import ContextBudgetExceeded, request_admission_scope
+
+    client, create = _client()
+    stopped = ContextBudgetExceeded(
+        manifest={"used_tokens": 2, "total_budget": 1},
+        context=[],
+        summary="",
+    )
+
+    with request_admission_scope() as admission:
+
+        class StopBeforeFirstEvent(_FakeModel):
+            async def _parse_stream_response(self, *args):
+                admission.stopped = stopped
+                raise openai.APIConnectionError(request=httpx.Request("POST", "http://model"))
+                yield
+
+        model = StopBeforeFirstEvent([])
+        with pytest.raises(ContextBudgetExceeded):
+            await _collect(model, client)
+    create.assert_not_awaited()

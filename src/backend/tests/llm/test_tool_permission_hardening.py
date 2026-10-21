@@ -172,7 +172,7 @@ async def test_trusted_unattended_run_still_obeys_a_policy_denial():
     so a scheduled run could read or write host paths the user's own policy
     blocks outright — the one thing no preset is allowed to skip.
     """
-    from core.sandbox.local_policy import Policy
+    from core.sandbox.permissions.models import Policy
 
     registry = ToolPermissionRegistry()
     registry.register("Read", builtin_tool_permission("Read"), source="native")

@@ -9,15 +9,20 @@ behaviour, and the restore path prefers the snapshot over a wiped warm container
 
 from __future__ import annotations
 
+from tests.sandbox.provider_test_support import patch_open_settings
+
 import asyncio
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from core.sandbox import _opensandbox_exec as exec_mod
-from core.sandbox import _opensandbox_session as session_mod
-from core.sandbox._opensandbox_exec import _OpenSandboxExecMixin
-from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
+import core.sandbox.providers.opensandbox.execution as exec_mod
+import core.sandbox.providers.opensandbox.runtime as session_mod_runtime
+import core.sandbox.sessions.registry as session_registry
+from tests.sandbox.test_session_affinity import _age
+import core.sandbox.providers.opensandbox.lifecycle as session_mod
+from core.sandbox.providers.opensandbox.execution import _OpenSandboxExecMixin
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 
 def _settings(**overrides):
@@ -31,9 +36,9 @@ def _settings(**overrides):
 
 def _restore_provider(monkeypatch, *, snapshot_id, idle_hit):
     monkeypatch.setattr("core.agent_skills.publication.prepare_skill_view", lambda uid: None)
-    monkeypatch.setattr(session_mod, "settings", _settings())
-    monkeypatch.setattr(session_mod, "_user_bound_sandbox_required", lambda: True)
-    provider = _OpenSandboxSessionMixin()
+    patch_open_settings(monkeypatch, _settings())
+    monkeypatch.setattr(session_mod_runtime, "_user_bound_sandbox_required", lambda: True)
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     provider._lookup_snapshot = AsyncMock(return_value=snapshot_id)
     provider._jupyter_user_pool = SimpleNamespace(has_idle=lambda uid: idle_hit)
     provider._create_session = AsyncMock(
@@ -67,8 +72,8 @@ def test_warm_idle_container_is_used_when_there_is_nothing_to_restore(monkeypatc
 
 
 def test_reaping_a_chat_session_snapshots_before_releasing(monkeypatch):
-    monkeypatch.setattr(session_mod, "settings", _settings())
-    provider = _OpenSandboxSessionMixin()
+    patch_open_settings(monkeypatch, _settings())
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     sess = SimpleNamespace(sandbox=SimpleNamespace(id="sbx-1"))
     provider._sessions = {"chat-1": sess}
     provider._parking_in_flight = set()
@@ -78,7 +83,11 @@ def test_reaping_a_chat_session_snapshots_before_releasing(monkeypatch):
     provider._upsert_snapshot = AsyncMock(return_value=None)
     provider._destroy_session = AsyncMock()
 
-    asyncio.run(provider._park_session_via_snapshot("chat-1", sess))
+    async def scenario():
+        await session_registry.remember("chat-1", "sbx-1")
+        await _age(session_registry.get_ephemeral_state(), "chat-1", 7200)
+        await provider._park_session_via_snapshot("chat-1", sess)
+    asyncio.run(scenario())
 
     provider._take_snapshot.assert_awaited_once_with("sbx-1")
     provider._upsert_snapshot.assert_awaited_once()
@@ -89,8 +98,8 @@ def test_reaping_a_chat_session_snapshots_before_releasing(monkeypatch):
 
 def test_park_scan_uses_the_single_idle_threshold(monkeypatch):
     """No second threshold may undercut the snapshot-then-release path."""
-    monkeypatch.setattr(session_mod, "settings", _settings())
-    provider = _OpenSandboxSessionMixin()
+    patch_open_settings(monkeypatch, _settings())
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     provider._parking_in_flight = set()
     now = time.monotonic()
     provider._sessions = {
@@ -104,20 +113,21 @@ def test_park_scan_uses_the_single_idle_threshold(monkeypatch):
     assert provider._parking_in_flight == {"idle"}
 
 
-def test_stale_idle_sessions_are_dropped_rather_than_parked(monkeypatch):
-    """Their sandbox is already gone, so they can only be dropped — but dropped they must be."""
-    monkeypatch.setattr(session_mod, "settings", _settings())
-    provider = _OpenSandboxSessionMixin()
+def test_stale_idle_sessions_still_require_snapshot_or_confirmed_disappearance(monkeypatch):
+    """A stale hint is not proof that a live container can be destroyed."""
+    patch_open_settings(monkeypatch, _settings())
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     provider._parking_in_flight = set()
     sess = SimpleNamespace(last_active_ts=time.monotonic() - 4000, stale_marked=True)
     provider._sessions = {"dead": sess}
     provider._park_session_via_snapshot = AsyncMock()
     provider._destroy_session = AsyncMock()
+    provider._get_session_lock = AsyncMock(return_value=asyncio.Lock())
 
     asyncio.run(provider._snapshot_idle_sessions_once())
 
-    provider._destroy_session.assert_awaited_once_with("dead", sess)
-    provider._park_session_via_snapshot.assert_not_awaited()
+    provider._destroy_session.assert_not_awaited()
+    provider._park_session_via_snapshot.assert_awaited_once_with("dead", sess)
 
 
 def test_pool_reaper_never_touches_chat_sessions(monkeypatch):
@@ -126,6 +136,7 @@ def test_pool_reaper_never_touches_chat_sessions(monkeypatch):
     provider = _OpenSandboxExecMixin()
     provider._sessions = {"chat-1": SimpleNamespace(last_active_ts=0.0)}
     provider._destroy_session = AsyncMock()
+    provider._reconcile_sessions = AsyncMock(return_value=0)
     provider._pool = SimpleNamespace(sweep_and_refill=AsyncMock(return_value=0))
     provider._jupyter_user_pool = SimpleNamespace(reap_idle=AsyncMock(return_value=2))
 

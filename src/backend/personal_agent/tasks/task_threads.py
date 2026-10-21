@@ -74,13 +74,15 @@ def history(svc, ident, before=None, limit=100):
 class StreamRecord:
     """One agent run as the chat history stores it: display segments, thinking and tool calls.
 
-    The same record serves the page and model replay (core.llm.model_steps.assistant_row_replay)."""
+    Canonical model steps are stored separately from display fields."""
     def __init__(self):
-        self.text="";self.thinking=[];self.tools=[];self.segments=[];self.last_flush=0
+        self.text="";self.thinking=[];self.tools=[];self.segments=[];self.last_flush=0;self.model_steps=[]
 
     def take(self,event,payload):
         """Add one stream event. True when the record should be written now."""
-        if event=="text_delta":
+        if event=="model_step":
+            self.model_steps.append(payload)
+        elif event=="text_delta":
             self.text=(self.text+str(payload))[-100000:]
             if self.segments and self.segments[-1]["type"]=="text":self.segments[-1]["text"]=(self.segments[-1]["text"]+str(payload))[-100000:]
             else:self.segments.append({"type":"text","text":str(payload)})
@@ -95,11 +97,20 @@ class StreamRecord:
             for tool in self.tools:
                 if tool["tool_id"]==payload["id"]:
                     tool.update(result=str(payload.get("content",""))[:50000],status="error" if payload.get("status") in {"error","denied","interrupted"} else "success")
-        return event in {"tool_call","tool_result"} or time.monotonic()-self.last_flush>1
+        return event in {"tool_call","tool_result","model_step"} or time.monotonic()-self.last_flush>1
 
     def store(self,row,content):
+        row.model_steps=list(self.model_steps)
         row.content=content;row.thinking=list(self.thinking);row.tool_calls=list(self.tools)
-        row.extra_data={**(row.extra_data or {}),"segments":self.segments[-300:]}
+        row.extra_data={
+            **(row.extra_data or {}), "segments":self.segments[-300:],
+            "model_history_display_only": not bool(self.model_steps),
+        }
+        from core.llm.context_safety import remember_context_output
+
+        remember_context_output(
+            message_id=row.message_id, steps=row.model_steps or [], content=row.content,
+        )
         self.last_flush=time.monotonic()
 
 class Transcript(StreamRecord):
@@ -117,7 +128,13 @@ class Transcript(StreamRecord):
             self.chat_id = row.chat_id
             self.owner = task.owner
             self.pending_tool_messages = {}
+            self._response_message_id = None
             db.commit()
+
+    def take(self, event, payload):
+        if event in {"text_delta", "thinking_delta"} and self._response_message_id is None:
+            self._response_message_id = self.message_id
+        return super().take(event, payload)
 
     def _owns_run(self, task):
         return (task.status == "running" and task.run_id == self.binding.run_id
@@ -130,7 +147,7 @@ class Transcript(StreamRecord):
         ).order_by(ChatMessage.chat_seq.desc()).limit(1)) or 0
 
     def record(self, event, payload):
-        if event not in {"text_delta", "thinking_delta", "tool_call", "tool_result"}:
+        if event not in {"text_delta", "thinking_delta", "tool_call", "tool_result", "model_step"}:
             return
         from personal_agent.context import AgentContext
         # Check BEFORE accepting a delta, so buffered earlier text stays before
@@ -148,7 +165,51 @@ class Transcript(StreamRecord):
             task = AgentContext(db, self.uid).tasks.get(self.task_id, lock=True)
             if not self._owns_run(task):
                 return
-            if event == "tool_result" and payload["id"] in self.pending_tool_messages:
+            if event == "model_step" and payload.get("kind") == "assistant":
+                destination = self._response_message_id or self.message_id
+                row = db.get(ChatMessage, destination)
+                if destination == self.message_id:
+                    self.model_steps.append(payload)
+                    self.store(row, self.text)
+                else:
+                    row.model_steps = [*(row.model_steps or []), payload]
+                    from core.llm.context_safety import remember_context_output
+
+                    remember_context_output(
+                        message_id=row.message_id, steps=row.model_steps, content=row.content,
+                    )
+                row.extra_data = {**(row.extra_data or {}), "model_history_display_only": False}
+                for block in payload.get("blocks") or []:
+                    if block.get("type") == "tool_call":
+                        self.pending_tool_messages[block["id"]] = destination
+                self._response_message_id = None
+                db.commit()
+                return
+            canonical_result = event == "model_step" and payload.get("kind") == "tool_result"
+            if canonical_result:
+                destinations = {
+                    self.pending_tool_messages.get(block.get("id"))
+                    for block in payload.get("blocks") or []
+                } - {None}
+                if destinations:
+                    if len(destinations) != 1:
+                        raise RuntimeError("A tool result step spans multiple assistant messages")
+                    destination = destinations.pop()
+                    row = db.get(ChatMessage, destination)
+                    if destination == self.message_id:
+                        self.model_steps.append(payload)
+                        self.store(row, self.text)
+                    else:
+                        row.model_steps = [*(row.model_steps or []), payload]
+                        from core.llm.context_safety import remember_context_output
+
+                        remember_context_output(
+                            message_id=row.message_id, steps=row.model_steps, content=row.content,
+                        )
+                    db.commit()
+                    return
+            if (event == "tool_result" and payload["id"] in self.pending_tool_messages
+                    and self.pending_tool_messages[payload["id"]] != self.message_id):
                 row = db.get(ChatMessage, self.pending_tool_messages[payload["id"]])
                 record = StreamRecord()
                 record.tools = deepcopy(row.tool_calls or [])
@@ -157,13 +218,21 @@ class Transcript(StreamRecord):
                 db.commit()
                 self.pending_tool_messages.pop(payload["id"])
                 return
-            if event != "tool_result":
+            if event != "tool_result" and not canonical_result:
                 latest_input = self._latest_input(db)
                 if latest_input > self.message_seq:
                     self.store(db.get(ChatMessage, self.message_id), self.text)
                     for tool in self.tools:
                         if tool["status"] == "running":
                             self.pending_tool_messages[tool["tool_id"]] = self.message_id
+                    completed = {
+                        block["id"] for step in self.model_steps
+                        for block in step.get("blocks") or [] if block.get("type") == "tool_result"
+                    }
+                    for step in self.model_steps:
+                        for block in step.get("blocks") or []:
+                            if block.get("type") == "tool_call" and block["id"] not in completed:
+                                self.pending_tool_messages[block["id"]] = self.message_id
                     # A run can contain multiple display messages. Keep the run
                     # identity for completion reminders; never move existing rows.
                     row = append(db, db.get(ChatSession, task.chat_id), "assistant", "",

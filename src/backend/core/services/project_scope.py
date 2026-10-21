@@ -123,7 +123,7 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
         folder_name = row[0] if row else None
     if is_local:
         # Preserve the host-directory mount; discover its contents through tools.
-        from core.sandbox.local_mount import ensure_local_project_link
+        from core.sandbox.workspace.mounts import ensure_local_project_link
 
         path, slug = local.get("path"), local.get("slug")
         if path and slug:

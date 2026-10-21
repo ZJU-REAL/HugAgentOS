@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _MIN_OPTIONS = 2
 _MAX_OPTIONS = 4
 
-# Corresponds to the skill name in plugin_bundles/marketplace/sites/skills/site-builder/SKILL.md.
+# Corresponds to the skill name in extensions/plugins/marketplace/sites/skills/site-builder/SKILL.md.
 # Plugin installation namespaces the skill id as "{slug}-{skill}[-fingerprint]" (e.g.
 # sites-site-builder-a30442), so matching uses a hyphen-boundary-wrapped marker rather than
 # exact equality; when renaming the skill, update this in sync, otherwise SKILL.md teaches

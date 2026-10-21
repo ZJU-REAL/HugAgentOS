@@ -62,7 +62,7 @@ async def mcp_connections(
     # construct the real Toolkit at the end.
     toolkit = ToolCollector()
     # Policies must exist before deferred plugins become visible mid-run.
-    from mcp_servers.registry import SERVERS
+    from extensions.mcp_servers.registry import SERVERS
     for server in SERVERS.values():
         for name, spec in server.permission_specs().items():
             toolkit.register_tool_permission(name, spec)

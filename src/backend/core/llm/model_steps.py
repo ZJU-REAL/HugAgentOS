@@ -15,8 +15,7 @@ The record is written by the run as steps complete and read by
 
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 STEP_SCHEMA = "harness.steps.v1"
 STEP_ASSISTANT = "assistant"
@@ -32,7 +31,6 @@ _MEDIA_NOT_PERSISTED = (
     "[{media_type} media could not be saved into the replay record; it is not available"
     " in this history. Do not guess what it contained.]"
 )
-_LEGACY_TOOL_DIGEST_HEADER = "[历史工具调用摘要 — 原始步骤顺序未被记录，以下按调用列表汇总]"
 
 
 def _plain(value: Any) -> Any:
@@ -187,7 +185,13 @@ def _ordered_result_steps(
                     "output": missing_output,
                     "state": state,
                 }
-            out.append({"schema": STEP_SCHEMA, "kind": STEP_TOOL_RESULT, "blocks": [dict(result)]})
+            out.append(
+                {
+                    "schema": STEP_SCHEMA,
+                    "kind": STEP_TOOL_RESULT,
+                    "blocks": [dict(result)],
+                }
+            )
         pending.clear()
 
     for original in steps:
@@ -307,7 +311,7 @@ def replay_rows(
                 {
                     "role": "assistant",
                     "content": [
-                        _thinking_with_origin(b, step) if b.get("type") == "thinking" else b
+                        (_thinking_with_origin(b, step) if b.get("type") == "thinking" else b)
                         for b in blocks
                     ],
                 }
@@ -326,169 +330,19 @@ def replay_rows(
     return rows
 
 
-# ── Rows without a step record ───────────────────────────────────────────────
-
-
-def _tool_call_block(entry: Mapping[str, Any], index: int) -> Dict[str, Any]:
-    args = entry.get("tool_args") if "tool_args" in entry else entry.get("input")
-    if not isinstance(args, (dict, list, str)) or args is None:
-        args = {}
-    if not isinstance(args, str):
-        args = json.dumps(args, ensure_ascii=False)
-    return {
-        "type": "tool_call",
-        "id": str(entry.get("tool_id") or entry.get("id") or f"hist_{index + 1}"),
-        "name": str(entry.get("tool_name") or entry.get("name") or "unknown_tool"),
-        "input": args,
-    }
-
-
-def _tool_result_block(entry: Mapping[str, Any], index: int) -> Dict[str, Any]:
-    result = entry.get("result") if "result" in entry else entry.get("output")
-    if isinstance(result, str):
-        output = result
-    elif result is None:
-        output = ""
-    else:
-        output = json.dumps(result, ensure_ascii=False, default=str)
-    status = str(entry.get("status") or ("success" if "result" in entry else STATE_INTERRUPTED))
-    if status not in {"success", "ok"}:
-        output = f"[status={status}]\n{output}"
-    return {
-        "type": "tool_result",
-        "id": str(entry.get("tool_id") or entry.get("id") or f"hist_{index + 1}"),
-        "name": str(entry.get("tool_name") or entry.get("name") or "unknown_tool"),
-        "output": output,
-        "state": "success" if status in {"success", "ok"} else status,
-    }
-
-
-def rows_from_segments(
-    *,
-    content: str,
-    thinking: Optional[Sequence[Mapping[str, Any]]],
-    tool_calls: Optional[Sequence[Mapping[str, Any]]],
-    segments: Sequence[Mapping[str, Any]],
-    cancelled: bool = False,
-) -> List[Dict[str, Any]]:
-    """Rebuild steps from the display-order record written while streaming.
-
-    ``metadata.segments`` was written the moment each piece appeared, so it is
-    a faithful order: a run of tool segments is one step's calls, and the next
-    thinking or text segment starts the following step once those calls have
-    returned. Everything here comes from that record; nothing is inferred.
-    """
-    thinking = list(thinking or [])
-    tool_calls = list(tool_calls or [])
-    rows: List[Dict[str, Any]] = []
-    current: List[Dict[str, Any]] = []
-    pending: List[tuple[int, Mapping[str, Any]]] = []
-
-    def close_step() -> None:
-        nonlocal current, pending
-        if current:
-            rows.append({"role": "assistant", "content": current})
-        if pending:
-            rows.append(
-                {
-                    "role": "tool",
-                    "content": [_tool_result_block(entry, index) for index, entry in pending],
-                }
-            )
-        current = []
-        pending = []
-
-    for segment in segments:
-        seg_type = str(segment.get("type") or "")
-        if seg_type in {"thinking", "text"}:
-            if pending:
-                close_step()
-            if seg_type == "thinking":
-                index = int(segment.get("index", -1))
-                if 0 <= index < len(thinking) and thinking[index].get("content"):
-                    current.append(
-                        {"type": "thinking", "thinking": str(thinking[index]["content"])}
-                    )
-            else:
-                text = str(segment.get("text") or "")
-                if text:
-                    current.append({"type": "text", "text": text})
-        elif seg_type == "tool":
-            index = int(segment.get("index", -1))
-            if 0 <= index < len(tool_calls):
-                current.append(_tool_call_block(tool_calls[index], index))
-                pending.append((index, tool_calls[index]))
-        else:
-            raise ValueError(f"unknown segment type {seg_type!r}")
-    close_step()
-    if cancelled:
-        if not rows or rows[-1]["role"] != "assistant":
-            rows.append({"role": "assistant", "content": []})
-        _append_cancel_marker(rows[-1]["content"])
-    return rows
-
-
-def legacy_digest_rows(
-    *,
-    content: str,
-    thinking: Optional[Sequence[Mapping[str, Any]]],
-    tool_calls: Optional[Sequence[Mapping[str, Any]]],
-    cancelled: bool = False,
-) -> List[Dict[str, Any]]:
-    """A row written before any order was recorded: replay it as a summary.
-
-    Its columns hold what was said and which tools ran, but not how they were
-    interleaved. The turn is therefore replayed as one plain assistant message
-    — reasoning, answer, and a labelled digest of the tool calls — rather than
-    as native tool_call/tool_result pairs whose order would be a guess. The
-    digest keeps every result complete; the context budget decides what fits.
-    """
-    blocks: List[Dict[str, Any]] = []
-    for entry in thinking or []:
-        if entry.get("content"):
-            blocks.append({"type": "thinking", "thinking": str(entry["content"])})
-    body = (content or "").strip()
-    if body:
-        blocks.append({"type": "text", "text": body})
-    calls = [entry for entry in (tool_calls or []) if isinstance(entry, Mapping)]
-    if calls:
-        lines = [_LEGACY_TOOL_DIGEST_HEADER]
-        for index, entry in enumerate(calls):
-            call = _tool_call_block(entry, index)
-            result = _tool_result_block(entry, index)
-            lines.append(f"- {call['name']}({call['input']}) → {result['output']}")
-        blocks.append({"type": "text", "text": "\n".join(lines)})
-    if cancelled:
-        _append_cancel_marker(blocks)
-    return [{"role": "assistant", "content": blocks}]
-
-
 def assistant_row_replay(
     *,
     content: str,
     model_steps: Any,
-    thinking: Any,
-    tool_calls: Any,
-    segments: Any,
     cancelled: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Choose the most faithful available record for one persisted assistant row."""
+    """Replay canonical steps, or the body of an unstructured text message."""
     if isinstance(model_steps, list) and model_steps:
         return replay_rows(model_steps, cancelled=cancelled)
-    if isinstance(segments, list) and segments:
-        return rows_from_segments(
-            content=content or "",
-            thinking=thinking if isinstance(thinking, list) else None,
-            tool_calls=tool_calls if isinstance(tool_calls, list) else None,
-            segments=segments,
-            cancelled=cancelled,
-        )
-    return legacy_digest_rows(
-        content=content or "",
-        thinking=thinking if isinstance(thinking, list) else None,
-        tool_calls=tool_calls if isinstance(tool_calls, list) else None,
-        cancelled=cancelled,
-    )
+    blocks = [{"type": "text", "text": content}] if content else []
+    if cancelled:
+        _append_cancel_marker(blocks)
+    return [{"role": "assistant", "content": blocks}] if blocks else []
 
 
 # ── Step structure of in-memory history ──────────────────────────────────────
@@ -540,10 +394,8 @@ __all__ = [
     "assistant_row_replay",
     "close_dangling_calls",
     "explode_history_rows",
-    "legacy_digest_rows",
     "record_assistant_step",
     "record_tool_result_step",
     "replace_final_text",
     "replay_rows",
-    "rows_from_segments",
 ]

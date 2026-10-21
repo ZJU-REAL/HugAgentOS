@@ -7,7 +7,7 @@ from core.applications.diagnostic_resources import snapshot
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.sandbox.runner_auth import auth_headers
+from core.sandbox.providers.script_runner.auth import auth_headers
 from fastapi import Depends, HTTPException, Response
 from tests.workbench_observer_paths import guard_cli_binding, guard_environment, require_loopback
 

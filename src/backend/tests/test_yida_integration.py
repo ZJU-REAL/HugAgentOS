@@ -4,7 +4,7 @@ No dependency on real Yida or a real sandbox. EE persistent-sandbox state tests
 live in ``tests/sandbox/test_yida_ee_persistence.py``.
 """
 
-from core.sandbox.process_completion import CompletionMixin
+from core.sandbox.processes.completion import CompletionMixin
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -35,7 +35,8 @@ def test_settings_yida_arch_flag():
 
 
 def test_yida_cache_dir_path():
-    from core.sandbox._common import yida_cache_dir, yida_workspace_dir
+    from core.sandbox.workspace.credentials import yida_cache_dir
+    from core.sandbox.workspace.credentials import yida_workspace_dir
 
     p = yida_cache_dir("u_abc")
     assert p.name == "u_abc"
@@ -46,7 +47,7 @@ def test_yida_cache_dir_path():
 
 def test_yida_shared_workspace_dir_path():
     """script-runner shared sandbox working directory: one per deployment (__shared__), rooted alongside the per-user directories."""
-    from core.sandbox._common import yida_shared_workspace_dir
+    from core.sandbox.workspace.credentials import yida_shared_workspace_dir
 
     p = yida_shared_workspace_dir()
     assert p.name == "workspace"
@@ -328,7 +329,7 @@ def test_yida_plugin_declares_connection():
 
     from core.plugins.packaging.importer import normalize_plugin_dir
 
-    p = pathlib.Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace" / "yida"
+    p = pathlib.Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace" / "yida"
     assert normalize_plugin_dir(p).connection == "yida"
 
 
@@ -373,7 +374,7 @@ def test_yida_skill_md_host_adaptation():
 
     p = (
         pathlib.Path(__file__).resolve().parents[1]
-        / "plugin_bundles"
+        / "extensions/plugins"
         / "marketplace"
         / "yida"
         / "skills"

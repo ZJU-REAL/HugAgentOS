@@ -6,19 +6,10 @@ runs directly in the main tree.
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 
 import pytest
-
-_HERE = os.path.dirname(__file__)
-_MOD = os.path.normpath(os.path.join(_HERE, "..", "..", "core", "sandbox", "local_mount.py"))
-_spec = importlib.util.spec_from_file_location("local_mount", _MOD)
-lm = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = lm
-_spec.loader.exec_module(lm)  # type: ignore[union-attr]
-
+import core.sandbox.workspace.mounts as lm
 
 def test_ensure_link_creates_symlink_to_real_folder(tmp_path):
     real = tmp_path / "proj"

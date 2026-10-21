@@ -25,7 +25,7 @@ def package_files(installed):
     root = package_root(installed)
     if root is None:
         raise ValueError("plugin_package_missing")
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     declarations = json.loads((root / "mcp.json").read_text())["mcpServers"]
     native = {}
@@ -67,7 +67,7 @@ def local_config(server, user_id, profile):
     from core.capabilities.dependency import component_hash
     from core.capabilities.local_plugin_runtime import enabled_for
     from core.config.mcp_config import _mcp_http_url
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     for inst in device_catalog._installations("plugin", user_id=user_id):
         if inst.profile_id != profile or server["server_id"] not in inst.payload.get(

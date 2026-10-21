@@ -54,7 +54,7 @@ def test_ce_runtime_sources_have_no_commercial_symbols():
         r"/v1/(?:me/teams|my-teams|teams)(?:/|\b)|\bkind=team\b"
     )
     hits = []
-    for relative_root in ("api", "core", "mcp_servers", "orchestration"):
+    for relative_root in ("api", "core", "extensions", "orchestration"):
         for path in (backend / relative_root).rglob("*.py"):
             for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if pattern.search(line):
@@ -116,12 +116,13 @@ def test_ce_user_router_exposes_self_service_password_change():
 
 
 def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_path):
-    from core.sandbox import _common
+    import core.sandbox.providers.account_env as _common_account_env
+    import core.sandbox.workspace.credentials as _common_credentials
     from core.services.dingtalk_service import _dws_env
 
-    monkeypatch.setattr(_common, "dws_home_dir", lambda _user_id: tmp_path / "dws-home")
+    monkeypatch.setattr(_common_credentials, "dws_home_dir", lambda _user_id: tmp_path / "dws-home")
     monkeypatch.setattr(
-        _common,
+        _common_account_env,
         "dws_extra_envs",
         lambda: {"DWS_TRUSTED_DOMAINS": "*.dingtalk.com"},
     )
@@ -137,7 +138,7 @@ def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
     from core.db.models import AdminMcpServer
     from core.services import mcp_service
     from core.services.mcp_service import McpServerConfigService
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     assert "query_database" not in PORTS
     db_session.add_all(
@@ -180,8 +181,8 @@ def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
 
 def test_ce_local_launcher_covers_default_plugin_mcp_servers():
     from cli import _default_plugins
-    from mcp_servers._launcher import PORTS as LAUNCHER_PORTS
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._launcher import PORTS as LAUNCHER_PORTS
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     assert _default_plugins() == ["automation", "skill-manager", "sites"]
     assert {
@@ -217,8 +218,8 @@ def test_ce_fresh_database_bootstraps_default_plugins(db_session):
 
 def test_ce_launcher_and_catalog_cover_core_mcp_servers():
     from core.services.mcp_service import BUILTIN_MCP_SERVERS
-    from mcp_servers._launcher import PORTS as LAUNCHER_PORTS
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._launcher import PORTS as LAUNCHER_PORTS
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     expected = {
         "retrieve_dataset_content": 9100,
@@ -339,13 +340,13 @@ def test_ce_site_contract_has_no_organization_scope():
 
 
 def test_ce_site_publish_tool_has_no_organization_parameter():
-    from mcp_servers.site_publish_mcp.server import publish_site
+    from extensions.mcp_servers.site_publish_mcp.server import publish_site
 
     assert "team_id" not in inspect.signature(publish_site).parameters
 
 
 def test_ce_site_publish_callback_uses_desktop_listener(monkeypatch):
-    from mcp_servers.site_publish_mcp import impl
+    from extensions.mcp_servers.site_publish_mcp import impl
 
     monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
     monkeypatch.delenv("BACKEND_PORT", raising=False)
@@ -364,22 +365,30 @@ def test_ce_registers_native_api_key_routes():
 
 
 def test_ce_opensandbox_provider_is_shared_runtime(monkeypatch):
-    from core.sandbox.edition_provider import PersistentSandboxProvider
-    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+    from core.sandbox.providers.edition import PersistentSandboxProvider
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
-    assert PersistentSandboxProvider is OpenSandboxProvider
+    from core.spaces.sandbox import SpaceSandboxMixin
+
+    assert issubclass(PersistentSandboxProvider, OpenSandboxProvider)
+    assert issubclass(PersistentSandboxProvider, SpaceSandboxMixin)
+    assert PersistentSandboxProvider.workspace_mount_names == SpaceSandboxMixin.workspace_mount_names
     assert OpenSandboxProvider.workspace_mount_names == ("myspace", "skills")
 
 
 def test_ce_factory_selects_opensandbox_without_enterprise_code(monkeypatch):
     from types import SimpleNamespace
     from core.sandbox import factory
-    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+
+    from core.sandbox.providers.edition import PersistentSandboxProvider
 
     monkeypatch.setattr(factory, "settings", SimpleNamespace(sandbox=SimpleNamespace(provider="opensandbox")))
     factory.reset_provider_cache()
     try:
-        assert type(factory.get_sandbox_provider()._ordinary) is OpenSandboxProvider
+        ordinary = factory.get_sandbox_provider()._ordinary
+        assert type(ordinary) is PersistentSandboxProvider
+        assert isinstance(ordinary, OpenSandboxProvider)
     finally:
         factory.reset_provider_cache()
 

@@ -6,7 +6,9 @@ import uuid
 from functools import wraps
 from core.services.commands import store
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.cloud_recovery import execution_reference, recover_execution, release_execution
+from core.sandbox.providers.opensandbox.recovery import execution_reference
+from core.sandbox.providers.opensandbox.recovery import recover_execution
+from core.sandbox.providers.opensandbox.recovery import release_execution
 
 logger = logging.getLogger(__name__)
 LAUNCH_RENEW_SECONDS = 10

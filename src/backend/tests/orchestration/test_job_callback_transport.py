@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from orchestration.jobs import callback
 from orchestration.jobs.sdk import SDK_SOURCE
-from services.script_runner_service import server
+from core.sandbox.runner import server
 from tests.sandbox.runner_client import run_spawn
 
 

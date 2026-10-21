@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.sandbox import ProcessRequest, get_sandbox_provider
-from core.sandbox.cloud_recovery import execution_reference, recover_execution, release_execution
+from core.sandbox.providers.opensandbox.recovery import execution_reference
+from core.sandbox.providers.opensandbox.recovery import recover_execution
+from core.sandbox.providers.opensandbox.recovery import release_execution
 
 from . import state
 from .callback import resolve_callback_base

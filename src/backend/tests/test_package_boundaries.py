@@ -52,7 +52,7 @@ def test_packaged_plugin_discovery_keeps_bundled_resources():
     from core.plugins.packaging.importer import normalize_plugin_dir
     from core.plugins.packaging.sources import _resolve_plugin_dir
 
-    assert PLUGIN_BUNDLES_DIR == BACKEND / "plugin_bundles"
+    assert PLUGIN_BUNDLES_DIR == BACKEND / "extensions/plugins"
     plugin_dir = _resolve_plugin_dir("skill-manager")
     assert plugin_dir is not None
     normalized = normalize_plugin_dir(plugin_dir)
@@ -65,7 +65,7 @@ def test_ce_distribution_excludes_enterprise_cube_package():
     import yaml
 
     repo = BACKEND.parents[1]
-    modules = list((BACKEND / "core/sandbox/cube").glob("*.py"))
+    modules = list((BACKEND / "core/sandbox/providers/cube").glob("*.py"))
     manifest_path = repo / "ce/manifest.yaml"
     if not manifest_path.exists():
         assert not modules, "A derived CE tree must not contain the Cube package"

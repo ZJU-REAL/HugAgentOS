@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import DataError, SQLAlchemyError
 
 from core.services import cloud_management
-from mcp_servers.management_registration import ArtifactSource, register
+from extensions.mcp_servers.management_registration import ArtifactSource, register
 
 
 def invoke_install(monkeypatch, error):

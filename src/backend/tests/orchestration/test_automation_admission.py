@@ -26,7 +26,6 @@ async def test_failed_launch_releases_the_accepted_writer(live_env, monkeypatch)
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     await scheduler.execute_task(task_id, "owner")
     with factory() as db:
@@ -55,7 +54,6 @@ async def test_cancelled_launch_releases_the_accepted_writer(live_env, monkeypat
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     with pytest.raises(asyncio.CancelledError):
         await scheduler.execute_task(task_id, "owner")
     with factory() as db:
@@ -88,7 +86,6 @@ async def test_scheduler_passes_explicit_agents_through_main_runtime_context(liv
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     await scheduler.execute_task(task_id, "owner")
     assert captured["enabled_agents"] == ["analyst"]

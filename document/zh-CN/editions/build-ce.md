@@ -28,11 +28,11 @@ glob 模式（相对仓库根），命中即不拷贝。覆盖：
 
 - **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/storage/s3.py`、`oss.py`）、Cube 沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
-- **行业 MCP**：`mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
+- **行业 MCP**：`extensions/mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
 - **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源，
   以及依赖企业画像工具的内置本体示例包；
 - **主仓 alembic 链整体**（`alembic/versions/**`，CE 用 overlay 的独立链，见下文）；
-- **10 个行业 / 品牌技能**（`skill_bundles/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
+- **10 个行业 / 品牌技能**（`extensions/skills/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
 - **EE 强耦合测试**、`tests/licensing/**`；
 - **前端管理台**：`AdminApp.tsx`、`ConfigApp.tsx`、`components/admin/**`、`components/config/**`（lab = 自动化实验室属 CE，保留）；
 - **根级 EE 部署物与开源卫生项**：EE Dockerfile / compose 片段、LiteLLM 网关配置（`docker/litellm/**`）、`internal design docs`、`CLAUDE.md`、`.github/**`、内部 `.env` 默认、品牌操作手册 PDF、内置商业字体资产、内嵌第三方凭据的技能、签发工具 `scripts/license_tool.py`、生成器自身（`ce/**`、`scripts/build_ce.py`）；
@@ -90,7 +90,7 @@ CE 前端不按工具名猜测远程 MCP 的业务结构。用户接入的远程
 | `src/backend/core/services/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
 | `src/backend/tests/ce_release/` | 可执行 CE 发布回归套件，覆盖登录、私有技能/MCP、数据库升级及启动/Compose 契约 |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | 去除管理端点与组织字段后的 CE API 契约 |
-| `src/backend/mcp_servers/_ports.py` | 7 个通用工具的端口表（EE 行业工具与已退役端口标注 reserved） |
+| `src/backend/extensions/mcp_servers/_ports.py` | 7 个通用工具的端口表（EE 行业工具与已退役端口标注 reserved） |
 | `src/frontend/default.conf.template` | CE 前端 Nginx 模板，移除 `/gateway/**` 反代与 litellm upstream |
 | `src/frontend/src/main.tsx` | CE 入口：只挂主应用 / API 文档 / 分享预览，不挂 /admin、/config |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | 项目开发 skill 的 CE 版 SKILL.md 与 references（剔除 admin 面板 / EE 路由注册等商业版段落） |

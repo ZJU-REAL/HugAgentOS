@@ -6,7 +6,7 @@ import types
 import zipfile
 
 from core.plugins.ui.data_proxy import call_data_source
-from mcp_servers.ai_chain_information_mcp import ui_data
+from extensions.mcp_servers.ai_chain_information_mcp import ui_data
 from tests.test_workbench_application_config_http import HOST, boundary, install, package
 
 
@@ -15,7 +15,7 @@ def provider_package():
     manifest = json.loads(original.read("plugin.json"))
     manifest["extensions"]["org.hugagent"]["ui"]["contributes"]["data_sources"] = [{
         "id": "records",
-        "provider": "mcp_servers.ai_chain_information_mcp.ui_data:node_companies",
+        "provider": "extensions.mcp_servers.ai_chain_information_mcp.ui_data:node_companies",
     }]
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
@@ -59,7 +59,7 @@ def test_legacy_default_provider_still_runs_registered_function(monkeypatch):
     calls = fake_provider_client(monkeypatch)
     result = asyncio.run(call_data_source(
         {"id": "records",
-         "provider": "mcp_servers.ai_chain_information_mcp.ui_data:node_companies"},
+         "provider": "extensions.mcp_servers.ai_chain_information_mcp.ui_data:node_companies"},
         {}, slug="industry-knowledge-center",
     ))
     assert result["items"] == []

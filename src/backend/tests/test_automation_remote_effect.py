@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from core.db.engine import Base
-from mcp_servers.automation_task_mcp import impl
+from extensions.mcp_servers.automation_task_mcp import impl
 
 
 @pytest.fixture

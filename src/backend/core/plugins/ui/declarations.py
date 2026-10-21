@@ -192,7 +192,7 @@ def _data_sources(entries: Any, dropper: _Dropper) -> List[Dict[str, Any]]:
 
     - ``url`` (+ optional ``auth``): the proxy performs the HTTP call itself.
     - ``provider``: an in-process handler published by a host-shipped
-      ``mcp_servers.*`` module in its ``DATA_PROVIDERS`` dict — for upstreams
+      ``extensions.mcp_servers.*`` module in its ``DATA_PROVIDERS`` dict — for upstreams
       that need envelope-stripping / normalization no declarative call can do.
 
     ``url`` / ``auth`` / ``provider`` are stored but **never** shipped to the

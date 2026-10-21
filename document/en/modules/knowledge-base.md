@@ -7,7 +7,7 @@ HugAgentOS supports local and external knowledge storage. Public retrieval selec
 1. **Self-hosted knowledge bases**: document upload → parent-child chunking → vectorization into Milvus → dense + sparse hybrid retrieval (RRF fusion) → optional reranking. Community Edition (CE) provides only private spaces owned by the current user. Admin-managed public spaces are an Enterprise Edition (EE) capability.
 2. **External Dify knowledge bases** (Enterprise Edition, EE): with `KNOWLEDGE_BASE=dify`, the backend injects Dify datasets into the capability catalog at runtime, and retrieval goes through the Dify Retrieval API.
 
-Public retrieval uses `retrieve_dataset_content`, selecting either accessible local public/shared spaces or the configured external backend. Personal/private retrieval uses `retrieve_local_kb`. Both are served by the same MCP server (`mcp_servers/retrieve_dataset_content_mcp/`).
+Public retrieval uses `retrieve_dataset_content`, selecting either accessible local public/shared spaces or the configured external backend. Personal/private retrieval uses `retrieve_local_kb`. Both are served by the same MCP server (`extensions/mcp_servers/retrieve_dataset_content_mcp/`).
 
 In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` returns only private spaces owned by the current user. The backend rejects create requests with `visibility=public` and does not expose Dify or shared-knowledge-base service settings, so this boundary does not rely on frontend hiding alone.
 
@@ -137,7 +137,7 @@ indexing and retrieval downstream are unchanged.
 
 ### Retrieval path
 
-`mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`:
+`extensions/mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`:
 
 1. Resolve the allowed `kb_id` set (environment variables in stdio mode; `x-allowed-kb-ids` and friends as HTTP headers in streamable-http mode);
 2. `embed_text(query)` produces the query vector (embedding config reuses `MEM0_EMBED_*` or the DB `embedding` model role);
@@ -225,7 +225,7 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
 | `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
 | `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (private only in CE; Dify / public spaces added in EE) |
-| `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
+| `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | Creation / re-index modal components |
 

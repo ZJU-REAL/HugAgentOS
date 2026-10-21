@@ -24,7 +24,7 @@ def test_invalid_resource_path_cannot_escape_package():
 def test_browser_manifest_has_canvas_reopen_action():
     import json
     from pathlib import Path
-    manifest = json.loads((Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/plugin.json").read_text())
+    manifest = json.loads((Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/plugin.json").read_text())
     ui, dropped = normalize_ui(manifest["extensions"]["org.hugagent"]["ui"])
     assert not dropped
     view = ui["contributes"]["tool_views"][0]

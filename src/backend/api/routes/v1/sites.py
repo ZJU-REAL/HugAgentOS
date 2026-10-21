@@ -1,6 +1,6 @@
 """Site management API — a user's own list of sites / detail / edit / delete.
 
-Sites are created by the sites plugin's ``publish_site`` MCP tool (mcp_servers/site_publish_mcp
+Sites are created by the sites plugin's ``publish_site`` MCP tool (extensions/mcp_servers/site_publish_mcp
 → callback into api/routes/v1/internal_sites.py); this route only handles the management surface. Public
 hosting lives in ``api/routes/sites_serve.py`` (GET /site/{slug}/…).
 """

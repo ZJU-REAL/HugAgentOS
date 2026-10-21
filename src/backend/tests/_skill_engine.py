@@ -18,9 +18,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-# Since eafa78f, built-in document skills are layered under skill_bundles/default/ (installable
+# Since eafa78f, built-in document skills are layered under extensions/skills/default/ (installable
 # marketplace skills live in marketplace/); the three word/excel/pdf editing engines all belong to the built-in layer
-_SKILLS_ROOT = Path(__file__).resolve().parents[1] / "skill_bundles" / "default"
+_SKILLS_ROOT = Path(__file__).resolve().parents[1] / "extensions/skills" / "default"
 
 
 def load_engine(skill_dir: str, alias: str) -> ModuleType:

@@ -51,7 +51,7 @@ def _rewrite_builtin_mcp_host(url: str) -> str:
         if port:
             # 插件清单只知道内置服务器的基准端口；本机执行面按品牌端口命名空间
             # （HUGAGENT_LOCAL_MCP_PORT_OFFSET）监听，地址要按同一登记表换算。
-            from mcp_servers._ports import _BASE_PORTS, PORTS
+            from extensions.mcp_servers._ports import _BASE_PORTS, PORTS
 
             port = {base: PORTS[sid] for sid, base in _BASE_PORTS.items()}.get(port, port)
         netloc = f"{host}:{port}" if port else host
@@ -347,7 +347,7 @@ class McpServerConfigService:
 # exists yet**, so it is a one-time bootstrap that never resurrects rows an admin
 # has since deleted, and it is a no-op on any DB that already has the catalog.
 #
-# The URL is templated per-server from ``mcp_servers._ports`` + ``settings.server.
+# The URL is templated per-server from ``extensions.mcp_servers._ports`` + ``settings.server.
 # mcp_host`` at seed time, so compose gets ``http://mcp:<port>/mcp/`` and local
 # gets ``http://127.0.0.1:<port>/mcp/`` from the same definition. Only the
 # built-in servers the ``mcp`` container / ``_launcher`` actually serves are
@@ -386,7 +386,7 @@ def is_removed_builtin_mcp_server(
     if server_id in RETIRED_BUILTIN_MCP_SERVER_IDS:
         return True
 
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     builtin_ids = {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}
     return server_id in builtin_ids and server_id not in PORTS
@@ -401,7 +401,7 @@ def prune_removed_builtin_mcp_servers(db) -> List[str]:
     hiding those rows at read time. Plugin-owned and user-owned MCP rows are
     never touched.
     """
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
     from core.db.retire_chart_mcp import retire_chart_mcp
 
     if retire_chart_mcp(db.connection()):
@@ -445,7 +445,7 @@ def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
     that alembic already seeded and without resurrecting admin-deleted rows.
     """
     from core.config.settings import settings
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     existing = (
         db.query(AdminMcpServer.server_id)

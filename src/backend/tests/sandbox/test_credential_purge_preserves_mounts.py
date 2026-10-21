@@ -20,10 +20,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import core.db.models  # noqa: F401  registers all models (FKs depend on users_shadow)
-import core.sandbox._common as common
+import core.sandbox.workspace.credentials as common_credentials
 from core.db.engine import Base
 from core.db.models import UserShadow
-from core.sandbox._common import purge_credential_dir
+from core.sandbox.workspace.credentials import purge_credential_dir
 
 # The bind-mount subpaths the volume builders declare, per platform. These are
 # the exact directories whose inode must survive a purge.
@@ -109,7 +109,7 @@ def test_email_purge_config_preserves_the_himalaya_mount(db, monkeypatch, tmp_pa
 
     root = tmp_path / "email_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common, "email_cache_dir", lambda uid: tmp_path / "email_cache" / uid)
+    monkeypatch.setattr(common_credentials, "email_cache_dir", lambda uid: tmp_path / "email_cache" / uid)
 
     EmailService(db)._purge_config("u1")
 
@@ -121,7 +121,7 @@ def test_lark_disconnect_preserves_the_lark_cli_mounts(db, monkeypatch, tmp_path
 
     root = tmp_path / "lark_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common, "lark_cache_dir", lambda uid: tmp_path / "lark_cache" / uid)
+    monkeypatch.setattr(common_credentials, "lark_cache_dir", lambda uid: tmp_path / "lark_cache" / uid)
 
     async def _fake_run(*_a, **_kw):
         return "", "", 0
@@ -141,7 +141,7 @@ def test_dingtalk_disconnect_preserves_the_dws_mounts(db, monkeypatch, tmp_path)
 
     root = tmp_path / "dws_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common, "dws_cache_dir", lambda uid: tmp_path / "dws_cache" / uid)
+    monkeypatch.setattr(common_credentials, "dws_cache_dir", lambda uid: tmp_path / "dws_cache" / uid)
 
     async def _fake_run(*_a, **_kw):
         return "", "", 0

@@ -146,7 +146,7 @@ officecli-xlsx、officecli-pptx 三个基座技能（以及它们之上的表单
 | 文件下载 / 预览 | `src/backend/api/routes/files.py` |
 | 会话分享 API | `src/backend/api/routes/v1/chat_shares.py` |
 | 分享前端 | `src/frontend/src/SharePreviewApp.tsx`、`src/frontend/src/components/share/ShareRecordsPage.tsx` |
-| 文档导出技能 | `src/backend/skill_bundles/default/officecli-*/`、`src/backend/skill_bundles/default/pdf-editing/` |
+| 文档导出技能 | `src/backend/extensions/skills/default/officecli-*/`、`src/backend/extensions/skills/default/pdf-editing/` |
 | 我的空间前端 | `src/frontend/src/components/myspace/`、`src/frontend/src/stores/mySpaceStore.ts` |
 
 延伸阅读：[沙箱](sandbox.md) · [项目与我的空间](projects-myspace.md) · [存储](storage.md) · [MCP 工具](mcp-tools.md)

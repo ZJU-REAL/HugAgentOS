@@ -14,7 +14,7 @@ Usage (from src/backend):
     python scripts/import_cherry_agents.py --source /path/to/agents-zh.json
     python scripts/import_cherry_agents.py --dry-run  # validate only, no writes
 
-Output: ``agent_bundles/marketplace/<slug>/agent.json``. All binding ids are validated
+Output: ``extensions/agents/marketplace/<slug>/agent.json``. All binding ids are validated
 against the whitelist of the system's real capabilities; any nonexistent skill/tool/plugin
 causes a non-zero exit, so nothing gets bound to thin air.
 """
@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-MARKET_DIR = BACKEND_ROOT / "agent_bundles" / "marketplace"
+MARKET_DIR = BACKEND_ROOT / "extensions/agents" / "marketplace"
 CHERRY_URL = "https://raw.githubusercontent.com/CherryHQ/cherry-studio/main/resources/data/agents-zh.json"
 
 # ── Curation + adaptation table ──────────────────────────────────────────────
@@ -257,12 +257,12 @@ def _load_whitelist() -> Dict[str, set]:
     """Build the whitelist of bindable ids from real repo assets: default + marketplace skills / MCP / plugins."""
     skills: set = set()
     for sub in ("default", "marketplace"):
-        d = BACKEND_ROOT / "skill_bundles" / sub
+        d = BACKEND_ROOT / "extensions/skills" / sub
         if d.is_dir():
             skills.update(c.name for c in d.iterdir() if c.is_dir())
     plugins: set = set()
     for sub in ("default", "marketplace"):
-        d = BACKEND_ROOT / "plugin_bundles" / sub
+        d = BACKEND_ROOT / "extensions/plugins" / sub
         if d.is_dir():
             plugins.update(c.name for c in d.iterdir() if c.is_dir())
     mcp: set = set()

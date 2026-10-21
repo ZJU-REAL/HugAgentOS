@@ -168,7 +168,7 @@ class ServerSettings:
     # Hostname of the dedicated `mcp` container — every MCP server is
     # reached at ``http://<mcp_host>:<port>/mcp/``. Defaults to the docker
     # service name; override with MCP_HOST=127.0.0.1 for local debugging
-    # (e.g. running ``python -m mcp_servers._launcher`` outside docker).
+    # (e.g. running ``python -m extensions.mcp_servers._launcher`` outside docker).
     mcp_host: str = field(default_factory=lambda: _env("MCP_HOST", "mcp"))
     mcp_market_revalidate_interval: int = field(
         default_factory=lambda: max(

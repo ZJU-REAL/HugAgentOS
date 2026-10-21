@@ -1,7 +1,7 @@
 """Agent skills registry (skill-creator aligned).
 
 Each skill lives in:
-  skill_bundles/<skill-id>/SKILL.md
+  extensions/skills/<skill-id>/SKILL.md
 
 The loader reads SKILL.md frontmatter + body instructions so models can reliably
 load and apply enabled skills at runtime.
@@ -13,9 +13,8 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
-_SKILLS_ROOT = Path(__file__).resolve().parent.parent / "skill_bundles"
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,63}$")
 
 

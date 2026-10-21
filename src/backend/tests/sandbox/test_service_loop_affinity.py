@@ -20,7 +20,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from core.sandbox._opensandbox_loop import _on_service_loop
+from core.sandbox.processes.dispatch import _on_service_loop
 
 
 class _FakeProvider:

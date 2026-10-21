@@ -10,7 +10,7 @@ from core.plugins import management as plugins
 from core.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
 from core.plugins.packaging.importer import normalize_plugin_dir
 
-BUNDLE = Path(__file__).resolve().parents[1] / "plugin_bundles/default/visualize"
+BUNDLE = Path(__file__).resolve().parents[1] / "extensions/plugins/default/visualize"
 SKILL = BUNDLE / "skills/visualize"
 
 

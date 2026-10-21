@@ -4,8 +4,8 @@ import asyncio
 
 import httpx
 import pytest
-from mcp_servers.internet_search_mcp import impl
-from mcp_servers.internet_search_mcp.models import SearchRequest
+from extensions.mcp_servers.internet_search_mcp import impl
+from extensions.mcp_servers.internet_search_mcp.models import SearchRequest
 
 
 @pytest.mark.parametrize(

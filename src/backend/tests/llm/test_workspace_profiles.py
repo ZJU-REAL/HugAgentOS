@@ -25,7 +25,7 @@ def test_container_relative_files_use_execution_cwd(monkeypatch, provider):
 
 
 def test_desktop_uses_session_and_keeps_absolute_paths(monkeypatch, tmp_path):
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import session_root
 
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path))
@@ -91,7 +91,7 @@ async def test_skill_runtime_hint_runs_in_current_directory_with_spaces(monkeypa
 def test_windows_shell_path_preserves_unicode_spaces_and_drive():
     import shlex
 
-    from core.sandbox.desktop_paths import quote_shell_path
+    from core.sandbox.workspace.desktop import quote_shell_path
 
     value = r"C:\Users\张 三\工具包\run.py"
     assert shlex.split(quote_shell_path(value)) == ["C:/Users/张 三/工具包/run.py"]
@@ -103,7 +103,7 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
     import json
 
     from core.llm.tools import sandbox_tool
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
@@ -177,7 +177,7 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
 
 
 def test_desktop_runner_creates_no_aliases(monkeypatch, tmp_path):
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))

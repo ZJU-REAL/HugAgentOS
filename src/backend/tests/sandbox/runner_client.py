@@ -3,7 +3,7 @@
 import asyncio
 from types import SimpleNamespace
 import httpx
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 async def run_runner(request):
@@ -38,8 +38,8 @@ async def run_spawn(cmd, stdin_data, timeout, cwd, sandbox_launch=None):
     """Exercise the native spawn boundary with the managed lifetime controller."""
     import tempfile
     from pathlib import Path
-    from services.script_runner_service.process_api import LocalHandle
-    from core.sandbox.process_sessions import ProcessSessions
+    from core.sandbox.runner.process_api import LocalHandle
+    from core.sandbox.processes.sessions import ProcessSessions
 
     sessions = ProcessSessions()
 

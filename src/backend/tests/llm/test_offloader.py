@@ -1,4 +1,5 @@
 from tests.sandbox.runner_client import run_runner
+
 """Offloaded results remain readable in the same tool workspace."""
 
 import base64
@@ -10,7 +11,7 @@ from agentscope.message import TextBlock, ToolResultBlock
 from core.config.settings import settings
 from core.llm.offloader import SandboxOffloader
 from core.llm.tools import _paths
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 class RunnerFiles:
@@ -174,9 +175,15 @@ async def test_context_compaction_survives_offload_failure(monkeypatch, runner_w
     await agent.compress_context()
 
     visible = agent.state.summary + " ".join(m.get_text_content() for m in agent.state.context)
-    assert "SUMMARY" in visible
-    assert "old " * 100 not in visible
-    assert "未保存" in visible
+    if shared:
+        assert "SUMMARY" in visible
+        assert "old " * 100 not in visible
+        assert "未保存" in visible
+    else:
+        assert "SUMMARY" not in visible
+        assert "old " * 100 in visible
+        assert "previous answer" in visible
+        assert "continue" in visible
     assert "offloaded to" not in visible
     assert "test-disk-full" not in visible
     assert agent.offloader is offloader
@@ -267,7 +274,7 @@ async def test_cloud_paths_use_provider_workspace(monkeypatch, provider_kind):
 async def test_windows_offload_path_is_in_session_workspace(monkeypatch, root):
     import ntpath
 
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import session_root
 
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", root)
@@ -307,7 +314,10 @@ async def test_concurrent_results_and_context_do_not_overwrite(runner_workspace)
         )
     )
     assert len(set(paths)) == 2
-    assert [await files.get_file("chat-a", path) for path in paths] == [b"first", b"second"]
+    assert [await files.get_file("chat-a", path) for path in paths] == [
+        b"first",
+        b"second",
+    ]
     path = await offloader.offload_context("agent", [UserMsg(name="user", content="history")])
     assert Path(path).parent == Path(paths[0]).parent
     assert await files.get_file("chat-a", path) == b"[user] history"
@@ -362,11 +372,11 @@ async def test_no_file_is_published_without_a_persistent_workspace(session):
 
 
 @pytest.mark.asyncio
-async def test_framework_compaction_archives_partial_message(monkeypatch, runner_workspace):
-    import re
-    from types import SimpleNamespace
+async def test_disabled_compaction_preserves_context_without_summary_or_archive(
+    monkeypatch, runner_workspace
+):
+    from unittest.mock import AsyncMock
 
-    from agentscope.agent import ContextConfig
     from agentscope.message import UserMsg
     from agentscope.tool import Toolkit
     from core.llm.compacting_agent import CompactingAgent
@@ -381,45 +391,31 @@ async def test_framework_compaction_archives_partial_message(monkeypatch, runner
         ),
     )
     model = CaptureModel()
-    model.context_size = 1_000
-
-    async def summary(*args, **kwargs):
-        return SimpleNamespace(content={"summary": "SUMMARY"})
-
-    model.generate_structured_output = summary
-    counts = 0
-
-    async def count_tokens(messages, tools=None, **kwargs):
-        nonlocal counts
-        counts += 1
-        if counts == 1:
-            return 900
-        return sum(len(m.get_text_content()) for m in messages) // 4
-
-    model.count_tokens = count_tokens
+    model.context_size = 1000
+    model.generate_structured_output = AsyncMock()
     files = RunnerFiles()
+    files.put_file = AsyncMock()
     agent = CompactingAgent(
         name="agent",
         system_prompt="Summarize.",
         model=model,
         toolkit=Toolkit(),
-        context_config=ContextConfig(summary_template="{summary}"),
         offloader=SandboxOffloader(files, "chat-a"),
     )
-    old = "old details " * 1_000
+    original = "old details " * 1000
     agent.state.context = [
         UserMsg(
             name="user",
             content=[
-                TextBlock(text=old),
+                TextBlock(text=original),
                 TextBlock(text="keep this recent detail"),
             ],
-        )
+        ),
     ]
     await agent.compress_context()
 
-    assert len(agent.state.context) == 1
-    assert agent.state.context[0].get_text_content() == "keep this recent detail"
-    assert agent.state.summary.startswith("SUMMARY")
-    path = re.search(r"offloaded to '(.+?)'", agent.state.summary).group(1)
-    assert old.encode("utf-8") in await files.get_file("chat-a", path)
+    assert original in agent.state.context[0].get_text_content()
+    assert "keep this recent detail" in agent.state.context[0].get_text_content()
+    assert agent.state.summary == ""
+    model.generate_structured_output.assert_not_awaited()
+    files.put_file.assert_not_awaited()

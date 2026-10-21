@@ -21,7 +21,7 @@ async def main():
     client = StdIOStatefulClient(
         name="internet_search",
         command="python",
-        args=["-m", "mcp_servers.internet_search_mcp.server"],
+        args=["-m", "extensions.mcp_servers.internet_search_mcp.server"],
         env=env,
     )
     await client.connect()

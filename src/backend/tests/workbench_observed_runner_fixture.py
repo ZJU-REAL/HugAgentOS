@@ -9,7 +9,7 @@ from tests.workbench_observer_paths import LoopbackOnly, guard_cli_binding, guar
 
 guard_environment("SCRIPT_RUNNER_WORKSPACE")
 guard_cli_binding()
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 app = LoopbackOnly(server.app)
 

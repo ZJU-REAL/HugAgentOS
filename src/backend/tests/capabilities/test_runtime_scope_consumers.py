@@ -13,7 +13,7 @@ from core.capabilities.errors import IntegrityFailed
 from core.evolution import runtime_binding as audit
 from core.evolution.contract import ASSET_SKILL, AssetRef
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.script_runner_provider import ScriptRunnerProvider
+from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_runner_uses_scope_for_view_and_completion_checkpoint(monkeypatch,
     monkeypatch.setattr(runtime, "get", get)
     monkeypatch.setattr(runtime, "validate", validate)
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kw: client_class(transport=httpx.MockTransport(respond), **kw),
     )
     result = await ScriptRunnerProvider().run_to_completion(
@@ -95,7 +95,7 @@ async def test_missing_child_snapshot_does_not_fall_back_to_root(monkeypatch):
     def no_client(**kw):
         raise AssertionError("missing child scope must stop before the runner request")
 
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", no_client)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider.httpx.AsyncClient", no_client)
     with pytest.raises(IntegrityFailed, match="prepared run is missing"):
         await ScriptRunnerProvider().run_to_completion(
             ProcessRequest(
@@ -229,7 +229,7 @@ async def test_child_snapshot_disappearing_after_execution_fails_closed(monkeypa
     monkeypatch.setattr(runtime, "get", get)
     client_class = httpx.AsyncClient
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kw: client_class(
             transport=httpx.MockTransport(
                 lambda req: httpx.Response(
@@ -320,7 +320,7 @@ async def test_real_scoped_snapshots_reach_runner_and_audit_without_root_drift(
 
     client_class = httpx.AsyncClient
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kw: client_class(transport=httpx.MockTransport(respond), **kw),
     )
     for scope, expected, snapshot in [

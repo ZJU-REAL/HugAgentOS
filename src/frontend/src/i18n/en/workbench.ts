@@ -1,4 +1,5 @@
 export const WORKBENCH_DICT: Record<string, string> = {
+  '应用诊断': 'Application diagnostics',
   '展开我的空间侧栏': 'Expand My Space sidebar',
   '收起我的空间侧栏': 'Collapse My Space sidebar',
   '展开定时任务侧栏': 'Expand scheduled task sidebar',

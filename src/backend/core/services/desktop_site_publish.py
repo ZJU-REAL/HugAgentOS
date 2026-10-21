@@ -23,8 +23,8 @@ def _session_workspace_root(chat_id: str | None) -> str | None:
     """这个会话的工作目录。"""
     if not chat_id:
         return None
-    from core.sandbox._common import WORKSPACE
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import WORKSPACE
+    from core.sandbox.workspace.paths import session_root
 
     return session_root(WORKSPACE, str(chat_id))
 

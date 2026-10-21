@@ -74,7 +74,7 @@ async def _start_script_runner(py: str) -> None:
             py,
             "-m",
             "uvicorn",
-            "services.script_runner_service.server:app",
+            "core.sandbox.runner.server:app",
             "--host",
             "127.0.0.1",
             "--port",

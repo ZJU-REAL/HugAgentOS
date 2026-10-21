@@ -50,10 +50,6 @@ class ProcessResult:
     execution_time_ms: int
 
 
-
-
-
-
 class SandboxAdminNotSupported(Exception):
     """The current provider does not support this read-only admin capability
     (e.g. ScriptRunner cannot enumerate instances).
@@ -100,7 +96,7 @@ class SandboxInfo:
     state: str = "active"  # active | idle | stale
     idle_seconds: Optional[float] = None  # now - last_active (monotonic clock delta)
     owner_tag: Optional[str] = None
-    backend_managed: bool = True  # whether in the current process registry
+    backend_managed: bool = True  # belongs to this backend service (across workers)
     # Ownership classification for detached instances (backend_managed=False),
     # derived from owner_tag:
     # self-orphan (our own orphan) | external (another client) | untagged (no owner tag).
@@ -129,12 +125,16 @@ class SandboxProvider(Protocol):
         ...
 
     async def write_stdin(
-        self, session_id: str, *, sandbox_session_id: str,
-        user_id: Optional[str] = None, chars: str = "", yield_time_ms: int = 60000,
+        self,
+        session_id: str,
+        *,
+        sandbox_session_id: str,
+        user_id: Optional[str] = None,
+        chars: str = "",
+        yield_time_ms: int = 60000,
     ) -> dict:
         """Wait for incremental output, or send Ctrl+C to this owner's command."""
         ...
-
 
     async def put_file(
         self,
@@ -227,7 +227,7 @@ class SandboxProvider(Protocol):
         """Mark a live session as active without executing anything in it.
 
         Long-running workflows call this on a timer (see
-        ``core/sandbox/keepalive.py``) so the idle reaper does not destroy
+        ``core/sandbox/sessions/keepalive.py``) so the idle reaper does not destroy
         their session during long model-streaming phases with no sandbox
         calls. Returns False when the session does not exist (yet); providers
         with no session lifecycle implement it as a no-op returning False.
@@ -247,17 +247,12 @@ class SandboxProvider(Protocol):
         management view."""
         ...
 
-    async def admin_list_sandboxes(self, include_server: bool = False) -> list["SandboxInfo"]:
+    async def admin_list_sandboxes(self) -> list["SandboxInfo"]:
         """Enumerate running sandbox instances.
 
-        By default returns only instances in the current process registry
-        (``backend_managed=True``). With ``include_server=True``, providers
-        that support server-side enumeration **additionally** list detached
-        instances that are still alive on the server but untracked by this
-        process (``backend_managed=False``, with ``ownership`` labeling the
-        attribution), used by the security admin console to discover leaks;
-        providers that do not support it ignore the parameter and still
-        return only registry instances.
+        OpenSandbox reads the controller inventory across workers and derives
+        tracking from shared bindings and live worker leases. Providers without
+        controller enumeration return their supported registry inventory.
         """
         ...
 

@@ -11,7 +11,7 @@ from tests.capabilities.test_local_project_site_publish import local_project
 
 BUNDLE_VERSION = json.loads(
     (
-        Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/sites/plugin.json"
+        Path(__file__).resolve().parents[2] / "extensions/plugins/marketplace/sites/plugin.json"
     ).read_text()
 )["version"]
 

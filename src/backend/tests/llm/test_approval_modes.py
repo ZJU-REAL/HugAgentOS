@@ -23,7 +23,9 @@ from core.llm.tool_permissions import (
     normalize_approval_mode,
 )
 from core.llm.tools._tool_confirmation import OP_DELETE, OP_WRITE
-from core.sandbox.local_policy import DANGER_REASON_PREFIX, DELETE, danger_categories
+from core.sandbox.permissions.models import DANGER_REASON_PREFIX
+from core.sandbox.permissions.models import DELETE
+from core.sandbox.permissions.models import danger_categories
 
 
 def _tool_call(name: str, arguments: dict) -> ToolCallBlock:
@@ -152,7 +154,7 @@ class _StreamItem:
 
 def test_sandbox_stdout_keeps_its_line_breaks():
     """SDK 把 stdout 拆成一行一项且不带换行；粘成一行会让逐行解析全错。"""
-    from core.sandbox._opensandbox_internals import _join_logs
+    from core.sandbox.providers.opensandbox.runtime import _join_logs
 
     assert _join_logs([_StreamItem("AAA"), _StreamItem("BBB")]) == "AAA\nBBB\n"
     # 已经自带换行的分片不重复加
@@ -167,7 +169,7 @@ def test_join_composes_exactly_with_the_upstream_blank_line_fix():
     时"自带换行的不再补"这一条，正是让两者拼起来逐字节还原的关键——否则空行会
     变成两个换行。
     """
-    from core.sandbox._opensandbox_internals import _join_logs
+    from core.sandbox.providers.opensandbox.runtime import _join_logs
 
     # printf 'A\n\n\nB\n' 在修复后的 execd 上收到的事件序列
     items = [_StreamItem("A"), _StreamItem("\n"), _StreamItem("\n"), _StreamItem("B")]

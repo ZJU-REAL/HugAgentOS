@@ -246,7 +246,7 @@ async def list_project_files(
 ):
     """列出项目文件。本地项目遍历本机真实文件夹；云端项目遍历挂钩文件夹子树。"""
     if access.project.kind == "local":
-        from core.sandbox.local_mount import list_local_files
+        from core.sandbox.workspace.mounts import list_local_files
 
         local = (access.project.extra_data or {}).get("local") or {}
         raw = list_local_files(local.get("path") or "")

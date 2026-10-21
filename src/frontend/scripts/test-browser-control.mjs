@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-const source=await readFile('../backend/plugin_bundles/marketplace/browser-automation/web/browser/control.js','utf8');
+const source=await readFile('../backend/extensions/plugins/marketplace/browser-automation/web/browser/control.js','utf8');
 const reports=[];
 let state={controller:'agent',connection_id:''},resume;
 const blocked=new Promise(resolve=>{resume=resolve;});

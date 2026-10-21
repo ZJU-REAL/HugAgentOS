@@ -28,12 +28,12 @@ Glob patterns (relative to the repo root); a match means the file is never copie
 
 - **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), the Cube sandbox provider, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
-- **Industry MCP servers**: `mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
+- **Industry MCP servers**: `extensions/mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
 - **Industry-specific frontend code and seeds**: the industry-chain Canvas,
   news and company-profile renderers, industry API client, icon assets, and the
   bundled ontology example that depends on company-profile tools;
 - **The entire main-repo alembic chain** (`alembic/versions/**` — CE uses an independent chain from the overlay, see below);
-- **10 industry/branded skills** (under `skill_bundles/marketplace/`; the first 5 hard-depend on EE industry MCPs, the other 5 contain branded domain copy);
+- **10 industry/branded skills** (under `extensions/skills/marketplace/`; the first 5 hard-depend on EE industry MCPs, the other 5 contain branded domain copy);
 - **EE-coupled tests** and `tests/licensing/**`;
 - **Frontend consoles**: `AdminApp.tsx`, `ConfigApp.tsx`, `components/admin/**`, `components/config/**` (lab = the automation lab is CE and stays);
 - **Root-level EE deployment assets and open-source hygiene items**: EE Dockerfiles / compose fragments, LiteLLM gateway config (`docker/litellm/**`), `internal design docs`, `CLAUDE.md`, `.github/**`, internal `.env` defaults, branded manual PDFs, bundled commercial-font assets, a skill with embedded third-party credentials, the issuance tool `scripts/license_tool.py`, and the generator itself (`ce/**`, `scripts/build_ce.py`);
@@ -92,7 +92,7 @@ Industry-chain, news, and company-profile presentation remains an EE feature.
 | `src/backend/core/services/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
 | `src/backend/tests/ce_release/` | Executable CE release regressions for login, private skills/MCP, database upgrades, startup, and Compose contracts |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | CE API contracts with administration endpoints and organization fields removed |
-| `src/backend/mcp_servers/_ports.py` | Port table for the 7 general tools (EE industry-tool and retired ports marked reserved) |
+| `src/backend/extensions/mcp_servers/_ports.py` | Port table for the 7 general tools (EE industry-tool and retired ports marked reserved) |
 | `src/frontend/default.conf.template` | CE frontend Nginx template with `/gateway/**` proxying and the litellm upstream removed |
 | `src/frontend/src/main.tsx` | CE entry: mounts only the main app / API docs / share preview — no /admin, no /config |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | CE versions of the project dev skills' SKILL.md and references (admin-console / EE router-registration sections stripped) |

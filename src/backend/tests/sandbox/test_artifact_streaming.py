@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.sandbox.provider_test_support import install_session_scope
+
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,11 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 from core.config.settings import SandboxSettings
-from core.sandbox._common import stream_to_file
+from core.sandbox.workspace.streams import stream_to_file
 from core.sandbox.errors import SandboxFileTooLargeError
-from core.sandbox.script_runner_provider import ScriptRunnerProvider
+from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 from fastapi import HTTPException
-from services.script_runner_service import server as runner_server
+from core.sandbox.runner import server as runner_server
 
 
 class _CaptureToolkit:
@@ -123,7 +125,7 @@ class _ScriptRunnerClient:
 @pytest.mark.asyncio
 async def test_script_runner_streams_file_to_path(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         _ScriptRunnerClient,
     )
     destination = tmp_path / "script-runner.pdf"
@@ -161,7 +163,7 @@ class _OversizedScriptRunnerClient(_ScriptRunnerClient):
 @pytest.mark.asyncio
 async def test_script_runner_reports_sidecar_limit(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient",
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         _OversizedScriptRunnerClient,
     )
     destination = tmp_path / "too-large.bin"
@@ -190,7 +192,7 @@ class _OpenSandboxFiles:
 @pytest.mark.asyncio
 async def test_opensandbox_streams_file_to_path(tmp_path):
     OpenSandboxProvider = pytest.importorskip(
-        "core.sandbox.opensandbox_provider"
+        "core.sandbox.providers.opensandbox.provider"
     ).OpenSandboxProvider
     provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
 
@@ -200,6 +202,7 @@ async def test_opensandbox_streams_file_to_path(tmp_path):
         return SimpleNamespace(sandbox=SimpleNamespace(files=_OpenSandboxFiles()))
 
     provider._get_or_create_session = _get_session
+    install_session_scope(provider)
     destination = tmp_path / "opensandbox.pdf"
     written = await provider.get_file_to_path(
         "chat-1",
@@ -241,7 +244,7 @@ class _CubeFiles:
 
 @pytest.mark.asyncio
 async def test_cube_streams_file_to_path(tmp_path):
-    CubeSandboxProvider = pytest.importorskip("core.sandbox.cube.provider").CubeSandboxProvider
+    CubeSandboxProvider = pytest.importorskip("core.sandbox.providers.cube.provider").CubeSandboxProvider
     provider = CubeSandboxProvider.__new__(CubeSandboxProvider)
     provider._request_timeout_s = 120
 
@@ -269,7 +272,7 @@ async def test_remote_providers_reject_known_size_before_stream(provider_kind: s
 
     if provider_kind == "opensandbox":
         OpenSandboxProvider = pytest.importorskip(
-            "core.sandbox.opensandbox_provider"
+            "core.sandbox.providers.opensandbox.provider"
         ).OpenSandboxProvider
         provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
 
@@ -284,9 +287,10 @@ async def test_remote_providers_reject_known_size_before_stream(provider_kind: s
             return SimpleNamespace(sandbox=SimpleNamespace(files=_Files()))
 
         provider._get_or_create_session = _get_session
+        install_session_scope(provider)
         call = provider.get_file_to_path("chat-1", "/workspace/large.bin", destination, max_bytes=8)
     else:
-        CubeSandboxProvider = pytest.importorskip("core.sandbox.cube.provider").CubeSandboxProvider
+        CubeSandboxProvider = pytest.importorskip("core.sandbox.providers.cube.provider").CubeSandboxProvider
         provider = CubeSandboxProvider.__new__(CubeSandboxProvider)
         provider._request_timeout_s = 120
 

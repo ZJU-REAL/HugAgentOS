@@ -2,7 +2,7 @@
 import asyncio
 
 from fastapi import HTTPException
-from core.sandbox._opensandbox_loop import _on_service_loop
+from core.sandbox.processes.dispatch import _on_service_loop
 from core.spaces.access import resolve_grants
 from core.spaces.mounts import MOUNT_REVISION_TAG, mount_revision
 
@@ -41,11 +41,11 @@ class SpaceSandboxMixin:
             api_key=settings.sandbox.opensandbox_api_key)
         return True
 
-    async def _get_or_create_session(self, session_id, user_id=None):
+    async def _resolve_bound_session(self, session_id, user_id=None):
         if not user_id:
             from core.infra.logging import user_id_var
             user_id = user_id_var.get() or None
-        session = await super()._get_or_create_session(session_id, user_id)
+        session = await super()._resolve_bound_session(session_id, user_id)
         if user_id and not await self._grants_match(session):
             await self._destroy_session(session_id, session, reuse_sandbox=False)
             raise HTTPException(409, "文件权限已变更，请重新打开沙盒")

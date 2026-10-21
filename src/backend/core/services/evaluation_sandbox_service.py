@@ -31,7 +31,7 @@ def session_id(lease_id: str) -> str:
 
 
 async def _owned(lease_id, owner, *, allow_expired=False):
-    from core.sandbox import evaluation_binding as bindings
+    import core.sandbox.providers.evaluation.binding as bindings
     return await bindings.assert_owner(session_id(lease_id), owner, allow_expired=allow_expired)
 
 
@@ -74,8 +74,8 @@ def _safe_attempt_id(attempt_id: str) -> str:
 async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, memory_mb=4096):
     from opensandbox import Sandbox
     from opensandbox.models.execd import RunCommandOpts
-    from core.sandbox import evaluation_binding as bindings
-    from core.sandbox.evaluation_process_guard import capture_baseline
+    import core.sandbox.providers.evaluation.binding as bindings
+    from core.sandbox.providers.evaluation.process_guard import capture_baseline
     if settings.sandbox.provider != "opensandbox":
         raise SandboxError("opensandbox_required")
     sandbox = await Sandbox.create(
@@ -166,8 +166,8 @@ async def download(lease_id, owner, path):
 
 
 async def freeze(lease_id, owner):
-    from core.sandbox import evaluation_binding as bindings
-    from core.sandbox.evaluation_provider import get_evaluation_provider
+    import core.sandbox.providers.evaluation.binding as bindings
+    from core.sandbox.providers.evaluation.provider import get_evaluation_provider
     from core.db.engine import SessionLocal
     from core.db.models import ChatRun
     from orchestration.chat_run_executor import cancel_run
@@ -187,8 +187,8 @@ async def freeze(lease_id, owner):
 
 async def destroy(lease_id, owner):
     from opensandbox.exceptions import SandboxApiException
-    from core.sandbox import evaluation_binding as bindings
-    from core.sandbox.evaluation_provider import get_evaluation_provider
+    import core.sandbox.providers.evaluation.binding as bindings
+    from core.sandbox.providers.evaluation.provider import get_evaluation_provider
     binding = await _owned(lease_id, owner, allow_expired=True)
     if binding.destroyed:
         return {"phase": "closed"}

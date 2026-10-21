@@ -9,7 +9,7 @@ from opensandbox.adapters.factory import AdapterFactory
 from opensandbox.config import ConnectionConfig
 from opensandbox.models.sandboxes import SandboxEndpoint
 
-from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 
 class DirectExecdTests(unittest.IsolatedAsyncioTestCase):
@@ -46,7 +46,7 @@ class DirectExecdTests(unittest.IsolatedAsyncioTestCase):
         )
         self.box.commands = self.box._command_service
         self.box.files = self.box._filesystem_service
-        self.provider = _OpenSandboxSessionMixin()
+        self.provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
         self.provider._probe_direct_execd = AsyncMock(return_value=True)
 
     async def asyncTearDown(self):
@@ -102,7 +102,7 @@ class DirectExecdTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests[-1].url.host, "controller")
 
     async def test_disabled_direct_never_probes(self):
-        from core.sandbox import _opensandbox_session as runtime
+        import core.sandbox.providers.opensandbox.creation as runtime
 
         with patch.object(
             runtime,

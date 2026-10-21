@@ -28,11 +28,11 @@ from core.db.engine import Base, SessionLocal, engine
 from core.db.models import ChatSession, UserShadow
 from core.auth.backend import UserContext, get_current_user
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.script_runner_provider import ScriptRunnerProvider
+from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 from api.routes.v1.commands import router
 from api.startup.commands import shutdown_commands
 from orchestration.commands.runtime import runtime
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 Base.metadata.create_all(engine)
 with SessionLocal() as db:

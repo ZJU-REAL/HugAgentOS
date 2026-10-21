@@ -84,7 +84,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
 | FastAPI 应用与路由注册 | `src/backend/api/app.py`、`src/backend/api/routes/v1/` |
 | 流式编排（SSE） | `src/backend/orchestration/workflow.py`、`orchestration/streaming.py` |
 | 智能体构建 | `src/backend/core/llm/factory/build.py` |
-| MCP server 与端口映射 | `src/backend/mcp_servers/`、`src/backend/mcp_servers/_ports.py`、`src/backend/core/config/mcp_config.py` |
+| MCP server 与端口映射 | `src/backend/extensions/mcp_servers/`、`src/backend/extensions/mcp_servers/_ports.py`、`src/backend/core/config/mcp_config.py` |
 | 能力注册表 | `src/backend/core/config/catalog.json`、`core/config/catalog.py` |
 | 沙箱 provider | `src/backend/core/sandbox/`、`src/backend/core/config/settings.py::SandboxSettings` |
 | 记忆系统 | `src/backend/core/memory/`（service.py / pipeline.py）、`src/backend/orchestration/memory_integration.py` |

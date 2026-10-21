@@ -33,8 +33,8 @@ def project_file_path(path: str, scope, user_id: str | None, session_id: str | N
 
 def _allows_live_access(path: str, user_id: str, action: str = "read") -> bool:
     from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET, resolve_approval_mode
-    from core.sandbox._common import WORKSPACE
-    from core.sandbox.local_policy import evaluate_local_path
+    from core.sandbox.workspace.paths import WORKSPACE
+    from core.sandbox.permissions.evaluator import evaluate_local_path
     from core.services.local_grant_service import grants_for_gate, policy_for_gate
     import os
 

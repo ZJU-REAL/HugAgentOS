@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Dict
 
 from core.config.settings import settings as _settings
-from mcp_servers._ports import PORTS as _MCP_PORTS
+from extensions.mcp_servers._ports import PORTS as _MCP_PORTS
 
 _WORKFLOW_MODE_HINT = (
     "\n\n## 工作流模式（用户已主动进入）\n"

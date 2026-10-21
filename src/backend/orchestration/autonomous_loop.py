@@ -449,9 +449,9 @@ async def _run_worker_iteration(
     hold_output = requires_output_review(runtime)
 
     # Keep the sandbox session alive for the whole worker phase — see
-    # core/sandbox/keepalive.py for why (idle reaper vs long model-streaming
+    # core/sandbox/sessions/keepalive.py for why (idle reaper vs long model-streaming
     # phases with no sandbox calls).
-    from core.sandbox.keepalive import start_session_keepalive
+    from core.sandbox.sessions.keepalive import start_session_keepalive
 
     _keepalive_task = start_session_keepalive(session_id)
     try:

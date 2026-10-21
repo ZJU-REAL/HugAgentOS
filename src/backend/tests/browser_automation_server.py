@@ -57,7 +57,7 @@ _PORTS["browser_runtime"] = urlsplit(os.environ["BROWSER_E2E_MCP"]).port
 assert settings.server.mcp_host == "127.0.0.1"
 from core.plugins.local import service as local_packages
 from core.capabilities import local_plugin_runtime, skills
-modern = local_packages.install("browser-owner", str(Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation"))
+modern = local_packages.install("browser-owner", str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation"))
 skills.current_local_user_id = lambda: "browser-owner"
 # The isolated desktop proxy carries this synthetic account. Preserve the
 # real bridge authentication and ticket revalidation with its identity seam.

@@ -337,7 +337,7 @@ def test_unknown_action_requires_reconciliation_before_retry(sessions):
 @pytest.mark.asyncio
 async def test_ordinary_pool_never_adopts_or_kills_personal_computer():
     from types import SimpleNamespace
-    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
     provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     # Even a stopped personal computer must bypass the ordinary dead-container cleanup.
     info = SimpleNamespace(status=SimpleNamespace(state="STOPPED"), metadata={"hugagent-owner": "personal-agent"})

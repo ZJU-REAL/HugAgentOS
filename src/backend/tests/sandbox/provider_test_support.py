@@ -24,7 +24,7 @@ def _reload_settings_and_factory(monkeypatch, **env):
     import core.sandbox.factory as f
 
     importlib.reload(f)
-    import core.sandbox.script_runner_provider as srp
+    import core.sandbox.providers.script_runner.provider as srp
 
     importlib.reload(srp)
     return f
@@ -33,7 +33,7 @@ def _reload_settings_and_factory(monkeypatch, **env):
 def _import_opensandbox_module():
     """Import opensandbox_provider for unit testing (does NOT touch SDK init)."""
     import importlib
-    import core.sandbox.opensandbox_provider as osp
+    import core.sandbox.providers.opensandbox.provider as osp
 
     importlib.reload(osp)
     return osp
@@ -107,7 +107,7 @@ def _reload_cube(monkeypatch, **env):
     import core.config.settings as s
 
     importlib.reload(s)
-    import core.sandbox.cube.provider as cp
+    import core.sandbox.providers.cube.provider as cp
 
     importlib.reload(cp)
     import core.sandbox.factory as f
@@ -141,3 +141,19 @@ def _fake_paginator(items):
     p.next_items = AsyncMock(return_value=items)
     p.has_next = False
     return p
+
+
+def patch_open_settings(monkeypatch, value):
+    """Isolate the configuration of the concrete OpenSandbox components under test."""
+    from importlib import import_module
+    for name in ("creation", "lifecycle", "snapshots", "volumes", "account_volumes", "tracking", "reclamation"):
+        module = import_module("core.sandbox.providers.opensandbox." + name)
+        if hasattr(module, "settings"):
+            monkeypatch.setattr(module, "settings", value)
+def install_session_scope(provider):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def use(session_id, user_id=None):
+        yield await provider._get_or_create_session(session_id, user_id=user_id)
+    provider._session_use = use

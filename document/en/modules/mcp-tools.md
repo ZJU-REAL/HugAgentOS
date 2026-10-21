@@ -22,7 +22,7 @@ must execute in separate rounds.
 
 ```
                        ┌──────────────────── mcp container (docker/Dockerfile.mcp) ──┐
-                       │  mcp_servers._launcher (one child process per server)│
+                       │  extensions.mcp_servers._launcher (one child process per server)│
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content (KB retrieval)│
 │ backend │───────▶│streama-│   :9101  query_database (data warehouse, EE)    │
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
@@ -36,7 +36,7 @@ must execute in separate rounds.
                        └──────────────────────────────────────────────────────┘
 ```
 
-The built-in registry, `src/backend/mcp_servers/registry.py`, declares installation placement, package names, and base ports. `_ports.py` applies desktop port offsets: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
+The built-in registry, `src/backend/extensions/mcp_servers/registry.py`, declares installation placement, package names, and base ports. `_ports.py` applies desktop port offsets: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `extensions/mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
 
 > Historical note: office-document editing and export (word / excel / ppt /
 > pdf) have moved out of the `mcp` container into
@@ -175,14 +175,14 @@ Supports the capability center and skill-management plugins: `search_marketplace
 Every built-in server follows the same directory convention:
 
 ```
-mcp_servers/<name>_mcp/
+extensions/mcp_servers/<name>_mcp/
 ├── server.py        # FastMCP instance + @mcp.tool() thin shims (arg tolerance, stdout→stderr)
 ├── impl.py          # business logic (lazily imported from server.py to keep startup light)
 ├── _selftest.py     # offline self-check: module imports, tool signatures
 └── README.md        # run/debug notes
 ```
 
-The shared layer (root of `mcp_servers/`):
+The shared layer (root of `extensions/mcp_servers/`):
 
 | File | Responsibility |
 |---|---|
@@ -381,14 +381,14 @@ Every server can run standalone outside the container (stdio transport by defaul
 
 ```bash
 # Run a single server over stdio (pairs with MCP Inspector etc.)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server
 
 # Run over streamable-http (mimicking the in-container form)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server \
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server \
   --transport streamable-http --port 9102
 
 # Offline self-check (imports, tool signatures)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp._selftest
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp._selftest
 
 # In-container liveness probe (lowest port started by the launcher)
 curl -fsS http://localhost:9100/mcp/
@@ -404,11 +404,11 @@ docker-compose up -d --build mcp
 
 | Path | Description |
 |---|---|
-| `src/backend/mcp_servers/<name>_mcp/` | Individual MCP servers (server.py / impl / _selftest) |
-| `src/backend/mcp_servers/_launcher.py` | mcp container entry: multi-process spawn + crash restart |
-| `src/backend/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
-| `src/backend/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
-| `src/backend/mcp_servers/_ports.py` | Deployment port mapping |
+| `src/backend/extensions/mcp_servers/<name>_mcp/` | Individual MCP servers (server.py / impl / _selftest) |
+| `src/backend/extensions/mcp_servers/_launcher.py` | mcp container entry: multi-process spawn + crash restart |
+| `src/backend/extensions/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
+| `src/backend/extensions/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
+| `src/backend/extensions/mcp_servers/_ports.py` | Deployment port mapping |
 | `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
 | `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |

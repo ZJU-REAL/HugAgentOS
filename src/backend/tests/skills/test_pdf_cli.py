@@ -1,6 +1,6 @@
 """Smoke tests for the pdf-editing skill CLI.
 
-Replaces the old ``mcp_servers/_office_shared/_integration_test.py::test_pdf``
+Replaces the old ``extensions/mcp_servers/_office_shared/_integration_test.py::test_pdf``
 (removed when pdf_mcp was deleted). Exercises every subcommand end-to-end:
 read (5 modes), merge, split, fill-form, create, reformat. The argparse +
 emit_json contract is what changed when migrating from MCP to skill;
@@ -23,7 +23,7 @@ import pytest
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]  # src/backend
-SKILL_DIR = BACKEND_ROOT / "skill_bundles/default/pdf-editing"
+SKILL_DIR = BACKEND_ROOT / "extensions/skills/default/pdf-editing"
 CLI = SKILL_DIR / "scripts/cli.py"
 
 

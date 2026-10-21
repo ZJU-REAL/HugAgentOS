@@ -757,8 +757,8 @@ async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_conf
             parts = pvs.effective_parts("code_exec", db=db)
             prompt += "\n\n" + "\n\n".join(p["content"] for p in sorted(parts, key=lambda p: p.get("sort_order", 0))
                 if p.get("is_enabled", True) and p.get("part_id") not in SKIP_PARTS["code_exec"])
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.desktop_paths import workspace_directory
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.workspace.desktop import workspace_directory
         tool = render_desktop_part("bash_tool", cwd=workspace_directory(WORKSPACE, ctx["chat_id"]) if local else "{runtime.cwd}")
         runtime = await _runtime_prompt_preview(db, approval_mode="ask") if local else None
         if runtime:
