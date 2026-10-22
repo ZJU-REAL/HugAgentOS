@@ -271,7 +271,8 @@ class _OpenSandboxSnapshotsMixin:
                     chat_id, settings.sandbox.idle_ttl_s
                 ):
                     logger.info(
-                        "[opensandbox] park chat=%s skipped: still in use elsewhere", chat_id,
+                        "[opensandbox] park chat=%s skipped: still in use elsewhere",
+                        chat_id,
                     )
                     return
                 try:
@@ -294,13 +295,17 @@ class _OpenSandboxSnapshotsMixin:
                     return
                 await self._wait_snapshot_ready(snap_id)
                 old_snap = await self._upsert_snapshot(
-                    chat_id, snapshot_id=snap_id, sandbox_id=sandbox_id,
+                    chat_id,
+                    snapshot_id=snap_id,
+                    sandbox_id=sandbox_id,
                 )
                 # The actual release; the container goes back to the idle pool
                 await self._destroy_session(chat_id, sess, reuse_sandbox=True)
                 logger.info(
                     "[opensandbox] parked chat=%s snapshot=%s (replaced_old=%s)",
-                    chat_id, snap_id, old_snap or "none",
+                    chat_id,
+                    snap_id,
+                    old_snap or "none",
                 )
             # Clean up the old remote snapshot outside the lock (async)
             if old_snap:
@@ -310,7 +315,9 @@ class _OpenSandboxSnapshotsMixin:
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "[opensandbox] park chat=%s sandbox=%s failed: %s",
-                chat_id, sandbox_id, e,
+                chat_id,
+                sandbox_id,
+                e,
             )
         finally:
             self._parking_in_flight.discard(chat_id)
@@ -410,13 +417,14 @@ class _OpenSandboxSnapshotsMixin:
         data = resp.json()
         snap_id = data.get("id") or data.get("snapshotId")
         if not snap_id:
-            raise SandboxError(
-                f"create snapshot returned no id (sandbox={sandbox_id}): {data!r}"
-            )
+            raise SandboxError(f"create snapshot returned no id (sandbox={sandbox_id}): {data!r}")
         return str(snap_id)
 
     async def _wait_snapshot_ready(
-        self, snapshot_id: str, *, timeout_s: Optional[int] = None,
+        self,
+        snapshot_id: str,
+        *,
+        timeout_s: Optional[int] = None,
     ) -> None:
         """Poll GET /v1/snapshots/{id} until state == 'Ready'.
 
