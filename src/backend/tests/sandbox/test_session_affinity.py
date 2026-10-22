@@ -24,6 +24,7 @@ import pytest
 import core.sandbox.providers.opensandbox.models as session_mod_models
 import core.sandbox.sessions.registry as session_registry
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+from core.sandbox.errors import SandboxNotFoundError
 
 
 def _settings(**overrides):
@@ -65,7 +66,7 @@ def _fake_opensandbox(monkeypatch):
     async def connect(sandbox_id, **kwargs):
         sbx = _FakeSandbox.registry.get(sandbox_id)
         if sbx is None or not sbx.alive:
-            raise RuntimeError(f"sandbox {sandbox_id} not found")
+            raise SandboxNotFoundError(f"sandbox {sandbox_id} not found")
         return sbx
 
     module = SimpleNamespace(Sandbox=SimpleNamespace(connect=connect))
@@ -101,8 +102,6 @@ def _worker(name: str):
         worker.created.append(sandbox_id)
         return session_mod_models._Session(
             sandbox=_FakeSandbox(sandbox_id),
-            interpreter=None,
-            contexts={},
                 user_id=user_id,
             pool_source="user",
             last_renew_ts=time.monotonic(),
@@ -127,7 +126,7 @@ def test_a_second_worker_attaches_instead_of_building_its_own_container():
     assert first.sandbox.id == second.sandbox.id
     assert a.created == ["a-sbx-1"] and b.created == []
     # 接管来的容器不属于本进程任何一个池，销毁时必须直接销毁
-    assert second.pool_source == "none"
+    assert second.pool_source == "attached"
 
 
 def test_many_rounds_bouncing_between_workers_stay_on_one_container():
@@ -169,7 +168,6 @@ def test_destroying_a_session_clears_the_binding(provider_database):
     a = _worker("a")
     a._jupyter_user_pool = SimpleNamespace(release=AsyncMock())
     a._wipe_workspace = AsyncMock(return_value=True)
-    a._reset_language_context = AsyncMock()
 
     async def scenario():
         sess = await a._get_or_create_session("chat-1", user_id="u1")
@@ -264,7 +262,7 @@ def test_attach_renews_the_existing_container_before_returning():
 def test_dead_container_metadata_does_not_prevent_recreation():
     worker = _worker("replacement")
     _FakeSandbox("expired")
-    worker._renew.side_effect = RuntimeError("Sandbox not found")
+    worker._renew.side_effect = SandboxNotFoundError("Sandbox not found")
     async def scenario():
         await session_registry.remember("expired-chat", "expired")
         return await worker._get_or_create_session("expired-chat", user_id="u1")

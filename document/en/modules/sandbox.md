@@ -127,7 +127,7 @@ User returns → restore the session snapshot first → declare mounts again →
 - A user-bound container can only be reused by the same user, after clearing the previous conversation workspace.
 - The base runtime preserves personal and skill mounts. EE adds team mounts and permission checks.
 - Docker CE does not prewarm idle containers by default. Historical jupyter setting names refer to the user-session pool; no Jupyter server starts.
-- SANDBOX_IDLE_TTL_S controls the server TTL and idle reclaim threshold, default 3600 seconds.
+- SANDBOX_IDLE_TTL_S sets the idle snapshot threshold, default 3600 seconds. Hard server expiry adds grace for the reclaim queue, renewal skew, snapshot request and readiness wait. Each scan renews queued sessions before fairly scheduling snapshot batches.
 - Authenticated renewal and snapshot requests share the OPEN-SANDBOX-API-KEY header.
 
 ## Snapshot persistence (CE / EE)
@@ -197,7 +197,7 @@ fix on both execution surfaces. Updating only the cloud does not fix old clients
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 2/5, 20 | Warm-pool watermarks |
-| `SANDBOX_IDLE_TTL_S` | 3600 | The one sandbox lifetime parameter: server-side TTL = idle threshold = keepalive basis; snapshot first, release second |
+| `SANDBOX_IDLE_TTL_S` | 3600 | Idle snapshot threshold and keepalive basis; server expiry adds snapshot and queue grace |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | Snapshot system master switch |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | Snapshot retention |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | Max wait for snapshot Ready |
@@ -259,3 +259,19 @@ The backend collects status and logs and keeps the sandbox active. The model can
 The command ledger stores bounded logs, execution leases and completion delivery state. OpenSandbox recovery uses the original execution identity, sandbox binding and committed log cursor. It never restarts the command. Other providers stop owned processes on orderly shutdown. After an unexpected restart, an unrecoverable execution is reported as `unknown`.
 
 Migration `bashbackground01` creates the command ledger. Apply it through the normal release procedure before using the feature. Tests use isolated databases and disposable sandbox sessions. See the [architecture decision](../../internal/adr/20261018-background-bash-completion.md) and [validation record](../../internal/background-bash-validation-20261018.md).
+
+### Reclaim accounting and multi-worker administration
+
+When the controller explicitly returns DOCKER::SANDBOX_NOT_FOUND, the backend
+removes the missing session and returns its reservation exactly once.
+Snapshot or renewal timeouts, authentication failures, ordinary route 404s and
+server errors do not authorize destruction of a live container. Workspace reuse
+requires a successful snapshot. Explicit close and idle reclaim share session
+locks and distributed claims.
+
+OpenSandbox instance lists and counts use the controller's current running
+inventory instead of cached process handles. Controller query failures mean
+the count is unavailable, never a successful zero. Pool diagnostics include
+scope=worker and worker_pid. They describe one backend process and are not a
+global per-user quota. This fix does not convert local pool limits into
+cross-process admission limits.

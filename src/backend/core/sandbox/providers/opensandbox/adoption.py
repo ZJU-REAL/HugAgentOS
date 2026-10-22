@@ -83,12 +83,23 @@ class _OpenSandboxAdoptionMixin:
                 # Another owner's sandbox (another deployment, or a module's own
                 # controller-managed computers) is never adopted or reaped here.
                 return
+            creation_token = metadata.get("hugagent-creation-token")
+            if creation_token and await session_registry.creation_pending(creation_token):
+                return  # The creator has not yet delivered this instance.
             kind_tag = metadata.get(_METADATA_POOL_KIND_KEY)
 
-            # 1. Dead sandbox → kill
+            known_legacy = entrypoint in (_LIGHT_ENTRYPOINT, _SETUP_ENTRYPOINT) or entrypoint in _LEGACY_ENTRYPOINTS
+            # Untagged instances with unknown entrypoints belong to other clients.
+            if owner_tag != _METADATA_OWNER_VALUE and not known_legacy:
+                return
+            # 1. Dead owned sandbox → guarded cleanup
             if state != "running":
-                await self._kill_by_id(mgr, info.id, reason=f"non-running state={state}")
-                stats["killed_dead"] += 1
+                if await self._kill_by_id(mgr, info.id, reason=f"non-running state={state}"):
+                    stats["killed_dead"] += 1
+                return
+
+            if await session_registry.bound_session(str(info.id)):
+                stats["skipped_bound"] += 1
                 return
 
             # 2. Our own sandbox → adopt
@@ -98,8 +109,8 @@ class _OpenSandboxAdoptionMixin:
                         "[opensandbox] adopt: own sandbox %s missing pool-kind tag, killing",
                         info.id,
                     )
-                    await self._kill_by_id(mgr, info.id, reason="missing pool-kind")
-                    stats["killed_legacy"] += 1
+                    if await self._kill_by_id(mgr, info.id, reason="missing pool-kind"):
+                        stats["killed_legacy"] += 1
                     return
 
                 # User-bound jupyter sandboxes are re-homed by user_id. When any
@@ -109,12 +120,12 @@ class _OpenSandboxAdoptionMixin:
                 user_tag = metadata.get(_METADATA_USER_ID_KEY)
                 user_bound_enabled = _user_bound_sandbox_required()
                 if kind_tag == "jupyter" and user_bound_enabled and not user_tag:
-                    await self._kill_by_id(
+                    if await self._kill_by_id(
                         mgr,
                         info.id,
                         reason="jupyter sandbox missing user-id tag (legacy / cross-user unsafe)",
-                    )
-                    stats["killed_legacy"] += 1
+                    ):
+                        stats["killed_legacy"] += 1
                     return
                 # Created before the per-user skill view: its /workspace/skills is the
                 # whole shared dir, which no longer holds this user's private skills.
@@ -124,22 +135,22 @@ class _OpenSandboxAdoptionMixin:
                     and user_tag
                     and metadata.get(_METADATA_SKILLS_LAYOUT_KEY) != _METADATA_SKILLS_LAYOUT_VALUE
                 ):
-                    await self._kill_by_id(
+                    if await self._kill_by_id(
                         mgr, info.id, reason="jupyter sandbox predates the per-user skill view"
-                    )
-                    stats["killed_legacy"] += 1
+                    ):
+                        stats["killed_legacy"] += 1
                     return
                 # Reverse case: the sandbox still carries a user tag after all
                 # user-bound mounts were disabled. Its original volumes remain mounted;
                 # generic-pool reuse could expose them to another user, so kill it.
                 if kind_tag == "jupyter" and user_tag and not user_bound_enabled:
-                    await self._kill_by_id(
+                    if await self._kill_by_id(
                         mgr,
                         info.id,
                         reason="jupyter sandbox carries user-id tag but user-bound mounts "
                         "are disabled (stale private mounts would cross-user leak)",
-                    )
-                    stats["killed_legacy"] += 1
+                    ):
+                        stats["killed_legacy"] += 1
                     return
 
                 # 仍绑在会话上的容器不是无主的，收进空闲池就会被按空闲回收掉——而会话
@@ -157,6 +168,8 @@ class _OpenSandboxAdoptionMixin:
                     )
                     return
 
+                if not await self._track_sandbox(str(info.id)):
+                    return  # Another live worker already owns this idle handle.
                 try:
                     sbx = await Sandbox.connect(
                         info.id,
@@ -165,12 +178,11 @@ class _OpenSandboxAdoptionMixin:
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
-                        "[opensandbox] adopt: connect %s failed (%s), killing",
-                        info.id,
-                        exc,
+                        "[opensandbox] adopt: connect %s failed (%s), retaining container",
+                        info.id, exc,
                     )
-                    await self._kill_by_id(mgr, info.id, reason=f"connect failed: {exc}")
-                    stats["killed_dead"] += 1
+                    await session_registry.untrack(str(info.id), self._tracking_owner_token())
+                    self._tracking_ids.discard(str(info.id))
                     return
 
                 # Direct-connect to execd (bypasses the server proxy's ~3s/request overhead); falls back automatically when unreachable.
@@ -195,12 +207,12 @@ class _OpenSandboxAdoptionMixin:
                 # pool full → kill rather than leak
                 bucket = self._pool._buckets[kind_tag]  # noqa: SLF001
                 if len(bucket.idle) >= bucket.max_idle:
-                    await self._kill_by_id(
+                    if await self._kill_by_id(
                         mgr,
                         info.id,
                         reason=f"{kind_tag} bucket already at max_idle={bucket.max_idle}",
-                    )
-                    stats["killed_overflow"] += 1
+                    ):
+                        stats["killed_overflow"] += 1
                     return
                 ok = await self._pool.adopt_idle(kind_tag, sbx)
                 if not ok:
@@ -221,12 +233,12 @@ class _OpenSandboxAdoptionMixin:
                 entrypoint in (_LIGHT_ENTRYPOINT, _SETUP_ENTRYPOINT)
                 or entrypoint in _LEGACY_ENTRYPOINTS
             ):
-                await self._kill_by_id(
+                if await self._kill_by_id(
                     mgr,
                     info.id,
                     reason=f"legacy untagged sandbox with our entrypoint {entrypoint}",
-                )
-                stats["killed_legacy"] += 1
+                ):
+                    stats["killed_legacy"] += 1
                 return
 
             # 4. Someone else's sandbox / unrecognized entrypoint → leave alone
@@ -237,14 +249,18 @@ class _OpenSandboxAdoptionMixin:
                 exc,
             )
 
-    async def _kill_by_id(self, mgr: Any, sandbox_id: str, *, reason: str) -> None:
-        """Kill a sandbox id directly via SandboxManager (no need to connect first)."""
-        logger.info("[opensandbox] kill sandbox %s: %s", sandbox_id, reason)
+    async def _kill_by_id(self, mgr: Any, sandbox_id: str, *, reason: str) -> bool:
+        """Startup cleanup uses the same binding and tracker fence as retirement."""
         try:
-            await mgr.kill_sandbox(sandbox_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[opensandbox] kill sandbox %s failed: %s",
-                sandbox_id,
-                exc,
-            )
+            async with session_registry.destruction_guard(
+                str(sandbox_id), expected_owner=self._tracking_owner_token(),
+            ) as allowed:
+                if not allowed:
+                    logger.info("[opensandbox] startup retained sandbox=%s owned elsewhere", sandbox_id)
+                    return False
+                logger.info("[opensandbox] kill sandbox %s: %s", sandbox_id, reason)
+                await mgr.kill_sandbox(sandbox_id)
+                return True
+        except Exception as exc:
+            logger.warning("[opensandbox] kill sandbox %s failed: %s", sandbox_id, exc)
+            return False

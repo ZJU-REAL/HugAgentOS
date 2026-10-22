@@ -1,3 +1,4 @@
+from tests.sandbox.provider_test_support import install_session_scope
 """Cloud SDK contract tests for managed commands (no production connection)."""
 
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         first = await service.start(
@@ -90,6 +92,7 @@ async def test_opensandbox_final_logs_and_nonzero_exit_are_not_lost():
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -135,6 +138,7 @@ async def test_cube_uses_background_without_connection_deadline_and_bounds_lifet
         _myspace_prefix=lambda uid: "",
         touch_session=AsyncMock(return_value=True),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -325,6 +329,7 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
         _sync_inputs=AsyncMock(),
         touch_session=AsyncMock(),
     )
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(
@@ -445,6 +450,7 @@ async def test_opensandbox_waits_for_execd_before_staging_without_replaying_laun
         _get_or_create_session=AsyncMock(return_value=SimpleNamespace(
             sandbox=SimpleNamespace(commands=commands, is_healthy=healthy))),
         _sync_inputs=stage, touch_session=AsyncMock())
+    install_session_scope(provider)
     service = CloudProcesses(provider)
     try:
         result = await service.start(ProcessRequest(

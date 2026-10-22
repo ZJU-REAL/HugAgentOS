@@ -83,9 +83,9 @@ class CloudProcesses:
         return await self._dispatch(self.sessions.close_all)
 
     async def _spawn(self, req):
-        from core.sandbox.providers.account_env import _firecrawl_extra_envs, dws_extra_envs
         from core.sandbox.workspace.identity import SANDBOX_RUN_GID, SANDBOX_RUN_UID
         from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.providers.account_env import dws_extra_envs, _firecrawl_extra_envs
 
         provider = self.provider
         interpreters = {"bash": "bash", "python": "python3 -u", "javascript": "node"}
@@ -125,29 +125,25 @@ class CloudProcesses:
             from core.sandbox.providers.opensandbox.runtime import _EXECD_BASH_ENVS
             from opensandbox.models.execd import RunCommandOpts
 
-            sess = await provider._get_or_create_session(req.session_id, user_id=req.user_id)
-            # skip_health_check starts execd asynchronously. Readiness reads may retry;
-            # staging and process launch must never be replayed after uncertain results.
-            async with asyncio.timeout(provider._ready_timeout_s):
-                while not await sess.sandbox.is_healthy():
-                    await asyncio.sleep(0.25)
-            await provider._sync_inputs(sess, req)
-            opts = RunCommandOpts(
-                background=True,
-                timeout=None if req.timeout is None else timedelta(seconds=req.timeout),
-                working_directory=WORKSPACE,
-                uid=SANDBOX_RUN_UID,
-                gid=SANDBOX_RUN_GID,
-                envs=(
-                    {**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""}
-                    if _module_owned(req.session_id)
-                    else {**_EXECD_BASH_ENVS, **dws_extra_envs(), **_firecrawl_extra_envs()}
-                ),
-            )
-            execution = await sess.sandbox.commands.run(command, opts=opts)
-            if not execution.id:
-                raise SandboxError("Background command returned no execution ID")
-            return OpenSandboxHandle(provider, req, sess.sandbox.commands, execution.id)
+            async with provider._session_use(req.session_id, req.user_id) as sess:
+                # skip_health_check starts execd asynchronously. Readiness reads may retry;
+                # staging and process launch must never be replayed after uncertain results.
+                async with asyncio.timeout(provider._ready_timeout_s):
+                    while not await sess.sandbox.is_healthy():
+                        await asyncio.sleep(0.25)
+                await provider._sync_inputs(sess, req)
+                opts = RunCommandOpts(
+                    background=True,
+                    timeout=None if req.timeout is None else timedelta(seconds=req.timeout),
+                    working_directory=WORKSPACE,
+                    uid=SANDBOX_RUN_UID,
+                    gid=SANDBOX_RUN_GID,
+                    envs=({**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **dws_extra_envs(), **_firecrawl_extra_envs()}),
+                )
+                execution = await sess.sandbox.commands.run(command, opts=opts)
+                if not execution.id:
+                    raise SandboxError("Background command returned no execution ID")
+                return OpenSandboxHandle(provider, req, sess.sandbox.commands, execution.id)
         # Cube uses the E2B-compatible background command handle.
         async with await provider._get_session_lock(req.session_id):
             sbx = await provider._acquire_persistent(req.session_id, req.user_id)
@@ -193,7 +189,9 @@ class CloudHandle:
     async def touch(self):
         now = time.monotonic()
         if now - self.last_touch >= 30:
-            await self.provider.touch_session(self.req.session_id)
+            touched = await self.provider.touch_session(self.req.session_id)
+            if self.provider.name == "opensandbox" and not touched:
+                raise SandboxError("Original sandbox binding retired; refusing to use an old command handle")
             self.last_touch = now
 
 

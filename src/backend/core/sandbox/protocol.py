@@ -96,7 +96,7 @@ class SandboxInfo:
     state: str = "active"  # active | idle | stale
     idle_seconds: Optional[float] = None  # now - last_active (monotonic clock delta)
     owner_tag: Optional[str] = None
-    backend_managed: bool = True  # whether in the current process registry
+    backend_managed: bool = True  # belongs to this backend service (across workers)
     # Ownership classification for detached instances (backend_managed=False),
     # derived from owner_tag:
     # self-orphan (our own orphan) | external (another client) | untagged (no owner tag).
@@ -247,17 +247,12 @@ class SandboxProvider(Protocol):
         management view."""
         ...
 
-    async def admin_list_sandboxes(self, include_server: bool = False) -> list["SandboxInfo"]:
+    async def admin_list_sandboxes(self) -> list["SandboxInfo"]:
         """Enumerate running sandbox instances.
 
-        By default returns only instances in the current process registry
-        (``backend_managed=True``). With ``include_server=True``, providers
-        that support server-side enumeration **additionally** list detached
-        instances that are still alive on the server but untracked by this
-        process (``backend_managed=False``, with ``ownership`` labeling the
-        attribution), used by the security admin console to discover leaks;
-        providers that do not support it ignore the parameter and still
-        return only registry instances.
+        OpenSandbox reads the controller inventory across workers and derives
+        tracking from shared bindings and live worker leases. Providers without
+        controller enumeration return their supported registry inventory.
         """
         ...
 

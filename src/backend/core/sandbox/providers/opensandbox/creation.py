@@ -51,8 +51,6 @@ class _OpenSandboxCreationMixin:
         user_id: Optional[str] = None,
     ) -> Any:
         """Create an account sandbox with its authorized file volumes."""
-        from opensandbox import Sandbox
-
         config = self._make_config()
         extra_volumes, extra_metadata = await self._additional_workspace_mounts(user_id)
         # Reserved API principals get no account/shared host mounts. Their
@@ -88,7 +86,7 @@ class _OpenSandboxCreationMixin:
         # execd 往返（实测 ~1s）。uid 走环境变量，entrypoint 保持常量。
         setup_uid = safe_user_id(user_id) if user_id else ""
         common_kwargs = dict(
-            timeout=timedelta(seconds=self._ttl_s),
+            timeout=timedelta(seconds=self._session_expiry_s()),
             entrypoint=self._session_entrypoint(setup_uid),
             connection_config=config,
             skip_health_check=True,
@@ -99,14 +97,12 @@ class _OpenSandboxCreationMixin:
             common_kwargs["env"] = {"JX_MYSPACE_UID": setup_uid}
         try:
             if from_snapshot_id:
-                sbx = await Sandbox.create(snapshot_id=from_snapshot_id, **common_kwargs)
+                sbx = await self._create_owned_sandbox(snapshot_id=from_snapshot_id, **common_kwargs)
             else:
-                sbx = await Sandbox.create(self._image, **common_kwargs)
+                sbx = await self._create_owned_sandbox(self._image, **common_kwargs)
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 持久会话沙盒: {e}") from e
 
-        # Direct execd connection (bypasses the server proxy's ~3s/request overhead); auto-falls back when unreachable.
-        await self._repoint_execd_direct(sbx)
         # 目录约定已由 entrypoint 在启动时建好，直接打标，让 _persistent_setup 整段跳过
         # —— 这才是首条命令省下那一秒的地方。老沙箱（旧 entrypoint 建的、adopt 回来的）
         # 没有这个标记，仍按原路在首次执行前补建，不受影响。
@@ -129,14 +125,12 @@ class _OpenSandboxCreationMixin:
         (execd starts in ≤ 1s; the first commands.run establishes the connection
         automatically).
         """
-        from opensandbox import Sandbox
-
         config = self._make_config()
         # No user id here on purpose: light sandboxes are pre-warmed and handed to
         # whoever asks next, so they may only ever carry shared skills.
         skills_vols = _make_skills_volumes()
         try:
-            sbx = await Sandbox.create(
+            sbx = await self._create_owned_sandbox(
                 self._image,
                 timeout=timedelta(
                     seconds=300
@@ -149,8 +143,6 @@ class _OpenSandboxCreationMixin:
             )
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 轻量沙盒: {e}") from e
-        # Direct execd connection (bypasses the server proxy's ~3s/request overhead); auto-falls back when unreachable.
-        await self._repoint_execd_direct(sbx)
         return sbx
 
     async def _repoint_execd_direct(self, sbx: Any) -> bool:
@@ -254,16 +246,27 @@ class _OpenSandboxCreationMixin:
                     return False
                 await asyncio.sleep(interval_s)
 
-    async def _destroy_sandbox(self, sbx: Any) -> None:
-        """Destroy callback used by SandboxPool + common internal destruction entry point."""
+    async def _destroy_sandbox(
+        self, sbx: Any, *, expected_owner: Optional[str] = None,
+    ) -> None:
+        """Destroy an unbound container after atomically fencing its old tracker."""
+        sandbox_id = str(sbx.id)
+        original_owner = expected_owner or self._tracking_owner_token()
         try:
-            await sbx.kill()
-        except Exception as e:  # noqa: BLE001
-            logger.debug("[opensandbox] destroy.kill: %s", e)
-        try:
-            await sbx.close()
-        except Exception:  # noqa: BLE001
-            pass
+            async with session_registry.destruction_guard(
+                sandbox_id, expected_owner=original_owner,
+            ) as allowed:
+                if allowed:
+                    await sbx.kill()
+                else:
+                    logger.info("[opensandbox] retained sandbox=%s owned elsewhere", sandbox_id)
+        except Exception as exc:
+            logger.warning("[opensandbox] destroy deferred sandbox=%s: %s", sandbox_id, exc)
+        finally:
+            try:
+                await sbx.close()
+            except Exception:
+                pass
 
     async def _pooled_sandbox_owner(self, sbx: Any) -> Optional[str]:
         """池子用的归属谓词：这台容器当前属于哪个会话，无主返回 ``None``。
@@ -276,6 +279,14 @@ class _OpenSandboxCreationMixin:
         sandbox_id = getattr(sbx, "id", None)
         if not sandbox_id:
             return None
+        bound = await session_registry.bound_session(str(sandbox_id))
+        if bound:
+            return bound
+        # A missing tracker may be an expired lease from a still-live worker.
+        # Claim it atomically before delivery so startup adoption cannot take the
+        # same container between this predicate and the later session binding.
+        if not await self._track_sandbox(str(sandbox_id)):
+            return "worker:another-owner"
         return await session_registry.bound_session(str(sandbox_id))
 
     async def _probe_pooled_sandbox_alive(self, sbx: Any) -> bool:
@@ -355,20 +366,15 @@ class _OpenSandboxCreationMixin:
         When ``user_id`` is absent (legacy / fallback), take the old path: grab one
         from the general pool without account volumes.
         """
-        use_user_pool = bool(
-            user_id and (_user_bound_sandbox_required() or str(user_id).startswith("api_ak_"))
-        )
+        use_user_pool = bool(user_id and (_user_bound_sandbox_required() or str(user_id).startswith("api_ak_")))
 
         if use_user_pool:
             sandbox = await self._jupyter_user_pool.acquire(user_id)
         else:
             sandbox = await self._pool.acquire("jupyter")
         # No CodeInterpreter: all languages go through execd commands.run (see cloud_processes).
-        # interpreter=None / contexts={} are placeholders, keeping the _Session structure compatible.
         return _Session(
             sandbox=sandbox,
-            interpreter=None,
-            contexts={},
             user_id=user_id,
             pool_source="user" if use_user_pool else "general",
             last_renew_ts=time.monotonic(),
@@ -398,11 +404,24 @@ class _OpenSandboxCreationMixin:
         )
         return _Session(
             sandbox=sandbox,
-            interpreter=None,
-            contexts={},
             user_id=user_id,
             # The snapshot contains the filesystem results of the directory conventions; skip redundant setup
             setup_done=True,
             last_renew_ts=time.monotonic(),
             last_active_ts=time.monotonic(),
         )
+
+    async def _create_owned_sandbox(self, *args, **kwargs):
+        """Prevent startup adoption while a new sandbox is being delivered."""
+        from opensandbox import Sandbox
+
+        async with session_registry.creation_guard() as token:
+            kwargs["metadata"] = {
+                **(kwargs.get("metadata") or {}), "hugagent-creation-token": token,
+            }
+            sandbox = await Sandbox.create(*args, **kwargs)
+            await self._repoint_execd_direct(sandbox)
+            if not await self._track_sandbox(str(sandbox.id)):
+                # Another owner may already be using it. Never kill or deliver it.
+                raise SandboxConnectError("sandbox ownership was acquired elsewhere")
+            return sandbox

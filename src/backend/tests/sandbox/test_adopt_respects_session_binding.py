@@ -205,7 +205,7 @@ def test_bound_session_answers_who_owns_a_container():
     assert after_forget is None
 
 
-def test_a_stale_reverse_entry_is_cleaned_up(sandbox_session_store):
+def test_a_stale_reverse_entry_is_ignored_without_read_side_effects(sandbox_session_store):
     """会话换了容器：旧容器重新算无主，反向那条顺手清掉，不让两个方向各执一词。"""
 
     async def scenario():
@@ -220,4 +220,4 @@ def test_a_stale_reverse_entry_is_cleaned_up(sandbox_session_store):
     answer, leftover = asyncio.run(scenario())
 
     assert answer is None
-    assert leftover is None
+    assert leftover == "chat-1"

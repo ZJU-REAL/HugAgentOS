@@ -146,7 +146,14 @@ def _fake_paginator(items):
 def patch_open_settings(monkeypatch, value):
     """Isolate the configuration of the concrete OpenSandbox components under test."""
     from importlib import import_module
-    for name in ("creation", "lifecycle", "snapshots", "volumes", "account_volumes"):
+    for name in ("creation", "lifecycle", "snapshots", "volumes", "account_volumes", "tracking", "reclamation"):
         module = import_module("core.sandbox.providers.opensandbox." + name)
         if hasattr(module, "settings"):
             monkeypatch.setattr(module, "settings", value)
+def install_session_scope(provider):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def use(session_id, user_id=None):
+        yield await provider._get_or_create_session(session_id, user_id=user_id)
+    provider._session_use = use

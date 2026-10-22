@@ -9,8 +9,6 @@ from typing import Any, Optional
 @dataclass
 class _Session:
     sandbox: Any  # opensandbox.Sandbox
-    interpreter: Any  # code_interpreter.CodeInterpreter
-    contexts: dict[str, Any]  # language → CodeContext (one ctx per language, mutually isolated)
     # The user_id owning this sandbox (binds MySpace/account-credential volumes +
     # user re-homing on adopt across restarts). None when legacy paths call
     # _get_or_create_session without a user_id — execution then falls back to a
@@ -24,7 +22,7 @@ class _Session:
     # destroys outright instead of calling either pool's release — calling _pool.release
     # would push _pool.in_flight negative (no paired acquire), and calling
     # _jupyter_user_pool.release would leak the previous chat's /workspace/scratch to the
-    # same user's next chat. Three states: 'user' | 'general' | 'none'
+    # same user's next chat. Sources: 'user' | 'general' | 'none' | 'attached'
     pool_source: str = "none"
     setup_done: bool = (
         False  # whether the directory conventions (scratch/myspace/symlinks) are set up
@@ -38,13 +36,8 @@ class _Session:
     # now - last_active_ts exceeds the threshold, instead of waiting for the server TTL.
     last_active_ts: float = 0.0
     # Set True when the background async renew reports a lifecycle signal
-    # (404/422/terminated); the next _get_or_create_session destroys and rebuilds the
+    # (structured DOCKER::SANDBOX_NOT_FOUND); the next _get_or_create_session destroys and rebuilds the
     # moment it takes the lock, avoiding a 3s synchronous renew on the request path.
     stale_marked: bool = False
-    # Consecutive renew failure count: used to escalate "persistent ReadTimeout /
-    # ConnectError" to stale as well. A single timeout may be transient server-side high
-    # load and should not destroy a healthy session; but N consecutive failures usually
-    # mean the sandbox is actually dead while the server still lists it as existing (the
-    # window before the 404). A successful _renew resets it to 0. See
-    # _renew_in_background for the N threshold.
+    # Diagnostic only: transient failures never authorize destruction.
     consecutive_renew_failures: int = 0

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.sandbox.providers.opensandbox.accounting import finish_accounting
+
 import asyncio
 import logging
 import time
@@ -77,7 +79,7 @@ class _JupyterUserPool:
         self._destroy = destroy_fn
         # Liveness probe before handing out an idle sandbox: dead handles already reaped
         # server-side return False → discard and take the next one.
-        # See _OpenSandboxSessionMixin._probe_pooled_sandbox_alive.
+        # See _OpenSandboxCreationMixin._probe_pooled_sandbox_alive.
         self._liveness = liveness_fn
         # 归属判定：容器当前属于哪个会话。见类文档「空闲队列的不变式」。
         self._owner = owner_fn
@@ -93,90 +95,54 @@ class _JupyterUserPool:
         if self._closed:
             raise RuntimeError("_JupyterUserPool already closed")
         while True:
-            candidate = None
             async with self._lock:
-                q = self._idle.get(user_id)
-                if q:
-                    # cand_ts / cand_remaining are only read when candidate is non-None (i.e. this branch)
-                    candidate, cand_ts = q.popleft()
-                    cand_remaining = len(q)
-                    self._in_flight[user_id] = self._in_flight.get(user_id, 0) + 1
-                else:
-                    # Per-user cap: idle is already empty; creating another would push
-                    # in_flight past the cap → reject. Use SandboxError so the upper
-                    # _create_session raises (consistent with _pool.acquire when full)
-                    # instead of piling up resources.
-                    cur_in_flight = self._in_flight.get(user_id, 0)
-                    if cur_in_flight >= self._max_in_flight_per_user:
-                        raise SandboxError(
-                            f"per-user jupyter sandbox cap reached (user={user_id}, "
-                            f"in_flight={cur_in_flight}, cap={self._max_in_flight_per_user})"
-                        )
-                    self._in_flight[user_id] = cur_in_flight + 1
-            if candidate is not None:
-                # The liveness probe runs outside the lock (network I/O; holding _lock
-                # would serialize acquire/release across the whole pool). Dead handles
-                # (already reaped server-side) are discarded; return the in_flight slot,
-                # then take the next one / fall back to fresh creation — otherwise a dead
-                # handle handed to the session makes every operation hit 404
-                # SANDBOX_NOT_FOUND and spin in retries.
-                if self._liveness is not None and not await self._liveness(candidate):
-                    async with self._lock:
-                        self._in_flight[user_id] = max(self._in_flight.get(user_id, 0) - 1, 0)
-                    logger.info(
-                        "[jupyter-user-pool] evicting dead idle sandbox_id=%s user=%s "
-                        "(server-side reaped); trying next / fresh",
-                        getattr(candidate, "id", "?"),
-                        user_id,
+                queue = self._idle.get(user_id)
+                candidate = queue.popleft()[0] if queue else None
+                count = self._in_flight.get(user_id, 0)
+                if candidate is None and count >= self._max_in_flight_per_user:
+                    raise SandboxError(
+                        f"per-user jupyter sandbox cap reached (user={user_id}, "
+                        f"in_flight={count}, cap={self._max_in_flight_per_user})"
                     )
-                    await self._safe_destroy(candidate)
-                    continue  # take the next idle / fall back to fresh creation
-                # 入队之后又被某个会话认领了（park 进池的容器，原 worker 的会话表还缓存
-                # 着它）。递给别的会话就是两个会话共用一台容器、互相看见对方的
-                # /workspace，所以放它走：销毁由那个会话自己负责。
-                owner = await self._disown_if_owned(candidate, user_id, "acquire")
-                if owner is not None:
-                    async with self._lock:
-                        self._in_flight[user_id] = max(self._in_flight.get(user_id, 0) - 1, 0)
-                    continue  # take the next idle / fall back to fresh creation
-                logger.info(
-                    "[jupyter-user-pool] acquire user=%s from idle sandbox_id=%s "
-                    "(idle_age=%.0fs, remaining=%d)",
-                    user_id,
-                    getattr(candidate, "id", "?"),
-                    time.monotonic() - cand_ts,
-                    cand_remaining,
-                )
-                return candidate
-            # idle empty → create on the spot (the factory runs ~10s outside the lock,
-            # not blocking concurrent count updates for the same user)
+                self._in_flight[user_id] = count + 1
+            reserved = True
             try:
-                sbx = await self._factory(user_id)
-            except Exception:
-                async with self._lock:
-                    self._in_flight[user_id] = max(self._in_flight.get(user_id, 0) - 1, 0)
+                if candidate is not None:
+                    if await self._disown_if_owned(candidate, user_id, "acquire") is not None:
+                        reserved = False
+                        await finish_accounting(self._unreserve(user_id))
+                        continue
+                    alive = self._liveness is None or await self._liveness(candidate)
+                    # Tracking can expire during the probe; never destroy or
+                    # deliver a handle that another worker has since adopted.
+                    if await self._disown_if_owned(candidate, user_id, "acquire") is not None:
+                        reserved = False
+                        await finish_accounting(self._unreserve(user_id))
+                        continue
+                    if not alive:
+                        reserved = False
+                        await finish_accounting(self._unreserve(user_id))
+                        await self._safe_destroy(candidate)
+                        continue
+                    return candidate
+                sandbox = await self._factory(user_id)
+                if self._closed:
+                    reserved = False
+                    await finish_accounting(self._unreserve(user_id))
+                    await self._safe_destroy(sandbox)
+                    raise RuntimeError("_JupyterUserPool closed during sandbox creation")
+                return sandbox
+            except BaseException:
+                if reserved:
+                    await finish_accounting(self._unreserve(user_id))
                 raise
-            # Check _closed again: the factory ran ~10s outside the lock, during which
-            # shutdown may have already drained idle. Nobody would manage the sandbox we
-            # just created, so destroy it outright to avoid a leak.
-            if self._closed:
-                async with self._lock:
-                    self._in_flight[user_id] = max(self._in_flight.get(user_id, 0) - 1, 0)
-                await self._safe_destroy(sbx)
-                raise RuntimeError("_JupyterUserPool closed during sandbox creation")
-            logger.info(
-                "[jupyter-user-pool] created fresh sandbox for user=%s sandbox_id=%s",
-                user_id,
-                getattr(sbx, "id", "?"),
-            )
-            return sbx
 
-    async def release(self, user_id: str, sbx: Any, *, reuse: bool) -> None:
+    async def release(self, user_id: str, sbx: Any, *, reuse: bool, destroy: bool = True, can_destroy: Optional[Callable[[], bool]] = None) -> None:
         """Return a sandbox. ``reuse=False`` → destroy outright; ``reuse=True`` → enter idle for same-user reuse."""
         should_destroy: Optional[Any] = None
         async with self._lock:
             self._in_flight[user_id] = max(self._in_flight.get(user_id, 0) - 1, 0)
-            if reuse and not self._closed:
+            if reuse and destroy and (can_destroy is None or can_destroy()) and not self._closed:
                 q = self._idle.setdefault(user_id, deque())
                 if len(q) < self._max_idle_per_user:
                     q.append((sbx, time.monotonic()))
@@ -191,7 +157,7 @@ class _JupyterUserPool:
                     should_destroy = sbx
             else:
                 should_destroy = sbx
-        if should_destroy is not None:
+        if should_destroy is not None and destroy and (can_destroy is None or can_destroy()):
             await self._safe_destroy(should_destroy)
 
     def has_idle(self, user_id: str) -> bool:
@@ -272,7 +238,8 @@ class _JupyterUserPool:
         for user_id, q in buckets:
             while q:
                 sbx, _ts = q.popleft()
-                await self._safe_destroy(sbx)
+                if await self._disown_if_owned(sbx, user_id, "shutdown") is None:
+                    await self._safe_destroy(sbx)
 
     async def _disown_if_owned(self, sbx: Any, user_id: str, stage: str) -> Optional[str]:
         """容器已被某个会话认领就交还给它，返回会话 id；无主返回 ``None``。
@@ -322,3 +289,7 @@ class _JupyterUserPool:
         for uid, q in list(self._idle.items()):
             out.extend((uid, sbx, ts) for (sbx, ts) in list(q))
         return out
+
+    async def _unreserve(self, user_id):
+        async with self._lock:
+            self._in_flight[user_id] = max(0, self._in_flight.get(user_id, 0) - 1)

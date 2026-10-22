@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from contextvars import ContextVar
 import json
 import logging
 import time
@@ -53,6 +54,7 @@ _LOCK_TTL_S = 180
 # 等锁用退避而不是定频轮询：一次 park 要十几秒，10Hz 会白打上百个来回。
 _POLL_MIN_S = 0.05
 _POLL_MAX_S = 0.5
+_LOCK_RENEW_INTERVAL_S = 60
 
 
 def _binding_ttl_s() -> int:
@@ -75,31 +77,82 @@ async def _read(session_id: str) -> Optional[Tuple[str, float]]:
         return None
 
 
+_lease_state: ContextVar[Optional[dict]] = ContextVar("sandbox_claim_lease", default=None)
+
+
+def claim_active() -> bool:
+    return _lease_state.get() is not None and claim_valid()
+
+
+def claim_valid() -> bool:
+    state = _lease_state.get()
+    while state is not None:
+        if not state["valid"]:
+            return False
+        state = state.get("parent")
+    return True
+
+
 @contextlib.asynccontextmanager
 async def claim(session_id: str) -> AsyncIterator[None]:
     """跨进程认领这个会话，期间只有一个 worker 能建 / 换它的沙箱。"""
+    from core.config.settings import settings
+    sandbox = settings.sandbox
+    ttl = max(_LOCK_TTL_S,
+              2 * getattr(sandbox, "opensandbox_request_timeout_s", 120)
+              + getattr(sandbox, "opensandbox_snapshot_wait_timeout_s", 120) + 60)
     state = get_ephemeral_state()
     key = _LOCK_KEY.format(session_id=session_id)
     token = uuid.uuid4().hex
-    deadline = time.monotonic() + _LOCK_TTL_S
+    deadline = time.monotonic() + ttl
     delay = _POLL_MIN_S
-    while not await state.hold(key, token, ttl=_LOCK_TTL_S):
+    while not await state.hold(key, token, ttl=ttl):
         if time.monotonic() > deadline:
-            # 锁本身带过期时间，等过头只可能是持有者卡死。继续往下走比把请求挂死好：
-            # 最坏结果是两个 worker 同时建，后写的登记覆盖先写的，多出来的那个容器
-            # 会被空闲回收收走。
-            logger.warning(
-                "[sandbox-registry] claim %s timed out; proceeding unclaimed", session_id
-            )
-            yield
-            return
+            raise TimeoutError(f"sandbox session claim timed out: {session_id}")
         await asyncio.sleep(delay)
         delay = min(delay * 2, _POLL_MAX_S)
+    owner = asyncio.current_task()
+    lease_lost = False
+    parent = _lease_state.get()
+    # create_task copies ContextVars, but not ownership of a request's locks.
+    # Accounting children may still observe that shared lease's invalidation;
+    # a new independent claim must not inherit it as an ownership prerequisite.
+    if parent is not None and parent.get("owner") is not owner:
+        parent = None
+    lease = {"valid": True, "parent": parent, "key": key, "token": token, "owner": owner}
+    context_token = _lease_state.set(lease)
+
+    async def renew_lease() -> None:
+        nonlocal lease_lost
+        while True:
+            await asyncio.sleep(min(_LOCK_RENEW_INTERVAL_S, ttl / 3))
+            try:
+                retained = await state.hold(key, token, ttl=ttl)
+            except Exception:
+                retained = False
+            if not retained:
+                lease_lost = True
+                lease["valid"] = False
+                if owner is not None:
+                    owner.cancel()
+                return
+
+    heartbeat = asyncio.create_task(renew_lease())
     try:
         yield
+    except asyncio.CancelledError:
+        if lease_lost:
+            if owner is not None:
+                owner.uncancel()
+            raise RuntimeError(f"sandbox session claim lost: {session_id}") from None
+        raise
     finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await heartbeat
         with contextlib.suppress(Exception):
-            await state.drop(key)
+            await state.release(key, token)
+        _lease_state.reset(context_token)
 
 
 async def lookup(session_id: str) -> Optional[str]:
@@ -110,25 +163,70 @@ async def lookup(session_id: str) -> Optional[str]:
 
 async def remember(session_id: str, sandbox_id: str) -> None:
     """记下「这个会话用这台容器，刚刚用过」。建好之后和每次使用都调它。"""
-    state = get_ephemeral_state()
-    ttl = _binding_ttl_s()
-    await state.put(
-        _KEY.format(session_id=session_id),
-        json.dumps({"sandbox_id": str(sandbox_id), "active_at": time.time()}),
-        ttl=ttl,
-    )
-    # 反向索引和正向记录同写同活，否则长会话跑过一个 TTL 之后就问不出主人了。
-    await state.put(_REVERSE_KEY.format(sandbox_id=sandbox_id), session_id, ttl=ttl)
+    await _publish_binding(session_id, sandbox_id, time.time())
+
+
+def _binding_guards() -> dict[str, str]:
+    if not claim_valid():
+        raise RuntimeError("sandbox binding lease lost")
+    guards = {}
+    lease = _lease_state.get()
+    while lease is not None:
+        guards[lease["key"]] = lease["token"]
+        lease = lease.get("parent")
+    return guards
+
+
+def _binding_lease_lost() -> None:
+    # Finally blocks must see loss even before the heartbeat gets another turn.
+    lease = _lease_state.get()
+    while lease is not None:
+        lease["valid"] = False
+        lease = lease.get("parent")
+    raise RuntimeError("sandbox binding lease lost")
+
+
+async def _publish_binding(session_id: str, sandbox_id: str, active_at: float) -> None:
+    published = await get_ephemeral_state().mutate_if(_binding_guards(), {
+        _KEY.format(session_id=session_id): json.dumps({
+            "sandbox_id": str(sandbox_id), "active_at": active_at,
+        }),
+        _REVERSE_KEY.format(sandbox_id=sandbox_id): session_id,
+    }, ttl=_binding_ttl_s())
+    if not published:
+        _binding_lease_lost()
+
+
+async def renew_binding(session_id: str, sandbox_id: str) -> bool:
+    """Extend a protected idle binding without pretending the user used it.
+
+    Callers hold the session claim, so retirement cannot interleave the refresh.
+    """
+    entry = await _read(session_id)
+    if entry is None or entry[0] != str(sandbox_id):
+        return False
+    await _publish_binding(session_id, sandbox_id, entry[1])
+    return True
 
 
 async def forget(session_id: str, sandbox_id: str) -> None:
-    """撤销登记——只在它仍指向这个沙箱时，免得抹掉别人刚建的那条。"""
-    entry = await _read(session_id)
-    if entry and entry[0] == str(sandbox_id):
-        await get_ephemeral_state().drop(
-            _KEY.format(session_id=session_id),
-            _REVERSE_KEY.format(sandbox_id=sandbox_id),
-        )
+    """Retire only the observed binding while the distributed claim still owns it."""
+    state = get_ephemeral_state()
+    key = _KEY.format(session_id=session_id)
+    raw = await state.get(key)
+    if not raw:
+        return
+    try:
+        if str(json.loads(raw)["sandbox_id"]) != str(sandbox_id):
+            return
+    except (ValueError, KeyError, TypeError):
+        return
+    reverse = _REVERSE_KEY.format(sandbox_id=sandbox_id)
+    reverse_value = await state.get(reverse)
+    guards = {**_binding_guards(), key: raw, reverse: reverse_value}
+    remove = (key, reverse) if reverse_value == session_id else (key,)
+    if not await state.mutate_if(guards, {}, remove=remove, ttl=_binding_ttl_s()):
+        _binding_lease_lost()
 
 
 async def bound_session(sandbox_id: str) -> Optional[str]:
@@ -136,7 +234,7 @@ async def bound_session(sandbox_id: str) -> Optional[str]:
 
     空闲池用它守住「队列里只有无主容器」，重启后的沙箱认领用它区分「无主，可以收进
     池」和「仍在服务会话，别碰」。反向索引会过期——会话换了容器之后，旧容器那条要等
-    TTL 才消失——所以回正向记录复核一次，对不上就顺手清掉，两个方向只留一个事实。
+    TTL 才消失——所以回正向记录复核一次；读取不修改共享记录，避免清掉并发更新。
     """
     state = get_ephemeral_state()
     key = _REVERSE_KEY.format(sandbox_id=sandbox_id)
@@ -146,7 +244,6 @@ async def bound_session(sandbox_id: str) -> Optional[str]:
     entry = await _read(sid)
     if entry and entry[0] == str(sandbox_id):
         return sid
-    await state.drop(key)
     return None
 
 
@@ -166,3 +263,118 @@ async def in_use_elsewhere(session_id: str, idle_threshold_s: float) -> bool:
         )
         return True
     return entry is not None and (time.time() - entry[1]) < idle_threshold_s
+
+
+_TRACK_KEY = "jx:sandbox:tracked:{sandbox_id}"
+_TRACK_TTL_S = 180
+
+
+async def track(sandbox_id: str, worker_token: str) -> bool:
+    return await get_ephemeral_state().hold(
+        _TRACK_KEY.format(sandbox_id=sandbox_id), worker_token, ttl=_TRACK_TTL_S
+    )
+
+
+async def take_for_destruction(
+    sandbox_id: str, expected_owner: Optional[str], destruction_token: str,
+    *, ttl: int = _TRACK_TTL_S,
+) -> bool:
+    """Atomically replace the expected tracker or claim a now-untracked key."""
+    state = get_ephemeral_state()
+    key = _TRACK_KEY.format(sandbox_id=sandbox_id)
+    if expected_owner is not None and await state.compare_exchange(
+        key, expected_owner, destruction_token, ttl=ttl,
+    ):
+        return True
+    return await state.hold(key, destruction_token, ttl=ttl)
+
+
+@contextlib.asynccontextmanager
+async def destruction_guard(
+    sandbox_id: str, expected_owner: Optional[str] = None,
+) -> AsyncIterator[bool]:
+    """Hold an independent renewable destruction lease until the call finishes."""
+    from core.config.settings import settings
+
+    ttl = max(_TRACK_TTL_S,
+              getattr(settings.sandbox, "opensandbox_request_timeout_s", 120) + 60)
+    token = uuid.uuid4().hex
+    key = _TRACK_KEY.format(sandbox_id=sandbox_id)
+    state = get_ephemeral_state()
+    acquired = False
+    completed = False
+    owner = asyncio.current_task()
+    lease_lost = False
+    heartbeat = None
+
+    async def renew_destruction():
+        nonlocal lease_lost
+        while True:
+            await asyncio.sleep(min(_LOCK_RENEW_INTERVAL_S, ttl / 3))
+            try:
+                retained = await state.hold(key, token, ttl=ttl)
+            except Exception:
+                retained = False
+            if not retained:
+                lease_lost = True
+                if owner is not None:
+                    owner.cancel()
+                return
+
+    try:
+        if claim_valid() and not await bound_session(sandbox_id):
+            acquired = await take_for_destruction(
+                sandbox_id, expected_owner, token, ttl=ttl,
+            )
+        if acquired:
+            heartbeat = asyncio.create_task(renew_destruction())
+        yield bool(acquired and claim_valid() and not await bound_session(sandbox_id))
+        if lease_lost:
+            raise RuntimeError(f"sandbox destruction lease lost: {sandbox_id}")
+        completed = True
+    except asyncio.CancelledError:
+        if lease_lost:
+            if owner is not None:
+                owner.uncancel()
+            raise RuntimeError(f"sandbox destruction lease lost: {sandbox_id}") from None
+        raise
+    finally:
+        if heartbeat is not None:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await heartbeat
+        # A cancelled or failed DELETE may still be executing remotely. Stop
+        # renewal but keep its finite fence until TTL expiry; only acknowledged
+        # completion authorizes immediate adoption.
+        if acquired and completed:
+            try:
+                await untrack(sandbox_id, token)
+            except Exception as exc:
+                logger.warning("[sandbox-registry] destruction lease cleanup failed %s: %s",
+                               sandbox_id, exc)
+
+
+async def untrack(sandbox_id: str, worker_token: str) -> None:
+    await get_ephemeral_state().release(_TRACK_KEY.format(sandbox_id=sandbox_id), worker_token)
+
+
+async def tracked_owner(sandbox_id: str) -> Optional[str]:
+    return await get_ephemeral_state().get(_TRACK_KEY.format(sandbox_id=sandbox_id))
+
+
+@contextlib.asynccontextmanager
+async def creation_guard() -> AsyncIterator[str]:
+    """Publish renewable creation intent before the controller exposes a sandbox.
+
+    The same claim implementation renews the intent and stops its owner on loss.
+    Creation must acquire tracking ownership before this guard is released.
+    """
+    token = uuid.uuid4().hex
+    async with claim(f"creating:{token}"):
+        yield token
+
+
+async def creation_pending(token: str) -> bool:
+    return bool(await get_ephemeral_state().get(
+        _LOCK_KEY.format(session_id=f"creating:{token}")
+    ))

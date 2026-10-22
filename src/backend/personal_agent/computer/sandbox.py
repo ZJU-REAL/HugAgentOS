@@ -6,6 +6,7 @@ import json
 import shlex
 import uuid
 from datetime import timedelta
+from contextlib import asynccontextmanager
 from pathlib import Path
 from sqlalchemy import select
 from core.db.engine import SessionLocal
@@ -87,6 +88,16 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 raise SandboxError("Personal sandbox owner mismatch")
             return row.id, row.sandbox_id, row.generation
 
+    @asynccontextmanager
+    async def _session_use(self, session_id, user_id=None):
+        """Use the permanent DB binding, never the ordinary pooled registry.
+
+        Resolution already locks and checks computer ownership and mount grants.
+        Permanent instances are never parked or recycled by another chat. Do not
+        hold that lock across I/O: staging calls this resolver again for each file.
+        """
+        yield await self._get_or_create_session(session_id, user_id)
+
     async def _get_or_create_session(self, session_id, user_id=None):
         ident, sandbox_id, generation = self._binding(session_id, user_id)
         lock = await self._get_session_lock(session_id)
@@ -123,7 +134,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             else:
                 sandbox = await self._provision(ident, session_id, user_id, generation)
             await self._repoint_execd_direct(sandbox)
-            session = _Session(sandbox=sandbox, interpreter=None, contexts={},
+            session = _Session(sandbox=sandbox,
                                user_id=user_id, setup_done=True, pool_source="none")
             self._sessions[session_id] = session
             return session

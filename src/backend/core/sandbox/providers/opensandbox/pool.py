@@ -25,6 +25,8 @@ pool is empty and proactive pre-warm refills it.
 
 from __future__ import annotations
 
+from core.sandbox.providers.opensandbox.accounting import finish_accounting
+
 import asyncio
 import logging
 from collections import deque
@@ -64,6 +66,7 @@ class SandboxPool:
         light_factory: Callable[[], Awaitable[Any]],
         destroy_fn: Callable[[Any], Awaitable[None]],
         liveness_fn: Callable[[Any], Awaitable[bool]] | None = None,
+        owner_fn: Callable[[Any], Awaitable[str | None]] | None = None,
     ):
         """
         Args:
@@ -85,6 +88,7 @@ class SandboxPool:
         self._max_total = max_total
         self._destroy = destroy_fn
         self._liveness = liveness_fn
+        self._owner = owner_fn
         self._dispatch_lock = asyncio.Lock()
         # One refill lock per bucket: keeps _refill coroutines of the same kind serialized,
         # preventing concurrent _kick_refill calls from entering the deficit check simultaneously and over-creating
@@ -98,53 +102,44 @@ class SandboxPool:
     # ───── public API ─────────────────────────────────────────────────────
 
     async def acquire(self, kind: PoolKind) -> Any:
-        """Take a sandbox from the corresponding bucket.
-        - Bucket has an idle one: return in O(1)
-        - No idle: create on the spot (blocking)
-        - Triggers a background refill task to maintain min_idle
-        """
         if self._closed:
             raise RuntimeError("SandboxPool already closed")
         bucket = self._buckets[kind]
         while True:
-            sbx = None
             async with self._dispatch_lock:
-                if bucket.idle:
-                    sbx = bucket.idle.popleft()
-                    bucket.in_flight += 1
+                sandbox = bucket.idle.popleft() if bucket.idle else None
+                if sandbox is None and self._total() >= self._max_total:
+                    raise RuntimeError(f"sandbox pool reached max_total={self._max_total}")
+                bucket.in_flight += 1
+            reserved = True
+            try:
+                if sandbox is not None:
+                    if self._owner is not None and await self._owner(sandbox):
+                        reserved = False
+                        await finish_accounting(self._unreserve(bucket))
+                        continue
+                    alive = self._liveness is None or await self._liveness(sandbox)
+                    # A slow probe can outlive the worker tracking lease. Reclaim
+                    # atomically before either delivery or destruction.
+                    if self._owner is not None and await self._owner(sandbox):
+                        reserved = False
+                        await finish_accounting(self._unreserve(bucket))
+                        continue
+                    if not alive:
+                        reserved = False
+                        await finish_accounting(self._unreserve(bucket))
+                        await self._safe_destroy(sandbox)
+                        continue
                 else:
-                    if self._total() >= self._max_total:
-                        raise RuntimeError(f"sandbox pool reached max_total={self._max_total}")
-                    bucket.in_flight += 1  # reserve the slot early to prevent concurrent overrun
-            if sbx is not None:
-                # We popped a pre-warmed idle handle: its container may have been reclaimed
-                # server-side (TTL / out-of-band reap), see the idle_sandboxes note. Probe
-                # before handing it out; drop dead handles and take the next one — otherwise
-                # every session operation would hit 404 SANDBOX_NOT_FOUND and spin in retries.
-                if self._liveness is not None and not await self._liveness(sbx):
-                    async with self._dispatch_lock:
-                        bucket.in_flight -= 1
-                    logger.info(
-                        "[sandbox-pool] evicting dead idle sandbox kind=%s id=%s "
-                        "(server-side reaped); trying next / fresh",
-                        kind,
-                        getattr(sbx, "id", "?"),
-                    )
-                    await self._safe_destroy(sbx)
-                    continue  # take the next idle / fall back to creating fresh via factory
-            else:
-                # idle empty → create on the spot (a freshly created sandbox is necessarily alive, no probe needed)
-                try:
-                    sbx = await bucket.factory()
-                except Exception:
-                    async with self._dispatch_lock:
-                        bucket.in_flight -= 1
-                    raise
-            # Got a live idle or a fresh build: uniformly trigger background refill here (no waiting) + return
-            self._kick_refill(kind)
-            return sbx
+                    sandbox = await bucket.factory()
+                self._kick_refill(kind)
+                return sandbox
+            except BaseException:
+                if reserved:
+                    await finish_accounting(self._unreserve(bucket))
+                raise
 
-    async def release(self, kind: PoolKind, sbx: Any, *, reuse: bool) -> None:
+    async def release(self, kind: PoolKind, sbx: Any, *, reuse: bool, destroy: bool = True, can_destroy: Callable[[], bool] | None = None) -> None:
         """Return a sandbox.
 
         ``reuse=False`` (light-bucket use-once-then-destroy scenario): destroy outright, refill one in the background;
@@ -153,11 +148,12 @@ class SandboxPool:
         bucket = self._buckets[kind]
         async with self._dispatch_lock:
             bucket.in_flight -= 1
-            if reuse and len(bucket.idle) < bucket.max_idle:
+            if reuse and destroy and (can_destroy is None or can_destroy()) and len(bucket.idle) < bucket.max_idle:
                 bucket.idle.append(sbx)
                 return
         # destroy happens asynchronously outside the lock
-        await self._safe_destroy(sbx)
+        if destroy and (can_destroy is None or can_destroy()):
+            await self._safe_destroy(sbx)
         self._kick_refill(kind)
 
     async def warmup(self) -> None:
@@ -206,11 +202,15 @@ class SandboxPool:
                 async with self._dispatch_lock:
                     candidates = list(bucket.idle)
                 if candidates:
+                    async def probe(sbx):
+                        if self._owner is not None and await self._owner(sbx):
+                            return "foreign"
+                        return await self._liveness(sbx)
                     results = await asyncio.gather(
-                        *(self._liveness(sbx) for sbx in candidates),
-                        return_exceptions=True,
+                        *(probe(sbx) for sbx in candidates), return_exceptions=True,
                     )
-                    dead = [s for s, r in zip(candidates, results) if r is False]
+                    dead = [s for s, r in zip(candidates, results) if r is False or r == "foreign"]
+                    foreign = {id(s) for s, r in zip(candidates, results) if r == "foreign"}
                     if dead:
                         async with self._dispatch_lock:
                             removed = []
@@ -227,7 +227,9 @@ class SandboxPool:
                                 kind,
                                 getattr(sbx, "id", "?"),
                             )
-                            await self._safe_destroy(sbx)
+                            if (id(sbx) not in foreign
+                                    and (self._owner is None or not await self._owner(sbx))):
+                                await self._safe_destroy(sbx)
                         evicted += len(removed)
             # Whether anything was evicted or not, refill to min_idle (built in the background, off the user request path)
             self._kick_refill(kind)
@@ -241,7 +243,7 @@ class SandboxPool:
         behind and are still alive", ``Sandbox.connect``s to them and pushes them back into
         the pool through this entry point. Equivalent to the inverse of
         ``acquire+release(reuse=True)`` but bypassing ``factory()`` — saving the cost of
-        rebuilding the container and waiting for Jupyter Server to become ready.
+        rebuilding the container and waiting for execd to become ready.
 
         Returns:
             ``True``: successfully added to the idle queue;
@@ -275,7 +277,8 @@ class SandboxPool:
         for bucket in self._buckets.values():
             while bucket.idle:
                 sbx = bucket.idle.popleft()
-                await self._safe_destroy(sbx)
+                if self._owner is None or not await self._owner(sbx):
+                    await self._safe_destroy(sbx)
 
     def stats(self) -> dict[str, dict[str, int]]:
         return {
@@ -370,3 +373,7 @@ class SandboxPool:
             await self._destroy(sbx)
         except Exception as e:  # noqa: BLE001
             logger.warning("[sandbox-pool] destroy failed: %s", e)
+
+    async def _unreserve(self, bucket):
+        async with self._dispatch_lock:
+            bucket.in_flight -= 1

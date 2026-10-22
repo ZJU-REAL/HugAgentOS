@@ -124,7 +124,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 - 用户绑定的容器仅能交给同一用户，复用前清理上一会话的工作区。
 - 基础实现保留个人空间和技能挂载。EE 扩展额外保留团队挂载并复核权限。
 - CE Docker 默认不预热空闲容器。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
-- SANDBOX_IDLE_TTL_S 同时控制服务端 TTL 和空闲回收阈值，默认 3600 秒。
+- SANDBOX_IDLE_TTL_S 控制空闲快照阈值，默认 3600 秒。服务端硬到期时间另加回收排队、续期限频、快照请求和等待的宽限。每轮扫描先为排队会话续期，再公平分批创建快照。
 - 带密钥的续期与快照请求统一使用 OPEN-SANDBOX-API-KEY 认证头。
 
 ## 快照持久化（CE / EE）
@@ -187,7 +187,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |
-| `SANDBOX_IDLE_TTL_S` | 3600 | 沙箱唯一的时长参数：服务端 TTL = 空闲阈值 = 保活间隔基准；到点先 snapshot 再释放 |
+| `SANDBOX_IDLE_TTL_S` | 3600 | 空闲快照阈值和保活间隔基准；服务端 TTL 另加快照与排队宽限 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | 等 snapshot Ready 的轮询上限 |
@@ -234,3 +234,14 @@ Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控
 恢复时继续校验当前用户、权限版本、挂载范围、凭据和只读属性。
 校验冲突返回 409，并保留沙盒和工作区；挂载服务故障返回 503。
 控制器升级后，先验证现有沙盒恢复和跨用户拒绝，再执行用户命令。
+
+### 回收计数与多进程管理视图
+
+控制器明确返回 DOCKER::SANDBOX_NOT_FOUND 时，后端清除失效会话并归还一次占用。
+快照或续期超时、鉴权失败、普通路由 404 和服务错误都不能作为删除活容器的依据。
+成功快照后才允许擦除并复用工作区。显式关闭与空闲回收使用相同的会话锁和共享认领。
+
+OpenSandbox 的实例列表与实例计数读取控制器当前运行清单，不再累计进程内旧句柄。
+控制器查询失败时，计数不可用；不能把查询失败报告成零实例。
+连接池诊断保留 scope=worker 与 worker_pid，表示当前后端进程的本地池，
+不代表全部进程的用户配额。该修复不把本地池上限改成跨进程全局配额。

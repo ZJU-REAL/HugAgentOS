@@ -362,7 +362,7 @@ class ScriptRunnerProvider(CompletionMixin):
     def admin_capabilities(self) -> SandboxAdminCapabilities:
         return SandboxAdminCapabilities(provider=self.name)
 
-    async def admin_list_sandboxes(self, include_server: bool = False) -> list[SandboxInfo]:
+    async def admin_list_sandboxes(self) -> list[SandboxInfo]:
         raise SandboxAdminNotSupported("script_runner 未开放会话工作区枚举")
 
     async def admin_get_sandbox(self, sandbox_id: str) -> Optional[SandboxInfo]:

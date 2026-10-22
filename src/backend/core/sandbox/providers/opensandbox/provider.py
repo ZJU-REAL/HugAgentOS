@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import threading
+from weakref import WeakValueDictionary
 from pathlib import Path
 from typing import Any, Optional
 
@@ -31,8 +31,6 @@ from core.sandbox.providers.opensandbox.snapshots import _OpenSandboxSnapshotsMi
 # runtime import to avoid a cross-module circular dependency at startup (models.py also
 # imports core.db.engine).
 from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
-from core.sandbox.workspace.identity import safe_user_id
-from core.sandbox.workspace.paths import WORKSPACE
 from core.sandbox.workspace.streams import stream_to_file
 
 
@@ -57,7 +55,7 @@ class OpenSandboxProvider(
         # code_interpreter (the Jupyter kernel was removed, all languages go through
         # execd, see cloud_processes).
         try:
-            from opensandbox import Sandbox  # noqa: F401
+            from opensandbox import Sandbox
         except ImportError as e:
             raise SandboxError(
                 "未安装 opensandbox SDK，请在 requirements 中加入 "
@@ -69,6 +67,11 @@ class OpenSandboxProvider(
         self._api_key = s.opensandbox_api_key
         self._image = s.opensandbox_image
         self._ttl_s = s.idle_ttl_s
+        self._snapshot_expiry_grace_s = (
+            60 + s.opensandbox_request_timeout_s + s.opensandbox_snapshot_wait_timeout_s
+        )
+        self._snapshot_expiry_enabled = s.opensandbox_snapshot_enabled
+        self._snapshot_capacity = max(1, s.opensandbox_pool_max_total)
         self._ready_timeout_s = s.opensandbox_ready_timeout_s
         self._request_timeout_s = s.opensandbox_request_timeout_s
         self._renew_min_interval_s = (
@@ -97,7 +100,7 @@ class OpenSandboxProvider(
         # 从此每次都抛、又被调用方 except 掉 —— 保活静默失效，沙箱空闲 600s 被回收，
         # 正在跑的批量作业连同 workspace 一起消失，而作业状态还停在 running。
         # 单锁跨 loop 本来就不可能работать（只会抛），按 loop 分桶严格优于现状。
-        self._session_locks: dict[tuple[int, str], asyncio.Lock] = {}
+        self._session_locks: WeakValueDictionary[tuple[int, str], asyncio.Lock] = WeakValueDictionary()
         # 注册表锁只保护上面这个 dict 的读写（临界区里没有 await），所以用线程锁即可，
         # 天然跨 loop 可用 —— 换成 asyncio.Lock 就会重新引入上面那个 bug。
         self._registry_lock = threading.Lock()
@@ -126,6 +129,7 @@ class OpenSandboxProvider(
             light_factory=self._create_light_sandbox,
             destroy_fn=self._destroy_sandbox,
             liveness_fn=self._probe_pooled_sandbox_alive,
+            owner_fn=self._pooled_sandbox_owner,
         )
         # Plan F: jupyter sandboxes are bucketed by user_id. When bind mount is enabled,
         # all jupyter acquires go through here; adopted old sandboxes are placed into the
@@ -196,14 +200,7 @@ class OpenSandboxProvider(
         """
         if not session_id:
             return None
-        sess = self._sessions.get(session_id)
-        if sess is None:
-            # 这个 worker 还没服务过它，不代表没有沙箱——绑定的真源是共享登记。
-            return await session_registry.lookup(session_id)
-        try:
-            return str(sess.sandbox.id)
-        except Exception:  # noqa: BLE001 — defensive: opaque SDK object
-            return None
+        return await session_registry.lookup(session_id)
 
     @_on_service_loop
     async def touch_session(self, session_id: str) -> bool:
@@ -230,13 +227,23 @@ class OpenSandboxProvider(
             await processes.close_owner(session_id)
         if not session_id:
             return
-        sess = self._sessions.get(session_id)
-        if sess is None:
-            return
-        try:
-            await self._destroy_session(session_id, sess, reuse_sandbox=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[opensandbox] close_session failed sid=%s: %s", session_id, exc)
+        lock = await self._get_session_lock(session_id)
+        async with lock, session_registry.claim(session_id):
+            sess = self._sessions.get(session_id)
+            bound = await session_registry.lookup(session_id)
+            if sess is not None and str(sess.sandbox.id) != bound:
+                await self._release_session(session_id, sess, detach_only=True)
+                sess = None
+            if sess is None and bound:
+                sess = await self._attach_session(bound, user_id=None)
+                if sess is not None:
+                    self._sessions[session_id] = sess
+            if sess is None:
+                return
+            try:
+                await self._destroy_session(session_id, sess, reuse_sandbox=False)
+            except Exception as exc:
+                logger.warning("[opensandbox] close_session failed sid=%s: %s", session_id, exc)
 
     @_on_service_loop
     async def put_file(
@@ -256,11 +263,11 @@ class OpenSandboxProvider(
         """
         if not session_id:
             raise SandboxError("sandbox put_file 需要 session_id（持久会话）；当前请求未绑定会话")
-        sess = await self._get_or_create_session(session_id, user_id=user_id)
-        try:
-            await write_file(sess.sandbox, path, content)
-        except Exception as e:  # noqa: BLE001
-            raise SandboxError(f"write_file {path} 失败: {e}") from e
+        async with self._session_use(session_id, user_id) as sess:
+            try:
+                await write_file(sess.sandbox, path, content)
+            except Exception as e:  # noqa: BLE001
+                raise SandboxError(f"write_file {path} 失败: {e}") from e
 
     @_on_service_loop
     async def get_file(
@@ -272,14 +279,14 @@ class OpenSandboxProvider(
         """Read file bytes from the sandbox. ``user_id`` is passed through to session creation (see ``put_file``)."""
         if not session_id:
             raise SandboxError("sandbox get_file 需要 session_id（持久会话）；当前请求未绑定会话")
-        sess = await self._get_or_create_session(session_id, user_id=user_id)
-        try:
-            raw = await sess.sandbox.files.read_bytes(path)
-        except Exception as e:  # noqa: BLE001
-            raise SandboxError(f"read_bytes {path} 失败: {e}") from e
-        if isinstance(raw, str):
-            return raw.encode("utf-8")
-        return bytes(raw)
+        async with self._session_use(session_id, user_id) as sess:
+            try:
+                raw = await sess.sandbox.files.read_bytes(path)
+            except Exception as e:  # noqa: BLE001
+                raise SandboxError(f"read_bytes {path} 失败: {e}") from e
+            if isinstance(raw, str):
+                return raw.encode("utf-8")
+            return bytes(raw)
 
     @_on_service_loop
     async def get_file_to_path(
@@ -294,25 +301,25 @@ class OpenSandboxProvider(
         """Stream an OpenSandbox file into a backend-local path."""
         if not session_id:
             raise SandboxError("sandbox get_file 需要 session_id（持久会话）；当前请求未绑定会话")
-        sess = await self._get_or_create_session(session_id, user_id=user_id)
-        try:
-            info_by_path = await sess.sandbox.files.get_file_info([path])
-            info = info_by_path.get(path) if isinstance(info_by_path, dict) else None
-            known_size = int(getattr(info, "size", 0) or 0)
-            if known_size > max_bytes:
-                raise SandboxFileTooLargeError(actual_size=known_size, max_size=max_bytes)
-
-            chunks = await sess.sandbox.files.read_bytes_stream(path, chunk_size=1024 * 1024)
+        async with self._session_use(session_id, user_id) as sess:
             try:
-                return await stream_to_file(chunks, destination, max_bytes=max_bytes)
-            finally:
-                close = getattr(chunks, "aclose", None)
-                if close is not None:
-                    await close()
-        except SandboxFileTooLargeError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise SandboxError(f"stream_file {path} 失败: {exc}") from exc
+                info_by_path = await sess.sandbox.files.get_file_info([path])
+                info = info_by_path.get(path) if isinstance(info_by_path, dict) else None
+                known_size = int(getattr(info, "size", 0) or 0)
+                if known_size > max_bytes:
+                    raise SandboxFileTooLargeError(actual_size=known_size, max_size=max_bytes)
+
+                chunks = await sess.sandbox.files.read_bytes_stream(path, chunk_size=1024 * 1024)
+                try:
+                    return await stream_to_file(chunks, destination, max_bytes=max_bytes)
+                finally:
+                    close = getattr(chunks, "aclose", None)
+                    if close is not None:
+                        await close()
+            except SandboxFileTooLargeError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise SandboxError(f"stream_file {path} 失败: {exc}") from exc
 
     @_on_service_loop
     async def health(self) -> bool:
@@ -384,7 +391,7 @@ class OpenSandboxProvider(
 
         for sid, sess in list(self._sessions.items()):
             try:
-                await self._destroy_sandbox(sess.sandbox)
+                await self._release_session(sid, sess, detach_only=True)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[opensandbox] cleanup session=%s failed: %s", sid, e)
         self._sessions.clear()
@@ -407,3 +414,13 @@ class OpenSandboxProvider(
                 lock = asyncio.Lock()
                 self._session_locks[key] = lock
             return lock
+
+    def _session_expiry_s(self) -> int:
+        """Bound hard expiry after the local snapshot backlog and renewal skew."""
+        if not getattr(self, "_snapshot_expiry_enabled", False):
+            return self._ttl_s
+        capacity = max(self._snapshot_capacity, len(self._sessions) + 1)
+        # One scan interval per queued session is conservative relative to the
+        # three-at-a-time parker. Recompute on creation and activity renewal.
+        return (self._ttl_s + capacity * self._SNAPSHOT_IDLE_LOOP_INTERVAL_S
+                + self._snapshot_expiry_grace_s)

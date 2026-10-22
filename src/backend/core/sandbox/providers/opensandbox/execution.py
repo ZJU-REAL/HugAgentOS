@@ -6,7 +6,7 @@ import asyncio
 import base64
 from datetime import timedelta
 from shlex import quote as shell_escape
-from typing import Any, Optional
+from typing import Any
 
 from core.config.settings import settings
 from core.sandbox.protocol import ProcessRequest
@@ -33,6 +33,7 @@ class _OpenSandboxExecMixin:
 
         Returns the number of pool sandboxes reaped this round.
         """
+        reconciled = await self._reconcile_sessions()
         # First maintain the general warm pool: evict idle dead handles the
         # server already reclaimed by TTL + top back up to min_idle. No renewal;
         # when one dies, refill proactively in the background — otherwise the
@@ -54,7 +55,7 @@ class _OpenSandboxExecMixin:
 
         # Reap idle sandboxes past their TTL in _jupyter_user_pool (actually destroyed)
         try:
-            return await self._jupyter_user_pool.reap_idle(ttl_s=threshold) or 0
+            return reconciled + (await self._jupyter_user_pool.reap_idle(ttl_s=threshold) or 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[opensandbox] jupyter idle pool reap failed: %s", exc)
             return 0

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.sandbox.provider_test_support import install_session_scope
+
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -200,6 +202,7 @@ async def test_opensandbox_streams_file_to_path(tmp_path):
         return SimpleNamespace(sandbox=SimpleNamespace(files=_OpenSandboxFiles()))
 
     provider._get_or_create_session = _get_session
+    install_session_scope(provider)
     destination = tmp_path / "opensandbox.pdf"
     written = await provider.get_file_to_path(
         "chat-1",
@@ -284,6 +287,7 @@ async def test_remote_providers_reject_known_size_before_stream(provider_kind: s
             return SimpleNamespace(sandbox=SimpleNamespace(files=_Files()))
 
         provider._get_or_create_session = _get_session
+        install_session_scope(provider)
         call = provider.get_file_to_path("chat-1", "/workspace/large.bin", destination, max_bytes=8)
     else:
         CubeSandboxProvider = pytest.importorskip("core.sandbox.providers.cube.provider").CubeSandboxProvider
