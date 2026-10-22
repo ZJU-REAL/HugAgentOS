@@ -112,7 +112,9 @@ class _OpenSandboxCreationMixin:
         try:
             sbx = await self._create_owned_sandbox(
                 self._image,
-                timeout=timedelta(seconds=300),  # ephemeral is short-lived; 5min cap as a safety net
+                timeout=timedelta(
+                    seconds=300
+                ),  # ephemeral is short-lived; 5min cap as a safety net
                 entrypoint=_LIGHT_ENTRYPOINT,
                 connection_config=config,
                 skip_health_check=True,
@@ -361,7 +363,9 @@ class _OpenSandboxCreationMixin:
         )
 
     async def _create_session_from_snapshot(
-        self, snapshot_id: str, user_id: Optional[str] = None,
+        self,
+        snapshot_id: str,
+        user_id: Optional[str] = None,
     ) -> _Session:
         """Start a persistent session sandbox directly from an opensandbox snapshot + wrap it into a _Session.
 
@@ -376,7 +380,8 @@ class _OpenSandboxCreationMixin:
           usable as soon as it is up.
         """
         sandbox = await self._create_jupyter_sandbox(
-            from_snapshot_id=snapshot_id, user_id=user_id,
+            from_snapshot_id=snapshot_id,
+            user_id=user_id,
         )
         return _Session(
             sandbox=sandbox,
