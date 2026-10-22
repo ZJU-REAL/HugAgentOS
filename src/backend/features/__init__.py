@@ -39,6 +39,9 @@ def register_product_tools():
 
 
 def register_package_sources():
+    # CLI installs packages before API composition, so bind import policy here.
+    from core.ontology.host import register as register_governance
+    register_governance()
     register_marketplace_catalog()
     from core.harness.registry.package_views import register_package_view
     from features.workbench.ui import contract
