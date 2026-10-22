@@ -25,13 +25,16 @@ def _ordinary_provider() -> SandboxProvider:
 
     kind = settings.sandbox.provider
     if kind == "script_runner":
-        from .script_runner_provider import ScriptRunnerProvider
+        from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
+
         _provider = ScriptRunnerProvider()
     elif kind == "opensandbox":
-        from .edition_provider import PersistentSandboxProvider
+        from core.sandbox.providers.edition import PersistentSandboxProvider
+
         _provider = PersistentSandboxProvider()
     elif kind == "cube":
-        from core.sandbox.cube.provider import CubeSandboxProvider
+        from core.sandbox.providers.cube.provider import CubeSandboxProvider
+
         _provider = CubeSandboxProvider()
     else:
         raise ValueError(
@@ -43,7 +46,8 @@ def _ordinary_provider() -> SandboxProvider:
 
 
 def get_sandbox_provider() -> SandboxProvider:
-    from .session_router import SessionSandboxRouter
+    from core.sandbox.sessions.router import SessionSandboxRouter
+
     return SessionSandboxRouter(_ordinary_provider())
 
 

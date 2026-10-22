@@ -22,7 +22,7 @@ from typing import Any, Dict, List
 
 # 分类词表只有一处真源（分类器自己），这里跟着它走：新增一类危险操作不必再同步改一遍
 # 校验、设置面板和「完全放开」那三处。
-from core.sandbox.local_policy import DANGER_CATEGORIES as _DANGER_CATEGORIES
+from core.sandbox.permissions.models import DANGER_CATEGORIES as _DANGER_CATEGORIES
 
 _LOCK = threading.Lock()
 _VALID_MODES = ("read", "readwrite")
@@ -125,7 +125,7 @@ def set_policy(policy: Dict[str, str]) -> Dict[str, str]:
 
 def grants_for_gate() -> List[Any]:
     """Convert stored grants into ``local_policy.Grant`` objects for the gate."""
-    from core.sandbox.local_policy import Grant
+    from core.sandbox.permissions.models import Grant
 
     return [
         Grant(path=g["path"], mode=g.get("mode", "readwrite"))
@@ -145,7 +145,7 @@ def policy_for_gate(approval_mode: str) -> Any:
       - ``ask``/``auto``：走用户配置的分类处置 / 内置默认（中间地带）；两档在
         本机策略上一致，区别是"要不要停下来问"，那由权限网关按危险类别决定。
     """
-    from core.sandbox.local_policy import Policy
+    from core.sandbox.permissions.models import Policy
 
     if approval_mode == "full":
         return Policy(

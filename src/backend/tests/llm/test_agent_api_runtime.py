@@ -292,13 +292,13 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
     import sys
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    import core.sandbox._opensandbox_session as sessions
+    import core.sandbox.providers.opensandbox.creation as sessions
 
     user_pool = SimpleNamespace(acquire=AsyncMock(return_value=SimpleNamespace(id="api-container")))
     general_pool = SimpleNamespace(acquire=AsyncMock())
     host = SimpleNamespace(_jupyter_user_pool=user_pool, _pool=general_pool)
     monkeypatch.setattr(sessions, "_user_bound_sandbox_required", lambda: False)
-    result = await sessions._OpenSandboxSessionMixin._create_session(host, "api_ak_123")
+    result = await sessions._OpenSandboxCreationMixin._create_session(host, "api_ak_123")
     assert result.user_id == "api_ak_123"
     user_pool.acquire.assert_awaited_once_with("api_ak_123")
     general_pool.acquire.assert_not_awaited()
@@ -308,7 +308,6 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
 
     for name in (
         "_make_skills_volumes",
-        "_make_myspace_volume",
         "_make_dws_creds_volumes",
         "_make_lark_creds_volumes",
         "_make_email_creds_volumes",
@@ -319,13 +318,15 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
     monkeypatch.setitem(
         sys.modules, "opensandbox", SimpleNamespace(Sandbox=SimpleNamespace(create=create))
     )
-    host = SimpleNamespace(
-        _make_config=lambda: None,
-        _ttl_s=60,
-        _image="image",
-        _repoint_execd_direct=AsyncMock(),
-    )
-    await sessions._OpenSandboxSessionMixin._create_jupyter_sandbox(host, user_id="api_ak_123")
+    host = sessions._OpenSandboxCreationMixin()
+    host._make_config = lambda: None
+    host._ttl_s = 60
+    host._image = "image"
+    host._repoint_execd_direct = AsyncMock()
+    # Even if the workspace hook offers a mount, API principals must receive none.
+    host._additional_workspace_mounts = AsyncMock(return_value=([object()], {}))
+    await host._create_jupyter_sandbox(user_id="api_ak_123")
+    host._additional_workspace_mounts.assert_awaited_once_with("api_ak_123")
     assert create.call_args.kwargs["volumes"] is None
 
 

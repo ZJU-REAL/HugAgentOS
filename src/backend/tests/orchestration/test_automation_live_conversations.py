@@ -32,7 +32,8 @@ def live_env(tmp_path, monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     from core.infra import ephemeral
 
-    monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: ephemeral.LocalEphemeralState())
+    state = ephemeral.LocalEphemeralState()
+    monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
     monkeypatch.setattr(
         "core.config.catalog_resolver.resolve_all_runtime_enabled", lambda *args: ([], [], [])
     )
@@ -71,7 +72,6 @@ async def test_running_scheduled_conversation_can_replay_progress_and_be_stopped
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
@@ -131,7 +131,6 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
     async def notify(*args):
         notices.append(args)
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", notify)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
@@ -165,7 +164,7 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
 
 
 @pytest.mark.asyncio
-async def test_scheduler_timeout_fences_live_child_and_keeps_chat_link(live_env, monkeypatch):
+async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live_env, monkeypatch):
     factory, stream, task_id = live_env
 
     async def workflow(**kwargs):
@@ -174,21 +173,35 @@ async def test_scheduler_timeout_fences_live_child_and_keeps_chat_link(live_env,
 
     monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
     monkeypatch.setattr(
-        "orchestration.schedulers.automation_scheduler.TASK_EXECUTION_TIMEOUT_S", 0.3
+        "orchestration.schedulers.automation_scheduler.TASK_EXECUTION_TIMEOUT_S",
+        0.3,
+        raising=False,
     )
     scheduler = AutomationScheduler()
 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    await asyncio.wait_for(scheduler.execute_task(task_id, "owner"), 5)
-    with factory() as db:
-        run = AutomationService(db).get_task_runs(task_id, "owner")[0]
-        assert run.status == "failed"
-        assert run.chat_id
-        assert executor.get_active_run_for_chat(run.chat_id, "owner") is None
+    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    try:
+        await asyncio.sleep(0.6)
+        assert not executing.done()
+        with factory() as db:
+            run = AutomationService(db).get_task_runs(task_id, "owner")[0]
+            assert run.status == "running"
+            active = executor.get_active_run_for_chat(run.chat_id, "owner")
+        await executor.cancel_run(active.run_id, user_id="owner")
+        await asyncio.wait_for(executing, 5)
+        with factory() as db:
+            run = AutomationService(db).get_task_runs(task_id, "owner")[0]
+            assert run.status == "failed"
+            assert run.chat_id
+            assert executor.get_active_run_for_chat(run.chat_id, "owner") is None
+    finally:
+        if not executing.done():
+            executing.cancel()
+        await asyncio.gather(executing, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -231,7 +244,6 @@ async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(liv
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
@@ -262,8 +274,11 @@ async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, 
     assert not scheduler._running
     released = []
 
+    original_unlock = scheduler._release_lock
+
     async def unlock(task_id):
         released.append(task_id)
+        await original_unlock(task_id)
 
     monkeypatch.setattr(scheduler, "_release_lock", unlock)
 
@@ -309,7 +324,6 @@ async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, m
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     await asyncio.wait_for(entered.wait(), 5)
@@ -341,7 +355,6 @@ async def test_stopping_scheduler_fences_already_started_conversation(live_env, 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     await scheduler.start()
     scheduler._launch_execution(task_id, "owner")
     await asyncio.wait_for(entered.wait(), 5)
@@ -422,7 +435,6 @@ async def test_scheduled_tool_result_is_durable_before_next_model_round(
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:

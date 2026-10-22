@@ -104,7 +104,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── pdf-cli 全局 shim（pdf-editing skill 的对应） ───────────────────
 # 让智能体在 bash 里直接 `pdf-cli read …` / `pdf-cli create …` 等。shim
 # 运行时解析 /workspace/skills/pdf-editing/scripts/cli.py。
-COPY src/backend/skill_bundles/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
+COPY src/backend/extensions/skills/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
 RUN chmod +x /usr/local/bin/pdf-cli
 ENV PDF_SKILL_DIR=/workspace/skills/pdf-editing
 

@@ -38,7 +38,7 @@ def main():
     run(scripts / "install-native-tools.py", "--manifest", source,
         "--target", "windows-x86_64", "--runtime", runtime, "--executable", "python/python.exe")
     shutil.copy2(scripts / "runtime-smoke.py", runtime / "runtime-smoke.py")
-    shutil.copy2(scripts.parents[1] / "src/backend/services/script_runner_service/runtime_tools.py",
+    shutil.copy2(scripts.parents[1] / "src/backend/core/sandbox/runner/runtime_tools.py",
                  runtime / "runtime_tools.py")
     (runtime / "runtime-layout.json").write_text('{"schema":1}', encoding="utf-8")
     archive = root / "runtime-core.tar.gz"

@@ -33,10 +33,10 @@ def isolated_prompt_sources(monkeypatch, tmp_path):
 
 
 def test_environment_uses_bound_project_cwd(monkeypatch, tmp_path):
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path))
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path))
     ctx = {
         "chat_id": "display",
@@ -78,7 +78,7 @@ def test_environment_refreshes_date_permissions_and_workspace_without_stale_cach
 
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr(grants, "_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path / "work"))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path / "work"))
     ctx = {"chat_id": "same", "approval_mode": "ask", "now": "2030-01-02"}
     first = build_system_prompt(PromptConfig(), ctx)
     grants.add_grant(str(tmp_path / "read & only"), "read")
@@ -97,7 +97,7 @@ def test_environment_refreshes_date_permissions_and_workspace_without_stale_cach
 def test_windows_describes_actual_bash_not_powershell(monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr("prompts.desktop_workspace.platform.system", lambda: "Windows")
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", "C:/Users/Alice/work space")
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", "C:/Users/Alice/work space")
     prompt = build_system_prompt(PromptConfig(), {"chat_id": "windows"})
     assert "<os>Windows</os>" in prompt
     assert "<shell>bash</shell>" in prompt

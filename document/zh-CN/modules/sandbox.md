@@ -129,7 +129,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 ## 快照持久化（CE / EE）
 
-实现位于 core/sandbox/_opensandbox_snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
+实现位于 core/sandbox/providers/opensandbox/snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
 - **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
@@ -208,13 +208,13 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 |---|---|
 | `src/backend/core/sandbox/protocol.py` | Provider 协议与数据契约 |
 | `src/backend/core/sandbox/factory.py` | provider 显式选择；初始化错误直接上报 |
-| `src/backend/core/sandbox/script_runner_provider.py` | 轻量沙箱（CE） |
-| `src/backend/core/sandbox/opensandbox_provider.py` | OpenSandbox 共享 provider 主体 |
-| `src/backend/core/sandbox/_opensandbox_session.py` | 会话/快照/park-restore worker（EE） |
-| `src/backend/core/sandbox/_opensandbox_exec.py` | 执行路径 + idle reaper（EE） |
-| `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
-| `src/backend/core/sandbox/_pool.py` | 双桶预热池 |
-| `src/backend/core/sandbox/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
+| `src/backend/core/sandbox/providers/script_runner/provider.py` | 轻量沙箱（CE） |
+| `src/backend/core/sandbox/providers/opensandbox/provider.py` | OpenSandbox 共享 provider 主体 |
+| `src/backend/core/sandbox/providers/opensandbox/session.py` | 会话/快照/park-restore worker（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/execution.py` | 执行路径 + idle reaper（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/internals.py` | volume 构造、metadata、user pool（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
+| `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
@@ -228,7 +228,7 @@ Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控
 
 ### 对象挂载恢复的用户归属校验
 
-后端创建沙盒与控制器恢复挂载共用 `core/sandbox/metadata.py` 的用户标签定义。
+后端创建沙盒与控制器恢复挂载共用 `core/sandbox/sessions/metadata.py` 的用户标签定义。
 控制器镜像在构建时复制该模块。移植产品时保留该产品现有的标签值，并重新构建控制器；
 不要单独改动一端，也不要通过接受其它产品标签绕过归属校验。
 恢复时继续校验当前用户、权限版本、挂载范围、凭据和只读属性。

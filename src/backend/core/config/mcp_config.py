@@ -16,7 +16,7 @@ from core.config.display_names import (  # noqa: F401
     MCP_SERVER_DISPLAY_NAMES,
     TOOL_DISPLAY_NAMES,
 )
-from mcp_servers._ports import PORTS as _PORTS
+from extensions.mcp_servers._ports import PORTS as _PORTS
 
 
 def _mcp_http_url(server_id: str) -> str:
@@ -28,7 +28,7 @@ def _mcp_http_url(server_id: str) -> str:
 def builtin_mcp_configs(location=None) -> Dict[str, dict]:
     """Discover only process MCPs installed on this execution plane."""
     from core.config.local_mode import local_mode_enabled
-    from mcp_servers.registry import process_servers
+    from extensions.mcp_servers.registry import process_servers
 
     location = location or ("local" if local_mode_enabled() else "cloud")
     return {
@@ -47,7 +47,7 @@ MCP_SERVERS = builtin_mcp_configs()
 def builtin_available_on_this_plane(server_id: str) -> bool:
     """Placement constrains registered built-ins; third-party MCPs remain independent."""
     from core.config.local_mode import local_mode_enabled
-    from mcp_servers.registry import SERVERS
+    from extensions.mcp_servers.registry import SERVERS
 
     server = SERVERS.get(server_id)
     if server is None:

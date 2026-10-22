@@ -37,16 +37,16 @@
 
 | 来源 | 目录 | 优先级 | 说明 |
 |---|---|---|---|
-| built-in | `src/backend/skill_bundles/default/` | 0 | 随仓库内置，始终启用 |
+| built-in | `src/backend/extensions/skills/default/` | 0 | 随仓库内置，始终启用 |
 | user | `~/.hugagent/skills/`（`HUGAGENT_USER_SKILLS_DIR`） | 50 | 文件系统用户技能 |
 | admin | `/app/storage/admin_skills/`（`HUGAGENT_ADMIN_SKILLS_DIR`） | 75 | 管理台管理（DB 存储 + 物化） |
 | project | `.hugagent/skills/`（`HUGAGENT_PROJECT_SKILLS_DIR`） | 100 | 项目级覆盖 |
 
 每个来源都可用 `HUGAGENT_DISABLE_{ADMIN,USER,PROJECT}_SKILLS=1` 单独禁用。
 
-## skill_bundles 分层：default 与 marketplace
+## extensions/skills 分层：default 与 marketplace
 
-`src/backend/skill_bundles/` 下分两层，加载语义完全不同：
+`src/backend/extensions/skills/` 下分两层，加载语义完全不同：
 
 - **`default/` — 12 个内置技能**（always-on，内置加载器 `glob("*/SKILL.md")` 单层扫描命中）：
 
@@ -272,8 +272,8 @@
 | `src/backend/core/agent_skills/deps_detector.py` | 脚本 pip/apt 依赖静态探测 |
 | `src/backend/core/agent_skills/backends/` | filesystem / database / composite 加载后端 |
 | `src/backend/core/llm/tools/skill_tool.py` | 受限 view_text_file + {baseDir} 替换 + Runtime Hint |
-| `src/backend/skill_bundles/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
-| `src/backend/skill_bundles/marketplace/` | 45 个可安装市场技能包 |
+| `src/backend/extensions/skills/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
+| `src/backend/extensions/skills/marketplace/` | 45 个可安装市场技能包 |
 | `src/backend/core/services/marketplace_service.py` | 市场列表/安装/凭据注入/上架审核 |
 | `src/backend/api/routes/v1/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
 | `src/backend/api/routes/v1/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |

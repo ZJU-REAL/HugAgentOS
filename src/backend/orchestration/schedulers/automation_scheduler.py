@@ -27,18 +27,6 @@ POLL_INTERVAL_SECONDS = 15
 # 一条 UPDATE，所以这一档只取到「点下去像是立刻有反应」为止，不必更密。
 MANUAL_DRAIN_INTERVAL_SECONDS = 3
 REDIS_LOCK_PREFIX = "jx:auto:lock:"
-REDIS_LOCK_TTL = 1800  # 30 minutes max lock hold (> TASK_EXECUTION_TIMEOUT_S)
-# Max wall-clock per task execution. Must be < REDIS_LOCK_TTL so the
-# timeout fires before the lock expires (otherwise scheduler could
-# fire a parallel run while the previous one is still running).
-# Heavy tasks (multi-domain search + full Word generation) legitimately
-# run ~13 min and were getting killed at the old 800s ceiling, so this
-# is raised to 25 min.
-TASK_EXECUTION_TIMEOUT_S = 1500
-# Runs older than this in 'running' state on startup are treated as
-# orphaned (killed by OOM/restart) and recovered to 'failed'. Kept above
-# TASK_EXECUTION_TIMEOUT_S so a live run is never falsely recovered.
-STUCK_RUNNING_THRESHOLD_S = 2400  # 40 minutes
 
 
 class AutomationScheduler:
@@ -49,6 +37,7 @@ class AutomationScheduler:
         self._task: Optional[asyncio.Task] = None
         self._manual_task: Optional[asyncio.Task] = None
         self._executions: set[asyncio.Task] = set()
+        self._leases = {}
 
     async def start(self):
         self._running = True
@@ -68,19 +57,23 @@ class AutomationScheduler:
             execution.cancel()
         if executions:
             await asyncio.gather(*executions, return_exceptions=True)
+        # A queued execution can be cancelled before its coroutine enters its
+        # finally block. Its already-started renewal must still stop with us.
+        for task_id in list(self._leases):
+            await self._release_lock(task_id)
         logger.info("[scheduler] stopped")
 
     async def _poll_loop(self):
         # Small initial delay to let the app finish startup
         await asyncio.sleep(5)
 
-        # Recover stuck 'running' rows from previous OOM/restart first
         await self._recover_stuck_running_runs()
         # Then handle missed one-shot tasks
         await self._recover_missed_tasks()
 
         while self._running:
             try:
+                await self._recover_stuck_running_runs()
                 await self._check_and_fire()
             except Exception as e:
                 logger.error("[scheduler] poll error: %s", e, exc_info=True)
@@ -160,96 +153,102 @@ class AutomationScheduler:
             logger.info("[scheduler] %s for %s skipped: already running", kind, task_id)
             return
         try:
+            if await asyncio.to_thread(self._has_running_runs, task_id):
+                self._launch_recovery(task_id)
+                return
             await asyncio.to_thread(pre_run, task_id)
+        except asyncio.CancelledError:
+            await self._release_lock(task_id)
+            raise
         except Exception as exc:
             logger.warning(
                 "[scheduler] pre-run bookkeeping failed for %s: %s — firing anyway", task_id, exc
             )
         logger.info("[scheduler] firing %s for %s", kind, task_id)
-        self._launch_execution(task_id, user_id)
+        self._launch_execution(task_id, user_id, lease=self._leases[task_id])
 
-    def _launch_execution(self, task_id: str, user_id: str) -> asyncio.Task:
-        execution = spawn(self.execute_task(task_id, user_id), name=f"automation.{task_id}")
+    def _launch_execution(self, task_id: str, user_id: str, *, lease=None) -> asyncio.Task:
+        execution = spawn(
+            self.execute_task(task_id, user_id, lease=lease), name=f"automation.{task_id}"
+        )
         self._executions.add(execution)
         execution.add_done_callback(self._executions.discard)
         return execution
 
-    async def execute_task(self, task_id: str, user_id: str):
+    async def execute_task(self, task_id: str, user_id: str, *, lease=None):
         from .automation_dispatch import execute_task
 
+        if lease is None:
+            if not await self._acquire_lock(task_id):
+                return
+            lease = self._leases[task_id]
         try:
-            await execute_task(self, task_id, user_id, timeout=TASK_EXECUTION_TIMEOUT_S)
+            if await asyncio.to_thread(self._has_running_runs, task_id):
+                from .automation_recovery import recover_task
+
+                await lease.run(recover_task(self, task_id))
+            else:
+                await lease.run(execute_task(self, task_id, user_id))
         finally:
             await self._release_lock(task_id)
 
-    async def _recover_stuck_running_runs(self):
-        """Mark long-running 'running' runs as failed (orphaned by OOM/restart).
-
-        Without this, the DB accumulates rows in 'running' state from
-        runs that were killed mid-flight, and (worse) the parent task's
-        next_run_at can stay in the past — causing every poll to immediately
-        re-fire the same task in a death spiral.
-        """
-        from datetime import datetime, timedelta, timezone
-
+    @staticmethod
+    def _has_running_runs(task_id):
         from core.db.engine import SessionLocal
         from core.db.models import ScheduledTaskRun
 
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=STUCK_RUNNING_THRESHOLD_S)
+        with SessionLocal() as db:
+            return (
+                db.query(ScheduledTaskRun.run_id)
+                .filter(
+                    ScheduledTaskRun.task_id == task_id,
+                    ScheduledTaskRun.status == "running",
+                )
+                .first()
+                is not None
+            )
+
+    def _launch_recovery(self, task_id):
+        recovery = spawn(self._recover_task(task_id), name=f"automation.recover.{task_id}")
+        self._executions.add(recovery)
+        recovery.add_done_callback(self._executions.discard)
+
+    async def _recover_stuck_running_runs(self):
+        """Recover abandoned runs only after acquiring their execution ownership.
+
+        Elapsed runtime cannot identify an orphan: a healthy task may run for
+        days. A live worker's renewable lease excludes recovery on every poll.
+        """
+        from core.db.engine import SessionLocal
+        from core.db.models import ScheduledTaskRun
+
         try:
             with SessionLocal() as db:
-                stuck = (
-                    db.query(ScheduledTaskRun)
-                    .filter(
-                        ScheduledTaskRun.status == "running",
-                        ScheduledTaskRun.started_at < cutoff,
-                    )
+                task_ids = [
+                    row[0]
+                    for row in db.query(ScheduledTaskRun.task_id)
+                    .filter(ScheduledTaskRun.status == "running")
+                    .distinct()
                     .all()
-                )
-                stuck_task_ids = set()
-                for run in stuck:
-                    run.status = "failed"
-                    run.error_message = "interrupted (orphan, recovered on startup)"
-                    run.completed_at = datetime.now(timezone.utc)
-                    stuck_task_ids.add(run.task_id)
-
-                # Push parent tasks' next_run_at past now so the next poll
-                # doesn't immediately re-fire the same hung task.
-                from core.services.automation_service import AutomationService
-
-                svc = AutomationService(db)
-                for tid in stuck_task_ids:
-                    task = svc.get_task_by_id(tid)
-                    if task and task.next_run_at:
-                        try:
-                            svc.advance_next_run(tid)
-                        except Exception as exc:
-                            logger.warning(
-                                "[scheduler] startup advance failed for %s: %s",
-                                tid,
-                                exc,
-                            )
-                    # One-shot tasks pre-advance to next_run_at=None, so the
-                    # branch above skips them; finalize so an interrupted single
-                    # run doesn't dangle 'active' with no next_run_at forever.
-                    try:
-                        svc.finalize_after_run(tid)
-                    except Exception as exc:
-                        logger.warning(
-                            "[scheduler] startup finalize failed for %s: %s",
-                            tid,
-                            exc,
-                        )
-
-                if stuck:
-                    db.commit()
-                    logger.info(
-                        "[scheduler] recovered %d stuck 'running' runs across %d tasks",
-                        len(stuck),
-                        len(stuck_task_ids),
-                    )
+                ]
+            for task_id in task_ids:
+                if not await self._acquire_lock(task_id):
+                    continue
+                self._launch_recovery(task_id)
         except Exception as exc:
-            logger.error("[scheduler] stuck-runs recovery failed: %s", exc, exc_info=True)
+            logger.error("[scheduler] orphan recovery failed: %s", exc, exc_info=True)
+
+    async def _recover_task(self, task_id):
+        from .automation_recovery import recover_task
+
+        try:
+            await self._leases[task_id].run(recover_task(self, task_id))
+        except Exception as exc:
+            logger.error(
+                "[scheduler] orphan recovery failed for %s: %s", task_id, exc, exc_info=True
+            )
+        finally:
+            await self._release_lock(task_id)
 
     async def _recover_missed_tasks(self):
         """On startup, check for one-shot tasks whose next_run_at is in the past."""
@@ -265,7 +264,9 @@ class AutomationScheduler:
                 for task in missed:
                     if not task.recurring:
                         one_shot_count += 1
-                        self._launch_execution(task.task_id, task.user_id)
+                        await self._fire(
+                            task.task_id, task.user_id, "missed task", self._advance_next_run
+                        )
                 if one_shot_count:
                     logger.info("[scheduler] recovering %d missed one-shot tasks", one_shot_count)
         except Exception as e:
@@ -274,20 +275,26 @@ class AutomationScheduler:
     # ── Redis lock helpers ─────────────────────────────────────────
 
     async def _acquire_lock(self, task_id: str) -> bool:
-        try:
-            from core.infra.ephemeral import get_ephemeral_state
+        from .automation_lease import AutomationLease
 
-            key = f"{REDIS_LOCK_PREFIX}{task_id}"
-            return await get_ephemeral_state().claim(key, ttl=REDIS_LOCK_TTL)
+        if task_id in self._leases:
+            return False
+        try:
+            lease = AutomationLease(f"{REDIS_LOCK_PREFIX}{task_id}")
+            if not await lease.acquire():
+                return False
+            self._leases[task_id] = lease
+            return True
         except Exception as e:
             logger.warning("[scheduler] lock acquire failed for %s: %s", task_id, e)
             return False
 
     async def _release_lock(self, task_id: str):
+        lease = self._leases.pop(task_id, None)
+        if lease is None:
+            return
         try:
-            from core.infra.ephemeral import get_ephemeral_state
-
-            await get_ephemeral_state().drop(f"{REDIS_LOCK_PREFIX}{task_id}")
+            await lease.release()
         except Exception as e:
             logger.warning("[scheduler] lock release failed for %s: %s", task_id, e)
 

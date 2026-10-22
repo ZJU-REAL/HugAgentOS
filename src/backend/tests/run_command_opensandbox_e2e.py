@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 async def verify():
     from core.db.engine import Base, engine, SessionLocal
     from core.db.models import ChatSession, UserShadow
-    from core.sandbox.opensandbox_provider import OpenSandboxProvider
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
     from core.sandbox.protocol import ProcessRequest
     from core.services.commands import store
     from orchestration.commands.runtime import CommandRuntime

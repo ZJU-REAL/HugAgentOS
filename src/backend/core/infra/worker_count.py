@@ -23,7 +23,7 @@ proved it — a container-backed provider bound a chat to a container purely in
 memory, so consecutive rounds served by different workers each built their own
 container, and each worker's idle reaper judged "nobody is using this" from its
 own half of the traffic. Neither provider is a veto here because the binding was
-moved instead, to :mod:`core.sandbox.session_registry`, which keeps it in the
+moved instead, to :mod:`core.sandbox.sessions.registry`, which keeps it in the
 TTL keyspace of :mod:`core.infra.ephemeral` — Redis wherever there is one, which
 is anywhere this module allows more than one worker.
 

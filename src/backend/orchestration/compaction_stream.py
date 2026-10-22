@@ -7,7 +7,9 @@ import logging
 from contextlib import aclosing, suppress
 from dataclasses import dataclass
 
+from core.llm.context_safety import request_admission_scope
 from core.services.compaction_progress import progress_scope, report_outcome
+from core.services.context_budget_checkpoint import ContextStopCheckpoint
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ async def stream_with_compaction(
     run_id = context.get("run_id") or ""
     latest_progress = None
     closing = False
+    checkpoint = ContextStopCheckpoint()
 
     async def sink(event):
         nonlocal latest_progress
@@ -42,7 +45,10 @@ async def stream_with_compaction(
 
     async def produce():
         try:
-            with progress_scope(sink, chat_id, run_id, context=context):
+            with (
+                request_admission_scope(context=context, checkpoint=checkpoint) as admission,
+                progress_scope(sink, chat_id, run_id, context=context),
+            ):
                 if is_compact_command(raw_user_message):
                     from core.config.settings import settings
                     from core.services.compaction_service import run_compaction
@@ -80,16 +86,31 @@ async def stream_with_compaction(
                         )
                     ) as stream:
                         async for chunk in stream:
+                            if chunk.get("type") == "meta":
+                                admission.check()
                             consumed = asyncio.get_running_loop().create_future()
                             await queue.put(_WorkflowChunk(chunk, consumed))
                             # Preserve the original yield boundary: downstream
                             # persistence must finish before workflow side effects.
                             await consumed
+                            checkpoint.observe(chunk)
+                    admission.check()
         except asyncio.CancelledError as cancellation:
             if not closing:
                 await queue.put(cancellation)
             raise
         except Exception as exc:
+            stopped = admission.stopped
+            if stopped is not None:
+                if not stopped.saved:
+                    try:
+                        await asyncio.to_thread(checkpoint.save, context, stopped)
+                    except Exception as checkpoint_error:
+                        exc = checkpoint_error
+                    else:
+                        exc = stopped
+                else:
+                    exc = stopped
             if not closing:
                 await queue.put(exc)
             else:

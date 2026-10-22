@@ -215,7 +215,7 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
     url = raw.get("url")
     if isinstance(url, str) and url.startswith("builtin://"):
         from core.config.mcp_config import _mcp_http_url
-        from mcp_servers._ports import PORTS
+        from extensions.mcp_servers._ports import PORTS
 
         server_id = url.removeprefix("builtin://")
         if server_id not in PORTS:

@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_blocking_lane_keeps_slot_until_timed_out_thread_finishes():
-    from mcp_servers.retrieve_dataset_content_mcp.runtime import BlockingLane
+    from extensions.mcp_servers.retrieve_dataset_content_mcp.runtime import BlockingLane
 
     lane = BlockingLane(name="test", max_workers=1)
 

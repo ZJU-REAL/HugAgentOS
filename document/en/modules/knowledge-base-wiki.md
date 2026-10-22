@@ -147,5 +147,5 @@ The tools work for both self-hosted and external knowledge bases; just pass the 
 | Read surface | `src/backend/core/kb/wiki/local_provider.py` |
 | Per-base dispatch | `src/backend/core/kb/wiki_router.py` |
 | Routes | `src/backend/api/routes/v1/kb_wiki.py` |
-| Agent tools | `src/backend/mcp_servers/retrieve_dataset_content_mcp/wiki_impl.py` |
+| Agent tools | `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/wiki_impl.py` |
 | Frontend | `src/frontend/src/components/kb/` (`WikiPanel` / `WikiTree` / `ConceptGraph` / `IndexModePicker`) |

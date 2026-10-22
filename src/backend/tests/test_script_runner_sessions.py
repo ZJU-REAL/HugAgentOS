@@ -6,7 +6,7 @@ import base64
 
 import pytest
 from fastapi import HTTPException
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 def test_session_workspaces_are_stable_and_isolated(monkeypatch, tmp_path):

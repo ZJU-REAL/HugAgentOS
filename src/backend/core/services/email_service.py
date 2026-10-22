@@ -163,7 +163,7 @@ def render_config_toml(
 
 def _write_config(user_id: str, content: str) -> "Optional[str]":
     """Write config.toml into this user's backend HOME (0600). Returns an error message; None means success."""
-    from core.sandbox._common import email_himalaya_config
+    from core.sandbox.workspace.credentials import email_himalaya_config
 
     cfg = email_himalaya_config(user_id)
     try:
@@ -192,7 +192,7 @@ def _render_config_from_record(record, secret: str) -> str:
 
 def _email_env(user_id: str) -> Dict[str, str]:
     """Environment for the backend to run himalaya subprocesses: an isolated HOME per user (the root of credential isolation)."""
-    from core.sandbox._common import email_home_dir
+    from core.sandbox.workspace.credentials import email_home_dir
 
     home = email_home_dir(user_id)
     try:
@@ -212,7 +212,7 @@ async def _run_himalaya(
 ) -> Tuple[str, str, int]:
     """Run one himalaya subcommand on the backend as this user; returns (stdout, stderr, exit_code).
     Points ``--config`` explicitly at this user's config.toml to guarantee no account cross-talk."""
-    from core.sandbox._common import email_himalaya_config
+    from core.sandbox.workspace.credentials import email_himalaya_config
 
     cfg = str(email_himalaya_config(user_id))
     try:
@@ -291,7 +291,7 @@ class EmailService:
 
     async def _reverify(self, user_id: str, record) -> Tuple[bool, str]:
         """Before probing, ensure the backend HOME has config.toml (after a restart / machine change only the DB row may remain) — rebuild it from secret_enc."""
-        from core.sandbox._common import email_himalaya_config
+        from core.sandbox.workspace.credentials import email_himalaya_config
 
         if not email_himalaya_config(user_id).exists():
             secret = decrypt_secret(record.secret_enc)
@@ -393,7 +393,9 @@ class EmailService:
         This path is hit not only by disconnect but by **every failed mailbox
         verification**, which made it the easiest of the three to trigger.
         """
-        from core.sandbox._common import email_cache_dir, purge_credential_dir, safe_user_id
+        from core.sandbox.workspace.credentials import email_cache_dir
+        from core.sandbox.workspace.credentials import purge_credential_dir
+        from core.sandbox.workspace.identity import safe_user_id
 
         if not safe_user_id(user_id):
             return

@@ -46,11 +46,23 @@ dependencies = {file = ["requirements.txt"]}
 [tool.setuptools.packages.find]
 where = ["src/backend"]
 include = [
-    "api*", "core*", "orchestration*", "prompts*", "mcp_servers*",
-    "hugagent_cli*", "services*", "agent_bundles*", "plugin_bundles*", "skill_bundles*",
+    "api*", "core*", "orchestration*", "prompts*", "extensions*",
+    "hugagent_cli*", "edition_ee*", "personal_agent*",
 ]
 # alembic migrations / tests / uploads / scripts are not import-time runtime deps.
 exclude = ["tests*", "alembic*", "uploads*", "scripts*"]
+
+# Bundle manifests, prompts, scripts and binary assets are runtime resources.
+[tool.setuptools.package-data]
+extensions = ["README.md", "skills/**/*", "agents/**/*", "plugins/**/*", "mcp_servers/**/*.md"]
+"core.applications" = ["schemas/*.json"]
+"core.config" = ["*.json"]
+prompts = ["config/*.json", "prompt_text/**/*.md"]
+"personal_agent.workspace" = ["prompts/*.md"]
+"core.sandbox.oslayer" = ["profiles/*"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["**/__pycache__/*", "**/*.pyc", "**/node_modules/**", "**/.git/**"]
 
 [tool.black]
 line-length = 100

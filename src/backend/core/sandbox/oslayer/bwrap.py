@@ -27,18 +27,16 @@ import shutil
 from pathlib import Path
 from typing import Iterable
 
-from .backend import BasePlatformBackend, SandboxLaunch
-from .policy import (
+from core.sandbox.oslayer.models import (
     AccessMode,
     NetworkPolicy,
     PolicyContext,
     ResolvedFileSystem,
     SandboxPolicy,
-    filesystem_root,
-    is_within,
-    normalize_logical,
-    path_depth,
 )
+from core.sandbox.oslayer.paths import filesystem_root, is_within, normalize_logical, path_depth
+
+from .backend import BasePlatformBackend, SandboxLaunch
 
 BWRAP_EXECUTABLE = "bwrap"
 

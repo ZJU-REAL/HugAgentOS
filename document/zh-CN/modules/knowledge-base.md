@@ -7,7 +7,7 @@ HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一
 1. **自建知识库**：文档上传 → 父子分块 → 向量化入 Milvus → 稠密 + 稀疏混合检索（RRF 融合）→ 可选重排。社区版 CE 仅提供当前用户拥有的私有知识库；管理员维护的公共知识库属于商业版 EE。
 2. **Dify 外接知识库**（商业版 EE）：`KNOWLEDGE_BASE=dify` 时，后端在运行时把 Dify datasets 注入能力中心目录，检索经 Dify Retrieval API 完成。
 
-公有检索统一使用 `retrieve_dataset_content`，按配置只走本地公有/共享库或所选外部后端；个人私有检索使用 `retrieve_local_kb`。两者由同一个 MCP server（`mcp_servers/retrieve_dataset_content_mcp/`）提供。
+公有检索统一使用 `retrieve_dataset_content`，按配置只走本地公有/共享库或所选外部后端；个人私有检索使用 `retrieve_local_kb`。两者由同一个 MCP server（`extensions/mcp_servers/retrieve_dataset_content_mcp/`）提供。
 
 社区版 CE 的前端只显示「私有知识库」，`/v1/catalog` 也只返回当前用户的私有库。后端会拒绝 `visibility=public` 的创建请求，并且不提供 Dify / 共享知识库服务配置，避免仅靠前端隐藏造成能力越界。
 
@@ -122,7 +122,7 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 
 ### 检索链路
 
-`mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`：
+`extensions/mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`：
 
 1. 解析允许的 `kb_id` 集合（stdio 模式从环境变量、HTTP 模式从 `x-allowed-kb-ids` 等请求头）；
 2. `embed_text(query)` 得到查询向量（embedding 配置复用 `MEM0_EMBED_*` 或 DB 中 `embedding` 角色模型）；
@@ -208,7 +208,7 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
 | `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
 | `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（CE 仅私有库；EE 追加 Dify / 公共库） |
-| `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
+| `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | 创建 / 重索引弹窗组件 |
 

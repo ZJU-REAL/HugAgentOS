@@ -7,10 +7,10 @@ startup we spawn both as **child subprocesses** bound to loopback, and reap them
 on shutdown. Only active when ``DEPLOY_PROFILE=local``; the compose path never
 imports this module.
 
-- MCP launcher: ``python -m mcp_servers._launcher`` — already self-supervises one
-  streamable-http server per port (see ``mcp_servers/_launcher.py``); the backend
+- MCP launcher: ``python -m extensions.mcp_servers._launcher`` — already self-supervises one
+  streamable-http server per port (see ``extensions/mcp_servers/_launcher.py``); the backend
   reaches them at ``127.0.0.1:<port>`` (``MCP_HOST=127.0.0.1``).
-- Script runner: the ``services/script_runner_service`` FastAPI app on the
+- Script runner: the ``core/sandbox/runner`` FastAPI app on the
   loopback port configured by ``SANDBOX_RUNNER_URL``. Pure host subprocess
   executor — no container needed to run Python/bash.
 
@@ -35,7 +35,7 @@ from urllib.parse import urlsplit
 from core.config.settings import settings
 from core.infra.logging import get_logger
 from core.infra.proc import no_window_kwargs
-from core.sandbox import runner_auth
+import core.sandbox.providers.script_runner.auth as runner_auth
 
 logger = get_logger(__name__)
 
@@ -65,13 +65,15 @@ _REQUIRED_PLUGIN_MCP_TOOLS = {
     "site_publish": "publish_site",
 }
 
-
 # ── 遗留孤儿 sidecar 清理（打包桌面形态，POSIX） ─────────────────────────────
-# App 非正常退出（强退/崩溃/更新中断）时 sidecar 可能失管存活并继续占用端口。
-# 新会话若直接复用孤儿有两个坑：一是孤儿跑的还是旧 release 的代码；二是 macOS
-# 上其 TCC 责任进程已死，tccd 把访问记到裸 python 头上——访问 下载/文稿/桌面 等
-# 受保护目录被静默拒绝且不弹授权窗，`tccutil reset <bundle-id>` 也重置不到。
-_SIDECAR_CMD_MARKERS = ("-m mcp_servers.", "services.script_runner_service.server:app")
+# 崩溃或更新中断可能留下占用端口的旧 sidecar，不能直接复用。
+# macOS 上孤儿失去 TCC 责任进程后，受保护目录访问可能被静默拒绝，重置应用授权也无效。
+_SIDECAR_CMD_MARKERS = (
+    "-m extensions.mcp_servers.",
+    "core.sandbox.runner.server:app",
+    # Old-release orphan cleanup only; never import or launch the removed package.
+    "services.script_runner_service.server:app",
+)
 
 
 def _packaged_install_root() -> Optional[str]:
@@ -444,9 +446,9 @@ async def start_local_sidecars() -> None:
         logger.info("local_sidecars_ready", mode="cloud_tools", sidecars=[label for label, _ in _PROCS])
         return
 
-    from mcp_servers._launcher import PORTS as launcher_ports
-    from mcp_servers._ports import PORTS as server_ports
-    from mcp_servers._ports import package_name
+    from extensions.mcp_servers._launcher import PORTS as launcher_ports
+    from extensions.mcp_servers._ports import PORTS as server_ports
+    from extensions.mcp_servers._ports import package_name
 
     launchable_ports = {
         server_id: port
@@ -460,7 +462,7 @@ async def start_local_sidecars() -> None:
         )
 
     # 1) MCP launcher — one streamable-http server per port, self-supervised.
-    launcher = await _spawn("mcp_launcher", [py, "-m", "mcp_servers._launcher"])
+    launcher = await _spawn("mcp_launcher", [py, "-m", "extensions.mcp_servers._launcher"])
     if launcher is None:
         raise RuntimeError("无法启动 MCP 服务管理进程")
 

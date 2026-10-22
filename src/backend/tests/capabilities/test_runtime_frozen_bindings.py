@@ -138,7 +138,7 @@ async def test_runner_executes_frozen_view_after_background_update(
 ):
     from core.capabilities import runtime
     from core.services.desktop_capability_protocol import skill_content_hash
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     monkeypatch.setattr(skills, "builtin_candidates", lambda: [])
     monkeypatch.setattr(skills, "current_account_profile", lambda: None)

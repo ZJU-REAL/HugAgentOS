@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from tests.sandbox.provider_test_support import patch_open_settings
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from core.sandbox import _opensandbox_internals as internals
-from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
+import core.sandbox.providers.opensandbox.runtime as internals_runtime
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 _FLAGS = (
     "dws_creds_bind_mount_enabled",
@@ -29,32 +31,28 @@ def _settings(**overrides):
 
 @pytest.mark.parametrize("enabled_flag", _FLAGS)
 def test_each_private_mount_requires_user_bound_sandbox(monkeypatch, enabled_flag):
-    monkeypatch.setattr(internals, "settings", _settings(**{enabled_flag: True}))
+    patch_open_settings(monkeypatch, _settings(**{enabled_flag: True}))
 
-    assert internals._user_bound_sandbox_required() is True
+    assert internals_runtime._user_bound_sandbox_required() is True
 
 
 def test_per_user_skill_view_requires_user_bound_sandbox(monkeypatch):
     """Host storage alone is enough: /workspace/skills is that user's own view."""
-    monkeypatch.setattr(internals, "settings", _settings(opensandbox_host_storage_path="/srv/storage"))
+    patch_open_settings(monkeypatch, _settings(opensandbox_host_storage_path="/srv/storage"))
 
-    assert internals._user_bound_sandbox_required() is True
+    assert internals_runtime._user_bound_sandbox_required() is True
 
 
 def test_space_mounts_require_user_bound_sandbox_without_credential_mounts(monkeypatch):
-    monkeypatch.setattr(internals, "settings", _settings())
+    patch_open_settings(monkeypatch, _settings())
 
-    assert internals._user_bound_sandbox_required() is True
+    assert internals_runtime._user_bound_sandbox_required() is True
 
 
 def test_dingtalk_mount_uses_user_pool_when_myspace_mount_is_disabled(monkeypatch):
     """HugAgentOS regression: dws=true + myspace=false must still mount user credentials."""
-    monkeypatch.setattr(
-        internals,
-        "settings",
-        _settings(dws_creds_bind_mount_enabled=True),
-    )
-    provider = _OpenSandboxSessionMixin()
+    patch_open_settings(monkeypatch, _settings(dws_creds_bind_mount_enabled=True))
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     user_sandbox = SimpleNamespace(id="user-sandbox")
     provider._jupyter_user_pool = SimpleNamespace(acquire=AsyncMock(return_value=user_sandbox))
     provider._pool = SimpleNamespace(acquire=AsyncMock())
@@ -68,12 +66,8 @@ def test_dingtalk_mount_uses_user_pool_when_myspace_mount_is_disabled(monkeypatc
 
 
 def test_missing_user_id_still_uses_general_pool(monkeypatch):
-    monkeypatch.setattr(
-        internals,
-        "settings",
-        _settings(dws_creds_bind_mount_enabled=True),
-    )
-    provider = _OpenSandboxSessionMixin()
+    patch_open_settings(monkeypatch, _settings(dws_creds_bind_mount_enabled=True))
+    provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     general_sandbox = SimpleNamespace(id="general-sandbox")
     provider._jupyter_user_pool = SimpleNamespace(acquire=AsyncMock())
     provider._pool = SimpleNamespace(acquire=AsyncMock(return_value=general_sandbox))

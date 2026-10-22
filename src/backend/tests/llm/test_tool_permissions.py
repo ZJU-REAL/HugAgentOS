@@ -22,7 +22,8 @@ from core.llm.tool_permissions import (
     local_path_tool,
 )
 from core.ontology.toolkit import OntologyFilteredToolkit
-from core.sandbox.local_policy import Grant, Policy
+from core.sandbox.permissions.models import Grant
+from core.sandbox.permissions.models import Policy
 
 
 def _tool_call(name: str, arguments: dict, call_id: str = "tc-1") -> ToolCallBlock:

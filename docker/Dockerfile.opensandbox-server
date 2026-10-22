@@ -4,7 +4,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends s3fs fuse && rm -rf /var/lib/apt/lists/*
 COPY docker/opensandbox_expirations.py /app/opensandbox_server/services/docker/expirations.py
 COPY docker/opensandbox_mount_worker.py /app/opensandbox_server/services/docker/mount_worker.py
-COPY src/backend/core/sandbox/metadata.py /app/opensandbox_server/services/docker/sandbox_metadata.py
+COPY src/backend/core/sandbox/sessions/metadata.py /app/opensandbox_server/services/docker/sandbox_metadata.py
 COPY docker/opensandbox_mount_recovery.py /app/opensandbox_server/services/docker/mount_recovery.py
 COPY docker/opensandbox_object_mounts.py /app/opensandbox_server/services/docker/object_mounts.py
 COPY docker/patch_opensandbox_server.py /tmp/hugagent-controller/patch.py

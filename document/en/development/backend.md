@@ -159,15 +159,15 @@ Steps for a new route:
 
 Each MCP tool is a long-running streamable-http process inside the `mcp` container; the backend connects via `HttpStatefulClient`:
 
-1. Create `src/backend/mcp_servers/<name>_mcp/` (model it on `internet_search_mcp/`: `server.py` + `_selftest.py`);
-2. Allocate a port in `src/backend/mcp_servers/_ports.py::PORTS` (port assignments are a stable contract — never reuse or reshuffle); `core/config/mcp_config.py::MCP_SERVERS` derives the connection config from it automatically;
+1. Create `src/backend/extensions/mcp_servers/<name>_mcp/` (model it on `internet_search_mcp/`: `server.py` + `_selftest.py`);
+2. Allocate a port in `src/backend/extensions/mcp_servers/_ports.py::PORTS` (port assignments are a stable contract — never reuse or reshuffle); `core/config/mcp_config.py::MCP_SERVERS` derives the connection config from it automatically;
 3. Add display names and descriptions in `src/backend/core/config/display_names.py`;
 4. Add a seed entry to the `mcp` array in `src/backend/core/config/catalog.json` (`id` / `kind: "mcp_server"` / `name` / `desc` / `enabled` / `config.server`) — the catalog is the single source of truth for capability toggles;
 5. Local debugging:
 
 ```bash
-PYTHONPATH=src/backend python -m mcp_servers.<name>_mcp.server
-PYTHONPATH=src/backend python -m mcp_servers.<name>_mcp._selftest
+PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp.server
+PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 ```
 
 6. Rebuild the mcp container (`docker-compose up -d --build mcp`);
@@ -175,16 +175,16 @@ PYTHONPATH=src/backend python -m mcp_servers.<name>_mcp._selftest
 
 ## Adding a skill (Agent Skill)
 
-Skill loading is multi-source (`core/agent_skills/config.py`): built-in (`skill_bundles/default/`, always-on), admin (DB / `/app/storage/admin_skills/`), user, and project sources merge by priority. `skill_bundles/marketplace/` holds install-based marketplace seeds scanned separately by the marketplace service — it is **not** part of the default loading sources.
+Skill loading is multi-source (`core/agent_skills/config.py`): built-in (`extensions/skills/default/`, always-on), admin (DB / `/app/storage/admin_skills/`), user, and project sources merge by priority. `extensions/skills/marketplace/` holds install-based marketplace seeds scanned separately by the marketplace service — it is **not** part of the default loading sources.
 
 Adding a **built-in skill**:
 
-1. Create `src/backend/skill_bundles/default/<skill-id>/SKILL.md` (id rule: lowercase letters / digits / `-_`, ≤63 chars);
+1. Create `src/backend/extensions/skills/default/<skill-id>/SKILL.md` (id rule: lowercase letters / digits / `-_`, ≤63 chars);
 2. Write the SKILL.md frontmatter (`name` / `description` / optional `version` / `tags` / `allowed_tools`) plus the instruction body;
 3. Optionally add `scripts/` (executable scripts; `.py/.js/.sh/.r` are auto-whitelisted when `_scripts.json` is absent), `references/`, `evals/`;
 4. Rebuild the backend container.
 
-A **marketplace skill** goes under `skill_bundles/marketplace/<skill-id>/` with the same structure plus marketplace metadata (model on an existing entry); skills with brand or industry dependencies must also be added to the `ce/manifest.yaml` exclusion list. At runtime a skill's directory is presented inside the sandbox as `/workspace/skills/<id>`; the `{dir}` placeholder in prompts resolves to that path.
+A **marketplace skill** goes under `extensions/skills/marketplace/<skill-id>/` with the same structure plus marketplace metadata (model on an existing entry); skills with brand or industry dependencies must also be added to the `ce/manifest.yaml` exclusion list. At runtime a skill's directory is presented inside the sandbox as `/workspace/skills/<id>`; the `{dir}` placeholder in prompts resolves to that path.
 
 ## New-feature checklist
 
@@ -206,7 +206,7 @@ A **marketplace skill** goes under `skill_bundles/marketplace/<skill-id>/` with 
 | Exception hierarchy | `src/backend/core/infra/exceptions.py` |
 | Dependency injection | `src/backend/api/deps.py` |
 | ORM / table boundary | `src/backend/core/db/models.py`, `src/backend/core/db/edition_tables.py` |
-| MCP port table / connection config | `src/backend/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
+| MCP port table / connection config | `src/backend/extensions/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
 | Capability catalog | `src/backend/core/config/catalog.json` |
 | Skill loading | `src/backend/core/agent_skills/` (`config.py` / `loader.py` / `registry.py`) |
 | Workflow orchestration | `src/backend/orchestration/workflow.py` |

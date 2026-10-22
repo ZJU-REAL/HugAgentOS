@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {chromium} from 'playwright';
-const root='../backend/plugin_bundles/marketplace/browser-automation/web/browser/';
+const root='../backend/extensions/plugins/marketplace/browser-automation/web/browser/';
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE});
 try {
  const page=await browser.newPage();

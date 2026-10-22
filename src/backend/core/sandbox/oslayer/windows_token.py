@@ -35,9 +35,10 @@ from __future__ import annotations
 
 import os
 
+from core.sandbox.oslayer.models import AccessMode, PolicyContext, ResolvedFileSystem, SandboxPolicy
+
 from .backend import BasePlatformBackend, SandboxLaunch
 from .errors import SandboxUnavailableError
-from .policy import AccessMode, PolicyContext, ResolvedFileSystem, SandboxPolicy
 
 # Name of the private scratch directory the sandbox uses instead of the user's
 # shared temp folder. See :func:`scratch_directory` for why it exists.

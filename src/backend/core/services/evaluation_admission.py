@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 
 from core.config.settings import settings
-from core.sandbox import evaluation_binding
+import core.sandbox.providers.evaluation.binding as evaluation_binding
 from core.sandbox.errors import SandboxError
 
 

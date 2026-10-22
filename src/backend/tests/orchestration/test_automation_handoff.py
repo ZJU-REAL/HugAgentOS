@@ -12,7 +12,7 @@ pytest_plugins = ["tests.orchestration.test_automation_live_conversations"]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["complete", "stop", "timeout"])
+@pytest.mark.parametrize("outcome", ["complete", "stop", "shutdown"])
 async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, monkeypatch, outcome):
     factory, _, task_id = live_env
     entered, release = asyncio.Event(), asyncio.Event()
@@ -43,12 +43,7 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    if outcome == "timeout":
-        monkeypatch.setattr(
-            "orchestration.schedulers.automation_scheduler.TASK_EXECUTION_TIMEOUT_S", 1
-        )
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -61,7 +56,13 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
             release.set()
         elif outcome == "stop":
             await executor.cancel_run(runs[1], user_id="owner")
-        await asyncio.wait_for(executing, 5)
+        elif outcome == "shutdown":
+            executing.cancel()
+        if outcome == "shutdown":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(executing, 5)
+        else:
+            await asyncio.wait_for(executing, 5)
         with factory() as db:
             scheduled = AutomationService(db).get_task_runs(task_id, "owner")[0]
             if outcome == "complete":
@@ -120,7 +121,6 @@ async def test_shutdown_cancels_successor_when_completion_wins_cancel_race(live_
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await asyncio.wait_for(source_entered.wait(), 5)

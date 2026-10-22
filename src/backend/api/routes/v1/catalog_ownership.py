@@ -98,7 +98,7 @@ def _plugin_component_ids(db) -> tuple:
     1. **DB install source**: ``AdminSkill/AdminMcpServer.source_plugin`` is non-null —
        written dynamically when a user installs a plugin.
     2. **Built-in bundle scan**: skills/MCP provided by
-       ``plugin_bundles/{default,marketplace}/*`` (derived from each bundle's
+       ``extensions/plugins/{default,marketplace}/*`` (derived from each bundle's
        ``skills/*/`` dirs + MCP declarations; the Agent Plugins standard manifest
        has no ``components`` list) — MCPs of built-in plugins (e.g. automation /
        skill-manager) go through ``_ports.py`` → catalog.json and statically

@@ -54,7 +54,7 @@ ACTION_TRIGGERS = ("node", "item", "primary")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _TOOL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 # In-process data provider reference: ``package.module:name``. Only functions a
-# host-shipped ``mcp_servers.*`` module deliberately publishes in its
+# host-shipped ``extensions.mcp_servers.*`` module deliberately publishes in its
 # ``DATA_PROVIDERS`` dict are callable — a manifest cannot name arbitrary code.
 _PROVIDER_RE = re.compile(r"^mcp_servers\.[A-Za-z0-9_.]{1,120}:[A-Za-z_][A-Za-z0-9_]{0,63}$")
 # Pointer grammar accepted by the frontend evaluator (utils/pointer.ts). It is a

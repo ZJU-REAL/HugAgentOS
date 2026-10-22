@@ -239,7 +239,7 @@ def register_bash(
 
     from ._paths import WORKSPACE_ROOT, path_rules
 
-    from core.sandbox import desktop_paths
+    import core.sandbox.workspace.desktop as desktop_paths
 
     rules = path_rules()
     instructions = (

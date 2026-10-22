@@ -12,16 +12,18 @@ src/backend/
 ├── edition_ee/      # 商业版路由、License、Team/RBAC、ORM、Dify 与服务实现
 ├── orchestration/   # 对话编排：Run 执行器、工作流、策略、引用、调度器
 ├── core/            # 领域核心：17 个子模块（auth/llm/db/ontology/services/...）
-├── mcp_servers/     # 9 个独立 MCP 服务器（streamable-http 进程）
 ├── prompts/         # 提示词装配运行时 + 文件兜底文本
-├── skill_bundles/   # 技能资产：default（预置）+ marketplace（技能市场种子）
-├── services/        # 独立 sidecar：script_runner_service（受限脚本执行）
+├── extensions/       # 随包扩展能力
+│   ├── skills/       # default / marketplace
+│   ├── agents/       # default / marketplace
+│   ├── plugins/      # default / marketplace
+│   └── mcp_servers/  # MCP process implementations
 ├── scripts/         # 运维脚本：内容导入导出、入口脚本、初始化 SQL
 ├── alembic/         # 数据库迁移链（EE 主链；CE 用独立基线，见数据模型篇）
 └── tests/           # pytest 测试套件
 ```
 
-依赖方向单向：`api → orchestration → core`；`mcp_servers` 与 `services/script_runner_service` 不 import 后端业务代码，只通过 HTTP/MCP 协议交互。
+依赖方向单向：`api → orchestration → core`；`extensions/mcp_servers` 与 `core/sandbox/runner` 提供独立进程入口。runner 只共享进程管理基础模块，不加载后端配置或数据库；后端通过 HTTP 调用它。
 
 ## core/ 子模块逐个说明
 
@@ -107,22 +109,31 @@ src/backend/
 
 ### core/sandbox — 沙箱驱动
 
-| 文件 | 职责 |
+根目录仅保留协议、异常、工厂和包初始化；按驱动类型与共享职责组织实现。
+
+| 文件/包 | 职责 |
 |---|---|
-| `protocol.py` | 沙箱驱动统一接口与数据契约（execute / put_file / get_file / 快照…） |
-| `factory.py` | 按 `SANDBOX_PROVIDER` 选驱动的单例工厂 |
-| `script_runner_provider.py` | 包装 script-runner 容器的轻量无状态执行（CE 默认） |
-| `opensandbox_provider.py` + `_opensandbox_*.py`（商业版 EE） | OpenSandbox 持久沙箱：会话、快照、文件操作 mixin |
-| `cube_provider.py`（商业版 EE) | 腾讯 CubeSandbox（E2B 兼容 MicroVM）驱动 |
-| `_pool.py` | 沙箱预热池 |
-| `errors.py` / `_common.py` | 统一异常与共享工具 |
+| `protocol.py` / `errors.py` / `factory.py` | 统一接口、数据契约、异常与 `SANDBOX_PROVIDER` 驱动选择 |
+| `providers/script_runner/` | script-runner 的 HTTP 客户端与认证 |
+| `providers/opensandbox/` | OpenSandbox 驱动、会话创建与生命周期、快照、卷、传输、预热池及恢复（CE/EE 共用） |
+| `providers/cube/`（商业版 EE） | 腾讯 CubeSandbox（E2B 兼容 MicroVM）驱动 |
+| `providers/evaluation/` | 评测沙箱绑定与进程限制 |
+| `providers/edition.py` / `providers/account_env.py` | 版本适配入口与账号环境装配 |
+| `runner/` | 独立执行服务；Docker 与桌面统一入口 `core.sandbox.runner.server:app` |
+| `processes/` | 前后台进程、输出、截止时间、云端适配及线程/事件循环调度 |
+| `sessions/` | 会话注册、路由、绑定、保活与元数据 |
+| `workspace/` | 本地/容器/桌面路径、挂载、归档、流式写入与临时凭据清理 |
+| `permissions/` | 本地路径和命令权限评估，以及 OS 沙箱准入 |
+| `oslayer/` | OS 隔离策略模型、路径规范、策略构建及平台执行实现 |
+
+`runner` 仅依赖不加载后端配置或数据库的进程和路径基础模块。OpenSandbox 专属组件留在自己的驱动目录；Cube 与 OpenSandbox 共用的进程、路径和账号环境能力由共享包提供。
 
 ### core/agent_skills — 技能引擎
 
 | 文件 | 职责 |
 |---|---|
 | `loader.py` + `registry.py` | 多源技能加载与注册（skill-creator 对齐的 SKILL.md 规范） |
-| `backends/` | 存储后端抽象：`filesystem`（skill_bundles）、`database`（admin_skills 表）、`composite` 合并 |
+| `backends/` | 存储后端抽象：`filesystem`（extensions/skills）、`database`（admin_skills 表）、`composite` 合并 |
 | `selector.py` | 按用户意图动态挑选技能 |
 | `skill_archive.py` | 技能目录 tar.gz 构建缓存，加速沙箱投递 |
 | `deps_detector.py` | 从技能附带文件探测 pip/npm/apt 运行时依赖 |
@@ -183,11 +194,11 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 | 系统管理台（商业版 EE，`/config` 后端） | `config_users.py`、`config_teams.py`、`config_invites.py`、`config_security.py`、`config_verify.py`、`config_license.py`、`service_configs.py` |
 | 其他商业版 EE | `auth.py`（SSO ticket 交换）、`audit.py`、`team_files.py`、`data_sources.py`、`db_metadata.py`、`gateway_admin.py`、`gateway_anthropic.py` |
 
-## mcp_servers/ 与 sidecar
+## extensions/mcp_servers/ 与 sidecar
 
-`mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（按注册表的安装位置和端口启动服务进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
+`extensions/mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（按注册表的安装位置和端口启动服务进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
 
-`services/script_runner_service/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
+`core/sandbox/runner/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
 
 ## prompts/ — 提示词装配
 
@@ -214,6 +225,6 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 | 记忆流水线 | `src/backend/core/memory/pipeline.py` |
 | EE License 实现 / CE 版本中间件 | `src/backend/edition_ee/licensing/`、`src/backend/api/middleware/edition.py` |
 | 技能引擎 | `src/backend/core/agent_skills/loader.py` |
-| MCP 注册表与端口 | `src/backend/mcp_servers/registry.py`、`_ports.py` |
+| MCP 注册表与端口 | `src/backend/extensions/mcp_servers/registry.py`、`_ports.py` |
 
-空间 MCP 接口位于 `mcp_servers/space_files_mcp/`。注册表分别管理安装位置和暴露方式；混合模式通过桌面能力网关访问空间，修改操作接入统一审批。详见[空间文件挂载](../deployment/space-files.md)。
+空间 MCP 接口位于 `extensions/mcp_servers/space_files_mcp/`。注册表分别管理安装位置和暴露方式；混合模式通过桌面能力网关访问空间，修改操作接入统一审批。详见[空间文件挂载](../deployment/space-files.md)。

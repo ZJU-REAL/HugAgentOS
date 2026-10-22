@@ -10,13 +10,11 @@ the ordinary ones no longer do.
 from __future__ import annotations
 
 import pytest
-from core.sandbox.local_policy import (
-    _POSIX_DANGER,
-    _WINDOWS_DANGER,
-    DELETE,
-    NETWORK,
-    _extract_write_target_paths,
-)
+from core.sandbox.permissions.shell import _POSIX_DANGER
+from core.sandbox.permissions.shell import _WINDOWS_DANGER
+from core.sandbox.permissions.models import DELETE
+from core.sandbox.permissions.models import NETWORK
+from core.sandbox.permissions.shell import _extract_write_target_paths
 
 
 def _categories(command: str, platform: str = "posix") -> set[str]:

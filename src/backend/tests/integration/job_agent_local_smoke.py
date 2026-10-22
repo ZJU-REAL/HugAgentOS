@@ -128,7 +128,7 @@ async def acceptance(root, backend_socket, runner_socket, model):
     from core.services.run_journal import durable_run_binding
     from fastapi import FastAPI
     from orchestration.jobs import owner, supervisor
-    from services.script_runner_service import server as runner
+    from core.sandbox.runner import server as runner
 
     Base.metadata.create_all(engine)
     with SessionLocal() as db:

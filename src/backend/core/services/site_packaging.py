@@ -84,7 +84,7 @@ async def pack_and_fetch_dir(
     from pathlib import Path
     from core.sandbox import ProcessRequest, get_sandbox_provider
     from core.sandbox import SandboxError, SandboxConnectError
-    from core.sandbox import directory_archive
+    import core.sandbox.workspace.archive as directory_archive
     from core.services.site_service import MAX_SITE_FILE_BYTES, MAX_SITE_TOTAL_BYTES
 
     provider = get_sandbox_provider()

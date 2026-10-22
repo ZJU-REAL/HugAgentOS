@@ -5,11 +5,13 @@
 时各建各的容器，两个都活着、各有各的 ``/workspace``。用户看到的是"跨轮随机跳"：
 上一轮 nohup 起的进程连同 ``run.log`` 一起消失，其实还在另一台容器里跑着。
 
-这里用两个 mixin 实例当两个 worker——它们共享 :mod:`core.sandbox.session_registry`，
+这里用两个 mixin 实例当两个 worker——它们共享 :mod:`core.sandbox.sessions.registry`，
 正如同机的两个 uvicorn 进程共享 Redis。
 """
 
 from __future__ import annotations
+
+from tests.sandbox.provider_test_support import patch_open_settings
 
 import asyncio
 import json
@@ -19,9 +21,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from core.sandbox import _opensandbox_session as session_mod
-from core.sandbox import session_registry
-from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
+import core.sandbox.providers.opensandbox.models as session_mod_models
+import core.sandbox.sessions.registry as session_registry
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 
 def _settings(**overrides):
@@ -32,7 +34,7 @@ def _settings(**overrides):
 
 @pytest.fixture(autouse=True)
 def _sandbox_settings(monkeypatch):
-    monkeypatch.setattr(session_mod, "settings", _settings())
+    patch_open_settings(monkeypatch, _settings())
     monkeypatch.setattr("core.config.settings.settings", _settings(), raising=False)
 
 
@@ -74,7 +76,7 @@ def _fake_opensandbox(monkeypatch):
 
 def _worker(name: str):
     """一个 worker：自己的会话表、自己的池，共享登记。"""
-    worker = _OpenSandboxSessionMixin()
+    worker = OpenSandboxProvider.__new__(OpenSandboxProvider)
     worker._sessions = {}
     worker._session_locks = {}
     worker._registry_lock = __import__("threading").Lock()
@@ -97,7 +99,7 @@ def _worker(name: str):
     async def create_session_for(session_id, user_id=None):
         sandbox_id = f"{name}-sbx-{len(worker.created) + 1}"
         worker.created.append(sandbox_id)
-        return session_mod._Session(
+        return session_mod_models._Session(
             sandbox=_FakeSandbox(sandbox_id),
             interpreter=None,
             contexts={},

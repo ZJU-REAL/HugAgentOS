@@ -158,7 +158,7 @@ attachments and My Space, and xlsx files remain editable in the data canvas.
 | File download / preview | `src/backend/api/routes/files.py` |
 | Chat share API | `src/backend/api/routes/v1/chat_shares.py` |
 | Share frontend | `src/frontend/src/SharePreviewApp.tsx`, `src/frontend/src/components/share/ShareRecordsPage.tsx` |
-| Document export skills | `src/backend/skill_bundles/default/officecli-*/`, `src/backend/skill_bundles/default/pdf-editing/` |
+| Document export skills | `src/backend/extensions/skills/default/officecli-*/`, `src/backend/extensions/skills/default/pdf-editing/` |
 | My Space frontend | `src/frontend/src/components/myspace/`, `src/frontend/src/stores/mySpaceStore.ts` |
 
 Further reading: [Sandbox](sandbox.md) · [Projects & My Space](projects-myspace.md) · [Storage](storage.md) · [MCP Tools](mcp-tools.md)

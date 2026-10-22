@@ -8,8 +8,8 @@ Design:
 - Each version has (kind, id) as its composite key.
 - `get_active_version(kind)` returns the currently active version for a kind,
   or None if the DB is empty — callers then fall back to filesystem.
-- Filesystem directories (default/, code_exec/, distillation/, subagents/) serve as the
-  "seed" and as the last-resort fallback when DB is unreachable.
+- Shipped prompt files under prompts/prompt_text/ and extensions/agents/default/
+  serve as seeds and as the last-resort fallback when the DB is unreachable.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 from core.content.content_blocks import DEFAULT_PROMPT_VERSIONS, PROMPT_VERSIONS_BLOCK_ID
 from core.db.engine import SessionLocal
 from core.db.models import ContentBlock
+from extensions.paths import DEFAULT_AGENTS_DIR
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ KIND_SPECS: Dict[str, KindSpec] = {
         "default - 平台默认子智能体",
         "探索员、执行员和审查员三个平台内置角色的独立系统提示词",
         visible=False,
+        root=DEFAULT_AGENTS_DIR,
     ),
 }
 
@@ -251,7 +253,10 @@ def _fs_dir(kind: str) -> Path:
 def _fs_signature(dirp: Path) -> tuple:
     """目录里每个 md 的 (文件名, mtime, 大小)。用它判断要不要重读磁盘。"""
     try:
-        names = sorted(f for f in os.listdir(dirp) if f.endswith(".system.md"))
+        names = sorted(
+            [p.name for p in dirp.glob("*.system.md")]
+            + [p.relative_to(dirp).as_posix() for p in dirp.glob("*/system.md")]
+        )
     except OSError:
         return ()
     sig: List[tuple] = []
@@ -287,6 +292,13 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
     return _clone(parts)
 
 
+def _prompt_part_id(filename: str) -> str:
+    """Map a flat prompt file or an agent package prompt to its stable part ID."""
+    if filename.endswith("/system.md"):
+        return Path(filename).parent.name
+    return filename.removesuffix(".system.md")
+
+
 def _build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, Any]]:
     layout = KIND_SPECS[kind].layout
 
@@ -311,8 +323,8 @@ def _build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, A
             files = sorted(files, key=lambda f: (f != "skill_distiller.system.md", f))
         return [
             {
-                "part_id": fname[: -len(".system.md")],
-                "display_name": fname[: -len(".system.md")],
+                "part_id": _prompt_part_id(fname),
+                "display_name": _prompt_part_id(fname),
                 "content": (dirp / fname).read_text(encoding="utf-8"),
                 "sort_order": idx * 10,
                 "is_enabled": True,
@@ -322,7 +334,7 @@ def _build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, A
 
     parts: List[Dict[str, Any]] = []
     for idx, fname in enumerate(files):
-        name = fname[: -len(".system.md")]
+        name = _prompt_part_id(fname)
         prefix = name.split("_", 1)[0]
         parts.append(
             {

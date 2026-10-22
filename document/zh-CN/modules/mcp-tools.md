@@ -19,7 +19,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 
 ```
                        ┌──────────────────────── mcp 容器 (docker/Dockerfile.mcp) ───┐
-                       │  mcp_servers._launcher（每个 server 一个子进程）       │
+                       │  extensions.mcp_servers._launcher（每个 server 一个子进程）       │
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content（知识库检索）   │
 │ backend │───────▶│streama-│   :9101  query_database（数仓查询，EE）           │
 │ (FastAPI│        │ble-http│   :9102  internet_search（联网搜索）              │
@@ -33,7 +33,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
                        └──────────────────────────────────────────────────────┘
 ```
 
-内置服务的安装位置、包名和基础端口由 `src/backend/mcp_servers/registry.py` 统一声明。`_ports.py` 应用桌面端口偏移：`core/config/mcp_config.py`（后端拼 `http://mcp:NNNN/mcp/` URL）和 `mcp_servers/_launcher.py`（容器内绑定端口）都从这里读取。
+内置服务的安装位置、包名和基础端口由 `src/backend/extensions/mcp_servers/registry.py` 统一声明。`_ports.py` 应用桌面端口偏移：`core/config/mcp_config.py`（后端拼 `http://mcp:NNNN/mcp/` URL）和 `extensions/mcp_servers/_launcher.py`（容器内绑定端口）都从这里读取。
 
 > 历史说明：办公文档编辑与导出（word / excel / ppt / pdf）已整体迁出
 > `mcp` 容器，改为以 [Agent 技能](agent-skills.md)（officecli-docx /
@@ -147,14 +147,14 @@ MCP（即使工具同名）也统一使用通用 JSON 卡片展示。两类结�
 每个内置 Server 遵循同一套目录约定：
 
 ```
-mcp_servers/<name>_mcp/
+extensions/mcp_servers/<name>_mcp/
 ├── server.py        # FastMCP 实例 + @mcp.tool() 薄壳（参数容错、stdout 重定向到 stderr）
 ├── impl.py          # 业务实现（server.py 内延迟 import，保持启动轻量）
 ├── _selftest.py     # 自检脚本：不出网验证模块可导入、签名正确
 └── README.md        # 运行/调试说明
 ```
 
-公共层（`mcp_servers/` 根目录）：
+公共层（`extensions/mcp_servers/` 根目录）：
 
 | 文件 | 职责 |
 |---|---|
@@ -331,14 +331,14 @@ OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服�
 
 ```bash
 # 以 stdio 方式跑单个 server（配合 MCP Inspector 等客户端调试）
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server
 
 # 以 streamable-http 方式跑（模拟容器内形态）
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server \
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server \
   --transport streamable-http --port 9102
 
 # 不出网自检（验证导入、工具签名）
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp._selftest
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp._selftest
 
 # 容器内整体健康检查（launcher 起的最低端口）
 curl -fsS http://localhost:9100/mcp/
@@ -354,11 +354,11 @@ docker-compose up -d --build mcp
 
 | 路径 | 说明 |
 |---|---|
-| `src/backend/mcp_servers/<name>_mcp/` | 各 MCP Server（server.py / impl / _selftest） |
-| `src/backend/mcp_servers/_launcher.py` | mcp 容器入口：多进程拉起 + 崩溃重启 |
-| `src/backend/mcp_servers/_serve.py` | stdio / streamable-http 双 transport 统一入口 |
-| `src/backend/mcp_servers/registry.py` | 安装位置、暴露方式、包名和基础端口 |
-| `src/backend/mcp_servers/_ports.py` | 实际部署端口映射 |
+| `src/backend/extensions/mcp_servers/<name>_mcp/` | 各 MCP Server（server.py / impl / _selftest） |
+| `src/backend/extensions/mcp_servers/_launcher.py` | mcp 容器入口：多进程拉起 + 崩溃重启 |
+| `src/backend/extensions/mcp_servers/_serve.py` | stdio / streamable-http 双 transport 统一入口 |
+| `src/backend/extensions/mcp_servers/registry.py` | 安装位置、暴露方式、包名和基础端口 |
+| `src/backend/extensions/mcp_servers/_ports.py` | 实际部署端口映射 |
 | `src/backend/core/llm/mcp_pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient 构造 + 工具裸名还原 |
 | `src/backend/core/llm/tool_permissions.py` | 受控工具 Registry、权限判定、确认路由与执行票据 |

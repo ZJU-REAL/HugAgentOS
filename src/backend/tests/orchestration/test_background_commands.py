@@ -74,8 +74,8 @@ def test_terminal_notification_is_atomic_with_result(command_db):
 @pytest.fixture
 async def http_provider(tmp_path, monkeypatch):
     import httpx
-    from services.script_runner_service import server
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.runner import server
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     monkeypatch.setattr(server, "_AUTH_TOKEN", "")
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
@@ -88,8 +88,13 @@ async def http_provider(tmp_path, monkeypatch):
         response = await client.post(path, json=body)
         response.raise_for_status()
         return response.json()
+    async def touch_session(session_id):
+        # Lifecycle traffic belongs to this ASGI runner too, never the configured host.
+        response = await client.post("/sessions/touch", json={"session_id": session_id})
+        response.raise_for_status()
     monkeypatch.setattr(provider, "_execution_body", body)
     monkeypatch.setattr(provider, "_process_request", transport)
+    monkeypatch.setattr(provider, "touch_session", touch_session)
     yield provider
     await server.process_sessions.close_all()
     await client.aclose()

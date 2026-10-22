@@ -5,7 +5,7 @@ import builtins
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from core.sandbox.opensandbox_provider import OpenSandboxProvider
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 
 def test_community_api_session_can_create_without_enterprise_modules(monkeypatch):

@@ -130,7 +130,7 @@ def skill_id_from_path(file_path: str) -> str:
     Paths reach here in three shapes — the sandbox view
     (``/workspace/skills/<id>/SKILL.md``), the backend materialised view
     (``/app/storage/sandbox_skills/<id>/SKILL.md``) and the bundle view
-    (``skill_bundles/default/<id>/SKILL.md``). All three end with the skill id
+    (``extensions/skills/default/<id>/SKILL.md``). All three end with the skill id
     followed by the file, so the id is recovered from the segment before the
     file rather than from any one root.
     """

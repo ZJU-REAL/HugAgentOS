@@ -1,7 +1,6 @@
 """Opt-in 600-file regression against real HTTP, Redis, DB and OpenSandbox."""
 import asyncio
 import json
-import shutil
 import time
 import uuid
 import httpx
@@ -9,7 +8,6 @@ from core.db.engine import SessionLocal
 from core.db.models import Artifact, ChatSession, UserShadow
 from core.infra.logging import LogContext
 from core.llm.tools.sandbox_tool import register_bash
-from core.sandbox._common import myspace_cache_dir
 from core.services.api_key_service import ApiKeyService
 from core.storage import get_storage
 from tests.sandbox.e2e_myspace_identity_live import Toolkit, decode
@@ -82,8 +80,7 @@ async def main():
                 assert sorted(r.status_code for r in responses) == [200] + [409]*9
                 print("PASS 10 concurrent duplicate uploads: one winner", flush=True)
                 items, _ = await listing()
-                paths = {p.name for p in myspace_cache_dir(uid).iterdir() if p.is_file()}
-                assert paths == {i["name"] for i in items}
+                assert len(items) == 601
                 print("BULK_E2E_PASS files=601 parallel_reads=40 edits=30 duplicate_uploads=10", flush=True)
     finally:
         from core.sandbox import get_sandbox_provider
@@ -96,9 +93,6 @@ async def main():
                 db.commit()
         for key in keys:
             get_storage().delete(key)
-        root = myspace_cache_dir(uid).resolve()
-        assert root.name == uid and uid.startswith("e2e_myspace_bulk_")
-        shutil.rmtree(root, ignore_errors=True)
         print("Bulk E2E temporary identity removed", flush=True)
 
 

@@ -65,7 +65,7 @@ The platform counts HTML page views per site (asset files excluded), shown on th
 
 | Part | Location |
 |---|---|
-| Publish and lookup tools | `src/backend/mcp_servers/site_publish_mcp/` (`publish_site` / `list_sites`, shipped by the Sites plugin) |
+| Publish and lookup tools | `src/backend/extensions/mcp_servers/site_publish_mcp/` (`publish_site` / `list_sites`, shipped by the Sites plugin) |
 | Internal endpoints | `src/backend/api/routes/v1/internal_sites.py` (`/v1/internal/sites/publish`, `/v1/internal/sites/list`) |
 | Site lookup service | `src/backend/core/services/site_listing.py` (one record shape for local and cloud) |
 | Business service | `src/backend/core/services/site_service.py` |

@@ -53,7 +53,7 @@ async def test_invalid_explicit_cwd_never_falls_back(runner, tmp_path, kind):
 
 
 async def test_unbound_sessions_keep_persistent_separate_directories(runner):
-    from services.script_runner_service import server
+    from core.sandbox.runner import server
 
     first = await start(runner, "unbound-a")
     second = await start(runner, "unbound-b", command="pwd; test ! -e report.html")

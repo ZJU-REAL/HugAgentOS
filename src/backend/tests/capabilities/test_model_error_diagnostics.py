@@ -1,6 +1,7 @@
 """Wrapped SDK diagnostics must never serialize exception payloads."""
+
 from core.capabilities.errors import PermissionDenied
-from core.llm.chat_models import _safe_exception_chain
+from core.llm.providers.openai_compat import _safe_exception_chain
 
 
 def test_diagnostic_keeps_wrapped_authorization_code_without_private_payload():
@@ -11,7 +12,10 @@ def test_diagnostic_keeps_wrapped_authorization_code_without_private_payload():
     chain = _safe_exception_chain(outer)
     assert chain == [
         {"type": "builtins.RuntimeError"},
-        {"type": "core.capabilities.errors.PermissionDenied", "code": "permission_denied"},
+        {
+            "type": "core.capabilities.errors.PermissionDenied",
+            "code": "permission_denied",
+        },
     ]
     assert private not in repr(chain)
 

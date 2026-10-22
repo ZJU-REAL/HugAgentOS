@@ -4313,8 +4313,8 @@ async def reap_stale_runs() -> int:
       age-based reaping choked even active runs mid-tool-call once the 30-minute
       mark hit).
     - **Absolute cap**: runs older than ``CHAT_RUN_HARD_MAX_AGE_SEC`` are reaped
-      even when actively emitting, except while a registered bounded human
-      interaction is pending (that interaction keeps its own full deadline).
+      even when actively emitting, except for automation conversations and
+      registered bounded human interactions (which keep their own deadline).
 
     Reaping also cancels the in-process worker task, keeping the DB terminal
     state aligned with the actual task (historical bug: only flipping the DB
@@ -4329,6 +4329,7 @@ async def reap_stale_runs() -> int:
     older code paths.
     """
     from sqlalchemy import func
+    from core.db.models import ChatSession
 
     now = _utcnow()
     cutoff = now - timedelta(seconds=_STALE_RUN_MAX_AGE_SEC)
@@ -4340,8 +4341,10 @@ async def reap_stale_runs() -> int:
                 ChatRun.chat_id,
                 ChatRun.request_payload,
                 ChatRun.lease_expires_at,
+                ChatSession.extra_data.label("session_metadata"),
                 func.coalesce(ChatRun.started_at, ChatRun.created_at).label("began_at"),
             )
+            .outerjoin(ChatSession, ChatSession.chat_id == ChatRun.chat_id)
             .filter(ChatRun.status == "running")
             .filter(func.coalesce(ChatRun.started_at, ChatRun.created_at) < cutoff)
             .all()
@@ -4359,7 +4362,9 @@ async def reap_stale_runs() -> int:
         began_at = row.began_at
         if began_at is not None and began_at.tzinfo is None:  # SQLite stores naive UTC
             began_at = began_at.replace(tzinfo=timezone.utc)
-        hard_expired = began_at is not None and began_at < hard_cutoff
+        session_metadata = row.session_metadata or {}
+        automation_run = bool(session_metadata.get("automation_run"))
+        hard_expired = not automation_run and began_at is not None and began_at < hard_cutoff
         if not hard_expired and lease_expires_at is not None and lease_expires_at > now:
             logger.info(
                 "chat_run_stale_skip_live_lease",

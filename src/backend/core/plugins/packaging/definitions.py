@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, Tuple
+
+from extensions.paths import PLUGINS_DIR
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_BUNDLES_DIR = Path(__file__).resolve().parents[3] / "plugin_bundles"
+PLUGIN_BUNDLES_DIR = PLUGINS_DIR
 
 
 PLUGIN_SOURCE_DIRS = (PLUGIN_BUNDLES_DIR / "default", PLUGIN_BUNDLES_DIR / "marketplace")

@@ -18,7 +18,7 @@ def _run_chat_id(run_id):
         return run.chat_id if run else None
 
 
-async def execute_task(scheduler, task_id: str, user_id: str, *, timeout: float):
+async def execute_task(scheduler, task_id: str, user_id: str, *, resume_run_id=None):
     """Execute a single scheduled task."""
     from core.db.engine import SessionLocal
     from core.services.automation_service import AutomationService
@@ -36,10 +36,18 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, timeout: float)
     with SessionLocal() as db:
         svc = AutomationService(db)
         task = svc.get_task_by_id(task_id)
-        if not task or task.user_id != user_id or task.status not in ("active", "paused"):
+        if not task or task.user_id != user_id:
             return
+        if resume_run_id is None and task.status not in ("active", "paused"):
+            return
+        if resume_run_id is None:
+            run = svc.record_run_start(task_id)
+        else:
+            from core.db.models import ScheduledTaskRun
 
-        run = svc.record_run_start(task_id)
+            run = db.get(ScheduledTaskRun, resume_run_id)
+            if run is None or run.task_id != task_id or run.status != "running":
+                return
         task_type = task.task_type
         task_name = task.name or "定时任务"
         task_prompt = task.prompt
@@ -58,6 +66,11 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, timeout: float)
             task.extra_data or {}
         )  # includes optional channel delivery destinations
 
+    if resume_run_id is not None:
+        from core.infra.time import as_utc
+
+        start -= max(0, (utc_now() - as_utc(run.started_at)).total_seconds())
+
     try:
         from core.services.automation_execution import task_execution_context
 
@@ -66,47 +79,44 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, timeout: float)
             if current_task is None:
                 raise ValueError("任务已删除")
             task_execution_context(db, current_task)
-        if task_type == "prompt":
-            chat_id, result_text, usage = await asyncio.wait_for(
-                execute_prompt(
-                    user_id=user_id,
-                    task_name=task_name,
-                    prompt=task_prompt,
-                    task_id=task_id,
-                    automation_run_id=run.run_id,
-                    enabled_mcp_ids=enabled_mcp_ids,
-                    enabled_skill_ids=enabled_skill_ids,
-                    enabled_kb_ids=enabled_kb_ids,
-                    enabled_agent_ids=enabled_agent_ids,
-                ),
-                timeout=timeout,
+        if resume_run_id is not None:
+            from .automation_conversation import resume_conversation
+
+            chat_id, result_text, usage = await resume_conversation(
+                run.chat_id, user_id, run.started_at
+            )
+        elif task_type == "prompt":
+            chat_id, result_text, usage = await execute_prompt(
+                user_id=user_id,
+                task_name=task_name,
+                prompt=task_prompt,
+                task_id=task_id,
+                automation_run_id=run.run_id,
+                enabled_mcp_ids=enabled_mcp_ids,
+                enabled_skill_ids=enabled_skill_ids,
+                enabled_kb_ids=enabled_kb_ids,
+                enabled_agent_ids=enabled_agent_ids,
             )
         elif task_type == "plan":
-            chat_id, result_text, usage = await asyncio.wait_for(
-                execute_plan(
-                    user_id=user_id,
-                    task_name=task_name,
-                    plan_id=task_plan_id,
-                    task_id=task_id,
-                    automation_run_id=run.run_id,
-                    enabled_mcp_ids=enabled_mcp_ids,
-                    enabled_skill_ids=enabled_skill_ids,
-                    enabled_kb_ids=enabled_kb_ids,
-                    enabled_agent_ids=enabled_agent_ids,
-                ),
-                timeout=timeout,
+            chat_id, result_text, usage = await execute_plan(
+                user_id=user_id,
+                task_name=task_name,
+                plan_id=task_plan_id,
+                task_id=task_id,
+                automation_run_id=run.run_id,
+                enabled_mcp_ids=enabled_mcp_ids,
+                enabled_skill_ids=enabled_skill_ids,
+                enabled_kb_ids=enabled_kb_ids,
+                enabled_agent_ids=enabled_agent_ids,
             )
         elif task_type == "loop":
             # Periodically advance a persistent autonomous loop (M4 scheduler integration); loop_id stored in task.extra_data
-            chat_id, result_text, usage = await asyncio.wait_for(
-                execute_loop(
-                    user_id=user_id,
-                    task_name=task_name,
-                    loop_id=(task_metadata or {}).get("loop_id"),
-                    task_id=task_id,
-                    automation_run_id=run.run_id,
-                ),
-                timeout=timeout,
+            chat_id, result_text, usage = await execute_loop(
+                user_id=user_id,
+                task_name=task_name,
+                loop_id=(task_metadata or {}).get("loop_id"),
+                task_id=task_id,
+                automation_run_id=run.run_id,
             )
         else:
             raise ValueError(f"Unknown task type: {task_type}")
@@ -226,7 +236,7 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, timeout: float)
         raise
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        error_msg = "定时任务执行超时" if isinstance(e, asyncio.TimeoutError) else str(e)[:2000]
+        error_msg = str(e)[:2000] or type(e).__name__
         logger.error("[scheduler] task %s failed: %s", task_id, error_msg, exc_info=True)
 
         still_exists = True

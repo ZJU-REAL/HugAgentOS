@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from extensions.paths import SKILLS_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
     """Get default skill source configurations.
 
     Priority levels:
-    - Built-in (priority=0): skill_bundles/
+    - Built-in (priority=0): extensions/skills/
     - Admin (priority=75): /app/storage/admin_skills/
     - User (priority=50): ~/.hugagent/skills/
     - Project (priority=100): .hugagent/skills/
@@ -44,11 +46,8 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
     sources: List[SkillSourceConfig] = []
 
     # 1. Built-in skills (always enabled)
-    # The default built-in skill bundles live at ``src/backend/skill_bundles/default/`` (moved out of core/ after the repo refactor).
-    # skill_bundles has two directories: ``default/`` = default always-on built-in skills;
-    # ``marketplace/`` = install-based skill marketplace (scanned separately by marketplace_service, not within this load source).
-    # This file is in ``core/agent_skills/``; go up three levels to ``src/backend`` then into ``skill_bundles/default``.
-    builtin_dir = Path(__file__).parent.parent.parent / "skill_bundles" / "default"
+    # Installable marketplace skills are scanned separately from built-in defaults.
+    builtin_dir = SKILLS_DIR / "default"
     sources.append(
         SkillSourceConfig(
             name="built-in",
@@ -371,7 +370,7 @@ def purge_skill_sandbox_files(skill_id: str) -> bool:
 
 
 def _builtin_skills_dir() -> Path:
-    return Path(__file__).parent.parent.parent / "skill_bundles" / "default"
+    return SKILLS_DIR / "default"
 
 
 def prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:

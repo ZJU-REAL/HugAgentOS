@@ -9,7 +9,7 @@ from core.services import desktop_cloud_bridge as bridge
 
 @pytest.fixture
 def installed(client, index_db, monkeypatch):
-    root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/browser-automation"
+    root = Path(__file__).resolve().parents[2] / "extensions/plugins/marketplace/browser-automation"
     result = service.install("local-u1", str(root))
     monkeypatch.setattr(bridge, "_bridge_context", lambda: None)
     monkeypatch.setattr(bridge, "_local_server_ids", lambda: set())

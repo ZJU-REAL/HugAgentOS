@@ -9,7 +9,7 @@ from mcp import types
 
 from core.kb import external_provider, kb_vector
 from core.services.system_config import SystemConfigService
-from mcp_servers.retrieve_dataset_content_mcp import impl, server, wiki_impl
+from extensions.mcp_servers.retrieve_dataset_content_mcp import impl, server, wiki_impl
 
 
 def configure(monkeypatch, provider):

@@ -14,7 +14,7 @@ def capability_package():
     contributions = manifest["extensions"]["org.hugagent"]["ui"]["contributes"]
     contributions["modules"][0]["grants"] = ["data.query", "file.save", "data_source:records"]
     contributions["data_sources"] = [
-        {"id": "records", "provider": "mcp_servers.wb09_fixture:records"}
+        {"id": "records", "provider": "extensions.mcp_servers.wb09_fixture:records"}
     ]
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:

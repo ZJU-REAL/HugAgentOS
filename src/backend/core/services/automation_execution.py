@@ -80,7 +80,7 @@ def task_execution_context(db, task):
     if not saved.get("project_id"):
         return {}
     if location == "local":
-        from core.sandbox.local_mount import ensure_local_project_link
+        from core.sandbox.workspace.mounts import ensure_local_project_link
         if saved.get("project_local_slug") != current.get("project_local_slug"):
             raise ValueError("项目目录绑定已变更，请重新创建定时任务")
         ensure_local_project_link(current.get("project_local_slug"), current["project_local_path"])

@@ -248,7 +248,7 @@ def _validate_workspace_path(
 
     返回错误字符串表示拒绝，``None`` 表示通过。
     """
-    from core.sandbox._common import WORKSPACE
+    from core.sandbox.workspace.paths import WORKSPACE
 
     base = root or WORKSPACE
     if not path or not isinstance(path, str):

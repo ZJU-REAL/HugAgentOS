@@ -4,6 +4,8 @@ connect/disconnect sync flow (stubbed _verify, no real mail server connection),
 credentials-volume degradation, plugin installability, route e2e. Real sandbox
 connections are left for verification on a real machine."""
 
+from tests.sandbox.provider_test_support import patch_open_settings
+
 import base64
 
 import pytest
@@ -37,17 +39,17 @@ def db():
 def _redirect_storage(monkeypatch, tmp_path):
     """Redirect the email_* path helpers to a temp directory (settings.storage is frozen and cannot be monkeypatched).
     email_service internally resolves these functions at call time via
-    ``from core.sandbox._common import ...``, so patching the module attributes
+    ``from core.sandbox.workspace.credentials import ...``, so patching the module attributes
     is enough to take effect."""
-    import core.sandbox._common as common
+    import core.sandbox.workspace.credentials as common_credentials
 
     def cache(uid):
         return tmp_path / "email_cache" / uid
 
-    monkeypatch.setattr(common, "email_cache_dir", cache)
-    monkeypatch.setattr(common, "email_home_dir", lambda uid: cache(uid) / "home")
+    monkeypatch.setattr(common_credentials, "email_cache_dir", cache)
+    monkeypatch.setattr(common_credentials, "email_home_dir", lambda uid: cache(uid) / "home")
     monkeypatch.setattr(
-        common, "email_himalaya_config",
+        common_credentials, "email_himalaya_config",
         lambda uid: cache(uid) / "home" / ".config" / "himalaya" / "config.toml",
     )
 
@@ -156,7 +158,7 @@ async def test_connect_success(monkeypatch, db, tmp_path):
     decoded = base64.b64decode(rec.config_bundle).decode("utf-8")
     assert 'backend.auth.raw = "app-pw"' in decoded
     # config.toml is actually written under that user's HOME
-    from core.sandbox._common import email_himalaya_config
+    from core.sandbox.workspace.credentials import email_himalaya_config
     assert email_himalaya_config("u1").exists()
 
 
@@ -184,7 +186,7 @@ async def test_connect_verify_failure_purges(monkeypatch, db, tmp_path):
     assert "AUTHENTICATIONFAILED" in (data["last_error"] or "")
     rec = EmailConnectionRepository(db).get("u1")
     assert rec.secret_enc is None and rec.config_bundle is None  # no credentials kept on failure
-    from core.sandbox._common import email_himalaya_config
+    from core.sandbox.workspace.credentials import email_himalaya_config
     assert not email_himalaya_config("u1").exists()             # bad config was purged
 
 
@@ -209,7 +211,7 @@ async def test_disconnect_clears(monkeypatch, db, tmp_path):
     assert data["email_address"] is None
     rec = EmailConnectionRepository(db).get("u1")
     assert rec.secret_enc is None and rec.config_bundle is None
-    from core.sandbox._common import email_himalaya_config
+    from core.sandbox.workspace.credentials import email_himalaya_config
     assert not email_himalaya_config("u1").exists()
 
 
@@ -232,31 +234,29 @@ async def test_config_bundle_export(monkeypatch, db, tmp_path):
 # ── Credentials-volume degradation + paths ───────────────────────────────
 def test_creds_volume_degrades_without_host_storage(monkeypatch):
     from types import SimpleNamespace
-    from core.sandbox import _opensandbox_internals as internals
+    import core.sandbox.providers.opensandbox.account_volumes as internals_account_volumes
 
     # Explicitly simulate "HOST_STORAGE_PATH not configured" — don't depend on the
     # runtime environment's .env (a dev machine may actually set HOST_STORAGE_PATH,
     # which would make this assertion misjudge). settings is frozen, attributes
     # can't be changed, so swap the module-level settings reference for a stub
     # carrying only the required fields.
-    monkeypatch.setattr(
-        internals, "settings",
-        SimpleNamespace(sandbox=SimpleNamespace(
+    patch_open_settings(monkeypatch, SimpleNamespace(sandbox=SimpleNamespace(
             email_creds_bind_mount_enabled=True,
             opensandbox_host_storage_path="",
-        )),
-    )
-    assert internals._make_email_creds_volumes("u1") == []  # quiet degradation without HOST_STORAGE_PATH
+        )))
+    assert internals_account_volumes._make_email_creds_volumes("u1") == []  # quiet degradation without HOST_STORAGE_PATH
 
 
 def test_creds_volume_rejects_bad_user_id():
-    from core.sandbox._opensandbox_internals import _make_email_creds_volumes
+    from core.sandbox.providers.opensandbox.account_volumes import _make_email_creds_volumes
     assert _make_email_creds_volumes("") == []
     assert _make_email_creds_volumes("../etc/passwd") == []
 
 
 def test_email_cache_dir_path():
-    from core.sandbox._common import email_cache_dir, email_himalaya_config
+    from core.sandbox.workspace.credentials import email_cache_dir
+    from core.sandbox.workspace.credentials import email_himalaya_config
     p = email_cache_dir("u_abc")
     assert p.name == "u_abc" and p.parent.name == "email_cache"
     cfg = email_himalaya_config("u_abc")

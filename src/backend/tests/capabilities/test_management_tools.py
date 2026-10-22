@@ -39,7 +39,7 @@ async def test_offline_plugin_package_supplies_manager_without_remote_discovery(
     monkeypatch.setattr("core.capabilities.skills.account_authorized_for", lambda _: False)
     from core.plugins.local import service as local_plugin_service
     from core.capabilities.local_plugin_runtime import configs
-    root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/skill-manager"
+    root = Path(__file__).resolve().parents[2] / "extensions/plugins/marketplace/skill-manager"
     installed = local_plugin_service.install("local-u1", str(root))
     servers = configs("local-u1")
     sid = installed["components"]["mcp"][0]
@@ -65,7 +65,7 @@ async def test_installed_local_manager_exposes_upload_only_to_bound_cloud_user(c
     from core.plugins.local import service as local_plugin_service
     from core.capabilities.local_plugin_runtime import configs
     monkeypatch.setattr("core.capabilities.skills.account_authorized_for", lambda uid: uid == "local-u1")
-    root = Path(__file__).resolve().parents[2] / "plugin_bundles/marketplace/skill-manager"
+    root = Path(__file__).resolve().parents[2] / "extensions/plugins/marketplace/skill-manager"
     installed = local_plugin_service.install("local-u1", str(root))
     sid = installed["components"]["mcp"][0]
     mcp = make_client(sid, configs("local-u1")[sid], is_stateful=False)

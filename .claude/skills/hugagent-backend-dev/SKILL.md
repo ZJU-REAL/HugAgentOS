@@ -67,8 +67,8 @@ src/backend/
 ├── orchestration/               # 流式编排：workflow.py、chat_run_executor.py、strategy.py、citations.py、
 │                                #   memory_integration.py、batch_orchestrator.py、schedulers/、subagents/
 ├── prompts/                     # 系统提示词装配（DB 版本池优先，prompt_text/ 文件兜底）
-├── mcp_servers/                 # 内置 MCP server（streamable-http 常驻 mcp 容器，端口真源 _ports.py）
-├── skill_bundles/               # 技能资产：default/（内置）+ marketplace/（可安装）
+├── extensions/mcp_servers/                 # 内置 MCP server（streamable-http 常驻 mcp 容器，端口真源 _ports.py）
+├── extensions/skills/               # 技能资产：default/（内置）+ marketplace/（可安装）
 ├── scripts/                     # 运维脚本（export_content / import_content 等）
 ├── tests/                       # 测试
 └── alembic/                     # 数据库迁移

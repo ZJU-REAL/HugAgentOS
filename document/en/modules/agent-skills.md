@@ -37,16 +37,16 @@ Parsing and data structures live in `core/agent_skills/registry.py`: `AgentSkill
 
 | Source | Directory | Priority | Notes |
 |---|---|---|---|
-| built-in | `src/backend/skill_bundles/default/` | 0 | Ships with the repo, always on |
+| built-in | `src/backend/extensions/skills/default/` | 0 | Ships with the repo, always on |
 | user | `~/.hugagent/skills/` (`HUGAGENT_USER_SKILLS_DIR`) | 50 | Filesystem user skills |
 | admin | `/app/storage/admin_skills/` (`HUGAGENT_ADMIN_SKILLS_DIR`) | 75 | Managed via the admin console (DB-stored + materialized) |
 | project | `.hugagent/skills/` (`HUGAGENT_PROJECT_SKILLS_DIR`) | 100 | Project-level overrides |
 
 Each source can be disabled individually via `HUGAGENT_DISABLE_{ADMIN,USER,PROJECT}_SKILLS=1`.
 
-## skill_bundles layering: default vs marketplace
+## extensions/skills layering: default vs marketplace
 
-`src/backend/skill_bundles/` has two tiers with very different loading semantics:
+`src/backend/extensions/skills/` has two tiers with very different loading semantics:
 
 - **`default/` — 12 built-in skills** (always-on; the built-in loader's single-level `glob("*/SKILL.md")` scan picks them up):
 
@@ -288,8 +288,8 @@ only submission, never conversation or continued local editing.
 | `src/backend/core/agent_skills/deps_detector.py` | Static pip/apt dependency detection for scripts |
 | `src/backend/core/agent_skills/backends/` | filesystem / database / composite loading backends |
 | `src/backend/core/llm/tools/skill_tool.py` | Restricted view_text_file + {baseDir} substitution + Runtime Hint |
-| `src/backend/skill_bundles/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
-| `src/backend/skill_bundles/marketplace/` | The 45 installable marketplace packages |
+| `src/backend/extensions/skills/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
+| `src/backend/extensions/skills/marketplace/` | The 45 installable marketplace packages |
 | `src/backend/core/services/marketplace_service.py` | Marketplace listing / install / secret injection / submission review |
 | `src/backend/api/routes/v1/marketplace.py` | User-side marketplace API (browse/install/submit/withdraw) |
 | `src/backend/api/routes/v1/admin_marketplace.py` | Admin marketplace API (global install / submission review) |

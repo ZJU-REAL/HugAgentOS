@@ -179,7 +179,7 @@ def register_sandboxed_view_text_file(
             _text = "".join(_selected)
             from core.config.local_mode import local_mode_enabled
             if local_mode_enabled() and "/home/ubuntu/yida-workspace" in _text and user_id:
-                from core.sandbox._common import safe_user_id
+                from core.sandbox.workspace.identity import safe_user_id
                 from core.services.yida_execution import workspace_dir
                 import shlex
 

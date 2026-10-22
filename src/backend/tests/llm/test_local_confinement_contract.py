@@ -20,10 +20,10 @@ from core.llm.tool_permissions import (
     LocalCommandAuthorization,
     LocalConfinementUnavailableError,
 )
-from core.sandbox.os_sandbox import LocalAccessDecision
+from core.sandbox.permissions.os_gate import LocalAccessDecision
 from core.sandbox.oslayer import SandboxUnavailableError, SandboxUnenforceableError
 
-_CONFINE = "core.sandbox.os_sandbox.confine"
+_CONFINE = "core.sandbox.permissions.os_gate.confine"
 
 
 def _authorization(mode: str, workspace: str) -> LocalCommandAuthorization:

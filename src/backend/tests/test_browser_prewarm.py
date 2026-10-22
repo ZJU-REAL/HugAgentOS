@@ -6,7 +6,8 @@ import pytest
 import httpx
 from core.db.models import ChatSession
 from core.plugins.resources import installation, service
-from core.sandbox import interactive, factory
+import core.sandbox.processes.interactive as interactive
+from core.sandbox import factory
 
 HTTPClient = httpx.AsyncClient
 
@@ -76,7 +77,7 @@ async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(run
     from core.plugins.resources import prewarm
     from core.db.models import InstalledPlugin
     from core.capabilities import device_catalog
-    from core.sandbox.session_router import SessionSandboxRouter
+    from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
@@ -213,7 +214,7 @@ async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(t
 
 async def test_close_fence_blocks_readmission_until_provider_close_finishes(runtime, monkeypatch):
     from core.plugins.resources import prewarm
-    from core.sandbox.session_router import SessionSandboxRouter
+    from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
     from core.db.models import InstalledPlugin
@@ -236,7 +237,7 @@ async def test_close_fence_blocks_readmission_until_provider_close_finishes(runt
     await task
 
 async def test_replacement_launch_can_retire_old_processes_without_cancelling_itself():
-    from core.sandbox.process_sessions import ProcessSessions
+    from core.sandbox.processes.sessions import ProcessSessions
     sessions = ProcessSessions()
     stopped = []
     class Handle:
@@ -261,7 +262,8 @@ async def test_replacement_launch_can_retire_old_processes_without_cancelling_it
 
 @pytest.mark.parametrize("sandbox,stale", [(None, False), ("other", False), ("bound", True)])
 def test_background_binding_rejects_changed_sandbox_and_resets_after_failure(sandbox, stale):
-    from core.sandbox.bound_session import bind, require_available
+    from core.sandbox.sessions.binding import bind
+    from core.sandbox.sessions.binding import require_available
     from core.sandbox.errors import SandboxError
     with pytest.raises(SandboxError):
         with bind("bound"):
@@ -270,7 +272,8 @@ def test_background_binding_rejects_changed_sandbox_and_resets_after_failure(san
     require_available(None, stale=True)
 
 def test_background_binding_accepts_its_live_sandbox():
-    from core.sandbox.bound_session import bind, require_available
+    from core.sandbox.sessions.binding import bind
+    from core.sandbox.sessions.binding import require_available
     with bind("bound"):
         require_available("bound")
 

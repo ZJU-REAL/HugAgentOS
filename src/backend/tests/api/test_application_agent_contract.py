@@ -6,7 +6,7 @@ from tests.api.test_application_hosting import hosted
 
 
 def test_mcp_exposes_typed_application_payload():
-    from mcp_servers.site_publish_mcp.server import mcp
+    from extensions.mcp_servers.site_publish_mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
     tool = next(item for item in tools if item.name == "manage_application")

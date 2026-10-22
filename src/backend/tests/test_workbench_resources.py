@@ -189,7 +189,8 @@ async def test_open_retries_share_worker_and_closed_request_never_replays(resour
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    from core.sandbox import factory, interactive
+    from core.sandbox import factory
+    import core.sandbox.processes.interactive as interactive
 
     authorize(monkeypatch)
 

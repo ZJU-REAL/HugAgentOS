@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Sequence
 from .preferences import APPROVAL_ASK, APPROVAL_FULL
 
 if TYPE_CHECKING:
-    from core.sandbox.os_sandbox import LocalAccessDecision
+    from core.sandbox.permissions.os_gate import LocalAccessDecision
     from core.sandbox.oslayer import SandboxLaunch
     from core.services.project_scope import ProjectScope
 
@@ -161,7 +161,7 @@ class LocalCommandAuthorization:
         :class:`LocalConfinementUnavailableError` explaining which permission
         choice would let the command run.
         """
-        from core.sandbox import os_sandbox
+        import core.sandbox.permissions.os_gate as os_sandbox
         from core.sandbox.oslayer import (
             SandboxUnavailableError,
             SandboxUnenforceableError,

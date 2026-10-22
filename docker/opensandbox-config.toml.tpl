@@ -29,7 +29,7 @@ execd_image = "opensandbox/execd:v1.0.17"
 # controller key and explicit Compose project name. No host-specific values
 # are stored in this template.
 allowed_host_paths = [
-    "@@HOST_REPO_PATH@@/src/backend/skill_bundles",
+    "@@HOST_REPO_PATH@@/src/backend/extensions/skills",
     # Personal mounts are selected by the authenticated user, under host storage.
     "@@HOST_STORAGE_PATH@@",
 ]

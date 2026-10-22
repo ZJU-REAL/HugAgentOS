@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.sandbox import evaluation_process_guard as guard
+import core.sandbox.providers.evaluation.process_guard as guard
 from core.sandbox.errors import SandboxError
 
 

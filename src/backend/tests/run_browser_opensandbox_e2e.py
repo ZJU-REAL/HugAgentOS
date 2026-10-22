@@ -53,11 +53,11 @@ async def verify():
     from core.plugins.resources.installation import Installation
     from core.plugins.ui.contract import normalize_ui
     from core.plugins.packaging.importer import manifest_extensions
-    from core.sandbox.opensandbox_provider import OpenSandboxProvider
-    from core.sandbox.interactive import launch
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+    from core.sandbox.processes.interactive import launch
     from core.plugins.resources.stream import packets
     import httpx
-    package = ROOT / "src/backend/plugin_bundles/marketplace/browser-automation"
+    package = ROOT / "src/backend/extensions/plugins/marketplace/browser-automation"
     manifest = json.loads((package / "plugin.json").read_text())
     ui, dropped = normalize_ui(manifest_extensions(manifest)["ui"])
     assert not dropped

@@ -2,7 +2,7 @@ import asyncio
 import pytest
 
 from core.infra.ephemeral import LocalEphemeralState
-from core.sandbox import evaluation_binding as binding
+import core.sandbox.providers.evaluation.binding as binding
 from core.sandbox.errors import SandboxError
 
 

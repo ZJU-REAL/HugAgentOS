@@ -25,7 +25,7 @@ def test_config_default_sources():
     priorities = [src.priority for src in sources]
     assert priorities == [0, 50, 100]
 
-    # Built-in should point to skill_bundles/
+    # Built-in should point to extensions/skills/
     builtin = sources[0]
     assert builtin.name == "built-in"
     assert builtin.root_dir.name == "skills"

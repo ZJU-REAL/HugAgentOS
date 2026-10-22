@@ -70,11 +70,11 @@ def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
     from core.llm.tools.sandbox_tool import register_bash
     from prompts.prompt_config import PromptConfig
     from prompts.prompt_runtime import build_system_prompt
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.workspace.paths import session_root
 
     root = "/tmp/中文 workspace"
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", root)
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", root)
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", root)
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
     ctx = {"chat_id": "display-chat", "sandbox_session_id": "effective-session"}

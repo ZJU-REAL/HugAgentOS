@@ -15,8 +15,8 @@ import asyncio
 import pytest
 from mcp import types
 
-from mcp_servers.retrieve_dataset_content_mcp import server as srv
-from mcp_servers.retrieve_dataset_content_mcp import wiki_impl
+from extensions.mcp_servers.retrieve_dataset_content_mcp import server as srv
+from extensions.mcp_servers.retrieve_dataset_content_mcp import wiki_impl
 
 BASE_TOOLS = {"retrieve_dataset_content", "list_datasets", "retrieve_local_kb"}
 

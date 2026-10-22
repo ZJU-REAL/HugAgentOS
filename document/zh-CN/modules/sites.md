@@ -65,7 +65,7 @@
 
 | 环节 | 位置 |
 |---|---|
-| 发布与查询工具 | `src/backend/mcp_servers/site_publish_mcp/`（`publish_site` / `list_sites`，由「站点」插件提供） |
+| 发布与查询工具 | `src/backend/extensions/mcp_servers/site_publish_mcp/`（`publish_site` / `list_sites`，由「站点」插件提供） |
 | 内部接口 | `src/backend/api/routes/v1/internal_sites.py`（`/v1/internal/sites/publish`、`/v1/internal/sites/list`） |
 | 站点查询服务 | `src/backend/core/services/site_listing.py`（本机与云端统一记录格式） |
 | 业务服务 | `src/backend/core/services/site_service.py` |

@@ -5,15 +5,15 @@ from unittest.mock import AsyncMock
 import pytest
 
 from core.infra.ephemeral import LocalEphemeralState
-from core.sandbox import evaluation_binding as binding
-from core.sandbox.evaluation_provider import EvaluationSandboxProvider
+import core.sandbox.providers.evaluation.binding as binding
+from core.sandbox.providers.evaluation.provider import EvaluationSandboxProvider
 from core.sandbox.errors import SandboxError
 from core.sandbox.protocol import ProcessRequest
 
 
 @pytest.fixture
 def setup(monkeypatch):
-    from core.sandbox import evaluation_process_guard
+    import core.sandbox.providers.evaluation.process_guard as evaluation_process_guard
     monkeypatch.setattr(evaluation_process_guard, "clear_processes", AsyncMock())
     state = LocalEphemeralState()
     monkeypatch.setattr(binding, "get_ephemeral_state", lambda: state)
@@ -178,7 +178,7 @@ async def test_partial_status_does_not_report_success(setup):
 
 
 async def test_process_sweep_precedes_frozen_and_failure_keeps_agents_blocked(setup, monkeypatch):
-    from core.sandbox import evaluation_process_guard
+    import core.sandbox.providers.evaluation.process_guard as evaluation_process_guard
     provider, sandbox, _ = setup
     item = await binding.create("alice", "box", 60, protected_processes={"1": "123"})
     async def fail(sbx, baseline):
@@ -196,7 +196,7 @@ async def test_process_sweep_precedes_frozen_and_failure_keeps_agents_blocked(se
 
 @pytest.mark.parametrize("exit_code", [0, 1])
 async def test_confirmed_finished_command_skips_freeze_poll_but_still_sweeps(setup, exit_code):
-    from core.sandbox import evaluation_process_guard
+    import core.sandbox.providers.evaluation.process_guard as evaluation_process_guard
     provider, sandbox, _ = setup
     sandbox.commands.get_command_status.return_value = SimpleNamespace(
         running=False, exit_code=exit_code, error=None,

@@ -24,7 +24,7 @@ export const DESKTOP_RUNTIME_INPUT_FILES = Object.freeze([
   "desktop/plugin-clis/package.json",
   "desktop/plugin-clis/package-lock.json",
   "desktop/scripts/extract-runtime-probe.py",
-  "src/backend/services/script_runner_service/runtime_tools.py",
+  "src/backend/core/sandbox/runner/runtime_tools.py",
   "desktop/scripts/create-runtime-archive.py",
 ]);
 

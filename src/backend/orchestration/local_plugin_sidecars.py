@@ -10,7 +10,7 @@ _lock = asyncio.Lock()
 def native_bindings(configs):
     from core.config.mcp_config import _mcp_http_url
     from core.config.settings import settings
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     if not settings.deploy.is_local:
         return set()
@@ -47,7 +47,7 @@ async def ensure_native_servers(configs):
 
 
 async def _start(bindings):
-    from mcp_servers._ports import package_name
+    from extensions.mcp_servers._ports import package_name
     from orchestration import local_subprocess as host
 
     async with _lock:
@@ -59,7 +59,7 @@ async def _start(bindings):
             if await host._tcp_port_ready("127.0.0.1", port):
                 raise RuntimeError("local plugin MCP port is already owned by another process")
             proc = await host._spawn(label, [
-                sys.executable, "-m", f"mcp_servers.{package_name(sid)}.server",
+                sys.executable, "-m", f"extensions.mcp_servers.{package_name(sid)}.server",
                 "--transport", "streamable-http", "--port", str(port),
             ])
             if proc is None:

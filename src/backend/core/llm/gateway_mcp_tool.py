@@ -66,7 +66,7 @@ class GatewayMCPTool(ToolBase):
         )
 
     async def __call__(self, **kwargs: Any) -> ToolChunk:
-        from mcp_servers.registry import permission_specs
+        from extensions.mcp_servers.registry import permission_specs
         from core.llm.tool_permissions.models import (
             CURRENT_PERMISSION_TICKET, PermissionEnforcementError, _json_hash,
         )

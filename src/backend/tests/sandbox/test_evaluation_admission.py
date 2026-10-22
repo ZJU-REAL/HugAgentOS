@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from core.chat.schemas import ChatRequest
 from core.infra.ephemeral import LocalEphemeralState
-from core.sandbox import evaluation_binding as binding
+import core.sandbox.providers.evaluation.binding as binding
 from core.services import evaluation_admission as admission
 
 

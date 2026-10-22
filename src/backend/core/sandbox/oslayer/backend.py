@@ -25,8 +25,9 @@ import sys
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Protocol
 
+from core.sandbox.oslayer.models import PolicyContext, ResolvedFileSystem, SandboxPolicy
+
 from .errors import SandboxUnavailableError, SandboxUnenforceableError
-from .policy import PolicyContext, ResolvedFileSystem, SandboxPolicy
 
 
 @dataclass(frozen=True)

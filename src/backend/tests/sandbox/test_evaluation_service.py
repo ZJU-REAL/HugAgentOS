@@ -7,7 +7,7 @@ import pytest
 
 from core.config.settings import settings
 from core.infra.ephemeral import LocalEphemeralState
-from core.sandbox import evaluation_binding as bindings
+import core.sandbox.providers.evaluation.binding as bindings
 from core.sandbox.errors import SandboxError
 from core.services import evaluation_sandbox_service as service
 
@@ -17,7 +17,7 @@ def sdk(monkeypatch):
     from opensandbox import Sandbox
     monkeypatch.setattr(bindings, "get_ephemeral_state", lambda: store)
     monkeypatch.setattr(
-        "core.sandbox.evaluation_process_guard.capture_baseline",
+        "core.sandbox.providers.evaluation.process_guard.capture_baseline",
         AsyncMock(return_value={"1": "100"}),
     )
     store = LocalEphemeralState()

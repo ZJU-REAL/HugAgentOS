@@ -22,7 +22,7 @@ def legacy(index_db, caps_root, monkeypatch):
 def test_old_local_manager_upgrades_and_remains_usable(legacy):
     from core.plugins.packaging.sources import _make_skill_id, _make_server_id
     from core.config.settings import settings
-    from mcp_servers._ports import PORTS
+    from extensions.mcp_servers._ports import PORTS
 
     sid = _make_skill_id("skill-manager", "skill-creator", "owner")
     mid = _make_server_id("skill-manager", "skill_manager", "owner")

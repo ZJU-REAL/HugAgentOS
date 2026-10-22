@@ -418,7 +418,7 @@ def test_malformed_industry_source_is_controlled(envelope, monkeypatch):
     from fastapi import HTTPException
 
     monkeypatch.setattr(
-        "mcp_servers.ai_chain_information_mcp.impl_company._resolve_company_config",
+        "extensions.mcp_servers.ai_chain_information_mcp.impl_company._resolve_company_config",
         lambda: ("http://source.example.test", "local-test-only"),
     )
     monkeypatch.setattr(

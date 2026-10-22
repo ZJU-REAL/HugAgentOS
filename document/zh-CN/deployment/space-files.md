@@ -100,8 +100,8 @@ CE Docker 也默认使用 S3。桌面离线本机模式保留本地存储。
 混合模式的本机会话通过云端能力清单安装“我的空间”连接器。
 纯云端会话继续直接访问沙盒挂载目录；纯本机模式不安装这个云端连接器。
 
-MCP 接口位于 `src/backend/mcp_servers/space_files_mcp/`。
-内置服务注册表为 `mcp_servers/registry.py`。每项分别声明
+MCP 接口位于 `src/backend/extensions/mcp_servers/space_files_mcp/`。
+内置服务注册表为 `extensions/mcp_servers/registry.py`。每项分别声明
 `installation=local/cloud/both`（本机、云端或两端安装）和
 `exposure=process/desktop_gateway`（独立进程或桌面能力网关）。
 空间连接器在云端执行，通过桌面能力网关提供工具，不启动额外的监听端口。

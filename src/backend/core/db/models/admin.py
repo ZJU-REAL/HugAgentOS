@@ -423,7 +423,7 @@ class InstalledPlugin(Base):
     component ids actually persisted, by which uninstall deletes precisely.
 
     Three sources are supported: in-repo plugin marketplace packages
-    (``plugin_bundles/{default,marketplace}/<slug>/``), imported Claude Code
+    (``extensions/plugins/{default,marketplace}/<slug>/``), imported Claude Code
     plugins, and imported Codex plugins. See
     ``internal design docs``.
     """
@@ -478,7 +478,7 @@ class PluginMarketPackage(Base):
     in the plugin marketplace list for admins/users to install explicitly;
     installation unzips and re-runs the existing ``import_plugin`` chain.
     It coexists with filesystem preset packages
-    (``plugin_bundles/{default,marketplace}/<slug>/``); when resolving by
+    (``extensions/plugins/{default,marketplace}/<slug>/``); when resolving by
     slug, **filesystem takes precedence, DB market package is the
     fallback**. Install records still go into ``InstalledPlugin``; this
     table is only an "installable source".

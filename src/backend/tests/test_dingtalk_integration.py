@@ -3,6 +3,8 @@ models/repositories, settings, credential-volume degradation, marketplace skill
 installability. No dependence on real DingTalk/sandbox — the sandbox orchestration part
 is left for P0 real-machine verification."""
 
+from tests.sandbox.provider_test_support import patch_open_settings
+
 import json
 
 import pytest
@@ -218,31 +220,27 @@ def test_dingtalk_seeded_in_system_configs():
 # ── Credential-volume degradation ─────────────────────────────────────────
 def test_creds_volume_degrades_without_host_storage(monkeypatch):
     from dataclasses import replace
-    from core.sandbox import _opensandbox_internals as runtime
+    import core.config.settings as runtime_settings
 
-    monkeypatch.setattr(
-        runtime,
-        "settings",
-        replace(
-            runtime.settings,
-            sandbox=replace(runtime.settings.sandbox, opensandbox_host_storage_path=""),
-        ),
-    )
-    from core.sandbox._opensandbox_internals import _make_dws_creds_volumes
+    patch_open_settings(monkeypatch, replace(
+            runtime_settings.settings,
+            sandbox=replace(runtime_settings.settings.sandbox, opensandbox_host_storage_path=""),
+        ))
+    from core.sandbox.providers.opensandbox.account_volumes import _make_dws_creds_volumes
 
     # No local HOST_STORAGE_PATH → quietly return an empty list (sandbox still created, just without the credential volume)
     assert _make_dws_creds_volumes("u1") == []
 
 
 def test_creds_volume_rejects_bad_user_id():
-    from core.sandbox._opensandbox_internals import _make_dws_creds_volumes
+    from core.sandbox.providers.opensandbox.account_volumes import _make_dws_creds_volumes
 
     assert _make_dws_creds_volumes("") == []
     assert _make_dws_creds_volumes("../etc/passwd") == []
 
 
 def test_dws_cache_dir_path():
-    from core.sandbox._common import dws_cache_dir
+    from core.sandbox.workspace.credentials import dws_cache_dir
 
     p = dws_cache_dir("u_abc")
     assert p.name == "u_abc"
