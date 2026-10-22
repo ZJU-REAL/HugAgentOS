@@ -87,12 +87,12 @@ limits show a local-download prompt while the main page remains responsive.
 
 ### How artifacts are produced and persisted
 
-During a streamed turn, files produced by tools first enter the per-conversation **workspace** (`core/llm/workspace`); only files that are explicitly **pinned** are written to the `artifacts` table at end of turn by `core/services/artifact_service.py::persist_artifacts` — this strict workspace gate keeps temporary intermediates from polluting My Space.
+During a streamed turn, files produced by tools first enter the per-conversation **workspace** (`core/llm/workspace`); only files that are explicitly **pinned** are written to the `artifacts` table at end of turn by `core/files/artifacts/service.py::persist_artifacts` — this strict workspace gate keeps temporary intermediates from polluting My Space.
 
-Physical storage is managed by `core/artifacts/store.py`, dual-mode by `STORAGE_TYPE`:
+Physical storage is managed by `core/files/artifacts/store.py`, dual-mode by `STORAGE_TYPE`:
 
 - `local` (default, Community Edition): files are written under `${STORAGE_PATH:-result}/artifacts/` with a local JSON index (`index.json`), served via FileResponse.
-- `oss` (Enterprise Edition, `cloud_storage`): files are uploaded to Aliyun OSS; the local index is also backed up to OSS so it survives container restarts. The S3 backend lives in `core/storage/`.
+- `oss` (Enterprise Edition, `cloud_storage`): files are uploaded to Aliyun OSS; the local index is also backed up to OSS so it survives container restarts. The S3 backend lives in `core/files/storage/`.
 
 Downloads all go through `GET /files/{file_id}` (`api/routes/files.py`), with an owner ∪ team permission check via `core/auth/permissions_iface.py::resolve_artifact_access`; Office files support PDF-converted online preview.
 
@@ -153,12 +153,12 @@ attachments and My Space, and xlsx files remain editable in the data canvas.
 |---|---|
 | Canvas panel / Univer spreadsheet | `src/frontend/src/components/canvas/CanvasPanel.tsx`, `UniverSpreadsheet.tsx`, `src/frontend/src/stores/canvasStore.ts` |
 | Artifact REST API | `src/backend/api/routes/v1/artifacts.py` |
-| Artifact store (local/OSS) | `src/backend/core/artifacts/store.py` |
-| Artifact persistence (workspace gate) | `src/backend/core/services/artifact_service.py` |
+| Artifact store (local/OSS) | `src/backend/core/files/artifacts/store.py` |
+| Artifact persistence (workspace gate) | `src/backend/core/files/artifacts/service.py` |
 | File download / preview | `src/backend/api/routes/files.py` |
 | Chat share API | `src/backend/api/routes/v1/chat_shares.py` |
 | Share frontend | `src/frontend/src/SharePreviewApp.tsx`, `src/frontend/src/components/share/ShareRecordsPage.tsx` |
-| Document export skills | `src/backend/skill_bundles/default/officecli-*/`, `src/backend/skill_bundles/default/pdf-editing/` |
+| Document export skills | `src/backend/extensions/skills/default/officecli-*/`, `src/backend/extensions/skills/default/pdf-editing/` |
 | My Space frontend | `src/frontend/src/components/myspace/`, `src/frontend/src/stores/mySpaceStore.ts` |
 
 Further reading: [Sandbox](sandbox.md) · [Projects & My Space](projects-myspace.md) · [Storage](storage.md) · [MCP Tools](mcp-tools.md)

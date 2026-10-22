@@ -21,8 +21,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-from core.llm.human_interaction import MAX_WAIT_SECONDS
-from core.llm import interaction_store
+from core.llm.runtime.human_interaction import MAX_WAIT_SECONDS
+from core.llm.runtime import interaction_store
 
 KIND_USER_QUESTION = "user_question"
 STATUS_BLOCKED = "blocked_non_interactive"
@@ -64,8 +64,8 @@ class _ChatQuestions:
     last_ts: float = field(default_factory=time.monotonic)
 
 
-_LOCK = threading.RLock()
-_CHATS: Dict[str, _ChatQuestions] = {}
+
+
 
 
 def _text(
@@ -235,20 +235,20 @@ def _normalize_answers(
 def _gc_locked(now: float) -> None:
     dead = [
         chat_id
-        for chat_id, state in _CHATS.items()
+        for chat_id, state in process_state().CHATS.items()
         if not state.pending and now - state.last_ts > _STATE_IDLE_TTL_SECONDS
     ]
     for chat_id in dead:
-        _CHATS.pop(chat_id, None)
+        process_state().CHATS.pop(chat_id, None)
 
 
 def _state_locked(chat_id: str) -> _ChatQuestions:
     now = time.monotonic()
     _gc_locked(now)
-    state = _CHATS.get(chat_id)
+    state = process_state().CHATS.get(chat_id)
     if state is None:
         state = _ChatQuestions()
-        _CHATS[chat_id] = state
+        process_state().CHATS[chat_id] = state
     state.last_ts = now
     return state
 
@@ -274,32 +274,32 @@ def _resolved_signal(pending: _PendingQuestion) -> Dict[str, Any]:
 def get_ui_queue(chat_id: Optional[str]) -> Optional[asyncio.Queue]:
     if not chat_id:
         return None
-    with _LOCK:
-        state = _CHATS.get(chat_id)
+    with process_state().LOCK:
+        state = process_state().CHATS.get(chat_id)
         return state.ui_signals if state is not None else None
 
 
 def get_all_pending(chat_id: Optional[str]) -> List[Dict[str, Any]]:
     if not chat_id:
         return []
-    with _LOCK:
-        state = _CHATS.get(chat_id)
+    with process_state().LOCK:
+        state = process_state().CHATS.get(chat_id)
         if state is None:
             return []
         return [_requested_signal(item) for item in state.pending.values()]
 
 
 def list_pending_chat_ids() -> List[str]:
-    with _LOCK:
+    with process_state().LOCK:
         _gc_locked(time.monotonic())
-        return [chat_id for chat_id, state in _CHATS.items() if state.pending]
+        return [chat_id for chat_id, state in process_state().CHATS.items() if state.pending]
 
 
 def has_pending(chat_id: Optional[str]) -> bool:
     if not chat_id:
         return False
-    with _LOCK:
-        state = _CHATS.get(chat_id)
+    with process_state().LOCK:
+        state = process_state().CHATS.get(chat_id)
         return bool(state and state.pending)
 
 
@@ -339,8 +339,8 @@ def answer(
 ) -> Dict[str, Any]:
     """Validate and claim a pending request; first valid claimant wins."""
 
-    with _LOCK:
-        state = _CHATS.get(chat_id)
+    with process_state().LOCK:
+        state = process_state().CHATS.get(chat_id)
         pending = state.pending.get(request_id) if state is not None else None
         if state is None or pending is None:
             return {"ok": False, "reason": "stale", "error": "该问题已失效"}
@@ -355,8 +355,8 @@ def answer(
 def cancel(chat_id: str, request_id: str) -> Dict[str, Any]:
     """Cancel a pending question from the user interface."""
 
-    with _LOCK:
-        state = _CHATS.get(chat_id)
+    with process_state().LOCK:
+        state = process_state().CHATS.get(chat_id)
         pending = state.pending.get(request_id) if state is not None else None
         if state is None or pending is None:
             return {"ok": False, "reason": "stale", "error": "该问题已失效"}
@@ -389,7 +389,7 @@ async def ask(
     await interaction_store.register(
         "question", chat_id, pending.request_id, _requested_signal(pending), timeout
     )
-    with _LOCK:
+    with process_state().LOCK:
         state = _state_locked(chat_id)
         if state.ui_signals is None:
             state.ui_signals = asyncio.Queue()
@@ -401,26 +401,26 @@ async def ask(
             "question", chat_id, pending.request_id, pending.event, timeout
         )
         if decision is not None:
-            with _LOCK:
+            with process_state().LOCK:
                 _claim_locked(
                     state, pending, outcome=decision["outcome"], answers=decision.get("answers")
                 )
     except asyncio.TimeoutError:
-        with _LOCK:
-            state = _CHATS.get(chat_id)
+        with process_state().LOCK:
+            state = process_state().CHATS.get(chat_id)
             if state is not None:
                 _claim_locked(state, pending, outcome="timeout")
         # A valid HTTP answer/cancel may have claimed the request at the same
         # event-loop boundary where wait_for delivered TimeoutError. The
         # claimant owns the terminal outcome; never overwrite it with timeout.
     except asyncio.CancelledError:
-        with _LOCK:
-            state = _CHATS.get(chat_id)
+        with process_state().LOCK:
+            state = process_state().CHATS.get(chat_id)
             if state is not None:
                 _claim_locked(state, pending, outcome="cancelled")
         raise
     finally:
-        with _LOCK:
+        with process_state().LOCK:
             _claim_locked(state, pending, outcome="cancelled")
         await interaction_store.remove("question", chat_id, pending.request_id)
 
@@ -481,3 +481,20 @@ __all__ = [
     "list_pending_chat_ids",
     "normalize_questions",
 ]
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class UserQuestionsState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    LOCK: object = state_field(default_factory=lambda: threading.RLock())
+    CHATS: Dict[str, _ChatQuestions] = state_field(default_factory=lambda: {})
+
+@state_cache(maxsize=1)
+def process_state() -> UserQuestionsState:
+    return UserQuestionsState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

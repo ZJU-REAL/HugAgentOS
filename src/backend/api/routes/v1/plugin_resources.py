@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.plugins.resources import service, store
-from core.plugins.resources.stream import connect
+from core.capabilities.plugins.resources import service, store
+from core.capabilities.plugins.resources.stream import connect
 
-from core.plugins.resources.lifecycle import lifespan
+from core.capabilities.plugins.resources.lifecycle import lifespan
 router = APIRouter(prefix="/v1", tags=["Plugin resources"], lifespan=lifespan)
 
 class OpenRequest(BaseModel):
@@ -29,7 +29,7 @@ class ToolRequest(OpenRequest):
 
 @router.get("/plugins/{slug}/checkpoints")
 def list_checkpoints(slug: str, install_id: str | None = None, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
-    from core.plugins.resources.installation import resolve
+    from core.capabilities.plugins.resources.installation import resolve
     selected = resolve(db, slug, str(user.user_id), install_id)
     rows = db.query(store.PluginResourceCheckpoint).filter_by(user_id=str(user.user_id), install_id=selected.install_id).all()
     return success_response(data={"items": [{"checkpoint_id": row.checkpoint_id, "name": row.name} for row in rows]})
@@ -83,38 +83,38 @@ def attach_resource(resource_id: str, request: Request, user: UserContext = Depe
     parsed = urlsplit(origin)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(403, "invalid_origin")
-    from core.plugins.resources.authentication import capture
+    from core.capabilities.plugins.resources.authentication import capture
     return success_response(data={"ticket": store.ticket(db, row, origin, capture(request))})
 
 @router.post("/plugin-resources/{resource_id}/asset-ticket")
 def issue_asset_ticket(resource_id: str, request: Request, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
     row = service.authorized(db, resource_id, str(user.user_id))
-    from core.plugins.resources.installation import resolve
-    from core.plugins.ui.contract import find_module
+    from core.capabilities.plugins.resources.installation import resolve
+    from features.workbench.ui.contract import find_module
     if row.application_key is not None:
-        from core.plugins.resources.owners import resolve_installation
+        from core.capabilities.plugins.resources.owners import resolve_installation
         selected = resolve_installation(db, row, str(user.user_id))
     else:
         selected = resolve(db, row.slug, str(user.user_id), row.install_id)
     module = find_module(selected.ui, row.module_id)
     if module is None:
         raise HTTPException(404, "resource_module_unavailable")
-    from core.plugins.resources.authentication import capture
+    from core.capabilities.plugins.resources.authentication import capture
     return success_response(data={"ticket": store.asset_ticket(db, row, capture(request)), "entry": module["entry"]})
 
 @router.get("/plugin-resource-assets/{execution_scope}/{ticket}/{asset_path:path}")
 async def resource_asset(execution_scope: str, ticket: str, asset_path: str, db: Session = Depends(get_db)):
     # Null-origin iframe subresources cannot carry SameSite login cookies.
     # The ticket grants static package reads only; its saved session is still revocable.
-    from .plugin_ui import web_asset_response
-    from core.plugins.resources.authentication import validate
+    from features.workbench.api.plugin_ui import web_asset_response
+    from core.capabilities.plugins.resources.authentication import validate
     resource_id, user_id, authentication = store.resolve_asset_ticket(db, ticket)
     await validate(authentication, user_id, db)
     row = service.authorized(db, resource_id, user_id)
     if row.scope != execution_scope:
         raise HTTPException(409, "execution_scope_mismatch")
     if row.application_key is not None:
-        from core.plugins.resources.owners import resolve_installation
+        from core.capabilities.plugins.resources.owners import resolve_installation
         selected = resolve_installation(db, row, user_id)
         response = web_asset_response(db, row.slug, user_id, asset_path, row.install_id,
                                       _installation=selected)
@@ -136,7 +136,7 @@ async def close_resource(resource_id: str, user: UserContext = Depends(get_curre
 
 @router.post("/plugin-resources/{resource_id}/downloads/{download_id}/retain")
 async def retain_download(resource_id: str, download_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
-    from core.plugins.resources.artifacts import retain
+    from core.capabilities.plugins.resources.artifacts import retain
     row = service.authorized(db, resource_id, str(user.user_id))
     return success_response(data=await retain(row, download_id))
 
@@ -166,10 +166,10 @@ async def download_resource(resource_id: str, download_id: str, user: UserContex
 
 @router.post("/internal/plugin-resources/tool")
 async def tool_resource(body: ToolRequest, request: Request, db: Session = Depends(get_db)):
-    from .internal_site_auth import _check_internal_token
+    from features.sites.api.internal_site_auth import _check_internal_token
     _check_internal_token(request.headers.get("x-internal-token"))
-    from core.llm.mcp_invocation import verify
-    from mcp_servers._ports import PORTS
+    from core.llm.mcp.invocation import verify
+    from extensions.mcp_servers._ports import PORTS
     audience = request.headers.get("x-hugagent-mcp-audience", "")
     if audience not in PORTS or request.headers.get("x-chat-id") != body.chat_id:
         raise HTTPException(401, "invocation_context_required")
@@ -198,7 +198,7 @@ async def tool_resource(body: ToolRequest, request: Request, db: Session = Depen
         return success_response(data={"closed": True})
     if body.action == "retain_download":
         await service.command(row, {"id": uuid.uuid4().hex, "action": "state", "params": {}}, actor="agent")
-        from core.plugins.resources.artifacts import retain
+        from core.capabilities.plugins.resources.artifacts import retain
         return success_response(data=await retain(row, str(body.params["download_id"])))
     data = await service.command(row, {"id": body.command_id, "action": body.action, "params": body.params}, actor="agent")
     return success_response(data=data)

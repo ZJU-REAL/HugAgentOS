@@ -43,13 +43,8 @@
 
 ### 1. 联网侧导出
 
-```bash
-python src/backend/scripts/export_content.py \
-  --api-url http://localhost:3001 --only prompts
-# 产出 src/backend/scripts/exported/prompts_snapshot_<ts>.json
-```
-
-（也支持 `--database-url` 直连库导出；`ADMIN_TOKEN` 自动从 `.env` 读取。）
+通过 `GET /v1/content/prompts/export` 导出快照。请求使用源环境的管理员或系统配置令牌。
+将响应的 `data` 对象保存为 `prompts_snapshot_<ts>.json`，不要保存完整响应信封。
 
 ### 2. 拷贝
 
@@ -80,5 +75,5 @@ API 导入会自动失效提示词缓存，**无需重启 backend**。
 | EE 完整镜像包（deploy 分支） | `deploy_kit/save_pack_ee.sh` |
 | EE 编译镜像（deploy 分支） | `docker/Dockerfile.backend-compiled`、`docker/Dockerfile.mcp-compiled` |
 | Compose 覆盖（deploy 分支） | `docker-compose.prod.yml`、`docker-compose.deploy.yml`；运行时以交付 kit 为准 |
-| 提示词导出 / 导入 | `src/backend/scripts/export_content.py`、`src/backend/scripts/import_content.py` |
-| 提示词版本池 | `src/backend/core/services/prompt_version_service.py` |
+| 提示词导出 / 导入 | `src/backend/api/routes/v1/content.py` |
+| 提示词版本池 | `src/backend/core/llm/prompt_versions.py` |

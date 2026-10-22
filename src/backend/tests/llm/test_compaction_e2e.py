@@ -9,16 +9,14 @@ Uses a SQLite test DB + a fake summarizer to reproduce the original bug scenario
 - Rebuilt-history token count is squeezed down; the summary carries into later turns and is not re-compacted.
 """
 
-from core.config import settings as config_settings
 import contextlib
 
 import pytest
-
+from core.config import settings as config_settings
 from core.db.models import ChatSession
-from core.llm import compaction as C
-from core.services.chat_service import ChatService
-from core.services import compaction_service as S
-
+from core.llm.context import compaction as C
+from core.chat.compaction import service as S
+from core.chat.service import ChatService
 
 CHAT_ID = "chat_e2e"
 
@@ -41,8 +39,12 @@ def patched_sessionlocal(db_session, monkeypatch):
 
     monkeypatch.setattr(engine, "SessionLocal", _fake_sessionlocal)
     real = config_settings.settings
-    monkeypatch.setattr(config_settings, "settings",
-        dataclasses.replace(real, compaction=dataclasses.replace(real.compaction, keep_recent_tokens=0)),
+    monkeypatch.setattr(
+        config_settings,
+        "settings",
+        dataclasses.replace(
+            real, compaction=dataclasses.replace(real.compaction, keep_recent_tokens=0)
+        ),
     )
     return db_session
 
@@ -54,6 +56,47 @@ def _u(svc, i, text):
 
 
 def _a(svc, i, text, tool_calls=None):
+    import json
+
+    from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
+
+    steps = []
+    for index, call in enumerate(tool_calls or []):
+        call_id = f"{i}-{index}"
+        steps.append(
+            record_assistant_step(
+                [
+                    {
+                        "type": "tool_call",
+                        "id": call_id,
+                        "name": call["tool_name"],
+                        "input": json.dumps(call.get("tool_args") or {}),
+                    }
+                ],
+                provider="p",
+                model="m",
+                protocol="openai_chat",
+            )
+        )
+        steps.append(
+            record_tool_result_step(
+                {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": call["tool_name"],
+                    "output": call["result"],
+                    "state": "success",
+                },
+            )
+        )
+    steps.append(
+        record_assistant_step(
+            [{"type": "text", "text": text}],
+            provider="p",
+            model="m",
+            protocol="openai_chat",
+        )
+    )
     return svc.message_repo.create(
         {
             "message_id": f"a{i}",
@@ -61,6 +104,7 @@ def _a(svc, i, text, tool_calls=None):
             "role": "assistant",
             "content": text,
             "tool_calls": tool_calls,
+            "model_steps": steps,
         }
     )
 
@@ -111,7 +155,7 @@ async def test_full_compaction_cycle(patched_sessionlocal, monkeypatch):
     async def _fake_summarize(history, *, timeout):
         return "已完成 developer 表插入 nbacheng/dromara；待办：无；关键数据：nbacheng粉丝219"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     # ── Drive the real compaction ──
     ok = await S.run_post_turn_compaction(CHAT_ID)
@@ -161,7 +205,7 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
             assert any(C.is_summary_message(t) for t in texts)
         return f"summary-v{calls['n']}"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     await S.run_post_turn_compaction(CHAT_ID)
     _u(svc, 2, "q2")
@@ -175,9 +219,7 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
 
 
 @pytest.mark.asyncio
-async def test_compaction_commits_when_the_hook_bus_is_active(
-    patched_sessionlocal, monkeypatch
-):
+async def test_compaction_commits_when_the_hook_bus_is_active(patched_sessionlocal, monkeypatch):
     """A run_id activates the HookBus, which freezes every payload it hands back.
 
     Without a recursive thaw the checkpoint rows stay MappingProxyType and the
@@ -200,7 +242,7 @@ async def test_compaction_commits_when_the_hook_bus_is_active(
     async def _fake_summarize(history, *, timeout):
         return "已完成两轮；待办：无"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     ok = await S.run_post_turn_compaction(CHAT_ID, run_id="run_hooked_1")
     assert ok is True, "hook bus 激活时压缩必须仍能成功落库"

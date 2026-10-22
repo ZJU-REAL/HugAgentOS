@@ -36,7 +36,7 @@ class Tools:
 
 
 def setup(uid, marker):
-    from core.services.project_service import ProjectService
+    from core.projects.edition import ProjectService
     from personal_agent.computer.devices import pair
 
     with SessionLocal() as db:

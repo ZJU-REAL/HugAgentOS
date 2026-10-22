@@ -46,7 +46,7 @@ STATUS_REVERTED = "reverted"
 MIN_WEIGHT = 0.05
 
 _CACHE_TTL_S = 30.0
-_cache: Dict[str, Tuple[float, Dict[str, float], set]] = {}
+
 
 
 def _cache_key(user_id: str, workspace_id: str) -> str:
@@ -56,9 +56,9 @@ def _cache_key(user_id: str, workspace_id: str) -> str:
 def invalidate(user_id: str = "", workspace_id: str = "") -> None:
     """Drop cached overlays so an applied change takes effect on the next turn."""
     if not user_id:
-        _cache.clear()
+        process_state().cache.clear()
         return
-    _cache.pop(_cache_key(user_id, workspace_id), None)
+    process_state().cache.pop(_cache_key(user_id, workspace_id), None)
 
 
 def load_overlay(user_id: str, workspace_id: str = "default") -> Tuple[Dict[str, float], set]:
@@ -67,7 +67,7 @@ def load_overlay(user_id: str, workspace_id: str = "default") -> Tuple[Dict[str,
         return {}, set()
 
     key = _cache_key(user_id, workspace_id)
-    cached = _cache.get(key)
+    cached = process_state().cache.get(key)
     now = time.monotonic()
     if cached is not None and now - cached[0] < _CACHE_TTL_S:
         return cached[1], cached[2]
@@ -106,7 +106,7 @@ def load_overlay(user_id: str, workspace_id: str = "default") -> Tuple[Dict[str,
         logger.debug("[memory-weights] overlay unavailable, ignoring: %s", exc)
         return {}, set()
 
-    _cache[key] = (now, weights, superseded)
+    process_state().cache[key] = (now, weights, superseded)
     return weights, superseded
 
 
@@ -155,3 +155,19 @@ def apply_overlay(
     kept.sort(key=lambda x: x.get(score_key, 0.0), reverse=True)
     return kept
 
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class WeightsState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    cache: Dict[str, Tuple[float, Dict[str, float], set]] = state_field(default_factory=lambda: {})
+
+@state_cache(maxsize=1)
+def process_state() -> WeightsState:
+    return WeightsState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

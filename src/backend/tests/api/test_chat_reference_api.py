@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import core.services.session_operations.request_context as chat_request_context
+import core.chat.operations.request_context as chat_request_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
@@ -162,7 +162,7 @@ def test_send_time_and_replay_render_the_same_reference_block(db_factory):
     """引用名片在发送时落库，重放时按落库的快照渲染——两边必须完全一致。"""
     from core.chat.schemas import ChatRequest
     from core.chat.context import build_effective_user_message
-    from core.services.compaction_history import normalize_rows
+    from core.chat.compaction.history import normalize_rows
 
     _seed(db_factory)
 

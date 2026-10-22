@@ -15,39 +15,57 @@ from .protocol import SandboxProvider
 
 logger = logging.getLogger(__name__)
 
-_provider: SandboxProvider | None = None
+
 
 
 def _ordinary_provider() -> SandboxProvider:
-    global _provider
-    if _provider is not None:
-        return _provider
+    if process_state().provider is not None:
+        return process_state().provider
 
     kind = settings.sandbox.provider
     if kind == "script_runner":
-        from .script_runner_provider import ScriptRunnerProvider
-        _provider = ScriptRunnerProvider()
+        from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
+
+        process_state().provider = ScriptRunnerProvider()
     elif kind == "opensandbox":
-        from .edition_provider import PersistentSandboxProvider
-        _provider = PersistentSandboxProvider()
+        from core.sandbox.providers.edition import PersistentSandboxProvider
+
+        process_state().provider = PersistentSandboxProvider()
     elif kind == "cube":
-        from core.sandbox.cube.provider import CubeSandboxProvider
-        _provider = CubeSandboxProvider()
+        from core.sandbox.providers.cube.provider import CubeSandboxProvider
+
+        process_state().provider = CubeSandboxProvider()
     else:
         raise ValueError(
             f"未知 SANDBOX_PROVIDER: {kind!r}，可选: script_runner / opensandbox / cube"
         )
 
-    logger.info("[sandbox] activated provider=%s", _provider.name)
-    return _provider
+    logger.info("[sandbox] activated provider=%s", process_state().provider.name)
+    return process_state().provider
 
 
 def get_sandbox_provider() -> SandboxProvider:
-    from .session_router import SessionSandboxRouter
+    from core.sandbox.sessions.router import SessionSandboxRouter
+
     return SessionSandboxRouter(_ordinary_provider())
 
 
 def reset_provider_cache() -> None:
     """For testing use only."""
-    global _provider
-    _provider = None
+    process_state().provider = None
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class FactoryState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    provider: SandboxProvider | None = None
+
+@state_cache(maxsize=1)
+def process_state() -> FactoryState:
+    return FactoryState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

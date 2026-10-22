@@ -189,5 +189,5 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 前端静态托管 + `/api` 桥接 | `src/backend/api/local_hosting.py` |
 | MCP / 沙箱子进程督管 | `src/backend/orchestration/local_subprocess.py` |
 | 进程内事件流 / 短时状态 | `src/backend/orchestration/run_event_stream.py`、`src/backend/core/infra/ephemeral.py`（`REDIS_URL` 留空即启用） |
-| 内置 MCP 目录种子 | `src/backend/core/services/mcp_service.py`（`seed_builtin_mcp_servers_if_empty`） |
+| 内置 MCP 目录种子 | `src/backend/core/capabilities/mcp/service.py`（`seed_builtin_mcp_servers_if_empty`） |
 | 环境变量参考 | [environment-variables.md](environment-variables.md)（「无 Docker 本地模式」段） |

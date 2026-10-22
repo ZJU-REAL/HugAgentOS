@@ -22,7 +22,7 @@ must execute in separate rounds.
 
 ```
                        ┌──────────────────── mcp container (docker/Dockerfile.mcp) ──┐
-                       │  mcp_servers._launcher (one child process per server)│
+                       │  extensions.mcp_servers._launcher (one child process per server)│
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content (KB retrieval)│
 │ backend │───────▶│streama-│   :9101  query_database (data warehouse, EE)    │
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
@@ -36,7 +36,7 @@ must execute in separate rounds.
                        └──────────────────────────────────────────────────────┘
 ```
 
-The built-in registry, `src/backend/mcp_servers/registry.py`, declares installation placement, package names, and base ports. `_ports.py` applies desktop port offsets: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
+The built-in registry, `src/backend/extensions/mcp_servers/registry.py`, declares installation placement, package names, and base ports. `_ports.py` applies desktop port offsets: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `extensions/mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
 
 > Historical note: office-document editing and export (word / excel / ppt /
 > pdf) have moved out of the `mcp` container into
@@ -175,14 +175,14 @@ Supports the capability center and skill-management plugins: `search_marketplace
 Every built-in server follows the same directory convention:
 
 ```
-mcp_servers/<name>_mcp/
+extensions/mcp_servers/<name>_mcp/
 ├── server.py        # FastMCP instance + @mcp.tool() thin shims (arg tolerance, stdout→stderr)
 ├── impl.py          # business logic (lazily imported from server.py to keep startup light)
 ├── _selftest.py     # offline self-check: module imports, tool signatures
 └── README.md        # run/debug notes
 ```
 
-The shared layer (root of `mcp_servers/`):
+The shared layer (root of `extensions/mcp_servers/`):
 
 | File | Responsibility |
 |---|---|
@@ -241,11 +241,11 @@ the answer body.
 
 The backend connects through AgentScope 2.0's `MCPClient`, centred on two files:
 
-- **`core/llm/mcp_pool.py` — `MCPConnectionPool`** (process-level singleton): at startup `warmup_mcp_tools()` reads all enabled server configs from the DB and pre-connects. Pooling semantics under 2.0:
+- **`core/llm/mcp/pool.py` — `MCPConnectionPool`** (process-level singleton): at startup `warmup_mcp_tools()` reads all enabled server configs from the DB and pre-connects. Pooling semantics under 2.0:
   - **stdio servers marked `is_stable=true`** keep their connection across requests (saving the 1–7 s subprocess cold start);
   - **HTTP servers are never pooled** — 2.0's stateful HTTP client is bound to its asyncio task, and reuse across requests triggers cancel-scope crashes, so each request gets a fresh `is_stateful=False` connection;
   - per-request servers (KB retrieval with user headers) connect on demand and are closed via `close_transient()` when the request ends.
-- **`core/llm/mcp_manager.py` — `BareNameMCPClient`**: AgentScope 2.0 rewrites tool names to `mcp__<server>__<tool>`; this subclass restores the server-side bare name (`internet_search`, not `mcp__internet_search__internet_search`) so the display-name mapping (`core/config/display_names.py`), [citation extraction](chat.md) keyed by tool name, and frontend icon rendering all keep working as in 1.x.
+- **`core/llm/mcp/manager.py` — `BareNameMCPClient`**: AgentScope 2.0 rewrites tool names to `mcp__<server>__<tool>`; this subclass restores the server-side bare name (`internet_search`, not `mcp__internet_search__internet_search`) so the display-name mapping (`core/config/display_names.py`), [citation extraction](chat.md) keyed by tool name, and frontend icon rendering all keep working as in 1.x.
 
 The 2.0 `Toolkit` is constructed once, in `core/llm/factory/build.py`: `Toolkit(tools=[...], mcps=clients)`.
 
@@ -297,7 +297,7 @@ tools that should be governed need a registry rule.
 
 ## Registration: DB-driven config + catalog gating
 
-The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models.py::AdminMcpServer`), read through `core/services/mcp_service.py::McpServerConfigService` with a 30-second TTL cache, in a dict format compatible with the legacy `MCP_SERVERS` (`transport / command / args / env / url / headers / is_stable`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
+The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models.py::AdminMcpServer`), read through `core/capabilities/mcp/service.py::McpServerConfigService` with a 30-second TTL cache, in a dict format compatible with the legacy `MCP_SERVERS` (`transport / command / args / env / url / headers / is_stable`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
 
 Whether a server is **visible to the model** additionally passes through [catalog](catalog.md) gating: each entry in the `mcp` section of `core/config/catalog.json` corresponds to a server_id, and a server whose `is_enabled(id, "mcp_server")` is false will not be registered with the agent even if connected.
 
@@ -381,14 +381,14 @@ Every server can run standalone outside the container (stdio transport by defaul
 
 ```bash
 # Run a single server over stdio (pairs with MCP Inspector etc.)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server
 
 # Run over streamable-http (mimicking the in-container form)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp.server \
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp.server \
   --transport streamable-http --port 9102
 
 # Offline self-check (imports, tool signatures)
-PYTHONPATH=src/backend python -m mcp_servers.internet_search_mcp._selftest
+PYTHONPATH=src/backend python -m extensions.mcp_servers.internet_search_mcp._selftest
 
 # In-container liveness probe (lowest port started by the launcher)
 curl -fsS http://localhost:9100/mcp/
@@ -404,17 +404,17 @@ docker-compose up -d --build mcp
 
 | Path | Description |
 |---|---|
-| `src/backend/mcp_servers/<name>_mcp/` | Individual MCP servers (server.py / impl / _selftest) |
-| `src/backend/mcp_servers/_launcher.py` | mcp container entry: multi-process spawn + crash restart |
-| `src/backend/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
-| `src/backend/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
-| `src/backend/mcp_servers/_ports.py` | Deployment port mapping |
-| `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
-| `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
+| `src/backend/extensions/mcp_servers/<name>_mcp/` | Individual MCP servers (server.py / impl / _selftest) |
+| `src/backend/extensions/mcp_servers/_launcher.py` | mcp container entry: multi-process spawn + crash restart |
+| `src/backend/extensions/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
+| `src/backend/extensions/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
+| `src/backend/extensions/mcp_servers/_ports.py` | Deployment port mapping |
+| `src/backend/core/llm/mcp/pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
+| `src/backend/core/llm/mcp/manager.py` | MCPClient construction + bare tool-name restoration |
 | `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |
-| `src/backend/core/services/mcp_service.py` | DB-driven server config service (30 s cache) |
+| `src/backend/core/capabilities/mcp/service.py` | DB-driven server config service (30 s cache) |
 | `src/backend/core/services/mcp_marketplace_service.py` | Marketplace publishing, review, installation, visibility, and security controls |
-| `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
+| `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
 | `src/backend/core/services/mcp_marketplace_monitor.py` | Periodic remote tool-snapshot revalidation and drift monitoring |
 | `src/backend/core/config/mcp_config.py` | Built-in server URL builder (http://mcp:NNNN/mcp/) |
 | `src/backend/core/config/catalog.json` | Capability catalog: MCP enable/disable seeds |

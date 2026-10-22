@@ -59,7 +59,7 @@ HugAgentOS 后端是一个 FastAPI 应用，所有业务接口挂在 `/v1/*` 前
 | 方式 | 凭据携带方法 | 适用范围 | 实现 |
 |---|---|---|---|
 | **会话 Cookie** | `Cookie: jx_session=<token>`（登录后自动种下） | 所有面向最终用户的 `/v1/*` 接口（chats、projects、kb、memories…） | `get_current_user`：Cookie → Redis 会话查找 |
-| **个人 API-Key** | `Authorization: Bearer sk-jx-...` | 与会话 Cookie 等价的用户身份，适合脚本/第三方集成调用 | `sk-jx-` 前缀识别；明文仅创建时返回一次，DB 只存 SHA256（`core/services/api_key_service.py`）；在 `/v1/me/api-keys` 自助管理 |
+| **个人 API-Key** | `Authorization: Bearer sk-jx-...` | 与会话 Cookie 等价的用户身份，适合脚本/第三方集成调用 | `sk-jx-` 前缀识别；明文仅创建时返回一次，DB 只存 SHA256（`core/auth/api_keys.py`）；在 `/v1/me/api-keys` 自助管理 |
 | **Bearer token（mock/remote 模式）** | `Authorization: Bearer <token>` | `AUTH_MODE=mock`（开发：任意 token / 缺省 token 均放行为 mock 用户）或 `remote`（对接用户中心校验） | `get_current_user` 的兜底分支；`AUTH_MODE=session` 下不接受 |
 | **ADMIN_TOKEN** | `Authorization: Bearer <ADMIN_TOKEN>` | `/admin` 管理台后端（`/v1/admin/skills`、`/v1/admin/kb` 等）及内容块写接口 | `require_admin`（环境变量 `ADMIN_TOKEN`） |
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` 系统配置台后端（`/v1/config/*`、`/v1/models`、`/v1/service-configs`、部分 `/v1/admin/*` 观测接口） | `require_config`（环境变量 `CONFIG_TOKEN`） |

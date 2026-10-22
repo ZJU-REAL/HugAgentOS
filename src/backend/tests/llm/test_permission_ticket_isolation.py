@@ -8,6 +8,8 @@ body reads back must belong to *its own* call.
 """
 
 from __future__ import annotations
+from tests.orchestration.hook_support import permission_adapter
+from types import SimpleNamespace
 
 import asyncio
 import json
@@ -15,14 +17,9 @@ import json
 import pytest
 from agentscope.message import ToolCallBlock
 from agentscope.tool._response import ToolResponse
-from core.llm.tool_permissions import (
-    CURRENT_PERMISSION_TICKET,
-    PermissionRuntime,
-    ToolPermissionMiddleware,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    local_path_tool,
-)
+from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, local_path_tool
+from core.llm.tool_permissions import ToolPermissionService
 
 
 def _tool_call(path: str, call_id: str) -> ToolCallBlock:
@@ -33,10 +30,10 @@ def _tool_call(path: str, call_id: str) -> ToolCallBlock:
     )
 
 
-def _middleware() -> ToolPermissionMiddleware:
+def _middleware():
     registry = ToolPermissionRegistry()
     registry.register("Read", local_path_tool("file_path", "read"), source="native")
-    return ToolPermissionMiddleware(
+    return permission_adapter(
         ToolPermissionService(
             registry,
             PermissionRuntime(
@@ -60,7 +57,7 @@ async def _dispatch(middleware, path: str, call_id: str, observed: dict, barrier
         yield ToolResponse(id=call_id)
 
     async for _item in middleware.on_acting(
-        None, {"tool_call": _tool_call(path, call_id)}, handler
+        SimpleNamespace(state=SimpleNamespace(run_id="permission-test", context=[])), {"tool_call": _tool_call(path, call_id)}, handler
     ):
         pass
 
@@ -100,7 +97,7 @@ async def test_ticket_is_cleared_even_when_the_tool_raises():
 
     with pytest.raises(RuntimeError):
         async for _item in middleware.on_acting(
-            None, {"tool_call": _tool_call("/workspace/a.txt", "call-a")}, failing_handler
+            SimpleNamespace(state=SimpleNamespace(run_id="permission-test", context=[])), {"tool_call": _tool_call("/workspace/a.txt", "call-a")}, failing_handler
         ):
             pass
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from core.llm.model_usage import CURRENT_MODEL_USAGE, model_usage_scope
+from core.models.usage import CURRENT_MODEL_USAGE, model_usage_scope
 
 
 class _Recorder:

@@ -6,7 +6,7 @@ import secrets
 import time
 import uuid
 from sqlalchemy import select
-from core.device_link import CAPABILITIES
+from personal_agent.device_link import CAPABILITIES
 from core.db.engine import SessionLocal
 from personal_agent.models import PersonalDevice, PersonalDeviceCommand, PersonalWorkItem
 

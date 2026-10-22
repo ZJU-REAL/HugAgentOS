@@ -44,24 +44,7 @@ SDK CLI 只校验声明，不迁移数据库或业务数据。
 
 # 工作台配置迁移与恢复
 
-迁移是显式运维操作，不会随启动自动执行。先在隔离数据库副本完成演练；真实配置迁移需要单独授权。当前命令只接受本机隔离副本。
-
-## 盘点与切换
-
-1. 停止副本的所有写入，包括内容导入、用户偏好、插件安装和后台写入。--writes-frozen 只是操作员确认，不会自动停止服务。
-2. 配置 WB20_COPY_DATABASE_URL。SQLite 文件须在当前源码目录的 .scratch/workbench-20 下。PostgreSQL 须为回环主机且数据库名以 workbench_20 开头。不要将真实库设置为演练目标。
-3. 创建权限为 0700 的快照目录。运行如下命令：
-
-```bash
-PYTHONPATH=src/backend python -m scripts.workbench_migration inventory \
-  --snapshot /absolute/private/path/before.json
-PYTHONPATH=src/backend python -m scripts.workbench_migration apply \
-  --snapshot /absolute/private/path/before.json --digest <reviewed-digest> --writes-frozen
-```
-
-盘点不写数据库。报告包含数量、来源版本、脱敏位置和错误码；不打印 URL、用户标识、票据或秘密。完整迁移范围快照保存在 0600 文件中，包含原配置、偏好、角色/团队关系、插件声明和工作台数据。它不是业务文件或完整数据库备份，须与完整数据库/文件备份共同保管。
-
-摘要匹配且源未变化时，切换在单一事务中执行。失败回滚事务。切换前后快照的摘要记录在 workbench_migration:v1 receipt 中。原始 app_config 行和旧导航列表移除；新目录只读取规范来源。重复外部 ID 的全部副本、未知 ID、危险 URL 和未知字段隔离，不产生入口或授权。原始副本保留在受保护快照。
+独立迁移命令已移除。以下内容记录内部迁移与恢复约束，不构成可直接执行的运维流程。现有部署需要迁移时，应先备份并制定针对目标版本的方案，在隔离副本验证后单独授权执行。
 
 ## 保留的语义
 
@@ -69,7 +52,7 @@ PYTHONPATH=src/backend python -m scripts.workbench_migration apply \
 - 外部条目顺序和启停保留。默认侧栏转换为策略。已有现代偏好优先；已确认旧 preferences.pinned_apps/app_order 转换为 web 偏好。null 继承，空列表明确取消固定。聊天排序、主题和其他偏好保持不变。
 - 无法映射的权限引用保留原值并报告，不成为新授权。旧插件 UI v1/v2 不改写为 v3。不会按名称或 slug 绑定新安装。
 - 旧认证配置 workbench_external_auth:legacy:<id> 保持原 key。缺少目标侧适配时报告 auth_configuration_required。管理员须显式审核登录方式；真实旧目标尚未验证时，不得宣称外部登录无回归。不得恢复通用 SSO token 拼接。
-- 同服务恢复保留 workbench_origin_identity。克隆到另一服务须先在克隆副本重新盘点，再执行 clone-origin；旧插件 key 不自动映射为新来源授权。跨来源偏好和数据须另行核对。
+- 同服务恢复保留 workbench_origin_identity。克隆到另一服务须先在克隆副本重新盘点，再重建服务来源标识；旧插件 key 不自动映射为新来源授权。跨来源偏好和数据须另行核对。
 
 ## 对外版本窗口
 
@@ -77,13 +60,7 @@ content-v1 接口在工作台协议 1.x 内保留，协议 2.0 迁移前另行�
 
 ## 恢复与新增数据
 
-先冻结全部写入，再执行：
-
-```bash
-PYTHONPATH=src/backend python -m scripts.workbench_migration rollback \
-  --snapshot /absolute/private/path/before.json --digest <reviewed-digest> \
-  --delta /absolute/private/path/delta.json --writes-frozen
-```
+恢复前冻结全部写入，并按已审核的恢复方案操作。
 
 恢复前导出受保护增量。已映射普通旧外链的修改可回放到旧格式。新身份、应用状态、资源、权限、插件、认证或策略变化不能安全表达时，返回 delta_not_representable 并保留新数据。不要仅恢复旧快照。继续运行已验证的新版本，核对增量并另行制定迁移方案。恢复 receipt 幂等；已恢复批次不能直接重复 apply，应创建新的审核批次。
 

@@ -1,4 +1,5 @@
 """Command wake transport, snapshot races and authentication boundaries."""
+
 import asyncio
 import json
 import shutil
@@ -6,15 +7,22 @@ import socket
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import core.chat.runtime.admission as admission
+import core.db.engine as engine
+import core.sandbox.commands.events as commands_events
+import core.sandbox.commands.events as events
+import core.sandbox.commands.notifications as notifications
+import core.sandbox.commands.subscription as commands_subscription
+import core.sandbox.commands.subscription as subscription
 import pytest
-from fastapi import HTTPException
-from starlette.requests import Request
-from redis.asyncio import Redis
-from tests.orchestration.test_background_commands import command_db, request
-from orchestration.commands import events, subscription, notifications
-from core.services.commands import store, delivery
 from core.db import models
-from core.services.chat_sequencer import ChatSequencer
+from core.chat.sequencer import ChatSequencer
+from core.sandbox.commands import delivery, store
+from fastapi import HTTPException
+from redis.asyncio import Redis
+from starlette.requests import Request
+from tests.orchestration.test_background_commands import command_db, request
 
 
 async def test_memory_event_wakes_immediately_and_isolates_topics(monkeypatch):
@@ -28,13 +36,13 @@ async def test_memory_event_wakes_immediately_and_isolates_topics(monkeypatch):
     await bus.publish("u", "c", "wake")
     _, runs, _ = await asyncio.wait_for(waiter, .5)
     assert runs == ["wake"]
-    monkeypatch.setattr(events, "MAX_EVENTS", 2)
+    monkeypatch.setattr(commands_events, "MAX_EVENTS", 2)
     bus = events.MemoryCommandEvents()
     for index in range(3):
         await bus.publish("u", "c", str(index))
     _, runs, resync = await bus.wait("u", "c", 0)
     assert runs == ["1", "2"] and resync
-    monkeypatch.setattr(events, "TTL_SECONDS", -.1)
+    monkeypatch.setattr(commands_events, "TTL_SECONDS", -.1)
     await bus.publish("u", "c", "expired")
     assert await bus.tail("u", "c") == 0
 
@@ -56,7 +64,7 @@ async def test_redis_two_instances_deliver_and_isolate(tmp_path, monkeypatch):
                 break
             except Exception:
                 await asyncio.sleep(.02)
-        monkeypatch.setattr(events, "get_redis", lambda blocking=False: clients[int(blocking)])
+        monkeypatch.setattr(commands_events, "get_redis", lambda blocking=False: clients[int(blocking)])
         publisher, subscriber = events.RedisCommandEvents(), events.RedisCommandEvents()
         cursor = await subscriber.tail("u", "c")
         waiting = asyncio.create_task(subscriber.wait("u", "c", cursor, timeout=1))
@@ -75,19 +83,19 @@ async def test_redis_two_instances_deliver_and_isolate(tmp_path, monkeypatch):
 
 async def test_snapshot_tail_race_and_auth_revocation(monkeypatch):
     bus = events.MemoryCommandEvents()
-    monkeypatch.setattr(subscription, "get_command_events", lambda: bus)
-    monkeypatch.setattr(subscription, "HEARTBEAT_SECONDS", .01)
+    monkeypatch.setattr(commands_subscription, "get_command_events", lambda: bus)
+    monkeypatch.setattr(commands_subscription, "HEARTBEAT_SECONDS", .01)
     authorized = True
     async def authorize(*args):
         if not authorized:
             raise HTTPException(401, "expired")
         return "u"
-    monkeypatch.setattr(subscription, "authorize", authorize)
+    monkeypatch.setattr(commands_subscription, "authorize", authorize)
     def snapshot(chat_id, user_id):
         # Publication happens after captured cursor, while DB snapshot is read.
         asyncio.run(bus.publish(user_id, chat_id, "during-snapshot"))
         return []
-    monkeypatch.setattr(subscription, "snapshot", snapshot)
+    monkeypatch.setattr(commands_subscription, "snapshot", snapshot)
     stream = subscription.subscribe(None, "c", "u")
     assert json.loads((await anext(stream))[6:])["run_ids"] == []
     assert json.loads((await anext(stream))[6:])["run_ids"] == ["during-snapshot"]
@@ -99,7 +107,7 @@ async def test_snapshot_tail_race_and_auth_revocation(monkeypatch):
 async def test_event_authorization_rechecks_identity_scope_and_edit(command_db, monkeypatch):
     req = Request({"type":"http", "headers":[]})
     user = SimpleNamespace(user_id="u", api_key_id=None, public_chat_visitor=None)
-    monkeypatch.setattr(subscription, "get_current_user", AsyncMock(side_effect=lambda *a, **kw: user))
+    monkeypatch.setattr(commands_subscription, "get_current_user", AsyncMock(side_effect=lambda *a, **kw: user))
     assert await subscription.authorize(req, "c") == "u"
     user.user_id = "other"
     with pytest.raises(HTTPException) as error:
@@ -123,7 +131,7 @@ async def test_event_authorization_rechecks_identity_scope_and_edit(command_db, 
 
 
 async def test_publish_failure_retries_without_starting_run_again(command_db, monkeypatch):
-    from orchestration import chat_run_executor as executor
+    pass
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -145,9 +153,9 @@ async def test_publish_failure_retries_without_starting_run_again(command_db, mo
         # published. That read must not cancel the accepted delivery.
         assert store.read(row["task_id"], "u", "c")["status"] == "exited"
         assert store.snapshot(row["task_id"])["notice_status"] == "reserved"
-    monkeypatch.setattr(executor, "start_run", start_run)
+    monkeypatch.setattr(admission, "start_run", start_run)
     publisher = SimpleNamespace(publish=AsyncMock(side_effect=[RuntimeError("Redis down"), None]))
-    monkeypatch.setattr(events, "get_command_events", lambda: publisher)
+    monkeypatch.setattr(commands_events, "get_command_events", lambda: publisher)
     with pytest.raises(RuntimeError, match="Redis down"):
         await notifications.launch(run_id)
     assert store.snapshot(row["task_id"])["notice_status"] == "reserved"
@@ -163,20 +171,21 @@ async def test_publish_failure_retries_without_starting_run_again(command_db, mo
 
 async def test_real_http_sse_is_authenticated_and_pushes_without_polling(command_db, monkeypatch):
     import threading
+
     import httpx
     import uvicorn
-    from fastapi import FastAPI
     from api.routes.v1.commands import router
+    from fastapi import FastAPI
     bus = events.MemoryCommandEvents()
-    monkeypatch.setattr(subscription, "get_command_events", lambda: bus)
-    monkeypatch.setattr(subscription, "HEARTBEAT_SECONDS", .03)
+    monkeypatch.setattr(commands_subscription, "get_command_events", lambda: bus)
+    monkeypatch.setattr(commands_subscription, "HEARTBEAT_SECONDS", .03)
     revoked = False
     async def authenticated(req, credentials, db):
         if credentials is None or revoked:
             raise HTTPException(401, "Authentication expired")
         return SimpleNamespace(user_id=credentials.credentials,
             api_key_id=None, public_chat_visitor=None)
-    monkeypatch.setattr(subscription, "get_current_user", authenticated)
+    monkeypatch.setattr(commands_subscription, "get_current_user", authenticated)
     app = FastAPI()
     app.include_router(router)
     with socket.socket() as listener:
@@ -233,7 +242,7 @@ async def test_memory_publish_unregisters_closed_subscriber_loop():
 
 def test_snapshot_is_bounded_and_returns_latest_runs(command_db, monkeypatch):
     from datetime import datetime, timezone
-    monkeypatch.setattr(subscription, "MAX_EVENTS", 2)
+    monkeypatch.setattr(commands_subscription, "MAX_EVENTS", 2)
     run_ids = []
     for index in range(3):
         with command_db() as db:
@@ -254,9 +263,9 @@ def test_snapshot_is_bounded_and_returns_latest_runs(command_db, monkeypatch):
 @pytest.mark.parametrize(("mode", "thinking"), [("fast", False), ("high", True)])
 def test_followup_active_run_inherits_execution_mode(command_db, monkeypatch, mode, thinking):
     from core.auth.backend import UserContext
-    from core.services.session_operations.runs import chat_active_run
-    from orchestration import chat_run_executor as executor
-    monkeypatch.setattr(executor, "SessionLocal", command_db)
+    from core.chat.operations.runs import chat_active_run
+    pass
+    monkeypatch.setattr(engine, "SessionLocal", command_db)
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start",

@@ -3,7 +3,8 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from core.auth.backend import get_current_user, UserContext
-from core.content.file_parser import SUPPORTED_EXTENSIONS, parse_file
+from core.files.content.file_formats import SUPPORTED_EXTENSIONS
+from core.files.content.file_parser import parse_file
 
 router = APIRouter(prefix="/v1/file", tags=["file"])
 

@@ -4,7 +4,7 @@ import asyncio
 import time
 
 import pytest
-from orchestration.chat_run_executor import _aiter_with_inactivity_timeout
+from core.runs.watchdog import _aiter_with_inactivity_timeout
 
 
 def _is_meaningful(chunk: dict) -> bool:

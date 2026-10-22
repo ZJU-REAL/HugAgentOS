@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 @pytest.fixture(scope="module", autouse=True)
 def initialized_ce_database():
     from core.db.engine import SessionLocal, init_db
-    from core.services.local_user_service import ensure_ce_default_admin
+    from core.auth.local_user_bootstrap import ensure_ce_default_admin
 
     init_db()
     db = SessionLocal()
@@ -211,7 +211,7 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
 
 
 def test_ce_schema_reconcile_repairs_legacy_sqlite_columns(tmp_path):
-    from core.db.edition_tables import ce_create_all, ce_reconcile_schema
+    from core.db.edition import ce_create_all, ce_reconcile_schema
     from core.db.models import AdminSkill, ChatSession, ModelProvider
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -340,12 +340,7 @@ def test_ce_mcp_market_risk_migration_preserves_existing_notices(tmp_path):
 
 
 def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
-    from core.services.edition_startup import (
-        bootstrap_edition_plugins,
-        create_distillation_scheduler,
-        recover_datasource_sidecars,
-        recover_persona_distill_jobs,
-    )
+    from orchestration.workers.edition_startup import bootstrap_edition_plugins, create_distillation_scheduler, recover_datasource_sidecars, recover_persona_distill_jobs
 
     assert asyncio.run(recover_datasource_sidecars()) == {}
     assert bootstrap_edition_plugins(None) == ()
@@ -367,7 +362,7 @@ def test_ce_model_steps_migration_preserves_existing_messages(tmp_path):
     import importlib.util
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
-    from core.db.edition_tables import ce_create_all
+    from core.db.edition import ce_create_all
     from core.db.models import ChatMessage, ChatSession
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session

@@ -11,13 +11,19 @@ import logging
 import time
 import uuid
 from contextvars import ContextVar
-from sqlalchemy import select, func
+
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatSession
 from core.db.repository.chat import ChatMessageRepository
-from personal_agent.models import PersonalAgent, PersonalWorkItem, PersonalMessageInbox, PersonalMessageTask
-from personal_agent.tasks.task_threads import StreamRecord
+from personal_agent.models import (
+    PersonalAgent,
+    PersonalMessageInbox,
+    PersonalMessageTask,
+    PersonalWorkItem,
+)
 from personal_agent.tasks import task_ops
+from personal_agent.tasks.task_threads import StreamRecord
+from sqlalchemy import func, select
 
 log = logging.getLogger(__name__)
 PROFILE = "personal_agent_front"
@@ -101,9 +107,8 @@ def system_prompt(ident):
 
     Prompt caching needs a prefix that does not change between turns, so everything that does
     (the clock, tasks, sessions, the event) goes into turn_context instead."""
-    from personal_agent.workspace.prompting import sections
-    from personal_agent.workspace.prompting import render
     from personal_agent.scheduling.schedules import user_zone
+    from personal_agent.workspace.prompting import render, sections
     with SessionLocal() as db:
         agent = db.get(PersonalAgent, db.get(PersonalMessageInbox, ident).agent_id)
         config, agent_id = dict(agent.config or {}), agent.id
@@ -113,12 +118,12 @@ def system_prompt(ident):
 def turn_context(ident):
     """What changes every turn: the clock, the task list, recent sessions, the event.
     It follows the current message, so the earlier history stays a cached prefix."""
+    from personal_agent.scheduling import heartbeat
+    from personal_agent.scheduling.schedules import is_unattended_run
+    from personal_agent.tasks.runtime import clock
     from personal_agent.workspace.constants import BOOTSTRAP_FILE
     from personal_agent.workspace.files import read_text
     from personal_agent.workspace.prompting import prompt_part
-    from personal_agent.tasks.runtime import clock
-    from personal_agent.scheduling.schedules import is_unattended_run
-    from personal_agent.scheduling import heartbeat
     with SessionLocal() as db:
         inbox = db.get(PersonalMessageInbox, ident)
         agent = db.get(PersonalAgent, inbox.agent_id)
@@ -157,7 +162,7 @@ def with_context(messages, context):
 
 def history(db, ident):
     """The recent conversation as chat messages, ending with this turn's message."""
-    from core.llm.model_steps import assistant_row_replay
+    from core.llm.runtime.model_steps import assistant_row_replay
     inbox = db.get(PersonalMessageInbox, ident)
     agent = db.get(PersonalAgent, inbox.agent_id)
     current = db.get(ChatMessage, ident)
@@ -188,10 +193,11 @@ def history(db, ident):
             role = "user"
             text = "[Task result: " + (task.label_text if task else "?") + "]\n" + row.content[:EVENT_CHARS if last else HISTORY_CHARS // 2]
         elif row.role == "assistant":
-            # The same replay as the ordinary chat: the tool calls a reply made stay visible to the model,
-            # so a past reply never reads as an action that no tool performed.
-            out.extend(assistant_row_replay(content=row.content or "", model_steps=None, thinking=row.thinking,
-                tool_calls=row.tool_calls, segments=extra.get("segments")))
+            if extra.get("model_history_display_only"):
+                continue
+            out.extend(assistant_row_replay(
+                content=row.content or "", model_steps=row.model_steps,
+            ))
             continue
         else:
             role, text = row.role, row.content if last else row.content[:HISTORY_CHARS]
@@ -209,7 +215,7 @@ def history(db, ident):
 class Reply(StreamRecord):
     """The agent's reply in the main conversation, written while it streams.
 
-    The row keeps the full record (tool calls, segments) for replay; the page shows only the answer."""
+    Canonical steps serve model history; display columns serve the page."""
 
     def __init__(self, state):
         super().__init__()
@@ -230,6 +236,7 @@ class Reply(StreamRecord):
             session.message_count += 1
         else:
             # A retried turn starts its reply again.
+            row.model_steps = []
             row.content, row.tool_calls, row.thinking, row.extra_data = "", [], [], {**(row.extra_data or {}), **extra, "segments": []}
         self.id = ident
 
@@ -277,9 +284,8 @@ def prepare(db, ident, owner):
 async def converse(plan, binding):
     """Stream the agent's turn into its reply."""
     from core.llm.factory import create_agent_executor
-    from orchestration.streaming import StreamingAgent
-    from personal_agent.identity.capabilities import front_mcp_ids
-    from personal_agent.identity.capabilities import runtime_config
+    from core.llm.runtime.streaming import StreamingAgent
+    from personal_agent.identity.capabilities import front_mcp_ids, runtime_config
     with SessionLocal() as db:
         config = runtime_config(db, plan["uid"], plan["config"])
     reply = plan["reply"]
@@ -382,7 +388,7 @@ def finish(state, reply, failed=False):
 
 async def run_turn(ident, owner, execute=None):
     """One complete turn. execute(plan, binding) replaces the model in tests."""
-    from core.services.run_journal import durable_run_binding
+    from core.runs.journal import durable_run_binding
     plan = await asyncio.to_thread(_prepare, ident, owner)
     if plan is None: return
     state, reply = plan["state"], plan["reply"]
@@ -442,11 +448,9 @@ def hatch(svc):
     """Wake a new agent once, as OpenClaw's hatch: its first turn follows BOOTSTRAP.md and greets the user.
 
     Admitted only into an empty conversation of a ready agent whose first run is pending. True when admitted."""
+    from personal_agent.workspace.files import WorkspaceUnavailable, local_workspace
+    from personal_agent.workspace.persona import ensure_seeded, settle_bootstrap
     from sqlalchemy.exc import IntegrityError
-    from personal_agent.workspace.files import WorkspaceUnavailable
-    from personal_agent.workspace.persona import ensure_seeded
-    from personal_agent.workspace.files import local_workspace
-    from personal_agent.workspace.persona import settle_bootstrap
     agent = svc.identity.agent()
     if agent is None or agent.status != "ready": return False
     if svc.db.scalar(select(ChatMessage.message_id).where(ChatMessage.chat_id == agent.chat_id).limit(1)): return False

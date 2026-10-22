@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from core.db.models import EvolutionEpisode, MemoryOutbox
-from core.evolution import settlement_runner
-from core.evolution import settlement as evolution_settlement
+from core.evolution.settlement import settlement_runner
+from core.evolution.settlement import settlement as evolution_settlement
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
 from core.memory.extractors import writers as W

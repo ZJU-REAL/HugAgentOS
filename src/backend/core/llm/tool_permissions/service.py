@@ -4,26 +4,9 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Sequence, Optional
-from .preferences import DESTRUCTIVE_OPS, _preset_answers
-from .specs import ToolPermissionRegistry, _one_shot_write_root
-from .models import (
-    DOMAIN_APPROVAL,
-    DOMAIN_DENY,
-    DOMAIN_LOCAL_COMMAND,
-    DOMAIN_LOCAL_PATH,
-    DOMAIN_MYSPACE,
-    FAIL_CLOSED_MODE,
-    FALLBACK_ALLOW,
-    LocalCommandAuthorization,
-    PermissionIntent,
-    PermissionOutcome,
-    PermissionRuntime,
-    PermissionTicket,
-    READ,
-    UNCONFINED_APPROVAL_MODES,
-    _call_args,
-    _json_hash,
-)
+from core.sandbox.permissions.approval import DESTRUCTIVE_OPS, _preset_answers
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, _one_shot_write_root
+from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, DOMAIN_DENY, DOMAIN_LOCAL_COMMAND, DOMAIN_LOCAL_PATH, DOMAIN_MYSPACE, FAIL_CLOSED_MODE, FALLBACK_ALLOW, LocalCommandAuthorization, PermissionIntent, PermissionOutcome, PermissionRuntime, PermissionTicket, READ, UNCONFINED_APPROVAL_MODES, _call_args, _json_hash
 
 logger = logging.getLogger(__name__)
 
@@ -179,11 +162,15 @@ class ToolPermissionService:
         桌面端不再另存一份权限档：粗档就是 ``runtime.approval_mode``，本机策略
         由它翻译而来，授权目录与分类处置仍来自本机存储。
         """
-        from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
+        from core.sandbox.permissions.models import DELETE
+        from core.sandbox.permissions.models import NETWORK
+        from core.sandbox.permissions.models import PRIVILEGE
+        from core.sandbox.permissions.models import SYSTEM_WRITE
+        from core.sandbox.permissions.models import Policy
 
         mode = self.runtime.approval_mode
         try:
-            from core.services.local_grant_service import grants_for_gate, policy_for_gate
+            from core.harness.registry.local_files import grants_for_gate, policy_for_gate
 
             return mode, grants_for_gate(), policy_for_gate(mode)
         except Exception:  # unreadable configuration must never grant access
@@ -204,7 +191,7 @@ class ToolPermissionService:
             )
 
     def _execution_directory(self) -> str:
-        from core.llm.tools._paths import workspace_directory
+        from core.sandbox.workspace.resolution import workspace_directory
 
         return workspace_directory(
             self.runtime.sandbox_session_id or self.runtime.chat_id,
@@ -216,8 +203,8 @@ class ToolPermissionService:
 
         项目目录仍按用户现有授权判断；切换 cwd 不新增隐式文件权限。
         """
-        from core.sandbox._common import WORKSPACE
-        from services.script_runner_service.workspace_paths import session_root
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.workspace.paths import session_root
 
         session = self.runtime.sandbox_session_id or self.runtime.chat_id
         return session_root(WORKSPACE, str(session)) if session else WORKSPACE
@@ -227,7 +214,8 @@ class ToolPermissionService:
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox.local_policy import danger_categories, evaluate_local_path
+        from core.sandbox.permissions.models import danger_categories
+        from core.sandbox.permissions.evaluator import evaluate_local_path
 
         _mode, grants, policy = self._safe_local_security()
         verdict = evaluate_local_path(
@@ -264,7 +252,7 @@ class ToolPermissionService:
         if self._no_ui_pass_through(intent):
             return {"reasons": [*verdict.reasons, "no_approval_ui_pass_through:local_path"]}
 
-        from core.llm.tools import _tool_confirmation as confirm
+        from core.llm.tools import confirmation as confirm
 
         op = confirm.OP_LOCAL_READ if intent.action == READ else confirm.OP_LOCAL_WRITE
         blocked = await confirm.gate(
@@ -287,12 +275,10 @@ class ToolPermissionService:
 
         if not local_mode_enabled():
             return {}
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.local_policy import (
-            Grant,
-            danger_categories,
-            evaluate_local_command,
-        )
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.permissions.models import Grant
+        from core.sandbox.permissions.models import danger_categories
+        from core.sandbox.permissions.evaluator import evaluate_local_command
 
         platform = "windows" if os.name == "nt" else "posix"
         approval_mode, grants, policy = self._safe_local_security()
@@ -322,7 +308,7 @@ class ToolPermissionService:
             and not self._answers_for_user(dangerous=bool(danger_categories(verdict.reasons)))
             and not self._no_ui_pass_through(intent)
         ):
-            from core.llm.tools import _tool_confirmation as confirm
+            from core.llm.tools import confirmation as confirm
 
             blocked = await confirm.gate(
                 chat_id=self.runtime.chat_id,
@@ -357,7 +343,7 @@ class ToolPermissionService:
         approved one-shot write would be silently dropped.
         """
         try:
-            from core.llm.tools._paths import to_physical_path
+            from core.sandbox.workspace.resolution import to_physical_path
 
             session = self.runtime.sandbox_session_id or self.runtime.chat_id
             return to_physical_path(
@@ -381,13 +367,11 @@ class ToolPermissionService:
         entry point is confined exactly like an interactive one — it only skips
         the asking, never the sandbox.
         """
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.local_policy import (
-            NETWORK,
-            SYSTEM_WRITE,
-            intersects_system_write_area,
-        )
-        from core.sandbox.os_sandbox import LocalAccessDecision
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.permissions.models import NETWORK
+        from core.sandbox.permissions.models import SYSTEM_WRITE
+        from core.sandbox.permissions.paths import intersects_system_write_area
+        from core.sandbox.permissions.os_gate import LocalAccessDecision
 
         platform = "windows" if os.name == "nt" else "posix"
         may_write = policy.workspace_write != "block"
@@ -419,7 +403,7 @@ class ToolPermissionService:
                 if root:
                     _admit(root)
 
-        from core.sandbox.os_sandbox import protected_read_paths
+        from core.sandbox.permissions.os_gate import protected_read_paths
 
         return LocalCommandAuthorization(
             command=command,
@@ -456,7 +440,7 @@ class ToolPermissionService:
         *,
         interactive: bool,
     ) -> dict[str, Any]:
-        from core.llm.tools import _tool_confirmation as confirm
+        from core.llm.tools import confirmation as confirm
 
         op = intent.op or intent.action
         if self._answers_for_user(dangerous=op in DESTRUCTIVE_OPS):

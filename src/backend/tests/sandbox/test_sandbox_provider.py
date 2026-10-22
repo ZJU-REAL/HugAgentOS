@@ -69,7 +69,7 @@ def test_script_runner_provider_execute_sends_correct_body(monkeypatch):
             captured["body"] = json
             return FakeResponse()
 
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider.httpx.AsyncClient", FakeClient)
 
     p = get_sandbox_provider()._ordinary
     result = asyncio.run(
@@ -121,7 +121,7 @@ def test_script_runner_provider_never_retries_ambiguous_start(monkeypatch):
             call_count["n"] += 1
             raise httpx.ReadTimeout("simulated")
 
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider.httpx.AsyncClient", FakeClient)
 
     p = get_sandbox_provider()._ordinary
     with pytest.raises(SandboxError, match="uncertain"):
@@ -173,7 +173,7 @@ def test_script_runner_provider_file_and_lifecycle_calls_are_session_scoped(monk
             calls.append((url, json))
             return FakeResponse()
 
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider.httpx.AsyncClient", FakeClient)
 
     provider = get_sandbox_provider()._ordinary
     asyncio.run(
@@ -240,7 +240,7 @@ def test_script_runner_provider_execute_maps_connect_error(monkeypatch):
         async def post(self, url, json=None):
             raise httpx.ConnectError("dial tcp: refused")
 
-    monkeypatch.setattr("core.sandbox.script_runner_provider.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("core.sandbox.providers.script_runner.provider.httpx.AsyncClient", FakeClient)
 
     p = get_sandbox_provider()._ordinary
     with pytest.raises(SandboxConnectError, match="无法连接"):
@@ -259,7 +259,7 @@ def test_script_runner_provider_execute_maps_connect_error(monkeypatch):
 
 
 def test_explicit_opensandbox_does_not_fall_back_on_missing_dependency(monkeypatch):
-    import core.sandbox.edition_provider as edition
+    import core.sandbox.providers.edition as edition
 
     factory = _reload_settings_and_factory(monkeypatch, SANDBOX_PROVIDER="opensandbox")
     def missing_provider():

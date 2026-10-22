@@ -43,7 +43,7 @@ async def list_models(role: str = "main_agent") -> None:
     """列出某个已配置 provider 所在网关的模型清单（用于挑一个多模态模型）。"""
     import httpx
 
-    from core.services.model_config import ModelConfigService
+    from core.models.config import ModelConfigService
 
     cfg = ModelConfigService.get_instance().resolve(role)
     if cfg is None:
@@ -96,10 +96,10 @@ async def probe(model_name: str, role: str = "main_agent") -> None:
     """借用某个已配置 provider 的网关和凭据，试指定模型能否读图。"""
     from dataclasses import replace
 
-    from core.services.model_config import ModelConfigService
-    from core.vision.prompt import build_vision_prompt
-    from core.vision.provider import VisionProvider
-    from core.vision.schema import parse_evidence
+    from core.models.config import ModelConfigService
+    from core.models.vision.prompt import build_vision_prompt
+    from core.models.vision.provider import VisionProvider
+    from core.models.vision.schema import parse_evidence
 
     base = ModelConfigService.get_instance().resolve(role)
     if base is None:
@@ -127,7 +127,7 @@ async def probe(model_name: str, role: str = "main_agent") -> None:
 
 async def run() -> int:
     """完整链路：视觉桥（含缓存/重试/渲染）→ 校验读到了图上的字。"""
-    from core.vision import get_vision_bridge, is_available, render_evidence
+    from core.models.vision import get_vision_bridge, is_available, render_evidence
 
     if not is_available():
         print("FAIL: 未配置 vision 角色，且主模型不支持读图")

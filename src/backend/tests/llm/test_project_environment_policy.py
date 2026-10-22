@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from core.llm.factory.request import AgentRequest
-from core.llm.project_environment import ProjectEnvironmentPolicy
+from core.llm.runtime.project_environment import ProjectEnvironmentPolicy
 from fastapi import HTTPException
 
 
@@ -43,8 +43,8 @@ def test_outside_agent_cannot_execute_even_if_passed_directly():
 def test_dynamic_plugin_loader_refuses_components_outside_frozen_environment():
     import asyncio
 
-    from core.plugins.runtime.activation import register_load_plugin
-    from core.plugins.runtime.models import DeferredPlugin
+    from core.llm.tools.plugin_activation import register_load_plugin
+    from core.capabilities.plugins.runtime.models import DeferredPlugin
 
     class Collector:
         def register_tool_function(self, fn, **_):
@@ -60,7 +60,7 @@ def test_dynamic_plugin_loader_refuses_components_outside_frozen_environment():
 
 
 def test_disallowed_plugin_sharing_a_loose_skill_does_not_hide_that_skill():
-    from core.plugins.runtime.models import DeferredPlugin, ProgressiveResolution
+    from core.capabilities.plugins.runtime.models import DeferredPlugin, ProgressiveResolution
 
     deferred = DeferredPlugin(
         install_id="outside", slug="outside", name="Outside", description="", skill_ids=["plot"]
@@ -74,7 +74,7 @@ def test_disallowed_plugin_sharing_a_loose_skill_does_not_hide_that_skill():
 
 
 def test_custom_cloud_child_inherits_environment_without_file_context():
-    from core.services.local_project_workspace import child_project_context
+    from core.projects.local_workspace import child_project_context
 
     context = {
         "project_id": "cloud-project",

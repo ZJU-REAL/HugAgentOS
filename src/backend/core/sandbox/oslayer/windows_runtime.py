@@ -32,9 +32,9 @@ from collections import Counter
 TEMP_ENV_KEYS = ("TEMP", "TMP")
 ROOTS_FILENAME = "sandbox_labeled_roots.json"
 
-_LOCK = threading.Lock()
-_IN_USE: Counter[str] = Counter()
-_TOKEN = None
+
+
+
 
 
 def root_key(path: str) -> str:
@@ -73,7 +73,7 @@ def apply_labels(plan: dict) -> None:
     roots = {root_key(root["path"]): root for root in plan.get("writable_roots") or []}
     store = LabeledRoots(plan["state_dir"])
     labeled = store.load()
-    in_use = {key for key, count in _IN_USE.items() if count > 0}
+    in_use = {key for key, count in process_state().IN_USE.items() if count > 0}
     stale = labeled - set(roots) - in_use
     for key in stale:
         remove_label(key)
@@ -99,17 +99,16 @@ def child_environment(plan: dict, env: dict) -> dict:
 
 def _sandbox_token():
     """The low-integrity token, built once: it takes nothing from the plan."""
-    global _TOKEN
-    if _TOKEN is None:
+    if process_state().TOKEN is None:
         from .win32 import ffi
         from .win32.token import create_low_integrity_token, open_current_process_token
 
         base_token = open_current_process_token()
         try:
-            _TOKEN = create_low_integrity_token(base_token)
+            process_state().TOKEN = create_low_integrity_token(base_token)
         finally:
             ffi.CloseHandle(base_token)
-    return _TOKEN
+    return process_state().TOKEN
 
 
 def spawn_confined(
@@ -136,13 +135,13 @@ def spawn_confined(
     keys = [root_key(root["path"]) for root in plan.get("writable_roots") or []]
 
     def release() -> None:
-        with _LOCK:
-            _IN_USE.subtract(keys)
+        with process_state().LOCK:
+            process_state().IN_USE.subtract(keys)
 
-    with _LOCK:
+    with process_state().LOCK:
         apply_labels(plan)
         token = _sandbox_token()
-        _IN_USE.update(keys)
+        process_state().IN_USE.update(keys)
     try:
         return spawn_with_token(
             token,
@@ -168,3 +167,21 @@ __all__ = [
     "root_key",
     "spawn_confined",
 ]
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class WindowsRuntimeState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    LOCK: object = state_field(default_factory=lambda: threading.Lock())
+    IN_USE: Counter[str] = state_field(default_factory=lambda: Counter())
+    TOKEN: object = None
+
+@state_cache(maxsize=1)
+def process_state() -> WindowsRuntimeState:
+    return WindowsRuntimeState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

@@ -5,8 +5,11 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import core.agent_runtime.direct as agent_runtime_direct
+import core.agent_runtime.runner as runner
+import core.agent_runtime.targets as targets
 import pytest
-from core.llm import subagent_tool, _subagent_stream
+from core.llm.subagents import stream as _subagent_stream, tool as subagent_tool
 
 
 class CapturingToolkit:
@@ -128,7 +131,7 @@ async def test_cancel_during_log_creation_waits_then_finishes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_direct_conversation_cancel_during_log_creation(monkeypatch):
-    from orchestration import workflow
+    pass
 
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -139,11 +142,11 @@ async def test_direct_conversation_cancel_during_log_creation(monkeypatch):
 
     finish = AsyncMock()
     monkeypatch.setattr(
-        workflow, "_load_direct_user_agent", lambda *args: SimpleNamespace(name="test")
+        targets, "_load_direct_user_agent", lambda *args: SimpleNamespace(name="test")
     )
     monkeypatch.setattr(subagent_tool.log_writer, "start_subagent_log", start)
     monkeypatch.setattr(subagent_tool.log_writer, "finish_subagent_log", finish)
-    stream = workflow._astream_subagent_direct(
+    stream = agent_runtime_direct._astream_subagent_direct(
         agent_id="test", session_messages=[], user_message="wait", context={}
     )
     task = asyncio.create_task(anext(stream))
@@ -158,7 +161,7 @@ async def test_direct_conversation_cancel_during_log_creation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_public_workflow_close_waits_for_direct_child(monkeypatch):
-    from orchestration import workflow
+    pass
     stopped = asyncio.Event()
     async def direct(**kwargs):
         try:
@@ -166,8 +169,8 @@ async def test_public_workflow_close_waits_for_direct_child(monkeypatch):
         finally:
             await asyncio.sleep(0.01)
             stopped.set()
-    monkeypatch.setattr(workflow, "_astream_subagent_direct", direct)
-    stream = workflow.astream_chat_workflow(session_messages=[], user_message="test", context={"agent_id": "test"})
+    monkeypatch.setattr(agent_runtime_direct, "_astream_subagent_direct", direct)
+    stream = runner.astream_chat_workflow(session_messages=[], user_message="test", context={"agent_id": "test"})
     assert (await anext(stream))["delta"] == "first"
     await stream.aclose()
     assert stopped.is_set()
@@ -175,7 +178,7 @@ async def test_public_workflow_close_waits_for_direct_child(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mcp_cleanup_survives_repeat_cancel_in_owning_task():
-    from core.llm.mcp_manager import close_clients
+    from core.llm.mcp.manager import close_clients
     started, release = asyncio.Event(), asyncio.Event()
     closed = []
     owners = []

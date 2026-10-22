@@ -8,10 +8,10 @@ from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
 from core.db.paging import normalize_page, normalize_page_size
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
-from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
+from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
 

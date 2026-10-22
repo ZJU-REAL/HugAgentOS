@@ -8,25 +8,25 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from core.artifacts.store import get_artifact
+from core.files.artifacts.store import get_artifact
 from core.auth.backend import UserContext, require_auth
-from core.content.office import find_libreoffice_binary
-from core.content.office_preview_cache import cached_office_pdf
+from core.files.content.office import find_libreoffice_binary
+from core.files.content.office_preview_cache import cached_office_pdf
 from core.config.local_mode import local_mode_enabled
-from core.storage.local import LocalStorageBackend
+from core.files.storage.local import LocalStorageBackend
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.exceptions import StorageError
 from core.infra.proc import no_window_kwargs
-from core.services.artifact_edition import artifact_access_metadata, can_access_artifact_metadata
-from core.storage import get_storage
+from core.files.edition import artifact_access_metadata, can_access_artifact_metadata
+from core.files.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from api.routes.file_archive import router as archive_router
-from api.routes.local_file_actions import router as local_actions_router
+from features.desktop.api.local_file_actions import router as local_actions_router
 
 router = APIRouter(prefix="/files", tags=["files"])
 router.include_router(archive_router)

@@ -12,7 +12,7 @@ import os
 def main() -> int:
     # Default: main_only
     os.environ.pop("ROUTER_STRATEGY", None)
-    from orchestration.strategy import get_router_strategy
+    from core.agent_runtime.strategy import get_router_strategy
 
     s = get_router_strategy()
     assert s.route("生成一份报告") == "main"

@@ -8,7 +8,7 @@ import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.services.project_scope import ProjectScope
+    from core.projects.edition import ProjectScope
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
@@ -39,7 +39,7 @@ def register_pin_to_workspace(
     output leaked into the personal MySpace root. Now the scope travels with the call chain, no
     timing window.
     """
-    from core.services.project_scope import ProjectScope  # noqa: F401 - re-import for closure
+    from core.projects.edition import ProjectScope  # noqa: F401 - re-import for closure
 
     async def pin_to_workspace(
         file_ids: list[str] = [], file_paths: list[str] = []
@@ -73,8 +73,8 @@ def register_pin_to_workspace(
         """
         import json as _json
 
-        from core.artifacts.store import get_artifact
-        from core.llm import workspace as _workspace
+        from core.files.artifacts.store import get_artifact
+        from core.llm.runtime import workspace as _workspace
 
         # Mark the gate active even if every id below fails — the agent's
         # *intent* to use the workspace is what flips the default. Otherwise
@@ -125,7 +125,7 @@ def register_pin_to_workspace(
             from core.infra.logging import user_id_var
             from fastapi import HTTPException
 
-            from core.artifacts.local_reference import reference_local_file
+            from core.files.artifacts.local_reference import reference_local_file
 
             if not isinstance(file_paths, list):
                 file_paths = [file_paths]
@@ -135,7 +135,7 @@ def register_pin_to_workspace(
                     failed_results.append({"path": str(path), "error": "文件路径必须是非空字符串"})
                     continue
                 try:
-                    from core.artifacts.local_reference import project_file_path
+                    from core.files.artifacts.local_reference import project_file_path
                     from core.infra.logging import chat_id_var
 
                     physical = project_file_path(
@@ -218,7 +218,7 @@ def register_pin_to_workspace(
             _cid = chat_id_var.get() or ""
             if _uid and to_persist:
                 from core.db.engine import SessionLocal
-                from core.services.artifact_service import persist_artifacts
+                from core.files.artifacts.service import persist_artifacts
 
                 _db = SessionLocal()
                 try:
@@ -260,10 +260,11 @@ def register_pin_to_workspace(
             ]
         )
 
-    from core.llm.tool_permissions import READ, ToolPermissionSpec, local_path_tool
+    from core.sandbox.permissions.dispatch_models import READ, ToolPermissionSpec
+    from core.sandbox.permissions.tool_specs import local_path_tool
 
     def resolve_pin_paths(args, runtime):
-        from core.artifacts.local_reference import project_file_path
+        from core.files.artifacts.local_reference import project_file_path
 
         paths = args.get("file_paths") or []
         if isinstance(paths, str):

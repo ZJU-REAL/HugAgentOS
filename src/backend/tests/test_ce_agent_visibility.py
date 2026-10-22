@@ -1,15 +1,15 @@
 """CE sub-agent visibility regression tests."""
 
-from core.db.edition_tables import ce_create_all
+from core.db.edition import ce_create_all
 from core.db.models import UserAgent, UserShadow
-from core.services.user_agent_service import UserAgentService
+from core.capabilities.agents.edition import UserAgentService
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 
 def test_ce_list_for_user_has_no_organization_repository_contracts():
     """A fresh CE database and repository expose only personal/admin agents."""
-    from core.db.repository.agent import UserAgentRepository
+    from core.db.edition import UserAgentRepository
 
     engine = create_engine("sqlite:///:memory:")
     ce_create_all(engine)

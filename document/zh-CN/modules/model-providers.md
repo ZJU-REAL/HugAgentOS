@@ -134,7 +134,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
    high/max → reasoning_effort=high/max（端点须声明支持）
 ```
 
-旧客户端只传 `enable_thinking` 时回退映射为 medium / fast。这就是 1.x「pre_reply 动态模型 hook」在 AgentScope 2.0 下的形态——hook 工厂已重构为中间件，`core/llm/hooks.py` 仅保留纯函数 helper。
+旧客户端只传 `enable_thinking` 时回退映射为 medium / fast。这就是 1.x「pre_reply 动态模型 hook」在 AgentScope 2.0 下的形态——hook 工厂已重构为中间件，`core/llm/runtime/hooks.py` 仅保留纯函数 helper。
 
 ## 环境变量与 MCP 子进程注入
 
@@ -147,7 +147,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
 
 ## 个人 API-Key
 
-用户可签发个人密钥以编程方式调用平台 API（`api/routes/v1/api_keys.py` + `core/services/api_key_service.py`）：
+用户可签发个人密钥以编程方式调用平台 API（`api/routes/v1/api_keys.py` + `core/auth/api_keys.py`）：
 
 - 明文形如 `sk-jx-<random>`，**仅创建时返回一次**，DB 只存 SHA256 哈希 + 前缀；支持 7/30/90/180/365 天有效期或永不过期、启停与撤销。
 - 调用方式 `Authorization: Bearer sk-jx-...`，鉴权层（`core/auth/backend.py`）识别 key 前缀后经 `resolve_api_key` 解析为用户上下文，校验启用/未撤销/未过期。
@@ -176,9 +176,9 @@ token 用量在流式收尾的 `meta.usage` 中统计（`orchestration/streaming
 | 角色解析服务（DB + 缓存） | `src/backend/core/services/model_config.py` |
 | 角色定义 / 供应商仓储 | `src/backend/core/db/model_repository.py` |
 | 管理 API | `src/backend/api/routes/v1/models.py` |
-| 动态模型中间件 | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`，helper 在 `core/llm/hooks.py` |
+| 动态模型中间件 | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`，helper 在 `core/llm/runtime/hooks.py` |
 | MCP env 注入 | `src/backend/core/services/model_config.py::get_mcp_env_overlay`，`core/config/runtime_env.py` |
-| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`，`core/services/api_key_service.py`，`core/auth/backend.py` |
+| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`，`core/auth/api_keys.py`，`core/auth/backend.py` |
 | 用量日志 / 计费 | `src/backend/api/routes/v1/admin_usage_logs.py`，`api/routes/v1/admin_billing.py` |
 | 路由策略 | `src/backend/orchestration/strategy.py` |
 | 主模型缺失快速失败 | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |

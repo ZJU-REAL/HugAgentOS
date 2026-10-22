@@ -4,7 +4,7 @@
 
 - provider 是**进程级单例**，平台内置子智能体（explorer/worker/reviewer）**复用主对话
   的 session_id**，为的是看同一份 workspace；但它们跑在 ``_subagent_pool`` 线程里的
-  独立事件循环上（``core/llm/subagent_tool.py`` 的 ``asyncio.new_event_loop()``）。
+  独立事件循环上（``core/llm/subagents/tool.py`` 的 ``asyncio.new_event_loop()``）。
 - opensandbox SDK 的 Sandbox / CodeInterpreter、``SandboxPool`` 的锁、共享 httpx client
   都在首次使用时绑定当时的运行循环，被另一个循环碰就抛
   ``is bound to a different event loop``；子智能体线程 ``loop.close()`` 之后，主循环
@@ -20,7 +20,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from core.sandbox._opensandbox_loop import _on_service_loop
+from core.sandbox.processes.dispatch import _on_service_loop
 
 
 class _FakeProvider:
@@ -54,7 +54,7 @@ async def _run_in_own_loop(coro_factory):
     必须走 ``run_in_executor`` 等它，**不能**同步 ``join()``：转发的前提就是服务
     循环在等待期间照常运转。生产里子智能体正是
     ``await loop.run_in_executor(_subagent_pool, ...)`` 派出去的
-    （``core/llm/subagent_tool.py``），同步阻塞服务循环会直接死锁。
+    （``core/llm/subagents/tool.py``），同步阻塞服务循环会直接死锁。
     """
     box = {}
 

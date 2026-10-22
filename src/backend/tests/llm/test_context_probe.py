@@ -8,8 +8,8 @@ shapes that actually occur rather than to invented ones.
 import httpx
 import pytest
 
-from core.llm.providers import context_probe
-from core.llm.providers.context_probe import discover_context_length, from_name_heuristic
+from core.models.providers import context_probe
+from core.models.providers.context_probe import discover_context_length, from_name_heuristic
 
 # One self-hosted vLLM deployment: a single entry that publishes the real window.
 _VLLM_MODELS = {

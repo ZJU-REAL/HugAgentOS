@@ -48,7 +48,7 @@ class FakeMCPClient:
 
 
 def _make_pool():
-    from core.llm.mcp_pool import MCPConnectionPool
+    from core.llm.mcp.pool import MCPConnectionPool
     pool = MCPConnectionPool.__new__(MCPConnectionPool)
     pool.__init__()
     return pool
@@ -56,7 +56,7 @@ def _make_pool():
 
 def _stdio_configs(names: List[str], stable: bool = True) -> Dict[str, dict]:
     return {
-        name: {"command": "python", "args": ["-m", f"mcp_servers.{name}"], "is_stable": stable}
+        name: {"command": "python", "args": ["-m", f"extensions.mcp_servers.{name}"], "is_stable": stable}
         for name in names
     }
 
@@ -75,7 +75,7 @@ def _patch_make_client(registry: dict):
         c = FakeMCPClient(name=name)
         registry[name] = c
         return c
-    return patch("core.llm.mcp_pool.make_client", side_effect=fake_make_client)
+    return patch('core.llm.mcp.pool.make_client', side_effect=fake_make_client)
 
 
 class TestInitialize:
@@ -108,7 +108,7 @@ class TestInitialize:
                     raise RuntimeError("connect failed")
                 c.connect = fail
             return c
-        with patch("core.llm.mcp_pool.make_client", side_effect=fake_make_client):
+        with patch('core.llm.mcp.pool.make_client', side_effect=fake_make_client):
             await pool.initialize(_stdio_configs(["good", "bad"]))
         assert pool.is_initialized
         assert "good" in pool._stable_clients

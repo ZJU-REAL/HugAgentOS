@@ -1,11 +1,11 @@
 """Ontology acceptance and assistant feedback endpoints."""
 
-import core.services.session_operations.schemas as chat_models
-import core.services.session_operations.session_context as chat_session_context
+import core.chat.operations.schemas as chat_models
+import core.chat.operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
-import core.services as chat_services
+import core.chat.service as chat_services_ChatService_module
 from core.auth.backend import UserContext
 from core.db.models import MessageFeedback
 from core.infra.exceptions import ResourceNotFoundError
@@ -30,12 +30,12 @@ def accept_ontology_revision(
     db: Session = Depends(db_engine.get_db),
 ):
     """Atomically replace one assistant message with its reviewed candidate answer."""
-    chat_service = chat_services.ChatService(db)
+    chat_service = chat_services_ChatService_module.ChatService(db)
     target = chat_service.get_message_by_id(message_id)
     if not target or target.role != "assistant":
         raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
     db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
+        db, chat_session_context.authenticated_user_id(user)
     )
     access = chat_service.get_session_with_access(target.chat_id, db_user_id)
     if access is None:
@@ -65,7 +65,7 @@ def submit_feedback(
     if body.rating not in ("like", "dislike"):
         raise HTTPException(status_code=400, detail="rating must be 'like' or 'dislike'")
 
-    db_user_id = chat_session_context._authenticated_user_id(user)
+    db_user_id = chat_session_context.authenticated_user_id(user)
 
     existing = (
         db.query(MessageFeedback)
@@ -96,7 +96,7 @@ def submit_feedback(
 
     if body.rating == "dislike" and (body.comment or "").strip() and record.chat_id:
         try:
-            from core.services.ontology_evolution_service import OntologyEvolutionService
+            from core.ontology.evolution import OntologyEvolutionService
 
             OntologyEvolutionService(db).ingest_user_correction(
                 user_id=db_user_id,

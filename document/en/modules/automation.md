@@ -1,6 +1,6 @@
 # Automation & Plan Mode
 
-> Last updated: 2026-09-30
+> Last updated: 2026-10-21
 
 HugAgentOS ships two built-in mechanisms for turning a single instruction into repeatable productivity, all part of the **Community Edition (CE)**:
 
@@ -43,15 +43,16 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `core/db/models/au
 `orchestration/schedulers/automation_scheduler.py` is an asyncio polling scheduler started with the backend:
 
 - **Polling**: every 15 seconds (plus 0–5 s random jitter) it queries the DB for tasks whose `next_run_at` is due.
-- **Distributed lock**: before firing, it acquires the Redis lock `jx:auto:lock:{task_id}` (TTL 1800 s) so multiple instances never double-fire.
+- **Distributed lock**: before firing, it acquires the Redis lock `jx:auto:lock:{task_id}` with continuous renewal throughout execution and token-checked release on completion so multiple instances never double-fire.
 - **Advance before firing**: `next_run_at` is pushed to the next period **before** execution — the schedule moves on regardless of success, failure, or a mid-flight kill (mirroring real cron), eliminating the death spiral where a stuck `running` row leaves `next_run_at` in the past and every poll re-fires the same task.
-- **Execution timeout**: a single run is capped at 1500 s wall clock, strictly below the lock TTL so the timeout fires before the lock expires.
+- **Execution duration**: there is no fixed total runtime limit for scheduled or manually triggered Prompt, Plan, or Loop tasks. Their conversations and successors are also exempt from the ordinary chat absolute-age cap.
 - **Failure governance**: when consecutive failures reach `max_failures` (default 3), the task is automatically set to `disabled`.
-- **Startup recovery**: after a restart, runs stuck in `running` for more than 40 minutes are marked `failed` (and their parent task's schedule advanced); missed one-shot tasks are then re-fired.
+- **Orphan recovery**: at startup and on every poll, a worker must acquire execution ownership before resuming observation of the linked durable conversation and saving its final outcome. Only orphan runs without a linked conversation are marked `failed`, with overdue schedules advanced and one-shot tasks finalized. Runtime never determines recovery. The lock renews every 15 seconds; its 60-second lease detects a disconnected worker and does not limit total runtime. Missed one-shot tasks also acquire ownership before firing.
+- **Execution lease shutdown**: shutdown signals stop, cancels renewal, waits at most 2 seconds, and always attempts token-checked deletion. Local ownership markers are removed even on cleanup errors. Renewal also stops when the execution Task finishes. Result delivery has a 60-second total wait budget; failures do not overwrite committed success and do not retry automatically. Running records carry an internal ownership token; completion requires both running status and a matching token. Recovery claims the record under its new token.
 
-Each execution creates and immediately links a **real conversation** through the shared ChatRun executor. Prompt runs stream text, thinking and tools; plan runs stream step progress. Opening a running conversation or refreshing the page follows and replays the same event stream as ordinary chat. Users can stop execution from the conversation; prompt runs also accept additional instructions through the durable steering queue at the next safe model boundary. Stopping does not increase consecutive failures, and timeouts cancel the child run. Final messages, artifacts, citations and delivery remain owned by the shared executor and scheduler outcome handler. Conversation titles use the task name without an automation prefix. Older executions started before live-stream support cannot replay events that were never recorded.
+Each execution creates and immediately links a **real conversation** through the shared ChatRun executor. Prompt runs stream text, thinking and tools; plan runs stream step progress. Opening a running conversation or refreshing the page follows and replays the same event stream as ordinary chat. Users can stop execution from the conversation; prompt runs also accept additional instructions through the durable steering queue at the next safe model boundary. Stopping does not increase consecutive failures, and loss of execution ownership or scheduler shutdown cancels the child run. Final messages, artifacts, citations and delivery remain owned by the shared executor and scheduler outcome handler. Conversation titles use the task name without an automation prefix. Older executions started before live-stream support cannot replay events that were never recorded.
 
-Scheduled prompts and ordinary conversations share admission, capability resolution, runtime context construction and the main agent execution loop. If a late instruction starts a successor through the main executor, the scheduled outcome waits for its final result. Timeout or scheduler shutdown cancels the current successor.
+Scheduled prompts and ordinary conversations share admission, capability resolution, runtime context construction and the main agent execution loop. If a late instruction starts a successor through the main executor, the scheduled outcome waits for its final result. Loss of execution ownership or scheduler shutdown cancels the current successor.
 
 ### Frontend
 
@@ -103,7 +104,7 @@ Every morning an Industry morning brief execution conversation is created. The s
 | Automation service (cron computation / state machine) | `src/backend/core/services/automation_service.py` |
 | Task / run-record models | `src/backend/core/db/models/automation.py` |
 | Plan REST API | `src/backend/api/routes/v1/plans.py` |
-| Plan generation / execution orchestration | `src/backend/orchestration/subagents/plan_mode.py`, `src/backend/core/services/plan_service.py` |
+| Plan generation / execution orchestration | `src/backend/orchestration/subagents/plan_mode.py`, `src/backend/core/chat/plans.py` |
 | Plan / step models | `src/backend/core/db/models/agent.py` |
 | Frontend automation UI | `src/frontend/src/components/lab/AutomationPanel.tsx` etc., `src/frontend/src/components/automation/RunTimelinePanel.tsx` |
 | Frontend state | `src/frontend/src/stores/automationStore.ts`, `automationChatStore.ts` |

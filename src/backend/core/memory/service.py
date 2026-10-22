@@ -1,11 +1,6 @@
 """Public memory API. Lifecycle, retrieval and procedural writes have separate owners."""
 
-from .backend import (
-    reset_runtime,
-    MEMORY_COLLECTION_NAME,
-    MEMORY_TYPE_PROCEDURAL,
-    _get_memory,
-)
+from .backend import reset_runtime, MEMORY_COLLECTION_NAME, MEMORY_TYPE_PROCEDURAL, _get_memory as get_memory
 from .queries import (
     retrieve_memories,
     retrieve_memories_structured,
@@ -25,7 +20,7 @@ __all__ = [
     "reset_runtime",
     "MEMORY_COLLECTION_NAME",
     "MEMORY_TYPE_PROCEDURAL",
-    "_get_memory",
+    "get_memory",
     "retrieve_memories",
     "retrieve_memories_structured",
     "get_all_memories",

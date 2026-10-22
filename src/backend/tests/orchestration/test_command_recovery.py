@@ -1,17 +1,27 @@
 """Crash and ownership races for command completion."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from tests.orchestration.test_background_commands import command_db, request
+
+import core.chat.runtime.handoff as handoff
+import core.chat.runtime.recovery as recovery
+import core.chat.runtime.worker as worker
+import core.db.engine as engine
+import core.runs.api_recovery as api_recovery
+import core.runs.runtime as runs_runtime
+import core.sandbox.commands.runtime as commands_runtime
 from core.db import models
-from core.services.commands import store, delivery
-from core.services.chat_sequencer import ChatSequencer
-from orchestration.commands.runtime import CommandRuntime
+from core.sandbox.commands.runtime import CommandRuntime
+from core.chat.sequencer import ChatSequencer
+from core.sandbox.commands import delivery, store
+from tests.orchestration.test_background_commands import command_db, request
+
 
 def test_crash_before_context_injection_replays_durable_event(command_db, monkeypatch):
-    from core.services.run_journal import RecoveryDecision
-    from orchestration import chat_run_executor as executor
-    from orchestration import agent_api_recovery
+    from core.runs.journal import RecoveryDecision
+    pass
+    import core.runs.api_recovery as agent_api_recovery
     with command_db() as db:
         run = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -35,17 +45,17 @@ def test_crash_before_context_injection_replays_durable_event(command_db, monkey
     def workflow(**kwargs):
         captured.append(kwargs)
         return nothing()
-    monkeypatch.setattr(executor, "SessionLocal", command_db)
-    monkeypatch.setattr(executor, "_run_workflow", workflow)
-    monkeypatch.setattr(executor, "_register_run_task", lambda rid, task, **kw: task.close())
-    monkeypatch.setattr(agent_api_recovery, "validate_recovery_context",
+    monkeypatch.setattr(engine, "SessionLocal", command_db)
+    monkeypatch.setattr(worker, "_run_workflow", workflow)
+    monkeypatch.setattr(runs_runtime, 'register_run_task', lambda rid, task, **kw: task.close())
+    monkeypatch.setattr(api_recovery, "validate_recovery_context",
         lambda db, run, context, **kw: context)
-    assert executor._register_recovered_chat(decision)
+    assert recovery._register_recovered_chat(decision)
     assert command["task_id"] in str(captured[0]["session_messages"])
     assert store.snapshot(command["task_id"])["notice_status"] == "delivered"
 
 async def test_delayed_stop_renews_lease_and_cannot_be_recovered_twice(command_db, monkeypatch):
-    from orchestration.commands import runtime as module
+    import core.sandbox.commands.runtime as module
     monkeypatch.setattr(store, "LEASE_SECONDS", 1)
     stopping = False
     polls = 0
@@ -62,7 +72,7 @@ async def test_delayed_stop_renews_lease_and_cannot_be_recovered_twice(command_d
     provider = SimpleNamespace(name="test", touch_session=AsyncMock(),
         start_process=AsyncMock(return_value={"status":"running","session_id":"p"}), write_stdin=poll)
     recover = AsyncMock()
-    monkeypatch.setattr(module, "recover_execution", recover)
+    monkeypatch.setattr(commands_runtime, "recover_execution", recover)
     owner, other = CommandRuntime(), CommandRuntime()
     result = await owner.start(provider, request(), chat_id="c", source_run_id=None, background=True)
     cancel = asyncio.create_task(owner.cancel(result["task_id"], "u", "c"))
@@ -133,9 +143,9 @@ def test_list_never_hides_live_tasks_behind_display_limit(command_db):
     assert all(row["status"] == "starting" for row in rows)
 
 async def test_slow_launch_keeps_lease_without_execution_deadline(command_db, monkeypatch):
-    from orchestration.commands import runtime as module
+    import core.sandbox.commands.runtime as module
     monkeypatch.setattr(store, "LAUNCH_LEASE_SECONDS", 0.2)
-    monkeypatch.setattr(module, "LAUNCH_RENEW_SECONDS", 0.03)
+    monkeypatch.setattr(commands_runtime, "LAUNCH_RENEW_SECONDS", 0.03)
     called = asyncio.Event()
     async def start(req, **kwargs):
         called.set()
@@ -162,9 +172,9 @@ def test_adoption_remains_idempotent_at_capacity(command_db):
     assert not repeated["created"]
 
 def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatch):
-    from orchestration import chat_run_executor as executor
-    from core.services.chat_service import ChatService
-    from core.services.commands.context import append_active_completions
+    pass
+    from core.chat.service import ChatService
+    from core.sandbox.commands.context import append_active_completions
     with command_db() as db:
         run = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -183,7 +193,7 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
     with command_db() as db:
         service = ChatService(db)
         for _ in range(3):
-            history = executor._persisted_history(service, "c")
+            history = handoff._persisted_history(service, "c")
             assert sum(m.get("message_id") == event_id for m in history) == 1
             assert append_active_completions(db, "c", history) == history
             run = db.get(models.ChatRun, run_id)
@@ -192,8 +202,8 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
                 "raw_user_message":"steer", "context":{"chat_mode":"medium","enable_thinking":True}}}
             db.commit()
         assert event_id in str(run.recovery_snapshot["worker_args"]["session_messages"])
-        from core.services.run_journal import RecoveryDecision
-        from orchestration import agent_api_recovery
+        import core.runs.api_recovery as agent_api_recovery
+        from core.runs.journal import RecoveryDecision
         decision = RecoveryDecision(run_id=run_id, chat_id="c", user_id="u",
             message_id=run.message_id, action="resume", phase="running",
             snapshot=run.recovery_snapshot, request_payload={})
@@ -202,13 +212,13 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
         def workflow(**kwargs):
             recovered_args.append(kwargs)
             return nothing()
-        monkeypatch.setattr(executor, "SessionLocal", command_db)
-        monkeypatch.setattr(executor, "_run_workflow", workflow)
-        monkeypatch.setattr(executor, "_register_run_task",
+        monkeypatch.setattr(engine, "SessionLocal", command_db)
+        monkeypatch.setattr(worker, "_run_workflow", workflow)
+        monkeypatch.setattr(runs_runtime, 'register_run_task',
             lambda rid, task, **kw: task.close())
-        monkeypatch.setattr(agent_api_recovery, "validate_recovery_context",
+        monkeypatch.setattr(api_recovery, "validate_recovery_context",
             lambda db, run, context, **kw: context)
-        assert executor._register_recovered_chat(decision)
+        assert recovery._register_recovered_chat(decision)
         assert sum(m.get("message_id") == event_id
                    for m in recovered_args[0]["session_messages"]) == 1
         # Active events must not become trailing persisted user turns.
@@ -216,11 +226,11 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
         run.status, run.writer_slot = "completed", None
         db.commit()
         assert not any(m.get("message_id") == event_id
-                       for m in executor._persisted_history(service, "c"))
+                       for m in handoff._persisted_history(service, "c"))
 
 
 def test_command_sideband_does_not_cross_chat_or_user(command_db):
-    from core.services.commands.context import append_active_completions
+    from core.sandbox.commands.context import append_active_completions
     with command_db() as db:
         run = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -240,9 +250,9 @@ def test_command_sideband_does_not_cross_chat_or_user(command_db):
 
 
 def test_active_completion_context_retains_harness_provenance():
-    from core.services.commands.context import completion_context
-    from core.llm.context_adapter import AgentScopeContextAdapter
-    from core.llm.context_ir import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.adapter import AgentScopeContextAdapter
+    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.sandbox.commands.context import completion_context
     message = completion_context({"task_id":"cmd_event", "status":"completed", "exit_code":0})
     assert SESSION_CONTEXT_META_KEY in message
     assert message["extra_data"]["hidden_in_chat"] is True
@@ -255,9 +265,9 @@ def test_active_completion_context_retains_harness_provenance():
 
 
 def test_idle_completion_message_retains_harness_provenance(command_db):
-    from core.services.compaction_history import normalize_rows
-    from core.llm.context_adapter import AgentScopeContextAdapter
-    from core.llm.context_ir import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.adapter import AgentScopeContextAdapter
+    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.chat.compaction.history import normalize_rows
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run

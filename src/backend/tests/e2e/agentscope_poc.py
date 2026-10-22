@@ -27,7 +27,7 @@ def _resolve_model_config() -> dict:
     """Resolve model config from DB or env."""
     try:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        from core.services.model_config import ModelConfigService
+        from core.models.config import ModelConfigService
         resolved = ModelConfigService.get_instance().resolve("main_agent")
         if resolved:
             return {
@@ -136,7 +136,7 @@ async def test_mcp_client():
     client = StdIOStatefulClient(
         name="internet_search",
         command="python",
-        args=["-m", "mcp_servers.internet_search_mcp.server"],
+        args=["-m", "extensions.mcp_servers.internet_search_mcp.server"],
         env=env,
     )
 

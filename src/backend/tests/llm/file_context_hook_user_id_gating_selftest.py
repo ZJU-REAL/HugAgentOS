@@ -2,7 +2,7 @@
 
 Background
 ----------
-`core/llm/hooks.py::_build_file_context` assembles the parsed text / xlsx
+`core/llm/runtime/hooks.py::_build_file_context` assembles the parsed text / xlsx
 preview / image base64 of ``uploaded_files`` (i.e. the ``attachments`` in the
 request body) into context injected into agent memory, as input to ReAct
 reasoning.
@@ -12,7 +12,7 @@ The old implementation had three "bare read" paths that were blind to
 
 1. ``_build_file_context`` → ``fetch_parsed_text(fid)`` — user_id was not
    passed, so the ownership check inside
-   :func:`core.content.artifact_reader.fetch_parsed_text`
+   :func:`core.files.artifacts.reader.fetch_parsed_text`
    ``if user_id and art.user_id != user_id:`` was **skipped entirely**
    because user_id was falsy.
 2. ``_build_xlsx_preview_block`` → ``_download_artifact_bytes(...)`` —
@@ -322,8 +322,8 @@ def behavior_download_returns_none_when_user_id_mismatch() -> None:
     infra_exc = _types.SimpleNamespace(StorageError=_StorageError)
 
     fake_modules = {
-        "core.content.artifact_reader": artifact_reader_stub,
-        "core.storage": storage_stub,
+        "core.files.artifacts.reader": artifact_reader_stub,
+        "core.files.storage": storage_stub,
         "core.infra.exceptions": infra_exc,
     }
 

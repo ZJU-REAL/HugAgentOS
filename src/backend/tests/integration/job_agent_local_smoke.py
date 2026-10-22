@@ -114,21 +114,22 @@ class Model(BaseHTTPRequestHandler):
 
 
 async def acceptance(root, backend_socket, runner_socket, model):
+    import core.jobs.owner as owner
+    import core.jobs.supervisor as supervisor
     import core.llm.factory as factory
     import uvicorn
     from agentscope.message import UserMsg
     from api.app import app as production_app
     from api.routes.v1.internal_jobs import router
     from core.db.engine import Base, SessionLocal, engine
-    from core.db.model_repository import assign_role, create_provider
+    from core.models.repository import assign_role, create_provider
     from core.db.models import ChatSession, Job, UserShadow
-    from core.llm.builtin_subagents import get_builtin_subagent, list_builtin_subagents
+    from core.capabilities.agents.builtin import get_builtin_subagent, list_builtin_subagents
     from core.sandbox import get_sandbox_provider
-    from core.services.job_service import JobService
-    from core.services.run_journal import durable_run_binding
+    from core.sandbox.runner import server as runner
+    from core.jobs.store import JobService
+    from core.runs.journal import durable_run_binding
     from fastapi import FastAPI
-    from orchestration.jobs import owner, supervisor
-    from services.script_runner_service import server as runner
 
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
@@ -224,7 +225,7 @@ async def acceptance(root, backend_socket, runner_socket, model):
                 model_name="workflow-test",
                 model_provider_id=pid,
             )
-            from core.llm.mcp_manager import close_clients
+            from core.llm.mcp.manager import close_clients
 
             try:
                 answer = await asyncio.wait_for(

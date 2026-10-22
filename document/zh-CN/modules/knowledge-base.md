@@ -7,7 +7,7 @@ HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一
 1. **自建知识库**：文档上传 → 父子分块 → 向量化入 Milvus → 稠密 + 稀疏混合检索（RRF 融合）→ 可选重排。社区版 CE 仅提供当前用户拥有的私有知识库；管理员维护的公共知识库属于商业版 EE。
 2. **Dify 外接知识库**（商业版 EE）：`KNOWLEDGE_BASE=dify` 时，后端在运行时把 Dify datasets 注入能力中心目录，检索经 Dify Retrieval API 完成。
 
-公有检索统一使用 `retrieve_dataset_content`，按配置只走本地公有/共享库或所选外部后端；个人私有检索使用 `retrieve_local_kb`。两者由同一个 MCP server（`mcp_servers/retrieve_dataset_content_mcp/`）提供。
+公有检索统一使用 `retrieve_dataset_content`，按配置只走本地公有/共享库或所选外部后端；个人私有检索使用 `retrieve_local_kb`。两者由同一个 MCP server（`extensions/mcp_servers/retrieve_dataset_content_mcp/`）提供。
 
 社区版 CE 的前端只显示「私有知识库」，`/v1/catalog` 也只返回当前用户的私有库。后端会拒绝 `visibility=public` 的创建请求，并且不提供 Dify / 共享知识库服务配置，避免仅靠前端隐藏造成能力越界。
 
@@ -29,7 +29,7 @@ HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一
   对象存储落盘（storage_key）                 │    · embed_text(query)
     │                                        │    · Milvus hybrid_search：
     ▼  BackgroundTask                        │      稠密(IP) + 稀疏(BoW) → RRF(k=60)
-  core/content/kb_processing.py              │    · 命中子块 → 回表 kb_chunks 取父块原文
+  core/files/content/kb_processing.py              │    · 命中子块 → 回表 kb_chunks 取父块原文
   vectorise_document_background()            │    · 可选 Reranker 重排
     · kb_parser.parse_and_chunk()            │    · user_id 隔离 + public kb 全局可见
     ·（可选）LLM 抽关键词/生成问题            │
@@ -83,7 +83,7 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 | `recursive` | 递归定长切分 |
 | `embedding_semantic` | 基于 embedding 相似度的语义边界检测 |
 
-父子分块参数可在上传时通过 `indexing_config` 调整：`parent_chunk_size`（默认 1024 token）、`child_chunk_size`（128）、`overlap_tokens`（20）、`parent_child_indexing`（默认 true）。还可启用 LLM 增强：`auto_keywords_count`（每父块抽关键词入 tags，参与稀疏检索）与 `auto_questions_count`（每父块生成关联问题，作为独立 question 行入 Milvus，提高问句召回）。后台向量化任务在 `core/content/kb_processing.py::vectorise_document_background()`。
+父子分块参数可在上传时通过 `indexing_config` 调整：`parent_chunk_size`（默认 1024 token）、`child_chunk_size`（128）、`overlap_tokens`（20）、`parent_child_indexing`（默认 true）。还可启用 LLM 增强：`auto_keywords_count`（每父块抽关键词入 tags，参与稀疏检索）与 `auto_questions_count`（每父块生成关联问题，作为独立 question 行入 Milvus，提高问句召回）。后台向量化任务在 `core/files/content/kb_processing.py::vectorise_document_background()`。
 
 ### 多模态：图片检索
 
@@ -122,7 +122,7 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 
 ### 检索链路
 
-`mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`：
+`extensions/mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`：
 
 1. 解析允许的 `kb_id` 集合（stdio 模式从环境变量、HTTP 模式从 `x-allowed-kb-ids` 等请求头）；
 2. `embed_text(query)` 得到查询向量（embedding 配置复用 `MEM0_EMBED_*` 或 DB 中 `embedding` 角色模型）；
@@ -180,9 +180,9 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 
 ## 文件解析支持
 
-知识库上传校验在 `core/content/file_validation.py::validate_kb_file`（扩展名 + magic bytes 双重校验），允许：`.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json` 及图片（`.png` `.jpg` `.jpeg` `.webp` `.gif`）。
+知识库上传校验在 `core/files/content/file_validation.py::validate_kb_file`（扩展名 + magic bytes 双重校验），允许：`.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json` 及图片（`.png` `.jpg` `.jpeg` `.webp` `.gif`）。
 
-通用文件解析器 `core/content/file_parser.py::parse_file()` 覆盖更广（对话附件、我的空间文件共用）：PDF、DOCX、DOC/WPS（经 LibreOffice 转换）、TXT、XLSX/XLS、CSV、PPTX，外加 HTML / Markdown / JSON / YAML / 代码等纯文本格式直接 UTF-8 解码。
+通用文件解析器 `core/files/content/file_parser.py::parse_file()` 覆盖更广（对话附件、我的空间文件共用）：PDF、DOCX、DOC/WPS（经 LibreOffice 转换）、TXT、XLSX/XLS、CSV、PPTX，外加 HTML / Markdown / JSON / YAML / 代码等纯文本格式直接 UTF-8 解码。
 
 ## 前端
 
@@ -201,14 +201,14 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 | `src/backend/core/kb/kb_assets.py` | 媒体资产：落盘、图像理解（调用视觉桥）、检索行、结果附图 |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets 客户端与启用判定（仅 EE） |
 | `src/backend/core/kb/external_provider.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
-| `src/backend/core/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
-| `src/backend/core/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
-| `src/backend/core/content/file_parser.py` | 通用文件解析器 |
+| `src/backend/core/files/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
+| `src/backend/core/files/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
+| `src/backend/core/files/content/file_parser.py` | 通用文件解析器 |
 | `src/backend/core/services/kb_service.py` | 知识库业务逻辑（含系统托管同步库） |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
 | `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
 | `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（CE 仅私有库；EE 追加 Dify / 公共库） |
-| `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
+| `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | 创建 / 重索引弹窗组件 |
 

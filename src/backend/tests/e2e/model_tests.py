@@ -28,8 +28,8 @@ except ImportError:
                     _v = _v.strip().strip('"').strip("'")
                     os.environ.setdefault(_k.strip(), _v)
 
-from core.llm.chat_models import make_chat_model
-from core.llm.message_compat import extract_text_from_chat_response
+from core.models.chat_models import make_chat_model
+from core.llm.runtime.message_compat import extract_text_from_chat_response
 
 
 # ── Output helpers ───────────────────────────────────────────────────────────

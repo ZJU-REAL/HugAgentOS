@@ -117,7 +117,7 @@ class IdentityService:
             raise ValueError("Invalid thinking effort")
         if "model_provider_id" in patch:
             # Empty means the platform default model. Otherwise the same allowlist as the chat model picker.
-            from core.services.user_model_selection import resolve_user_model_provider_id
+            from core.auth.model_selection import resolve_user_model_provider_id
             wanted = (patch["model_provider_id"] or "").strip()
             patch["model_provider_id"] = resolve_user_model_provider_id(self.db, wanted, user_id=self.user_id) if wanted else None
             if wanted and patch["model_provider_id"] is None: raise ValueError("Model switching is not available to this user")

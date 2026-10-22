@@ -10,17 +10,16 @@ import json
 
 import pytest
 from agentscope.message import TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
-from core.llm import model_steps as M
+from core.llm.runtime import model_steps as M
 
 
 @pytest.fixture
 def media_db(tmp_path, monkeypatch):
     """把媒体表指向一个临时 SQLite 库，并清掉取回缓存。"""
+    from core.db.models import ToolMediaBlob
+    from core.llm.runtime import tool_media_store
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-
-    from core.db.models import ToolMediaBlob
-    from core.llm import tool_media_store
 
     engine = create_engine(f"sqlite:///{tmp_path}/media.db")
     ToolMediaBlob.__table__.create(engine, checkfirst=True)
@@ -88,7 +87,11 @@ def _media_result(data_b64="iVBORw0KGgo=", media_type="image/png"):
                 {"type": "text", "text": "caption"},
                 {
                     "type": "data",
-                    "source": {"type": "base64", "media_type": media_type, "data": data_b64},
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data_b64,
+                    },
                     "name": "/workspace/page-3.png",
                 },
             ],
@@ -120,7 +123,7 @@ def test_replay_keeps_the_reference_so_snapshots_do_not_carry_pixels(media_db):
 
 def test_context_assembly_hands_the_model_the_same_pixels_a_later_turn(media_db):
     """装配上下文那一步把引用换回原图，模型下一轮看到的还是当时那张。"""
-    from core.llm.tool_media_store import hydrate_rows
+    from core.llm.runtime.tool_media_store import hydrate_rows
 
     media = hydrate_rows(M.replay_rows([_media_result()]))[0]["content"][0]["output"][1]
 
@@ -134,7 +137,7 @@ def test_context_assembly_hands_the_model_the_same_pixels_a_later_turn(media_db)
 
 def test_hydrating_many_media_refs_costs_one_query(media_db):
     """整段历史只查一次库——每个媒体块查一次会把读历史变成 N+1。"""
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
 
     rows = [
         row
@@ -145,7 +148,10 @@ def test_hydrating_many_media_refs_costs_one_query(media_db):
 
     calls = []
     original = tool_media_store._load
-    tool_media_store._load = lambda digests: (calls.append(list(digests)), original(digests))[1]
+    tool_media_store._load = lambda digests: (
+        calls.append(list(digests)),
+        original(digests),
+    )[1]
     try:
         hydrated = tool_media_store.hydrate_rows(rows)
     finally:
@@ -157,7 +163,7 @@ def test_hydrating_many_media_refs_costs_one_query(media_db):
 
 def test_history_without_media_is_returned_untouched(media_db):
     """没有媒体的历史不查库。"""
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
 
     rows = M.replay_rows([_result("c1", "plain text")])
     original = tool_media_store._load
@@ -182,9 +188,8 @@ def test_the_same_image_read_twice_is_stored_once(media_db):
 
 def test_lost_media_is_reported_as_unavailable_not_silently_described(media_db):
     """引用还在但原件没了：明说不可用，绝不退回成一段像内容的文字。"""
+    from core.llm.runtime import tool_media_store
     from sqlalchemy import text
-
-    from core.llm import tool_media_store
 
     rows = M.replay_rows([_media_result()])
     tool_media_store.reset_cache()
@@ -210,13 +215,20 @@ def test_replay_reproduces_three_serial_steps_in_order_without_duplication():
         ),
         _result("c2", "rB"),
         _assistant(
-            ThinkingBlock(type="thinking", thinking="C"), TextBlock(type="text", text="done")
+            ThinkingBlock(type="thinking", thinking="C"),
+            TextBlock(type="text", text="done"),
         ),
     ]
 
     rows = M.replay_rows(steps)
 
-    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant", "tool", "assistant"]
+    assert [r["role"] for r in rows] == [
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
     assert [
         b["thinking"]
         for r in rows
@@ -224,7 +236,10 @@ def test_replay_reproduces_three_serial_steps_in_order_without_duplication():
         for b in r["content"]
         if b["type"] == "thinking"
     ] == ["A", "B", "C"]
-    assert [b["id"] for r in rows if r["role"] == "tool" for b in r["content"]] == ["c1", "c2"]
+    assert [b["id"] for r in rows if r["role"] == "tool" for b in r["content"]] == [
+        "c1",
+        "c2",
+    ]
     assert rows[-1]["content"][-1] == {"type": "text", "text": "done"}
 
 
@@ -243,7 +258,10 @@ def test_replay_keeps_two_parallel_calls_in_one_step_with_both_results_after_it(
     rows = M.replay_rows(steps)
 
     assert [r["role"] for r in rows] == ["assistant", "tool", "assistant"]
-    assert [b["id"] for b in rows[0]["content"] if b["type"] == "tool_call"] == ["c1", "c2"]
+    assert [b["id"] for b in rows[0]["content"] if b["type"] == "tool_call"] == [
+        "c1",
+        "c2",
+    ]
     assert [b["id"] for b in rows[1]["content"]] == ["c1", "c2"]
 
 
@@ -291,7 +309,10 @@ def test_cancelled_turn_is_marked_at_the_end_of_the_last_answer():
     assert rows[-1]["content"] == [{"type": "text", "text": "我先看看\n\n[本轮回答被用户中断]"}]
 
     rows = M.replay_rows(
-        [_assistant(ToolCallBlock(type="tool_call", id="c1", name="s", input="{}")), _result("c1")],
+        [
+            _assistant(ToolCallBlock(type="tool_call", id="c1", name="s", input="{}")),
+            _result("c1"),
+        ],
         cancelled=True,
     )
     assert rows[-1]["role"] == "assistant"
@@ -306,7 +327,8 @@ def test_replace_final_text_rewrites_only_the_last_answer_text():
         ),
         _result("c1"),
         _assistant(
-            ThinkingBlock(type="thinking", thinking="B"), TextBlock(type="text", text="draft")
+            ThinkingBlock(type="thinking", thinking="B"),
+            TextBlock(type="text", text="draft"),
         ),
     ]
 
@@ -319,78 +341,16 @@ def test_replace_final_text_rewrites_only_the_last_answer_text():
     assert steps[0]["blocks"][1]["type"] == "tool_call"
 
 
-def test_rows_from_segments_rebuilds_steps_from_the_streamed_display_order():
-    rows = M.rows_from_segments(
-        content="正文A正文B",
-        thinking=[{"content": "想0"}, {"content": "想1"}],
-        tool_calls=[
-            {
-                "tool_name": "bash",
-                "tool_id": "call-0",
-                "tool_args": {"command": "ls"},
-                "result": "ok0",
-            },
-            {
-                "tool_name": "bash",
-                "tool_id": "call-1",
-                "tool_args": {"command": "pwd"},
-                "result": "ok1",
-                "status": "error",
-            },
-        ],
-        segments=[
-            {"type": "thinking", "index": 0},
-            {"type": "tool", "index": 0},
-            {"type": "text", "text": "正文A"},
-            {"type": "thinking", "index": 1},
-            {"type": "tool", "index": 1},
-            {"type": "text", "text": "正文B"},
-        ],
-    )
-
-    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant", "tool", "assistant"]
-    assert [b["type"] for b in rows[0]["content"]] == ["thinking", "tool_call"]
-    assert rows[1]["content"][0]["id"] == "call-0"
-    assert [b["type"] for b in rows[2]["content"]] == ["text", "thinking", "tool_call"]
-    assert rows[3]["content"][0]["output"].startswith("[status=error]")
-    assert rows[4]["content"] == [{"type": "text", "text": "正文B"}]
-
-
-def test_a_row_with_no_order_record_replays_as_an_explicit_digest():
-    rows = M.legacy_digest_rows(
-        content="已获取",
-        thinking=[{"content": "先看"}],
-        tool_calls=[{"tool_name": "web_fetch", "tool_args": {"url": "u"}, "result": "X" * 50}],
-    )
-
-    assert len(rows) == 1 and rows[0]["role"] == "assistant"
-    types = [b["type"] for b in rows[0]["content"]]
-    assert types == ["thinking", "text", "text"]
-    assert "tool_call" not in types
-    digest = rows[0]["content"][-1]["text"]
-    assert digest.startswith("[历史工具调用摘要")
-    assert "web_fetch" in digest and "X" * 50 in digest
-
-
-def test_assistant_row_replay_prefers_the_step_record_then_segments_then_digest():
+def test_assistant_history_uses_only_canonical_steps_or_plain_body():
     steps = [_assistant(TextBlock(type="text", text="from steps"))]
-    segments = [{"type": "text", "text": "from segments"}]
-
     assert (
-        M.assistant_row_replay(
-            content="c", model_steps=steps, thinking=None, tool_calls=None, segments=segments
-        )[0]["content"][0]["text"]
+        M.assistant_row_replay(content="body", model_steps=steps)[0]["content"][0]["text"]
         == "from steps"
     )
-    assert (
-        M.assistant_row_replay(
-            content="c", model_steps=None, thinking=None, tool_calls=None, segments=segments
-        )[0]["content"][0]["text"]
-        == "from segments"
-    )
-    assert M.assistant_row_replay(
-        content="c", model_steps=None, thinking=None, tool_calls=None, segments=None
-    )[0]["content"] == [{"type": "text", "text": "c"}]
+    assert M.assistant_row_replay(content="body", model_steps=None) == [
+        {"role": "assistant", "content": [{"type": "text", "text": "body"}]}
+    ]
+    assert M.assistant_row_replay(content="", model_steps=[]) == []
 
 
 def test_explode_history_rows_splits_an_accumulated_assistant_row_per_step():
@@ -423,7 +383,13 @@ def test_missing_middle_plan_result_is_closed_before_the_next_assistant():
         _assistant(TextBlock(type="text", text="answer")),
     ]
     rows = M.replay_rows(steps)
-    assert [r["role"] for r in rows] == ["assistant", "tool", "assistant", "tool", "assistant"]
+    assert [r["role"] for r in rows] == [
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
     assert rows[1]["content"][0]["id"] == "plan"
     assert "not recorded" in rows[1]["content"][0]["output"]
     assert rows[3]["content"][0]["output"] == "real search result"
@@ -465,7 +431,9 @@ def test_old_synthetic_interruption_is_replayed_as_unknown_not_failed_execution(
         _assistant(ToolCallBlock(type="tool_call", id="plan", name="update_plan", input="{}")),
         _assistant(TextBlock(type="text", text="answer")),
         _result(
-            "plan", "[tool call was interrupted before it returned a result]", state="interrupted"
+            "plan",
+            "[tool call was interrupted before it returned a result]",
+            state="interrupted",
         ),
     ]
     rows = M.replay_rows(steps)

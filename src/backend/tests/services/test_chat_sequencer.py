@@ -7,13 +7,21 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import Barrier
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.recovery as recovery
+import core.chat.runtime.worker as runtime_worker
+import core.db.engine as db_engine
+import core.runs.events.writer as writer
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
+import core.runs.tasks as tasks
 import pytest
 from core.chat import inflight
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.db.models.chat import reserve_chat_sequences
-from core.services.chat_sequencer import ChatBusyError, ChatSequencer
-from core.services.chat_service import ChatService
+from core.chat.sequencer import ChatBusyError, ChatSequencer
+from core.chat.service import ChatService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -111,17 +119,17 @@ async def test_restart_recovery_releases_writer_slot(db_session, monkeypatch):
         request_payload={"kind": "chat"},
     )
 
-    from orchestration import chat_run_executor
+    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
 
     async def fake_terminal(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
-    monkeypatch.setattr(chat_run_executor, "_write_terminal_to_stream", fake_terminal)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
+    monkeypatch.setattr(writer, "_write_terminal_to_stream", fake_terminal)
 
-    assert await chat_run_executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
     db_session.expire_all()
     recovered = db_session.get(ChatRun, first.run.run_id)
     assert recovered.status == "failed"
@@ -144,10 +152,10 @@ async def test_cancel_keeps_writer_fenced_until_registered_worker_stops(db_sessi
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    from orchestration import chat_run_executor
+    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
-    monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     cleaning_up = asyncio.Event()
 
     async def worker():
@@ -159,12 +167,12 @@ async def test_cancel_keeps_writer_fenced_until_registered_worker_stops(db_sessi
             raise
 
     task = asyncio.create_task(worker())
-    chat_run_executor._active_runs[accepted.run.run_id] = task
+    tasks.process_state().active_runs[accepted.run.run_id] = task
     task.add_done_callback(
-        lambda _task: chat_run_executor._active_runs.pop(accepted.run.run_id, None)
+        lambda _task: tasks.process_state().active_runs.pop(accepted.run.run_id, None)
     )
     cancel_task = asyncio.create_task(
-        chat_run_executor.cancel_run(accepted.run.run_id, user_id="user-1")
+        runtime.cancel_run(accepted.run.run_id, user_id="user-1")
     )
     await cleaning_up.wait()
 
@@ -193,18 +201,18 @@ async def test_cross_process_cancel_retains_writer_fence_until_worker_acknowledg
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    from orchestration import chat_run_executor
+    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
-    monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
-    chat_run_executor._active_runs.pop(accepted.run.run_id, None)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
+    tasks.process_state().active_runs.pop(accepted.run.run_id, None)
 
     async def fake_terminal(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(chat_run_executor, "_write_terminal_to_stream", fake_terminal)
+    monkeypatch.setattr(writer, "_write_terminal_to_stream", fake_terminal)
 
-    assert await chat_run_executor.cancel_run(accepted.run.run_id, user_id="user-1") is True
+    assert await runtime.cancel_run(accepted.run.run_id, user_id="user-1") is True
     with Session() as check_db:
         cancelled = check_db.get(ChatRun, accepted.run.run_id)
         assert (cancelled.status, cancelled.writer_slot) == ("cancelled", "main")
@@ -228,17 +236,17 @@ async def test_cancelled_pending_run_cannot_be_revived_by_late_remote_worker(
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    from orchestration import chat_run_executor
+    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
-    monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
-    chat_run_executor._active_runs.pop(accepted.run.run_id, None)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
+    tasks.process_state().active_runs.pop(accepted.run.run_id, None)
 
     async def fake_terminal(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(chat_run_executor, "_write_terminal_to_stream", fake_terminal)
-    assert await chat_run_executor.cancel_run(accepted.run.run_id, user_id="user-1") is True
+    monkeypatch.setattr(writer, "_write_terminal_to_stream", fake_terminal)
+    assert await runtime.cancel_run(accepted.run.run_id, user_id="user-1") is True
 
     workflow_started = False
 
@@ -254,11 +262,11 @@ async def test_cancelled_pending_run_cannot_be_revived_by_late_remote_worker(
     async def fake_expire(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(chat_run_executor, "astream_chat_workflow", forbidden_workflow)
-    monkeypatch.setattr(chat_run_executor, "_xadd_event", fake_xadd)
-    monkeypatch.setattr(chat_run_executor, "_expire_stream", fake_expire)
+    monkeypatch.setattr(runner, "astream_chat_workflow", forbidden_workflow)
+    monkeypatch.setattr(writer, 'xadd_event', fake_xadd)
+    monkeypatch.setattr(writer, 'expire_stream', fake_expire)
 
-    await chat_run_executor._run_workflow(
+    await runtime_worker._run_workflow(
         run_id=accepted.run.run_id,
         chat_id="chat-1",
         user_id="user-1",
@@ -287,19 +295,19 @@ async def test_losing_worker_cannot_release_concurrently_cancelled_winner_fence(
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    from orchestration import chat_run_executor
+    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
-    monkeypatch.setattr(chat_run_executor, "SessionLocal", Session)
+    monkeypatch.setattr(db_engine, "SessionLocal", Session)
     # A successful claim hands back the instant the run was marked running; the
     # worker sends that on the first frame instead of reading the row again.
-    assert chat_run_executor._claim_run_execution(accepted.run.run_id) is not None
+    assert ownership._claim_run_execution(accepted.run.run_id) is not None
 
-    original_claim = chat_run_executor._claim_run_execution
+    original_claim = ownership._claim_run_execution
 
     def lose_claim_then_cancel(run_id: str):
         assert original_claim(run_id) is None
-        assert chat_run_executor._request_run_cancel(run_id) is True
+        assert ownership._request_run_cancel(run_id) is True
         return None
 
     workflow_started = False
@@ -310,10 +318,10 @@ async def test_losing_worker_cannot_release_concurrently_cancelled_winner_fence(
         if False:  # pragma: no cover
             yield None
 
-    monkeypatch.setattr(chat_run_executor, "_claim_run_execution", lose_claim_then_cancel)
-    monkeypatch.setattr(chat_run_executor, "astream_chat_workflow", forbidden_workflow)
+    monkeypatch.setattr(ownership, "_claim_run_execution", lose_claim_then_cancel)
+    monkeypatch.setattr(runner, "astream_chat_workflow", forbidden_workflow)
 
-    await chat_run_executor._run_workflow(
+    await runtime_worker._run_workflow(
         run_id=accepted.run.run_id,
         chat_id="chat-1",
         user_id="user-1",

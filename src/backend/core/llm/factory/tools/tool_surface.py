@@ -6,11 +6,10 @@ import asyncio
 from typing import Any, Dict, Optional
 
 from agentscope.tool import Toolkit
-from core.capabilities import runtime as capability_runtime
 from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
-from core.ontology.toolkit import OntologyFilteredToolkit
-from core.ontology.validator import register_runtime_asset_tags
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+from core.ontology.runtime_pack import register_runtime_asset_tags
 
 
 async def tool_surface(
@@ -84,18 +83,12 @@ async def tool_surface(
         # schema is pure per-round prefill waste plus a wrong door.
         _visible_mcps = [*mcp_clients, *http_clients]
         if _prepared_capabilities is not None:
-            from core.llm.capability_tools import AvailableMCPClient
-
-            _live_run = (
-                capability_runtime.get(
-                    _prepared_capabilities.run_id, scope_id=request.capability_scope
-                )
-                or _prepared_capabilities
+            _visible_mcps = _prepared_capabilities.wrap_mcp_clients(
+                _visible_mcps, scope_id=request.capability_scope
             )
-            _visible_mcps = [AvailableMCPClient(client, _live_run) for client in _visible_mcps]
         selected_tools = toolkit.function_tools
         if request.profile:
-            from core.extensions import agent_profile
+            from core.harness.registry import agent_profile
 
             _profile = agent_profile(request.profile)
             if _profile.tool_filter is not None:
@@ -162,7 +155,7 @@ async def tool_surface(
         # Progressive loading normally persists this during its resolution.
         # Persist here as well so explicit activation is sticky in restricted
         # modes, dedicated-agent chats and when progressive loading is disabled.
-        from core.plugins import runtime as _plugin_activation
+        from core.capabilities.plugins import runtime as _plugin_activation
 
         await asyncio.to_thread(
             _plugin_activation.record_plugin_activation,
@@ -171,7 +164,7 @@ async def tool_surface(
             user_id=str(request.current_user_id or ""),
         )
     if request.chat_id and (_required_skill_registered or _required_connector_tool_names):
-        from core.llm.session_capabilities import record_session_capability_activation
+        from core.llm.runtime.session_capabilities import record_session_capability_activation
 
         await asyncio.to_thread(
             record_session_capability_activation,

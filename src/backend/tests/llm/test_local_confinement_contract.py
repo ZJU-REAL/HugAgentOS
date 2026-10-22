@@ -11,19 +11,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from core.llm.tool_permissions import (
-    APPROVAL_ASK,
-    APPROVAL_AUTO,
-    APPROVAL_FULL,
-    FAIL_CLOSED_MODE,
-    UNCONFINED_APPROVAL_MODES,
-    LocalCommandAuthorization,
-    LocalConfinementUnavailableError,
-)
-from core.sandbox.os_sandbox import LocalAccessDecision
+from core.sandbox.permissions.approval import APPROVAL_ASK, APPROVAL_AUTO, APPROVAL_FULL
+from core.sandbox.permissions.dispatch_models import FAIL_CLOSED_MODE, UNCONFINED_APPROVAL_MODES, LocalCommandAuthorization, LocalConfinementUnavailableError
+from core.sandbox.permissions.os_gate import LocalAccessDecision
 from core.sandbox.oslayer import SandboxUnavailableError, SandboxUnenforceableError
 
-_CONFINE = "core.sandbox.os_sandbox.confine"
+_CONFINE = "core.sandbox.permissions.os_gate.confine"
 
 
 def _authorization(mode: str, workspace: str) -> LocalCommandAuthorization:

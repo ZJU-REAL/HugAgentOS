@@ -7,7 +7,7 @@ HugAgentOS supports local and external knowledge storage. Public retrieval selec
 1. **Self-hosted knowledge bases**: document upload → parent-child chunking → vectorization into Milvus → dense + sparse hybrid retrieval (RRF fusion) → optional reranking. Community Edition (CE) provides only private spaces owned by the current user. Admin-managed public spaces are an Enterprise Edition (EE) capability.
 2. **External Dify knowledge bases** (Enterprise Edition, EE): with `KNOWLEDGE_BASE=dify`, the backend injects Dify datasets into the capability catalog at runtime, and retrieval goes through the Dify Retrieval API.
 
-Public retrieval uses `retrieve_dataset_content`, selecting either accessible local public/shared spaces or the configured external backend. Personal/private retrieval uses `retrieve_local_kb`. Both are served by the same MCP server (`mcp_servers/retrieve_dataset_content_mcp/`).
+Public retrieval uses `retrieve_dataset_content`, selecting either accessible local public/shared spaces or the configured external backend. Personal/private retrieval uses `retrieve_local_kb`. Both are served by the same MCP server (`extensions/mcp_servers/retrieve_dataset_content_mcp/`).
 
 In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` returns only private spaces owned by the current user. The backend rejects create requests with `visibility=public` and does not expose Dify or shared-knowledge-base service settings, so this boundary does not rely on frontend hiding alone.
 
@@ -29,7 +29,7 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
   Object storage write (storage_key)           │    · embed_text(query)
     │                                          │    · Milvus hybrid_search:
     ▼  BackgroundTask                          │      dense (IP) + sparse (BoW) → RRF(k=60)
-  core/content/kb_processing.py                │    · child hit → fetch parent chunk
+  core/files/content/kb_processing.py                │    · child hit → fetch parent chunk
   vectorise_document_background()              │      text from kb_chunks (PostgreSQL)
     · kb_parser.parse_and_chunk()              │    · optional reranker pass
     · (optional) LLM keywords / questions      │    · user_id isolation + global public KBs
@@ -84,7 +84,7 @@ Parsing and chunking happen in `core/kb/kb_parser.py::parse_and_chunk()`, suppor
 | `recursive` | Recursive fixed-size splitting |
 | `embedding_semantic` | Semantic boundary detection via embedding similarity |
 
-Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/content/kb_processing.py::vectorise_document_background()`.
+Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/files/content/kb_processing.py::vectorise_document_background()`.
 
 ### Multimodal: image retrieval
 
@@ -137,7 +137,7 @@ indexing and retrieval downstream are unchanged.
 
 ### Retrieval path
 
-`mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`:
+`extensions/mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`:
 
 1. Resolve the allowed `kb_id` set (environment variables in stdio mode; `x-allowed-kb-ids` and friends as HTTP headers in streamable-http mode);
 2. `embed_text(query)` produces the query vector (embedding config reuses `MEM0_EMBED_*` or the DB `embedding` model role);
@@ -195,9 +195,9 @@ DIFY_API_KEY=dataset-...               # alias: DIFY_AUTH_TOKEN
 
 ## Supported file formats
 
-KB upload validation is in `core/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
+KB upload validation is in `core/files/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
 
-The general-purpose parser `core/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
+The general-purpose parser `core/files/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
 
 ## Frontend
 
@@ -218,14 +218,14 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 | `src/backend/core/kb/kb_assets.py` | Media assets: storage, image understanding (via the vision bridge), retrieval rows, result attachment |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets client and enablement logic (EE only) |
 | `src/backend/core/kb/external_provider.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
-| `src/backend/core/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
-| `src/backend/core/content/file_validation.py` | Upload validation (extension + magic bytes) |
-| `src/backend/core/content/file_parser.py` | General-purpose file parser |
+| `src/backend/core/files/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
+| `src/backend/core/files/content/file_validation.py` | Upload validation (extension + magic bytes) |
+| `src/backend/core/files/content/file_parser.py` | General-purpose file parser |
 | `src/backend/core/services/kb_service.py` | KB business logic (incl. the system-managed sync space) |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
 | `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
 | `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (private only in CE; Dify / public spaces added in EE) |
-| `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
+| `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | Creation / re-index modal components |
 

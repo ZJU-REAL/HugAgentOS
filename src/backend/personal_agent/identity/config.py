@@ -28,7 +28,7 @@ def skill_summaries(skill_ids, loader=None):
     """One line per skill for the task prompt: its id, to read with pa_skill_read, and when it applies."""
     if not skill_ids: return []
     try:
-        from core.agent_skills.loader import get_skill_loader
+        from core.capabilities.skills.loader_factory import get_skill_loader
         metadata = (loader or get_skill_loader()).load_all_metadata()
     except Exception:  # noqa: BLE001 - without descriptions the ids still work
         logging.getLogger(__name__).warning("personal agent skill metadata unavailable", exc_info=True)

@@ -134,7 +134,7 @@ async def test_worker_preserves_unknown_tool_outcome_despite_desktop_wait(sessio
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
     from personal_agent.tasks import worker as module
-    from core.services.tool_effect_ledger import ToolOutcomeUnknown
+    from core.runs.tool_effects.errors import ToolOutcomeUnknown
     monkeypatch.setattr(module, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     @asynccontextmanager

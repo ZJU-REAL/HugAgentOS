@@ -48,7 +48,7 @@ def setup(sessions, monkeypatch):
         def download_bytes(self, key): return self.files[key]
         def delete(self, key): self.files.pop(key, None)
     storage = Storage()
-    monkeypatch.setattr("core.storage.get_storage", lambda: storage)
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: storage)
     async def get_file(box, path, user_id=None): return files[path]
     monkeypatch.setattr(tools, "get_personal_sandbox_provider", lambda: SimpleNamespace(get_file=get_file))
     cache = LocalEphemeralState()
@@ -240,7 +240,7 @@ async def test_observation_cache_is_bounded_and_receipt_survives_expiry(sessions
 
 
 async def test_screenshot_file_and_channel_end_to_end(sessions, setup, monkeypatch):
-    from core.channels.protocol import InboundMsg, SendResult
+    from integrations.channels.protocol import InboundMsg, SendResult
     from personal_agent.channels import channel_bridge
     monkeypatch.setattr(channel_bridge, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
@@ -269,7 +269,7 @@ async def test_screenshot_file_and_channel_end_to_end(sessions, setup, monkeypat
             sent.append(("file", name, mime)); return SendResult.ok()
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: SimpleNamespace(
         channel_id="bot", channel_type="weixin", owner_user_id="owner"))
-    monkeypatch.setattr("core.channels.registry.get_adapter", lambda kind: Adapter())
+    monkeypatch.setattr('integrations.channels.registry.get_adapter', lambda kind: Adapter())
     await channel_bridge.deliver_pending()
     await channel_bridge.deliver_pending()
     with sessions() as db:

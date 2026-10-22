@@ -5,17 +5,13 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from core.agent_skills.backends import (
-    CompositeBackend,
-    FilesystemBackend,
-    SkillFileInfo,
-)
+from core.capabilities.skills.backends import CompositeBackend, FilesystemBackend, SkillFileInfo
 
 
 def test_filesystem_backend_list():
     """Test FilesystemBackend.list_skill_files()."""
     # Use existing built-in skills directory
-    builtin_dir = Path(__file__).parent.parent.parent / "skill_bundles"
+    builtin_dir = Path(__file__).parent.parent.parent / "extensions/skills"
     backend = FilesystemBackend(
         root_dir=builtin_dir,
         source_name="test-builtin",
@@ -40,7 +36,7 @@ def test_filesystem_backend_list():
 
 def test_filesystem_backend_read():
     """Test FilesystemBackend.read_skill_file()."""
-    builtin_dir = Path(__file__).parent.parent.parent / "skill_bundles"
+    builtin_dir = Path(__file__).parent.parent.parent / "extensions/skills"
     backend = FilesystemBackend(
         root_dir=builtin_dir,
         source_name="test-builtin",
@@ -58,7 +54,7 @@ def test_filesystem_backend_read():
 
 def test_filesystem_backend_exists():
     """Test FilesystemBackend.exists()."""
-    builtin_dir = Path(__file__).parent.parent.parent / "skill_bundles"
+    builtin_dir = Path(__file__).parent.parent.parent / "extensions/skills"
     backend = FilesystemBackend(
         root_dir=builtin_dir,
         source_name="test-builtin",

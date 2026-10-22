@@ -3,7 +3,7 @@
 import asyncio
 import httpx
 import pytest
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 @pytest.fixture
@@ -160,7 +160,7 @@ async def test_output_overflow_is_explicit_and_full_log_is_readable(runner):
 
 
 async def test_process_limit_rejects_new_work_without_killing_existing_jobs(runner, monkeypatch):
-    from core.sandbox import process_sessions
+    import core.sandbox.processes.sessions as process_sessions
 
     monkeypatch.setattr(process_sessions, "MAX_PROCESSES", 1)
     first = await start_command(runner, "sleep 10")
@@ -179,7 +179,8 @@ async def test_process_limit_rejects_new_work_without_killing_existing_jobs(runn
 
 
 async def test_close_during_startup_does_not_leave_an_untracked_process():
-    from core.sandbox.process_sessions import ProcessSessions, ProcessSessionError
+    from core.sandbox.processes.sessions import ProcessSessions
+    from core.sandbox.processes.sessions import ProcessSessionError
 
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -245,7 +246,7 @@ async def test_capability_identity_survives_start_and_followup(runner):
 
 @pytest.mark.parametrize("natural_exit", [False, True])
 async def test_concurrent_close_does_not_interrupt_inflight_cleanup(natural_exit):
-    from core.sandbox.process_sessions import ProcessSessions
+    from core.sandbox.processes.sessions import ProcessSessions
 
     entered, release = asyncio.Event(), asyncio.Event()
 

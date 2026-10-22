@@ -1,0 +1,11 @@
+{
+  "role": "reviewer",
+  "name": "审查员",
+  "description": "独立、只读地检查产出与证据，给出通过、修改或升级结论。",
+  "shared_context": false,
+  "read_only": true,
+  "allow_bash": false,
+  "capability_policy": "read_only_intersection",
+  "max_iters": 16,
+  "sort_order": 2
+}

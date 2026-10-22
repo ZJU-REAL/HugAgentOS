@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import replace
 
 import prompts.prompt_config as prompt_config
-from core.capabilities.paths import capabilities_enabled
+from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
 
@@ -49,11 +49,11 @@ async def subagent_bindings(request: AgentRequest, *, _api_scope, _elapsed, _log
         # Expand bound plugins into their component skills + MCPs (a plugin = a detachable capability bundle). Merge with the loose bindings, deduplicated.
         plugin_ids = request.user_agent.plugin_ids or []
         if plugin_ids:
-            from core.plugins import runtime as _plug_sub
+            from core.capabilities.plugins import runtime as _plug_sub
 
             if (
                 not request.disable_tools
-                and not capabilities_enabled()
+                and not has_run_capabilities()
                 and _api_scope is None
                 and _plug_sub.progressive_plugin_loading_enabled()
             ):
@@ -64,7 +64,7 @@ async def subagent_bindings(request: AgentRequest, *, _api_scope, _elapsed, _log
                         # would have received via factory_capabilities._filter_skill_ids_for_user.
                         return _plug_sub.resolve_bound_progressive_plugins(
                             list(plugin_ids),
-                            skill_filter=lambda sids: factory_capabilities._filter_skill_ids_for_user(
+                            skill_filter=lambda sids: factory_capabilities.filter_skill_ids_for_user(
                                 sids, request.current_user_id
                             ),
                         )

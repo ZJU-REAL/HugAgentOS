@@ -8,16 +8,11 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
-from core.services.project_scope import ProjectScope
-from core.vision import VisionMode
+from core.projects.edition import ProjectScope
+from core.models.vision import VisionMode
 
 from ._common import response_metadata, resolve_sandbox_session, resp_image, resp_json
-from ._paths import (
-    space_metadata,
-    to_physical_path,
-    validate_project_scope_path,
-    validate_workspace_path,
-)
+from core.sandbox.workspace.resolution import space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
 from ._state import ReadEntry, ReadStateTracker
 
 logger = logging.getLogger(__name__)
@@ -42,7 +37,7 @@ async def _read_image_as_evidence(content_bytes: bytes, file_path: str) -> Optio
     configured, so the caller falls through to its existing binary handling.
     """
     try:
-        from core.vision import sniff_mime
+        from core.models.vision import sniff_mime
 
         from .read_image_tool import transcribe_image
 
@@ -64,8 +59,8 @@ async def _image_response(
     text-only one. ``None`` means "not handled here" and falls through to the
     parsed-text / binary handling."""
     if vision_mode == "native":
-        from core.vision import sniff_mime
-        from core.vision.service import MAX_IMAGE_BYTES
+        from core.models.vision import sniff_mime
+        from core.models.vision.service import MAX_IMAGE_BYTES
 
         mime = sniff_mime(content_bytes)
         if mime is None or len(content_bytes) > MAX_IMAGE_BYTES:
@@ -115,7 +110,7 @@ def register_read(
 
     ``state`` is the per-chat ReadStateTracker shared with Edit/Write.
     ``sandbox_session_id`` selects the container; it defaults to ``chat_id``.
-    ``vision_mode`` (see ``core.vision.resolve_vision_mode``) decides what an image
+    ``vision_mode`` (see ``core.models.vision.resolve_vision_mode``) decides what an image
     file reads back as: pixels, a vision-bridge transcription, or ``type=binary``.
     """
 
@@ -154,10 +149,7 @@ def register_read(
         _local_read: Optional[bytes] = None
         if _local_on():
             try:
-                from core.llm.tool_permissions import (
-                    PermissionEnforcementError,
-                    require_local_path_permission,
-                )
+                from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
 
                 require_local_path_permission(physical, "read")
                 with open(physical, "rb") as _f:

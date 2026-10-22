@@ -168,7 +168,7 @@ class ServerSettings:
     # Hostname of the dedicated `mcp` container — every MCP server is
     # reached at ``http://<mcp_host>:<port>/mcp/``. Defaults to the docker
     # service name; override with MCP_HOST=127.0.0.1 for local debugging
-    # (e.g. running ``python -m mcp_servers._launcher`` outside docker).
+    # (e.g. running ``python -m extensions.mcp_servers._launcher`` outside docker).
     mcp_host: str = field(default_factory=lambda: _env("MCP_HOST", "mcp"))
     mcp_market_revalidate_interval: int = field(
         default_factory=lambda: max(
@@ -219,11 +219,11 @@ class RoutingSettings:
 
 @dataclass(frozen=True)
 class CompactionSettings:
-    """Context compaction (see core/llm/compaction.py).
+    """Context compaction (see core/llm/context/compaction.py).
 
     Compresses history into "recent user messages + summary" and persists the
     summary as a checkpoint. One implementation serves all three phases
-    (mid-turn / pre-turn / post-turn, see ``core.llm.compaction.CompactionPhase``),
+    (mid-turn / pre-turn / post-turn, see ``core.llm.context.compaction.CompactionPhase``),
     so every knob below governs all of them — there is no separate in-turn ratio
     any more.
     """
@@ -260,7 +260,7 @@ class CompactionSettings:
     # Per-tool-result cap fed to AgentScope's ContextConfig. This is the
     # deterministic, model-free layer that runs before any summarization (the
     # counterpart of Codex's output truncation and dsh's toolResultPruner);
-    # the overflow is spilled to the sandbox by core/llm/offloader.py.
+    # the overflow is spilled to the sandbox by core/llm/context/offloader.py.
     tool_result_limit: int = field(
         default_factory=lambda: _int(_env("CHAT_TOOL_RESULT_LIMIT", "20000"), 20000)
     )

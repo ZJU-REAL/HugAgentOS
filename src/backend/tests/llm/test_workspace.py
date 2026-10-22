@@ -2,7 +2,7 @@
 import asyncio
 import contextvars
 
-from core.llm import workspace
+from core.llm.runtime import workspace
 
 
 def test_initial_state_is_empty_and_inactive():
@@ -77,7 +77,7 @@ def test_pin_to_workspace_tool_accepts_list(monkeypatch):
     import json as _json
 
     from agentscope.tool import Toolkit
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
     from core.llm.tools.pin_tool import register_pin_to_workspace
 
     # Stub the artifact lookup so we don't need a real artifact store.
@@ -89,7 +89,7 @@ def test_pin_to_workspace_tool_accepts_list(monkeypatch):
     def fake_get_artifact(fid):
         return fake_store.get(fid)
 
-    monkeypatch.setattr("core.artifacts.store.get_artifact", fake_get_artifact)
+    monkeypatch.setattr('core.files.artifacts.store.get_artifact', fake_get_artifact)
 
     workspace.init_state()
     # AgentScope 2.0: register_* writes into the ToolCollector; schema goes through Toolkit.get_tool_schemas().

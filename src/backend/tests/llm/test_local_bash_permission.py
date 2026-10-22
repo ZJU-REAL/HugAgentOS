@@ -16,23 +16,19 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from agentscope.message import ToolCallBlock
-from core.llm.tool_permissions import (
-    APPROVAL_ASK,
-    CURRENT_PERMISSION_TICKET,
-    FAIL_CLOSED_MODE,
-    PermissionRuntime,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    builtin_tool_permission,
-)
+from core.sandbox.permissions.approval import APPROVAL_ASK
+from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, FAIL_CLOSED_MODE, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, builtin_tool_permission
+from core.llm.tool_permissions import ToolPermissionService
 from core.llm.tools.sandbox_tool import register_bash
 from tests.llm.command_test_support import command_tool_state
 
 pytestmark = pytest.mark.usefixtures("command_tool_state")
-from core.sandbox.local_policy import Grant, Policy
+from core.sandbox.permissions.models import Grant
+from core.sandbox.permissions.models import Policy
 from core.sandbox.oslayer import AccessMode, NetworkPolicy, SandboxUnavailableError
 
-_CONFINE = "core.sandbox.os_sandbox.confine"
+_CONFINE = "core.sandbox.permissions.os_gate.confine"
 
 
 def _host_provider(execute=None):
@@ -137,9 +133,9 @@ async def test_noninteractive_confirm_is_rejected_before_execution():
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
     ):
@@ -165,9 +161,9 @@ async def test_a_command_that_cannot_be_confined_is_refused(approval_mode):
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
         patch(_CONFINE, side_effect=SandboxUnavailableError("sandbox unavailable")),
@@ -194,9 +190,9 @@ async def test_the_execution_boundary_forwards_the_launch_and_the_command_verbat
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
         _patch_host_provider(_execute),
@@ -217,9 +213,9 @@ async def test_blocking_the_network_category_restricts_the_sandbox_network():
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(danger={"network": "block"}),
         ),
         patch(_CONFINE, new=_capture_policy(captured)),
@@ -235,9 +231,9 @@ async def test_leaving_the_network_category_alone_keeps_the_sandbox_network_open
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
         patch(_CONFINE, new=_capture_policy(captured)),
@@ -264,15 +260,15 @@ async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
             patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
             patch("core.config.local_mode.local_mode_enabled", return_value=True),
             patch(
-                "core.services.local_grant_service.grants_for_gate",
+                'features.desktop.local.grants.grants_for_gate',
                 return_value=[Grant(str(source_dir), "read")],
             ),
             patch(
-                "core.services.local_grant_service.policy_for_gate",
+                'features.desktop.local.grants.policy_for_gate',
                 return_value=Policy(),
             ),
             patch(
-                "core.llm.tools._tool_confirmation.gate",
+                "core.llm.tools.confirmation.gate",
                 new=AsyncMock(return_value=None),
             ),
             patch(_CONFINE, new=_capture_policy(captured)),
@@ -297,11 +293,11 @@ async def test_system_overlapping_grant_is_not_a_standing_os_write_bind():
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
         patch(
-            "core.services.local_grant_service.grants_for_gate",
+            'features.desktop.local.grants.grants_for_gate',
             return_value=[Grant("/", "readwrite")],
         ),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
         patch(_CONFINE, new=_capture_policy(captured)),
@@ -335,9 +331,9 @@ async def test_an_unattended_run_is_confined_like_an_interactive_one():
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
         patch(_CONFINE, new=_capture_policy(captured)),

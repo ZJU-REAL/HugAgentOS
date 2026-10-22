@@ -1,0 +1,11 @@
+{
+  "role": "worker",
+  "name": "执行员",
+  "description": "继承当前对话约束，在同一项目工作区完成边界清晰的实施任务并验证结果。",
+  "shared_context": true,
+  "read_only": false,
+  "allow_bash": true,
+  "capability_policy": "inherit_parent",
+  "max_iters": 30,
+  "sort_order": 1
+}

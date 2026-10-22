@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.llm.execution_manifest import tool_manifest_from_schemas
+from core.harness.execution_manifest import tool_manifest_from_schemas
 from core.llm.factory.request import AgentRequest
 
 
@@ -46,7 +46,7 @@ async def manifest_binding(
         )
 
     def _bind_manifest(manifest):  # noqa: ANN001, ANN202
-        from core.evolution.runtime_binding import bind_runtime_assets
+        from core.evolution.cycle.runtime_binding import bind_runtime_assets
 
         return bind_runtime_assets(
             run_id=request.run_id,

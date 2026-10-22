@@ -74,7 +74,7 @@ class PrivateBashTests(unittest.TestCase):
             (root / "python").mkdir()
             (root / "native-tools.json").write_text(json.dumps({
                 "git-bash": {"path": "native/git-bash/usr/bin/bash.exe"}}))
-            runner_dir = INSTALLER.parents[2] / "src/backend/services/script_runner_service"
+            runner_dir = INSTALLER.parents[2] / "src/backend/core/sandbox/runner"
             code = (
                 "import sys; sys.path.insert(0, sys.argv[1]); "
                 "sys.executable = sys.argv[2]; "
@@ -92,7 +92,7 @@ class PrivateBashTests(unittest.TestCase):
             self.assertIn("Bundled Bash", broken.stderr)
 
     def test_windows_path_prefers_gnu_tools_over_system32(self):
-        runner_dir = INSTALLER.parents[2] / "src/backend/services/script_runner_service"
+        runner_dir = INSTALLER.parents[2] / "src/backend/core/sandbox/runner"
         code = ("import sys,json; sys.path.insert(0, sys.argv[1]); "
                 "from runtime_tools import windows_tool_path_entries; "
                 "print(json.dumps(windows_tool_path_entries(sys.argv[2])))")

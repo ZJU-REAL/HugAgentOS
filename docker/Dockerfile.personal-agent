@@ -17,7 +17,7 @@ RUN install -m 755 /opt/personal-agent/desktop/pa-browser /usr/local/bin/pa-brow
     && install -m 644 /opt/personal-agent/desktop/mimeapps.list /etc/xdg/mimeapps.list \
     && install -m 755 /opt/personal-agent/desktop/pa-stream.py /usr/local/bin/pa-stream
 RUN useradd --create-home --uid 1001 --shell /bin/bash pa-desktop && chmod 700 /home/pa-desktop && mkdir -p /opt/personal-agent
-COPY src/backend/core/device_link/driver.py /opt/personal-agent/computer-driver.py
+COPY src/backend/personal_agent/device_link/driver.py /opt/personal-agent/computer-driver.py
 COPY docker/personal-agent-entrypoint.sh /opt/personal-agent/start.sh
 RUN chmod 755 /opt/personal-agent/start.sh /opt/personal-agent/computer-driver.py
 

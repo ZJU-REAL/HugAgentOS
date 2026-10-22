@@ -77,7 +77,7 @@ def test_runtime_operation_modules_import_without_order_dependency(module):
     import sys
 
     result = subprocess.run(
-        [sys.executable, "-c", f"import core.capabilities.{module}"],
+        [sys.executable, "-c", f"import features.desktop.capabilities.{module}"],
         env=os.environ.copy(),
         capture_output=True,
         text=True,

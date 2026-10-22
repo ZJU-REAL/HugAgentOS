@@ -5,7 +5,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-from .environment import _env, _bool, _int, _float, _REPO_ROOT, DEFAULT_CHAT_MODEL_ALIAS, _load_env_files
+from .environment import _env as env_value, _bool as env_bool, _int as env_int, _float, _REPO_ROOT, DEFAULT_CHAT_MODEL_ALIAS, _load_env_files
 
 from .identity_settings import (
     AuthSettings,

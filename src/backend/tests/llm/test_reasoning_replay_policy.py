@@ -1,7 +1,7 @@
 import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock
-from core.llm.providers.registry import get_spec
-from core.llm.providers.vendor_models import build_native_model
+from core.models.providers.registry import get_spec
+from core.models.providers.vendor_models import build_native_model
 
 
 def native(provider, model):
@@ -91,7 +91,7 @@ async def test_same_anthropic_model_missing_signature_fails_explicitly():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider, expected_native", [("deepseek", True), ("anthropic", False)])
 async def test_echo_formatter_preserves_only_target_model_reasoning(provider, expected_native):
-    from core.llm.chat_models import ReasoningEchoChatFormatter
+    from core.models.chat_models import ReasoningEchoChatFormatter
 
     formatter = ReasoningEchoChatFormatter(
         replay_provider="deepseek", replay_model="m", replay_protocol="openai_chat"
@@ -114,7 +114,7 @@ async def test_echo_formatter_preserves_only_target_model_reasoning(provider, ex
 def test_new_output_is_stamped_for_live_replay():
     from types import SimpleNamespace
 
-    from core.llm.reasoning_replay import stamp_reasoning_origin
+    from core.models.reasoning_replay import stamp_reasoning_origin
 
     block = ThinkingBlock(thinking="reason")
     stamp_reasoning_origin(
@@ -125,7 +125,7 @@ def test_new_output_is_stamped_for_live_replay():
 
 @pytest.mark.asyncio
 async def test_other_protocol_does_not_reuse_native_reasoning():
-    from core.llm.chat_models import ReasoningEchoChatFormatter
+    from core.models.chat_models import ReasoningEchoChatFormatter
 
     formatter = ReasoningEchoChatFormatter(
         replay_provider="deepseek", replay_model="m", replay_protocol="openai_chat"

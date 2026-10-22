@@ -18,10 +18,13 @@ import shutil
 import sys
 
 import pytest
-from core.sandbox.os_sandbox import LocalAccessDecision, build_context, build_policy, confine
+from core.sandbox.permissions.os_gate import LocalAccessDecision
+from core.sandbox.permissions.os_gate import build_context
+from core.sandbox.permissions.os_gate import build_policy
+from core.sandbox.permissions.os_gate import confine
 from core.sandbox.oslayer import SandboxLaunch
 from core.sandbox.protocol import ProcessRequest
-from services.script_runner_service import server
+from core.sandbox.runner import server
 
 
 def test_both_ends_describe_the_same_launch():
@@ -42,7 +45,7 @@ def test_a_launch_round_trips_through_the_wire_model():
 
 
 def test_the_provider_sends_the_launch_to_the_sidecar(monkeypatch):
-    from core.sandbox.script_runner_provider import ScriptRunnerProvider
+    from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     captured: dict = {}
 
@@ -68,10 +71,10 @@ def test_the_provider_sends_the_launch_to_the_sidecar(monkeypatch):
             return _Response()
 
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider.httpx.AsyncClient", lambda **_: _Client()
+        "core.sandbox.providers.script_runner.provider.httpx.AsyncClient", lambda **_: _Client()
     )
     monkeypatch.setattr(
-        "core.sandbox.script_runner_provider._refresh_skill_view", lambda *_args, **_kw: None
+        "core.sandbox.providers.script_runner.provider._refresh_skill_view", lambda *_args, **_kw: None
     )
 
     launch = SandboxLaunch(backend="bwrap", argv_prefix=("bwrap", "--"), env={"A": "B"})
@@ -208,7 +211,7 @@ def test_the_runner_really_confines_git_bash_on_windows(monkeypatch, tmp_path):
     and still could not start bash at all (MSYS2 stamps its own security
     descriptor on its startup pipe, which no restricting SID ever matched).
     """
-    from services.script_runner_service.runtime_tools import windows_tool_path_entries
+    from core.sandbox.runner.runtime_tools import windows_tool_path_entries
 
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
     monkeypatch.setitem(

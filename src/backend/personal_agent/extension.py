@@ -1,4 +1,4 @@
-"""Personal Agent module registration (see ``core.extensions``).
+"""Personal Agent module registration (see ``core.harness.registry``).
 
 Everything Personal Agent adds to the running system is registered here. With
 ``PERSONAL_AGENT_ENABLED`` off nothing is registered: no routes, no background
@@ -8,14 +8,7 @@ worker, no channel routing, no dedicated agent profile and no prompt kind.
 import asyncio
 import os
 
-from core.extensions import (
-    AgentProfile,
-    register_agent_profile,
-    register_channel_route,
-    register_lifecycle,
-    register_router,
-    register_sandbox_route,
-)
+from core.harness.registry import AgentProfile, register_agent_profile, register_channel_route, register_lifecycle, register_router, register_sandbox_route
 
 from personal_agent.access import NAME
 
@@ -44,13 +37,15 @@ def _register_tools(toolkit, request, loader=None) -> None:
 
     register_personal_tools(toolkit, request, loader=loader)
 
-def _middlewares(request) -> list:
-    # Desktop observations: keep only the latest screenshots in the model context.
-    from personal_agent.computer.screenshot_pruning import ScreenshotPruningMiddleware
+def _hooks(request) -> list:
+    from personal_agent.computer.screenshot_pruning import screenshot_pruning_hook
+    return [screenshot_pruning_hook()]
 
+
+def _steering(request):
     from personal_agent.tasks.steering import current_steering
     steering = current_steering.get()
-    return [*([steering.middleware()] if steering else []), ScreenshotPruningMiddleware()]
+    return steering.hook_policy() if steering else None
 
 def _handles_channel(db, conn) -> bool:
     from personal_agent.channels.channel_bridge import handled_by_agent
@@ -80,7 +75,7 @@ async def _stop() -> None:
 def setup() -> bool:
     if not env_enabled():
         return False
-    from core.services.prompt_version_service import register_kind
+    from core.llm.prompt_kinds import register_kind
     from personal_agent.api.agent import router as agent_router
     from personal_agent.api.sessions import router as sessions_router
 
@@ -93,7 +88,8 @@ def setup() -> bool:
         AgentProfile(
             system_prompt=_system_prompt,
             register_tools=_register_tools,
-            middlewares=_middlewares,
+            hooks=_hooks,
+            steering=_steering,
             tool_filter=lambda name: name.startswith("pa_"),
             inherit_default_mcps=False,
             # Skills are listed in the platform rules and read with pa_skill_read.

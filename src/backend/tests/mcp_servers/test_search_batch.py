@@ -4,13 +4,13 @@ import asyncio
 
 import httpx
 import pytest
-from mcp_servers.internet_search_mcp.impl import SearchService
-from mcp_servers.internet_search_mcp.models import SearchRequest
+from extensions.mcp_servers.internet_search_mcp.impl import SearchService
+from extensions.mcp_servers.internet_search_mcp.models import SearchRequest
 
 
 def test_parallel_round_robin_deduplicates_and_preserves_dates(monkeypatch):
     monkeypatch.setattr(
-        "mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
         lambda name: {"INTERNET_SEARCH_ENGINE": "langsearch", "LANGSEARCH_API_KEY": "test"}.get(
             name
         ),
@@ -95,7 +95,7 @@ def test_provider_contract_and_country(monkeypatch, engine):
         "LANGSEARCH_API_KEY": "test",
         "TAVILY_API_KEY": "test",
     }
-    monkeypatch.setattr("mcp_servers.internet_search_mcp.impl.get_runtime_value", settings.get)
+    monkeypatch.setattr("extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value", settings.get)
 
     async def run():
         import json
@@ -152,10 +152,11 @@ def test_provider_contract_and_country(monkeypatch, engine):
 def test_partial_failure_still_gets_citations(monkeypatch):
     import json
 
-    from orchestration.citation_anchor import AnchorAllocator, annotate_tool_result
+    from core.llm.citations.allocator import AnchorAllocator
+    from core.llm.citations.anchor import annotate_tool_result
 
     monkeypatch.setattr(
-        "mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
         lambda name: {"INTERNET_SEARCH_ENGINE": "tavily", "TAVILY_API_KEY": "test"}.get(name),
     )
 
@@ -188,7 +189,7 @@ def test_deadline_keeps_completed_queries_and_cleans_up(monkeypatch):
     import json
 
     monkeypatch.setattr(
-        "mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
         lambda name: {"INTERNET_SEARCH_ENGINE": "tavily", "TAVILY_API_KEY": "test"}.get(name),
     )
 
@@ -216,7 +217,7 @@ def test_deadline_keeps_completed_queries_and_cleans_up(monkeypatch):
 
 def test_caller_cancellation_releases_tasks_and_capacity(monkeypatch):
     monkeypatch.setattr(
-        "mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
         lambda name: {"INTERNET_SEARCH_ENGINE": "tavily", "TAVILY_API_KEY": "test"}.get(name),
     )
 
@@ -250,7 +251,7 @@ def test_caller_cancellation_releases_tasks_and_capacity(monkeypatch):
 
 
 def test_merge_limits_and_url_identity():
-    from mcp_servers.internet_search_mcp.merge import merge_sources
+    from extensions.mcp_servers.internet_search_mcp.merge import merge_sources
 
     def source(url):
         return {"url": url, "title": "doc", "content": "x" * 3000, "raw_content": "y" * 9000}
@@ -287,7 +288,7 @@ def test_merge_limits_and_url_identity():
 
 
 def test_mcp_rejects_removed_argument():
-    from mcp_servers.internet_search_mcp.server import mcp
+    from extensions.mcp_servers.internet_search_mcp.server import mcp
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
@@ -297,8 +298,8 @@ def test_mcp_rejects_removed_argument():
 def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
     import json
 
+    from extensions.mcp_servers.internet_search_mcp import impl, server
     from mcp.shared.memory import create_connected_server_and_client_session
-    from mcp_servers.internet_search_mcp import impl, server
 
     monkeypatch.setattr(
         impl,
@@ -370,7 +371,7 @@ def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
 
 
 def test_oversize_search_response_is_a_query_failure(monkeypatch):
-    from mcp_servers.internet_search_mcp import impl
+    from extensions.mcp_servers.internet_search_mcp import impl
 
     monkeypatch.setattr(
         impl,
@@ -391,7 +392,7 @@ def test_oversize_search_response_is_a_query_failure(monkeypatch):
 
 
 def test_round_robin_caps_at_eight_sources():
-    from mcp_servers.internet_search_mcp.merge import merge_sources
+    from extensions.mcp_servers.internet_search_mcp.merge import merge_sources
 
     batches = [
         {
@@ -417,7 +418,7 @@ def test_round_robin_caps_at_eight_sources():
 
 
 def test_search_transport_allows_structured_deadline_result():
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     class Client:
         def __init__(self, **kwargs):

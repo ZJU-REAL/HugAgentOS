@@ -12,11 +12,12 @@ the browser follows the redirect and the frontend posts the ticket back to
 uvicorn worker, so the state between them cannot live in one process: with
 ``WEB_CONCURRENCY > 1`` an in-process dict loses roughly ``1 - 1/N`` of all
 logins. It is therefore kept in Redis, with the same key/TTL discipline as
-:mod:`core.auth.oa_ticket_store` and :mod:`core.auth.desktop_ticket_store`:
+:mod:`core.auth.oa_ticket_store` and :mod:`features.desktop.auth.ticket_store`:
 sha256 of the token as the key, atomic GETDEL on consume, TTL-bounded. Without
 Redis the backend degrades to in-process storage, which is sound because
 :mod:`core.infra.worker_count` already clamps such a deployment to one worker.
 """
+from __future__ import annotations
 
 import hashlib
 import json
@@ -33,7 +34,7 @@ TICKET_KEY_PREFIX = "jx:login_ticket:"
 TICKET_TTL = 300  # seconds
 TICKET_PREFIX = "mock_ticket_"
 
-_MEMORY_TICKETS: Dict[str, Dict[str, Any]] = {}
+
 
 
 def _hash(token: str) -> str:
@@ -46,8 +47,8 @@ def _use_memory_store() -> bool:
 
 def _prune_expired_memory() -> None:
     now = datetime.now(timezone.utc)
-    for key in [k for k, v in _MEMORY_TICKETS.items() if v["expires_at"] <= now]:
-        _MEMORY_TICKETS.pop(key, None)
+    for key in [k for k, v in process_state().MEMORY_TICKETS.items() if v["expires_at"] <= now]:
+        process_state().MEMORY_TICKETS.pop(key, None)
 
 
 def is_local_ticket(ticket: str) -> bool:
@@ -62,7 +63,7 @@ async def generate_ticket(user_info: Dict[str, Any]) -> str:
 
     if _use_memory_store():
         _prune_expired_memory()
-        _MEMORY_TICKETS[key] = {
+        process_state().MEMORY_TICKETS[key] = {
             "user_info": dict(user_info),
             "expires_at": datetime.now(timezone.utc) + timedelta(seconds=TICKET_TTL),
         }
@@ -87,7 +88,7 @@ async def consume_ticket(ticket: str) -> Optional[Dict[str, Any]]:
 
     if _use_memory_store():
         _prune_expired_memory()
-        entry = _MEMORY_TICKETS.pop(key, None)
+        entry = process_state().MEMORY_TICKETS.pop(key, None)
         return dict(entry["user_info"]) if entry else None
 
     from core.infra.redis import get_redis
@@ -107,3 +108,19 @@ async def consume_ticket(ticket: str) -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, TypeError):
         logger.warning("login_ticket_corrupt", token_hash=key[:8])
         return None
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class MockTicketStoreState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    MEMORY_TICKETS: Dict[str, Dict[str, Any]] = state_field(default_factory=lambda: {})
+
+@state_cache(maxsize=1)
+def process_state() -> MockTicketStoreState:
+    return MockTicketStoreState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

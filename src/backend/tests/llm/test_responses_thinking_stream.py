@@ -13,11 +13,7 @@ from types import SimpleNamespace
 import pytest
 from agentscope.message import TextBlock, ThinkingBlock
 
-from core.llm.responses_models import (
-    REASONING_ITEMS_ATTR,
-    _attach_reasoning_items,
-    _ReasoningItemCapture,
-)
+from core.models.responses import REASONING_ITEMS_ATTR, _attach_reasoning_items, _ReasoningItemCapture
 
 
 def _event(kind: str, **fields):

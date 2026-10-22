@@ -79,7 +79,7 @@ async def sweep_expired_memories(scan_limit: int = DEFAULT_SCAN_LIMIT) -> dict:
     if not settings.memory.enabled:
         return stats
 
-    from core.memory.service import _get_memory
+    from core.memory.service import get_memory as _get_memory
 
     loop = asyncio.get_running_loop()
     memory = await loop.run_in_executor(None, _get_memory)

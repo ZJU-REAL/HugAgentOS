@@ -67,17 +67,21 @@ for item in items:
 
 
 async def acceptance(root, backend_socket, runner_socket):
+    import core.jobs.callback as callback
+    import core.jobs.files as files
+    import core.jobs.owner as owner
+    import core.jobs.runtime as job_runtime
+    import core.jobs.state as state
+    import core.jobs.supervisor as supervisor
     import uvicorn
     from api.routes.v1 import internal_jobs
     from core.db.engine import Base, SessionLocal, engine
     from core.db.models import UserShadow
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
     from core.llm.tools.job_tool import register_run_job
     from core.sandbox import get_sandbox_provider
+    from core.sandbox.runner import server as runner
     from fastapi import FastAPI
-    from orchestration import job_runtime
-    from orchestration.jobs import callback, files, owner, state, supervisor
-    from services.script_runner_service import server as runner
 
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
@@ -200,7 +204,7 @@ async def acceptance(root, backend_socket, runner_socket):
 
         # A deterministic Windows registry proxy model, under native SAFE_ENV.
         # It never reads or writes the user's proxy configuration.
-        from orchestration.jobs.sdk import SDK_SOURCE
+        from core.jobs.sdk import SDK_SOURCE
         from tests.sandbox.runner_client import run_spawn
 
         assert not runner.SAFE_ENV.get("NO_PROXY")

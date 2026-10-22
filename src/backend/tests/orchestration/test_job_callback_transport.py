@@ -5,10 +5,11 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import core.jobs.callback as jobs_callback
+import core.jobs.callback as callback
 import pytest
-from orchestration.jobs import callback
-from orchestration.jobs.sdk import SDK_SOURCE
-from services.script_runner_service import server
+from core.jobs.sdk import SDK_SOURCE
+from core.sandbox.runner import server
 from tests.sandbox.runner_client import run_spawn
 
 
@@ -119,7 +120,7 @@ def test_probe_execution_failure_is_not_reported_as_network_failure(monkeypatch)
     async def missing_interpreter(*args, **kwargs):
         return 127, "", "private interpreter missing"
 
-    monkeypatch.setattr(callback, "_sbx_bash", missing_interpreter)
+    monkeypatch.setattr(jobs_callback, "_sbx_bash", missing_interpreter)
     with pytest.raises(RuntimeError) as error:
         asyncio.run(callback.resolve_callback_base(session_id="test", user_id="test"))
     message = str(error.value)

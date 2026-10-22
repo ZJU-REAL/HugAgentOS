@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from core.db.models.plugin_resource import PluginResource, PluginResourceTicket, PluginResourceAssetTicket
-from core.plugins.resources import store
-from core.llm import mcp_invocation as proof
+from core.capabilities.plugins.resources import store
+from core.llm.mcp import invocation as proof
 
 def test_invocation_proof_rejects_impersonation_expiry_and_wrong_audience(monkeypatch):
     monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "isolated-test-signing-key")
@@ -68,7 +68,7 @@ def test_migration_upgrade_and_downgrade_match_resource_tables():
 async def test_viewer_authentication_is_revoked_with_real_session_store(monkeypatch):
     from core.auth import session
     from core.config.settings import settings
-    from core.plugins.resources import authentication
+    from core.capabilities.plugins.resources import authentication
     monkeypatch.setattr(session, "_use_memory_store", lambda: True)
     token = await session.create_session({"user_id": "owner", "user_center_id": "owner", "username": "test"})
     context = {"headers": {"cookie": settings.session.cookie_name + "=" + token}, "path": "/api/v1/plugin-resources/resource/attach", "method": "POST"}
@@ -80,7 +80,7 @@ async def test_viewer_authentication_is_revoked_with_real_session_store(monkeypa
     assert error.value.status_code == 401
 
 async def test_expired_starting_reservation_is_cleaned_without_endpoint(monkeypatch):
-    from core.plugins.resources import lifecycle
+    from core.capabilities.plugins.resources import lifecycle
     engine = create_engine("sqlite://")
     for model in (PluginResource, PluginResourceTicket, PluginResourceAssetTicket):
         model.__table__.create(engine)
@@ -97,7 +97,7 @@ async def test_expired_starting_reservation_is_cleaned_without_endpoint(monkeypa
 async def test_opensandbox_endpoint_auth_is_confined_to_control_plane_origin():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from core.sandbox.interactive import endpoint
+    from core.sandbox.processes.interactive import endpoint
     connection = SimpleNamespace(
         get_base_url=lambda: "http://sandbox.test:8080",
         get_api_key=lambda: "gateway-secret",
@@ -122,8 +122,7 @@ def test_opensandbox_template_allows_the_actual_builtin_skill_mount(monkeypatch,
     import tomllib
     from pathlib import Path
     import importlib
-    importlib.import_module("core.sandbox._opensandbox_internals")
-    from core.sandbox import _opensandbox_volumes as volumes
+    import core.sandbox.providers.opensandbox.volumes as volumes
     root = Path(__file__).resolve().parents[3]
     monkeypatch.setenv("HOST_REPO_PATH", str(root))
     monkeypatch.setattr(volumes, "_BUILTIN_SKILLS_HOST_PATH", None)

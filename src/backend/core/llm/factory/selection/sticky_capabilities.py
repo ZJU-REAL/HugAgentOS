@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-import core.config.catalog as catalog
-from core.capabilities.paths import capabilities_enabled
+import core.capabilities.catalog.api as catalog
+from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
@@ -23,7 +23,7 @@ async def sticky_capabilities(
     sticky: StickyCapabilities,
 ):
     # Dedicated profiles own their full binding list. Chat history must not widen it.
-    from core.extensions import agent_profile
+    from core.harness.registry import agent_profile
     explicit_profile = bool(request.profile and not agent_profile(request.profile).inherit_default_mcps)
     inherited_skills = set(request.enabled_skill_ids or [])
     inherited_mcps = set(request.enabled_mcp_ids or [])
@@ -31,18 +31,18 @@ async def sticky_capabilities(
         request.capability_source_chat_id if request.derived_main else None
     ) or request.chat_id
     if (
-        capabilities_enabled()
+        has_run_capabilities()
         and not request.disable_tools
         and not request.turbo_mode
         and request.user_agent is None
         and request.enabled_skill_ids is None
     ):
-        from core.plugins.runtime import prepare_desktop_plugin_skill_defaults
+        from core.harness.registry.run_capabilities import plugin_skill_defaults
 
         request.enabled_skill_ids = await asyncio.to_thread(
-            prepare_desktop_plugin_skill_defaults,
+            plugin_skill_defaults,
             request.current_user_id,
-            factory_capabilities._effective_main_available_skills(),
+            factory_capabilities.effective_main_available_skills(),
         )
 
     _log.info("[factory] +%s default capabilities prepared", _elapsed())
@@ -56,7 +56,7 @@ async def sticky_capabilities(
         base_skill_ids = (
             list(request.enabled_skill_ids)
             if isinstance(request.enabled_skill_ids, list)
-            else factory_capabilities._effective_main_available_skills()
+            else factory_capabilities.effective_main_available_skills()
         )
         request.enabled_skill_ids = list(
             dict.fromkeys([*base_skill_ids, *required.plugin_skill_ids])
@@ -72,7 +72,7 @@ async def sticky_capabilities(
         base_skill_ids = (
             list(request.enabled_skill_ids)
             if isinstance(request.enabled_skill_ids, list)
-            else factory_capabilities._effective_main_available_skills()
+            else factory_capabilities.effective_main_available_skills()
         )
         request.enabled_skill_ids = list(dict.fromkeys([*base_skill_ids, required.skill_id]))
 
@@ -101,8 +101,8 @@ async def sticky_capabilities(
         and _eval_scope is None
         and (not request.turbo_mode or _mode_manual_invoke)
     ):
-        from core.llm import session_capabilities as _sticky_direct
-        from core.plugins import runtime as _sticky_plugins
+        from core.llm.runtime import session_capabilities as _sticky_direct
+        from core.capabilities.plugins import runtime as _sticky_plugins
 
         try:
             _sticky, _direct = await asyncio.gather(
@@ -132,7 +132,7 @@ async def sticky_capabilities(
                 base_skill_ids = (
                     list(request.enabled_skill_ids)
                     if isinstance(request.enabled_skill_ids, list)
-                    else factory_capabilities._effective_main_available_skills()
+                    else factory_capabilities.effective_main_available_skills()
                 )
                 request.enabled_skill_ids = list(
                     dict.fromkeys([*base_skill_ids, *sticky_skill_ids])
@@ -154,7 +154,7 @@ async def sticky_capabilities(
                     len(sticky_mcp_ids),
                 )
         except Exception as exc:  # noqa: BLE001
-            if capabilities_enabled():
+            if has_run_capabilities():
                 raise  # a saved source must not silently disappear or change account
             _log.warning("[factory] sticky capability restore failed: %s", exc)
 

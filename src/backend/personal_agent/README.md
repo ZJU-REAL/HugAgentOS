@@ -22,7 +22,7 @@ authenticated users; EE additionally applies its account capability policy.
 - models.py: the seven shared tables, registered even with the runtime module off.
 
 HTTP routers call the domain services. Model tools use the same services. Session
-operations reuse core/services/session_operations; neither path calls HTTP route
+operations reuse core/chat/operations; neither path calls HTTP route
 functions. Shared chat request contracts live in core/chat/schemas.py. External
 integration uses the registered hooks in extension.py.
 

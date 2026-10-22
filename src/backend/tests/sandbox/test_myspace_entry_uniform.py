@@ -4,16 +4,9 @@ opensandbox / cube 是一人一沙箱，靠容器里的软链；script_runner �
 不能建全局软链（会指向最后一个用的人），改成按请求把路径改写到该用户目录。
 """
 
-import sys
-from pathlib import Path
-
 import pytest
 
 pytestmark = pytest.mark.usefixtures("provider_database")
-
-_SERVICES = Path(__file__).resolve().parents[2] / "services"
-if str(_SERVICES) not in sys.path:
-    sys.path.insert(0, str(_SERVICES))
 
 UID = "user_a9e0c627c2674456"
 
@@ -22,7 +15,7 @@ UID = "user_a9e0c627c2674456"
 
 
 def _rewrite(value, user_id=UID):
-    from script_runner_service.sandbox_workspace import _rewrite_myspace_refs
+    from core.sandbox.runner.sandbox_workspace import _rewrite_myspace_refs
 
     return _rewrite_myspace_refs(value, user_id)
 

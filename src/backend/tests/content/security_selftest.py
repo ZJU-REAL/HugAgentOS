@@ -32,7 +32,9 @@ from core.infra.data_masking import (
     mask_phone, mask_email, mask_api_key, mask_password,
     mask_sensitive_data, mask_log_data
 )
-from core.services import ChatService, ArtifactService, KBService
+from core.chat.service import ChatService
+from core.files.artifacts.service import ArtifactService
+from features.knowledge.service import KBService
 
 
 # Test database setup

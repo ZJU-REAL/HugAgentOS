@@ -19,7 +19,8 @@ import types
 
 import pytest
 
-from core.llm import middlewares as mw
+from core.llm.context import attachment_hook as mw
+from tests.orchestration.hook_support import inject_attachments
 
 # How long the fake "parse" blocks its thread. Long enough that a blocked loop is
 # unambiguous, short enough to keep the suite fast.
@@ -80,10 +81,10 @@ async def test_text_attachment_parse_does_not_block_the_event_loop(monkeypatch):
         time.sleep(BLOCKING_SECONDS)
         return "[file content begin]parsed[file content end]"
 
-    monkeypatch.setattr(mw, "_build_file_context", fake_build_file_context)
+    monkeypatch.setattr(mw.file_context, "build_file_context", fake_build_file_context)
 
     agent = _make_agent([{"file_id": "ua_x", "name": "a.pdf", "mime_type": "application/pdf"}])
-    ticks = await _count_heartbeats_during(mw.FileContextMiddleware()._inject(agent))
+    ticks = await _count_heartbeats_during(inject_attachments(agent))
 
     # The parse actually ran, with ownership still propagated.
     assert called["n"] == 1
@@ -103,23 +104,23 @@ async def test_native_image_injection_does_not_block_the_event_loop(monkeypatch)
 
     Same defect class: on S3/OSS deployments each image is a network round-trip.
     """
-    monkeypatch.setattr(mw, "_effective_model_supports_vision", lambda st: True)
+    monkeypatch.setattr(mw, "supports_native_images", lambda st: True)
 
-    def fake_inject_native_images(st, image_files, user_id):
+    def fake_inject_native_images(image_files, user_id):
         time.sleep(BLOCKING_SECONDS)
-        st.context.append("images-injected")
+        return [{"type": "text", "text": "images-injected"}]
 
     monkeypatch.setattr(
-        mw.FileContextMiddleware,
-        "_inject_native_images",
-        staticmethod(fake_inject_native_images),
+        mw,
+        "native_image_content",
+        fake_inject_native_images,
     )
-    monkeypatch.setattr(mw, "_build_file_context", lambda files, user_id=None: "")
+    monkeypatch.setattr(mw.file_context, "build_file_context", lambda files, user_id=None: "")
 
     agent = _make_agent([{"file_id": "ua_img", "name": "a.png", "mime_type": "image/png"}])
-    ticks = await _count_heartbeats_during(mw.FileContextMiddleware()._inject(agent))
+    ticks = await _count_heartbeats_during(inject_attachments(agent))
 
-    assert "images-injected" in agent.state.context
+    assert any("images-injected" in str(getattr(m, "content", "")) for m in agent.state.context)
     assert (
         ticks >= MIN_EXPECTED_TICKS
     ), f"event loop stalled during image injection: only {ticks} heartbeat(s)"

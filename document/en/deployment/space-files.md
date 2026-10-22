@@ -36,15 +36,11 @@ Before switching an existing deployment, back up configuration and database.
 Copy valid file objects and attachments. Check each object's SHA-256.
 Keep source files. Switch STORAGE_TYPE and recreate the application containers after verification.
 
-## File import
+## Existing file migration
 
-Back up data and pause writes. Preview one user's or team's import plan:
-
-    PYTHONPATH=src/backend python -m scripts.import_space_files --user USER_ID
-    PYTHONPATH=src/backend python -m scripts.import_space_files --team TEAM_ID
-
-Review destinations and conflicts. Add --apply to import.
-The tool verifies content and preserves source objects.
+The standalone file import command has been removed. Back up the database and objects,
+pause destination writes, and review a migration plan before moving existing files.
+Check destinations, name conflicts, and content. Preserve source objects and references.
 
 ## Verification
 
@@ -82,8 +78,8 @@ Hybrid desktop sessions install the My Space connector from the cloud capability
 manifest. Cloud Agent sessions continue using sandbox mounts directly. Local-only
 sessions do not install this cloud connector.
 
-The MCP interface lives in `src/backend/mcp_servers/space_files_mcp/`.
-The built-in registry, `mcp_servers/registry.py`, declares installation placement
+The MCP interface lives in `src/backend/extensions/mcp_servers/space_files_mcp/`.
+The built-in registry, `extensions/mcp_servers/registry.py`, declares installation placement
 (`local`, `cloud`, or `both`) separately from exposure (`process` or
 `desktop_gateway`). The space connector runs in the cloud through the desktop
 gateway and does not open another listening port. Installation does not grant

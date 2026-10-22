@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from core.config.edition_display_names import (
+from core.config.edition import (
     edition_mcp_server_descriptions,
     edition_mcp_server_display_names,
     edition_tool_display_names,
@@ -64,9 +64,9 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # 末尾的合并），不直接写在这张 CE 共享表里——CE 派生的品牌门禁禁止这些
     # 工具名出现在共享文件中。
     # (Word/Excel/PPT capability migrated to the officecli-* skills under
-    #  src/backend/skill_bundles/default/; they run the pre-installed `officecli`
+    #  src/backend/extensions/skills/default/; they run the pre-installed `officecli`
     #  binary through Bash, so word_mcp / excel_mcp / ppt_mcp no longer exist.)
-    # (PDF capability migrated to the pdf-editing skill, see src/backend/skill_bundles/default/pdf-editing/)
+    # (PDF capability migrated to the pdf-editing skill, see src/backend/extensions/skills/default/pdf-editing/)
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
     # Built-in tools
     "ask_user_question": "询问用户",

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.agent_skills.deps_detector import detect_dependencies
+from core.capabilities.skills.deps.detector import detect_dependencies
 
 
 def _names(deps: list[dict]) -> list[str]:

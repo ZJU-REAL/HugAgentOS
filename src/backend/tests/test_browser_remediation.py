@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import HTTPException
-sys.path.insert(0, str(Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/runtime"))
+sys.path.insert(0, str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"))
 from tests.test_browser_worker import browser
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_locator_and_dns_errors_are_specific(browser, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_non_json_runtime_error_is_safe():
-    from core.plugins.resources.transport import RuntimeTransport
+    from core.capabilities.plugins.resources.transport import RuntimeTransport
     async with RuntimeTransport({"url": "http://probe", "headers": {}}) as transport:
         await transport.client.aclose()
         transport.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(500, text="private details")))
@@ -59,7 +59,7 @@ async def test_sandbox_fallback_requires_outer_isolation():
 @pytest.mark.asyncio
 async def test_screenshot_is_mcp_image(monkeypatch):
     import base64
-    from mcp_servers.browser_runtime_mcp import server
+    from extensions.mcp_servers.browser_runtime_mcp import server
     from mcp.types import ImageContent
     async def call(*args):
         return {"data": base64.b64encode(b"png-content").decode()}
@@ -71,7 +71,7 @@ async def test_screenshot_is_mcp_image(monkeypatch):
 async def test_chat_recovers_only_live_owned_resources(runtime, monkeypatch):
     from api.routes.v1.plugin_resources import chat_resources
     from types import SimpleNamespace
-    from core.plugins.resources import service
+    from core.capabilities.plugins.resources import service
     db, _, _, _ = runtime
     await service.create(db, "browser", "browser", "warm-user", "warm-chat")
     result = await chat_resources("warm-chat", SimpleNamespace(user_id="warm-user"), db)
@@ -87,7 +87,7 @@ async def test_chat_recovers_only_live_owned_resources(runtime, monkeypatch):
 @pytest.mark.asyncio
 async def test_blur_keeps_control_and_stale_input_reports(browser):
     page = browser.pages[browser.active_tab]
-    package = Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/web/browser"
+    package = Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/web/browser"
     await page.set_content('<canvas id="screen"></canvas><textarea id="keyboard"></textarea>')
     for script in ("control.js", "touch.js", "input.js"):
         await page.add_script_tag(path=str(package / script))

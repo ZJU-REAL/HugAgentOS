@@ -4,12 +4,12 @@ from typing import Optional
 
 import core.auth.backend as auth_backend
 import core.db.engine as db_engine
-import core.services as chat_services
+import core.chat.service as chat_services_ChatService_module
 from core.auth.backend import UserContext
-from core.chat.display_bounds import bound_result_for_display
+from core.infra.text_bounds import bound_result_for_display
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.responses import success_response
-from core.services.context_usage_projection import get_chat_context_state
+from core.chat.compaction.usage_projection import get_chat_context_state
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ def list_messages(
     db: Session = Depends(db_engine.get_db),
 ):
     """获取当前用户有权读取的会话消息列表；无权访问时返回 404。"""
-    from core.services.session_operations.history import list_messages as operation
+    from core.chat.operations.history import list_messages as operation
 
     return operation(
         chat_id=chat_id,
@@ -52,11 +52,11 @@ def get_context_usage(
     db: Session = Depends(db_engine.get_db),
 ):
     """Return the latest provider measurement and active compaction baseline."""
-    chat_service = chat_services.ChatService(db)
+    chat_service = chat_services_ChatService_module.ChatService(db)
     if chat_service.get_session_with_access(chat_id, str(user.user_id)) is None:
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
-    from core.services.compaction_progress import read_progress
+    from core.chat.compaction.progress import read_progress
 
     return success_response(
         data={
@@ -84,7 +84,7 @@ def get_tool_call_result(
     展开哪张卡，前端才来这里取哪一张。仍然过一遍 ``bound_result_for_display`` 的宽档
     上限：单张卡也不该把 5MB 一次性塞进标签页。
     """
-    chat_service = chat_services.ChatService(db)
+    chat_service = chat_services_ChatService_module.ChatService(db)
     if chat_service.get_session_with_access(chat_id, str(user.user_id)) is None:
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
@@ -119,7 +119,7 @@ def get_followups(
     db: Session = Depends(db_engine.get_db),
 ):
     """Return follow-up questions stored in a message's extra_data."""
-    chat_service = chat_services.ChatService(db)
+    chat_service = chat_services_ChatService_module.ChatService(db)
 
     session = chat_service.get_session(chat_id, user.user_id)
     if not session:

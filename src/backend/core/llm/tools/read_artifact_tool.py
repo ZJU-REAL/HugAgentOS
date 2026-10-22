@@ -35,8 +35,8 @@ def _is_pptx_meta(meta: dict) -> bool:
 def _probe_xlsx_sheet_names(file_id: str, filename: str, user_id: Optional[str] = None) -> tuple[list[str], bytes | None]:
     """Cheaply list sheet names and return the bytes for reuse. Returns
     ``([], None)`` on download failure, ``(names, bytes)`` on success."""
-    from core.content.file_parser import parse_xlsx_sheet_names
-    from core.llm.hooks import _download_artifact_bytes
+    from core.files.content.spreadsheet_parser import parse_xlsx_sheet_names
+    from core.files.artifact_bytes import download_artifact_bytes as _download_artifact_bytes
 
     file_bytes = _download_artifact_bytes(file_id, filename, "read_artifact xlsx", user_id=user_id)
     if file_bytes is None:
@@ -58,8 +58,8 @@ async def _resolve_xlsx_text(
     the probe — passed through to fetch_parsed_text on the default path so
     we don't re-download from storage. Raises RuntimeError on bad sheet_name
     or missing bytes when sheet_name is set."""
-    from core.content.artifact_reader import fetch_parsed_text
-    from core.content.file_parser import parse_xlsx_single_sheet
+    from core.files.artifacts.reader import fetch_parsed_text
+    from core.files.content.spreadsheet_parser import parse_xlsx_single_sheet
 
     if sheet_name:
         if file_bytes is None:
@@ -73,8 +73,8 @@ async def _resolve_xlsx_text(
 def _probe_pptx_slide_count(file_id: str, filename: str, user_id: Optional[str] = None) -> tuple[int, bytes | None]:
     """Cheaply count slides and return the bytes for reuse. Returns
     ``(0, None)`` on download failure, ``(count, bytes)`` on success."""
-    from core.content.file_parser import parse_pptx_slide_count
-    from core.llm.hooks import _download_artifact_bytes
+    from core.files.content.presentation_parser import parse_pptx_slide_count
+    from core.files.artifact_bytes import download_artifact_bytes as _download_artifact_bytes
 
     file_bytes = _download_artifact_bytes(file_id, filename, "read_artifact pptx", user_id=user_id)
     if file_bytes is None:
@@ -96,8 +96,8 @@ async def _resolve_pptx_text(
     bytes the probe already downloaded — passed through to fetch_parsed_text
     on the default path so we don't re-download. Raises RuntimeError on
     bad slide_index or missing bytes."""
-    from core.content.artifact_reader import fetch_parsed_text
-    from core.content.file_parser import parse_pptx_slide
+    from core.files.artifacts.reader import fetch_parsed_text
+    from core.files.content.presentation_parser import parse_pptx_slide
 
     if slide_index is not None:
         if file_bytes is None:
@@ -158,8 +158,9 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         """
         import json as _json
 
-        from core.content.artifact_reader import fetch_parsed_text, load_artifact_meta
-        from core.llm.hooks import MAX_FILE_CONTENT_CHARS, get_artifact_read_state
+        from core.files.artifacts.reader import fetch_parsed_text, load_artifact_meta
+        from core.llm.runtime.hooks_state import MAX_FILE_CONTENT_CHARS
+        from core.llm.runtime.turn_state import get_artifact_read_state
 
         fid = (file_id or "").strip()
         if not fid:

@@ -3,7 +3,7 @@
 事故形态特别隐蔽：
 
 - provider 是**进程级单例**，但调用方不止一个事件循环——子智能体跑在独立线程的独立
-  循环里（``core/llm/subagent_tool.py`` 的 ``asyncio.new_event_loop()``）。
+  循环里（``core/llm/subagents/tool.py`` 的 ``asyncio.new_event_loop()``）。
 - ``asyncio.Lock`` 在**首次 await 时**绑定当时的 running loop。谁先碰 provider，锁就绑给谁。
 - 之后另一个循环再用就抛 ``is bound to a different event loop``。而沙箱保活
   ``touch_session`` 的调用方把异常 except 掉了 → **保活静默失效** → 沙箱空闲 600s 被
@@ -136,7 +136,7 @@ def test_same_loop_still_serializes():
 
 @pytest.mark.parametrize(
     "module_name",
-    ["core.sandbox.opensandbox_provider", "core.sandbox.cube.provider"],
+    ["core.sandbox.providers.opensandbox.provider", "core.sandbox.providers.cube.provider"],
 )
 def test_providers_use_thread_lock_for_registry(module_name):
     """两个 provider 都必须用线程锁守注册表 —— 换回 asyncio.Lock 就会重现事故。"""

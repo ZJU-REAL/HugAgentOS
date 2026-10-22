@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import core.db.models  # noqa: F401 - register model metadata
 
-from core.llm import workspace
+from core.llm.runtime import workspace
 
-from core.llm.tool_collector import ToolCollector
+from core.llm.runtime.tool_collector import ToolCollector
 
 
 from tests.llm.local_project_test_support import local_project, pin_tool
@@ -22,8 +22,8 @@ from tests.llm.local_project_test_support import local_project, pin_tool
 def test_session_delivery_deduplicates_and_rejects_conflicting_names(
     local_project, monkeypatch, tmp_path
 ):
-    from core.llm.tools import _paths
-    from core.services.local_grant_service import add_grant
+    from core.sandbox.workspace import resolution as _paths
+    from features.desktop.local.grants import add_grant
 
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))
@@ -50,16 +50,14 @@ def test_session_delivery_deduplicates_and_rejects_conflicting_names(
 
 
 def test_design_picker_accepts_local_images_without_pinning(local_project, monkeypatch, tmp_path):
-    from core.llm.tools import _paths, _tool_confirmation
-    from core.llm.tools.design_picker_tool import register_choose_design
-    from core.services.local_grant_service import add_grant
-    from core.llm.tool_permissions import (
-        ToolPermissionRegistry,
-        ToolPermissionService,
-        PermissionRuntime,
-        CURRENT_PERMISSION_TICKET,
-    )
-    from core.artifacts.store import get_artifact
+    from core.sandbox.workspace import resolution as _paths
+    from core.llm.tools import confirmation
+    from features.sites.tools.design_picker import register_choose_design
+    from features.desktop.local.grants import add_grant
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+    from core.llm.tool_permissions import ToolPermissionService
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime, CURRENT_PERMISSION_TICKET
+    from core.files.artifacts.store import get_artifact
 
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))
@@ -78,7 +76,7 @@ def test_design_picker_accepts_local_images_without_pinning(local_project, monke
             assert get_artifact(option["image_file_id"])["mime_type"] == "image/png"
         return {"status": "chosen", "option_id": "b"}
 
-    monkeypatch.setattr(_tool_confirmation, "pick", choose)
+    monkeypatch.setattr(confirmation, "pick", choose)
     collector = ToolCollector()
     register_choose_design(collector, chat_id="pin-chat", user_id="pin-user")
     registry = ToolPermissionRegistry()

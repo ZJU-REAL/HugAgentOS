@@ -84,7 +84,7 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 其它要点：
 
-- **登记不挂会话、也不挂产物卡片**：「我的空间」是用户级的一份目录，每个会话的沙箱都挂着它，文件事件里只有路径、没有会话身份——谁写的，这里无从得知。所以登记只记到用户名下（`Artifact.chat_id` 为空），产物区的文件卡片则完全不由登记器挂：卡片只能由**写文件的那一轮自己**挂（模型调 `pin_to_workspace`，或那一轮里的 Write/交付兜底，都走 `core.llm.workspace` 的 ContextVar），那里"哪个会话、哪个文件"都是确定的。曾经拿"这个用户当下随便哪个在跑的会话"顶上，结果是另一个会话写的文件被记到了这个会话名下，还在它的产物区里多出一张卡片。
+- **登记不挂会话、也不挂产物卡片**：「我的空间」是用户级的一份目录，每个会话的沙箱都挂着它，文件事件里只有路径、没有会话身份——谁写的，这里无从得知。所以登记只记到用户名下（`Artifact.chat_id` 为空），产物区的文件卡片则完全不由登记器挂：卡片只能由**写文件的那一轮自己**挂（模型调 `pin_to_workspace`，或那一轮里的 Write/交付兜底，都走 `core.llm.runtime.workspace` 的 ContextVar），那里"哪个会话、哪个文件"都是确定的。曾经拿"这个用户当下随便哪个在跑的会话"顶上，结果是另一个会话写的文件被记到了这个会话名下，还在它的产物区里多出一张卡片。
 - **判定基准是 artifact 记录，不是镜像缓存**：开了 bind mount 后沙箱的 `/workspace/myspace/{uid}` 就是后端 `myspace_cache/{uid}` 本身，"沙箱文件与镜像缓存一致"恒真、不能再当作"已登记"。这条拓扑差异曾让回写恒为空转。
 - **"磁盘比账本新"是唯一依据**：后端自己往镜像目录写文件（界面上传的物化、否决后的还原）时会把 mtime 对齐到登记时间，于是监听器不会把后端自己的写入当成沙箱的新改动转头再登记一次——不必另外维护一张"这是我自己写的"的表。
 - **每个 worker 都监听，认领去重**：确认条活在跑这个会话的那个进程里，所以监听器必须每个 worker 都跑（代价是 inotify watch 按「worker 数 × 目录数」占内核配额 `fs.inotify.max_user_watches`，目录极多的部署要相应调大，超限会**静默丢事件**）；同一次改动由 `core.infra.ephemeral` 的认领保证只处理一次，且优先交给托管着该用户会话的进程（它才弹得出确认条）。
@@ -124,12 +124,12 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 - 用户绑定的容器仅能交给同一用户，复用前清理上一会话的工作区。
 - 基础实现保留个人空间和技能挂载。EE 扩展额外保留团队挂载并复核权限。
 - CE Docker 默认不预热空闲容器。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
-- SANDBOX_IDLE_TTL_S 同时控制服务端 TTL 和空闲回收阈值，默认 3600 秒。
+- SANDBOX_IDLE_TTL_S 控制空闲快照阈值，默认 3600 秒。服务端硬到期时间另加回收排队、续期限频、快照请求和等待的宽限。每轮扫描先为排队会话续期，再公平分批创建快照。
 - 带密钥的续期与快照请求统一使用 OPEN-SANDBOX-API-KEY 认证头。
 
 ## 快照持久化（CE / EE）
 
-实现位于 core/sandbox/_opensandbox_snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
+实现位于 core/sandbox/providers/opensandbox/snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
 - **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
@@ -176,7 +176,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 ## 管理员沙箱管理
 
 - **只读监控（安全管理台）**：`api/routes/v1/config_security.py` 暴露 `/v1/config/security/sandbox/*`——总览、实例列表、单实例详情、快照列表、重建历史、生效配置；底层走 provider 的 `admin_*` 接口，按 `admin_capabilities()` 声明裁剪 UI（script_runner 无法枚举实例即置灰对应列）。
-- **依赖重建（商业版 EE）**：`api/routes/v1/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/services/skill_deps_aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`core/services/sandbox_rebuild_service.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
+- **依赖重建（商业版 EE）**：`api/routes/v1/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/capabilities/skills/deps/aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`core/services/sandbox_rebuild_service.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
 
 ## 关键环境变量
 
@@ -187,7 +187,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |
-| `SANDBOX_IDLE_TTL_S` | 3600 | 沙箱唯一的时长参数：服务端 TTL = 空闲阈值 = 保活间隔基准；到点先 snapshot 再释放 |
+| `SANDBOX_IDLE_TTL_S` | 3600 | 空闲快照阈值和保活间隔基准；服务端 TTL 另加快照与排队宽限 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | 等 snapshot Ready 的轮询上限 |
@@ -208,15 +208,15 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 |---|---|
 | `src/backend/core/sandbox/protocol.py` | Provider 协议与数据契约 |
 | `src/backend/core/sandbox/factory.py` | provider 显式选择；初始化错误直接上报 |
-| `src/backend/core/sandbox/script_runner_provider.py` | 轻量沙箱（CE） |
-| `src/backend/core/sandbox/opensandbox_provider.py` | OpenSandbox 共享 provider 主体 |
-| `src/backend/core/sandbox/_opensandbox_session.py` | 会话/快照/park-restore worker（EE） |
-| `src/backend/core/sandbox/_opensandbox_exec.py` | 执行路径 + idle reaper（EE） |
-| `src/backend/core/sandbox/_opensandbox_internals.py` | volume 构造、metadata、user pool（EE） |
-| `src/backend/core/sandbox/_pool.py` | 双桶预热池 |
-| `src/backend/core/sandbox/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
+| `src/backend/core/sandbox/providers/script_runner/provider.py` | 轻量沙箱（CE） |
+| `src/backend/core/sandbox/providers/opensandbox/provider.py` | OpenSandbox 共享 provider 主体 |
+| `src/backend/core/sandbox/providers/opensandbox/session.py` | 会话/快照/park-restore worker（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/execution.py` | 执行路径 + idle reaper（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/internals.py` | volume 构造、metadata、user pool（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
+| `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
-| `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
+| `src/backend/core/llm/context/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
 | `src/backend/api/routes/v1/config_security.py` | 安全管理台沙箱只读视图 |
 | `src/backend/core/services/sandbox_rebuild_service.py` | 镜像/模板重建编排（EE） |
@@ -228,9 +228,20 @@ Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控
 
 ### 对象挂载恢复的用户归属校验
 
-后端创建沙盒与控制器恢复挂载共用 `core/sandbox/metadata.py` 的用户标签定义。
+后端创建沙盒与控制器恢复挂载共用 `core/sandbox/sessions/metadata.py` 的用户标签定义。
 控制器镜像在构建时复制该模块。移植产品时保留该产品现有的标签值，并重新构建控制器；
 不要单独改动一端，也不要通过接受其它产品标签绕过归属校验。
 恢复时继续校验当前用户、权限版本、挂载范围、凭据和只读属性。
 校验冲突返回 409，并保留沙盒和工作区；挂载服务故障返回 503。
 控制器升级后，先验证现有沙盒恢复和跨用户拒绝，再执行用户命令。
+
+### 回收计数与多进程管理视图
+
+控制器明确返回 DOCKER::SANDBOX_NOT_FOUND 时，后端清除失效会话并归还一次占用。
+快照或续期超时、鉴权失败、普通路由 404 和服务错误都不能作为删除活容器的依据。
+成功快照后才允许擦除并复用工作区。显式关闭与空闲回收使用相同的会话锁和共享认领。
+
+OpenSandbox 的实例列表与实例计数读取控制器当前运行清单，不再累计进程内旧句柄。
+控制器查询失败时，计数不可用；不能把查询失败报告成零实例。
+连接池诊断保留 scope=worker 与 worker_pid，表示当前后端进程的本地池，
+不代表全部进程的用户配额。该修复不把本地池上限改成跨进程全局配额。

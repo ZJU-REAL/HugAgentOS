@@ -1,14 +1,22 @@
 """Scheduled runs expose the same live conversation boundary as interactive runs."""
+from core.chat.projection.codec import chat_projection_codec
 
 import asyncio
+
+import core.agent_runtime.runner as runner
+import core.chat.runtime.compaction as compaction
+import core.chat.runtime.followups as followups
+import core.db.engine as db_engine
+import core.runs.events.store as store
+import core.runs.events.store as run_event_stream
+import core.runs.runtime as runtime
 import pytest
+from core.db.engine import Base
+from features.automation.service import AutomationService
+from core.chat.service import ChatService
+from orchestration.automations.automation_scheduler import AutomationScheduler
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from core.db.engine import Base
-from core.services.automation_service import AutomationService
-from core.services.chat_service import ChatService
-from orchestration import chat_run_executor as executor, run_event_stream
-from orchestration.schedulers.automation_scheduler import AutomationScheduler
 
 
 @pytest.fixture
@@ -17,24 +25,25 @@ def live_env(tmp_path, monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr("core.db.engine.SessionLocal", factory)
-    monkeypatch.setattr(executor, "SessionLocal", factory)
-    monkeypatch.setattr("core.services.chat_steer_service.SessionLocal", factory)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **kw: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **kw: None)
-    stream = run_event_stream.LocalRunEventStream()
-    monkeypatch.setattr(executor, "get_run_event_stream", lambda: stream)
+    monkeypatch.setattr(db_engine, "SessionLocal", factory)
+    monkeypatch.setattr('core.chat.steer.SessionLocal', factory)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **kw: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **kw: None)
+    stream = run_event_stream.LocalRunEventStream(chat_projection_codec())
+    monkeypatch.setattr(store, "get_run_event_stream", lambda: stream)
     monkeypatch.setattr(
-        "core.services.user_model_selection.resolve_effective_chat_model_name", lambda: "test-model"
+        'core.models.selection.resolve_effective_chat_model_name', lambda: "test-model"
     )
     monkeypatch.setattr(
-        "core.services.ontology_service.build_user_ontology_runtime", lambda **kw: (False, {})
+        'core.ontology.runtime_policy.build_user_ontology_runtime', lambda **kw: (False, {})
     )
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     from core.infra import ephemeral
 
-    monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: ephemeral.LocalEphemeralState())
+    state = ephemeral.LocalEphemeralState()
+    monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
     monkeypatch.setattr(
-        "core.config.catalog_resolver.resolve_all_runtime_enabled", lambda *args: ([], [], [])
+        'core.capabilities.catalog.resolver.resolve_all_runtime_enabled', lambda *args: ([], [], [])
     )
     monkeypatch.setattr("core.chat.context.resolve_all_runtime_enabled", lambda *args: ([], [], []))
     with factory() as db:
@@ -64,14 +73,13 @@ async def test_running_scheduled_conversation_can_replay_progress_and_be_stopped
         yield {"type": "content", "delta": " complete"}
         yield {"type": "meta", "usage": {"total_tokens": 2}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    monkeypatch.setattr("orchestration.workflow.astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    monkeypatch.setattr('core.agent_runtime.runner.astream_chat_workflow', workflow)
     scheduler = AutomationScheduler()
 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
@@ -80,15 +88,15 @@ async def test_running_scheduled_conversation_can_replay_progress_and_be_stopped
             history = AutomationService(db).get_task_runs(task_id, "owner")
             assert history[0].chat_id, "Running task must link its conversation immediately"
             chat_id = history[0].chat_id
-        active = executor.get_active_run_for_chat(chat_id, "owner")
+        active = runtime.get_active_run_for_chat(chat_id, "owner")
         assert active is not None, "Running automation must be discoverable by normal chat recovery"
-        assert executor.get_active_run_for_chat(chat_id, "other") is None
+        assert runtime.get_active_run_for_chat(chat_id, "other") is None
         events = await stream.read(active.run_id)
         assert any(event.get("delta") == "Researching" for _, event in events)
         assert await stream.read(active.run_id) == events, "Navigation/refresh can replay progress"
-        with pytest.raises(executor.ChatRunPermissionDenied):
-            await executor.cancel_run(active.run_id, user_id="other")
-        await executor.cancel_run(active.run_id, user_id="owner")
+        with pytest.raises(runtime.ChatRunPermissionDenied):
+            await runtime.cancel_run(active.run_id, user_id="other")
+        await runtime.cancel_run(active.run_id, user_id="owner")
         await asyncio.wait_for(executing, 5)
         with factory() as db:
             service = AutomationService(db)
@@ -107,7 +115,7 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
     live_env, monkeypatch
 ):
     factory, stream, task_id = live_env
-    from core.services.chat_steer_service import put_pending_steer, take_pending_steer
+    from core.chat.steer import put_pending_steer, take_pending_steer
 
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -121,7 +129,7 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
         yield {"type": "content", "delta": "Revised risk report"}
         yield {"type": "meta", "usage": {"total_tokens": 5}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     scheduler = AutomationScheduler()
     notices = []
 
@@ -131,14 +139,13 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
     async def notify(*args):
         notices.append(args)
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", notify)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with factory() as db:
             chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
-        active = executor.get_active_run_for_chat(chat_id, "owner")
+        active = runtime.get_active_run_for_chat(chat_id, "owner")
         accepted = await put_pending_steer(
             active.run_id,
             {
@@ -165,36 +172,50 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
 
 
 @pytest.mark.asyncio
-async def test_scheduler_timeout_fences_live_child_and_keeps_chat_link(live_env, monkeypatch):
+async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live_env, monkeypatch):
     factory, stream, task_id = live_env
 
     async def workflow(**kwargs):
         yield {"type": "content", "delta": "Work in progress"}
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     monkeypatch.setattr(
-        "orchestration.schedulers.automation_scheduler.TASK_EXECUTION_TIMEOUT_S", 0.3
+        'orchestration.automations.automation_scheduler.TASK_EXECUTION_TIMEOUT_S',
+        0.3,
+        raising=False,
     )
     scheduler = AutomationScheduler()
 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    await asyncio.wait_for(scheduler.execute_task(task_id, "owner"), 5)
-    with factory() as db:
-        run = AutomationService(db).get_task_runs(task_id, "owner")[0]
-        assert run.status == "failed"
-        assert run.chat_id
-        assert executor.get_active_run_for_chat(run.chat_id, "owner") is None
+    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    try:
+        await asyncio.sleep(0.6)
+        assert not executing.done()
+        with factory() as db:
+            run = AutomationService(db).get_task_runs(task_id, "owner")[0]
+            assert run.status == "running"
+            active = runtime.get_active_run_for_chat(run.chat_id, "owner")
+        await runtime.cancel_run(active.run_id, user_id="owner")
+        await asyncio.wait_for(executing, 5)
+        with factory() as db:
+            run = AutomationService(db).get_task_runs(task_id, "owner")[0]
+            assert run.status == "failed"
+            assert run.chat_id
+            assert runtime.get_active_run_for_chat(run.chat_id, "owner") is None
+    finally:
+        if not executing.done():
+            executing.cancel()
+        await asyncio.gather(executing, return_exceptions=True)
 
 
 @pytest.mark.asyncio
 async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(live_env, monkeypatch):
     factory, stream, _ = live_env
-    from core.services.plan_service import PlanService
+    from core.chat.plans import PlanService
 
     entered, release = asyncio.Event(), asyncio.Event()
     observed = {}
@@ -214,7 +235,7 @@ async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(liv
             "usage": {"total_tokens": 3},
         }
 
-    monkeypatch.setattr("orchestration.subagents.plan_mode.astream_execute_plan", plan_workflow)
+    monkeypatch.setattr('orchestration.plans.mode.astream_execute_plan', plan_workflow)
     with factory() as db:
         plan = PlanService(db).create_plan(
             user_id="owner",
@@ -231,14 +252,13 @@ async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(liv
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with factory() as db:
             chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
-        active = executor.get_active_run_for_chat(chat_id, "owner")
+        active = runtime.get_active_run_for_chat(chat_id, "owner")
         assert active.request_payload["kind"] == "plan_execute"
         assert observed["automation_run"] is True
         assert any(evt["type"] == "plan_step_start" for _, evt in await stream.read(active.run_id))
@@ -262,12 +282,15 @@ async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, 
     assert not scheduler._running
     released = []
 
+    original_unlock = scheduler._release_lock
+
     async def unlock(task_id):
         released.append(task_id)
+        await original_unlock(task_id)
 
     monkeypatch.setattr(scheduler, "_release_lock", unlock)
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
     monkeypatch.setattr(AutomationService, "record_run_start", fail)
@@ -279,20 +302,20 @@ async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, 
 @pytest.mark.asyncio
 async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, monkeypatch):
     factory, stream, _ = live_env
-    from core.services.plan_service import PlanService
+    from core.chat.plans import PlanService
 
     entered = asyncio.Event()
 
     async def plan_workflow(**kwargs):
         yield {"type": "plan_step_start", "step_id": "step-1", "title": "Research"}
         entered.set()
-        while not executor.is_run_cancelled(kwargs["run_id"]):
+        while not runtime.is_run_cancelled(kwargs["run_id"]):
             await asyncio.sleep(0.01)
         with factory() as db:
             PlanService(db).update_plan(kwargs["plan_id"], status="cancelled")
         yield {"type": "plan_complete", "completed_steps": 0, "total_steps": 1}
 
-    monkeypatch.setattr("orchestration.subagents.plan_mode.astream_execute_plan", plan_workflow)
+    monkeypatch.setattr('orchestration.plans.mode.astream_execute_plan', plan_workflow)
     with factory() as db:
         plan = PlanService(db).create_plan(
             user_id="owner",
@@ -309,20 +332,19 @@ async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, m
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     await asyncio.wait_for(entered.wait(), 5)
     with factory() as db:
         chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
-    active = executor.get_active_run_for_chat(chat_id, "owner")
-    await executor.cancel_run(active.run_id, user_id="owner")
+    active = runtime.get_active_run_for_chat(chat_id, "owner")
+    await runtime.cancel_run(active.run_id, user_id="owner")
     await asyncio.wait_for(executing, 5)
     with factory() as db:
         svc = AutomationService(db)
         assert svc.get_task_runs(task_id, "owner")[0].status == "failed"
         assert svc.get_task(task_id, "owner").consecutive_failures == 0
-    assert executor.get_active_run_for_chat(chat_id, "owner") is None
+    assert runtime.get_active_run_for_chat(chat_id, "owner") is None
 
 
 @pytest.mark.asyncio
@@ -335,13 +357,12 @@ async def test_stopping_scheduler_fences_already_started_conversation(live_env, 
         entered.set()
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     scheduler = AutomationScheduler()
 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     await scheduler.start()
     scheduler._launch_execution(task_id, "owner")
     await asyncio.wait_for(entered.wait(), 5)
@@ -351,7 +372,7 @@ async def test_stopping_scheduler_fences_already_started_conversation(live_env, 
         run = AutomationService(db).get_task_runs(task_id, "owner")[0]
         assert run.status == "failed"
         assert run.chat_id
-        assert executor.get_active_run_for_chat(run.chat_id, "owner") is None
+        assert runtime.get_active_run_for_chat(run.chat_id, "owner") is None
 
 
 @pytest.mark.asyncio
@@ -416,20 +437,19 @@ async def test_scheduled_tool_result_is_durable_before_next_model_round(
         yield {"type": "content", "delta": "; continuing classification"}
         yield {"type": "meta", "usage": {"total_tokens": 2}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     scheduler = AutomationScheduler()
 
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_release_lock", noop)
     monkeypatch.setattr(scheduler, "_send_notification", noop)
     executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await asyncio.wait_for(reached.wait(), 5)
         with factory() as db:
             scheduled = AutomationService(db).get_task_runs(task_id, "owner")[0]
-            active = executor.get_active_run_for_chat(scheduled.chat_id, "owner")
+            active = runtime.get_active_run_for_chat(scheduled.chat_id, "owner")
             assert active is not None
             row = db.get(ChatMessage, active.message_id)
             assert row is not None

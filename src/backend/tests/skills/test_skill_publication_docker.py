@@ -54,7 +54,7 @@ def inspect_new_sandbox(view, shared):
 
 
 def test_new_readonly_sandbox_after_replace_and_delete_has_exact_files(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"old.txt": "old", "nested/run.txt": "v1"})
     view = prepare_skill_view("alice")
@@ -71,7 +71,7 @@ def test_new_readonly_sandbox_after_replace_and_delete_has_exact_files(cloud):
 
 
 def test_cube_delivery_replaces_complete_tree_and_is_readable_by_nonroot(tmp_path, monkeypatch):
-    from core.sandbox.cube.provider import CubeSandboxProvider
+    from core.sandbox.providers.cube.provider import CubeSandboxProvider
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "skills"))
     source = tmp_path / "source"

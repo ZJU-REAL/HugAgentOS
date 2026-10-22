@@ -7,9 +7,8 @@ down the drain, and a budget must be a hard ceiling rather than a suggestion.
 
 import asyncio
 
+import orchestration.workers._worker_base as wb
 import pytest
-
-from orchestration.schedulers import _worker_base as wb
 
 
 @pytest.fixture(autouse=True)

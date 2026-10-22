@@ -17,7 +17,7 @@ SEED = """
 import json,sys
 from core.db.engine import SessionLocal
 from core.db.models import UserShadow
-from core.services.local_user_service import LocalUserService
+from core.auth.local_users import LocalUserService
 body=json.load(sys.stdin)
 created=[]
 with SessionLocal() as db:
@@ -40,7 +40,7 @@ CLEAN = """
 import asyncio,json,sys
 from core.db.engine import SessionLocal
 from core.db.models import UserShadow,Artifact
-from core.storage import get_storage
+from core.files.storage import get_storage
 from api.app import app
 from edition_ee.routes.config_users import delete_user
 body=json.load(sys.stdin)

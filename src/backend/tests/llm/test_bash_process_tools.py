@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 import pytest
 from core.llm.tools.sandbox_tool import register_bash
 
@@ -21,12 +22,12 @@ def payload(result):
 
 
 async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypatch, tmp_path):
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
     from core.db.engine import Base
     from core.db.models import ChatSession, UserShadow
-    from core.services.commands import store
-    from orchestration.commands.runtime import runtime
+    from core.sandbox.commands.runtime import runtime
+    from core.sandbox.commands import store
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
     engine = create_engine("sqlite:///" + str(tmp_path / "tools.sqlite"),
                            connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
@@ -81,7 +82,7 @@ async def test_bash_yields_and_write_stdin_waits_on_same_owned_process(monkeypat
 
 async def test_registered_schemas_expose_two_tool_contract(monkeypatch):
     from agentscope.tool import Toolkit as AgentToolkit
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
 
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
     collector = ToolCollector()

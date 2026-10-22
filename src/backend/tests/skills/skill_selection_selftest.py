@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from core.agent_skills.selector import select_skills_for_query
-from core.config.catalog import get_enabled_ids
+from core.llm.skill_selection import select_skills_for_query
+from core.capabilities.catalog.api import get_enabled_ids
 
 
 def test_skill_selector_no_model():
@@ -33,7 +33,7 @@ def test_skill_selector_with_llm():
     print("\nTesting skill selector with LLM...")
 
     try:
-        from core.llm.chat_models import get_summarize_model
+        from core.models.chat_models import get_summarize_model
 
         model = get_summarize_model()
     except Exception as e:
@@ -80,7 +80,7 @@ def test_explicit_vs_implicit():
     """Test explicit (required) vs implicit (available) skills via AgentSpec."""
     print("\nTesting explicit vs implicit skills...")
 
-    from orchestration.registry import AgentSpec
+    from core.llm.factory.specs import AgentSpec
 
     spec = AgentSpec(
         name="test_agent",

@@ -6,19 +6,33 @@ design_pick，user_question 被静默丢弃 —— 前端收不到提问卡片�
 """
 
 from __future__ import annotations
+from core.agent_runtime.integrations import memory_identity as memory_identity_module
+from core.agent_runtime.integrations import memory_session as memory_session_module
+from core.llm.runtime import streaming as streaming_module
+from core.llm.citations import allocator as allocator_module
 
 from types import SimpleNamespace
 
+import core.agent_runtime.integrations.memory as memory
+import core.agent_runtime.resources as resources
+import core.agent_runtime.runner as runner
+import core.agent_runtime.targets as targets
+import core.capabilities.catalog.resolver as catalog_resolver
+import core.llm.citations.anchor as citation_anchor
+import core.llm.factory as factory
+import core.llm.runtime.streaming as streaming
 import pytest
-from orchestration.memory_integration import SessionMemory
+from core.agent_runtime.integrations.memory_session import SessionMemory
 
 
 @pytest.mark.asyncio
 async def test_user_question_events_reach_the_stream(monkeypatch):
     from core.db import engine as db_engine
-    from core.llm import builtin_subagents
-    from core.services import compaction_service, user_agent_service, user_service
-    from orchestration import workflow
+    from core.capabilities.agents import builtin as builtin_subagents
+    from core.chat.compaction import service as compaction_service
+    from core.capabilities.agents import edition as user_agent_service
+    from core.auth import users as user_service
+    pass
 
     class DummySession:
         def __enter__(self):
@@ -78,20 +92,20 @@ async def test_user_question_events_reach_the_stream(monkeypatch):
     )
     monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
     monkeypatch.setattr(compaction_service, "maybe_run_pre_turn_compaction", no_compaction)
-    monkeypatch.setattr(workflow, "create_agent_executor", create_agent)
-    monkeypatch.setattr(workflow, "open_session_memory", no_memory)
-    monkeypatch.setattr(workflow, "build_user_identity_block", no_identity)
-    monkeypatch.setattr(workflow, "anchor_start_for_chat", lambda _chat_id: 0)
-    monkeypatch.setattr(workflow, "enabled_skill_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
-    monkeypatch.setattr(workflow, "StreamingAgent", FakeStreamingAgent)
-    monkeypatch.setattr(workflow, "_persistent_clients", [])
+    monkeypatch.setattr(factory, "create_agent_executor", create_agent)
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', no_memory)
+    monkeypatch.setattr(memory_identity_module, 'build_user_identity_block', no_identity)
+    monkeypatch.setattr(allocator_module, 'anchor_start_for_chat', lambda _chat_id: 0)
+    monkeypatch.setattr(catalog_resolver, "enabled_skill_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_mcp_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
+    monkeypatch.setattr(streaming_module, 'StreamingAgent', FakeStreamingAgent)
+    monkeypatch.setattr(resources.process_state(), 'persistent_clients', [])
 
     chunks = [
         chunk
-        async for chunk in workflow.astream_chat_workflow(
+        async for chunk in runner.astream_chat_workflow(
             session_messages=[{"role": "user", "content": "问我一个问题"}],
             user_message="问我一个问题",
             context={

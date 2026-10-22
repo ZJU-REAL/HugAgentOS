@@ -12,7 +12,7 @@ Build the backend image before starting the bucket initializer. Object mounts us
 
 Existing installations must back up configuration, databases and file references before changing providers. Copy required objects and verify their SHA-256 values. Preserve the source objects.
 
-The storage factory is core/storage/factory.py. S3StorageBackend uses boto3 and includes directory operations. LocalStorageBackend serves desktop local files. OSS and OBS adapters remain EE providers.
+The storage factory is core/files/storage/factory.py. S3StorageBackend uses boto3 and includes directory operations. LocalStorageBackend serves desktop local files. OSS and OBS adapters remain EE providers.
 
 The artifact store supports S3, OSS and OBS. It keeps local metadata records and mirrors them into object storage. Historical download references remain valid when migrated objects keep their storage keys.
 

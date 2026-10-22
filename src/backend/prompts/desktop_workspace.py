@@ -7,13 +7,13 @@ from xml.etree.ElementTree import Element, SubElement, indent, tostring
 
 def build_environment_context(ctx: dict, *, current_date: str) -> str:
     """Describe the project execution cwd and separate session scratch location."""
-    from core.sandbox._common import WORKSPACE
-    from core.sandbox.desktop_paths import workspace_directory
-    from core.llm.tool_permissions import normalize_approval_mode
-    from core.services.local_grant_service import grants_for_gate, policy_for_gate
+    from core.sandbox.workspace.paths import WORKSPACE
+    from core.sandbox.workspace.desktop import workspace_directory
+    from core.sandbox.permissions.approval import normalize_approval_mode
+    from features.desktop.local.grants import grants_for_gate, policy_for_gate
 
     session = str(ctx.get("sandbox_session_id") or ctx.get("chat_id") or "").strip()
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
     scope = project_scope_from_context(ctx)
     cwd = workspace_directory(WORKSPACE, session, scope=scope, validate=False)
     root = Element("environment_context")
@@ -21,7 +21,7 @@ def build_environment_context(ctx: dict, *, current_date: str) -> str:
     SubElement(root, "session_scratch").text = workspace_directory(WORKSPACE, session)
     SubElement(root, "os").text = platform.system()
     # The public Bash tool invokes Bash on all platforms, including bundled Git Bash on Windows.
-    from services.script_runner_service.runtime_tools import resolve_bash_executable
+    from core.sandbox.runner.runtime_tools import resolve_bash_executable
     import os
     executable = resolve_bash_executable()
     SubElement(root, "shell").text = os.path.splitext(os.path.basename(executable))[0] if executable else "unavailable"

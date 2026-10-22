@@ -24,7 +24,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    from core.db.edition_tables import ce_create_all
+    from core.db.edition import ce_create_all
 
     ce_create_all(op.get_bind())
 

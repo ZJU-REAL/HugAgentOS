@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+from core.files import artifact_bytes as shared_artifact_bytes
 
 import asyncio
 import base64
@@ -64,8 +65,8 @@ def _state(**kw):
 
 @pytest.fixture()
 def working_bridge(monkeypatch):
-    from core.vision import service as svc
-    from core.vision.provider import VisionCallResult
+    from core.models.vision import service as svc
+    from core.models.vision.provider import VisionCallResult
 
     class _FakeProvider:
         def __init__(self, cfg):
@@ -80,9 +81,8 @@ def working_bridge(monkeypatch):
     monkeypatch.setattr(svc.VisionBridge, "_cache_set", staticmethod(lambda k, r: _none()))
     svc.VisionBridge._instance = None
 
-    from core.llm import hooks
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
     yield
     svc.VisionBridge._instance = None
 
@@ -93,7 +93,7 @@ async def _none():
 
 def _collect(state):
     """跑一遍 StreamingAgent 的识图前置，收集它 yield 出的事件。"""
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
 
     agent = SimpleNamespace(state=state)
     streaming = StreamingAgent.__new__(StreamingAgent)
@@ -109,9 +109,9 @@ def _collect(state):
 
 
 def test_emits_running_then_done_around_the_wait(working_bridge, monkeypatch):
-    from core.llm import middlewares
+    from core.llm.context import attachment_hook
 
-    monkeypatch.setattr(middlewares, "_effective_model_supports_vision", lambda st: False)
+    monkeypatch.setattr(attachment_hook, "supports_native_images", lambda st: False)
     state = _state()
     events = _collect(state)
 
@@ -126,9 +126,9 @@ def test_emits_running_then_done_around_the_wait(working_bridge, monkeypatch):
 
 def test_done_reports_failure_without_pretending_success(monkeypatch):
     """桥配了但读失败时，done 必须 ok=False —— 前端据此决定要不要提示。"""
-    from core.llm import hooks, middlewares
-    from core.vision import service as svc
-    from core.vision.provider import VisionCallResult
+    from core.llm.context import attachment_hook
+    from core.models.vision import service as svc
+    from core.models.vision.provider import VisionCallResult
 
     class _DeadProvider:
         def __init__(self, cfg):
@@ -142,8 +142,8 @@ def test_done_reports_failure_without_pretending_success(monkeypatch):
     monkeypatch.setattr(svc.VisionBridge, "_cache_get", staticmethod(lambda k: _none()))
     monkeypatch.setattr(svc.VisionBridge, "_cache_set", staticmethod(lambda k, r: _none()))
     svc.VisionBridge._instance = None
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
-    monkeypatch.setattr(middlewares, "_effective_model_supports_vision", lambda st: False)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(attachment_hook, "supports_native_images", lambda st: False)
 
     events = _collect(_state())
     svc.VisionBridge._instance = None
@@ -154,17 +154,17 @@ def test_done_reports_failure_without_pretending_success(monkeypatch):
 
 
 def test_silent_when_turn_has_no_images(working_bridge, monkeypatch):
-    from core.llm import middlewares
+    from core.llm.context import attachment_hook
 
-    monkeypatch.setattr(middlewares, "_effective_model_supports_vision", lambda st: False)
+    monkeypatch.setattr(attachment_hook, "supports_native_images", lambda st: False)
     assert _collect(_state(uploaded_files=[{"name": "a.txt", "mime_type": "text/plain"}])) == []
 
 
 def test_silent_for_natively_multimodal_model(working_bridge, monkeypatch):
     """主模型自己能看图时压根不转写，也就没有「图像理解中」这回事。"""
-    from core.llm import middlewares
+    from core.llm.context import attachment_hook
 
-    monkeypatch.setattr(middlewares, "_effective_model_supports_vision", lambda st: True)
+    monkeypatch.setattr(attachment_hook, "supports_native_images", lambda st: True)
     state = _state()
     assert _collect(state) == []
     assert state.vision_evidence_text == ""
@@ -172,12 +172,12 @@ def test_silent_for_natively_multimodal_model(working_bridge, monkeypatch):
 
 def test_failure_in_pre_pass_still_closes_the_status(monkeypatch):
     """前置整体抛错也必须补一个 done，否则前端会永远停在「图像理解中」。"""
-    from core.llm import middlewares
+    from core.llm.context import attachment_hook
 
     def _boom(_st):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(middlewares, "_effective_model_supports_vision", _boom)
+    monkeypatch.setattr(attachment_hook, "supports_native_images", _boom)
     events = _collect(_state())
     assert len(events) == 1
     assert events[0][1]["status"] == "done" and events[0][1]["ok"] is False
@@ -187,8 +187,8 @@ def test_failure_in_pre_pass_still_closes_the_status(monkeypatch):
 
 
 def test_middleware_uses_precomputed_text_without_calling_the_model(monkeypatch):
-    from core.llm.middlewares import FileContextMiddleware
-    from core.vision import service as svc
+    from tests.orchestration.hook_support import inject_vision_context
+    from core.models.vision import service as svc
 
     calls = {"n": 0}
 
@@ -197,7 +197,7 @@ def test_middleware_uses_precomputed_text_without_calling_the_model(monkeypatch)
             calls["n"] += 1
 
         async def describe(self, *a, **kw):
-            from core.vision.provider import VisionCallResult
+            from core.models.vision.provider import VisionCallResult
 
             return VisionCallResult(text=EVIDENCE_JSON, mode="json_object")
 
@@ -206,7 +206,7 @@ def test_middleware_uses_precomputed_text_without_calling_the_model(monkeypatch)
     svc.VisionBridge._instance = None
 
     state = _state(vision_evidence_text="<image-evidence>预先转写好的</image-evidence>")
-    asyncio.run(FileContextMiddleware._inject_vision_evidence(state, IMAGE_FILES, "u1"))
+    asyncio.run(inject_vision_context(state, IMAGE_FILES, "u1"))
     svc.VisionBridge._instance = None
 
     assert calls["n"] == 0, "已有预转写结果却又打了一次视觉模型"

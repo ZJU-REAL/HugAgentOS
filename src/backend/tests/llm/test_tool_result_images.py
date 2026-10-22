@@ -21,11 +21,11 @@ from agentscope.message import (
 from agentscope.model import ChatResponse
 from agentscope.tool import Toolkit
 from agentscope.tool._response import ToolChunk
-from core.llm.chat_models import OpenAICompatChatModel, ReasoningEchoChatFormatter
-from core.llm.compacting_agent import CompactingAgent
-from core.llm.context_ir import IMAGE_TOKEN_RESERVE
-from core.llm.offloader import SandboxOffloader
-from core.llm.tool_collector import ToolCollector
+from core.models.chat_models import OpenAICompatChatModel, ReasoningEchoChatFormatter
+from core.llm.context.compacting_agent import CompactingAgent
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.llm.context.offloader import SandboxOffloader
+from core.llm.runtime.tool_collector import ToolCollector
 from core.llm.tools.read_image_tool import register_read_image
 from PIL import Image
 
@@ -207,7 +207,7 @@ async def test_large_image_does_not_trigger_false_context_compaction(
         "settings",
         replace(settings, compaction=replace(settings.compaction, enabled=compaction_enabled)),
     )
-    monkeypatch.setattr("core.services.compaction_summary._summarize", unexpected_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', unexpected_summary)
     monkeypatch.setattr("core.llm.tools.read_image_tool._read_path_bytes", read_bytes)
     model = CaptureModel()
     monkeypatch.setattr(model, "generate_structured_output", unexpected_summary)
@@ -226,8 +226,8 @@ async def test_large_image_does_not_trigger_false_context_compaction(
 
 
 def test_history_estimate_and_summary_do_not_treat_image_as_text():
-    from core.llm import compaction as C
-    from core.services.compaction_budget import estimate_history_tokens
+    from core.llm.context import compaction as C
+    from core.llm.context.budget import estimate_history_tokens
 
     encoded = "A" * 800_000
     history = [
@@ -281,10 +281,10 @@ def jx_chat_model_classes() -> list[type]:
     from agentscope.model import ChatModelBase
 
     for module in (
-        "core.llm.chat_models",
-        "core.llm.failover",
-        "core.llm.providers.vendor_models",
-        "core.llm.responses_models",
+        "core.models.chat_models",
+        "core.models.failover",
+        "core.models.providers.vendor_models",
+        "core.models.responses",
     ):
         importlib.import_module(module)
 
@@ -292,7 +292,7 @@ def jx_chat_model_classes() -> list[type]:
 
     def walk(cls: type) -> None:
         for sub in cls.__subclasses__():
-            if sub.__module__.startswith("core.llm") and sub not in seen:
+            if sub.__module__.startswith("core.models") and sub not in seen:
                 seen.append(sub)
             walk(sub)
 

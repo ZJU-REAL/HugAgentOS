@@ -5,6 +5,8 @@ alternative prompt builders or tool routers.
 """
 
 from __future__ import annotations
+from core.llm import prompt_storage as prompt_storage_module
+from core.llm import prompt_versions as prompt_versions_module
 
 from datetime import datetime
 import os
@@ -13,7 +15,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from core.llm.execution_manifest import PromptManifestBuilder, stable_hash
+from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
 from prompts.prompt_config import PromptConfig
 from prompts.provider import (
     FilesystemPromptProvider,
@@ -171,9 +173,9 @@ def invalidate_prompt_cache() -> None:
 
     # Also drop prompt_version_service cached payload
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        pvs.invalidate_cache()
+        prompt_storage_module.invalidate_cache()
     except Exception:
         pass
 
@@ -235,9 +237,9 @@ def build_subagent_system_prompt(
     # Prefer active version's parts when available (map by part_id suffix)
     _active_parts: Dict[str, str] = {}
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        _av = pvs.get_active_version("system")
+        _av = prompt_versions_module.get_active_version("system")
         if _av:
             for p in _av.get("parts") or []:
                 if not p.get("is_enabled", True):
@@ -383,14 +385,14 @@ def ensure_project_mode_part_seeded() -> None:
 
     log = logging.getLogger(__name__)
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
         # First make sure the active version exists (first cold start seeds from filesystem md)
         try:
-            pvs.seed_from_filesystem()
+            prompt_versions_module.seed_from_filesystem()
         except Exception:
             pass
-        active = pvs.get_active_version("system")
+        active = prompt_versions_module.get_active_version("system")
         if not active or not active.get("id"):
             log.warning("[prompt_seed] no active system version; skipped project_mode seed")
             return
@@ -408,7 +410,7 @@ def ensure_project_mode_part_seeded() -> None:
                 "is_enabled": True,
             }
         )
-        pvs.upsert_version(
+        prompt_versions_module.upsert_version(
             "system",
             active["id"],
             name=active.get("name"),

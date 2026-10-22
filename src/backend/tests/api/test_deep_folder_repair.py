@@ -30,7 +30,7 @@ def test_deep_batch_upload_move_and_breadcrumb(client):
 
 
 def test_path_in_filename_is_rejected_before_storage(client, monkeypatch):
-    from core.storage import get_storage
+    from core.files.storage import get_storage
     def fail(*a, **k):
         raise AssertionError("invalid filename reached object storage")
     monkeypatch.setattr(get_storage(), "upload_bytes", fail)

@@ -8,7 +8,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
 from core.db.models import ContentBlock
-from core.services.capability_workcopies import _id
+from features.desktop.capability.workcopies import record_id as _id
 
 
 def test_capability_record_ids_fit_model():

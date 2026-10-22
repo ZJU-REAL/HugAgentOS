@@ -6,6 +6,7 @@ restores the filesystem version.
 """
 
 from __future__ import annotations
+from core.llm import prompt_kinds as prompt_kinds_module, prompt_rendering as prompt_rendering_module, prompt_storage as prompt_storage_module, prompt_versions as prompt_versions_module
 
 import logging
 from pathlib import Path
@@ -14,8 +15,7 @@ from typing import Any, Dict, List, Optional
 from api.deps import require_system_settings as require_config
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.services import prompt_version_service as pvs
-from core.services.system_config import code_capability_enabled
+from core.config.store.execution_options import code_capability_enabled
 from fastapi import APIRouter, Depends, HTTPException
 from prompts.prompt_config import load_prompt_config
 from prompts.provider import _FILE_CONTENT_CACHE, FilesystemPromptProvider
@@ -76,8 +76,8 @@ def _load_fs_parts() -> Dict[str, Dict[str, Any]]:
 
 def _require_active_system_version(db: Session) -> Dict[str, Any]:
     """Return the active 'system' version, seeding defaults if the pool is empty."""
-    pvs.seed_from_filesystem(db=db)
-    active = pvs.get_active_version("system", db=db)
+    prompt_versions_module.seed_from_filesystem(db=db)
+    active = prompt_versions_module.get_active_version("system", db=db)
     if not active:
         raise HTTPException(status_code=500, detail="no active system prompt version configured")
     return active
@@ -85,7 +85,7 @@ def _require_active_system_version(db: Session) -> Dict[str, Any]:
 
 def _persist_active_system(version: Dict[str, Any], db: Session) -> Dict[str, Any]:
     """Save updated parts/metadata back into the active system version."""
-    saved = pvs.upsert_version(
+    saved = prompt_versions_module.upsert_version(
         "system",
         version["id"],
         name=version.get("name"),
@@ -199,8 +199,8 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
                 + tool_appendix
             )
 
-        active = pvs.get_active_version("system", db=db)
-        code_active = pvs.get_active_version("code_exec", db=db)
+        active = prompt_versions_module.get_active_version("system", db=db)
+        code_active = prompt_versions_module.get_active_version("code_exec", db=db)
         enabled_parts = len(
             [
                 p
@@ -208,7 +208,7 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
                 if p.get("is_enabled", True) and (p.get("content") or "").strip()
             ]
         )
-        code_seg = pvs.render_kind_segment("code_exec", db) if code_capability_enabled() else ""
+        code_seg = prompt_rendering_module.render_kind_segment("code_exec", db) if code_capability_enabled() else ""
         part_count = (
             enabled_parts
             + (1 if code_seg else 0)
@@ -243,7 +243,7 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
     finally:
         if clients:
             try:
-                from core.llm.mcp_manager import close_clients
+                from core.llm.mcp.manager import close_clients
 
                 await close_clients(clients)
             except Exception as exc:
@@ -279,12 +279,12 @@ def list_parts(db: Session = Depends(get_db)):
 @router.get("/active", dependencies=[Depends(require_config)], summary="激活版本概览")
 def get_active_info(db: Session = Depends(get_db)):
     """返回各 kind 当前激活提示词版本的概要（id、名称、分段数、更新时间）。"""
-    pvs.seed_from_filesystem(db=db)
-    payload = pvs._load_payload(db)  # noqa: SLF001
+    prompt_versions_module.seed_from_filesystem(db=db)
+    payload = prompt_storage_module.load_payload(db)  # noqa: SLF001
     active = payload.get("active") or {}
     result = {}
     for kind, vid in active.items():
-        v = pvs.get_version(kind, vid, db=db) if vid else None
+        v = prompt_versions_module.get_version(kind, vid, db=db) if vid else None
         result[kind] = {
             "id": vid,
             "name": (v or {}).get("name"),
@@ -478,7 +478,7 @@ async def preview_prompt(db: Session = Depends(get_db)):
         seg = ""
         if code_capability_enabled():
             try:
-                seg = pvs.render_kind_segment("code_exec", db) or ""
+                seg = prompt_rendering_module.render_kind_segment("code_exec", db) or ""
             except Exception:
                 seg = ""
         appended = bool(seg)
@@ -509,7 +509,7 @@ async def preview_prompt(db: Session = Depends(get_db)):
         return success_response(data=base)
 
     # Prefer the active version from the prompt_version pool
-    active = pvs.get_active_version("system", db=db)
+    active = prompt_versions_module.get_active_version("system", db=db)
     if active and active.get("parts"):
         chunks: List[str] = []
         for p in active["parts"]:
@@ -565,15 +565,15 @@ class KindCreateRequest(BaseModel):
 @router.get("/kinds", dependencies=[Depends(require_config)], summary="提示词 kind（tab）清单")
 def list_prompt_kinds(db: Session = Depends(get_db)):
     """内置 + 管理员自建的 kind。「模式选择」页绑定提示词时也读这份清单。"""
-    pvs.seed_from_filesystem(db=db)
-    return success_response(data={"kinds": pvs.all_kinds(db)})
+    prompt_versions_module.seed_from_filesystem(db=db)
+    return success_response(data={"kinds": prompt_kinds_module.all_kinds(db)})
 
 
 @router.post("/kinds", dependencies=[Depends(require_config)], summary="新建提示词 tab")
 def create_prompt_kind(req: KindCreateRequest, db: Session = Depends(get_db)):
     """新开一个 tab，并给它建好可直接编辑的空 default 版本。"""
     try:
-        created = pvs.create_custom_kind(req.key, req.label, db=db)
+        created = prompt_kinds_module.create_custom_kind(req.key, req.label, db=db)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return success_response(data=created)
@@ -586,7 +586,7 @@ def delete_prompt_kind(key: str, db: Session = Depends(get_db)):
     绑了它的对话模式会退回默认提示词装配，不会让对话起不来。
     """
     try:
-        ok = pvs.delete_custom_kind(key, db=db)
+        ok = prompt_kinds_module.delete_custom_kind(key, db=db)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not ok:
@@ -598,9 +598,9 @@ def delete_prompt_kind(key: str, db: Session = Depends(get_db)):
 def list_pool_versions(kind: Optional[str] = None, db: Session = Depends(get_db)):
     """列出提示词版本池中的所有版本，可按 kind 过滤；并返回各 kind 的激活映射。"""
     # Auto-seed defaults on first read so the pool is never empty after boot
-    pvs.seed_from_filesystem(db=db)
-    items = pvs.list_versions(kind=kind, db=db)
-    payload = pvs._load_payload(db)  # noqa: SLF001 — access for active map
+    prompt_versions_module.seed_from_filesystem(db=db)
+    items = prompt_versions_module.list_versions(kind=kind, db=db)
+    payload = prompt_storage_module.load_payload(db)  # noqa: SLF001 — access for active map
     return success_response(
         data={
             "versions": items,
@@ -616,7 +616,7 @@ def list_pool_versions(kind: Optional[str] = None, db: Session = Depends(get_db)
 )
 def get_pool_version(kind: str, version_id: str, db: Session = Depends(get_db)):
     """获取版本池中指定 kind/version_id 版本的完整内容。"""
-    v = pvs.get_version(kind, version_id, db=db)
+    v = prompt_versions_module.get_version(kind, version_id, db=db)
     if v is None:
         raise HTTPException(status_code=404, detail=f"version not found: {kind}/{version_id}")
     return success_response(data=v)
@@ -628,11 +628,11 @@ def create_pool_version(req: VersionUpsertRequest, db: Session = Depends(get_db)
     if not req.id:
         raise HTTPException(status_code=400, detail="id is required when creating a version")
     # Reject duplicates explicitly
-    if pvs.get_version(req.kind, req.id, db=db) is not None:
+    if prompt_versions_module.get_version(req.kind, req.id, db=db) is not None:
         raise HTTPException(status_code=409, detail=f"version already exists: {req.kind}/{req.id}")
     parts = [p.model_dump() for p in (req.parts or [])] if req.parts is not None else None
     try:
-        saved = pvs.upsert_version(
+        saved = prompt_versions_module.upsert_version(
             req.kind,
             req.id,
             name=req.name,
@@ -659,10 +659,10 @@ def update_pool_version(
 ):
     """更新版本池中指定版本的元数据与分段；路径中的 kind/version_id 为准，更新后失效提示词缓存。"""
     # kind/version_id in path are authoritative; body fields override metadata
-    if pvs.get_version(kind, version_id, db=db) is None:
+    if prompt_versions_module.get_version(kind, version_id, db=db) is None:
         raise HTTPException(status_code=404, detail=f"version not found: {kind}/{version_id}")
     parts = [p.model_dump() for p in (req.parts or [])] if req.parts is not None else None
-    saved = pvs.upsert_version(
+    saved = prompt_versions_module.upsert_version(
         kind,
         version_id,
         name=req.name,
@@ -688,7 +688,7 @@ def update_pool_version(
 def delete_pool_version(kind: str, version_id: str, db: Session = Depends(get_db)):
     """从版本池中删除指定版本（激活中的版本不可删除）。"""
     try:
-        pvs.delete_version(kind, version_id, db=db)
+        prompt_versions_module.delete_version(kind, version_id, db=db)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"version not found: {kind}/{version_id}")
     except ValueError as exc:
@@ -704,7 +704,7 @@ def delete_pool_version(kind: str, version_id: str, db: Session = Depends(get_db
 def activate_pool_version(kind: str, version_id: str, db: Session = Depends(get_db)):
     """将指定版本设为该 kind 的激活版本，并失效提示词缓存使其立即生效。"""
     try:
-        pvs.activate_version(kind, version_id, db=db)
+        prompt_versions_module.activate_version(kind, version_id, db=db)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"version not found: {kind}/{version_id}")
     except ValueError as exc:
@@ -717,7 +717,7 @@ def activate_pool_version(kind: str, version_id: str, db: Session = Depends(get_
 @router.post("/versions/seed", dependencies=[Depends(require_config)], summary="初始化版本池")
 def seed_pool(db: Session = Depends(get_db)):
     """从文件系统默认提示词初始化版本池。"""
-    result = pvs.seed_from_filesystem(db=db)
+    result = prompt_versions_module.seed_from_filesystem(db=db)
     _invalidate_prompt_cache()
     return success_response(data=result)
 
@@ -734,7 +734,7 @@ async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_conf
     from prompts.desktop_templates import desktop_version, render_desktop_part
     from prompts.desktop_workspace import SKIP_PARTS
     from prompts.prompt_runtime import build_system_prompt
-    version = pvs.get_version("desktop", request.version_id, db=db)
+    version = prompt_versions_module.get_version("desktop", request.version_id, db=db)
     if version is None:
         raise HTTPException(404, "desktop prompt version not found")
     if request.parts is not None:
@@ -754,11 +754,11 @@ async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_conf
             )) or " "
         prompt = build_system_prompt(load_prompt_config(), ctx, desktop_preview=True)
         if code_capability_enabled():
-            parts = pvs.effective_parts("code_exec", db=db)
+            parts = prompt_rendering_module.effective_parts("code_exec", db=db)
             prompt += "\n\n" + "\n\n".join(p["content"] for p in sorted(parts, key=lambda p: p.get("sort_order", 0))
                 if p.get("is_enabled", True) and p.get("part_id") not in SKIP_PARTS["code_exec"])
-        from core.sandbox._common import WORKSPACE
-        from core.sandbox.desktop_paths import workspace_directory
+        from core.sandbox.workspace.paths import WORKSPACE
+        from core.sandbox.workspace.desktop import workspace_directory
         tool = render_desktop_part("bash_tool", cwd=workspace_directory(WORKSPACE, ctx["chat_id"]) if local else "{runtime.cwd}")
         runtime = await _runtime_prompt_preview(db, approval_mode="ask") if local else None
         if runtime:
@@ -772,17 +772,17 @@ async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_conf
 
 @router.get("/snapshot", dependencies=[Depends(require_config)])
 def export_snapshot(db: Session = Depends(get_db)):
-    from core.content.content_blocks import build_prompt_snapshot
+    from core.files.content.content_blocks import build_prompt_snapshot
     return success_response(build_prompt_snapshot(db))
 
 
 @router.post("/snapshot", dependencies=[Depends(require_config)])
 def import_snapshot(body: Dict[str, Any], db: Session = Depends(get_db)):
-    from core.content.content_blocks import import_prompt_snapshot, ContentSnapshotError
+    from core.files.content.content_blocks import import_prompt_snapshot, ContentSnapshotError
     try:
         result = import_prompt_snapshot(db, body, overwrite=True, default_updated_by="prompt_management")
     except ContentSnapshotError as exc:
         raise HTTPException(400, str(exc)) from exc
-    pvs.invalidate_cache()
+    prompt_storage_module.invalidate_cache()
     _invalidate_prompt_cache()
     return success_response(result)

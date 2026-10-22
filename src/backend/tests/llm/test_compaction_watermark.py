@@ -1,7 +1,8 @@
 """Regression tests for sequence-watermarked, CAS-safe compaction."""
 
 from __future__ import annotations
-from core.services import compaction_budget as budget
+from core.llm.context import budget as budget
+from core.chat.compaction import service as S
 from core.config import settings as config_settings
 
 import asyncio
@@ -12,19 +13,17 @@ import time
 import core.db.engine as engine_mod
 from core.db.models import ChatMessage, ChatSession
 from core.db.repository.chat import ChatMessageRepository
-from core.llm import compaction as C
-from core.services import compaction_service as S
-from core.services.chat_service import ChatService, CompactionCASConflict
+from core.llm.context import compaction as C
+from core.chat.service import ChatService
+from core.chat.compaction_types import CompactionCASConflict
 from sqlalchemy.orm import sessionmaker
 
 CHAT_ID = "chat_compaction_watermark"
-
 
 def _session(db) -> ChatService:
     db.add(ChatSession(chat_id=CHAT_ID, user_id="u1", title="watermark"))
     db.commit()
     return ChatService(db)
-
 
 def _keep_recent(monkeypatch, tokens: int, **overrides) -> None:
     """These histories are a few words long; the production 20k verbatim tail
@@ -32,7 +31,6 @@ def _keep_recent(monkeypatch, tokens: int, **overrides) -> None:
     real = config_settings.settings
     compaction = dataclasses.replace(real.compaction, keep_recent_tokens=tokens, **overrides)
     monkeypatch.setattr(config_settings, "settings", dataclasses.replace(real, compaction=compaction))
-
 
 def _message(svc: ChatService, message_id: str, role: str, content: str) -> ChatMessage:
     return svc.message_repo.create(
@@ -43,7 +41,6 @@ def _message(svc: ChatService, message_id: str, role: str, content: str) -> Chat
             "content": content,
         }
     )
-
 
 def test_direct_orm_message_writes_receive_non_null_sequences(db_session):
     _session(db_session)
@@ -67,7 +64,6 @@ def test_direct_orm_message_writes_receive_non_null_sequences(db_session):
         ("direct-1", 2),
     ]
     assert db_session.get(ChatSession, CHAT_ID).next_message_seq == 3
-
 
 def test_sqlite_two_session_sequence_allocation_serializes_without_collision(
     db_session,
@@ -129,7 +125,6 @@ def test_sqlite_two_session_sequence_allocation_serializes_without_collision(
         ("concurrent-2", 2),
     ]
 
-
 def test_replay_uses_chat_seq_when_created_at_is_identical(db_session):
     svc = _session(db_session)
     first = _message(svc, "m1", "user", "before")
@@ -156,7 +151,6 @@ def test_replay_uses_chat_seq_when_created_at_is_identical(db_session):
     assert "first summary" in rendered
     assert "same-time tail" in rendered
     assert "answer" not in rendered
-
 
 def test_legacy_checkpoint_without_watermark_is_invalidated_and_rebuilt(db_session):
     svc = _session(db_session)
@@ -195,7 +189,6 @@ def test_legacy_checkpoint_without_watermark_is_invalidated_and_rebuilt(db_sessi
     assert snapshot.base_covered_seq == 0
     assert snapshot.source_message_ids == ("m1", "m2", "m3")
 
-
 def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
     svc = _session(db_session)
     _message(svc, "m1", "user", "snapshot question")
@@ -210,7 +203,7 @@ def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
             _message(ChatService(other), "m3", "user", "arrived while summarizing")
         return "snapshot summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize_then_insert)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize_then_insert)
 
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is True
     checkpoint = svc.get_latest_compaction_checkpoint(CHAT_ID)
@@ -220,7 +213,6 @@ def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
     assert any(
         "arrived while summarizing" in str(item.get("content")) for item in history
     )
-
 
 def test_same_base_checkpoint_has_exactly_one_cas_winner(db_session):
     svc = _session(db_session)
@@ -263,7 +255,6 @@ def test_same_base_checkpoint_has_exactly_one_cas_winner(db_session):
     assert len(checkpoints) == 1
     assert checkpoints[0].extra_data["checkpoint_version"] == 1
 
-
 def test_two_compactors_overlap_but_only_lease_holder_publishes(
     db_session, monkeypatch
 ):
@@ -281,7 +272,7 @@ def test_two_compactors_overlap_but_only_lease_holder_publishes(
         await finish.wait()
         return "winner"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", held_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', held_summary)
 
     async def overlap() -> tuple[bool, bool]:
         first = asyncio.create_task(S.run_post_turn_compaction(CHAT_ID))
@@ -299,7 +290,6 @@ def test_two_compactors_overlap_but_only_lease_holder_publishes(
         if (row.extra_data or {}).get("kind") == C.COMPACTION_CHECKPOINT_KIND
     ]
     assert len(checkpoints) == 1
-
 
 def test_history_rewrite_invalidates_lineage_and_fences_inflight_summary(db_session):
     svc = _session(db_session)
@@ -340,7 +330,6 @@ def test_history_rewrite_invalidates_lineage_and_fences_inflight_summary(db_sess
     assert rebuilt.base_checkpoint_id is None
     assert rebuilt.base_covered_seq == 0
     assert rebuilt.source_message_ids == ("m1", "m2")
-
 
 def test_accepting_covered_revision_invalidates_checkpoint_and_inflight_snapshot(
     db_session,
@@ -395,7 +384,6 @@ def test_accepting_covered_revision_invalidates_checkpoint_and_inflight_snapshot
     assert "accepted revised answer" in rendered
     assert "old summary" not in rendered
 
-
 def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
     db_session, monkeypatch
 ):
@@ -411,13 +399,12 @@ def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
     def fail_write(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summary)
     monkeypatch.setattr(ChatService, "commit_compaction_checkpoint", fail_write)
 
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is False
     assert svc.get_latest_compaction_checkpoint(CHAT_ID) is None
     assert S.pop_compaction_notice(svc, CHAT_ID) is False
-
 
 def test_context_budget_estimator_has_stable_component_manifest():
     estimate = budget.estimate_context_budget(
@@ -466,7 +453,6 @@ def test_context_budget_estimator_has_stable_component_manifest():
         )
     }
 
-
 def test_pre_turn_rechecks_authoritative_snapshot_before_summarizing(
     db_session, monkeypatch
 ):
@@ -482,7 +468,7 @@ def test_pre_turn_rechecks_authoritative_snapshot_before_summarizing(
     async def must_not_summarize(history, *, timeout):
         raise AssertionError("authoritative snapshot is below the threshold")
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", must_not_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', must_not_summarize)
     stale_caller_history = [
         {
             "role": "tool",
@@ -503,7 +489,6 @@ def test_pre_turn_rechecks_authoritative_snapshot_before_summarizing(
     assert returned == stale_caller_history
     assert svc.get_latest_compaction_checkpoint(CHAT_ID) is None
 
-
 def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     db_session, monkeypatch
 ):
@@ -517,7 +502,7 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     async def fake_summary(history, *, timeout):
         return "summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summary)
     history = S._load_history(svc, CHAT_ID)
     _, compacted = asyncio.run(
         S.maybe_run_pre_turn_compaction(
@@ -560,7 +545,6 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     )
     assert second_budget["provider_overhead_tokens"] == 13
 
-
 def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
     db_session, monkeypatch
 ):
@@ -578,7 +562,7 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
     async def fake_summary(history, *, timeout):
         return next(summaries)
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summary)
     assert asyncio.run(S.run_post_turn_compaction(CHAT_ID)) is True
     _message(svc, "m3", "user", "round-two-question")
     _message(svc, "m4", "assistant", "round-two-answer")

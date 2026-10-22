@@ -2,9 +2,10 @@
 
 from types import SimpleNamespace
 
+import core.runs.runtime as runtime
 import pytest
-
 from api.routes.v1 import chat_runs
+from core.chat.operations import commands
 from core.auth.backend import UserContext
 
 
@@ -33,8 +34,8 @@ async def test_followup_request_reaches_durable_adapter(monkeypatch):
             "status": "accepted",
         }
 
-    monkeypatch.setattr(chat_runs.chat_run_executor, "get_run", lambda _run_id: run)
-    monkeypatch.setattr(chat_runs, "put_pending_steer", accept)
+    monkeypatch.setattr(runtime, "get_run", lambda _run_id: run)
+    monkeypatch.setattr(commands, "put_pending_steer", accept)
 
     result = await chat_runs.steer_chat_run(
         "run-1",
@@ -63,7 +64,7 @@ async def test_followup_request_reaches_durable_adapter(monkeypatch):
 @pytest.mark.asyncio
 async def test_queue_status_query_is_owner_scoped(monkeypatch):
     run = SimpleNamespace(run_id="run-1", user_id="user-1")
-    monkeypatch.setattr(chat_runs.chat_run_executor, "get_run", lambda _run_id: run)
+    monkeypatch.setattr(runtime, "get_run", lambda _run_id: run)
     monkeypatch.setattr(
         chat_runs,
         "list_run_steers",

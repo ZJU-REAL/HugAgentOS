@@ -131,7 +131,7 @@ function check(name: string, cond: boolean, extra?: unknown) {
 {
   const manifest = JSON.parse(readFileSync(
     // npm script 固定以 src/frontend 为 cwd；打包产物在 node_modules/.tmp 下，ESM 里也没有 __dirname
-    resolvePath(process.cwd(), '../backend/plugin_bundles/marketplace/industry-knowledge-center/plugin.json'),
+    resolvePath(process.cwd(), '../backend/extensions/plugins/marketplace/industry-knowledge-center/plugin.json'),
     'utf-8',
   ));
   const canvas = manifest.extensions['org.hugagent'].ui.contributes.canvas_views[0];

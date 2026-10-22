@@ -5,7 +5,7 @@ import hashlib
 import shlex
 from pathlib import Path
 
-from core.device_link import driver
+from personal_agent.device_link import driver
 
 from personal_agent.computer.sandbox import SANDBOX_PYTHON, install_once
 

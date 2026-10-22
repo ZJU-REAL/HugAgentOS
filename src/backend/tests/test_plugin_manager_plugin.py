@@ -17,7 +17,7 @@ from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
 
 OWNER = "pm_test_user"
 OTHER = "pm_other_user"
-BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "plugin_bundles" / "marketplace"
+BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace"
 BUNDLE_DIR = BUNDLE_ROOT / "plugin-manager"
 
 @pytest.fixture()
@@ -29,7 +29,7 @@ def pm_env(tmp_path, monkeypatch):
     TestSession = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(dbe, "SessionLocal", TestSession)
 
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     art_dir = tmp_path / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ def _make_skill_only_tar() -> bytes:
     return buf.getvalue()
 
 def _stash(tar_bytes: bytes, name: str = "plugin.tgz") -> str:
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     return store.save_artifact_bytes(content=tar_bytes, name=name, extension="tgz")["file_id"]
 
@@ -90,7 +90,7 @@ def test_bundle_manifest_is_wellformed():
     assert set(ext_mcp) == set(mcp_json["mcpServers"]), "扩展段的服务名必须与 mcp.json 一一对应"
     assert mcp_json["mcpServers"]["plugin_manager"]["url"] == "http://mcp:9116/mcp/"
 
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     declared = {t["name"] for t in ext_mcp["plugin_manager"]["tools"]}
     actual = {t.name for t in asyncio.run(server.mcp.list_tools())}
@@ -101,7 +101,7 @@ def test_bundle_manifest_is_wellformed():
     assert (BUNDLE_DIR / "skills" / "plugin-creator" / "scripts" / "validate_plugin.py").is_file()
 
 def test_port_is_registered():
-    from mcp_servers._ports import PORTS, package_name
+    from extensions.mcp_servers._ports import PORTS, package_name
 
     assert PORTS["plugin_manager"] == 9116
     assert package_name("plugin_manager") == "plugin_manager_mcp"
@@ -124,7 +124,7 @@ def test_shipped_validator_accepts_all_real_bundles():
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
-    from core.plugins import management as ps
+    from core.capabilities.plugins import management as ps
 
     with pm_env.Session() as db:
         res = ps.install_plugin(db, "plugin-manager", owner_user_id=OWNER, created_by=OWNER)
@@ -143,10 +143,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
         assert len(mcp.tools_json) == 8
         assert plugin is not None
 
-        from core.config.catalog_resolver import (
-            invalidate_capability_cache,
-            resolve_all_runtime_enabled,
-        )
+        from core.capabilities.catalog.resolver import invalidate_capability_cache, resolve_all_runtime_enabled
 
         invalidate_capability_cache()
         enabled_skills, _agents, enabled_mcps = resolve_all_runtime_enabled(db, OWNER)
@@ -155,7 +152,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
 
 # ── Market verbs ────────────────────────────────────────────────────────────
 def test_search_plugin_market_lists_builtin_bundles(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.search_plugin_market(user_id=OWNER)
     assert res["ok"], res
@@ -166,7 +163,7 @@ def test_search_plugin_market_lists_builtin_bundles(pm_env):
     assert narrowed["count"] == 0
 
 def test_get_plugin_info_previews_components(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.get_plugin_info(user_id=OWNER, slug="agent-manager")
     assert res["ok"], res
@@ -179,7 +176,7 @@ def test_get_plugin_info_previews_components(pm_env):
     assert impl.get_plugin_info(user_id=OWNER, slug="agent-manager")["installed"] is True
 
 def test_get_plugin_info_unknown_slug_fails_cleanly(pm_env):
-    from mcp_servers.plugin_manager_mcp import impl
+    from extensions.mcp_servers.plugin_manager_mcp import impl
 
     res = impl.get_plugin_info(user_id=OWNER, slug="__nope__")
     assert not res["ok"] and res["message"].startswith("❌")
@@ -196,7 +193,7 @@ def test_plugin_root_detection_matches_the_importer(pm_env):
     导入器认原生 / .claude-plugin / .codex-plugin 三种布局；本地若少认一种，
     同一个包就会"后台上传能装、对话里说不是插件包"。
     """
-    from mcp_servers._packaging import is_plugin_root, locate_root
+    from extensions.mcp_servers._packaging import is_plugin_root, locate_root
 
     for layout in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
         d = Path(pm_env.engine.url.database).parent / f"pkg_{layout.replace('/', '_')}"
@@ -216,7 +213,7 @@ def test_plugin_root_detection_matches_the_importer(pm_env):
 
 # ── Server layer ────────────────────────────────────────────────────────────
 def test_server_tools_forward_user_header(pm_env, monkeypatch):
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     captured = {}
 
@@ -224,7 +221,7 @@ def test_server_tools_forward_user_header(pm_env, monkeypatch):
         captured["user_id"] = user_id
         return {"ok": True, "plugins": [], "count": 0, "message": ""}
 
-    from core.services import cloud_management
+    from core.capabilities.plugins.management import cloud as cloud_management
     monkeypatch.setattr(cloud_management, "list_installed", _fake)
     handler = server.mcp._tool_manager.get_tool("list_plugins").fn
 
@@ -241,7 +238,7 @@ def test_server_tools_forward_user_header(pm_env, monkeypatch):
     assert captured["user_id"] == ""
 
 def test_every_server_tool_is_async_and_documented():
-    from mcp_servers.plugin_manager_mcp import server
+    from extensions.mcp_servers.plugin_manager_mcp import server
 
     tools = asyncio.run(server.mcp.list_tools())
     assert len(tools) == 8

@@ -17,7 +17,13 @@ import json
 
 import pytest
 
-from core.llm.middlewares import _PLAN_REMINDER_INTERVAL, PlanStaleReminderMiddleware
+from core.llm.context.workspace_hooks import PlanStaleHook, plan_stale_hook
+from core.harness.hooks import Invocation, HookStage
+from core.llm.runtime.context_hook_adapter import append_hook_context
+from tests.orchestration.hook_support import make_adapter
+from types import SimpleNamespace
+
+_PLAN_REMINDER_INTERVAL = PlanStaleHook().interval
 
 
 class _FakeState:
@@ -31,24 +37,19 @@ class _FakeAgent:
         self.state = _FakeState()
 
 
-class _Block:
-    def __init__(self, name: str, block_id: str, payload) -> None:
-        self.name = name
-        self.id = block_id
-        self.input = payload
+def _Block(name, block_id, payload):
+    return {"type": "tool_call", "name": name, "id": block_id, "input": payload}
 
 
-class _ToolCallMsg:
-    """伪造一条带 tool_call 块的历史消息。"""
+def _ToolCallMsg(*blocks):
+    return {"content": list(blocks)}
 
-    def __init__(self, *blocks: _Block) -> None:
-        self._blocks = list(blocks)
 
-    def has_content_blocks(self, block_type: str) -> bool:
-        return block_type == "tool_call" and bool(self._blocks)
-
-    def get_content_blocks(self, block_type: str):
-        return self._blocks if block_type == "tool_call" else []
+def _remind(policy, agent):
+    context = [m.model_dump(mode="json") if hasattr(m, "model_dump") else m for m in agent.state.context]
+    decision = policy(Invocation.create(run_id="plan-test", stage=HookStage.TRANSFORM_CONTEXT,
+        operation_name="agent_reasoning", data={"context": context, "context_items": []}))
+    append_hook_context(agent, SimpleNamespace(data=decision.patch))
 
 
 def _plan(*statuses: str) -> dict:
@@ -74,14 +75,14 @@ def _reminders(agent: _FakeAgent) -> list[str]:
     return out
 
 
-def _spin(mw: PlanStaleReminderMiddleware, agent: _FakeAgent, rounds: int) -> None:
+def _spin(mw: PlanStaleHook, agent: _FakeAgent, rounds: int) -> None:
     for _ in range(rounds):
-        mw._maybe_remind(agent)
+        _remind(mw, agent)
 
 
 def test_no_plan_never_reminds():
     """模型压根没建过计划 —— 催建不是这个中间件的活，一个字都不该发。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     agent.state.context.append(_ToolCallMsg(_Block("bash", "t1", {"command": "ls"})))
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL + 5)
@@ -90,7 +91,7 @@ def test_no_plan_never_reminds():
 
 def test_stale_plan_reminds_with_current_checklist():
     """停在 1/5 不动满 N 轮 → 回灌一次，且把真实进度和每一步状态都念出来。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(
         agent,
@@ -109,7 +110,7 @@ def test_stale_plan_reminds_with_current_checklist():
 
 def test_not_yet_stale_stays_quiet():
     """没到停滞阈值就不打扰 —— 每轮都催会把上下文塞满、也会打断模型手上的活。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL)  # 含起点那一轮，还差一轮
@@ -118,20 +119,20 @@ def test_not_yet_stale_stays_quiet():
 
 def test_model_updating_the_plan_resets_the_clock():
     """模型真去更新了 —— 计时清零，不该紧接着再挨一次催。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending", "pending"))
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL)
     _plan_call(agent, "call_2", _plan("completed", "in_progress", "pending"))
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL)
     assert _reminders(agent) == []
-    mw._maybe_remind(agent)
+    _remind(mw, agent)
     assert len(_reminders(agent)) == 1
 
 
 def test_finished_plan_is_left_alone():
     """全部结算完 —— 收尾过的清单不该再被催。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("completed", "completed"))
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL + 5)
@@ -140,7 +141,7 @@ def test_finished_plan_is_left_alone():
 
 def test_json_string_args_are_parsed():
     """有的供应商把 tool_call.input 当字符串回传 —— 解析不出来就等于永不催更。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"), as_json=True)
     _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
@@ -149,21 +150,21 @@ def test_json_string_args_are_parsed():
 
 def test_reminder_clock_restarts_after_each_nudge():
     """催过之后重新计时，不会连着两轮都催。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
     _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
     assert len(_reminders(agent)) == 1
     _spin(mw, agent, _PLAN_REMINDER_INTERVAL - 1)
     assert len(_reminders(agent)) == 1
-    mw._maybe_remind(agent)
+    _remind(mw, agent)
     assert len(_reminders(agent)) == 2
 
 
 @pytest.mark.asyncio
 async def test_on_reasoning_passes_events_through():
     """中间件只做旁路提醒，不能吞掉推理事件。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = make_adapter(plan_stale_hook())
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
 
@@ -181,7 +182,7 @@ async def test_on_reasoning_passes_events_through():
 
 def test_reminder_wording_stays_soft():
     """硬祈使会让模型把改计划当成推进任务——文案必须明确允许忽略、且不许打断手上的活。"""
-    mw = PlanStaleReminderMiddleware()
+    mw = PlanStaleHook()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
     _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)

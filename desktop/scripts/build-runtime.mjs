@@ -139,7 +139,7 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   const nativeTools = readJson(join(runtimeRoot, "native-tools.json"));
 
   copyFileSync(
-    join(repoRoot, "src/backend/services/script_runner_service/runtime_tools.py"),
+    join(repoRoot, "src/backend/core/sandbox/runner/runtime_tools.py"),
     join(runtimeRoot, "runtime_tools.py"),
   );
   const smokeTest = join(runtimeRoot, "runtime-smoke.py");

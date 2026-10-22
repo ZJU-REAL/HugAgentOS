@@ -8,7 +8,7 @@ attribute exports remain available lazily.
 
 def __getattr__(name):  # noqa: ANN001, ANN202
     if name in {"make_chat_model", "get_default_model"}:
-        from core.llm import chat_models
+        from core.models import chat_models
 
         return getattr(chat_models, name)
     raise AttributeError(name)

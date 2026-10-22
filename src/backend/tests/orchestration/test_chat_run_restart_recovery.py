@@ -1,18 +1,26 @@
 """Behavioral regression coverage."""
 
 from __future__ import annotations
+from core.chat.projection.codec import chat_projection_codec
+from core.ontology import runtime_policy
+
 from datetime import datetime, timedelta, timezone
+
+import core.agent_runtime.runner as runner
+import core.chat.runtime.compaction as compaction
+import core.chat.runtime.followups as followups
+import core.chat.runtime.recovery as recovery
+import core.chat.runtime.worker as worker
+import core.runs.events.store as store
+import core.runs.events.store as run_event_stream
+import core.runs.events.writer as writer
+import core.runs.runtime as runtime
+import core.runs.settings as settings
 import pytest
 from core.db.models import ChatMessage, ChatRun, ChatRunOperation, ChatSteerQueueItem
-from core.services.run_journal import RunJournal
-from core.services.steer_queue import SteerQueue
-from orchestration import chat_run_executor as executor
-from orchestration import run_event_stream
-
-from tests.orchestration.recovery_test_support import (
-    recovery_env,
-    _async_none,
-)
+from core.runs.journal import RunJournal
+from core.chat.steer_queue import SteerQueue
+from tests.orchestration.recovery_test_support import _async_none, recovery_env
 
 
 @pytest.mark.asyncio
@@ -21,9 +29,10 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
 ):
     sessions = recovery_env
     from core.db import engine as db_engine
-    from core.services import ontology_service, user_model_selection
-    from orchestration import workflow
-    from orchestration.schedulers.automation_conversation import execute_prompt
+    from core.ontology import service as ontology_service
+    from core.models import selection as user_model_selection
+    pass
+    from orchestration.automations.automation_conversation import execute_prompt
 
     monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     monkeypatch.setattr(
@@ -32,8 +41,8 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
         lambda: "test-model",
     )
     monkeypatch.setattr(
-        ontology_service,
-        "build_user_ontology_runtime",
+        runtime_policy,
+        'build_user_ontology_runtime',
         lambda **_kwargs: (False, {}),
     )
     captured = {}
@@ -43,11 +52,11 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
         yield {"type": "content", "delta": "automation result"}
         yield {"type": "meta", "usage": {"total_tokens": 2}}
 
-    monkeypatch.setattr(workflow, "astream_chat_workflow", bound_workflow)
-    monkeypatch.setattr(executor, "astream_chat_workflow", bound_workflow)
-    stream = run_event_stream.LocalRunEventStream()
-    monkeypatch.setattr(executor, "get_run_event_stream", lambda: stream)
-    from core.services.automation_service import AutomationService
+    monkeypatch.setattr(runner, "astream_chat_workflow", bound_workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", bound_workflow)
+    stream = run_event_stream.LocalRunEventStream(chat_projection_codec())
+    monkeypatch.setattr(store, "get_run_event_stream", lambda: stream)
+    from features.automation.service import AutomationService
 
     with sessions() as db:
         task = AutomationService(db).create_task(
@@ -110,9 +119,9 @@ async def test_startup_recovery_re_registers_accepted_chat_without_failing_it(
         registered.append((run_id, name))
         coro.close()
 
-    monkeypatch.setattr(executor, "_register_run_task", register)
+    monkeypatch.setattr(runtime, 'register_run_task', register)
 
-    assert await executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
     assert registered == [(row.run_id, f"chat_run_recovery:{row.run_id}")]
     with sessions() as db:
         recovered = db.get(ChatRun, row.run_id)
@@ -157,12 +166,12 @@ async def test_startup_recovery_commits_saved_model_output_without_second_model_
 
     registered = []
     monkeypatch.setattr(
-        executor,
-        "_register_run_task",
+        runtime,
+        'register_run_task',
         lambda *args, **kwargs: registered.append((args, kwargs)),
     )
 
-    assert await executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
     assert registered == []
     with sessions() as db:
         recovered = db.get(ChatRun, row.run_id)
@@ -237,21 +246,21 @@ async def test_model_snapshot_recovery_also_commits_queued_handoff(recovery_env,
     async def no_event_write(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(executor, "_register_run_task", register)
-    monkeypatch.setattr(executor, "_xadd_event", capture_event)
-    monkeypatch.setattr(executor, "_expire_stream", no_event_write)
+    monkeypatch.setattr(runtime, 'register_run_task', register)
+    monkeypatch.setattr(writer, 'xadd_event', capture_event)
+    monkeypatch.setattr(writer, 'expire_stream', no_event_write)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    assert await executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
     assert len(registered) == 1
     assert registered[0][1].startswith("chat_run_handoff_recovery:")
     next_run_id = registered[0][0]
     assert [event["type"] for event in projected_events] == [
         "queued_run_started",
-        executor._TERMINAL_TYPE,
+        settings.TERMINAL_TYPE,
     ]
     assert projected_events[0]["run_id"] == next_run_id
     assert projected_events[0]["message"] == "恢复后继续执行"
@@ -303,9 +312,9 @@ async def test_unknown_tool_result_pauses_and_emits_compatible_terminal_projecti
     async def terminal(run_id, *, chat_id, error_text, cancelled=False):
         projected.append((run_id, chat_id, error_text, cancelled))
 
-    monkeypatch.setattr(executor, "_write_terminal_to_stream", terminal)
+    monkeypatch.setattr(writer, "_write_terminal_to_stream", terminal)
 
-    assert await executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
     with sessions() as db:
         recovered = db.get(ChatRun, row.run_id)
         assert recovered.status == "needs_attention"
@@ -357,17 +366,17 @@ async def test_real_worker_journals_model_and_message_safe_points(recovery_env, 
     async def emit(_run_id, offset, event):
         emitted.append((offset, dict(event)))
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    monkeypatch.setattr(executor, "_xadd_event", emit)
-    monkeypatch.setattr(executor, "_expire_stream", lambda _run_id: _async_none())
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(writer, 'xadd_event', emit)
+    monkeypatch.setattr(writer, 'expire_stream', lambda _run_id: _async_none())
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    await executor._run_workflow(
+    await worker._run_workflow(
         run_id=row.run_id,
         chat_id=row.chat_id,
         user_id=row.user_id,
@@ -401,4 +410,4 @@ async def test_real_worker_journals_model_and_message_safe_points(recovery_env, 
             "run_completed",
         ]
         assert [item.operation_seq for item in operations] == [1, 2, 3, 4, 5]
-    assert emitted[-1][1]["type"] == executor._TERMINAL_TYPE
+    assert emitted[-1][1]["type"] == settings.TERMINAL_TYPE

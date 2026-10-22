@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 from core.db.models import AdminSkill, ContentBlock, InstalledPlugin
-from core.plugins import management as plugins
-from core.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
-from core.plugins.packaging.importer import normalize_plugin_dir
+from core.capabilities.plugins import management as plugins
+from core.capabilities.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
+from core.capabilities.plugins.packaging.importer import normalize_plugin_dir
 
-BUNDLE = Path(__file__).resolve().parents[1] / "plugin_bundles/default/visualize"
+BUNDLE = Path(__file__).resolve().parents[1] / "extensions/plugins/default/visualize"
 SKILL = BUNDLE / "skills/visualize"
 
 
@@ -54,7 +54,7 @@ def test_native_bundle_includes_offline_resources():
     text = plugin.skills[0].skill_content
     assert "pin_to_workspace" in text and "sandbox_get_artifact" in text
     for path in SKILL.rglob("*"):
-        if path.is_file():
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix not in {".pyc", ".pyo"}:
             assert "zcode" not in path.read_text().lower(), path
 
 
@@ -89,10 +89,10 @@ async def test_startup_includes_visualize_in_all_profiles(monkeypatch, local, ed
 
     from api.startup import plugins as startup
     from core.db import engine
-    from core.services import edition_startup
+    from orchestration.workers import edition_startup
 
     monkeypatch.setenv("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")
-    monkeypatch.setattr("core.capabilities.device_catalog.active", lambda: False)
+    monkeypatch.setattr('features.desktop.capabilities.device_catalog.active', lambda: False)
     calls = []
     session = SimpleNamespace(close=lambda: None)
     monkeypatch.setattr(
@@ -107,10 +107,10 @@ async def test_startup_includes_visualize_in_all_profiles(monkeypatch, local, ed
     monkeypatch.setattr(plugins, "ensure_default_plugins_bootstrapped", lambda db: False)
     monkeypatch.setattr(edition_startup, "bootstrap_edition_plugins", lambda db: ())
     monkeypatch.setattr(
-        "core.plugins.ui.contributions.refresh_builtin_ui_contributions", lambda db: 0
+        'features.workbench.ui.contributions.refresh_builtin_ui_contributions', lambda db: 0
     )
     monkeypatch.setattr(
-        "core.plugins.management.defaults.ensure_visualize_plugin_bootstrapped",
+        'core.capabilities.plugins.management.defaults.ensure_visualize_plugin_bootstrapped',
         lambda db: calls.append(db),
     )
     await startup._startup_seed_default_plugins()
@@ -134,7 +134,7 @@ async def test_local_bootstrap_respects_opt_out_and_hybrid(monkeypatch, opt_in, 
         ),
     )
     monkeypatch.setenv("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1" if opt_in else "0")
-    monkeypatch.setattr("core.capabilities.device_catalog.active", lambda: hybrid)
+    monkeypatch.setattr('features.desktop.capabilities.device_catalog.active', lambda: hybrid)
 
     def unexpected_session():
         pytest.fail("Local opt-out and hybrid mode must not bootstrap global plugins")

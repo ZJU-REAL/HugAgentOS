@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from core.config.settings import settings
-from core.services.yida_service import YidaService
+from integrations.yida.service import YidaService
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX executable fixture; Windows uses bundled Bash")
@@ -32,7 +32,7 @@ elif "--agent-poll" in sys.argv:
     monkeypatch.setenv("PATH", str(binary.parent) + os.pathsep + os.environ["PATH"])
     from core.infra.ephemeral import LocalEphemeralState
     memory = LocalEphemeralState()
-    monkeypatch.setattr("core.services.yida_service.get_ephemeral_state", lambda: memory)
+    monkeypatch.setattr('integrations.yida.service.get_ephemeral_state', lambda: memory)
     def no_remote_provider():
         raise AssertionError("本机登录不应访问容器沙箱")
     monkeypatch.setattr("core.sandbox.factory.get_sandbox_provider", no_remote_provider)
@@ -67,8 +67,8 @@ async def test_local_skill_uses_login_workspace(tmp_path, monkeypatch):
 @pytest.mark.skipif(not os.getenv("HUGAGENT_TEST_PLUGIN_RUNTIME"), reason="Requires staged offline runtime")
 async def test_bundled_real_openyida_qr_entry(tmp_path, monkeypatch):
     """Real locked OpenYida and private Node, using its offline QR fixture."""
-    import core.services.yida_execution as execution
-    import core.services.yida_service as service
+    import integrations.yida.execution as execution
+    import integrations.yida.service as service
     from core.infra.ephemeral import LocalEphemeralState
     root = Path(os.environ["HUGAGENT_TEST_PLUGIN_RUNTIME"]).resolve()
     python = root / ("python/python.exe" if os.name == "nt" else "python/bin/python")

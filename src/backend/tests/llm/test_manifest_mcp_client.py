@@ -4,12 +4,7 @@ import httpx
 import pytest
 
 from agentscope.message import ToolResultState
-from core.services.desktop_capability_protocol import (
-    CapabilityManifestError,
-    build_manifest,
-    canonical_hash,
-    validate_manifest,
-)
+from core.capabilities.manifest_protocol import CapabilityManifestError, build_manifest, canonical_hash, validate_manifest
 
 
 def _tools() -> list[dict]:
@@ -65,8 +60,8 @@ def test_protocol_accepts_only_a_complete_current_dynamic_manifest():
 
 @pytest.mark.asyncio
 async def test_manifest_client_lists_cloud_schemas_without_network():
-    from core.llm.mcp_manager import ManifestMCPClient
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.manager import ManifestMCPClient
+    from core.llm.mcp.pool import make_client
 
     class NetworkMustNotRun(httpx.AsyncBaseTransport):
         async def handle_async_request(self, _request):  # pragma: no cover
@@ -82,7 +77,7 @@ async def test_manifest_client_lists_cloud_schemas_without_network():
 
 
 def test_incomplete_manifest_config_is_rejected_not_compatibility_routed():
-    from core.llm.mcp_pool import make_client, uses_manifest_schema
+    from core.llm.mcp.pool import make_client, uses_manifest_schema
 
     config = _config()
     config["manifest_tools"] = ["search"]
@@ -94,7 +89,7 @@ def test_incomplete_manifest_config_is_rejected_not_compatibility_routed():
 
 @pytest.mark.asyncio
 async def test_manifest_tool_calls_json_gateway_with_current_schema_hash():
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     captured: dict = {}
 

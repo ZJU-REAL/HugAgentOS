@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from orchestration.registry import AgentSpec
+from core.llm.factory.specs import AgentSpec
 
 
 @dataclass
 class AgentRequest:
-    # A registered module agent profile (core.extensions.AgentProfile) and that
+    # A registered module agent profile (core.harness.registry.AgentProfile) and that
     # module's own reference, e.g. the task the dedicated agent works on.
     profile: Optional[str] = None
     profile_ref: Optional[str] = None

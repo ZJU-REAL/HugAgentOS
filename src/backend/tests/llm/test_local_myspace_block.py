@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import core.config.local_mode as lm
-from core.llm.tools._paths import validate_workspace_path
+from core.sandbox.workspace.resolution import validate_workspace_path
 
 
 def test_myspace_rejected_in_local_mode(monkeypatch):

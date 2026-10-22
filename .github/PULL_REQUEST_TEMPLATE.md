@@ -3,7 +3,7 @@
 
   ⚠️ IMPORTANT — this is a GENERATED community mirror. 重要说明：本仓库是生成镜像。
   PRs are accepted ONLY for:  document/**, examples/**, README*.md, and other
-  non-generated docs. Changes to src/**, mcp_servers/**, or other generated code
+  non-generated docs. Changes to src/**, extensions/mcp_servers/**, or other generated code
   CANNOT be merged here — please open an Issue instead so they can be fixed
   upstream and flow back in the next release.
   仅接受 document/**、examples/**、README 等非生成内容的 PR；src/** 等生成代码

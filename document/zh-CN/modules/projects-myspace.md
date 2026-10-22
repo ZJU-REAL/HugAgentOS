@@ -35,7 +35,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 ## 项目（Projects）
 
-路由：`src/backend/api/routes/v1/projects.py`（CE 路由表），业务在 `core/services/project_service.py` 与 `project_file_service.py`。
+路由：`src/backend/api/routes/v1/projects.py`（CE 路由表），业务在 `core/projects/service.py` 与 `project_file_service.py`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -71,7 +71,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 ### 项目上下文如何进入对话
 
-在项目内发起对话时（请求携带 `project_id`），`core/services/session_operations/request_context.py` 组装 workflow context：
+在项目内发起对话时（请求携带 `project_id`），`core/chat/operations/request_context.py` 组装 workflow context：
 
 1. 读取项目元信息——`project_name`、`project_instructions`、挂钩文件夹名和工作目录；项目指令仍读取 `AGENTS.md`，不递归枚举云端或本机项目文件；
 2. `core/llm/factory/build.py` 把这些经 `_build_project_section` 注入 system prompt（`build_system_prompt(cfg, ctx=...)`）；
@@ -158,7 +158,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 三条路径，互为补充：
 
-1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。`core/llm/hooks.py` 按 `file_id` 延迟下载、解析并缓存 `parsed_text` 与摘要；首轮只注入文件元数据和最多 5,000 字符的有界预览，xlsx 额外提供总行列数、表头和少量数据行。模型需要预览外的正文时通过 `read_artifact` 按需读取；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
+1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。`core/llm/runtime/hooks.py` 按 `file_id` 延迟下载、解析并缓存 `parsed_text` 与摘要；首轮只注入文件元数据和最多 5,000 字符的有界预览，xlsx 额外提供总行列数、表头和少量数据行。模型需要预览外的正文时通过 `read_artifact` 按需读取；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
 2. **项目文件访问**：项目对话的 system prompt 提供项目指令和目录范围，不自动携带文件列表或文件总数。agent 按需使用目录、搜索和读取工具获取文件信息；
 3. **沙箱虚拟文件系统**：开启代码执行时，`/myspace/...` 路径把我的空间映射进沙箱（懒加载 + 文件系统实时登记），团队项目映射团队文件夹——见 [沙箱](./sandbox.md)。
 
@@ -167,8 +167,8 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | 路径 | 职责 |
 |---|---|
 | `src/backend/api/routes/v1/projects.py` | 项目 API |
-| `src/backend/core/services/project_service.py` / `project_file_service.py` | 项目业务逻辑 |
-| `src/backend/core/services/project_scope.py` | `ProjectScope`（沙箱路径作用域） |
+| `src/backend/core/projects/service.py` / `project_file_service.py` | 项目业务逻辑 |
+| `src/backend/core/projects/scope.py` | `ProjectScope`（沙箱路径作用域） |
 | `src/backend/api/routes/v1/myspace_folders.py` | 个人文件夹 API |
 | `src/backend/api/routes/v1/artifacts.py` | 资产列表 / 会话收藏 / 加入知识库 |
 | `src/backend/edition_ee/routes/team_files.py` | 团队文件夹与文件 API（商业版 EE） |
@@ -177,7 +177,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | `src/backend/core/db/models/identity.py` | `UserFolder` 等共享身份 ORM |
 | `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM（仅 EE） |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
-| `src/backend/core/llm/hooks.py` | 附件上下文注入（`_build_file_context` 等） |
+| `src/backend/core/llm/runtime/hooks.py` | 附件上下文注入（`_build_file_context` 等） |
 | `src/backend/core/llm/factory/build.py` | 项目 section 注入 system prompt |
 | `src/backend/core/llm/tools/myspace_vfs/__init__.py` | 我的空间 ↔ 沙箱映射层 |
 | `src/frontend/src/components/projects/` | 项目前端组件 |
@@ -249,10 +249,7 @@ Config「团队管理」新增成员或调整成员权限时，可选「所有�
 缺失文件或失败下载也在下次正常同步时补齐。
 
 升级前先停止本地写入并备份数据库及 myspace_cache。
-运行 `python src/backend/scripts/clean_myspace_duplicates.py --all` 预览；
-加 `--apply --backup-dir <新的备份目录>` 才执行。
-清理删除每个重名组的全部有效记录及镜像路径，不保留“最新一条”。
-采用删除标记避免历史记录回填复活，原对象和恢复日志保留在维护备份中。
+升级前检查同名记录，并制定经审核的数据清理与恢复方案。当前不提供独立去重脚本。
 然后执行 Alembic 升级（EE: personalname01；CE: ce_0018），恢复服务并运行对账与端到端测试。
 迁移遇到未清理重名会终止，不会自行删除其他环境数据。
 恢复须先停止写入、撤销唯一索引，再由备份恢复；不要直接向正常服务恢复重名记录。
@@ -275,7 +272,7 @@ Config「团队管理」新增成员或调整成员权限时，可选「所有�
 
 后端按项目配置限制能力注册、显式调用、历史会话资源恢复、子智能体和插件动态加载。空的自定义环境不回退到全部资源。环境调整从下一轮对话生效；正在执行的响应及其派生作业保留原配置。项目外对话不受影响。基础文件与对话工具仍遵守原有权限规则。
 
-实现按职责划分：`core/project_environment/` 定义配置校验和纯依赖展开；资源服务读取当前用户获授权的目录；环境服务负责保存和预览；运行策略负责冻结及收窄注册、调用范围。前端编辑器只组织界面，`useProjectEnvironment` 负责资源加载、依赖预览和市场回填，资源选框负责展示显式绑定与推导依赖。
+实现按职责划分：`core/projects/environment/` 定义配置校验和纯依赖展开；资源服务读取当前用户获授权的目录；环境服务负责保存和预览；运行策略负责冻结及收窄注册、调用范围。前端编辑器只组织界面，`useProjectEnvironment` 负责资源加载、依赖预览和市场回填，资源选框负责展示显式绑定与推导依赖。
 
 ### 云文档在线编辑
 

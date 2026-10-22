@@ -1,4 +1,4 @@
-from core.plugins.ui.contract import normalize_ui, public_contributions
+from features.workbench.ui.contract import normalize_ui, public_contributions
 
 def test_resource_module_retains_safe_runtime_and_binding():
     ui, dropped = normalize_ui({"version": 2, "contributes": {"modules": [{
@@ -24,7 +24,7 @@ def test_invalid_resource_path_cannot_escape_package():
 def test_browser_manifest_has_canvas_reopen_action():
     import json
     from pathlib import Path
-    manifest = json.loads((Path(__file__).parents[1] / "plugin_bundles/marketplace/browser-automation/plugin.json").read_text())
+    manifest = json.loads((Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/plugin.json").read_text())
     ui, dropped = normalize_ui(manifest["extensions"]["org.hugagent"]["ui"])
     assert not dropped
     view = ui["contributes"]["tool_views"][0]

@@ -3,8 +3,8 @@
 import asyncio
 
 import pytest
-from core.services.compaction_progress import finish_progress, progress_scope, start_progress
-from orchestration.compaction_stream import stream_with_compaction
+from core.agent_runtime.integrations.compaction_stream import stream_with_compaction
+from core.chat.compaction.progress import finish_progress, progress_scope, start_progress
 
 
 @pytest.mark.asyncio
@@ -17,8 +17,8 @@ async def test_manual_command_bypasses_reply_model(monkeypatch):
         await finish_progress(event, "completed")
         return [{"role": "user", "content": "summary"}]
 
-    monkeypatch.setattr("core.services.compaction_service.run_compaction", compact)
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.service.run_compaction', compact)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
 
     async def model(**kwargs):
         raise AssertionError("manual command must not invoke reply model")
@@ -46,7 +46,7 @@ async def test_manual_command_bypasses_reply_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auto_progress_arrives_before_waiting_model_finishes(monkeypatch):
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     gate = asyncio.Event()
 
     async def model(**kwargs):
@@ -72,7 +72,7 @@ async def test_auto_progress_arrives_before_waiting_model_finishes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancelled_compaction_has_terminal_state(monkeypatch):
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     events = []
 
     async def sink(event):
@@ -90,9 +90,9 @@ async def test_cancelled_compaction_has_terminal_state(monkeypatch):
 async def test_coordinator_reports_real_work_and_always_closes(monkeypatch, outcome):
     from types import SimpleNamespace
 
-    from core.services.compaction_coordinator import CompactionCoordinator
+    from core.chat.compaction.coordinator import CompactionCoordinator
 
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     history = [{"role": "user", "content": "old" * 100}, {"role": "assistant", "content": "answer"}]
     snapshot = SimpleNamespace(
         replacement_history=history,
@@ -112,7 +112,7 @@ async def test_coordinator_reports_real_work_and_always_closes(monkeypatch, outc
 
     monkeypatch.setattr(coordinator, "_commit", commit)
     monkeypatch.setattr(
-        "core.llm.compaction.split_history_for_compaction", lambda *args, **kwargs: (history, [])
+        'core.llm.context.compaction.split_history_for_compaction', lambda *args, **kwargs: (history, [])
     )
     gate = asyncio.Event()
 
@@ -122,7 +122,7 @@ async def test_coordinator_reports_real_work_and_always_closes(monkeypatch, outc
             await asyncio.Event().wait()
         return None if outcome == "failed" else "summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     events = []
 
     async def sink(event):
@@ -153,8 +153,8 @@ async def test_short_manual_context_reports_noop_without_reply_model(monkeypatch
     async def compact(*args, **kwargs):
         return None
 
-    monkeypatch.setattr("core.services.compaction_service.run_compaction", compact)
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.service.run_compaction', compact)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     chunks = [
         c
         async for c in stream_with_compaction(
@@ -174,9 +174,9 @@ async def test_short_manual_context_reports_noop_without_reply_model(monkeypatch
 async def test_preparation_failure_is_not_reported_as_noop(monkeypatch):
     from types import SimpleNamespace
 
-    from core.services.compaction_coordinator import CompactionCoordinator
+    from core.chat.compaction.coordinator import CompactionCoordinator
 
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     coordinator = CompactionCoordinator("c")
     snapshot = SimpleNamespace(
         replacement_history=[{"role": "user", "content": "old"}], source_rows=[]
@@ -188,7 +188,7 @@ async def test_preparation_failure_is_not_reported_as_noop(monkeypatch):
     def invalid_budget(**kwargs):
         raise RuntimeError("invalid budget")
 
-    monkeypatch.setattr("core.services.compaction_budget.estimate_context_budget", invalid_budget)
+    monkeypatch.setattr('core.llm.context.budget.estimate_context_budget', invalid_budget)
     events = []
 
     async def sink(event):
@@ -203,7 +203,7 @@ async def test_preparation_failure_is_not_reported_as_noop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_backpressured_consumer_close_finishes_producer(monkeypatch):
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     released = asyncio.Event()
 
     async def model(**kwargs):
@@ -231,7 +231,7 @@ async def test_backpressured_consumer_close_finishes_producer(monkeypatch):
 
 
 def test_run_snapshot_preserves_compaction_order_and_tool_count():
-    from orchestration.run_projection import fold_projection, new_projection
+    from core.chat.projection.reducer import fold_projection, new_projection
 
     state = new_projection("r")
     state = fold_projection(state, {"type": "tool_call", "tool_id": "t", "tool_name": "search"})
@@ -249,8 +249,8 @@ def test_post_turn_progress_is_durable_on_message(db_session, monkeypatch):
     from contextlib import nullcontext
 
     from core.db.models import ChatMessage, ChatRun, ChatSession
-    from core.services.chat_service import ChatService
-    from core.services.compaction_progress import persist_progress, read_progress
+    from core.chat.service import ChatService
+    from core.chat.compaction.progress import persist_progress, read_progress
 
     db_session.add(
         ChatSession(chat_id="durable", user_id="u", title="t", extra_data={"other": "keep"})
@@ -294,7 +294,7 @@ def test_post_turn_progress_is_durable_on_message(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_steer_message_identity_tracks_context(monkeypatch):
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     events = []
 
     async def sink(event):
@@ -333,7 +333,7 @@ async def test_backpressured_close_with_throwing_cleanup_does_not_hang():
 @pytest.mark.asyncio
 async def test_private_run_does_not_inherit_main_message_identity(monkeypatch):
     stored = []
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", stored.append)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', stored.append)
 
     async def sink(event):
         pass
@@ -347,9 +347,9 @@ async def test_private_run_does_not_inherit_main_message_identity(monkeypatch):
 async def test_normalization_failure_releases_acquired_lease(monkeypatch):
     from types import SimpleNamespace
 
-    from core.services.compaction_coordinator import CompactionCoordinator
+    from core.chat.compaction.coordinator import CompactionCoordinator
 
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     coordinator = CompactionCoordinator("c")
     monkeypatch.setattr(
         coordinator, "_acquire", lambda: SimpleNamespace(replacement_history=[], source_rows=[None])
@@ -360,7 +360,7 @@ async def test_normalization_failure_releases_acquired_lease(monkeypatch):
     def broken_rows(rows):
         raise ValueError("invalid source row")
 
-    monkeypatch.setattr("core.services.compaction_coordinator.normalize_rows", broken_rows)
+    monkeypatch.setattr('core.chat.compaction.coordinator.normalize_rows', broken_rows)
     events = []
 
     async def sink(event):
@@ -381,10 +381,10 @@ async def test_cancelled_database_work_settles_before_terminal_or_release(
     import threading
     from types import SimpleNamespace
 
-    from core.llm import compaction as compaction
-    from core.services.compaction_coordinator import CompactionCoordinator
+    from core.llm.context import compaction as compaction
+    from core.chat.compaction.coordinator import CompactionCoordinator
 
-    monkeypatch.setattr("core.services.compaction_progress.persist_progress", lambda event: None)
+    monkeypatch.setattr('core.chat.compaction.progress.persist_progress', lambda event: None)
     history = [{"role": "user", "content": "old history"}]
     snapshot = SimpleNamespace(
         replacement_history=history,
@@ -423,7 +423,7 @@ async def test_cancelled_database_work_settles_before_terminal_or_release(
     async def summarize(*args, **kwargs):
         return "summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     events = []
 
     async def sink(event):

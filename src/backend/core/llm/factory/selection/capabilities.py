@@ -1,11 +1,14 @@
 """Agent assembly: capabilities. """
 
 from __future__ import annotations
+from core.capabilities.skills import loader_factory as loader_factory_module
+from core.harness.registry import execution_account as skill_account
+from core.harness.registry import run_capabilities as skills
 
 from typing import Optional
 
-import core.agent_skills.loader as skill_loader
-import core.config.catalog as catalog
+import core.capabilities.skills.loader as skill_loader
+import core.capabilities.catalog.api as catalog
 
 
 def _device_available_skill_ids(
@@ -23,18 +26,17 @@ def _device_available_skill_ids(
     import logging as _logging
 
     _log = _logging.getLogger(__name__)
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
-    if not capabilities_enabled():
+    if not has_run_capabilities():
         return skill_ids
-    from core.capabilities import skills as _caps_skills
-    from core.capabilities.preparation import ensure_cloud_ready
+    from core.harness.registry.run_capabilities import ensure_cloud_ready
 
     try:
         ensure_cloud_ready(user_id, skill_keys=skill_ids, plugin_keys=plugin_ids)
         available = set(
-            _caps_skills.filter_available_names(
-                skill_ids, user_id=_caps_skills.current_local_user_id()
+            skills.filter_available_names(
+                skill_ids, user_id=skill_account.current_local_user_id()
             )
         )
     except Exception as exc:  # noqa: BLE001 — 解析失败时不放大成整轮失败，退回原始集合
@@ -46,7 +48,7 @@ def _device_available_skill_ids(
     return [sid for sid in skill_ids if sid in available]
 
 
-def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
+def filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
     """Strip out skill ids this user must not load.
 
     Two independent rules, applied at the one choke point every agent (main,
@@ -67,7 +69,7 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
     try:
         from core.db.engine import SessionLocal
         from core.db.models import AdminSkill
-        from core.evolution.exposure import filter_skill_ids as filter_evolved
+        from core.evolution.evidence.exposure import filter_skill_ids as filter_evolved
 
         with SessionLocal() as db:
             owned = dict(
@@ -86,7 +88,7 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
         # read is withheld, because the unsafe direction here is loading an
         # unvetted self-authored capability.
         try:
-            from core.evolution.exposure import is_evolved_skill_id
+            from core.evolution.evidence.exposure import is_evolved_skill_id
 
             return [sid for sid in skill_ids if not is_evolved_skill_id(sid)]
         except Exception:
@@ -96,7 +98,7 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
 def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[str]:
     """Strip out KB ids the current user has no access to (local + external collections), preventing unauthorized ids passed in from the frontend.
 
-    Single source of truth ``core.auth.kb_permissions``: public KBs are visible
+    Single source of truth ``features.knowledge.edition``: public KBs are visible
     to everyone, private KBs to their owner, and scoped-visibility KBs per
     grant. On failure, fall back to returning the input unchanged (this doesn't
     escalate permissions — it only avoids hurting availability, and the
@@ -105,7 +107,7 @@ def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[s
     if not kb_ids or not user_id:
         return kb_ids
     try:
-        from core.auth.kb_permissions import filter_accessible_kb_ids
+        from core.harness.registry.retrieval_context import filter_accessible_kb_ids
         from core.db.engine import SessionLocal
 
         with SessionLocal() as db:
@@ -137,16 +139,16 @@ def _expand_plugin_bindings(
             )
             for r in rows:
                 cids = r.component_ids or {}
-                from core.plugins.packaging.sources import _component_keys
+                from core.capabilities.plugins.packaging.sources import component_keys as _component_keys
 
                 skills.extend(_component_keys(cids, "skills"))
                 mcp.extend(_component_keys(cids, "mcp"))
     except Exception:  # noqa: BLE001
         skills, mcp = [], []
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
-    if capabilities_enabled():
-        from core.capabilities.plugins import cloud_binding_ids
+    if has_run_capabilities():
+        from core.harness.registry.run_capabilities import cloud_binding_ids
 
         cloud_skills, cloud_mcp = cloud_binding_ids(plugin_ids, user_id=user_id)
         skills.extend(cloud_skills)
@@ -154,16 +156,16 @@ def _expand_plugin_bindings(
     return list(dict.fromkeys(skills)), list(dict.fromkeys(mcp))
 
 
-def _effective_main_available_skills() -> list[str]:
+def effective_main_available_skills() -> list[str]:
     """Resolve main-agent skills from currently enabled catalog skills."""
 
     def available(names):
-        from core.capabilities.paths import capabilities_enabled
+        from core.harness.registry.run_capabilities import has_run_capabilities
 
-        if capabilities_enabled():
-            from core.capabilities import skills
+        if has_run_capabilities():
+            from core.harness.registry import run_capabilities as skills
 
-            return skills.filter_available_names(names, user_id=skills.current_local_user_id())
+            return skills.filter_available_names(names, user_id=skill_account.current_local_user_id())
         return names
 
     enabled_ids = [
@@ -174,18 +176,19 @@ def _effective_main_available_skills() -> list[str]:
 
     # On the server, an empty default catalog means no ambient skills. The
     # loader also knows installed-but-disabled skills for explicit selection.
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
-    if not capabilities_enabled():
+    if not has_run_capabilities():
         return []
 
     try:
-        loader = skill_loader.get_skill_loader()
+        loader = loader_factory_module.get_skill_loader()
         discovered = sorted(loader.load_all_metadata().keys())
         if discovered:
             return available(discovered)
-    except Exception:
-        pass
+    except Exception as fallback_error:
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.llm.factory.selection.capabilities:_effective_main_available_skills', fallback_error)
 
     return []
 
@@ -195,7 +198,7 @@ def _mcp_ids_bound_to_skills(skill_ids: list[str]) -> list[str]:
     if not skill_ids:
         return []
     try:
-        metadata = skill_loader.get_skill_loader().load_all_metadata()
+        metadata = loader_factory_module.get_skill_loader().load_all_metadata()
     except Exception:
         return []
     result: list[str] = []

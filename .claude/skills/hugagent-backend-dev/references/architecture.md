@@ -48,10 +48,10 @@ POST /v1/agents/responses
   → api/routes/v1/chats/__init__.py
   → orchestration/chat_run_executor.py     # ChatRun + Redis Stream（后台 run，SSE 跟随，断线续播）
   → orchestration/workflow.py              # 流式编排主入口
-    → core/services/chat_mode_service.py   # 解析对话模式 ChatModeSpec（standard/turbo/市场模式；装配契约）
+    → core/chat/modes.py   # 解析对话模式 ChatModeSpec（standard/turbo/市场模式；装配契约）
     → orchestration/memory_integration.py  # 检索分层记忆并注入（user-role 冻结块，600ms 预算）
     → core/llm/factory/build.py            # 构建 AgentScope 2.0 ReActAgent（按 ChatModeSpec 收窄工具面）
-      → core/llm/mcp_manager.py            # MCP 客户端池（streamable-http → mcp 容器）
+      → core/llm/mcp/manager.py            # MCP 客户端池（streamable-http → mcp 容器）
       → core/config/mcp_config.py          # MCP server 定义（端口真源 mcp_servers/_ports.py）
       → core/llm/middlewares.py            # AS2 中间件（动态模型、文件上下文、CitationAnchorMiddleware、OntologyGateMiddleware）
       → prompts/prompt_runtime.py          # 装配系统提示词（DB 版本池优先，prompt_text/ 兜底）
@@ -96,13 +96,13 @@ SSE 事件（前端解析真源 `src/frontend/src/hooks/chatStream.ts`）：
 | 健康检查 | `api/health.py` | /health, /ready, /live |
 | Schema | `api/schemas.py` | 请求/响应 Pydantic 模型 |
 | 路由 | `api/routes/v1/` | 66 个路由文件 |
-| 技能引擎 | `core/agent_skills/` | SKILL.md 解析、多源加载、{dir} 沙箱路径注入 |
-| 生成物 | `core/artifacts/` | 注册与下载（store.py，local/oss 双模） |
+| 技能引擎 | `core/capabilities/skills/` | SKILL.md 解析、多源加载、{dir} 沙箱路径注入 |
+| 生成物 | `core/files/artifacts/` | 注册与下载（store.py，local/oss 双模） |
 | 认证 | `core/auth/` | backend.py, session.py, sso.py, permissions_iface.py（CE/EE 接缝） |
 | 渠道 | `core/channels/` | 入站机器人框架：钉钉/飞书/企微/微信 adapter；加渠道 = 写 adapter + registry.py 注册 |
 | 聊天 | `core/chat/` | context.py, tool_log.py |
 | 配置 | `core/config/` | settings.py + catalog 五件套（catalog.json/catalog.py/loader/resolver/migration）+ mcp_config.py |
-| 内容 | `core/content/` | 内容块、file_parser.py |
+| 内容 | `core/files/content/` | 内容块、file_parser.py |
 | 数据库 | `core/db/` | engine.py, models/（17 领域文件）, repository/（10 领域文件）, model_extensions.py, edition_tables.py（垫片） |
 | 进化 | `core/evolution/` | GCE 共享契约（Episode/候选/结算）；控制面在 edition_ee/evolution |
 | 基础设施 | `core/infra/` | exceptions, responses, logging, metrics, 限流, Redis, crypto |
@@ -113,7 +113,7 @@ SSE 事件（前端解析真源 `src/frontend/src/hooks/chatStream.ts`）：
 | 本体 | `core/ontology/` | Domain Pack 校验、运行时选取、工具闸（schemas/validator/revision/toolkit） |
 | 沙箱 | `core/sandbox/` | protocol.py + script_runner / opensandbox / cube 三实现 |
 | 服务 | `core/services/` | 70+ 业务服务（user/chat/chat_mode/channel/loop/kb/plugin/prompt_version/marketplace…） |
-| 存储 | `core/storage/` | protocol, local, s3, oss |
+| 存储 | `core/files/storage/` | protocol, local, s3, oss |
 | 编排 | `orchestration/` | workflow, chat_run_executor, streaming, citation_anchor, autonomous_loop, followups, batch_orchestrator, schedulers/, subagents/ |
 | 提示词 | `prompts/` | prompt_runtime + provider + prompt_text/{default,code_exec,distillation,plan_mode,subagents,turbo}/ |
 | MCP 服务器 | `mcp_servers/` | 12 个 server 目录、11 个在役（端口 9100–9114，真源 _ports.py；9105/9109-9111 为退役保留位） |

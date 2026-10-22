@@ -130,3 +130,23 @@ async def test_release_checks_owner_and_allows_immediate_reacquisition(state):
     assert await state.hold("desktop", "second", ttl=60)
     assert not await state.release("desktop", "first")
     assert await state.get("desktop") == "second"
+
+
+@pytest.mark.asyncio
+async def test_guarded_mutation_publishes_both_directions_and_retires_together(state):
+    await state.put("lease", "owner", ttl=60)
+    assert await state.mutate_if({"lease": "owner"}, {"forward": "sandbox", "reverse": "chat"}, ttl=60)
+    assert await state.get("forward") == "sandbox"
+    assert await state.get("reverse") == "chat"
+    assert await state.mutate_if({"lease": "owner", "forward": "sandbox"}, {}, remove=("forward", "reverse"), ttl=60)
+    assert await state.get("forward") is None
+    assert await state.get("reverse") is None
+
+
+@pytest.mark.asyncio
+async def test_guarded_mutation_refuses_old_lease_without_partial_writes_or_deletes(state):
+    await state.put("lease", "new-owner", ttl=60)
+    await state.put("preserve", "value", ttl=60)
+    assert not await state.mutate_if({"lease": "old-owner"}, {"new": "wrong"}, remove=("preserve",), ttl=60)
+    assert await state.get("new") is None
+    assert await state.get("preserve") == "value"

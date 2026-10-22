@@ -15,7 +15,7 @@ echo "[entrypoint] Starting backend bootstrap..."
 DB_URL="${DATABASE_URL:-sqlite:///./hugagent.db}"
 if echo "${DB_URL}" | grep -qi "^sqlite"; then
   echo "[entrypoint] SQLite detected – using create_all() instead of alembic..."
-  python -c "from core.db.engine import init_db; init_db()"
+  python -c "from features.installed import INSTALLED_FEATURES; from core.harness.registry import load_models; load_models(INSTALLED_FEATURES); from core.harness.registry.schema_lifecycle import load_schema_lifecycle; load_schema_lifecycle(INSTALLED_FEATURES); from core.db.engine import init_db; init_db()"
   echo "[entrypoint] SQLite tables created successfully."
 else
   echo "[entrypoint] Running database migrations (alembic upgrade head)..."
@@ -32,7 +32,7 @@ else
   echo "[entrypoint] Migrations applied successfully."
   if [ "${JX_EDITION:-ee}" = "ce" ]; then
     echo "[entrypoint] Reconciling the CE schema against the current metadata..."
-    python -c "from core.db.engine import init_db; init_db()"
+    python -c "from features.installed import INSTALLED_FEATURES; from core.harness.registry import load_models; load_models(INSTALLED_FEATURES); from core.harness.registry.schema_lifecycle import load_schema_lifecycle; load_schema_lifecycle(INSTALLED_FEATURES); from core.db.engine import init_db; init_db()"
     echo "[entrypoint] CE schema reconciliation completed."
   fi
 fi

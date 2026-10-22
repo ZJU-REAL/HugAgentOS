@@ -8,8 +8,8 @@ verifies registration autonomously via the unconditionally-registered
 registry-backed proof.
 """
 
-from core.llm.builtin_subagents import get_builtin_subagent
-from orchestration.subagents.loop_reviewer import _build_review_prompt
+from core.capabilities.agents.builtin import get_builtin_subagent
+from orchestration.loops.reviewer import _build_review_prompt
 
 
 def test_review_prompt_points_registry_criteria_at_read_artifact():

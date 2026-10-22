@@ -198,9 +198,9 @@ async def _process_profile_edit(row: MemoryOutbox) -> dict[str, Any]:
     text = sanitized.text
     applied = await upsert_fields(ctx, [(key, text, "user_edit")], strict=True)
     if ctx.message_id:
-        from core.evolution.settlement_store import update_entry_text
+        from core.memory.settlement_port import memory_settlement
 
-        update_entry_text(ctx.message_id, key, text)
+        memory_settlement().update_entry_text(ctx.message_id, key, text)
     return {"key": key, "text": text, "applied": applied}
 
 
@@ -219,9 +219,9 @@ async def _process_memory_edit(row: MemoryOutbox) -> dict[str, Any]:
         raise ValueError("memory not found for actor")
     await update_memory(memory_id, text, strict=True)
     if ctx.message_id:
-        from core.evolution.settlement_store import update_entry_text
+        from core.memory.settlement_port import memory_settlement
 
-        update_entry_text(ctx.message_id, memory_id, text)
+        memory_settlement().update_entry_text(ctx.message_id, memory_id, text)
     return {"id": memory_id, "text": text}
 
 
@@ -243,28 +243,10 @@ def _report_settlement(
     items: Optional[list[dict]] = None,
     failed: bool = False,
 ) -> dict[str, Any]:
-    from core.db.models import EvolutionEpisode
-    from core.evolution.settlement import settle_turn
-    from core.evolution.settlement_runner import acknowledge_durable_settlement
-
-    # The Outbox is now the authoritative join. Retire the old in-process
-    # watchdog before computing the final card so it cannot race the atomic
-    # summary+ack transaction performed by ``_finish_success``.
-    acknowledge_durable_settlement(message_id)
-    with common.SessionLocal() as db:
-        episode = (
-            db.query(EvolutionEpisode.episode_id)
-            .filter(EvolutionEpisode.message_id == message_id)
-            .first()
-        )
-    summary = settle_turn(
-        message_id=message_id,
-        episode_id=str(episode[0]) if episode is not None else "",
-        memory_entries=list(items or []),
-        memory_failed=failed,
-        memory_enabled=True,
+    from core.memory.settlement_port import memory_settlement
+    return memory_settlement().build_summary(
+        message_id, session_factory=common.SessionLocal, items=list(items or []), failed=failed,
     )
-    return cast(dict[str, Any], summary.to_dict())
 
 
 async def _process_settlement(row: MemoryOutbox) -> dict[str, Any]:

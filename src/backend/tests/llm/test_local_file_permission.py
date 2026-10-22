@@ -11,19 +11,16 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from agentscope.message import ToolCallBlock
-from core.llm.tool_permissions import (
-    CURRENT_PERMISSION_TICKET,
-    PermissionRuntime,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    builtin_tool_permission,
-)
-from core.llm.tools import _tool_confirmation as confirm
-from core.llm.tools._paths import to_physical_path
+from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, builtin_tool_permission
+from core.llm.tool_permissions import ToolPermissionService
+from core.llm.tools import confirmation as confirm
+from core.sandbox.workspace.resolution import to_physical_path
 from core.llm.tools._state import ReadEntry, ReadStateTracker
 from core.llm.tools.edit_tool import register_edit
 from core.llm.tools.write_tool import register_write
-from core.sandbox.local_policy import Grant, Policy
+from core.sandbox.permissions.models import Grant
+from core.sandbox.permissions.models import Policy
 
 
 @pytest.fixture(autouse=True)
@@ -31,8 +28,8 @@ def isolated_permission_store(monkeypatch):
     from core.infra.ephemeral import LocalEphemeralState
     store = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: store)
-    monkeypatch.setattr("core.llm.interaction_store.get_ephemeral_state", lambda: store)
-    monkeypatch.setattr(confirm.state, "_CHATS", {})
+    monkeypatch.setattr('core.llm.runtime.interaction_store.get_ephemeral_state', lambda: store)
+    monkeypatch.setattr(confirm.state.process_state(), "CHATS", {})
 
 
 async def _pending_pair(chat_id):
@@ -89,9 +86,9 @@ def _call(name: str, arguments: dict) -> ToolCallBlock:
 async def test_strict_workspace_write_is_blocked_before_file_io():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(workspace_write="block", out_of_scope="block"),
         ),
     ):
@@ -106,9 +103,9 @@ async def test_read_grant_allows_read_but_not_unattended_write():
     grants = [Grant("/data/project", "read")]
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=grants),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=grants),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(out_of_scope="confirm"),
         ),
     ):
@@ -129,9 +126,9 @@ async def test_read_grant_allows_read_but_not_unattended_write():
 async def test_missing_chat_cannot_turn_confirm_into_an_implicit_grant():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(out_of_scope="confirm"),
         ),
     ):
@@ -145,9 +142,9 @@ async def test_missing_chat_cannot_turn_confirm_into_an_implicit_grant():
 async def test_read_image_file_path_uses_the_same_local_read_gate():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(out_of_scope="confirm"),
         ),
     ):
@@ -267,11 +264,11 @@ async def test_local_write_detects_existing_host_file_before_overwrite():
         with (
             patch("core.config.local_mode.local_mode_enabled", return_value=True),
             patch(
-                "core.services.local_grant_service.grants_for_gate",
+                'features.desktop.local.grants.grants_for_gate',
                 return_value=[Grant(tmp, "readwrite")],
             ),
             patch(
-                "core.services.local_grant_service.policy_for_gate",
+                'features.desktop.local.grants.policy_for_gate',
                 return_value=Policy(),
             ),
             patch("core.sandbox.get_sandbox_provider", return_value=provider),
@@ -376,10 +373,12 @@ async def test_remote_edit_handles_a_sandbox_read_error_without_a_scope_error():
 
 def test_gate_treats_the_session_directory_as_the_workspace(monkeypatch, tmp_path):
     """权限闸里的"工作区"就是本次对话的工作目录，不是部署级工作区根。"""
-    from core.llm.tool_permissions import PermissionRuntime, ToolPermissionRegistry, ToolPermissionService
-    from services.script_runner_service.workspace_paths import session_root
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+    from core.llm.tool_permissions import ToolPermissionService
+    from core.sandbox.workspace.paths import session_root
 
-    monkeypatch.setattr("core.sandbox._common.WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("core.sandbox.workspace.paths.WORKSPACE", str(tmp_path))
     runtime = PermissionRuntime(chat_id="chat-1", user_id="u1", interactive=False, approval_available=False)
     service = ToolPermissionService(ToolPermissionRegistry(), runtime)
 

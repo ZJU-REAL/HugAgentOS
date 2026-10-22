@@ -1,9 +1,11 @@
 """Task history preserves the position of instructions received during execution."""
+from tests.orchestration.hook_support import make_adapter
+from agentscope.message import ToolCallBlock
+
 import time
 from types import SimpleNamespace
 
 import pytest
-
 from core.db.models import ChatRun
 from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
@@ -165,11 +167,12 @@ def test_lost_execution_cannot_append_or_change_history(running, sessions, chang
 async def test_execute_task_consumes_midrun_instruction_and_finishes_in_order(prepared, sessions, monkeypatch):
     import asyncio
     import threading
-    from sqlalchemy import event
+
     from personal_agent.tasks import runtime
+    from personal_agent.tasks.execution import current_execution
     from personal_agent.tasks.steering import current_steering
     from personal_agent.tools.tools import register_personal_tools
-    from personal_agent.tasks.execution import current_execution
+    from sqlalchemy import event
 
     ident, binding = prepared
     main_thread = threading.get_ident()
@@ -207,7 +210,7 @@ async def test_execute_task_consumes_midrun_instruction_and_finishes_in_order(pr
             assert database_started.is_set() and pulse.is_set()
             update(sessions, ident, "改用脚本", "runtime-update")
             from personal_agent.tasks.steering import current_steering
-            middleware = current_steering.get().middleware()
+            middleware = make_adapter(*current_steering.get().hook_policy().specs())
             agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
 
             async def continue_model(**kwargs):
@@ -219,7 +222,7 @@ async def test_execute_task_consumes_midrun_instruction_and_finishes_in_order(pr
                 yield event
 
     monkeypatch.setattr("core.llm.factory.create_agent_executor", executor)
-    monkeypatch.setattr("orchestration.streaming.StreamingAgent", ModelStream)
+    monkeypatch.setattr('core.llm.runtime.streaming.StreamingAgent', ModelStream)
     token = current_execution.set(None)
     steering_token = current_steering.set(None)
     engine = sessions.kw["bind"]

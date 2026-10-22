@@ -6,6 +6,7 @@
 """
 
 from __future__ import annotations
+from core.capabilities.skills import loader_factory as loader_factory_module
 
 import asyncio
 from types import SimpleNamespace
@@ -13,8 +14,8 @@ from types import SimpleNamespace
 import core.db.engine as dbe
 import pytest
 from core.db.models import ChatSession, InstalledPlugin, UserShadow
-from core.plugins import runtime as plugin_loader
-from core.llm.tool_collector import ToolCollector
+from core.llm.runtime.tool_collector import ToolCollector
+from core.capabilities.plugins import runtime as plugin_loader
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -73,7 +74,7 @@ def ppl_env(tmp_path, monkeypatch):
         get_all_servers=lambda enabled_only=True: dict(server_cfgs),
         get_owned_servers=lambda uid, enabled_only=False: {},
     )
-    from core.services.mcp_service import McpServerConfigService
+    from core.capabilities.mcp.service import McpServerConfigService
 
     monkeypatch.setattr(McpServerConfigService, "get_instance", classmethod(lambda cls: svc))
 
@@ -85,9 +86,9 @@ def ppl_env(tmp_path, monkeypatch):
         load_all_metadata=lambda: dict(meta),
         get_skill_dir=lambda sid: None,
     )
-    import core.agent_skills.loader as skills_loader_mod
+    import core.capabilities.skills.loader as skills_loader_mod
 
-    monkeypatch.setattr(skills_loader_mod, "get_skill_loader", lambda: loader_stub)
+    monkeypatch.setattr(loader_factory_module, 'get_skill_loader', lambda: loader_stub)
 
     return SimpleNamespace(Session=TestSession, loader=loader_stub, server_cfgs=server_cfgs)
 
@@ -150,7 +151,7 @@ def test_sticky_activation_restores_personally_disabled_components(ppl_env, monk
         row.extra_data = {"activated_plugins": ["crawler@global"]}
         db.commit()
 
-    import core.config.catalog_resolver as resolver
+    import core.capabilities.catalog.resolver as resolver
 
     def allow_explicit(db, user_id, *, skill_ids=None, mcp_ids=None):
         return list(skill_ids or []), list(mcp_ids or []), [], []
@@ -170,7 +171,7 @@ def test_sticky_activation_accepts_existing_slug_rows(ppl_env, monkeypatch):
         row.extra_data = {"activated_plugins": ["crawler"]}
         db.commit()
 
-    import core.config.catalog_resolver as resolver
+    import core.capabilities.catalog.resolver as resolver
 
     monkeypatch.setattr(
         resolver,
@@ -219,12 +220,12 @@ class _FakeMCPClient:
 
 @pytest.mark.asyncio
 async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
-    import core.llm.mcp_pool as mcp_pool
+    import core.llm.mcp.pool as mcp_pool
+    from core.agent_runtime.budget import _compaction_budget_inputs
     from core.llm.factory.runtime.evidence import cache_compaction_execution_surface
-    from core.ontology.toolkit import OntologyFilteredToolkit
-    from core.services import compaction_service as compaction
-    from core.services.chat_service import ChatService
-    from orchestration.workflow import _compaction_budget_inputs
+    from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+    from core.chat.compaction import service as compaction
+    from core.chat.service import ChatService
 
     monkeypatch.setattr(
         mcp_pool,
@@ -253,7 +254,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     initial_surface = await tk.freeze_execution_surface()
     close_list: list = []
     permission_context = SimpleNamespace(allow_rules={})
-    from core.llm.tool_permissions import ToolPermissionRegistry
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
 
     permission_registry = ToolPermissionRegistry()
     runtime = {
@@ -272,7 +273,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
         "approval_available": False,
         "ontology_runtime": {},
     }
-    plugin_loader.register_load_plugin(collector, res.deferred_by_slug(), runtime)
+    plugin_activation.register_load_plugin(collector, res.deferred_by_slug(), runtime)
     tool = collector.get_tool("load_plugin")
     assert tool is not None
 
@@ -301,7 +302,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     async def fake_summary(history, *, timeout):
         return "plugin-aware summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summary)
     with ppl_env.Session() as db:
         # Keep a real older turn beyond the protected verbatim tail.
         ChatService(db).add_message(CHAT, "user", "earlier context " * 20000)
@@ -340,7 +341,7 @@ def test_resolve_bound_defers_http_plugins_and_applies_skill_filter(ppl_env):
 
 
 def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypatch):
-    import core.llm.mcp_pool as mcp_pool
+    import core.llm.mcp.pool as mcp_pool
     from agentscope.tool import Toolkit
 
     monkeypatch.setattr(
@@ -350,7 +351,7 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
     )
     res = plugin_loader.resolve_bound_progressive_plugins(["crawler@global"])
     collector = ToolCollector()
-    from core.llm.tool_permissions import ToolPermissionRegistry
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
 
     runtime = {
         "activated_slugs": set(),
@@ -369,7 +370,7 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
         "approval_available": False,
         "ontology_runtime": {},
     }
-    plugin_loader.register_load_plugin(collector, res.deferred_by_slug(), runtime)
+    plugin_activation.register_load_plugin(collector, res.deferred_by_slug(), runtime)
     tool = collector.get_tool("load_plugin")
     resp = asyncio.run(tool._func(plugin="crawler"))
     text = "".join(getattr(b, "text", "") for b in resp.content)
@@ -389,8 +390,8 @@ def test_env_kill_switch(monkeypatch):
 def test_pre_turn_compaction_inputs_match_the_service_signature():
     from inspect import signature
 
-    from core.services.compaction_service import maybe_run_pre_turn_compaction
-    from orchestration.workflow import _pre_turn_compaction_inputs
+    from core.agent_runtime.budget import _pre_turn_compaction_inputs
+    from core.chat.compaction.service import maybe_run_pre_turn_compaction
 
     agent = SimpleNamespace(
         model=SimpleNamespace(model="model-a"),
@@ -433,3 +434,5 @@ def test_components_shared_with_an_eager_plugin_are_not_withheld(ppl_env):
     assert res.activated_slugs == ["crawler"]
     assert res.deferred_skill_ids == set()
     assert res.deferred_mcp_ids == set()
+
+from core.llm.tools import plugin_activation

@@ -6,6 +6,7 @@ until it finishes — the failure mode that motivated this seam.
 """
 
 from __future__ import annotations
+from core.chat.projection.codec import chat_projection_codec
 
 import asyncio
 import threading
@@ -13,21 +14,16 @@ import time
 
 import fakeredis.aioredis
 import pytest
-
-from orchestration.run_event_stream import (
-    START,
-    LocalRunEventStream,
-    RedisRunEventStream,
-)
+from core.runs.events.store import START, LocalRunEventStream, RedisRunEventStream
 
 
 @pytest.fixture(params=["local", "redis"])
 def stream(request, monkeypatch):
     if request.param == "local":
-        return LocalRunEventStream()
+        return LocalRunEventStream(chat_projection_codec())
     client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_kwargs: client)
-    return RedisRunEventStream()
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_kwargs: client)
+    return RedisRunEventStream(chat_projection_codec())
 
 
 async def _seed(stream, run_id, count):
@@ -133,7 +129,7 @@ async def test_cursors_stay_ordered_across_many_appends(stream):
 @pytest.mark.asyncio
 async def test_local_wait_wakes_from_another_event_loop():
     """Sub-agents run on their own loop, so the writer often is not the reader's."""
-    stream = LocalRunEventStream()
+    stream = LocalRunEventStream(chat_projection_codec())
     entries = await _seed(stream, "run", 1)
 
     def writer():

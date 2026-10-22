@@ -4,24 +4,14 @@ from __future__ import annotations
 
 from agentscope.message import Msg, TextBlock
 
-from core.llm.context_adapter import (
-    AgentScopeContextAdapter,
-    PROVIDER_CONTEXT_META_KEY,
-    append_context_item,
-    next_context_sequence,
-)
-from core.llm.context_ir import (
-    ContextAssembler,
-    ContextItem,
-    IMAGE_TOKEN_RESERVE,
-    KIND_COMPACTION,
-    KIND_MEMORY,
-    KIND_REMINDER,
-    KIND_TOOL_CALL,
-    KIND_TOOL_RESULT,
-    KIND_USER_INPUT,
-)
-from core.llm.execution_manifest import PromptManifestBuilder, stable_hash
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.rendering import append_context_item, next_context_sequence
+from core.models.constants import PROVIDER_CONTEXT_META_KEY
+from core.llm.context.ir import ContextAssembler
+from core.llm.context.items import ContextItem
+from core.llm.context.ir_state import KIND_COMPACTION, KIND_MEMORY, KIND_REMINDER, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
 
 
 def _item(item_id, content, **overrides):

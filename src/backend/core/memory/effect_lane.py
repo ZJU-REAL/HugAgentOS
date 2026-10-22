@@ -13,8 +13,8 @@ from core.db.models import MemoryOutbox
 from core.memory.executor import run_effect
 from sqlalchemy import text
 
-_local_locks: dict[str, threading.Lock] = {}
-_local_locks_guard = threading.Lock()
+
+
 
 
 class EffectLaneDeferred(RuntimeError):
@@ -24,8 +24,8 @@ class EffectLaneDeferred(RuntimeError):
 
 
 def _local_lock(scope_key: str) -> threading.Lock:
-    with _local_locks_guard:
-        return _local_locks.setdefault(scope_key, threading.Lock())
+    with process_state().local_locks_guard:
+        return process_state().local_locks.setdefault(scope_key, threading.Lock())
 
 
 def _advisory_key(scope_key: str) -> int:
@@ -101,3 +101,20 @@ async def ordered_l2_effect(scope_key: str, job_id: str):
         await run_effect(db.close)
         if local is not None and acquired:
             local.release()
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class EffectLaneState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    local_locks: dict[str, threading.Lock] = state_field(default_factory=lambda: {})
+    local_locks_guard: object = state_field(default_factory=lambda: threading.Lock())
+
+@state_cache(maxsize=1)
+def process_state() -> EffectLaneState:
+    return EffectLaneState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

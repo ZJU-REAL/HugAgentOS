@@ -52,7 +52,7 @@ def _require_token_or_flag(
         # ②b 桌面桥接（混合架构）：桌面壳孵化的本机后端上，壳注入的云端身份携带
         # 对应管理能力标志时放行——config 控制台在桌面双模式下可读本机数据。
         # 云端部署不设桥接 env，此分支恒短路（零行为变化）。
-        from core.auth.desktop_bridge import resolve_bridge_user
+        from features.desktop.auth.bridge import resolve_bridge_user
 
         bridge_user = resolve_bridge_user(request, db)
         if bridge_user is not None and _user_has_meta_flag(db, bridge_user.user_id, meta_flag):

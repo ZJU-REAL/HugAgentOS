@@ -6,10 +6,10 @@ from fastapi import HTTPException
 
 
 def validate_scope(db, scope, actor, *, write=False):
-    from core.services.project_source import ProjectSourceService
+    from core.projects.source import ProjectSourceService
 
     project = ProjectSourceService(db).authorized_project(scope.project_id, actor, write=write)
-    from core.services.project_file_service import ProjectFileService
+    from core.projects.files import ProjectFileService
 
     if not ProjectFileService(db).matches_scope(project, scope):
         raise HTTPException(409, "项目空间已变更，请重新打开项目会话后再操作")
@@ -23,7 +23,7 @@ def current_scope_error(scope, actor, *, write=False):
         from core.config.local_mode import local_mode_enabled
         if not local_mode_enabled():
             return {"error": "本地项目只能在本机模式下操作", "status": 403}
-        from core.services.local_project_workspace import validate_current_project
+        from core.projects.local_workspace import validate_current_project
         try:
             validate_current_project(scope, actor, write=write)
         except (HTTPException, ValueError, OSError) as exc:

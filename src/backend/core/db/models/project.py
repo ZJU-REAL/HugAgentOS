@@ -5,7 +5,7 @@ from core.infra.time import utc_now
 from datetime import datetime, timezone
 
 from core.db.engine import Base
-from core.db.model_extensions import ProjectEditionFields, project_edition_table_args
+from core.db.edition import ProjectEditionFields, project_edition_table_args
 from sqlalchemy import (
     JSON,
     BigInteger,

@@ -70,7 +70,7 @@ else:
     settings = settings_module.settings
     monkeypatch.setattr(settings_module, "settings", replace(settings, deploy=replace(settings.deploy, profile="local")))
     # Use the real local storage implementation, isolated from the singleton.
-    from core.storage.local import LocalStorageBackend
+    from core.files.storage.local import LocalStorageBackend
     monkeypatch.setattr("api.routes.files.get_storage", LocalStorageBackend)
 
     engine = create_engine(f"sqlite:///{tmp_path / 'fixture.db'}", connect_args={"check_same_thread": False})

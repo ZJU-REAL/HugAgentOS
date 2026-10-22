@@ -5,7 +5,7 @@ from core.infra.time import utc_now
 from datetime import datetime, timezone
 
 from core.db.engine import Base
-from core.db.model_extensions import UserAgentEditionFields, user_agent_edition_table_args
+from core.db.edition import UserAgentEditionFields, user_agent_edition_table_args
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -94,65 +94,7 @@ class UserAgent(UserAgentEditionFields, Base):
     )
 
 
-class AgentMarketSubmission(Base):
-    """Record of a user-created sub-agent's "apply for listing on the sub-agent marketplace" (pending admin review).
 
-    Mirrors the skill marketplace's ``MarketplaceSubmission``, but snapshots a
-    "sub-agent" rather than skill files: on submission, the source ``UserAgent`` is
-    content-snapshotted (prompt/welcome message/suggested questions/model config/
-    capability bindings); review and listing are both based on the snapshot — later
-    edits or deletion of the original agent do not affect listed content.
-    ``status='approved'`` records appear in the sub-agent marketplace list
-    (source=community) and can be "install-cloned" by everyone as a private sub-agent;
-    admins can reject at any time (including delisting already-listed items). Direct
-    admin uploads to the marketplace are distinguished by the sentinel owner
-    ``__admin_upload__``.
-    """
-
-    __tablename__ = "agent_market_submissions"
-
-    submission_id = Column(String(64), primary_key=True)
-    # Marketplace slug once listed (derived from name at submission, globally unique, never colliding with the preset marketplace catalog)
-    slug = Column(String(128), nullable=False, unique=True)
-    agent_id = Column(String(64), nullable=False)  # source UserAgent.agent_id
-    owner_user_id = Column(String(64), nullable=False)  # applicant (or __admin_upload__)
-    submitter_name = Column(
-        String(255), default=""
-    )  # applicant display name (denormalized for display)
-
-    # Marketplace display metadata
-    name = Column(String(255), nullable=False)
-    avatar = Column(Text)
-    description = Column(Text, default="")
-    summary = Column(Text, default="")
-    category = Column(String(64), default="通用助手")
-    tags = Column(JSONType, default=list)
-    version = Column(String(50), default="1.0.0")
-    note = Column(Text, default="")  # application note (for the admin)
-
-    # Sub-agent content snapshot (decoupled from the source UserAgent)
-    system_prompt = Column(Text, default="")
-    welcome_message = Column(Text, default="")
-    suggested_questions = Column(JSONType, default=list)
-    # {temperature, max_tokens, max_iters, timeout}
-    model_config_snapshot = Column(JSONType, default=dict)
-    # {skill_ids, mcp_server_ids, plugin_ids, kb_ids}
-    bindings_snapshot = Column(JSONType, default=dict)
-
-    status = Column(String(16), nullable=False, default="pending")
-    review_note = Column(Text)  # rejection reason / review note
-    reviewed_at = Column(UTCDateTime(timezone=True))
-    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
-    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
-
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected')",
-            name="agent_market_submissions_status_check",
-        ),
-        Index("idx_agent_market_submissions_status", "status", "created_at"),
-        Index("idx_agent_market_submissions_owner", "owner_user_id"),
-    )
 
 
 class Plan(Base):

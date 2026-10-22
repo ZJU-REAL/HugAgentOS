@@ -9,7 +9,7 @@ Measured on a 325k-token chat: 54s to first token on each turn's first model
 call, against 17s for the second call in the same turn, which kept the prefix.
 
 Stored on ``ChatSession.extra_data`` next to the other chat-sticky runtime
-state (see ``core.llm.session_capabilities``). The snapshot records the memory
+state (see ``core.llm.runtime.session_capabilities``). The snapshot records the memory
 scope it was built for, because a snapshot assembled for one scope must never
 be served to another.
 """

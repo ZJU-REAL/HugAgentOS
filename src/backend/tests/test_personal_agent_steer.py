@@ -1,4 +1,7 @@
 """Personal task steering through the same safe boundaries as ordinary chat."""
+from tests.orchestration.hook_support import make_adapter
+from agentscope.message import ToolCallBlock
+
 import time
 from types import SimpleNamespace
 import pytest
@@ -21,20 +24,20 @@ async def test_steer_interrupts_old_tool_and_enters_context_without_status_poll(
         db.commit()
         inbox = steering.TaskSteering(row.id, "owner", "run", "worker", [])
         svc.tasks.steer(row.id, "Use a script instead", "update")
-    middleware = inbox.middleware()
+    middleware = make_adapter(*inbox.hook_policy().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
     called = []
     async def tool(**kwargs):
         called.append(True)
         yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
-    results = [x async for x in middleware.on_acting(agent, {}, tool)]
+    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
     assert not called
     assert results[-1].state == ToolResultState.INTERRUPTED
     async def model(**kwargs):
         assert "Use a script instead" in agent.state.context[-1].content[0].text
         yield "continued"
     assert [x async for x in middleware.on_reasoning(agent, {}, model)] == ["continued"]
-    results = [x async for x in middleware.on_acting(agent, {}, tool)]
+    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
     assert called == [True]
     assert results[-1].state == ToolResultState.SUCCESS
 
@@ -50,7 +53,7 @@ async def test_inflight_result_is_preserved_and_multiple_inputs_are_delivered_on
         row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
         db.commit()
     inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", [])
-    middleware = inbox.middleware()
+    middleware = make_adapter(*inbox.hook_policy().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
     async def tool(**kwargs):
         with sessions() as db:
@@ -58,7 +61,7 @@ async def test_inflight_result_is_preserved_and_multiple_inputs_are_delivered_on
             svc.tasks.steer(task["id"], "Use a script", "one")
             svc.tasks.steer(task["id"], "Include the source", "two")
         yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
-    results = [x async for x in middleware.on_acting(agent, {}, tool)]
+    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
     assert results[-1].state == ToolResultState.SUCCESS
     async def model(**kwargs):
         text = agent.state.context[-1].content[0].text
@@ -156,7 +159,7 @@ async def test_steer_invalidates_an_earlier_finish_before_model_continues(sessio
         db.commit()
         svc.tasks.steer(row.id, "Use a script", "update")
     inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", [])
-    middleware = inbox.middleware()
+    middleware = make_adapter(*inbox.hook_policy().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
     async def model(**kwargs):
         with sessions() as db:
@@ -176,7 +179,7 @@ async def test_steered_attachments_are_staged_and_cumulative_limit_is_atomic(ses
         async def put_file(self, box, path, content, user_id):
             staged.append(path)
     monkeypatch.setattr("personal_agent.computer.sandbox.get_personal_sandbox_provider", lambda: Sandbox())
-    monkeypatch.setattr("core.storage.get_storage", lambda: SimpleNamespace(download_bytes=lambda key: b"file"))
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: SimpleNamespace(download_bytes=lambda key: b"file"))
     with sessions() as db:
         svc = AgentContext(db, "owner")
         task = svc.tasks.submit("Read files", "initial")

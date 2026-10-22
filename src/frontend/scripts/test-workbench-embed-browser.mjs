@@ -72,7 +72,7 @@ const site=createServer(siteHandler), attacker=createServer(siteHandler);
 await new Promise(r=>attacker.listen(5256,'127.0.0.1',r));
 await new Promise(r=>site.listen(5255,'127.0.0.1',r));
 const server=spawn((process.env.WB_TEST_PYTHON || resolve(root, '.venv/bin/python')),
- ['-m','uvicorn','tests.workbench_embed_http_fixture:app','--host','127.0.0.1','--port','5254'],
+ ['-m','uvicorn','tests.features.workbench.workbench_embed_http_fixture:app','--host','127.0.0.1','--port','5254'],
  {cwd:root,env:{...process.env,PYTHONPATH:'src/backend',AUTH_MODE:'mock',CONFIG_TOKEN:'wb14-test-config',
   DATABASE_URL:'sqlite:///'+resolve(scratch,'http.db'),STORAGE_PATH:resolve(scratch,'storage'),
   TMPDIR:scratch,WB14_BROWSER_OUTPUT:output},stdio:['ignore','pipe','pipe']});

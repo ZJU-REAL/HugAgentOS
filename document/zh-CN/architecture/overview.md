@@ -203,11 +203,11 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### 提示词 DB 化
 
-系统提示词不再硬编码：版本池存于 `content_blocks` 表（`id=prompt_versions`），由 `core/services/prompt_version_service.py` 管理 CRUD、激活与首启 seed；`prompts/prompt_runtime.py` 装配时按「DB 激活版本 → `prompts/prompt_text/default/system/` 文件兜底 → 最小硬编码兜底」三级降级，保证永不为空。运营可在管理台灰度切换提示词版本而无需发版。详见 [提示词系统](../modules/prompts.md)。
+系统提示词不再硬编码：版本池存于 `content_blocks` 表（`id=prompt_versions`），由 `core/llm/prompt_versions.py` 管理 CRUD、激活与首启 seed；`prompts/prompt_runtime.py` 装配时按「DB 激活版本 → `prompts/prompt_text/default/system/` 文件兜底 → 最小硬编码兜底」三级降级，保证永不为空。运营可在管理台灰度切换提示词版本而无需发版。详见 [提示词系统](../modules/prompts.md)。
 
 ### MCP 工具独立进程
 
-每个工具是 `src/backend/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp_manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。CE 保留 7 个通用 Server；`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
+每个工具是 `src/backend/extensions/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `extensions/mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp/manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。CE 保留 7 个通用 Server；`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
 
 ### Run 与连接解耦
 
@@ -226,7 +226,7 @@ RAG 则提供支撑决策所需的文档与证据。
 | Run 执行器 | `src/backend/orchestration/chat_run_executor.py` |
 | 流式编排 | `src/backend/orchestration/workflow.py` |
 | 智能体工厂 | `src/backend/core/llm/factory/build.py` |
-| MCP 配置与端口 | `src/backend/core/config/mcp_config.py`、`src/backend/mcp_servers/_ports.py` |
+| MCP 配置与端口 | `src/backend/core/config/mcp_config.py`、`src/backend/extensions/mcp_servers/_ports.py` |
 | 能力目录 | `src/backend/core/config/catalog.json`、`catalog.py` |
 | 响应信封 | `src/backend/core/infra/responses.py` |
 | 提示词装配 | `src/backend/prompts/prompt_runtime.py` |

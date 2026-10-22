@@ -4,7 +4,7 @@ import uuid
 
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatSession, UserShadow
-from core.services.chat_service import ChatService
+from core.chat.service import ChatService
 
 
 def main() -> None:

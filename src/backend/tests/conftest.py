@@ -57,3 +57,22 @@ def auth_headers(test_user):
     """Mock authentication headers."""
     # In real tests, generate actual JWT token
     return {"Authorization": "Bearer test_token_123"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def product_tool_contributions():
+    """Compose product tools for tests invoking the core factory without ASGI."""
+    from features import register_product_tools, register_package_sources, register_resource_owners, register_run_capabilities
+    register_product_tools()
+    from features import register_catalog_options
+    register_catalog_options()
+    register_package_sources()
+    register_resource_owners()
+    register_run_capabilities()
+    from features import register_model_credentials
+    register_model_credentials()
+    from core.harness.registry import load_models
+    from features.installed import INSTALLED_FEATURES
+    load_models(INSTALLED_FEATURES)
+    from integrations import register_credentials
+    register_credentials()

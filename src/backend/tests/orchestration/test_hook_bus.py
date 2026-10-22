@@ -260,3 +260,46 @@ async def test_hook_external_usage_is_recorded_as_its_own_attempt():
     assert rows[0].kind == "hook"
     assert rows[0].operation_name == "safety_classifier"
     assert usage.aggregate("run-usage")["total_tokens"] == 14
+
+
+@pytest.mark.asyncio
+async def test_interactive_policy_owns_wait_budget_and_preserves_cancellation(monkeypatch):
+    from core.llm.tool_permissions.hook import ToolPermissionHook
+    from dataclasses import replace
+
+    entered = asyncio.Event()
+    approved = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def approval(invocation):
+        entered.set()
+        try:
+            await approved.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return Decision()
+
+    async def short_watchdog(coro, timeout):
+        coro.close()
+        raise AssertionError("Human approval must own its wait budget")
+
+    bus = HookBus()
+    bus.register(replace(ToolPermissionHook(None).spec(), handler=approval))
+    invocation = Invocation.create(run_id="approval", stage=HookStage.BEFORE_TOOL,
+                                   operation_name="write", data={"tool_args": {}, "metadata": {}})
+    monkeypatch.setattr(asyncio, "wait_for", short_watchdog)
+    task = asyncio.create_task(bus.run(invocation))
+    await entered.wait()
+    await asyncio.sleep(0)
+    assert not task.done()
+    approved.set()
+    assert (await task).decision.kind == DecisionKind.CONTINUE
+    entered.clear()
+    approved.clear()
+    task = asyncio.create_task(bus.run(invocation))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()

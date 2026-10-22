@@ -123,7 +123,7 @@ class ArtifactRepository:
             # Import lazily: ``core.services`` re-exports repositories, so importing
             # this edition seam while the repository package is initializing would
             # create a package-level cycle.
-            from core.services.artifact_edition import personal_artifact_predicates
+            from core.db.artifact_scope import personal_artifact_predicates
 
             query = query.filter(*personal_artifact_predicates(Artifact))
             if folder_id == ROOT_FOLDER_SENTINEL:

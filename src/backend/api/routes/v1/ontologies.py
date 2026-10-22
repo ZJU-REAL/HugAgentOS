@@ -15,14 +15,9 @@ from core.db.engine import get_db
 from core.db.models import OntologyDraft, OntologyEnforcementEvent, OntologyReviewRun
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.responses import success_response
-from core.services import UserService
-from core.services.ontology_policy import (
-    plugin_import_build_validation_forced,
-    require_ontology_validation_permission,
-    set_plugin_import_build_validation_forced,
-    user_can_use_ontology_validation,
-)
-from core.services.ontology_service import OntologyService
+from core.auth.users import UserService
+from core.ontology.policy import plugin_import_build_validation_forced, require_ontology_validation_permission, set_plugin_import_build_validation_forced, user_can_use_ontology_validation
+from core.ontology.service import OntologyService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -182,7 +177,7 @@ def preview_ontology_runtime(
     settings = UserService(db).get_user_settings(str(user.user_id))
     if not settings.get("ontology_enabled", False):
         return success_response(data={"enabled": False, "packs": [], "review_level": "none"})
-    from core.services.ontology_service import build_user_ontology_runtime
+    from core.ontology.runtime_policy import build_user_ontology_runtime
 
     _, runtime = build_user_ontology_runtime(
         user_id=str(user.user_id),
@@ -701,7 +696,7 @@ async def generate_ontology_evolution_drafts(
     body: OntologyEvolutionGenerateRequest,
     db: Session = Depends(get_db),
 ):
-    from core.services.ontology_evolution_service import OntologyEvolutionService
+    from core.ontology.evolution import OntologyEvolutionService
 
     result = await OntologyEvolutionService(db).generate_candidates(
         min_occurrences=body.min_occurrences,
@@ -725,7 +720,7 @@ def materialize_ontology_draft(
     draft_id: str,
     db: Session = Depends(get_db),
 ):
-    from core.services.ontology_evolution_service import OntologyEvolutionService
+    from core.ontology.evolution import OntologyEvolutionService
 
     row = OntologyEvolutionService(db).materialize_approved_draft(draft_id)
     return success_response(data=_version_dict(row, include_content=True))

@@ -12,8 +12,8 @@ from sqlalchemy.pool import StaticPool
 from api.routes.v1 import audio
 from core.db.engine import Base, get_db
 from core.db.models import UserShadow
-from core.db.model_repository import create_provider, assign_role, update_provider
-from core.services.audio_transcription import resolve_audio_model
+from core.models.repository import create_provider, assign_role, update_provider
+from core.chat.audio_transcription import resolve_audio_model
 from tests.services.test_audio_transcription import wav
 
 

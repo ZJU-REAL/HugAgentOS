@@ -5,11 +5,13 @@
 时各建各的容器，两个都活着、各有各的 ``/workspace``。用户看到的是"跨轮随机跳"：
 上一轮 nohup 起的进程连同 ``run.log`` 一起消失，其实还在另一台容器里跑着。
 
-这里用两个 mixin 实例当两个 worker——它们共享 :mod:`core.sandbox.session_registry`，
+这里用两个 mixin 实例当两个 worker——它们共享 :mod:`core.sandbox.sessions.registry`，
 正如同机的两个 uvicorn 进程共享 Redis。
 """
 
 from __future__ import annotations
+
+from tests.sandbox.provider_test_support import patch_open_settings
 
 import asyncio
 import json
@@ -19,9 +21,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from core.sandbox import _opensandbox_session as session_mod
-from core.sandbox import session_registry
-from core.sandbox._opensandbox_session import _OpenSandboxSessionMixin
+import core.sandbox.providers.opensandbox.models as session_mod_models
+import core.sandbox.sessions.registry as session_registry
+from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+from core.sandbox.errors import SandboxNotFoundError
 
 
 def _settings(**overrides):
@@ -32,7 +35,7 @@ def _settings(**overrides):
 
 @pytest.fixture(autouse=True)
 def _sandbox_settings(monkeypatch):
-    monkeypatch.setattr(session_mod, "settings", _settings())
+    patch_open_settings(monkeypatch, _settings())
     monkeypatch.setattr("core.config.settings.settings", _settings(), raising=False)
 
 
@@ -63,7 +66,7 @@ def _fake_opensandbox(monkeypatch):
     async def connect(sandbox_id, **kwargs):
         sbx = _FakeSandbox.registry.get(sandbox_id)
         if sbx is None or not sbx.alive:
-            raise RuntimeError(f"sandbox {sandbox_id} not found")
+            raise SandboxNotFoundError(f"sandbox {sandbox_id} not found")
         return sbx
 
     module = SimpleNamespace(Sandbox=SimpleNamespace(connect=connect))
@@ -74,7 +77,7 @@ def _fake_opensandbox(monkeypatch):
 
 def _worker(name: str):
     """一个 worker：自己的会话表、自己的池，共享登记。"""
-    worker = _OpenSandboxSessionMixin()
+    worker = OpenSandboxProvider.__new__(OpenSandboxProvider)
     worker._sessions = {}
     worker._session_locks = {}
     worker._registry_lock = __import__("threading").Lock()
@@ -97,10 +100,8 @@ def _worker(name: str):
     async def create_session_for(session_id, user_id=None):
         sandbox_id = f"{name}-sbx-{len(worker.created) + 1}"
         worker.created.append(sandbox_id)
-        return session_mod._Session(
+        return session_mod_models.SandboxSessionRecord(
             sandbox=_FakeSandbox(sandbox_id),
-            interpreter=None,
-            contexts={},
                 user_id=user_id,
             pool_source="user",
             last_renew_ts=time.monotonic(),
@@ -125,7 +126,7 @@ def test_a_second_worker_attaches_instead_of_building_its_own_container():
     assert first.sandbox.id == second.sandbox.id
     assert a.created == ["a-sbx-1"] and b.created == []
     # 接管来的容器不属于本进程任何一个池，销毁时必须直接销毁
-    assert second.pool_source == "none"
+    assert second.pool_source == "attached"
 
 
 def test_many_rounds_bouncing_between_workers_stay_on_one_container():
@@ -167,7 +168,6 @@ def test_destroying_a_session_clears_the_binding(provider_database):
     a = _worker("a")
     a._jupyter_user_pool = SimpleNamespace(release=AsyncMock())
     a._wipe_workspace = AsyncMock(return_value=True)
-    a._reset_language_context = AsyncMock()
 
     async def scenario():
         sess = await a._get_or_create_session("chat-1", user_id="u1")
@@ -262,7 +262,7 @@ def test_attach_renews_the_existing_container_before_returning():
 def test_dead_container_metadata_does_not_prevent_recreation():
     worker = _worker("replacement")
     _FakeSandbox("expired")
-    worker._renew.side_effect = RuntimeError("Sandbox not found")
+    worker._renew.side_effect = SandboxNotFoundError("Sandbox not found")
     async def scenario():
         await session_registry.remember("expired-chat", "expired")
         return await worker._get_or_create_session("expired-chat", user_id="u1")

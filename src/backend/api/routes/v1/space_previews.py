@@ -7,9 +7,9 @@ import tempfile
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
-from core.content.archive_browser import ArchiveError, inspect_archive, read_archive_member
+from core.files.content.archive_browser import ArchiveError, inspect_archive, read_archive_member
 from core.infra.responses import success_response
-from core.spaces.files import SpaceFiles
+from core.files.spaces.files import SpaceFiles
 from api.routes.v1.space_files import service
 
 router = APIRouter(prefix="/v1/myspace/content")

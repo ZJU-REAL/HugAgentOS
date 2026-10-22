@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Dict
 
 from core.config.settings import settings as _settings
-from mcp_servers._ports import PORTS as _MCP_PORTS
+from extensions.mcp_servers._ports import PORTS as _MCP_PORTS
 
 _WORKFLOW_MODE_HINT = (
     "\n\n## 工作流模式（用户已主动进入）\n"
@@ -90,7 +90,7 @@ _WORKFLOW_MODE_HINT = (
     "一旦写入，「哪些还没做」就不再可判定。\n"
 )
 
-_HTTP_MCP_FAIL_AT: Dict[str, float] = {}
+
 
 _HTTP_MCP_FAIL_COOLDOWN_S = 60.0
 
@@ -109,3 +109,19 @@ _SKILL_INSTRUCTION_TEMPLATE = (
     "# 可用技能（技能名、说明文件、适用场景）：{% for skill in skills %}\n"
     "- `{{ skill.name }}`：`{{ skill.dir }}/SKILL.md` — {{ skill.description }}{% endfor %}"
 )
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class DefaultsState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    HTTP_MCP_FAIL_AT: Dict[str, float] = state_field(default_factory=lambda: {})
+
+@state_cache(maxsize=1)
+def process_state() -> DefaultsState:
+    return DefaultsState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

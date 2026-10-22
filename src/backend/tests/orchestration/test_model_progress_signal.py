@@ -5,14 +5,14 @@ fragment has not crossed either flush threshold, ``model_progress`` still keeps
 the run watchdog alive; flushed fragments become visible ``tool_call_delta``
 events and the completed JSON is emitted exactly once as ``tool_call``.
 """
+from core.llm.runtime import streaming_state as streaming_state_module
 
 import asyncio
 from types import SimpleNamespace
 
+import core.llm.runtime.streaming as streaming_mod
 import pytest
-
-import orchestration.streaming as streaming_mod
-from orchestration.streaming import StreamingAgent
+from core.llm.runtime.streaming import StreamingAgent
 
 
 class ToolCallStartEvent:  # noqa: D101 - name-dispatched by _map_event
@@ -60,7 +60,7 @@ async def _collect(agent):
 
 @pytest.mark.asyncio
 async def test_small_buffered_deltas_emit_model_progress_until_flushed(monkeypatch):
-    monkeypatch.setattr(streaming_mod, "_MODEL_PROGRESS_MIN_INTERVAL_S", 0.0)
+    monkeypatch.setattr(streaming_state_module, 'MODEL_PROGRESS_MIN_INTERVAL_S', 0.0)
     events = [ToolCallStartEvent()] + [ToolCallDeltaEvent(delta="chunk") for _ in range(5)]
     out = await _collect(_fake_agent(events))
     types = [t for t, _ in out]
@@ -79,8 +79,8 @@ async def test_throttle_suppresses_model_progress():
 
 @pytest.mark.asyncio
 async def test_tool_arguments_stream_as_bounded_deltas_then_one_final_call(monkeypatch):
-    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_CHARS", 8)
-    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_INTERVAL_S", 999.0)
+    monkeypatch.setattr(streaming_state_module, 'TOOL_CALL_DELTA_FLUSH_CHARS', 8)
+    monkeypatch.setattr(streaming_state_module, 'TOOL_CALL_DELTA_FLUSH_INTERVAL_S', 999.0)
     events = [
         ToolCallStartEvent(),
         ToolCallDeltaEvent(delta='{"command"'),
@@ -118,8 +118,8 @@ async def test_inflight_model_call_silence_emits_model_progress(monkeypatch):
     # A model call in flight (ModelCallStart seen, nothing since — hung/slow LLM
     # endpoint) must surface as model_progress, not heartbeat, so the run
     # inactivity watchdog does not kill a run that is merely waiting on the model.
-    monkeypatch.setattr(streaming_mod, "_MODEL_PROGRESS_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(streaming_mod, "_QUEUE_POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(streaming_state_module, 'MODEL_PROGRESS_MIN_INTERVAL_S', 0.0)
+    monkeypatch.setattr(streaming_state_module, 'QUEUE_POLL_INTERVAL_S', 0.01)
     out = await _collect(_slow_model_agent([ModelCallStartEvent()], silence_s=0.1))
     types = [t for t, _ in out]
     assert types.count("model_progress") >= 2
@@ -128,7 +128,7 @@ async def test_inflight_model_call_silence_emits_model_progress(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_call_start_surfaces_the_real_dispatch_boundary(monkeypatch):
-    monkeypatch.setattr(streaming_mod, "_QUEUE_POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(streaming_state_module, 'QUEUE_POLL_INTERVAL_S', 0.01)
     out = await _collect(_slow_model_agent([ModelCallStartEvent()], silence_s=0.01))
 
     assert ("model_call_start", None) in out
@@ -138,8 +138,8 @@ async def test_model_call_start_surfaces_the_real_dispatch_boundary(monkeypatch)
 async def test_silence_without_inflight_model_call_stays_heartbeat(monkeypatch):
     # Same silence but no model call in flight (e.g. a tool executing) keeps the
     # historical heartbeat semantics — excluded from watchdog activity.
-    monkeypatch.setattr(streaming_mod, "_MODEL_PROGRESS_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(streaming_mod, "_QUEUE_POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(streaming_state_module, 'MODEL_PROGRESS_MIN_INTERVAL_S', 0.0)
+    monkeypatch.setattr(streaming_state_module, 'QUEUE_POLL_INTERVAL_S', 0.01)
     out = await _collect(_slow_model_agent([], silence_s=0.1))
     types = [t for t, _ in out]
     assert types.count("heartbeat") >= 2

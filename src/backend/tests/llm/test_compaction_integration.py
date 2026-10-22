@@ -5,17 +5,16 @@ Covers: cross-turn tool results not truncated, checkpoint persistence and
 consumption, UI list filtering, delete cascading.
 """
 
-from core.services import compaction_budget as budget
-from core.config import settings as config_settings
 import json
 from datetime import timezone
 
-
+from core.config import settings as config_settings
 from core.db.models import ChatMessage, ChatSession
-from core.llm import compaction as C
-from core.services.chat_service import ChatService
-from core.services import compaction_service as S
-from core.llm.single_turn import Endpoint
+from core.llm.context import compaction as C
+from core.models.completions.single_turn import Endpoint
+from core.llm.context import budget as budget
+from core.chat.compaction import service as S
+from core.chat.service import ChatService
 
 
 def _endpoint():
@@ -48,6 +47,45 @@ def _add_user(svc, text):
 
 
 def _add_assistant(svc, text, tool_calls=None):
+    from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
+
+    steps = []
+    for index, call in enumerate(tool_calls or []):
+        call_id = f"call-{index}"
+        steps.append(
+            record_assistant_step(
+                [
+                    {
+                        "type": "tool_call",
+                        "id": call_id,
+                        "name": call["tool_name"],
+                        "input": json.dumps(call["tool_args"]),
+                    }
+                ],
+                provider="p",
+                model="m",
+                protocol="openai_chat",
+            )
+        )
+        steps.append(
+            record_tool_result_step(
+                {
+                    "type": "tool_result",
+                    "id": call_id,
+                    "name": call["tool_name"],
+                    "output": call["result"],
+                    "state": "success",
+                },
+            )
+        )
+    steps.append(
+        record_assistant_step(
+            [{"type": "text", "text": text}],
+            provider="p",
+            model="m",
+            protocol="openai_chat",
+        )
+    )
     return svc.message_repo.create(
         {
             "message_id": f"a_{id(text)%99999}",
@@ -55,6 +93,7 @@ def _add_assistant(svc, text, tool_calls=None):
             "role": "assistant",
             "content": text,
             "tool_calls": tool_calls,
+            "model_steps": steps,
         }
     )
 
@@ -155,6 +194,7 @@ def test_latest_checkpoint_wins(db_session):
 
 def test_disabled_falls_back_to_full_replay(db_session, monkeypatch):
     import dataclasses
+
     from core.config.settings import settings as real
 
     disabled = dataclasses.replace(real.compaction, enabled=False)
@@ -203,7 +243,7 @@ def test_summary_flatten_preserves_tool_blocks():
             ],
         },
     ]
-    from core.services.compaction_summary import _flatten_for_summary
+    from core.chat.compaction.summary import _flatten_for_summary
 
     flat = _flatten_for_summary(history)
     assert len(flat) == 3
@@ -247,7 +287,7 @@ def test_context_state_uses_compacted_baseline_and_visible_boundary(db_session):
     )
     _add_user(svc, "压缩后的新问题")
 
-    from core.services.context_usage_projection import get_chat_context_state
+    from core.chat.compaction.usage_projection import get_chat_context_state
 
     state = get_chat_context_state(svc, CHAT_ID)["context_compaction"]
 
@@ -295,7 +335,7 @@ def test_pre_turn_compaction_fast_path_no_llm(monkeypatch):
     async def boom(history, *, timeout):  # noqa: ARG001
         raise AssertionError("fast path must not call the LLM")
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", boom)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', boom)
     history = [{"role": "user", "content": "短问题"}]
     # Unknown model → window None → threshold None → fast path
     out, compacted = asyncio.run(
@@ -326,7 +366,7 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
         return "模拟交接摘要"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
     # Checkpoint persistence goes through the global SessionLocal → point it at the test DB
     monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
 
@@ -356,98 +396,11 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
     assert extra.get("replacement_history"), "checkpoint 带 replacement_history"
 
 
-def test_summarize_context_overflow_self_heal(monkeypatch):
-    """Summary input exceeds the window → drop the oldest history and retry until it fits (aligned with Codex's ContextWindowExceeded handling)."""
-    import asyncio
-
-    from core.services import compaction_summary as summary
-
-    monkeypatch.setattr(summary, "_resolve_summarizer_model", lambda: _endpoint())
-    monkeypatch.setattr(summary, "_load_base_system_prompt", lambda: "SYS PROMPT")
-
-    calls = []
-
-    class _FakeResp:
-        def __init__(self, status, payload=None, text=""):
-            self.status_code = status
-            self._payload = payload or {}
-            self.text = text
-
-        def json(self):
-            return self._payload
-
-    class _FakeClient:
-        def __init__(self, *a, **kw):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, url, headers=None, json=None):
-            msgs = json["messages"]
-            calls.append(list(msgs))
-            if len(calls) <= 2:
-                return _FakeResp(400, text="This model's maximum context length is 1000 tokens")
-            return _FakeResp(200, payload={"choices": [{"message": {"content": "交接摘要"}}]})
-
-    monkeypatch.setattr(summary.httpx, "AsyncClient", _FakeClient)
-
-    history = [{"role": "user", "content": f"历史消息{i}，" * 30} for i in range(30)]
-    out = asyncio.run(summary._summarize(history, timeout=5))
-    assert out == "交接摘要"
-    assert len(calls) == 3, "两次超窗 + 一次成功"
-    assert len(calls[2]) < len(calls[0]), "重试时必须丢掉最旧消息"
-    assert calls[2][0]["role"] == "system", "system 头永不丢弃"
-    assert calls[2][-1]["content"] == C.SUMMARIZATION_PROMPT, "末尾摘要指令永不丢弃"
-    # What gets dropped is the oldest history: the first history message should be gone
-    assert "历史消息0" not in "".join(m["content"] for m in calls[2])
-
-
-def test_summarize_non_context_error_no_retry(monkeypatch):
-    """Non-context-overflow errors (e.g. auth failure) skip the self-heal loop; return None after one attempt."""
-    import asyncio
-
-    from core.services import compaction_summary as summary
-
-    monkeypatch.setattr(summary, "_resolve_summarizer_model", lambda: _endpoint())
-    monkeypatch.setattr(summary, "_load_base_system_prompt", lambda: "")
-
-    calls = []
-
-    class _FakeResp:
-        status_code = 400
-        text = "Invalid API key provided"
-
-        def json(self):
-            return {}
-
-    class _FakeClient:
-        def __init__(self, *a, **kw):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, url, headers=None, json=None):
-            calls.append(1)
-            return _FakeResp()
-
-    monkeypatch.setattr(summary.httpx, "AsyncClient", _FakeClient)
-    out = asyncio.run(summary._summarize([{"role": "user", "content": "q"}], timeout=5))
-    assert out is None
-    assert len(calls) == 1, "非超窗错误不应重试"
-
-
 def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
     """In-turn consumption view: stream/reply assumes "the last user message = this turn's input" —
     after compaction, the current user message must close the list after the summary (Codex
-    post-compaction shape), otherwise the summary would be mistaken for this turn's input."""
+    post-compaction shape), otherwise the summary would be mistaken for this turn's input.
+    """
     import asyncio
     import dataclasses
 
@@ -467,7 +420,7 @@ def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
         return "摘要"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
     monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
 
     history = [

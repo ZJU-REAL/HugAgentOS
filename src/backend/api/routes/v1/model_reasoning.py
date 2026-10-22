@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 
 from api.deps import require_system_settings
 from core.db.engine import get_db
-from core.db.model_repository import get_provider
+from core.models.repository import get_provider
 from core.infra.responses import success_response
-from core.llm.providers.reasoning_probe import discover_reasoning_efforts
+from core.models.providers.reasoning_probe import discover_reasoning_efforts
 
 router = APIRouter()
 

@@ -19,7 +19,7 @@ SDK 是以字符串形式注入沙箱的（``SDK_SOURCE``），测试直接 exec
 import re
 
 import pytest
-from orchestration.jobs.sdk import SDK_SOURCE
+from core.jobs.sdk import SDK_SOURCE
 
 
 @pytest.fixture()

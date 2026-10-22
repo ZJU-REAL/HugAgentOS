@@ -31,19 +31,11 @@ S3 服务部署在本机时，请使用容器可达的服务地址。
 控制器不再持有 FUSE 连接，无需共享传播目录或宿主挂载准备脚本。
 沙盒文件操作仍使用普通用户。
 
-## 文件导入
+## 存量文件迁移
 
-先备份数据库和对象数据。暂停对目标目录的写入。
-对每个用户或团队生成导入清单：
-
-```bash
-PYTHONPATH=src/backend python -m scripts.import_space_files --user USER_ID
-PYTHONPATH=src/backend python -m scripts.import_space_files --team TEAM_ID
-```
-
-确认目标目录和文件清单后，追加 `--apply` 执行导入。
-工具拒绝同名冲突，并校验复制后的内容。
-工具保留源对象和文件引用。导入中断后可重新运行。
+独立文件导入命令已移除。迁移存量文件前，先备份数据库和对象数据，
+暂停目标目录写入，制定并审核迁移方案。核对目标路径、同名冲突和文件内容，
+保留源对象及文件引用。
 
 ## 验证
 
@@ -100,8 +92,8 @@ CE Docker 也默认使用 S3。桌面离线本机模式保留本地存储。
 混合模式的本机会话通过云端能力清单安装“我的空间”连接器。
 纯云端会话继续直接访问沙盒挂载目录；纯本机模式不安装这个云端连接器。
 
-MCP 接口位于 `src/backend/mcp_servers/space_files_mcp/`。
-内置服务注册表为 `mcp_servers/registry.py`。每项分别声明
+MCP 接口位于 `src/backend/extensions/mcp_servers/space_files_mcp/`。
+内置服务注册表为 `extensions/mcp_servers/registry.py`。每项分别声明
 `installation=local/cloud/both`（本机、云端或两端安装）和
 `exposure=process/desktop_gateway`（独立进程或桌面能力网关）。
 空间连接器在云端执行，通过桌面能力网关提供工具，不启动额外的监听端口。

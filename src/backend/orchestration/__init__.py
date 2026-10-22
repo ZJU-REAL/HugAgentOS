@@ -1,4 +1,1 @@
-"""Routing / multi-agent placeholders.
-
-Current behavior: always route to main.
-"""
+"""Outer Plan, Loop and scheduled workflow orchestration over core runtimes."""

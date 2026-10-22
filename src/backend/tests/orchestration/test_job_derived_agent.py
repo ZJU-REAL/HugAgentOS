@@ -1,15 +1,19 @@
 """Workflow forks keep the main-agent surface and independent run state."""
+from core.llm.runtime import streaming as streaming_module
 
 import asyncio
 import json
 from types import SimpleNamespace
 
+import core.jobs.agent as agent
+import core.jobs.files as files
+import core.jobs.runtime as jobs_runtime
 import pytest
 from core.llm.factory.request import AgentRequest
 
 
 def test_snapshot_keeps_parent_and_deferred_capabilities_without_run_identity():
-    from orchestration.jobs.agent import snapshot_parent_runtime
+    from core.jobs.agent import snapshot_parent_runtime
 
     request = AgentRequest(
         enabled_skill_ids=["research"],
@@ -48,10 +52,10 @@ def test_snapshot_keeps_parent_and_deferred_capabilities_without_run_identity():
 
 
 def test_derived_executor_uses_main_factory_and_independent_prompt(monkeypatch):
+    import core.jobs.agent as jobs
     import core.llm.factory as factory
-    import core.llm.mcp_manager as mcp
-    import orchestration.streaming as streaming
-    from orchestration.jobs import agent as jobs
+    import core.llm.mcp.manager as mcp
+    import core.llm.runtime.streaming as streaming
 
     calls, prompts, closed = [], [], []
 
@@ -72,8 +76,8 @@ def test_derived_executor_uses_main_factory_and_independent_prompt(monkeypatch):
 
     monkeypatch.setattr(factory, "create_agent_executor", construct)
     monkeypatch.setattr(mcp, "close_clients", close)
-    monkeypatch.setattr(streaming, "StreamingAgent", Stream)
-    monkeypatch.setattr(jobs, "resolve_subagents", lambda *_args: [{"agent_id": "builtin.worker"}])
+    monkeypatch.setattr(streaming_module, 'StreamingAgent', Stream)
+    monkeypatch.setattr(agent, "resolve_subagents", lambda *_args: [{"agent_id": "builtin.worker"}])
     runtime = {
         "enabled_skill_ids": ["skill"],
         "enabled_mcp_ids": ["search"],
@@ -112,10 +116,10 @@ def test_derived_executor_uses_main_factory_and_independent_prompt(monkeypatch):
 
 
 def test_child_executor_inherits_full_approval(monkeypatch):
-    import core.llm.builtin_subagents as builtins
+    import core.capabilities.agents.builtin as builtins
     import core.llm.factory as factory
     from agentscope.message import AssistantMsg
-    from core.llm import subagent_tool
+    from core.llm.subagents import tool as subagent_tool
 
     captured = []
 
@@ -145,7 +149,7 @@ def test_child_executor_inherits_full_approval(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_job_fence_cancels_the_agent_and_waits_for_cleanup():
-    from orchestration.jobs.agent import run_with_job_fence
+    from core.jobs.agent import run_with_job_fence
 
     started, stopped = asyncio.Event(), asyncio.Event()
     checks = 0
@@ -170,7 +174,7 @@ async def test_job_fence_cancels_the_agent_and_waits_for_cleanup():
 
 
 def test_missing_parent_config_does_not_fall_back_to_light_executor():
-    from orchestration.jobs.agent import run_derived_agent
+    from core.jobs.agent import run_derived_agent
 
     with pytest.raises(ValueError, match="重新提交"):
         asyncio.run(
@@ -193,16 +197,19 @@ def test_real_main_factory_delegates_from_workflow_fork(tmp_path):
     import subprocess
     import sys
 
-    script = r"""
+    script = """
 import asyncio, json, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import core.db.models
 from core.db.engine import Base, engine, SessionLocal
-from core.db.model_repository import create_provider, assign_role
-from orchestration.jobs.agent import run_derived_agent
+from core.models.repository import create_provider, assign_role
+from core.jobs.agent import run_derived_agent
 Base.metadata.create_all(engine)
 requests = []
 # Inspect real permission services for both factory-created roles.
+from features import register_product_tools, register_run_capabilities
+register_product_tools()
+register_run_capabilities()
 import core.llm.factory as factory
 from agentscope.message import ToolCallBlock
 from core.llm.tool_permissions import ToolPermissionSpec, PermissionIntent, DOMAIN_APPROVAL
@@ -238,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         chunk = {'id': 'completion', 'object': 'chat.completion.chunk', 'created': 1,
                  'model': payload['model'], 'choices': [{'index': 0, 'delta': delta, 'finish_reason': None}]}
         end = dict(chunk, choices=[{'index': 0, 'delta': {}, 'finish_reason': finish}])
-        data = ('data: '+json.dumps(chunk)+'\n\n'+'data: '+json.dumps(end)+'\n\n'+'data: [DONE]\n\n').encode()
+        data = ('data: '+json.dumps(chunk)+'\\n\\n'+'data: '+json.dumps(end)+'\\n\\n'+'data: [DONE]\\n\\n').encode()
         self.send_response(200); self.send_header('Content-Type','text/event-stream')
         self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
 server = ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -250,7 +257,7 @@ with SessionLocal() as db:
     provider_id = provider.provider_id
     assign_role(db,'main_agent',provider_id)
 async def main():
-    from core.services.run_journal import durable_run_binding
+    from core.runs.journal import durable_run_binding
     async with durable_run_binding(user_id="test-user", chat_id="test-chat",
         kind="internal_job_agent", external_id="test", request_payload={}) as binding:
         result = await run_derived_agent('Delegate to the worker, then report.',
@@ -292,16 +299,16 @@ def submitted_job(monkeypatch):
     from contextlib import asynccontextmanager
 
     import core.db.engine as db_engine
+    import core.jobs.files as files
+    import core.jobs.runtime as job_runtime
     from api.routes.v1 import internal_jobs, job_callback_session
     from core.db.engine import Base
+    from core.jobs.agent import snapshot_parent_runtime
     from core.llm.tools.job_tool import register_run_job
-    from core.services import run_journal
-    from core.services.job_service import JobService
+    from core.runs import journal as run_journal
+    from core.jobs.store import JobService
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from orchestration import job_runtime
-    from orchestration.jobs import files
-    from orchestration.jobs.agent import snapshot_parent_runtime
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
@@ -338,7 +345,7 @@ def submitted_job(monkeypatch):
     async def binding(**_kwargs):
         yield SimpleNamespace(chat_id="chat", run_id="run", owner="owner")
 
-    monkeypatch.setattr(job_runtime, "start_job", start)
+    monkeypatch.setattr(jobs_runtime, "start_job", start)
     monkeypatch.setattr(files, "_sbx_bash", bash)
     monkeypatch.setattr(run_journal, "durable_run_binding", binding)
 
@@ -385,7 +392,7 @@ def test_callback_uses_saved_main_snapshot_and_never_repeats_actions(
     submitted_job, monkeypatch, output, infra_failure, status
 ):
     from api.routes.v1 import internal_jobs
-    from core.services.job_service import JobService
+    from core.jobs.store import JobService
 
     client, (job_id, token), runtime, sessions = submitted_job
     calls = []
@@ -415,7 +422,7 @@ def test_callback_uses_saved_main_snapshot_and_never_repeats_actions(
 
 
 def test_sdk_does_not_repeat_an_agent_after_network_result_is_unknown():
-    from orchestration.jobs.sdk import SDK_SOURCE
+    from core.jobs.sdk import SDK_SOURCE
 
     ns = {}
     exec(compile(SDK_SOURCE, "<sdk>", "exec"), ns)

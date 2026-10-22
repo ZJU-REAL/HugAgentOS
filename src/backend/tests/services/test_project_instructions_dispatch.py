@@ -7,15 +7,15 @@ from datetime import datetime
 
 import pytest
 from core.chat.schemas import ChatRequest
-from core.services.project_instructions import ProjectInstructionsService
-from core.services.project_scope import build_project_ctx
-from core.services.project_service import ProjectService
+from core.projects.instructions import ProjectInstructionsService
+from core.projects.edition import build_project_ctx
+from core.projects.edition import ProjectService
 from tests.services.project_instructions_support import env, local, update
 
 
 def test_chat_dispatch_expands_command_and_loads_fresh_rules(env):
-    from core.services.session_operations.agent_targets import _resolve_chat_agent_targets
-    from core.services.session_operations.request_context import _build_ctx
+    from core.chat.operations.agent_targets import _resolve_chat_agent_targets
+    from core.chat.operations.request_context import build_ctx as _build_ctx
 
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Dispatch")
@@ -65,7 +65,7 @@ def test_combined_project_patch_preserves_metadata_with_production_session_setti
 
 @pytest.mark.asyncio
 async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(env):
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
     from core.llm.tools.project_instructions_tool import register_project_instruction_tools
 
     db, _ = env
@@ -89,10 +89,10 @@ async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(e
 
 @pytest.mark.asyncio
 async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(env, monkeypatch):
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.read_tool import register_read
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
 
     db, _ = env
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)

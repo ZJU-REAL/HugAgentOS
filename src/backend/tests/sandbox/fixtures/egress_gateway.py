@@ -1,4 +1,7 @@
+from features.desktop.api import desktop_capability
 """Isolated E2E gateway: real production HTTP route, synthetic authorization/upstream."""
+from features.desktop.api import capability_dependencies
+from features.desktop.api import desktop_capability_state
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -15,8 +18,9 @@ import uvicorn
 from fastapi import FastAPI
 
 import core.db.models  # Initialize model extensions before standalone route imports.
-from api.routes.v1 import desktop_capability as bridge
-from core.services import desktop_capability, desktop_gateway_observability
+from features.desktop.api import desktop_capability as bridge
+from features.desktop.capability import service as desktop_capability
+from features.desktop.gateway import observability as desktop_gateway_observability
 
 # Replace account/config storage only. HTTP forwarding, pooling, SSE and error handling
 # execute the production code; there are no real accounts, secrets or databases here.
@@ -27,11 +31,11 @@ desktop_capability.resolve_model_gateway_target = lambda *_: {
     "provider_type": "chat",
     "api_key": "synthetic-e2e-key",
 }
-bridge._stream_secrets = lambda *_: {"synthetic-e2e-key"}
+capability_dependencies.stream_secrets = lambda *_: {"synthetic-e2e-key"}
 desktop_gateway_observability.submit = lambda *_: None
 app = FastAPI()
-app.dependency_overrides[bridge._require_capability_user] = lambda: "e2e-user"
-app.include_router(bridge.router)
+app.dependency_overrides[capability_dependencies.require_capability_user] = lambda: "e2e-user"
+app.include_router(desktop_capability.router)
 
 
 @app.get("/health")

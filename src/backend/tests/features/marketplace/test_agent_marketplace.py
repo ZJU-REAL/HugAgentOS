@@ -1,0 +1,162 @@
+"""Sub-agent marketplace: full lifecycle test — listing request → review → install-clone (dependencies installed along) → delisting."""
+
+from __future__ import annotations
+from features.marketplace import agent_catalog
+from features.marketplace import agent_installation
+from features.marketplace import agent_submissions
+
+import pytest
+from core.db.models import AdminMcpServer, AdminSkill, UserAgent, UserShadow
+
+from core.capabilities.agents.edition import UserAgentService
+
+
+def _seed_users(db):
+    for uid in ("u1", "u2", "u3"):
+        db.add(UserShadow(user_id=uid, username=uid, extra_data={}))
+    db.commit()
+
+
+def _seed_resolvable_resources(db):
+    """Insert one globally-available skill + one global MCP as resolvable bindings."""
+    db.add(
+        AdminSkill(
+            skill_id="test-skill",
+            skill_content="---\nname: test-skill\n---\nbody",
+            display_name="Test Skill",
+            description="d",
+            is_enabled=True,
+        )
+    )
+    db.add(
+        AdminMcpServer(
+            server_id="test-mcp",
+            display_name="Test MCP",
+            description="d",
+            transport="stdio",
+            is_enabled=True,
+        )
+    )
+    db.commit()
+
+
+def _make_source_agent(db):
+    """u1 creates a sub-agent with bindings (including both resolvable and unresolvable items)."""
+    return UserAgentService(db).create(
+        user_id="u1",
+        operator_name="u1",
+        owner_type="user",
+        data={
+            "name": "数据助手",
+            "description": "帮你分析数据",
+            "system_prompt": "你是一个数据分析助手。",
+            "welcome_message": "你好",
+            "suggested_questions": ["分析这份数据"],
+            "skill_ids": ["test-skill", "ghost-skill"],
+            "mcp_server_ids": ["test-mcp", "ghost-mcp"],
+            "ontology_tags": ["ontology:RiskReport"],
+        },
+    )
+
+
+def test_submit_review_install_lifecycle(db_session):
+    db = db_session
+    _seed_users(db)
+    _seed_resolvable_resources(db)
+    src = _make_source_agent(db)
+
+    # 1) Submit a listing request → pending
+    sub = agent_submissions.submit_to_marketplace(
+        db,
+        src["agent_id"],
+        owner_user_id="u1",
+        submitter_name="U1",
+        category="数据分析",
+        summary="数据分析助手",
+        note="求上架",
+    )
+    assert sub["status"] == "pending"
+    slug = sub["slug"]
+    assert agent_submissions.list_my_submissions(db, "u1")[0]["submission_id"] == sub["submission_id"]
+
+    # A duplicate submission (already pending) should be rejected
+    with pytest.raises(Exception):
+        agent_submissions.submit_to_marketplace(db, src["agent_id"], owner_user_id="u1", category="数据分析")
+
+    # While pending it does not show up in the marketplace list
+    assert slug not in {it["slug"] for it in agent_catalog.list_marketplace_agents(db)}
+
+    # 2) Admin approves the review → approved
+    agent_submissions.review_submission(db, sub["submission_id"], approve=True)
+    market = {it["slug"]: it for it in agent_catalog.list_marketplace_agents(db)}
+    assert slug in market
+    assert market[slug]["category"] == "数据分析"
+    assert market[slug]["source"] == "community"
+    assert market[slug]["tags"] == ["ontology:RiskReport"]
+
+    # 3) u2 installs = clone into a private sub-agent + dependencies installed along
+    res = agent_installation.install_marketplace_agent(db, slug, owner_user_id="u2", operator_name="U2")
+    clone = db.query(UserAgent).filter(UserAgent.agent_id == res["agent_id"]).first()
+    assert clone is not None
+    assert clone.owner_type == "user" and clone.user_id == "u2"
+    assert clone.source_market_slug == slug
+    assert clone.extra_config["ontology_tags"] == ["ontology:RiskReport"]
+    # Resolvable bindings get bound, unresolvable items are dropped
+    assert clone.skill_ids == ["test-skill"]
+    assert clone.mcp_server_ids == ["test-mcp"]
+    report = res["install_report"]
+    assert "skill:ghost-skill" in report["dropped"]
+    assert "mcp:ghost-mcp" in report["dropped"]
+    assert "skill:test-skill" in report["bound"]
+    assert "mcp:test-mcp" in report["bound"]
+
+    # 4) Installed annotation: u2 hits, u3 not installed
+    items = agent_catalog.list_marketplace_agents(db)
+    assert (
+        agent_installation.annotate_installed([i for i in items if i["slug"] == slug], db, "u2")[0]["installed"]
+        is True
+    )
+    assert (
+        agent_installation.annotate_installed([i for i in items if i["slug"] == slug], db, "u3")[0]["installed"]
+        is False
+    )
+    assert agent_installation.is_installed(db, slug, "u2") is True
+
+    # 5) Admin delists (rejects an approved one) → no longer shown in the user-facing marketplace, installed clones unaffected
+    agent_submissions.review_submission(db, sub["submission_id"], approve=False, review_note="先下架")
+    assert slug not in {it["slug"] for it in agent_catalog.list_marketplace_agents(db)}
+    assert db.query(UserAgent).filter(UserAgent.agent_id == res["agent_id"]).first() is not None
+
+
+def test_preset_bundles_load_and_install(db_session):
+    """Preset Cherry bundles can be listed in the marketplace and installed by cloning (with no DB resources by default, all bindings are dropped)."""
+    db = db_session
+    _seed_users(db)
+
+    items = agent_catalog.list_marketplace_agents(db)
+    slugs = {it["slug"] for it in items}
+    # Preset sub-agents generated by the import script should exist
+    assert "product-manager" in slugs
+    detail = agent_catalog.get_agent_detail(db, "product-manager")
+    assert detail["system_prompt"]
+    assert detail["category"] == "职场办公"
+
+    res = agent_installation.install_marketplace_agent(
+        db, "product-manager", owner_user_id="u1", operator_name="U1"
+    )
+    clone = db.query(UserAgent).filter(UserAgent.agent_id == res["agent_id"]).first()
+    assert clone is not None
+    assert clone.source_market_slug == "product-manager"
+    assert clone.system_prompt
+
+
+def test_reject_pending_blocks_listing(db_session):
+    db = db_session
+    _seed_users(db)
+    src = _make_source_agent(db)
+    sub = agent_submissions.submit_to_marketplace(db, src["agent_id"], owner_user_id="u1", category="数据分析")
+    agent_submissions.review_submission(db, sub["submission_id"], approve=False, review_note="不合适")
+    assert sub["slug"] not in {it["slug"] for it in agent_catalog.list_marketplace_agents(db)}
+    # After rejection the user can withdraw and resubmit
+    agent_submissions.withdraw_submission(db, sub["submission_id"], owner_user_id="u1")
+    assert agent_submissions.list_my_submissions(db, "u1") == []

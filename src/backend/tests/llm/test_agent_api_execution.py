@@ -23,8 +23,11 @@ import core.sandbox.factory
 from agentscope.message import UserMsg
 from core.db.engine import Base, engine, SessionLocal
 from core.db.models import UserAgent, UserShadow, ProfileMemory
-from core.db.model_repository import create_provider, assign_role
-from core.evolution import runtime_binding
+from core.models.repository import create_provider, assign_role
+from core.evolution.cycle import runtime_binding
+from features import register_product_tools, register_run_capabilities
+register_product_tools()
+register_run_capabilities()
 from core.llm.factory import create_agent_executor
 
 Base.metadata.create_all(engine)
@@ -115,12 +118,12 @@ async def run():
             assert agent.state.model_provider_id == child_id
             assert agent.state.model_pinned is True
             policies = {
-                type(policy).__name__
+                policy.name
                 for adapter in agent._reply_middlewares
-                for policy in getattr(adapter, "legacy_middlewares", ())
+                for policy in adapter.bus.registered_specs()
             }
-            assert "FileContextMiddleware" in policies
-            assert "FinishPinGuardMiddleware" not in policies, "automatic pinning bypasses scoped artifact checks"
+            assert "attachment_context" in policies
+            assert "finish_pin_guard" not in policies, "automatic pinning bypasses scoped artifact checks"
             schemas = {item["function"]["name"]: item["function"]
                        for item in agent._jx_compaction_tool_schemas}
             assert {"Bash", "write_stdin", "sandbox_get_artifact", "pin_to_workspace", "read_artifact"} <= schemas.keys()
