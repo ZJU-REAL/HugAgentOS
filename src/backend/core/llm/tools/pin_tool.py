@@ -218,14 +218,12 @@ def register_pin_to_workspace(
             _uid = user_id_var.get() or ""
             _cid = chat_id_var.get() or ""
             if _uid and to_persist:
-                from core.db.engine import SessionLocal
+                from core.db.threads import run_in_session
                 from core.files.artifacts.service import persist_artifacts
 
-                _db = SessionLocal()
-                try:
-                    persist_artifacts(_db, _uid, _cid or None, to_persist, scope=scope, strict=True)
-                finally:
-                    _db.close()
+                await run_in_session(
+                    persist_artifacts, _uid, _cid or None, to_persist, scope=scope, strict=True
+                )
         except Exception as exc:  # noqa: BLE001
             from fastapi import HTTPException
 

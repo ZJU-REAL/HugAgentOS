@@ -73,8 +73,7 @@ services:
       BRAND_POWERED_BY: ${BRAND_POWERED_BY:-true}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
       APPLICATION_DATABASE_URL: ${APPLICATION_DATABASE_URL:-}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-100}
-      DB_POOL_MAX_OVERFLOW: ${DB_POOL_MAX_OVERFLOW:-20}
+      WORKER_THREADS: ${WORKER_THREADS:-40}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
       ENV: ${ENV:-dev}
@@ -268,8 +267,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-100}
-      DB_POOL_MAX_OVERFLOW: ${DB_POOL_MAX_OVERFLOW:-20}
+      WORKER_THREADS: ${WORKER_THREADS:-40}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       STORAGE_TYPE: ${STORAGE_TYPE:-s3}
       STORAGE_PATH: /app/storage
@@ -367,7 +365,7 @@ services:
     - script_runner
     build:
       context: .
-      dockerfile: docker/Dockerfile.script-runner
+      dockerfile: docker/sandbox/Dockerfile.script-runner
     container_name: hugagent-script-runner
     logging: *id001
     environment:
@@ -412,8 +410,8 @@ services:
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be explicit}
       OPENSANDBOX_API_KEY: ${OPENSANDBOX_API_KEY:-}
     volumes:
-    - ./docker/opensandbox-config.toml.tpl:/tpl/config.toml.tpl:ro
-    - ./docker/render-opensandbox-config.py:/tpl/render.py:ro
+    - ./docker/opensandbox-server/opensandbox-config.toml.tpl:/tpl/config.toml.tpl:ro
+    - ./docker/opensandbox-server/render-opensandbox-config.py:/tpl/render.py:ro
     - opensandbox_config:/out
     command:
     - python
@@ -427,7 +425,7 @@ services:
     image: hugagent-opensandbox-server:v0.1.13-3
     build:
       context: .
-      dockerfile: docker/Dockerfile.opensandbox-server
+      dockerfile: docker/opensandbox-server/Dockerfile.opensandbox-server
     container_name: hugagent-opensandbox
     logging: *id001
     depends_on:

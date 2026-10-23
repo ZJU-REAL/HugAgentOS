@@ -66,13 +66,13 @@ The platform counts HTML page views per site (asset files excluded), shown on th
 | Part | Location |
 |---|---|
 | Publish and lookup tools | `src/backend/extensions/mcp_servers/site_publish_mcp/` (`publish_site` / `list_sites`, shipped by the Sites plugin) |
-| Internal endpoints | `src/backend/api/routes/v1/internal_sites.py` (`/v1/internal/sites/publish`, `/v1/internal/sites/list`) |
-| Site lookup service | `src/backend/core/services/site_listing.py` (one record shape for local and cloud) |
-| Business service | `src/backend/core/services/site_service.py` |
-| Public hosting route | `src/backend/api/routes/sites_serve.py` (`GET /site/{slug}/{path}`) |
-| Management API | `src/backend/api/routes/v1/sites.py` (`/v1/sites`) |
-| Access password | `src/backend/core/services/site_password.py` (hash + credential), `src/backend/api/routes/site_gate.py` (unified password page) |
-| Database table | `sites` (`core/db/models/site.py`) |
+| Internal endpoints | `src/backend/features/sites/api/internal_sites.py` (`/v1/internal/sites/publish`, `/v1/internal/sites/list`) |
+| Site lookup service | `src/backend/features/sites/listing.py` (one record shape for local and cloud) |
+| Business service | `src/backend/features/sites/management.py` |
+| Public hosting route | `src/backend/features/sites/api/sites_serve.py` (`GET /site/{slug}/{path}`) |
+| Management API | `src/backend/features/sites/api/sites.py` (`/v1/sites`) |
+| Access password | `src/backend/features/sites/` (hash + credential), `src/backend/features/sites/api/site_gate.py` (unified password page) |
+| Database table | `sites` (`features/sites/models.py`) |
 | Frontend management panel | `src/frontend/src/components/sites/SitesPanel.tsx` (Lab → Sites), `SitePasswordField.tsx` (password management) |
 | nginx forwarding | `location /site/` in `src/frontend/default.conf.template` |
 

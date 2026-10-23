@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from core.db.models import MemoryOutbox
+from core.db.threads import run_db, run_in_session
 from core.memory.effect_lane import EffectLaneDeferred, ordered_l2_effect
 
 from core.memory.outbox import common
@@ -21,12 +22,18 @@ from core.memory.outbox import settlement
 logger = logging.getLogger(__name__)
 
 
+def _claimed_row(db, job_id: str, worker_id: str) -> Optional[MemoryOutbox]:
+    row = db.get(MemoryOutbox, job_id)
+    if row is None or row.status != "processing" or row.lease_owner != worker_id:
+        return None
+    db.expunge(row)
+    return row
+
+
 async def _process_claimed(job_id: str, worker_id: str) -> None:
-    with common.SessionLocal() as db:
-        row = db.get(MemoryOutbox, job_id)
-        if row is None or row.status != "processing" or row.lease_owner != worker_id:
-            return
-        db.expunge(row)
+    row = await run_in_session(_claimed_row, job_id, worker_id)
+    if row is None:
+        return
 
     owner_task = asyncio.current_task()
     if owner_task is None:  # pragma: no cover - asyncio owns this coroutine
@@ -40,7 +47,7 @@ async def _process_claimed(job_id: str, worker_id: str) -> None:
 
         result: Any
         async with get_background_semaphore():
-            if not leases._owns_lease(job_id, worker_id):
+            if not await run_db(leases._owns_lease, job_id, worker_id):
                 lease_lost.set()
                 return
             if row.job_kind == "pipeline":
@@ -67,20 +74,20 @@ async def _process_claimed(job_id: str, worker_id: str) -> None:
             return
         raise
     except EffectLaneDeferred as exc:
-        leases._defer_claim(job_id, worker_id, exc.retry_at)
+        await run_db(leases._defer_claim, job_id, worker_id, exc.retry_at)
     except Exception as exc:
         logger.warning("[memory_outbox] job failed id=%s: %s", job_id, exc)
-        settlement._finish_failure(job_id, worker_id, exc)
+        await run_db(settlement._finish_failure, job_id, worker_id, exc)
     else:
         try:
-            settlement._finish_success(job_id, worker_id, result)
+            await run_db(settlement._finish_success, job_id, worker_id, result)
         except Exception as exc:
             # Processing can succeed while the atomic local acknowledgement
             # fails (for example the assistant message has not committed yet).
             # Roll the owned row into retry instead of parking it until lease
             # expiry; external receipts make replay safe.
             logger.warning("[memory_outbox] acknowledgement failed id=%s: %s", job_id, exc)
-            settlement._finish_failure(job_id, worker_id, exc)
+            await run_db(settlement._finish_failure, job_id, worker_id, exc)
     finally:
         heartbeat.cancel()
         try:
@@ -93,7 +100,7 @@ async def drain_outbox(*, max_jobs: int = 100, worker_id: Optional[str] = None) 
     worker = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
     processed = 0
     while processed < max_jobs:
-        job_id = leases._claim_next(worker)
+        job_id = await run_db(leases._claim_next, worker)
         if job_id is None:
             break
         await _process_claimed(job_id, worker)
@@ -105,11 +112,11 @@ async def consume_outbox_job(job_id: str, *, wait_s: float = 5.0) -> dict[str, A
     """Try an admitted interactive edit now, while leaving retry durability intact."""
 
     worker_id = f"api:{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
-    if leases._claim_specific(job_id, worker_id):
+    if await run_db(leases._claim_specific, job_id, worker_id):
         await _process_claimed(job_id, worker_id)
     deadline = asyncio.get_running_loop().time() + max(0.0, wait_s)
     while True:
-        snapshot = leases.get_outbox_job(job_id)
+        snapshot = await run_db(leases.get_outbox_job, job_id)
         if snapshot is None:
             raise RuntimeError(f"outbox job disappeared: {job_id}")
         if snapshot["status"] in common._TERMINAL or snapshot["status"] == "retry":
@@ -139,7 +146,7 @@ class MemoryOutboxWorker:
         if self._task is None or self._task.done():
             self._stop.clear()
             self._wake.clear()
-            settlement.reconcile_settlement_jobs()
+            await run_db(settlement.reconcile_settlement_jobs)
             process_state().active_worker = self
             self._task = asyncio.create_task(self._loop(), name="memory-outbox-worker")
 
@@ -156,7 +163,7 @@ class MemoryOutboxWorker:
             await self._task
         except asyncio.CancelledError:
             pass
-        leases._release_worker_leases(self.worker_id)
+        await run_db(leases._release_worker_leases, self.worker_id)
         self._task = None
 
     def wake(self) -> None:

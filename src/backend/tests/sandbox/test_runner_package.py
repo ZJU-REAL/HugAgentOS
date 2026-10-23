@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def _image_sources(destination):
-    dockerfile = (ROOT / "docker/Dockerfile.script-runner").read_text()
+    dockerfile = (ROOT / "docker/sandbox/Dockerfile.script-runner").read_text()
     for line in dockerfile.splitlines():
         if not line.startswith("COPY src/backend/"):
             continue

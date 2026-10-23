@@ -29,10 +29,9 @@ async def directory_events(
     while True:
         # No request-long transaction or cached user capabilities. Recheck session and
         # projection even if Last-Event-ID/revision comes from an authenticated client.
-        with SessionLocal() as db:
-            current = await get_current_user(request, credentials=None, db=db)
-            if current.user_id != user.user_id:
-                raise HTTPException(401, detail={"code": "session_revoked"})
+        current = await get_current_user(request, None)
+        if current.user_id != user.user_id:
+            raise HTTPException(401, detail={"code": "session_revoked"})
         data, scope = await run_in_threadpool(current_snapshot, current.user_id)
         if data["revision"] != revision:
             response.headers["Cache-Control"] = "private, no-store"

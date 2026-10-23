@@ -161,7 +161,7 @@ class ApplicationPublicationService:
                 self.db.commit()
                 management.refresh_mcp_caches()
                 ok, _ = asyncio.run(
-                    management.probe_mcp_connectivity(row, self.db, timeout_seconds=15)
+                    management.probe_mcp_connectivity(row, validate=True, timeout_seconds=15)
                 )
                 if ok:
                     row.is_enabled = enable

@@ -93,22 +93,25 @@ def cancel_key_runs(db: Session, key_id: str, user_id: str, now: datetime) -> No
         cancel_run_in_session(db, row, reason="API key disabled or revoked", now=now)
 
 
-async def stop_cancelled_key_workers(db: Session, key_id: str, user_id: str) -> None:
-    """Wake SSE followers and stop local workers after the durable commit."""
-    from core.harness.registry.run_cancellation import cancel_run
-
-    runs = (
-        _key_runs_query(db, key_id, user_id)
+def _cancelled_key_runs(db: Session, key_id: str, user_id: str) -> list[str]:
+    return [
+        run_id
+        for (run_id,) in _key_runs_query(db, key_id, user_id)
         .with_entities(ChatRun.run_id)
         .filter(
             ChatRun.status == "cancelled",
             ChatRun.failure_reason == "API key disabled or revoked",
         )
         .all()
-    )
-    # End the read transaction before waiting for workers using separate sessions.
-    db.rollback()
-    for (run_id,) in runs:
+    ]
+
+
+async def stop_cancelled_key_workers(key_id: str, user_id: str) -> None:
+    """Wake SSE followers and stop local workers after the durable commit."""
+    from core.db.threads import run_in_session
+    from core.harness.registry.run_cancellation import cancel_run
+
+    for run_id in await run_in_session(_cancelled_key_runs, key_id, user_id):
         await cancel_run(run_id, user_id=user_id, stop_terminal_worker=True)
 
 

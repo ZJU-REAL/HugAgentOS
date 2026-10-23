@@ -14,7 +14,7 @@ import {
   RUN_STATUS_CLASS,
   RUN_STATUS_LABEL, SCHEDULE_TYPE_LABEL, channelConversationLabel,
   cronToHumanReadable,
-  formatRunDuration, formatTimezone
+  formatRunDuration, formatTimezone, isRunActive
 } from './automationUtils';
 import { ScheduleSelector } from './ScheduleSelector';
 
@@ -220,13 +220,13 @@ export function AutomationTaskSections({ form, task, runs, isEditing, editSchedu
                     <span className="jx-automation-detail-runRow-summary">
                       {run.result_summary || RUN_STATUS_LABEL[run.status] || '-'}
                     </span>
-                    {run.status !== 'running' && run.chat_id && (
+                    {run.chat_id && (
                       <Button
                         type="link"
                         size="small"
                         onClick={() => navigateToChat(run)}
                       >
-                        {t('查看对话')}
+                        {isRunActive(run) ? t('查看进度') : t('查看对话')}
                       </Button>
                     )}
                     {run.status === 'failed' && run.error_message && (

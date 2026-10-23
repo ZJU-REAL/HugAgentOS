@@ -4,7 +4,7 @@ from core.infra.time import utc_now
 import asyncio
 import shutil
 from typing import Any, Dict
-from sqlalchemy.orm import Session
+from core.db.threads import AsyncRepository
 from integrations.lark.repository import LarkConnectionRepository
 from integrations.dingtalk.parsing import make_qr_data_uri
 import logging
@@ -16,14 +16,14 @@ from integrations.lark import process as lark_process
 from integrations.lark import state as lark_state
 
 class LarkService:
-    def __init__(self, db: Session):
-        self.db = db
-        self.repo = LarkConnectionRepository(db)
+    """Connection state lives in the repository; every access is its own short session."""
 
-    def _fresh(self, user_id: str):
+    def __init__(self):
+        self.repo = AsyncRepository(LarkConnectionRepository)
+
+    async def _fresh(self, user_id: str):
         """Discard the session cache and re-read — to see the latest state committed by the background task's independent session."""
-        self.db.expire_all()
-        return self.repo.ensure(user_id)
+        return await self.repo.ensure(user_id)
 
     # ── Status ───────────────────────────────────────────────────────────
     def status_dict(self, record) -> Dict[str, Any]:
@@ -42,20 +42,20 @@ class LarkService:
             "last_error": record.last_error,
         }
 
-    def get_status(self, user_id: str) -> Dict[str, Any]:
-        return self.status_dict(self.repo.ensure(user_id))
+    async def get_status(self, user_id: str) -> Dict[str, Any]:
+        return self.status_dict(await self.repo.ensure(user_id))
 
     async def probe_status(self, user_id: str) -> Dict[str, Any]:
         """Real-API liveness-probe reconciliation (corrects mismatches between the DB and actual credentials). Does not interrupt pending (login in progress)."""
-        record = self._fresh(user_id)
+        record = await self._fresh(user_id)
         if record.status == "pending" and user_id in lark_state.LOGIN_TASKS:
             return self.status_dict(record)
         verdict = await lark_login.verify_and_refresh(user_id)
         if verdict == "valid" and record.status != "connected":
-            self.repo.update(user_id, {"status": "connected", "last_error": None})
+            await self.repo.update(user_id, {"status": "connected", "last_error": None})
         elif verdict == "invalid" and record.status == "connected":
-            self.repo.update(user_id, {"status": "disconnected", "last_error": lark_state.EXPIRED_ERROR})
-        return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "disconnected", "last_error": lark_state.EXPIRED_ERROR})
+        return self.status_dict(await self.repo.get(user_id))
 
     # ── Device-flow login (scan-to-bind) ─────────────────────────────────
     async def start_device_login(self, user_id: str) -> Dict[str, Any]:
@@ -63,7 +63,7 @@ class LarkService:
         ``auth login --no-wait`` gets the device_code / QR URL, and the
         background completion task is started. The front end presents
         qr_data_uri for the user to scan, then polls."""
-        self.repo.ensure(user_id)
+        await self.repo.ensure(user_id)
         # Cancel the same user's old task
         old = lark_state.LOGIN_TASKS.pop(user_id, None)
         if old is not None and not old.done():
@@ -71,20 +71,20 @@ class LarkService:
 
         cfg_err = await lark_configuration.ensure_app_config(user_id)
         if cfg_err:
-            self.repo.update(user_id, {"status": "error", **lark_state.CLEAR_LOGIN, "last_error": cfg_err})
-            return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "error", **lark_state.CLEAR_LOGIN, "last_error": cfg_err})
+            return self.status_dict(await self.repo.get(user_id))
 
         out, err, rc = await lark_process.run_lark(user_id, lark_state.DEFAULT_LOGIN_ARGS, timeout=40)
         dev = lark_parsing.parse_device_login(out)
         if rc != 0 or not (dev.get("verification_url") or dev.get("verification_url_complete")):
             tail = ((err or out or "").strip())[-200:]
-            self.repo.update(user_id, {
+            await self.repo.update(user_id, {
                 "status": "error", **lark_state.CLEAR_LOGIN,
                 "last_error": f"发起扫码登录失败，请重试。{('详情: ' + tail) if tail else ''}",
             })
-            return self.status_dict(self.repo.get(user_id))
+            return self.status_dict(await self.repo.get(user_id))
 
-        self.repo.update(user_id, {
+        await self.repo.update(user_id, {
             "status": "pending",
             "login_verification_url": dev.get("verification_url"),
             "login_verification_url_complete": dev.get("verification_url_complete"),
@@ -98,14 +98,14 @@ class LarkService:
             lark_state.LOGIN_TASKS[user_id] = asyncio.create_task(
                 lark_login.device_complete_flow(user_id, str(dev["device_code"]))
             )
-        return self.status_dict(self._fresh(user_id))
+        return self.status_dict(await self._fresh(user_id))
 
     async def poll_login(self, user_id: str) -> Dict[str, Any]:
         """Poll login progress. The background task drives to connected/error;
         this reads the latest state. If the task is lost yet still pending
         (backend restart), fall back to the persisted device_code and run
         completion once more."""
-        record = self._fresh(user_id)
+        record = await self._fresh(user_id)
         if record.status == "pending" and user_id not in lark_state.LOGIN_TASKS and record.login_device_code:
             lark_state.LOGIN_TASKS[user_id] = asyncio.create_task(
                 lark_login.device_complete_flow(user_id, str(record.login_device_code))
@@ -133,7 +133,7 @@ class LarkService:
                 purge_credential_dir(lark_cache_dir(user_id))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[lark] disconnect cache purge failed user=%s: %s", user_id, exc)
-        self.repo.update(
+        await self.repo.update(
             user_id,
             {
                 "status": "disconnected",
@@ -146,7 +146,7 @@ class LarkService:
                 "last_error": None,
             },
         )
-        return self.status_dict(self.repo.get(user_id))
+        return self.status_dict(await self.repo.get(user_id))
 
     # ── Admin: shared-app one-click initialization (config init --new) ────
     def app_status(self) -> Dict[str, Any]:

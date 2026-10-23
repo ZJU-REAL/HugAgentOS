@@ -53,11 +53,11 @@ Page Configuration also owns the homepage's first-screen content. Administrators
 
 `/v1/admin/skills` (`api/routes/v1/admin_skills.py`, `ADMIN_TOKEN`): full skill lifecycle — CRUD, zip upload, enable/disable, ordering, icons, dependency scan and editing, per-file read/write/delete inside a skill, forking built-in skills, import/export. Skills are stored in the `admin_skills` table; see [Agent Skills](agent-skills.md).
 
-`/v1/admin/skill-drafts` (`api/routes/v1/admin_skill_drafts.py`, `ADMIN_TOKEN`): review of auto-distilled skill drafts — list / count / detail, edit-then-approve, reject, delete, plus a manual trigger for the daily distillation scan.
+`/v1/admin/skill-drafts` (`features/distillation/api/admin_skill_drafts.py`, `ADMIN_TOKEN`): review of auto-distilled skill drafts — list / count / detail, edit-then-approve, reject, delete, plus a manual trigger for the daily distillation scan.
 
 ### Marketplace review (admin_marketplace) (Enterprise Edition: content_admin)
 
-`/v1/admin/marketplace` (`api/routes/v1/admin_marketplace.py`, `ADMIN_TOKEN`) does two things:
+`/v1/admin/marketplace` (`features/marketplace/api/admin_marketplace.py`, `ADMIN_TOKEN`) does two things:
 
 1. **Install marketplace skills globally**: browse the marketplace listing (flagging "already installed globally"); installed skills have an empty owner, are available to everyone, and remain editable under Skill Management.
 2. **Review user listing submissions**: submission list (filterable by status), detail (with SKILL.md preview), approve (publish, installable by all), reject / unpublish.
@@ -91,14 +91,14 @@ The sub-agent status switch uses `PUT /v1/admin/agents/{agent_id}/toggle`. While
 
 ### Knowledge base management (admin_kb) (Enterprise Edition: content_admin)
 
-`/v1/admin/kb` (`api/routes/v1/admin_kb.py`, `ADMIN_TOKEN`): management of self-hosted **public knowledge bases** (`KBSpace.visibility == "public"`, owned by the system owner), mirroring the user-side `kb.py` — KB CRUD, AI-generated descriptions, document upload / listing / original-file preview (Office→PDF) / deletion / reindexing, chunk preview and per-chunk editing (content / tags / questions). Public KBs are visible to all users in the capability catalog and searchable. In Dify mode, Dify datasets are shown read-only and writes return 409. See [Knowledge Base](knowledge-base.md).
+`/v1/admin/kb` (`edition_ee/routes/admin_kb.py`, `ADMIN_TOKEN`): management of self-hosted **public knowledge bases** (`KBSpace.visibility == "public"`, owned by the system owner), mirroring the user-side `kb.py` — KB CRUD, AI-generated descriptions, document upload / listing / original-file preview (Office→PDF) / deletion / reindexing, chunk preview and per-chunk editing (content / tags / questions). Public KBs are visible to all users in the capability catalog and searchable. In Dify mode, Dify datasets are shown read-only and writes return 409. See [Knowledge Base](knowledge-base.md).
 
 ### Sandbox management (admin_sandbox + config_security/sandbox)
 
 Two complementary panels:
 
-- `/v1/admin/sandbox` (`api/routes/v1/admin_sandbox.py`, `ADMIN_TOKEN`, **Enterprise Edition: content_admin**): aggregated skill-dependency manifest preview, sandbox image rebuild trigger + container hot-swap, rebuild history and log queries.
-- `/v1/config/security/sandbox/*` (`api/routes/v1/config_security.py`, `CONFIG_TOKEN`, **Enterprise Edition: system_config**): read-only security view — sandbox overview, running instances list / detail, snapshots, rebuild history, redacted configuration. Capabilities a provider cannot support (e.g. ScriptRunner cannot enumerate instances) return `code=42210`, which the frontend renders as disabled.
+- `/v1/admin/sandbox` (`features/sandbox_ops/api/admin_sandbox.py`, `ADMIN_TOKEN`, **Enterprise Edition: content_admin**): aggregated skill-dependency manifest preview, sandbox image rebuild trigger + container hot-swap, rebuild history and log queries.
+- `/v1/config/security/sandbox/*` (`features/security_console/api/config_security.py`, `CONFIG_TOKEN`, **Enterprise Edition: system_config**): read-only security view — sandbox overview, running instances list / detail, snapshots, rebuild history, redacted configuration. Capabilities a provider cannot support (e.g. ScriptRunner cannot enumerate instances) return `code=42210`, which the frontend renders as disabled.
 
 See [Sandbox](sandbox.md).
 
@@ -166,13 +166,13 @@ Aligned with chapter 4 of the productization plan and the route registry:
 | Administrative credential dependencies | `src/backend/api/deps.py` |
 | License features | `src/backend/edition_ee/licensing/features.py`, `src/backend/edition_ee/licensing/deps.py` |
 | Skills / drafts / marketplace | `src/backend/api/routes/v1/admin_skills.py`, `admin_skill_drafts.py`, `admin_marketplace.py` |
-| Feedback and GitHub publishing | `src/backend/edition_ee/routes/feedbacks.py`, `admin_feedbacks.py`, `services/feedback_service.py` |
+| Feedback and GitHub publishing | `src/backend/edition_ee/routes/feedbacks.py`, `admin_feedbacks.py`, `edition_ee/services/feedback_service.py` |
 | Prompts / MCP / sub-agents | `src/backend/api/routes/v1/admin_prompts.py`, `admin_mcp_servers.py`, `admin_agents.py` |
-| Knowledge base / sandbox | `src/backend/edition_ee/routes/admin_kb.py`, `src/backend/api/routes/v1/admin_sandbox.py` |
+| Knowledge base / sandbox | `src/backend/edition_ee/routes/admin_kb.py`, `src/backend/features/sandbox_ops/api/admin_sandbox.py` |
 | Billing / usage / logs / chat review | `src/backend/api/routes/v1/admin_billing.py`, `admin_usage_logs.py`, `admin_logs.py`, `admin_chat_history.py` |
 | Content management | `src/backend/api/routes/v1/content.py` |
 | Users / teams / invites / license (EE) | `src/backend/edition_ee/routes/config_users.py`, `config_teams.py`, `config_invites.py`, `config_license.py` |
-| Security | `src/backend/api/routes/v1/config_security.py` |
+| Security | `src/backend/features/security_console/api/config_security.py` |
 | Service configs | `src/backend/api/routes/v1/service_configs.py` |
 
 Further reading: [Authentication & Permissions](auth.md) · [Prompt System](prompts.md) · [Editions & Licensing](../editions/overview.md)

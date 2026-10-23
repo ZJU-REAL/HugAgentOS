@@ -111,7 +111,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 
 ### 接口层（CE/EE 拆分接缝）
 
-`core/auth/permissions_iface.py` 是权限符号的**唯一导入入口**：主干代码（deps / files / chats / projects / kb 等）一律从这里导入，不直接引用具体实现。EE 主仓中它纯转发三个真实现；CE 派生树用单租户 stub 整体替换本文件，三个真实现物理不存在：
+`core/auth/personal_permissions_iface.py` 是权限符号的**唯一导入入口**：主干代码（deps / files / chats / projects / kb 等）一律从这里导入，不直接引用具体实现。EE 主仓中它纯转发三个真实现；CE 派生树用单租户 stub 整体替换本文件，三个真实现物理不存在：
 
 | 实现文件 | 职责 |
 |---|---|
@@ -201,7 +201,7 @@ Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用�
 | SSO 票据交换 | `src/backend/edition_ee/auth/sso.py`、`src/backend/edition_ee/routes/auth.py` |
 | Mock SSO / 本地登录注册页 | `src/backend/api/routes/v1/mock_sso.py`、`src/backend/core/auth/mock_ticket_store.py` |
 | 密码哈希 | `src/backend/core/auth/password.py` |
-| 权限接口层（CE/EE 接缝） | `src/backend/core/auth/permissions_iface.py` |
+| 权限接口层（CE/EE 接缝） | `src/backend/core/auth/personal_permissions_iface.py` |
 | 团队角色 / 文件权限（EE） | `src/backend/edition_ee/auth/roles.py`、`src/backend/edition_ee/auth/team_permissions.py` |
 | 项目 / 会话分享权限（EE） | `src/backend/edition_ee/auth/project_permissions.py`、`src/backend/edition_ee/auth/chat_share_permissions.py` |
 | 管理凭证依赖 | `src/backend/api/deps.py` |

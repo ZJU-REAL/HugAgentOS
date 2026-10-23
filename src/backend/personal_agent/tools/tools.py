@@ -13,6 +13,7 @@ from core.db.models import ChatMessage
 from core.sandbox.protocol import ProcessRequest
 from personal_agent.models import PersonalWorkItem
 from personal_agent.computer.sandbox import get_personal_sandbox_provider
+from core.db.threads import off_loop
 
 def register_personal_tools(toolkit, request, loader=None):
     ident, uid = request.profile_ref, str(request.current_user_id)
@@ -21,7 +22,8 @@ def register_personal_tools(toolkit, request, loader=None):
     versions = {}
     from personal_agent.workspace import persona
 
-    async def pa_task_status() -> ToolChunk:
+    @off_loop
+    def pa_task_status() -> ToolChunk:
         """Read this task's latest user updates and pending actions."""
         state = owned_task(ident, uid, allow_pending=True)
         with SessionLocal() as db:
@@ -30,7 +32,8 @@ def register_personal_tools(toolkit, request, loader=None):
             return response({"goal": task.goal,
                 "updates": instructions(db, state["chat"], ident, 100), "checkpoint": task.checkpoint})
 
-    async def pa_task_checkpoint(summary: str, next_step: str = ""):
+    @off_loop
+    def pa_task_checkpoint(summary: str, next_step: str = ""):
         """Save bounded task progress before a long step, interruption or approval."""
         owned_task(ident, uid, allow_pending=True)
         if len(summary) > 4000 or len(next_step) > 1000: raise ValueError("Checkpoint is too long")
@@ -123,7 +126,8 @@ def register_personal_tools(toolkit, request, loader=None):
             await provider.put_file(state["box"], target, updated, user_id=uid)
         return response({"path": path, "replacements": count if replace_all else 1})
 
-    async def pa_history_search(query: str, limit: int = 20):
+    @off_loop
+    def pa_history_search(query: str, limit: int = 20):
         """Retrieve earlier final replies from the owner's one lifelong conversation."""
         state = owned_task(ident, uid)
         with SessionLocal() as db:
@@ -146,7 +150,8 @@ def register_personal_tools(toolkit, request, loader=None):
         if path.stat().st_size > 200000: raise ValueError("Skill reference too large")
         return response({"skill_id": skill_id, "path": relative_path, "content": path.read_text()})
 
-    async def pa_finish(answer: str) -> ToolChunk:
+    @off_loop
+    def pa_finish(answer: str) -> ToolChunk:
         """Complete the task with final text in the user's language, then stop.
         To show an image/file in the main conversation, call pa_deliver before this.
         Already delivered outputs remain visible; do not export or send them again."""
@@ -159,7 +164,8 @@ def register_personal_tools(toolkit, request, loader=None):
             db.commit()
         return response({"delivered": True, "next": "Stop now. Do not write more text."})
 
-    async def pa_set_name(name: str) -> ToolChunk:
+    @off_loop
+    def pa_set_name(name: str) -> ToolChunk:
         """Change your own name when the user asks for a new one. Updates settings, IDENTITY.md and the name shown in the app."""
         owned_task(ident, uid)
         from personal_agent.context import AgentContext
@@ -167,7 +173,8 @@ def register_personal_tools(toolkit, request, loader=None):
             view = AgentContext(db, uid).identity.configure({"name": name})
         return response({"name": view["config"]["name"]})
 
-    async def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolChunk:
+    @off_loop
+    def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolChunk:
         """Create a scheduled task that runs later as a new task. Use cron (five fields, local time) for repeats,
         for example "0 8 * * *" for 08:00 every day, or run_at (ISO local time) for one time. timezone defaults to the user's."""
         owned_task(ident, uid)
@@ -181,7 +188,8 @@ def register_personal_tools(toolkit, request, loader=None):
         from personal_agent.scheduling.schedules import listing
         return response(listing(state["config"]))
 
-    async def pa_schedule_update(schedule_id: str, title: str | None = None, instruction: str | None = None,
+    @off_loop
+    def pa_schedule_update(schedule_id: str, title: str | None = None, instruction: str | None = None,
                                  cron: str | None = None, run_at: str | None = None,
                                  timezone: str | None = None, enabled: bool | None = None) -> ToolChunk:
         """Edit an existing schedule in place. List schedules first to identify it. Omit unchanged fields;
@@ -193,7 +201,8 @@ def register_personal_tools(toolkit, request, loader=None):
         with SessionLocal() as db:
             return response(update_schedule(db, uid, schedule_id, patch))
 
-    async def pa_schedule_delete(schedule_id: str) -> ToolChunk:
+    @off_loop
+    def pa_schedule_delete(schedule_id: str) -> ToolChunk:
         """Delete one scheduled task when the user asks to stop it."""
         owned_task(ident, uid)
         from personal_agent.scheduling.schedules import delete

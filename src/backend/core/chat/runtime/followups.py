@@ -6,7 +6,7 @@ import asyncio
 import typing as _typing
 from typing import Any, Dict, List, Optional, Tuple
 
-import core.db.engine as engine
+from core.db.threads import run_in_session
 import core.runs.settings as settings
 import core.chat.service as services_ChatService_module
 from core.infra.logging import get_logger
@@ -28,10 +28,11 @@ def _spawn_followup_task(
                 timeout=10,
             )
             if questions:
-                with engine.SessionLocal() as bg_db:
-                    services_ChatService_module.ChatService(bg_db).update_message_extra_data(
+                await run_in_session(
+                    lambda db: services_ChatService_module.ChatService(db).update_message_extra_data(
                         msg_id, {"follow_up_questions": questions}
                     )
+                )
         except Exception as exc:
             logger.warning("background_followup_failed", error=str(exc))
 

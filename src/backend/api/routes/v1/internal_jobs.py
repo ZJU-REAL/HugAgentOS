@@ -25,6 +25,7 @@ from core.jobs.store import JobService
 from fastapi import APIRouter, Header, HTTPException
 
 from .job_callback_session import callback_session
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +146,10 @@ async def job_agent(
         if remaining["seconds_left"] <= 0 or remaining["calls_left"] <= 0:
             raise HTTPException(429, "作业执行预算已用尽")
 
-    with SessionLocal() as db:
+    def _budget_left(db):
         left = JobService(db).budget_left(job_id)
+        return left
+    left = await run_in_session(_budget_left)
     if left["calls_left"] <= 0:
         raise HTTPException(status_code=429, detail="作业子调用预算已用尽")
     if left["seconds_left"] <= 0:

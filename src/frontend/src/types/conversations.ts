@@ -78,12 +78,9 @@ export interface ChatMessage {
    *  newly-generated assistant messages; backend history messages lack this field. Used
    *  to show "took X.Xs" next to "regenerate" in the action bar. */
   durationMs?: number;
-  /** Backend signals an extended LLM silence; UI replaces streaming dots with a "正在准备调用工具…" indicator. */
-  toolPending?: boolean;
   /** Wall-clock ms of the last streaming activity (content / tool / meta event).
-   *  Anchors the "正在准备调用工具…" elapsed timer to a persisted value so it
-   *  survives component remounts on session switch / page refresh instead of
-   *  resetting to zero. */
+   *  Anchors the stall clock to a persisted value so it survives component
+   *  remounts on session switch / page refresh instead of resetting to zero. */
   lastActivityTs?: number;
   attachments?: Array<{
     origin?: 'local' | 'cloud';

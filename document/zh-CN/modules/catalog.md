@@ -121,14 +121,14 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 
 | 主题 | 路径 |
 |---|---|
-| 公共 API（is_enabled 等） | `src/backend/core/config/catalog.py` |
+| 公共 API（is_enabled 等） | `src/backend/core/capabilities/catalog/` |
 | 单一真源文件 | `src/backend/core/config/catalog.json`（`CATALOG_PATH` 可覆盖） |
-| 加载 / 动态同步 / 缓存 | `src/backend/core/config/catalog_loader.py`，`catalog_common.py`，`catalog_migration.py` |
+| 加载 / 动态同步 / 缓存 | `src/backend/core/capabilities/catalog/loader.py`，`catalog_common.py`，`catalog_migration.py` |
 | 用户覆盖合并 | `src/backend/core/capabilities/catalog/resolver.py`，`core/capabilities/catalog/overrides.py` |
 | 目录路由 | `src/backend/api/routes/v1/catalog.py` |
 | 用户自助能力 | `src/backend/api/routes/v1/me_capabilities.py` |
 | MCP 服务配置（DB） | `src/backend/core/capabilities/mcp/service.py`，`api/routes/v1/admin_mcp_servers.py` |
 | 技能管理 | `src/backend/api/routes/v1/admin_skills.py`，`core/capabilities/skills/` |
-| Dify KB 注入（EE） | `src/backend/edition_ee/kb/dify.py`，经共享接缝 `core/kb/external_provider.py` 调用 |
+| Dify KB 注入（EE） | `src/backend/edition_ee/kb/dify.py`，经共享接缝 `features/knowledge/extension.py` 调用 |
 | 前端能力中心 | `src/frontend/src/components/catalog/`，`stores/catalogStore.ts` |
 | 工厂消费侧 | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

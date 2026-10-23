@@ -10,6 +10,7 @@ from mcp.shared.auth import OAuthMetadata
 
 from core.capabilities.mcp import oauth, management
 from features.marketplace.api.mcp_marketplace import oauth_callback
+from tests.db_support import share_session
 
 
 class MemoryState:
@@ -36,7 +37,7 @@ async def test_callback_issuer_reaches_sdk_validation(monkeypatch, cross_worker,
     monkeypatch.setattr(oauth, "get_ephemeral_state", lambda: state)
     monkeypatch.setattr(oauth, "encrypt_secret", lambda value: "encrypted:" + value)
     monkeypatch.setattr(oauth, "decrypt_secret", lambda value: value.removeprefix("encrypted:"))
-    monkeypatch.setattr(oauth, "SessionLocal", lambda: SimpleNamespace(rollback=lambda: None, close=lambda: None))
+    share_session(monkeypatch, SimpleNamespace(rollback=lambda: None, close=lambda: None))
     monkeypatch.setattr(oauth, "validate_remote_mcp_url", AsyncMock())
     monkeypatch.setattr(oauth, "market_dependency_materialize_mcp_http_connection", lambda url, headers: (url, headers))
     version = SimpleNamespace(auth_config={}, auth_schema=[], url="https://mcp.example.test/mcp", transport="streamable_http")
@@ -55,7 +56,7 @@ async def test_callback_issuer_reaches_sdk_validation(monkeypatch, cross_worker,
     monkeypatch.setattr(oauth, "process_state", lambda: SimpleNamespace(flows=flows))
     flows = {flow.flow_id: flow}
 
-    async def probe(row, db, *, oauth_provider, timeout_seconds):
+    async def probe(row, *, validate, oauth_provider, timeout_seconds):
         assert oauth_provider.context.client_metadata.application_type == "web"
         assert timeout_seconds == 300.0
         oauth_provider.context.client_info = await oauth_provider.context.storage.get_client_info()

@@ -5,7 +5,9 @@ from core.config.settings import settings
 from core.infra.logging import get_logger
 logger = get_logger(__name__)
 
-async def _startup_seed_mcp_servers():
+from core.db.threads import run_db
+
+def _seed_mcp_servers():
     """Seed the built-in global MCP catalog if the DB has none (idempotent).
 
     On compose these rows come from alembic seed migrations; on the no-Docker
@@ -38,6 +40,10 @@ async def _startup_seed_mcp_servers():
             db.close()
     except Exception as exc:
         logger.warning("[startup] MCP catalog seed failed: %s", exc)
+
+
+async def _startup_seed_mcp_servers():
+    await run_db(_seed_mcp_servers)
 
 async def _startup_mcp_market_monitor():
     """Start periodic remote-tool drift detection after MCP rows are available."""
@@ -111,7 +117,7 @@ async def _startup_backfill_api_protocol():
     if count:
         logger.info("[startup] api_protocol recorded for %d model provider(s)", count)
 
-async def _startup_seed_default_plugins():
+def _seed_default_plugins():
     """Install edition-specific default plugins once per persistent database.
 
     Local/desktop installs run the equivalent bootstrap in ``cli.py`` before
@@ -162,3 +168,7 @@ async def _startup_seed_default_plugins():
         raise
     finally:
         db.close()
+
+
+async def _startup_seed_default_plugins():
+    await run_db(_seed_default_plugins)

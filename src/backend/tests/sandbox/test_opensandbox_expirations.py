@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 from tests.sandbox.test_opensandbox_controller_patch import SOURCE, extract, patch
 
-spec = importlib.util.spec_from_file_location("expirations", Path(__file__).resolve().parents[4] / "docker/opensandbox_expirations.py")
+spec = importlib.util.spec_from_file_location("expirations", Path(__file__).resolve().parents[4] / "docker/opensandbox-server/opensandbox_expirations.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 

@@ -115,7 +115,7 @@ class SandboxSettings:
     opensandbox_snapshot_wait_timeout_s: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S", "120"), 120)
     )
-    # Skill dependencies come only from the image bake (docker/Dockerfile.opensandbox); new dependencies go through the admin-panel rebuild.
+    # Skill dependencies come only from the image bake (docker/sandbox/Dockerfile.opensandbox); new dependencies go through the admin-panel rebuild.
 
     # The all-modes code-execution capability switch has moved out of settings:
     # the sole control source is sandbox.code_capability_enable in the Config

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BulbOutlined, LoadingOutlined } from '@ant-design/icons';
+import { ToolIcon } from './toolIcons';
 import { t } from '../../i18n';
 import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 
@@ -40,10 +40,7 @@ export function ThinkingStepRow({ content, active }: ThinkingStepRowProps) {
         }}
       >
         <span className="jx-tcr-status">
-          {active
-            ? <LoadingOutlined spin className="jx-tcr-icon jx-tcr-icon--running" />
-            : <BulbOutlined className="jx-tcr-icon jx-tcr-icon--step" />
-          }
+          <ToolIcon kind="thinking" className={`jx-tcr-kind${active ? ' jx-tcr-kind--running' : ''}`} />
         </span>
         <span className="jx-tcr-label">
           <span className={`jx-tcr-prefix${active ? ' jx-tcr-prefix--shimmer' : ''}`}>

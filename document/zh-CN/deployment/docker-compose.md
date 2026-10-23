@@ -14,7 +14,7 @@ CE 的 Docker 部署默认使用 OpenSandbox；无 Docker 安装及桌面本机�
 
 ```bash
 python3 scripts/configure-ce-docker.py
-docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker build -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
 docker compose up -d --build
 ```
@@ -65,8 +65,8 @@ CE 在空数据库首次启动时会全局安装并启用 `automation`、
 
 | 服务 | profile | 容器名 | 镜像 / 构建 | 作用 |
 |---|---|---|---|---|
-| `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | 轻量沙箱：1 GB 内存 / 1 CPU / read-only rootfs + tmpfs，技能目录只读挂载到 `/workspace/skills` |
-| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | 一次性 init：把 `docker/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
+| `script-runner` | `script_runner` | hugagent-script-runner | `docker/sandbox/Dockerfile.script-runner` | 轻量沙箱：1 GB 内存 / 1 CPU / read-only rootfs + tmpfs，技能目录只读挂载到 `/workspace/skills` |
+| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | 一次性 init：把 `docker/opensandbox-server/opensandbox-config.toml.tpl` 中的 `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` 渲染进 named volume `opensandbox_config` |
 | `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | CE / EE 共享控制器：经 Docker socket 管理沙盒；execd 执行命令并保留会话文件。CE 不映射宿主端口；全量仓库可配置调试端口 |
 
 ### mem0 记忆基础设施（profile `mem0`，可选）
@@ -214,19 +214,19 @@ make migrate-new msg="describe change"
 
 | 功能 | 文件 |
 |---|---|
-| 服务编排 | `docker-compose.yml`（CubeSandbox 叠加：`docker-compose.cube.yml`） |
+| 服务编排 | `docker-compose.yml`（CubeSandbox 叠加：`docker/sandbox/compose.cube.yml`） |
 | 后端镜像 | `docker/Dockerfile`（multi-stage，target `production`） |
 | MCP 镜像 | `docker/Dockerfile.mcp` |
-| 沙箱镜像 | `docker/Dockerfile.script-runner`、`docker/Dockerfile.opensandbox` |
+| 沙箱镜像 | `docker/sandbox/Dockerfile.script-runner`、`docker/sandbox/Dockerfile.opensandbox` |
 | 前端镜像 + nginx 反代 | `src/frontend/Dockerfile`、`src/frontend/nginx.conf`、`src/frontend/default.conf.template` |
 | 后端入口（自动迁移） | `src/backend/scripts/backend_entrypoint.sh` |
-| OpenSandbox 配置模板 | `docker/opensandbox-config.toml.tpl` |
+| OpenSandbox 配置模板 | `docker/opensandbox-server/opensandbox-config.toml.tpl` |
 | 迁移脚本 | `alembic.ini`、`src/backend/alembic/` |
 | MCP 端口单一真源 | `src/backend/extensions/mcp_servers/_ports.py` |
 
 ### OpenSandbox 命令延迟与控制器镜像
 
-控制器使用 `docker/Dockerfile.opensandbox-server` 构建
+控制器使用 `docker/opensandbox-server/Dockerfile.opensandbox-server` 构建
 `hugagent-opensandbox-server:v0.1.13-3`。它基于固定的上游版本，对已知沙盒使用
 按名称 inspect 并校验归属标签，且在线程池中执行生命周期与代理的同步 Docker 查询，
 避免阻塞其它请求。构建时先校验上游源文件摘要并运行回归测试；升级上游版本时须重新审查补丁。
@@ -239,7 +239,7 @@ make migrate-new msg="describe change"
 
 ## 站点数据与浏览器部署检查
 
-普通 Compose 启动不启用应用数据托管，也不重建 OpenSandbox 按需运行镜像。需要这两项能力时，部署前分别完成[应用数据升级](../modules/application-hosting.md#外部检验修复与升级)和[浏览器运行镜像检查](../modules/browser-automation.md)。配置不同的 APPLICATION_DB_PASSWORD 与 APPLICATION_OWNER_DB_PASSWORD、共享 Redis 和适合网络环境的 BROWSER_DNS_RESOLVER_URL；使用 application_owner 作为应用数据运行账号。已有数据库卷也必须重新执行 application-database-init，然后更新后端、MCP、前端及沙箱运行镜像，并创建新浏览器会话进行验证。
+普通 Compose 启动不启用应用数据托管，也不重建 OpenSandbox 按需运行镜像。需要这两项能力时，部署前分别完成[应用数据升级](../modules/application-hosting.md#部署要求与数据安全)和[浏览器运行镜像检查](../modules/browser-automation.md)。配置不同的 APPLICATION_DB_PASSWORD 与 APPLICATION_OWNER_DB_PASSWORD、共享 Redis 和适合网络环境的 BROWSER_DNS_RESOLVER_URL；使用 application_owner 作为应用数据运行账号。已有数据库卷也必须重新执行 application-database-init，然后更新后端、MCP、前端及沙箱运行镜像，并创建新浏览器会话进行验证。
 
 ### WSL 内存紧张时限制构建资源
 
@@ -254,11 +254,11 @@ make migrate-new msg="describe change"
     BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build mcp
     BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build frontend
     docker buildx build --builder hugagent-limited --load \
-      -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+      -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
     docker buildx stop hugagent-limited
 
 builder 已存在时直接复用。构建结束后停止专用 builder，保留缓存供下次使用。
-应用托管部署仍需叠加 docker-compose.application-hosting.yml。
+应用托管部署仍需叠加 docker/application-hosting/compose.application-hosting.yml。
 不要同时运行完整构建和多组浏览器测试。WSL 上限应结合其他容器及编辑器的实际占用设置。
 
 ## 模型网关启动与排障（商业版 EE）

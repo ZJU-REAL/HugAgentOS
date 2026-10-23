@@ -21,6 +21,7 @@ from core.db.engine import Base, get_db
 from core.db.models import UserShadow
 from core.db.models.plugin_resource import PluginResource
 from core.capabilities.plugins.resources.crypto import encrypt_secret
+from tests.db_support import share_session
 
 
 @pytest.fixture()
@@ -46,6 +47,7 @@ def boundary(monkeypatch):
         app.include_router(workbench)
         app.include_router(plugins)
         app.dependency_overrides[get_db] = lambda: db
+        share_session(monkeypatch, db)
         app.dependency_overrides[get_current_user] = lambda: UserContext(
             user_id="subpage-owner",
             user_center_id="subpage-owner",

@@ -282,7 +282,6 @@ def configure_model(
 
     from core.models import repository as mr
     from core.db.engine import SessionLocal
-    from core.models.config import ModelConfigService
 
     if test:
         from api.routes.v1.models import _test_connection
@@ -325,8 +324,6 @@ def configure_model(
             mr.assign_role(db, role, provider.provider_id, updated_by="onboard")
     finally:
         db.close()
-    # Repository writes don't invalidate the read cache — do it explicitly.
-    ModelConfigService.get_instance().invalidate_cache()
 
 def mark_web_onboarding_complete(user_id: str) -> None:
     """Avoid repeating the browser setup after the terminal wizard succeeds."""

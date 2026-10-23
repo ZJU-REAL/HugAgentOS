@@ -35,8 +35,6 @@ def runtime(tmp_path, monkeypatch):
         "core.db.engine.SessionLocal",
         "integrations.channels.inbound.SessionLocal",
         "integrations.channels.inbound_attachments.SessionLocal",
-        'core.db.engine.SessionLocal',
-        'core.runs.tool_effect_recovery.SessionLocal',
     ):
         monkeypatch.setattr(target, sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)

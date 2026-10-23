@@ -49,13 +49,14 @@ async def _collect(events: list[Any]) -> list[tuple[str, Any]]:
         chat_id="dedupe_case",
         apply_request_context=lambda ctx, text: None,
         context=SimpleNamespace(extend=lambda messages: None),
+        pending_mcp_progress=[],
     )
     agent = SimpleNamespace(state=state, model=None, reply_stream=reply_stream)
 
     # Make the character threshold deterministic for this standalone test; the
     # production time threshold remains covered by the pytest suite.
-    streaming_state_module.TOOL_CALL_DELTA_FLUSH_CHARS = 256
-    streaming_state_module.TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 999.0
+    streaming_state_module.DELTA_FLUSH_CHARS = 256
+    streaming_state_module.DELTA_FLUSH_INTERVAL_S = 999.0
 
     output: list[tuple[str, Any]] = []
     streamer = StreamingAgent(agent, mcp_clients=[])
@@ -82,7 +83,8 @@ def main() -> int:
         errors.append(f"expected one stable start event, got {starts!r}")
     if "".join(item["delta"] for item in deltas) != full_json:
         errors.append("batched deltas did not reconstruct the original argument JSON")
-    max_expected_deltas = (len(full_json) + 255) // 256
+    # The first fragment goes out at once; the rest are merged 256 characters at a time.
+    max_expected_deltas = 1 + (len(full_json) + 255) // 256
     if len(deltas) > max_expected_deltas:
         errors.append(
             f"delta batching regressed: {len(deltas)} events for {len(full_json)} characters"

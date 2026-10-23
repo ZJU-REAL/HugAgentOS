@@ -18,6 +18,7 @@ from core.llm.context.rendering import next_request_sequence, render_context_ite
 from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.items import make_text_context_item
 from core.llm.tools._common import resolve_sandbox_session
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,6 @@ def _run_subagent_in_thread(
 
     async def _inner() -> str:
         from agentscope.message import Msg
-        from core.db.engine import SessionLocal
         from core.capabilities.agents.builtin import build_builtin_runtime_profile, get_builtin_subagent
         from core.llm.factory import create_agent_executor
         from core.llm.mcp.manager import close_clients
@@ -223,7 +223,7 @@ def _run_subagent_in_thread(
         if builtin_spec is not None:
             user_agent = build_builtin_runtime_profile(builtin_spec, parent_runtime)
         else:
-            with SessionLocal() as db:
+            def _load_user_agent(db):
                 svc = UserAgentService(db)
                 user_agent = svc.get_raw_by_id(agent_id, user_id=current_user_id)
                 _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
@@ -234,6 +234,8 @@ def _run_subagent_in_thread(
                     user_agent.max_tokens,
                     user_agent.timeout,
                 )
+                return user_agent
+            user_agent = await run_in_session(_load_user_agent)
 
         # A conversation is the only sandbox boundary. Every built-in and user-defined
         # child agent inherits the parent's sandbox session and therefore sees the same
@@ -317,6 +319,11 @@ def _run_subagent_in_thread(
                 )
 
             # Public stream includes the final message for child result extraction.
+            final_msg = None
+            mapper = _SubMapper()
+            stream_mapper = StreamingAgent(agent, mcp_clients)
+            stream_mapper._enable_thinking = True
+            _last_progress = time.monotonic()
             async for chunk in agent.reply_stream(inputs=user_msg, yield_final_msg=True):
                 if isinstance(chunk, Msg):
                     final_msg = chunk
@@ -336,6 +343,9 @@ def _run_subagent_in_thread(
                     Exception
                 ):  # noqa: BLE001 — bypass mapping must never take down the sub-agent
                     logger.debug("subagent event map failed (ignored)", exc_info=True)
+            for kind, payload in stream_mapper._deltas.drain():
+                for sub in mapper.feed(kind, payload):
+                    emit(sub)
             response_text = (final_msg.get_text_content() if final_msg else "") or ""
             return (
                 True,

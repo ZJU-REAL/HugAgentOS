@@ -1,93 +1,123 @@
 # Introduction
 
-> Last updated: 2026-07-02
+> Last updated: 2026-10-23 | [简体中文](../../zh-CN/getting-started/introduction.md)
 
-HugAgentOS is an enterprise-grade AI Agent platform. Built around a ReAct agent core, it brings conversation, tool calling (MCP), skills, sandboxed code execution, long-term memory, knowledge-base RAG, automation, and batch processing together in a fully containerized (Docker Compose) system. The backend runs on FastAPI + AgentScope 2.0, the frontend on React 19 + Vite + Zustand, and every capability is registered in a unified catalog that can be toggled at will. Out of the box it is a complete, self-hostable product — not a half-finished framework.
+HugAgentOS is an open-source, self-hosted **agent harness**. The model does the thinking; the
+harness handles everything around it: where a task runs, how it picks up after an interruption,
+how tools and sandboxes are used, which actions need human approval, and how experience is kept.
 
-The platform ships in two editions: the **Community Edition (CE, open source)** and the **Enterprise Edition (EE, commercial)**. CE targets individuals and small teams and includes the full conversation, tool, skill, sandbox, three-layer memory, automation, batch, and data-canvas stack. EE layers organization-scale capabilities on top: team collaboration, SSO, audit & compliance, industry data tools, persistent sandboxes, cloud storage, and the full admin console. See [Edition Comparison](../editions/overview.md) for the exact boundary.
+At its core is the **durable agent**: your request runs in the cloud, not in your browser or on
+your computer. Close the tab or shut the laptop and the task keeps moving; if a server restarts or
+fails, another instance continues from the last saved progress; external operations that may or
+may not have happened are never redone automatically. On top of that, HugAgentOS provides an
+always-on **Personal Agent** and runs in two forms: **HugAgentOS Cloud** and **HugAgentOS Local**.
+
+The platform ships as a **Community Edition (CE, open source)** and an **Enterprise Edition (EE)**.
+CE lets an individual run the complete harness and Personal Agent; EE adds organization-scale
+capabilities such as team collaboration, SSO, compliance auditing and industry data tools. See the
+[edition comparison](../editions/overview.md) for the exact boundary.
+
+## Runtime forms
+
+| Form | Runs on | Data and state | Best for | Guide |
+|---|---|---|---|---|
+| **HugAgentOS Cloud** | Your server or private cloud | PostgreSQL, Redis, S3-compatible storage, OpenSandbox | 24/7 Personal Agent, long tasks, IM channels, access from any device | [Docker Compose](../deployment/docker-compose.md) |
+| **HugAgentOS Local** | Your computer (Windows / macOS / Linux) | Local SQLite, Milvus Lite, local files | Offline work, sensitive data, working directly on local projects | [Desktop local mode](../deployment/desktop-local-mode.md) |
+| **Local + cloud** | Cloud as control plane, local machine as execution plane | Cloud projects in the cloud, local projects on the machine | An always-on cloud agent that also operates your computer and projects | [Desktop local mode](../deployment/desktop-local-mode.md) |
+| One-command install | A development machine | SQLite, in-process state, subprocess sandbox | Trials and development | [No-Docker quick install](../deployment/quick-install.md) |
+
+Durable 24/7 operation needs HugAgentOS Cloud. The one-command install has no cross-process lease
+takeover and is meant for trials only.
 
 ## Feature overview
 
 | Capability | Description | Edition |
 |---|---|---|
-| Conversational agent | SSE streaming chat, AgentScope 2.0 ReActAgent, Plan Mode sub-agent, deep thinking, `[ref:tool-N]` citation tracing, automatic conversation-title summarization | CE |
-| Sub-agents | User-created sub-agents, @mention collaboration, routing strategy (`ROUTER_STRATEGY`) | CE (agent versioning / org-level agent library: EE) |
-| MCP tool ecosystem | 9 built-in MCP servers (7 CE general tools: internet search, web fetch, chart generation, batch planning, automation task management, skill management, knowledge retrieval; 2 EE industry tools: data-warehouse query and industry-chain info), served from a dedicated `mcp` container over streamable-http; users can self-register remote HTTP/SSE MCP servers | CE (industry tools such as industry-chain analysis, company profiling, data-warehouse query: EE) |
-| Skill system | Agent Skills (SKILL.md + scripts): built-in skill bundles, admin upload, skill marketplace browse & install, skill distillation | CE (skill review / org governance: EE) |
-| Sandbox execution | `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` tools with three switchable providers: script_runner (lightweight, built-in), OpenSandbox (persistent sessions + Jupyter context + snapshots), CubeSandbox (E2B-compatible MicroVM) | CE for the lightweight sandbox; persistent sandboxes (session keep-alive / snapshots): EE |
-| Memory system | mem0 three-layer memory: L1 user profile, L2 vector memory (Milvus), L3 knowledge graph (Neo4j), with cross-session injection and background extraction | CE (memory audit: EE) |
-| Knowledge-base RAG | Document upload, chunking, hybrid vector + keyword retrieval, and private knowledge bases; EE can add public and external Dify knowledge bases | CE (public KB and Dify integration: EE) |
-| Automation | Scheduled tasks / cron scheduling / prompt & plan automation / failure retry (`orchestration/schedulers/`) | CE |
-| Data canvas | Online spreadsheet editing built on Univer | CE for personal editing; real-time multi-user collaboration: EE |
-| Projects / My Space | Personal projects (file capacity quota), personal drive (myspace), favorites, conversation sharing | CE (team folders / permission matrix: EE) |
-| Admin consoles | `/admin` content management (skills, capability center, release notes) + `/config` system console (prompt version pool, models, users/teams, billing, audit, security) | CE basics; full console (users/teams/billing/audit/security): EE |
-
-## CE vs. EE
-
-In one sentence: **the Community Edition lets one person push the platform to its limits; the Enterprise Edition lets an organization run it at scale** — team collaboration, SSO, RBAC, audit & compliance, industry data tools, persistent sandboxes, cloud storage, and white-labeling belong to EE. See [Edition Comparison](../editions/overview.md) and the [License mechanism](../editions/license.md) for the full matrix.
+| Durable runs | Every request is a persisted run executed in the background; resumable streams and mid-run steering; lease takeover and startup reconciliation; tool side effects record intent and receipt, and unknown outcomes are never replayed automatically | CE |
+| Personal Agent | One conversation, parallel background tasks, a permanent cloud computer, schedules and heartbeats, IM channels, action approvals, file-based memory with Dreaming, and connecting your own computer | CE (authorization governance and cross-device session management are EE) |
+| Autonomous loop | Goals survive across turns until done; a worker does the work, a read-only reviewer verifies it, and command-checkable requirements are verified by the driver; resumable after interruption | CE |
+| Chat and Plan Mode | SSE streaming, ReAct tool orchestration, deep thinking, Plan Mode, citations, context compaction checkpoints, chat forks | CE |
+| Sub-agents | Built-in explorer, worker and reviewer, user-created sub-agents, automatic routing or `@` mentions | CE (organization agent library is EE) |
+| MCP tools and plugins | Built-in web search, page fetching, knowledge retrieval, charts, automation, and skill and plugin management tools; an MCP marketplace, private MCP servers, a plugin marketplace and a browser automation plugin | CE (data warehouse and industry tools are EE) |
+| Agent Skills | SKILL.md plus scripts; built-in skills, a skill marketplace and personal skills | CE (skill review and organization governance are EE) |
+| Sandbox execution | OpenSandbox sessions with environment reuse and snapshot recovery, or a local subprocess sandbox; workflow jobs run as managed processes that can be taken over by lease | CE (CubeSandbox and team mounts are EE) |
+| Memory and personal evolution | L1 profile, L2 procedural memory (Milvus, optional), L3 relationship graph (Neo4j, optional); durable outbox writes; evolution proposals approved one by one | CE (memory auditing is EE) |
+| Knowledge base | Document chunking, hybrid vector and keyword retrieval, private knowledge bases, knowledge-base wiki | CE (public KB administration and Dify integration are EE) |
+| Domain ontology governance | Domain Pack import and versioned publishing, rule checks before tool execution, independent review of high-risk answers, human review of evolution drafts | CE |
+| Automation | Scheduled tasks in natural language, cron scheduling, retries on failure | CE |
+| Sites and application hosting | Build a site in chat and publish it in one click; separate application databases and MCP hosting | CE (site collaboration after project conversion is EE) |
+| Data canvas and artifacts | Univer spreadsheets, charts, reports, Office files, web pages and an artifact center | CE personal editing; real-time collaboration is EE |
+| Projects and My Space | Personal projects, folders, favourites and chat sharing; the desktop client can bind local project directories | CE (team folders and permission matrices are EE) |
+| Desktop client | Tauri 2 client with its own private runtime, supporting local-only, cloud-only and local + cloud modes | CE |
 
 ## Technology stack
 
-| Layer | Technology | Notes |
-|---|---|---|
-| Backend | FastAPI + Uvicorn (Python 3.11) | `src/backend/api/app.py`, unified response envelope |
-| Agent framework | AgentScope 2.0 (`agentscope==2.0.0`) | ReActAgent + tool registration, `core/llm/factory/build.py` |
-| Frontend | React 19 + Vite 7 + Zustand 5 + Ant Design 6 | `src/frontend/`, served by nginx with an `/api` reverse proxy |
-| Database | PostgreSQL 15 (production) / SQLite (local-debug fallback) | SQLAlchemy 2 + Alembic migrations |
-| Cache / sessions | Redis 7 | Session store, streaming follower (Redis Streams) |
-| Vector DB | Milvus 2.4 (`mem0` profile) | L2 vector memory and self-hosted KB retrieval |
-| Graph DB | Neo4j 5 Community (`mem0` profile, optional) | L3 knowledge-graph memory |
-| Sandbox | script_runner sidecar / Alibaba OpenSandbox / Tencent CubeSandbox | `core/sandbox/` provider protocol, switched via env |
-| Deployment | Docker Compose (profiles: `script_runner` / `opensandbox` / `mem0`) | Everything runs in containers; there is no local dev server |
+| Layer | Technology |
+|---|---|
+| Agent runtime | AgentScope 2.0 (ReActAgent), Model Context Protocol |
+| Backend | Python 3.11, FastAPI, SQLAlchemy 2, Alembic |
+| Frontend | React 19, TypeScript, Vite, Zustand, Ant Design |
+| Desktop | Tauri 2, private CPython 3.11 runtime |
+| Data and state | PostgreSQL 15 or SQLite; Redis 7 or in-process state |
+| Storage | S3-compatible storage (cloud), local files (desktop and one-command install) |
+| Sandbox | OpenSandbox, local subprocess (CubeSandbox is EE) |
+| Optional memory | Milvus 2.4, Neo4j 5 Community, mem0 |
+| Deployment | Docker Compose, desktop installer, one-command installer, Nginx |
 
-## Architecture at a glance
+## Architecture
 
 ```
-                        ┌──────────────────────────────────────────────┐
- Browser ──► Nginx ────►│  FastAPI backend (src/backend/api/app.py)    │
-        (frontend ctr,  │   api/routes/v1/* · 50+ routers · envelope   │
-         /api proxy)    └───────────────────┬──────────────────────────┘
-                                            │
-                     ┌──────────────────────┼─────────────────────────┐
-                     ▼                      ▼                         ▼
-        orchestration/workflow.py     core/services/*          core/auth/*
-        (SSE streaming orchestration: (business service       (local / mock /
-         text / tool_call /            layer)                  remote + SSO)
-         tool_result / meta / done)
-                     │
-       ┌─────────────┼───────────────────┬─────────────────────┐
-       ▼             ▼                   ▼                     ▼
- core/llm/      orchestration/     orchestration/        core/memory/ (svc)
- factory/build  strategy.py        citations.py          + memory_integration
- (AgentScope    (routing           (citation parsing)    (mem0 retrieve/save)
-  2.0 ReAct)     strategy)                                      │
-       │                                                        ▼
-       ├──► core/llm/mcp_manager ──► mcp container          Milvus / Neo4j
-       │      (9 MCP servers, ports 9100–9104, 9106–9108, and 9112) (mem0 profile)
-       ├──► core/sandbox/* ──► script-runner / OpenSandbox / CubeSandbox
-       └──► PostgreSQL · Redis · storage (local / S3 / OSS)
+ Entry points: web · desktop client · IM channels · API · schedules · heartbeats
+                         │
+                         ▼
+ FastAPI (api/)  auth · edition routing · messages persisted before the response
+                         │
+                         ▼
+ Run layer (core/runs · core/chat/runtime)
+   persisted runs · database leases · startup reconciliation · resumable streams · steering · tool effect receipts
+                         │
+                         ▼
+ Agent execution (core/agent_runtime · core/llm)
+   ReActAgent · per-step context assembly and compaction · memory / ontology / evolution integration
+   Outer orchestration (orchestration/): Plan Mode · autonomous loop · automation
+                         │
+        ┌────────────────┼──────────────────┐
+        ▼                ▼                  ▼
+  MCP · skills · plugins  sandbox · jobs   knowledge · memory
+        │                │                  │
+        └────────────────┴──────────────────┘
+                         ▼
+ PostgreSQL / SQLite · Redis · S3 / local storage · Milvus · Neo4j
 ```
 
-Main request path: browser → nginx inside the frontend container (`/api` proxy) → FastAPI → `orchestration/workflow.py` orchestrates streaming → `core/llm/factory/build.py` builds the ReActAgent → MCP tools / sandbox / memory → SSE events (`text` / `tool_call` / `tool_result` / `meta` / `done`) stream back to the frontend.
+Personal Agent (`personal_agent/`) reuses the same runs, leases and sandboxes, and adds identity,
+a task queue, scheduling, channels, device links and workspace files. See the
+[architecture overview](../architecture/overview.md) for the full request lifecycle.
 
 ## Next steps
 
-- [Quick Start in 10 minutes](quick-start.md)
-- [Full Docker Compose deployment](../deployment/docker-compose.md)
-- [Environment variable reference](../deployment/environment-variables.md)
-- [Architecture overview](../architecture/overview.md)
+- [Quick start](quick-start.md)
+- [Personal Agent](../modules/personal-agent.md)
+- [Chat and orchestration](../modules/chat.md)
+- [Autonomous loop](../modules/autonomous-loop.md)
+- [Deployment guide](../deployment/README.md)
 
-## Related source
+## Source map
 
-| Feature | Files |
+| Area | Path |
 |---|---|
-| FastAPI app & router registration | `src/backend/api/app.py`, `src/backend/api/routes/v1/` |
-| Streaming orchestration (SSE) | `src/backend/orchestration/workflow.py`, `orchestration/streaming.py` |
+| FastAPI app and routes | `src/backend/api/app.py`, `src/backend/api/routes/v1/` |
+| Run lifecycle, leases and recovery | `src/backend/core/runs/` |
+| Chat worker, stream resume and steering | `src/backend/core/chat/runtime/` |
+| Agent execution entry | `src/backend/core/agent_runtime/` (`runner.astream_chat_workflow`) |
 | Agent construction | `src/backend/core/llm/factory/build.py` |
-| MCP servers & port mapping | `src/backend/extensions/mcp_servers/`, `src/backend/extensions/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
-| Capability catalog | `src/backend/core/config/catalog.json`, `core/config/catalog.py` |
-| Sandbox providers | `src/backend/core/sandbox/`, `src/backend/core/config/settings.py::SandboxSettings` |
-| Memory system | `src/backend/core/memory/` (service.py / pipeline.py), `src/backend/orchestration/memory_integration.py` |
-| Automation scheduler | `src/backend/orchestration/schedulers/automation_scheduler.py` |
-| Frontend entries (App / Admin / Config) | `src/frontend/src/main.tsx`, `App.tsx`, `AdminApp.tsx`, `ConfigApp.tsx` |
-| Edition & license settings | `src/backend/core/config/settings.py::EditionSettings / LicenseSettings` |
+| Harness contracts and execution ledger | `src/backend/core/harness/` |
+| Workflow background jobs | `src/backend/core/jobs/` |
+| Plan Mode, autonomous loop, automation | `src/backend/orchestration/plans/`, `orchestration/loops/`, `orchestration/automations/` |
+| Personal Agent | `src/backend/personal_agent/` |
+| Memory and evolution | `src/backend/core/memory/`, `src/backend/core/evolution/` |
+| Domain ontology | `src/backend/core/ontology/` |
+| Sandbox | `src/backend/core/sandbox/` |
+| Built-in MCP, skills, plugins and agents | `src/backend/extensions/` |
+| Frontend entry | `src/frontend/src/main.tsx`, `App.tsx` |
+| Desktop client | `desktop/src-tauri/` |

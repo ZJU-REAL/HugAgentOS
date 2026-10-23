@@ -13,10 +13,10 @@ from typing import Any
 
 from agentscope.message import ToolCallBlock
 from agentscope.tool._response import ToolResponse
-from core.db.engine import SessionLocal
 from core.db.models import ChatRun, RemoteToolEffect, ToolEffectReceipt
 from core.runs.tool_effects.types import ReconciliationResult, ToolIntent
 from core.runs.tool_effects.errors import ToolEffectError
+from core.db.threads import run_in_session
 
 
 def _contains_withheld(value: Any) -> bool:
@@ -44,7 +44,7 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
     from core.llm.factory import create_agent_executor
     from core.llm.mcp.manager import close_clients
 
-    with SessionLocal() as db:
+    def _replay_context(db):
         run = db.get(ChatRun, intent.run_id)
         if run is None:
             raise ToolEffectError(f"missing run for tool recovery: {intent.run_id}")
@@ -55,6 +55,8 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
         context = dict(worker_args.get("context") or {})
         user_id = run.user_id
         chat_id = run.chat_id
+        return context, user_id, chat_id
+    context, user_id, chat_id = await run_in_session(_replay_context)
 
     from core.harness.registry.run_capabilities import has_run_capabilities
 
@@ -126,38 +128,36 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
             await close_clients(clients)
 
 
+def _scheduled_task_receipt(db, intent: ToolIntent):
+    """Settle from the local receipt, or return the cloud call that can settle it."""
+    run = db.get(ChatRun, intent.run_id)
+    if run is None:
+        return ReconciliationResult.unknown()
+    receipt = db.get(ToolEffectReceipt, intent.effect_id)
+    if receipt is not None:
+        if receipt.user_id != run.user_id or receipt.tool_name != intent.tool_name:
+            return ReconciliationResult.unknown()
+        return ReconciliationResult.applied(dict(receipt.result_payload or {}))
+    remote = db.get(RemoteToolEffect, intent.effect_id)
+    if remote is not None and remote.gateway_url:
+        return {"url": remote.gateway_url, "schema_hash": remote.schema_hash, "user_id": run.user_id}
+    # A device operation may predate persisted cross-end bindings.
+    # Its missing local receipt says nothing about cloud state.
+    from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
+
+    if bridge_enabled() and intent.redacted_args.get("execution_location") != "local":
+        return ReconciliationResult.unknown()
+    return ReconciliationResult.not_applied()
+
+
 async def reconcile_scheduled_task_intent(intent: ToolIntent) -> ReconciliationResult:
     """Use the adapter receipt committed in the same transaction as the mutation."""
 
     _plain_replay_args(intent)
-    with SessionLocal() as db:
-        run = db.get(ChatRun, intent.run_id)
-        if run is None:
-            return ReconciliationResult.unknown()
-        receipt = db.get(ToolEffectReceipt, intent.effect_id)
-        if receipt is None:
-            remote = db.get(RemoteToolEffect, intent.effect_id)
-            if remote is not None and remote.gateway_url:
-                remote_call = {
-                    "url": remote.gateway_url,
-                    "schema_hash": remote.schema_hash,
-                    "user_id": run.user_id,
-                }
-            else:
-                remote_call = None
-            if remote_call is None:
-                # A device operation may predate persisted cross-end bindings.
-                # Its missing local receipt says nothing about cloud state.
-                from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
-
-                if bridge_enabled() and intent.redacted_args.get("execution_location") != "local":
-                    return ReconciliationResult.unknown()
-                return ReconciliationResult.not_applied()
-        else:
-            if receipt.user_id != run.user_id or receipt.tool_name != intent.tool_name:
-                return ReconciliationResult.unknown()
-            return ReconciliationResult.applied(dict(receipt.result_payload or {}))
-    return await _reconcile_cloud_receipt(intent, remote_call)
+    settled = await run_in_session(_scheduled_task_receipt, intent)
+    if isinstance(settled, ReconciliationResult):
+        return settled
+    return await _reconcile_cloud_receipt(intent, settled)
 
 
 async def _reconcile_cloud_receipt(intent, remote_call):

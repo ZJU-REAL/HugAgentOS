@@ -96,7 +96,7 @@ async def test_dual_callback_forwards_without_local_write(monkeypatch):
         action="create",
         payload={"title": "Form", "site_id": "cloud-site"},
     )
-    result = await routes.internal_operation(body, x_internal_token="test", db=None)
+    result = await routes.internal_operation(body, x_internal_token="test")
     assert result["data"]["id"] == "cloud-app"
     assert calls == [
         (
@@ -293,7 +293,7 @@ async def test_personal_mcp_publication_forwards_cloud_identity_and_tools(monkey
         app_id="a" * 32,
         tools=[{"name": "find", "description": "Find names", "table": "names", "fields": ["name"]}],
     )
-    result = await routes.internal_publish_mcp(body, x_internal_token="test", db=None)
+    result = await routes.internal_publish_mcp(body, x_internal_token="test")
     assert result["data"]["installed"] is True
     assert calls == [
         (

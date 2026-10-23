@@ -15,6 +15,7 @@ import uuid
 from sqlalchemy import and_, or_, select, update
 
 from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from core.db.models import Artifact, ChatMessage
 from personal_agent import access
 from personal_agent.models import PersonalAgent, PersonalMessageTask
@@ -78,12 +79,27 @@ def unpack(data):
     fields = {field.name for field in dataclasses.fields(InboundMsg)}
     return InboundMsg(**{key: value for key, value in data.items() if key in fields})
 
+def _channel_chat(db, conn, msg):
+    """The Personal Agent conversation this IM conversation feeds."""
+    from personal_agent.context import AgentContext
+    from personal_agent.conversation.conversations import channel_session
+    from personal_agent.identity.config import locked_agent
+    svc = AgentContext(db, conn.owner_user_id)
+    svc.identity.ensure()
+    chat_id = channel_session(db, locked_agent(db, svc.user_id), conn, msg).chat_id
+    db.commit()
+    return chat_id
+
+def _admit_message(db, owner_id, chat_id, text, key, file_ids, origin):
+    from personal_agent.context import AgentContext
+    from personal_agent.conversation.message_routing import admit
+    admit(AgentContext(db, owner_id, chat_id), text, key, file_ids,
+          extra={"origin": "channel", "channel_origin": origin})
+
 async def admit_inbound(conn, msg, adapter):
     """Store the IM message in the Personal Agent conversation. The worker answers it later."""
     from integrations.channels.inbound_attachments import ingest_attachments as _ingest_attachments
     from integrations.channels.inbound_observation import speaker_label as _speaker_label
-    from personal_agent.conversation.message_routing import admit
-    from personal_agent.context import AgentContext
     placeholder = None
     try:
         send = getattr(adapter, "send_placeholder", None) or adapter.send_text
@@ -91,21 +107,14 @@ async def admit_inbound(conn, msg, adapter):
         placeholder = sent.message_id if sent.success else None
     except Exception:  # noqa: BLE001 - a missing acknowledgement must not drop the message
         log.debug("Personal channel acknowledgement failed", exc_info=True)
-    with SessionLocal() as db:
-        svc = AgentContext(db, conn.owner_user_id)
-        svc.identity.ensure()
-        from personal_agent.identity.config import locked_agent
-        from personal_agent.conversation.conversations import channel_session
-        session = channel_session(db, locked_agent(db, svc.user_id), conn, msg)
-        svc.chat_id = session.chat_id
-        agent_view = {"chat_id": session.chat_id}
-        files = await _ingest_attachments(db, adapter, conn, conn.owner_user_id, agent_view["chat_id"], msg)
-        text = (msg.text or "").strip() or ("[收到文件] " + "、".join(item.get("name", "") for item in files))
-        if msg.chat_type == "group": text = _speaker_label(msg) + "：" + text
-        key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
-        origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": placeholder}
-        admit(svc, text[:20000], key[:100], [item["file_id"] for item in files if item.get("file_id")][:10],
-              extra={"origin": "channel", "channel_origin": origin})
+    chat_id = await run_in_session(_channel_chat, conn, msg)
+    files = await _ingest_attachments(adapter, conn, conn.owner_user_id, chat_id, msg)
+    text = (msg.text or "").strip() or ("[收到文件] " + "、".join(item.get("name", "") for item in files))
+    if msg.chat_type == "group": text = _speaker_label(msg) + "：" + text
+    key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
+    origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": placeholder}
+    await run_in_session(_admit_message, conn.owner_user_id, chat_id, text[:20000], key[:100],
+                         [item["file_id"] for item in files if item.get("file_id")][:10], origin)
 
 def origin_of(db, task_id=None, message_id=None):
     """The IM conversation that started a task, or that sent one message."""

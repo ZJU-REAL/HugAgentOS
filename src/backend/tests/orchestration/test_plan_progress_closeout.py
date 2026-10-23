@@ -14,7 +14,6 @@
   **不伪造**步骤状态（停在 2/5 的计划收尾后仍是 2/5）。
 """
 
-import core.chat.runtime.job_wakeup as job_wakeup
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base
@@ -45,10 +44,8 @@ def db_session(monkeypatch):
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
     import core.chat.plan_progress as pp_mod
-    import core.chat.runtime.job_wakeup as job_wakeup
 
     monkeypatch.setattr(pp_mod, "SessionLocal", Session, raising=False)
-    monkeypatch.setattr(job_wakeup, "SessionLocal", Session, raising=False)
 
     with Session() as db:
         db.add(ChatSession(chat_id="chat_1", user_id="u1", title="批量分类", extra_data={}))

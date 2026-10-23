@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatClock } from '../../utils/elapsed';
 
 interface ElapsedTimerProps {
   /** Start time in epoch milliseconds. */
@@ -7,11 +8,6 @@ interface ElapsedTimerProps {
   className?: string;
 }
 
-function fmt(totalSec: number): string {
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 /**
  * Live "elapsed since startTs" counter, formatted M:SS, ticking every second.
@@ -27,5 +23,5 @@ export function ElapsedTimer({ startTs, className }: ElapsedTimerProps) {
   }, []);
 
   const sec = Math.max(0, Math.floor((now - startTs) / 1000));
-  return <span className={className ?? 'jx-elapsedTimer'}>{fmt(sec)}</span>;
+  return <span className={className ?? 'jx-elapsedTimer'}>{formatClock(sec)}</span>;
 }

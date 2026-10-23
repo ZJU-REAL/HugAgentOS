@@ -21,16 +21,17 @@
 .jx-turnStatus{align-self:flex-start;}
 .jx-trs.jx-trs--turnStatus{margin:0;animation:none;}
 
-.jx-turnStatusMark,
-.jx-trs-mark.jx-turnStatusMark{
+/* One mark box for rows with the vector agent mark (.jx-agentSlot) and rows
+   still on the brand GIF (.jx-turnStatusMark), so their text shares a column. */
+.jx-agentSlot,
+.jx-turnStatusMark{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  flex:0 0 18px;
-  width:18px;
+  flex:0 0 20px;
+  width:20px;
   height:18px;
 }
-.jx-trs--turnStatus .jx-trs-mark--running::before{display:none;}
 
 /* motion-keep: Fixed-size status marks breathe while a request is active. */
 .jx-turnStatusMark .jx-brandLoader:not(.jx-brandLoader--done){
@@ -51,11 +52,10 @@
   text-overflow:ellipsis;
 }
 
-.jx-trs--turnStatus .jx-trs-steps,
 .jx-trs--turnStatus .jx-trs-dur{white-space:nowrap;flex-shrink:0;}
 
-/* One stable text surface shares the scan across title, timer and count.
-   Timer ticks and title changes do not remount or restart this surface. */
+/* Title, timer and live note on one line. Only the title scans (RollingText);
+   timer ticks never remount it, so the scan does not restart every second. */
 .jx-trs .jx-trs-summary{
   display:inline-flex;
   align-items:center;
@@ -63,18 +63,16 @@
   min-width:0;
   max-width:100%;
 }
-.jx-trs-summary--live .jx-trs-title{
-  animation:none;
-}
 
 /* Shared reference shimmer for startup, thinking, tool calls and execution.
    Match the actual label classes with enough specificity to beat tool.css's
-   historical entrance/static rules; completed labels lose their live class. */
+   historical entrance/static rules; completed labels lose their live class.
+   Rolling labels (RollingText) scan their inner text span, so the roll's own
+   transform animation never competes with the scan for `animation`. */
 /* motion-keep: Text scanning is an activity signal while a request is running. */
-.jx-turnStatus-label.jx-turnStatusText,
+.jx-rollText-text.is-shimmer,
 .jx-tcr .jx-tcr-prefix.jx-tcr-prefix--shimmer,
-.jx-inlineFold .jx-inlineSummary .jx-inlineSummaryText--live,
-.jx-trs .jx-trs-summary.jx-trs-summary--live{
+.jx-inlineFold .jx-inlineSummary .jx-inlineSummaryText--live{
   background-image:linear-gradient(90deg,
     color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 0%,
     var(--color-text-secondary) 35%,

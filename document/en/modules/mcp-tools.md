@@ -223,7 +223,7 @@ priority order:
      injects `"cite_id": "eN"` into each entry in place; the model copies the id as-is.
 2. **Standard list shape → one registry line**: list-style tools returning
    `{"items": [{"title": …, "content": …}]}` just need an `items_paths` + field-alias
-   entry in `orchestration/citation_anchor.py::TOOL_SPECS` — per-item numbering with no
+   entry in `core/llm/citations/hook.py::TOOL_SPECS` — per-item numbering with no
    tool code change.
 3. **Do nothing → automatic fallback**: a generic heuristic finds the unique dict-array
    field at the top level (or one level under `result`) and numbers items; when nothing is
@@ -248,7 +248,7 @@ MCP execution budgets exclude time waiting for user answers. Valid questions pau
 
 ## Unified tool-permission gateway
 
-`core/llm/tool_permissions.py` provides the run-scoped
+`core/llm/tool_permissions/` provides the run-scoped
 `ToolPermissionRegistry` and `ToolPermissionMiddleware`. The registry is a
 **governed-tool list**, not a mandatory declaration table:
 
@@ -294,7 +294,7 @@ tools that should be governed need a registry rule.
 
 ## Registration: DB-driven config + catalog gating
 
-The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models.py::AdminMcpServer`), read through `core/capabilities/mcp/service.py::McpServerConfigService` with a 30-second TTL cache, using native client configuration (`transport / command / args / env / url / headers`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
+The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models/`), read through `core/capabilities/mcp/service.py::McpServerConfigService` with a 30-second TTL cache, using native client configuration (`transport / command / args / env / url / headers`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
 
 Whether a server is **visible to the model** additionally passes through [catalog](catalog.md) gating: each entry in the `mcp` section of `core/config/catalog.json` corresponds to a server_id, and a server whose `is_enabled(id, "mcp_server")` is false will not be registered with the agent even if connected.
 
@@ -408,17 +408,17 @@ docker-compose up -d --build mcp
 | `src/backend/extensions/mcp_servers/_ports.py` | Deployment port mapping |
 | `src/backend/core/llm/mcp/lifetime.py` | Native MCP client ownership and discovery |
 | `src/backend/core/llm/mcp/manager.py` | MCPClient construction + bare tool-name restoration |
-| `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |
+| `src/backend/core/llm/tool_permissions/` | Governed-tool registry, decisions, approval routing, and execution tickets |
 | `src/backend/core/capabilities/mcp/service.py` | DB-driven server config service (30 s cache) |
-| `src/backend/core/services/mcp_marketplace_service.py` | Marketplace publishing, review, installation, visibility, and security controls |
+| `src/backend/features/marketplace/` | Marketplace publishing, review, installation, visibility, and security controls |
 | `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
-| `src/backend/core/services/mcp_marketplace_monitor.py` | Periodic remote tool-snapshot revalidation and drift monitoring |
+| `src/backend/features/marketplace/` | Periodic remote tool-snapshot revalidation and drift monitoring |
 | `src/backend/core/config/mcp_config.py` | Built-in server URL builder (http://mcp:NNNN/mcp/) |
 | `src/backend/core/config/catalog.json` | Capability catalog: MCP enable/disable seeds |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | Admin custom-MCP API |
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service private MCP / skill API |
-| `src/backend/api/routes/v1/mcp_marketplace.py` | User-facing MCP marketplace API |
-| `src/backend/api/routes/v1/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |
+| `src/backend/features/marketplace/api/mcp_marketplace.py` | User-facing MCP marketplace API |
+| `src/backend/features/marketplace/api/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |
 | `docker/Dockerfile.mcp` | mcp container image (MCP runtime, plotting dependencies, and CJK fonts) |
 
 Related docs: [Capability catalog](catalog.md) · [Agent skills](agent-skills.md) · [Knowledge base](knowledge-base.md) · [Editions & licensing](../editions/overview.md)

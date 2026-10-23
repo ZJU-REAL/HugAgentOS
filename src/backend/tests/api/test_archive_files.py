@@ -15,6 +15,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db
 from core.db.models import Artifact
 from core.files.storage.local import LocalStorageBackend
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -31,6 +32,7 @@ def archive_client(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="owner", user_center_id="owner", username="Owner"
     )

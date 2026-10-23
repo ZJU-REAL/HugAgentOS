@@ -10,6 +10,7 @@ from core.llm import prompt_versions as prompt_versions_module
 from core.harness import log_context
 from core.harness import log_writer
 
+from core.db.threads import run_in_session
 import asyncio
 import json
 import logging
@@ -379,10 +380,37 @@ def _build_file_context(
     return build_lazy_file_context(uploaded_files, user_id=user_id)
 
 
+def _generation_inputs(
+    db: Session,
+    user_id: str,
+    task: str,
+    chat_id: Optional[str],
+    enabled_agent_ids: Optional[List[str]],
+    enabled_skill_ids: Optional[List[str]],
+    enabled_mcp_ids: Optional[List[str]],
+):
+    """Everything plan generation reads from the database, read in one session.
+
+    Merges enabled plugin components into the enabled skill / MCP sets (the
+    frontend catalog lists don't contain them) so plan mode's capabilities match
+    main chat; attaches the chat's project context and the user's ontology
+    runtime. The model run that follows holds no connection.
+    """
+    from core.ontology.runtime_policy import build_user_ontology_runtime
+    from core.projects.edition import build_project_ctx_from_chat_id
+
+    visible_agents = _load_visible_agents(db, user_id, enabled_agent_ids)
+    skills, mcps, plugins = _resolve_plugin_capabilities(
+        db, user_id, enabled_skill_ids, enabled_mcp_ids
+    )
+    project_ctx = build_project_ctx_from_chat_id(db, chat_id)
+    ontology = build_user_ontology_runtime(user_id=user_id, task=task, db=db)
+    return visible_agents, skills, mcps, plugins, project_ctx, ontology
+
+
 async def astream_generate_plan(
     task_description: str,
     user_id: str,
-    db: Session,
     model_name: str = DEFAULT_CHAT_MODEL_ALIAS,
     model_provider_id: Optional[str] = None,
     enabled_mcp_ids: Optional[List[str]] = None,
@@ -400,33 +428,27 @@ async def astream_generate_plan(
     - plan_generated   {plan_id, title, description, steps: [...]}
     - plan_error       {error: str}
     """
-    visible_agents = _load_visible_agents(db, user_id, enabled_agent_ids)
-
-    # Merge enabled plugin components into the enabled skill / MCP sets (the frontend
-    # catalog lists don't contain plugin components), so plan mode's available
-    # capabilities match main chat, and fetch active plugin metadata for prompt display.
-    enabled_skill_ids, enabled_mcp_ids, plugins = _resolve_plugin_capabilities(
-        db, user_id, enabled_skill_ids, enabled_mcp_ids
+    (
+        visible_agents,
+        enabled_skill_ids,
+        enabled_mcp_ids,
+        plugins,
+        _project_ctx,
+        (ontology_enabled, ontology_runtime),
+    ) = await run_in_session(
+        _generation_inputs,
+        user_id,
+        task_description,
+        chat_id,
+        enabled_agent_ids,
+        enabled_skill_ids,
+        enabled_mcp_ids,
     )
 
     tools_desc = _build_tools_description(
         enabled_mcp_ids, enabled_skill_ids, visible_agents, plugins
     )
     system_prompt = _load_plan_prompt(tools_desc)
-
-    # Project context: when the chat is attached to a project, inject the project's
-    # instructions / file listing into the plan-generation agent's system prompt so
-    # the planning phase already understands the project context.
-    from core.projects.edition import build_project_ctx_from_chat_id
-
-    _project_ctx = build_project_ctx_from_chat_id(db, chat_id)
-    from core.ontology.runtime_policy import build_user_ontology_runtime
-
-    ontology_enabled, ontology_runtime = build_user_ontology_runtime(
-        user_id=user_id,
-        task=task_description,
-        db=db,
-    )
 
     try:
         # ``enabled_skill_ids=[]`` keeps the factory from falling back to all
@@ -600,10 +622,73 @@ def _parse_plan_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _plan_snapshot(db: Session, plan_id: str, user_id: str):
+    """The plan and its steps, detached: execution reads them without a session."""
+    plan = PlanService(db).get_plan(plan_id, user_id)
+    if plan is None:
+        return None
+    list(plan.steps)  # load them before detaching
+    db.expunge_all()
+    return plan
+
+
+def _start_execution(
+    db: Session,
+    plan_id: str,
+    user_id: str,
+    chat_id: Optional[str],
+    enabled_skill_ids: Optional[List[str]],
+    enabled_mcp_ids: Optional[List[str]],
+):
+    """Mark the plan running; return its project context and effective capabilities.
+
+    The project context confines each step-execution agent's file scope to the
+    project folder (same ProjectScope source as regular chat); plugin components
+    are merged into the enabled sets so step agents can load plugin-packaged
+    skills / MCP, consistent with main chat and the generation phase.
+    """
+    from core.projects.edition import build_project_ctx_from_chat_id
+
+    project_ctx = build_project_ctx_from_chat_id(db, chat_id)
+    skills, mcps, _plugins = _resolve_plugin_capabilities(
+        db, user_id, enabled_skill_ids, enabled_mcp_ids
+    )
+    PlanService(db).update_plan(plan_id, status="running")
+    return project_ctx, skills, mcps
+
+
+def _plan_status(db: Session, plan_id: str) -> Optional[str]:
+    from core.db.models import Plan
+
+    return db.query(Plan.status).filter(Plan.plan_id == plan_id).scalar()
+
+
+def _update_step(db: Session, step_id: str, **changes: Any) -> None:
+    PlanService(db).update_step(step_id, **changes)
+
+
+def _update_plan(db: Session, plan_id: str, **changes: Any) -> None:
+    PlanService(db).update_plan(plan_id, **changes)
+
+
+def _step_inputs(
+    db: Session,
+    user_id: str,
+    task: str,
+    agent_ids: Optional[List[str]],
+    cached_agents: Optional[List[Dict[str, Any]]],
+):
+    """Visible sub-agents (cached per id set across steps) and the step's ontology runtime."""
+    from core.ontology.runtime_policy import build_user_ontology_runtime
+
+    agents = cached_agents if cached_agents is not None else _load_visible_agents(db, user_id, agent_ids)
+    _enabled, runtime = build_user_ontology_runtime(user_id=user_id, task=task, db=db)
+    return agents, runtime
+
+
 async def astream_execute_plan(
     plan_id: str,
     user_id: str,
-    db: Session,
     model_name: str = DEFAULT_CHAT_MODEL_ALIAS,
     enabled_mcp_ids: Optional[List[str]] = None,
     enabled_skill_ids: Optional[List[str]] = None,
@@ -628,8 +713,7 @@ async def astream_execute_plan(
     """
     logger.warning("[plan-exec] astream_execute_plan called for plan_id=%s", plan_id)
 
-    svc = PlanService(db)
-    plan = svc.get_plan(plan_id, user_id)
+    plan = await run_in_session(_plan_snapshot, plan_id, user_id)
     if not plan:
         yield {"type": "plan_error", "plan_id": plan_id, "error": "计划不存在"}
         return
@@ -651,21 +735,11 @@ async def astream_execute_plan(
     if not chat_id:
         chat_id = plan_meta.get("chat_id") or None
 
-    # Project context: when the chat is attached to a project, inject the project
-    # instructions / files, and confine each step-execution agent's file scope to the
-    # project folder (same ProjectScope source as regular chat).
-    from core.projects.edition import build_project_ctx_from_chat_id
-
-    _project_ctx = build_project_ctx_from_chat_id(db, chat_id)
-
-    # Merge enabled plugin components into the enabled sets (frontend catalog lists don't
-    # contain plugin components) so each step-execution agent can load the plugin-packaged
-    # skills / MCP — consistent with main chat and with the generation phase.
-    enabled_skill_ids, enabled_mcp_ids, _plan_plugins = _resolve_plugin_capabilities(
-        db, user_id, enabled_skill_ids, enabled_mcp_ids
+    # Project context, plugin-merged capabilities and the plan's running status
+    # are read and written in one session before any step starts.
+    _project_ctx, enabled_skill_ids, enabled_mcp_ids = await run_in_session(
+        _start_execution, plan_id, user_id, chat_id, enabled_skill_ids, enabled_mcp_ids
     )
-
-    svc.update_plan(plan_id, status="running")
     completed_count = 0
     cancelled = False
 
@@ -749,14 +823,16 @@ async def astream_execute_plan(
                 "[plan-exec] === Step %d/%d: %s ===", step_idx + 1, len(plan.steps), step.title
             )
             if cancelled:
-                svc.update_step(step.step_id, status="skipped")
+                await run_in_session(_update_step, step.step_id, status="skipped")
                 continue
 
-            # Refresh plan to check for cancellation
-            db.refresh(plan)
-            if plan.status == "cancelled" or _cancellation_requested():
+            # Re-read the plan's status to check for cancellation
+            if (
+                await run_in_session(_plan_status, plan_id) == "cancelled"
+                or _cancellation_requested()
+            ):
                 cancelled = True
-                svc.update_step(step.step_id, status="skipped")
+                await run_in_session(_update_step, step.step_id, status="skipped")
                 continue
 
             yield {
@@ -768,7 +844,9 @@ async def astream_execute_plan(
             # Heartbeat to keep SSE alive during agent setup (3-10s)
             yield {"type": "heartbeat"}
 
-            svc.update_step(step.step_id, status="running", started_at=utc_now())
+            await run_in_session(
+                _update_step, step.step_id, status="running", started_at=utc_now()
+            )
 
             # Build step instruction with context from previous steps
             step_instruction = _build_step_instruction(
@@ -813,9 +891,14 @@ async def astream_execute_plan(
                 step_agent_ids = _merge_enabled(enabled_agent_ids, step.expected_agents or [])
 
                 _agent_key = tuple(step_agent_ids) if step_agent_ids is not None else None
-                if _agent_key not in _agent_cache:
-                    _agent_cache[_agent_key] = _load_visible_agents(db, user_id, step_agent_ids)
-                step_visible_agents = _agent_cache[_agent_key]
+                step_visible_agents, step_ontology_runtime = await run_in_session(
+                    _step_inputs,
+                    user_id,
+                    f"{plan.task_input}\n{step_instruction}",
+                    step_agent_ids,
+                    _agent_cache.get(_agent_key),
+                )
+                _agent_cache[_agent_key] = step_visible_agents
 
                 logger.warning(
                     "[plan-exec] step %d effective: mcp=%s skills=%s agents=%s",
@@ -827,13 +910,6 @@ async def astream_execute_plan(
 
                 # max_iters bounds tool calls per step so the agent doesn't loop excessively.
                 _step_max_iters = int(os.environ.get("PLAN_STEP_MAX_ITERS", "5"))
-                from core.ontology.runtime_policy import build_user_ontology_runtime
-
-                _step_ontology_enabled, step_ontology_runtime = build_user_ontology_runtime(
-                    user_id=user_id,
-                    task=f"{plan.task_input}\n{step_instruction}",
-                    db=db,
-                )
                 from core.harness.registry.capability_runtime import child_scope
 
                 agent, mcp_clients = await create_agent_executor(
@@ -935,7 +1011,8 @@ async def astream_execute_plan(
 
                     if cancelled:
                         step_text = "步骤执行被取消"
-                        svc.update_step(
+                        await run_in_session(
+                            _update_step,
                             step.step_id,
                             status="skipped",
                             completed_at=utc_now(),
@@ -1216,7 +1293,8 @@ async def astream_execute_plan(
                     if len(step_outputs_for_context) > _MAX_PREVIOUS_OUTPUTS:
                         step_outputs_for_context = step_outputs_for_context[-_MAX_PREVIOUS_OUTPUTS:]
 
-                svc.update_step(
+                await run_in_session(
+                    _update_step,
                     step.step_id,
                     status="success",
                     result_summary=summary,
@@ -1247,7 +1325,8 @@ async def astream_execute_plan(
             except Exception as step_exc:
                 logger.exception("Step %s failed", step.step_id)
                 error_msg = str(step_exc)
-                svc.update_step(
+                await run_in_session(
+                    _update_step,
                     step.step_id,
                     status="failed",
                     error_message=error_msg,
@@ -1289,7 +1368,8 @@ async def astream_execute_plan(
         # ── Final result: use the last step's full output directly ──
         result_text = last_step_text
 
-        svc.update_plan(
+        await run_in_session(
+            _update_plan,
             plan_id,
             status=final_status,
             completed_steps=completed_count,
@@ -1330,7 +1410,7 @@ async def astream_execute_plan(
 
     except Exception as exc:
         logger.exception("Plan execution failed")
-        svc.update_plan(plan_id, status="failed", result_summary=str(exc))
+        await run_in_session(_update_plan, plan_id, status="failed", result_summary=str(exc))
         await log_writer.finish_subagent_log(
             _plan_subagent_log_id,
             status="failed",

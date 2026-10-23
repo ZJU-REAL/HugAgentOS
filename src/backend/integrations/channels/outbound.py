@@ -17,7 +17,7 @@ from typing import Iterable, Optional, Tuple
 
 from integrations.channels.protocol import InboundMsg
 from integrations.channels.registry import get_adapter
-from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from integrations.channels.repository import ChannelConnectionRepository
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,36 @@ def _synthetic_msg(
     )
 
 
+def _delivery_target(db, channel_id: str, conversation_id: str):
+    """The enabled connection (detached) and the conversation profile, or None."""
+    chat_type, peer_id = "group", ""
+    conn = ChannelConnectionRepository(db).get_by_id(channel_id)
+    if conn is None or not conn.enabled:
+        return None
+    _ = conn.config  # Force-load the credentials column so it stays usable after detach
+    db.expunge(conn)
+    # Recover the conversation profile (group/one-on-one + p2p peer id)
+    try:
+        from core.db.models import ChatSession
+
+        sess = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.channel_id == channel_id,
+                ChatSession.external_conversation_id == conversation_id,
+                ChatSession.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if sess is not None:
+            meta = sess.extra_data or {}
+            chat_type = meta.get("channel_chat_type") or "group"
+            peer_id = meta.get("channel_peer_id") or ""
+    except Exception:  # noqa: BLE001
+        logger.debug("[channels] 会话画像恢复失败 conv=%s", conversation_id, exc_info=True)
+    return conn, chat_type, peer_id
+
+
 async def deliver_to_conversation(
     channel_id: str,
     conversation_id: str,
@@ -57,33 +87,11 @@ async def deliver_to_conversation(
     files: an iterable of (content_bytes, filename, mime_type).
     Any step's failure is logged as a warning — delivery failures must be observable, silent drops are not allowed.
     """
-    chat_type, peer_id = "group", ""
-    with SessionLocal() as db:
-        conn = ChannelConnectionRepository(db).get_by_id(channel_id)
-        if conn is None or not conn.enabled:
-            logger.warning("[channels] 投递目标连接不存在/未启用 channel_id=%s", channel_id)
-            return False
-        _ = conn.config  # Force-load the credentials column so it stays usable after detach
-        db.expunge(conn)
-        # Recover the conversation profile (group/one-on-one + p2p peer id)
-        try:
-            from core.db.models import ChatSession
-
-            sess = (
-                db.query(ChatSession)
-                .filter(
-                    ChatSession.channel_id == channel_id,
-                    ChatSession.external_conversation_id == conversation_id,
-                    ChatSession.deleted_at.is_(None),
-                )
-                .first()
-            )
-            if sess is not None:
-                meta = sess.extra_data or {}
-                chat_type = meta.get("channel_chat_type") or "group"
-                peer_id = meta.get("channel_peer_id") or ""
-        except Exception:  # noqa: BLE001
-            logger.debug("[channels] 会话画像恢复失败 conv=%s", conversation_id, exc_info=True)
+    target = await run_in_session(_delivery_target, channel_id, conversation_id)
+    if target is None:
+        logger.warning("[channels] 投递目标连接不存在/未启用 channel_id=%s", channel_id)
+        return False
+    conn, chat_type, peer_id = target
 
     adapter = get_adapter(conn.channel_type)
     msg = _synthetic_msg(channel_id, conn.channel_type, conversation_id, chat_type, peer_id)

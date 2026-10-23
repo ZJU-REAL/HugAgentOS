@@ -246,7 +246,6 @@ async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch)
     monkeypatch.setattr(oauth_service, "run_flow", slow_discovery)
     try:
         started = await oauth_service.start_oauth_install(
-            db,
             slug="gitlab-official",
             owner_user_id="u1",
             installed_by="u1",
@@ -401,7 +400,7 @@ async def test_self_service_mcp_uses_private_network_deployment_setting(
     async def _validate(url, **kwargs):
         validation.update(url=url, **kwargs)
 
-    async def _probe(row, _db):
+    async def _probe(row, **_options):
         row.tools_json = _tools("search")
         return True, ""
 
@@ -424,7 +423,6 @@ async def test_self_service_mcp_uses_private_network_deployment_setting(
             url="http://10.10.0.8/mcp",
         ),
         user=SimpleNamespace(user_id="u1"),
-        db=db,
     )
 
     assert validation == {

@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from api.deps import require_system_settings as require_config
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 from core.config.store.execution_options import code_capability_enabled
 from fastapi import APIRouter, Depends, HTTPException
@@ -165,7 +166,14 @@ def _render_tool_schema_appendix(tool_schemas: List[Dict[str, Any]]) -> str:
     return "\n".join(lines).strip()
 
 
-async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def _active_prompt_versions(db: Session):
+    active = prompt_versions_module.get_active_version("system", db=db)
+    code_active = prompt_versions_module.get_active_version("code_exec", db=db)
+    code_seg = prompt_rendering_module.render_kind_segment("code_exec", db) if code_capability_enabled() else ""
+    return active, code_active, code_seg
+
+
+async def _runtime_prompt_preview(*, approval_mode: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Build a runtime preview by instantiating the main agent.
 
     If MCP/model setup is unavailable, callers fall back to static assembly.
@@ -199,8 +207,7 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
                 + tool_appendix
             )
 
-        active = prompt_versions_module.get_active_version("system", db=db)
-        code_active = prompt_versions_module.get_active_version("code_exec", db=db)
+        active, code_active, code_seg = await run_in_session(_active_prompt_versions)
         enabled_parts = len(
             [
                 p
@@ -208,7 +215,6 @@ async def _runtime_prompt_preview(db: Session, *, approval_mode: Optional[str] =
                 if p.get("is_enabled", True) and (p.get("content") or "").strip()
             ]
         )
-        code_seg = prompt_rendering_module.render_kind_segment("code_exec", db) if code_capability_enabled() else ""
         part_count = (
             enabled_parts
             + (1 if code_seg else 0)
@@ -463,16 +469,21 @@ def update_order(req: OrderUpdateRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/preview", dependencies=[Depends(require_config)], summary="预览运行时提示词")
-async def preview_prompt(db: Session = Depends(get_db)):
+async def preview_prompt():
     """基于当前 DB + 文件系统状态预览运行时指令面。
 
     优先实例化主 agent，返回真实 ``sys_prompt``、AgentScope 自动追加的技能
     prompt，以及工具 schema 描述的审计展开；若运行时装配失败，再退回静态
     DB + 文件系统拼接。
     """
-    runtime = await _runtime_prompt_preview(db)
+    runtime = await _runtime_prompt_preview()
     if runtime:
         return success_response(data=runtime)
+    return success_response(data=await run_in_session(_static_prompt_preview))
+
+
+def _static_prompt_preview(db: Session) -> Dict[str, Any]:
+    """The prompt assembled from the DB + filesystem, when no agent can be built."""
 
     def _finalize(prompt: str, part_count: int, base: Dict[str, Any]):
         seg = ""
@@ -506,7 +517,7 @@ async def preview_prompt(db: Session = Depends(get_db)):
                 "preview_mode": "static_fallback",
             }
         )
-        return success_response(data=base)
+        return base
 
     # Prefer the active version from the prompt_version pool
     active = prompt_versions_module.get_active_version("system", db=db)
@@ -728,13 +739,15 @@ class DesktopPreviewRequest(BaseModel):
 
 
 @router.post("/desktop-preview")
-async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_config), db: Session = Depends(get_db)):
+async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_config)):
     """Render a saved desktop version without activating it or launching an agent."""
     from core.config.local_mode import local_mode_enabled
     from prompts.desktop_templates import desktop_version, render_desktop_part
     from prompts.desktop_workspace import SKIP_PARTS
     from prompts.prompt_runtime import build_system_prompt
-    version = prompt_versions_module.get_version("desktop", request.version_id, db=db)
+    version = await run_in_session(
+        lambda db: prompt_versions_module.get_version("desktop", request.version_id, db=db)
+    )
     if version is None:
         raise HTTPException(404, "desktop prompt version not found")
     if request.parts is not None:
@@ -754,13 +767,15 @@ async def desktop_preview(request: DesktopPreviewRequest, _=Depends(require_conf
             )) or " "
         prompt = build_system_prompt(load_prompt_config(), ctx, desktop_preview=True)
         if code_capability_enabled():
-            parts = prompt_rendering_module.effective_parts("code_exec", db=db)
+            parts = await run_in_session(
+                lambda db: prompt_rendering_module.effective_parts("code_exec", db=db)
+            )
             prompt += "\n\n" + "\n\n".join(p["content"] for p in sorted(parts, key=lambda p: p.get("sort_order", 0))
                 if p.get("is_enabled", True) and p.get("part_id") not in SKIP_PARTS["code_exec"])
         from core.sandbox.workspace.paths import WORKSPACE
         from core.sandbox.workspace.desktop import workspace_directory
         tool = render_desktop_part("bash_tool", cwd=workspace_directory(WORKSPACE, ctx["chat_id"]) if local else "{runtime.cwd}")
-        runtime = await _runtime_prompt_preview(db, approval_mode="ask") if local else None
+        runtime = await _runtime_prompt_preview(approval_mode="ask") if local else None
         if runtime:
             prompt = runtime["prompt"]
         conditional = {p["part_id"]: p.get("content", "") for p in version.get("parts", [])

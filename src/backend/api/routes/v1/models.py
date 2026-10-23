@@ -27,9 +27,9 @@ from sqlalchemy.orm import Session
 
 from api.deps import require_config, require_system_settings
 from core.auth.backend import UserContext, require_auth
-from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.models.config import ModelConfigService
 from core.models.repository import ROLE_DEFINITIONS, assign_role, create_provider, delete_provider, export_all, get_provider, import_all, list_providers, list_role_assignments, provider_has_capability, provider_is_referenced, role_required_capability, set_provider_test_result, unassign_role, update_provider
 from core.infra.responses import success_response
@@ -125,16 +125,16 @@ class ImportRequest(BaseModel):
 
 
 def _invalidate_model_caches() -> None:
-    """Single invalidation point for model-config changes: the resolve cache plus
-    every runtime singleton built from it.
+    """Single invalidation point for runtime singletons built from model config.
 
-    The mem0 singleton captures the memory/embedding config at init time; clearing
-    the resolve cache alone leaves memory running on stale credentials (a first
-    init against the placeholder key means every later write fails 401). The reset
-    is lazy — the next memory read/write rebuilds against the fresh config — so it
-    is cheap enough to apply on every change without filtering by role.
+    The resolve cache needs nothing here: every repository write bumps the
+    committed revision, which each lookup checks. The mem0 singleton, though,
+    captures the memory/embedding config at init time and would keep running on
+    stale credentials (a first init against the placeholder key means every
+    later write fails 401). The reset is lazy — the next memory read/write
+    rebuilds against the fresh config — so it is cheap enough to apply on every
+    change without filtering by role.
     """
-    ModelConfigService.get_instance().invalidate_cache()
     try:
         from core.memory import service as memory_service
 
@@ -594,7 +594,6 @@ def list_providers_endpoint(
 async def create_provider_endpoint(
     body: ProviderCreateRequest,
     _: None = Depends(require_system_settings),
-    db: Session = Depends(get_db),
 ):
     """新增一个模型供应商。仅限管理员；保存前会校验厂商字段并做连通性预校验，失败则返回 400，成功后刷新模型配置缓存。"""
     from core.models.providers.registry import validate_payload
@@ -629,32 +628,41 @@ async def create_provider_endpoint(
         body.extra_config,
     )
 
-    provider = create_provider(
-        db,
-        display_name=body.display_name,
-        provider_type=body.provider_type,
-        provider=body.provider,
-        base_url=normalized_url,
-        api_key=body.api_key,
-        model_name=body.model_name,
-        gateway_group=body.gateway_group,
-        weight=body.weight,
-        priority=body.priority,
-        extra_config=body.extra_config,
-        is_active=body.is_active,
-    )
-    given = body.model_dump(exclude_unset=True)
-    if any(k in given for k in ("input_price", "output_price", "currency")):
-        _upsert_pricing(
+    def save(db: Session) -> dict:
+        provider = create_provider(
             db,
-            model_name=provider.model_name,
-            input_price=body.input_price,
-            output_price=body.output_price,
-            currency=body.currency,
             display_name=body.display_name,
+            provider_type=body.provider_type,
+            provider=body.provider,
+            base_url=normalized_url,
+            api_key=body.api_key,
+            model_name=body.model_name,
+            gateway_group=body.gateway_group,
+            weight=body.weight,
+            priority=body.priority,
+            extra_config=body.extra_config,
+            is_active=body.is_active,
         )
+        given = body.model_dump(exclude_unset=True)
+        if any(k in given for k in ("input_price", "output_price", "currency")):
+            _upsert_pricing(
+                db,
+                model_name=provider.model_name,
+                input_price=body.input_price,
+                output_price=body.output_price,
+                currency=body.currency,
+                display_name=body.display_name,
+            )
+        return _provider_to_dict(provider, _get_pricing(db, provider.model_name))
+
+    data = await run_in_session(save)
     _invalidate_model_caches()
-    return success_response(data=_provider_to_dict(provider, _get_pricing(db, provider.model_name)))
+    return success_response(data=data)
+
+
+def _provider_and_roles(db: Session, provider_id: str):
+    existing = get_provider(db, provider_id)
+    return existing, (provider_is_referenced(db, provider_id) if existing is not None else [])
 
 
 @router.put("/providers/{provider_id}", summary="更新模型供应商")
@@ -662,7 +670,6 @@ async def update_provider_endpoint(
     provider_id: str,
     body: ProviderUpdateRequest,
     _: None = Depends(require_system_settings),
-    db: Session = Depends(get_db),
 ):
     """更新指定供应商的配置（仅传需修改的字段）。仅限管理员；若改动了 base_url/api_key/模型名会重新做连通性校验，成功后刷新模型配置缓存；供应商不存在返回 404。"""
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -672,7 +679,7 @@ async def update_provider_endpoint(
     }
 
     # If URL or credentials changed, validate the new config
-    existing = get_provider(db, provider_id)
+    existing, roles = await run_in_session(_provider_and_roles, provider_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Provider not found")
 
@@ -683,7 +690,6 @@ async def update_provider_endpoint(
     new_provider = fields.get("provider", getattr(existing, "provider", "openai_compatible"))
     new_extra = fields.get("extra_config", existing.extra_config or {})
     if new_type != existing.provider_type:
-        roles = provider_is_referenced(db, provider_id)
         if any(ROLE_DEFINITIONS.get(role, {}).get("type") != new_type for role in roles):
             raise HTTPException(400, "请先取消该模型的角色分配，再修改模型类型")
 
@@ -723,18 +729,22 @@ async def update_provider_endpoint(
             fields["extra_config"],
         )
 
-    provider = update_provider(db, provider_id, **fields)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="Provider not found")
-    if price_fields:
-        _upsert_pricing(
-            db,
-            model_name=provider.model_name,
-            display_name=provider.display_name,
-            **price_fields,
-        )
+    def save(db: Session) -> dict:
+        provider = update_provider(db, provider_id, **fields)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if price_fields:
+            _upsert_pricing(
+                db,
+                model_name=provider.model_name,
+                display_name=provider.display_name,
+                **price_fields,
+            )
+        return _provider_to_dict(provider, _get_pricing(db, provider.model_name))
+
+    data = await run_in_session(save)
     _invalidate_model_caches()
-    return success_response(data=_provider_to_dict(provider, _get_pricing(db, provider.model_name)))
+    return success_response(data=data)
 
 
 @router.delete("/providers/{provider_id}", summary="删除模型供应商")
@@ -763,10 +773,9 @@ def delete_provider_endpoint(
 async def test_saved_provider(
     provider_id: str,
     _: None = Depends(require_system_settings),
-    db: Session = Depends(get_db),
 ):
     """对已保存的供应商发起一次实际连通性测试。仅限管理员；会把测试结果（成功/失败）回写到供应商记录，并返回耗时与错误信息；不存在返回 404。"""
-    provider = get_provider(db, provider_id)
+    provider = await run_in_session(get_provider, provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
 
@@ -780,7 +789,7 @@ async def test_saved_provider(
         provider.model_name,
         provider.extra_config or {},
     )
-    set_provider_test_result(db, provider_id, result["success"])
+    await run_in_session(set_provider_test_result, provider_id, result["success"])
     return success_response(data=result)
 
 
@@ -806,7 +815,6 @@ async def test_unsaved_provider(
 async def detect_context_length(
     body: DetectContextRequest,
     _: None = Depends(require_system_settings),
-    db: Session = Depends(get_db),
 ):
     """探测模型真实上下文窗口（token）供表单回填。仅限管理员；不落库。
 
@@ -817,7 +825,7 @@ async def detect_context_length(
 
     api_key = body.api_key
     if not api_key and body.provider_id:
-        existing = get_provider(db, body.provider_id)
+        existing = await run_in_session(get_provider, body.provider_id)
         if existing is not None:
             api_key = existing.api_key or ""
 
@@ -906,7 +914,6 @@ def unassign_role_endpoint(
 async def _require_model_export_access(
     request: Request,
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
     user: Optional[UserContext] = Depends(require_auth(False)),
 ) -> None:
     """Default to config access; optionally allow authenticated desktop sync.
@@ -916,7 +923,7 @@ async def _require_model_export_access(
     scope = (os.getenv("DESKTOP_MODEL_SYNC_SCOPE") or "").strip().lower()
     if scope == "authenticated" and user is not None:
         return
-    await require_config(request, authorization=authorization, db=db)
+    await require_config(request, authorization=authorization)
 
 
 @router.get("/export", summary="导出模型配置")
@@ -931,11 +938,11 @@ def export_endpoint(
     return success_response(data=export_all(db))
 
 
-async def _require_import_control(request: Request, db: Session = Depends(get_db)):
+async def _require_import_control(request: Request):
     from features.desktop.capability.service import is_desktop_shell_control
     if is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
         return
-    await require_config(request=request, authorization=request.headers.get("authorization"), db=db)
+    await require_config(request=request, authorization=request.headers.get("authorization"))
 
 
 @router.post("/import", summary="导入模型配置")

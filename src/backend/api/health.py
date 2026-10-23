@@ -3,14 +3,13 @@ from core.infra.time import utc_now
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from core.chat.schemas import HealthResponse
 from core.config.settings import settings
-from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.logging import get_logger
 from core.files.storage import get_storage
 
@@ -35,7 +34,7 @@ async def health_check():
 
 
 @router.get("/ready", summary="就绪探针")
-async def readiness_check(db: Session = Depends(get_db)):
+async def readiness_check():
     """
     就绪检查（包含依赖检查）
 
@@ -46,7 +45,7 @@ async def readiness_check(db: Session = Depends(get_db)):
 
     # Check database
     try:
-        db.execute(text("SELECT 1"))
+        await run_in_session(lambda db: db.execute(text("SELECT 1")))
         checks["database"] = True
     except Exception as e:
         logger.error("database_health_check_failed", error=str(e))

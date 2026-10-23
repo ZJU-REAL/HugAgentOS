@@ -1,8 +1,8 @@
 # Architecture Overview
 
-> Last updated: 2026-07-19
+> Last updated: 2026-10-23
 
-HugAgentOS is an enterprise-grade AgentOS with both a lightweight local profile and a fully containerized production profile. A React single-page application provides the user experience, an async FastAPI service runs the backend, AgentScope 2.0's ReActAgent supplies the agent runtime, independent MCP (Model Context Protocol) processes expose tools, and pluggable sandbox providers isolate code execution. The platform ships in two editions — an open-source Community Edition (CE) and a commercial Enterprise Edition (EE) — built from a single codebase and separated by three runtime seams: the router registry, the table-creation boundary, and license feature gates (see [Editions](../editions/overview.md)).
+HugAgentOS is an open-source, self-hosted agent harness that runs as HugAgentOS Cloud (a fully containerized server) or HugAgentOS Local (on the desktop). A React single-page application provides the user experience, an async FastAPI service runs the backend, AgentScope 2.0's ReActAgent supplies the agent runtime, independent MCP (Model Context Protocol) processes expose tools, and pluggable sandbox providers isolate code execution. The platform ships in two editions — an open-source Community Edition (CE) and a commercial Enterprise Edition (EE) — built from a single codebase and separated by three runtime seams: the router registry, the table-creation boundary, and license feature gates (see [Editions](../editions/overview.md)).
 
 This page describes the system from five angles: the layered architecture, the ontology-grounded enterprise trust plane, the full lifecycle of one chat request, the container topology, and the key design decisions. For deeper dives, see [Backend Architecture](./backend.md), [Frontend Architecture](./frontend.md), and the [Data Model](./data-model.md).
 
@@ -23,51 +23,43 @@ This page describes the system from five angles: the layered architecture, the o
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  Browser (React SPA)                                               │
-│  App.tsx main app · AdminApp content console (EE)                  │
-│  ConfigApp system console (EE)                                     │
-│  api.ts typed client + useStreaming SSE parser                     │
+│  Entry: web (React SPA) · desktop (Tauri) · IM channels · API ·     │
+│         schedules · heartbeats                                      │
 └──────────────────────────────┬─────────────────────────────────────┘
-                               │ HTTP / SSE (under /api)
+                               │ HTTP / SSE (/api prefix)
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  Nginx (frontend container, :80)                                   │
-│  Static assets · /api → backend reverse proxy                      │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-┌──────────────────────────────▼─────────────────────────────────────┐
-│  FastAPI (backend container, src/backend/api/)                     │
-│  Middleware: CORS · structured logging · unified error handling    │
-│  Router registry: CE_ROUTERS + EE_ROUTERS (license feature gates)  │
+│  FastAPI (src/backend/api/)                                         │
+│  Middleware: CORS · structured logging · error handling ·           │
+│  edition router registry                                            │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  Orchestration layer (src/backend/orchestration/)                  │
-│  chat_run_executor: decouples Runs from HTTP, resumable streams    │
-│  workflow: streaming orchestration · strategy: routing             │
-│  citations: reference extraction · memory_integration              │
-│  subagents/plan_mode · schedulers: automation + distillation (EE)  │
+│  Run layer                                                          │
+│  core/runs: persisted runs, database leases, startup reconciliation,│
+│    tool effect intents and receipts                                 │
+│  core/chat/runtime: run admission, chat worker, resume, steering,   │
+│    compaction                                                       │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  Agent layer (src/backend/core/llm/)                               │
-│  factory/build → AgentScope 2.0 ReActAgent                         │
-│  ToolAssembly → Toolkit (built-in tools + skills + MCP tools)     │
-│  middlewares: dynamic model / file context / system reminders      │
-│  offloader: oversized tool results spilled to sandbox              │
-│  prompts/prompt_runtime: system prompt assembly (DB-first)         │
+│  Agent execution                                                    │
+│  core/agent_runtime: runner.astream_chat_workflow, routing,         │
+│    memory / ontology / evolution integration                        │
+│  core/llm: factory/build → AgentScope ReActAgent, tools, context    │
+│  orchestration/: plans · loops (autonomous loop) · automations      │
+│  personal_agent/: identity, task queue, scheduling, channels,       │
+│    device links, workspace                                          │
 └───────┬──────────────────────┬──────────────────────┬──────────────┘
-        │ streamable-http      │ sandbox protocol      │ SQL / vectors
+        │ streamable-http      │ sandbox provider     │ SQL / vector
 ┌───────▼───────────┐ ┌────────▼──────────┐ ┌─────────▼─────────────┐
-│ MCP clients      │ │ Sandboxes         │ │ Data layer            │
-│ mcp container,     │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
-│ tool processes     │ │ OpenSandbox CE/EE │ │ Milvus · Neo4j (opt.) │
-│ see _ports.py     │ │ CubeSandbox (EE)  │ │ Local / S3 / OSS      │
-│ search/fetch/tools │ │                   │ │ storage               │
-│ plugins/dwh/chain(EE)│ │                  │ │                       │
+│ MCP tool pool     │ │ Sandbox and jobs  │ │ Data layer            │
+│ mcp processes     │ │ OpenSandbox       │ │ PostgreSQL / SQLite   │
+│ ports: _ports.py  │ │ script-runner     │ │ Redis · Milvus · Neo4j│
+│ plugin tools      │ │ core/jobs         │ │ S3-compatible / local │
 └───────────────────┘ └───────────────────┘ └───────────────────────┘
 ```
 
-Dependencies point strictly downward: `api → orchestration → core`, and within `core`, `services → db`. MCP servers are independent processes that talk to the backend exclusively over HTTP, so a crash on either side never takes down the other.
+Dependencies point strictly downward: `api → features / orchestration / personal_agent → core`; `core` never depends on upper layers, and `integrations/` holds connectors to external systems such as DingTalk, Feishu and email. MCP servers are independent processes that talk to the backend exclusively over HTTP, so a crash on either side never takes down the other.
 
 ## Ontology-Grounded Enterprise Trust Plane
 
@@ -150,21 +142,22 @@ The entry point is `POST /v1/agents/responses` (`src/backend/api/routes/v1/chats
 
 ### 2. Starting a Run (decoupled from HTTP)
 
-`orchestration/chat_run_executor.py::start_run` registers the AI workflow as a background Run (persisted to the `chat_runs` table); the HTTP response merely *follows* that Run:
+`core/chat/runtime/admission.py::start_run` registers the turn as a background Run (persisted to the `chat_runs` table), executed by a chat worker that holds a database lease; the HTTP response merely *follows* that Run:
 
-- After a dropped connection or page refresh, the client calls `GET /v1/chats/stream/{run_id}` to resume from a given offset;
-- On backend restart, the lifespan hook `_startup_recover_chat_runs` recovers or reaps unfinished Runs.
+- After a dropped connection or page refresh, the client calls `GET /v1/chats/stream/{run_id}?from=N` to resume from a given offset;
+- While running, `POST /v1/chat-runs/{run_id}/steer` adds an instruction that applies at the next safe ReAct boundary;
+- On startup, `core/chat/runtime/recovery.py::recover_orphan_runs` reconciles Runs whose lease has expired from their last committed safe point: recoverable ones continue, unrecoverable ones are closed explicitly.
 
 ### 3. Orchestration and agent execution
 
-`orchestration/workflow.py::astream_chat_workflow` drives a single turn:
+`core/agent_runtime/runner.py::astream_chat_workflow` drives a single turn:
 
-1. **Memory retrieval** — `orchestration/memory_integration.py` reads the L1 profile / L2 vector memories (when enabled) and injects them as a system message;
-2. **Routing decision** — `orchestration/strategy.py`; `ROUTER_STRATEGY=main_only` (default) always routes to the main agent;
+1. **Memory retrieval** — `core/agent_runtime/integrations/memory.py` reads the L1 profile / L2 vector memories (when enabled) and injects them as a system message;
+2. **Routing decision** — `core/agent_runtime/strategy.py`; `ROUTER_STRATEGY=main_only` (default) always routes to the main agent;
 3. **Agent construction** — `core/llm/factory/build.py::create_agent_executor`: assembles the prompt (`prompts/prompt_runtime.py`, DB version pool first), filters MCP servers by catalog and per-user capabilities, registers built-in tools (Read/Write/Edit/Glob/Grep/bash/skill loading, see `core/llm/tools/`), then constructs the AgentScope Toolkit in one shot;
-4. **Streaming execution** — `orchestration/streaming.py::StreamingAgent` wraps the ReActAgent and yields reasoning deltas, tool calls, and tool results as they happen;
-5. **Citation extraction** — `orchestration/citations.py` parses `[ref:tool_name-N]` markers out of tool results into citation items;
-6. **Wrap-up** — the assistant message and tool-call logs are persisted, `core/memory/pipeline.py` extracts memories asynchronously in the background (off the SSE hot path), and follow-up questions are generated by a separate endpoint (`orchestration/followups.py`).
+4. **Streaming execution** — `core/llm/runtime/streaming.py::StreamingAgent` wraps the ReActAgent and yields reasoning deltas, tool calls, and tool results as they happen;
+5. **Citation extraction** — `core/llm/citations/` parses `[ref:tool_name-N]` markers out of tool results into citation items;
+6. **Wrap-up** — the assistant message and tool-call logs are persisted, `core/memory/pipeline.py` extracts memories asynchronously in the background (off the SSE hot path), and follow-up questions are generated by a separate endpoint (`core/chat/followups.py`).
 
 ### 4. The SSE event stream
 
@@ -177,9 +170,9 @@ Each event is `data: {json}\n\n` with a `type` discriminator; the stream termina
 | `tool_call_start` | Tool invocation starts (stable ID + name) | `core/chat/tool_log.py` |
 | `tool_call_delta` | Batched incremental tool-argument JSON | `core/chat/tool_log.py` |
 | `tool_call` | Tool arguments are complete and execution is about to start | `core/chat/tool_log.py` |
-| `tool_result` | Tool execution result (with citations, artifact card payloads) | `core/chat/tool_log.py` + `orchestration/tool_payloads.py` |
+| `tool_result` | Tool execution result (with citations, artifact card payloads) | `core/chat/tool_log.py` + `core/chat/tool_payloads.py` |
 | `tool_progress` | Progress reports from long-running tools | `chats.py` |
-| `meta` | Trailing metadata: route, citation sources, artifact list, etc. | `orchestration/workflow.py` |
+| `meta` | Trailing metadata: route, citation sources, artifact list, etc. | `core/agent_runtime/runner.py` |
 | `error` | Error event (immediately followed by `[DONE]`) | `chats.py` |
 
 The frontend's `src/frontend/src/hooks/useStreaming.ts` dispatches on `type` and merges the start, deltas, completed call, and result in place into one tool card keyed by `tool_id`.
@@ -192,13 +185,14 @@ The frontend's `src/frontend/src/hooks/useStreaming.ts` dispatches on `type` and
 |---|---|---|---|
 | `frontend` | hugagent-frontend | `3002:80` | Nginx: static assets + `/api` reverse proxy |
 | `backend` | hugagent-backend | `3001` | FastAPI main service |
-| `mcp` | hugagent-mcp | dedicated internal ports | 9 MCP servers as long-running streamable-http processes (7 general CE tools plus 2 EE industry tools) |
+| `mcp` | hugagent-mcp | dedicated internal ports | Built-in MCP servers as long-running streamable-http processes (data warehouse and industry tools are EE) |
 | `postgres` | hugagent-postgres | `5432` | Primary database |
 | `redis` | hugagent-redis | `6379` | Sessions / caching |
-| `script-runner` (profile `script_runner`) | hugagent-script-runner | internal | Lightweight script-execution sidecar (no DB/secret access) |
-| `opensandbox` + `opensandbox-config-init` (profile `opensandbox`) | hugagent-opensandbox | internal | Persistent sandbox (Enterprise Edition, EE) |
+| `script-runner` (profile `script_runner`) | hugagent-script-runner | internal | Optional lightweight script-execution sidecar (no DB/secret access) |
+| `opensandbox` + `opensandbox-config-init` (profile `opensandbox`) | hugagent-opensandbox | internal | Default sandbox: persistent sessions and snapshot recovery (mutually exclusive with script-runner) |
 | `etcd` / `minio` / `milvus` (profile `mem0`) | hugagent-etcd etc. | internal | L2 vector-memory infrastructure |
 | `neo4j` (profile `mem0`) | hugagent-neo4j | `7474/7687` | L3 graph memory (optional) |
+| `personal-agent-opensandbox` (profile `personal-agent`, `docker/personal-agent/compose.personal-agent.yml`) | — | internal | Dedicated controller for Personal Agent permanent computers |
 
 All services share the `hugagent-network` network; named volumes such as `postgres_data` persist across rebuilds. See [Docker Compose deployment](../deployment/docker-compose.md) for details.
 
@@ -206,7 +200,7 @@ All services share the `hugagent-network` network; named volumes such as `postgr
 
 ### Catalog as the single source of truth
 
-`src/backend/core/config/catalog.json` is the sole authority for capability switches, with four kinds of entries: `skills` / `agents` / `mcp` / `kb`. `core/config/catalog.py` exposes `is_enabled(kind, id)` / `get_enabled_ids(kind)`, gating everything from MCP tool loading and skill registration to routing decisions; admin toggles are stored as overrides in the `catalog_overrides` table layered on top of the file (`core/config/catalog_loader.py`). Adding a capability to the catalog makes it visible to both the frontend capability center and the agent factory — no orchestration changes required. See [Capability Catalog](../modules/catalog.md).
+`src/backend/core/config/catalog.json` is the sole authority for capability switches, with four kinds of entries: `skills` / `agents` / `mcp` / `kb`. `core/capabilities/catalog/` exposes `is_enabled(kind, id)` / `get_enabled_ids(kind)`, gating everything from MCP tool loading and skill registration to routing decisions; admin toggles are stored as overrides in the `catalog_overrides` table layered on top of the file (`core/capabilities/catalog/loader.py`). Adding a capability to the catalog makes it visible to both the frontend capability center and the agent factory — no orchestration changes required. See [Capability Catalog](../modules/catalog.md).
 
 ### Unified response envelope
 
@@ -218,15 +212,15 @@ System prompts are no longer hardcoded: the version pool is stored in the `conte
 
 ### MCP tools as independent processes
 
-Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the run-owned native client in `core/llm/mcp/lifetime.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
+Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the run-owned native client in `core/llm/mcp/lifetime.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. The two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
 
-### Runs decoupled from connections
+### Runs decoupled from connections and processes
 
-Streaming chats are not tied to the HTTP connection lifecycle: `chat_run_executor` persists execution state to the `chat_runs` table and supports offset-based resumption — eliminating "refresh loses the reply" and flaky-network drops — and the same execution channel is reused by the automation scheduler.
+Streaming chats are tied neither to the HTTP connection nor to a particular process: run state and per-step context are persisted, workers claim execution through database leases, and a stale executor can no longer commit results or call tools; when a process dies, another worker takes over. Tool calls record an intent and complete only with a receipt (`core/runs/tool_effects/`); recovery replays only calls proven not to have taken effect, and external operations with an unknown outcome go to the user for confirmation. Automation, Plan Mode, the autonomous loop and Personal Agent reuse the same run machinery.
 
 ### One codebase, two editions
 
-The commercial main repository carries the full code; the Community Edition is derived by `scripts/build_ce.py` according to `ce/manifest.yaml` (exclude `edition_ee` implementations + text transforms + CE overlays). Runtime boundaries include the router registry `api/routes/v1/__init__.py`, the table-creation boundary `core/db/edition_tables.py` (CE never registers the 20 EE-only tables), EE's `edition_ee/licensing/` package versus CE's fixed edition middleware, and policy seams such as site visibility. See [Editions](../editions/overview.md).
+The commercial main repository carries the full code; the Community Edition is derived by `scripts/build_ce.py` according to `ce/manifest.yaml` (exclude `edition_ee` implementations + text transforms + CE overlays). Runtime boundaries include the router registry `api/routes/v1/__init__.py`, the table-creation boundary `edition_ee/db/edition_tables.py` (CE never registers the 20 EE-only tables), EE's `edition_ee/licensing/` package versus CE's fixed edition middleware, and policy seams such as site visibility. See [Editions](../editions/overview.md).
 
 ## Related Source
 
@@ -234,12 +228,13 @@ The commercial main repository carries the full code; the Community Edition is d
 |---|---|
 | FastAPI app and startup hooks | `src/backend/api/app.py` |
 | Streaming chat entry point | `src/backend/api/routes/v1/chats/__init__.py` |
-| Run executor | `src/backend/orchestration/chat_run_executor.py` |
-| Streaming orchestration | `src/backend/orchestration/workflow.py` |
+| Run executor | `src/backend/core/chat/runtime/` |
+| Streaming orchestration | `src/backend/core/agent_runtime/runner.py` |
 | Agent factory | `src/backend/core/llm/factory/build.py` |
 | MCP config and ports | `src/backend/core/config/mcp_config.py`, `src/backend/extensions/mcp_servers/_ports.py` |
-| Capability catalog | `src/backend/core/config/catalog.json`, `catalog.py` |
+| Capability catalog | `src/backend/core/config/catalog.json`, `src/backend/core/capabilities/catalog/` |
+| Runs, leases and recovery | `src/backend/core/runs/`, `src/backend/core/chat/runtime/recovery.py` |
 | Response envelope | `src/backend/core/infra/responses.py` |
 | Prompt assembly | `src/backend/prompts/prompt_runtime.py` |
-| CE/EE seams | `src/backend/api/routes/v1/__init__.py`, `src/backend/core/db/edition_tables.py`, `src/backend/api/middleware/edition.py`, `src/backend/edition_ee/licensing/` |
+| CE/EE seams | `src/backend/api/routes/v1/__init__.py`, `src/backend/edition_ee/db/edition_tables.py`, `src/backend/api/middleware/edition.py`, `src/backend/edition_ee/licensing/` |
 | Container orchestration | `docker-compose.yml` |

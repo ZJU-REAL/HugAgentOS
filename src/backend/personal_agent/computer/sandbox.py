@@ -14,8 +14,10 @@ from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.errors import SandboxError
 from personal_agent.models import PersonalAgent
+from core.db.threads import off_loop
+from core.db.threads import run_in_session
 
-# Layout of the permanent computer image (docker/Dockerfile.personal-agent and its entrypoint).
+# Layout of the permanent computer image (docker/personal-agent/Dockerfile.personal-agent and its entrypoint).
 SANDBOX_PYTHON = "/opt/python/current/bin/python3"
 DEFAULT_IMAGE = "hugagent-personal-agent:v5"
 DESKTOP_HOME = "/home/pa-desktop"
@@ -56,6 +58,9 @@ async def install_once(provider, box, uid, name, digest, command):
         await state.put(ready, digest, ttl=86400)
     finally:
         await state.release(lock, token)
+
+def _computer_owner(db, session_id):
+    return db.scalar(select(PersonalAgent.user_id).where(PersonalAgent.sandbox_session_id == session_id))
 
 class PersonalSandboxProvider(OpenSandboxProvider):
 
@@ -122,13 +127,14 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                     # Only a confirmed missing instance permits recreation. Network errors preserve identity.
                     if getattr(exc, "status_code", None) != 404: raise
                     await self._check_mount_revision(sandbox, user_id)
-                    with SessionLocal() as db:
+                    def _drop_lost_sandbox(db):
                         row = db.get(PersonalAgent, ident)
                         if row.sandbox_id == sandbox_id:
                             row.sandbox_id = None
                             row.generation += 1
                             row.computer_status = "recovering"
                             db.commit()
+                    await run_in_session(_drop_lost_sandbox)
                     _, sandbox_id, generation = self._binding(session_id, user_id)
                     sandbox = await self._provision(ident, session_id, user_id, generation)
             else:
@@ -188,10 +194,11 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                     if found.status.state not in {"RUNNING", "PENDING"}: raise SandboxError("Permanent computer requires recovery")
                     sandbox = await Sandbox.connect(found.id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
                     await self._check_mount_revision(sandbox, user_id)
-                    with SessionLocal() as db:
+                    def _mark_ready(db):
                         row = db.get(PersonalAgent, ident)
                         row.sandbox_id, row.computer_status = sandbox.id, "ready"
                         db.commit()
+                    await run_in_session(_mark_ready)
                     return sandbox
             finally: await manager.close()
             root = os.getenv("PERSONAL_AGENT_VOLUME_ROOT", "").strip()
@@ -219,10 +226,11 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 timeout=None, skip_health_check=False, volumes=[volume, desktop_volume, *space_volumes],
                 metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation), **space_metadata},
                 entrypoint=["/bin/bash", "/opt/personal-agent/start.sh"])
-            with SessionLocal() as db:
+            def _mark_ready(db):
                 row = db.get(PersonalAgent, ident)
                 row.sandbox_id, row.computer_status = sandbox.id, "ready"
                 db.commit()
+            await run_in_session(_mark_ready)
             return sandbox
         finally:
             # Only the token owner releases; do not delete a successor's lock.
@@ -311,10 +319,8 @@ finally: os.close(fd)
         return 0
 
     async def touch_session(self, session_id):
-        with SessionLocal() as db:
-            row = db.scalar(select(PersonalAgent).where(PersonalAgent.sandbox_session_id == session_id))
-            if row is None: return False
-            uid = row.user_id
+        uid = await run_in_session(_computer_owner, session_id)
+        if uid is None: return False
         sess = await self._get_or_create_session(session_id, uid)
         try:
             info = await sess.sandbox.get_info()
@@ -326,13 +332,15 @@ finally: os.close(fd)
             info = await sess.sandbox.get_info()
         if info.expires_at is not None:
             raise SandboxError("Permanent computer unexpectedly has an expiration time")
-        with SessionLocal() as db:
+        def _mark_ready(db):
             row = db.scalar(select(PersonalAgent).where(PersonalAgent.sandbox_session_id == session_id))
             row.computer_status = "ready"
             db.commit()
+        await run_in_session(_mark_ready)
         return True
 
-    async def current_sandbox_id(self, session_id):
+    @off_loop
+    def current_sandbox_id(self, session_id):
         with SessionLocal() as db:
             row = db.scalar(select(PersonalAgent).where(PersonalAgent.sandbox_session_id == session_id))
             return row.sandbox_id if row else None

@@ -24,6 +24,7 @@ def _configure_db(db_session, monkeypatch):
     monkeypatch.setattr(outbox_common, "SessionLocal", factory)
     monkeypatch.setattr(E, "SessionLocal", factory)
     monkeypatch.setattr(PS, "SessionLocal", factory)
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     return factory
 
 

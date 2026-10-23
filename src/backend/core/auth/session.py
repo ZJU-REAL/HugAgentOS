@@ -207,11 +207,8 @@ async def revoke_session(token: str) -> bool:
         logger.info("session_revoked", token_hash=token_hash[:8])
         if data and data.get("user_id"):
             from core.harness.registry.resource_owners import resource_owner
-            from core.db.engine import SessionLocal
-
             try:
-                with SessionLocal() as db:
-                    await resource_owner().revoke_session(db, data["user_id"], token_hash)
+                await resource_owner().revoke_session(data["user_id"], token_hash)
             except Exception as exc:
                 # The credential is already revoked. Preserve successful logout;
                 # expired workers stay denied while the resource janitor retries.

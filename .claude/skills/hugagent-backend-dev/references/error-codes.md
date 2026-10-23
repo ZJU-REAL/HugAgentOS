@@ -35,6 +35,8 @@
 |------|------|----------------|------|
 | 40001 | 404 | `ResourceNotFoundError` | 资源未找到 |
 | 40002 | 404 | `EndpointNotFoundError` | API 端点不存在 |
+| 40201 | 402 | `FeatureNotLicensed`（`edition_ee/licensing/features.py`） | License 未授权该能力（EE 路由能力位守卫） |
+| 40202 | 402 | `SeatLimitExceeded`（同上） | 席位不足 / License 无效，无法新增用户 |
 | 41001 | 409 | `ResourceAlreadyExistsError` | 资源已存在 |
 | 41002 | 409 | `ConcurrentModificationError` | 并发修改冲突 |
 | 42001 | 429 | `RateLimitExceededError` | 速率限制 |

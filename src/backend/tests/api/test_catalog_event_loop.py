@@ -30,28 +30,31 @@ def _reset_external_cache(monkeypatch):
 @pytest.mark.asyncio
 async def test_catalog_handler_offloads_the_synchronous_builder(monkeypatch):
     user = SimpleNamespace(user_id="user-1")
-    db = object()
     expected = {"data": {"kb": []}}
-    calls: List[tuple[Any, tuple[Any, ...]]] = []
+    built: List[tuple[Any, Any]] = []
+    offloaded: List[Any] = []
 
     async def cache_ready() -> None:
         return None
 
     def builder(received_user, received_db):
-        pytest.fail("the builder must be passed to the threadpool, not called directly")
-
-    async def run_in_threadpool(function, *args):
-        calls.append((function, args))
+        built.append((received_user, received_db))
         return expected
+
+    async def run_in_session(function, *args):
+        # The builder only ever runs inside the session step handed to the thread.
+        assert built == []
+        offloaded.append(function)
+        return function("session")
 
     monkeypatch.setattr(catalog, "_ensure_external_cache_ready", cache_ready)
     monkeypatch.setattr(catalog, "_get_catalog_items_sync", builder)
-    monkeypatch.setattr(catalog, "run_in_threadpool", run_in_threadpool)
+    monkeypatch.setattr(catalog, "run_in_session", run_in_session)
 
-    result = await catalog.get_catalog_items(user=user, db=db)
+    result = await catalog.get_catalog_items(user=user)
 
     assert result is expected
-    assert calls == [(builder, (user, db))]
+    assert len(offloaded) == 1 and built == [(user, "session")]
 
 
 @pytest.mark.asyncio
@@ -66,7 +69,7 @@ async def test_catalog_build_does_not_block_the_event_loop(monkeypatch):
     monkeypatch.setattr(catalog, "_ensure_external_cache_ready", cache_ready)
     monkeypatch.setattr(catalog, "_get_catalog_items_sync", slow_builder)
 
-    request = asyncio.create_task(catalog.get_catalog_items(user=object(), db=object()))
+    request = asyncio.create_task(catalog.get_catalog_items(user=object()))
     ticks = 0
     while not request.done():
         ticks += 1
@@ -140,8 +143,8 @@ async def test_concurrent_cold_catalog_handlers_both_receive_the_fresh_snapshot(
     monkeypatch.setattr(catalog, "_get_catalog_items_sync", builder)
 
     requests = asyncio.gather(
-        catalog.get_catalog_items(user=object(), db=object()),
-        catalog.get_catalog_items(user=object(), db=object()),
+        catalog.get_catalog_items(user=object()),
+        catalog.get_catalog_items(user=object()),
     )
     deadline = asyncio.get_running_loop().time() + 2
     while not requests.done():

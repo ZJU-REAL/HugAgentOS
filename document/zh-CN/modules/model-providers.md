@@ -9,7 +9,7 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 
 ## 配置模型：供应商 + 角色
 
-两张表（`core/db/models.py`）：`model_providers`（base_url / api_key / model_name / extra_config / is_active）与 `model_role_assignments`（role_key → provider_id）。角色定义在 `core/db/model_repository.py::ROLE_DEFINITIONS`：
+两张表（`core/db/models/`）：`model_providers`（base_url / api_key / model_name / extra_config / is_active）与 `model_role_assignments`（role_key → provider_id）。角色定义在 `core/models/repository.py::ROLE_DEFINITIONS`：
 
 | role_key | 用途 | 类型 |
 |---|---|---|
@@ -126,7 +126,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 
 ## 动态模型切换（chat_mode）
 
-前端每条消息可带 `chat_mode`（`turbo / fast / medium / high / max`），在 reply 开始前由 `core/llm/middlewares.py::DynamicModelMiddleware`（`on_reply`）热切 `agent.model`：
+前端每条消息可带 `chat_mode`（`turbo / fast / medium / high / max`），在 reply 开始前由 `core/llm/runtime/`（`on_reply`）热切 `agent.model`：
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
@@ -136,7 +136,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
    high/max → reasoning_effort=high/max（端点须声明支持）
 ```
 
-旧客户端只传 `enable_thinking` 时回退映射为 medium / fast。这就是 1.x「pre_reply 动态模型 hook」在 AgentScope 2.0 下的形态——hook 工厂已重构为中间件，`core/llm/runtime/hooks.py` 仅保留纯函数 helper。
+旧客户端只传 `enable_thinking` 时回退映射为 medium / fast。这就是 1.x「pre_reply 动态模型 hook」在 AgentScope 2.0 下的形态——hook 工厂已重构为中间件，`core/harness/hooks.py` 仅保留纯函数 helper。
 
 ## 环境变量与 MCP 子进程注入
 
@@ -159,7 +159,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
 
 ## 计费与用量
 
-token 用量在流式收尾的 `meta.usage` 中统计（`orchestration/streaming.py` 从 `ModelCallEndEvent` 累计）并随消息持久化，之上有两组管理台报表（`CONFIG_TOKEN`）：
+token 用量在流式收尾的 `meta.usage` 中统计（`core/llm/runtime/streaming.py` 从 `ModelCallEndEvent` 累计）并随消息持久化，之上有两组管理台报表（`CONFIG_TOKEN`）：
 
 - **用量日志** `api/routes/v1/admin_usage_logs.py`：`GET /v1/admin/usage-logs`（明细）、`/summary`（汇总）、`/models`（去重模型名）。
 - **计费报表** `api/routes/v1/admin_billing.py`（**商业版 EE**——完整管理台能力）：`GET /v1/admin/billing/summary`（按用户/模型聚合成本）、模型定价 CRUD（`/pricing`，输入/输出单价、币种）、`GET /v1/admin/billing/export`（CSV 成本导出）。
@@ -168,21 +168,21 @@ token 用量在流式收尾的 `meta.usage` 中统计（`orchestration/streaming
 
 ## 路由策略（ROUTER_STRATEGY）
 
-`orchestration/strategy.py`：`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；`llm_router` 为预留占位，当前实现同样回落 `MainOnlyStrategy`（safe-by-default）。实际的多智能体分流由 `@提及` + `call_subagent` 工具完成，见 [对话与智能体编排](chat.md)。
+`core/agent_runtime/strategy.py`：`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；`llm_router` 为预留占位，当前实现同样回落 `MainOnlyStrategy`（safe-by-default）。实际的多智能体分流由 `@提及` + `call_subagent` 工具完成，见 [对话与智能体编排](chat.md)。
 
 ## 相关源码
 
 | 主题 | 路径 |
 |---|---|
-| 模型工厂 / JxOpenAIChatModel | `src/backend/core/llm/chat_models.py` |
-| 角色解析服务（DB + 缓存） | `src/backend/core/services/model_config.py` |
-| 角色定义 / 供应商仓储 | `src/backend/core/db/model_repository.py` |
+| 模型工厂 / JxOpenAIChatModel | `src/backend/core/models/chat_models.py` |
+| 角色解析服务（DB + 缓存） | `src/backend/core/models/config.py` |
+| 角色定义 / 供应商仓储 | `src/backend/core/models/repository.py` |
 | 管理 API | `src/backend/api/routes/v1/models.py` |
-| 动态模型中间件 | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`，helper 在 `core/llm/runtime/hooks.py` |
-| MCP env 注入 | `src/backend/core/services/model_config.py::get_mcp_env_overlay`，`core/config/runtime_env.py` |
+| 动态模型中间件 | `src/backend/core/llm/runtime/`，helper 在 `core/harness/hooks.py` |
+| MCP env 注入 | `src/backend/core/models/config.py::get_mcp_env_overlay`，`core/config/runtime_env.py` |
 | 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`，`core/auth/api_keys.py`，`core/auth/backend.py` |
 | 用量日志 / 计费 | `src/backend/api/routes/v1/admin_usage_logs.py`，`api/routes/v1/admin_billing.py` |
-| 路由策略 | `src/backend/orchestration/strategy.py` |
+| 路由策略 | `src/backend/core/agent_runtime/strategy.py` |
 | 主模型缺失快速失败 | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ## 模型专属思考档位

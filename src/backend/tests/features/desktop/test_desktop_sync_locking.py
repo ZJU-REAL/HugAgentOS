@@ -121,10 +121,11 @@ async def test_desktop_authentication_does_not_block_the_event_loop(monkeypatch)
         return backend.UserContext(user_id="alice", user_center_id="center", username="Alice")
 
     from core.harness.registry import authentication
+    monkeypatch.setattr(authentication.registration_state(), "claims", lambda request: True)
     monkeypatch.setattr(authentication.registration_state(), "resolver", authenticate)
     try:
         result = await backend.get_current_user(
-            Request({"type": "http", "headers": []}), None, None
+            Request({"type": "http", "headers": []}), None
         )
         assert result.user_id == "alice"
         assert progressed == [True], "authentication blocked the event loop"

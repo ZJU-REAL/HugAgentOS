@@ -4,7 +4,8 @@ import secrets
 from typing import Literal
 from urllib.parse import urlencode
 
-from api.deps import _resolve_session_user_id, require_config
+from api.deps import console_actor, require_config
+from core.db.threads import run_in_session
 from features.workbench import external_auth
 from features.workbench.external_boundary import validate_cookie_scope
 from core.auth.backend import UserContext, require_auth
@@ -18,7 +19,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 
 class PrivateRoute(APIRoute):
@@ -107,19 +107,18 @@ def auth_config(key: str, db: Session = Depends(get_db)):
 @router.put(
     "/admin/external-auth/{key}", dependencies=[Depends(require_config), Depends(browser_write)]
 )
-async def update_auth(key: str, body: AuthWrite, request: Request, db: Session = Depends(get_db)):
-    actor = await _resolve_session_user_id(request) or "config_token"
-    data = await run_in_threadpool(
-        external_auth.save, db, key, body.model_dump(), actor, trace_id_var.get()
-    )
+def update_auth(
+    key: str, body: AuthWrite, actor: str = Depends(console_actor), db: Session = Depends(get_db)
+):
+    data = external_auth.save(db, key, body.model_dump(), actor, trace_id_var.get())
     return success_response(data=data)
 
 
 @router.post("/external-auth/exchange", dependencies=[Depends(browser_write)])
-async def exchange(body: Exchange, request: Request, db: Session = Depends(get_db)):
+async def exchange(body: Exchange, request: Request):
     auth = request.headers.get("authorization", "")
     credential = auth[len("Bearer ") :] if auth.startswith("Bearer ") else ""
-    data = await run_in_threadpool(external_auth.redeem, db, body.model_dump(), credential)
+    data = await run_in_session(external_auth.redeem, body.model_dump(), credential)
     session_hash = data.pop("_sessionHash", None)
     if session_hash:
         session = await find_session_by_hash(session_hash)

@@ -103,6 +103,6 @@ class MarketplaceCatalogProvider:
         from features.marketplace import mcp_credentials
         return mcp_credentials.installation_secrets(version, credentials, existing, auth_method=auth_method)
 
-    async def install_market_item(self, db, slug, **kwargs):
+    async def install_market_item(self, slug, **kwargs):
         from features.marketplace import mcp_installation
-        return await mcp_installation.install_market_item(db, slug, **kwargs)
+        return await mcp_installation.install_market_item(slug, **kwargs)

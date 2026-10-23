@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from integrations.channels.protocol import InboundMsg
 from core.db.models import ChatSession
+from core.db.threads import run_in_session
 from integrations.channels.models import ChannelConnection
 import logging
 logger = logging.getLogger(__name__)
@@ -24,9 +25,20 @@ def save_history_state(db, session: ChatSession, state: Dict[str, Any]) -> None:
     db.commit()
 
 
-async def pull_history(
-    db, adapter, conn: ChannelConnection, msg: InboundMsg, session: ChatSession
-) -> int:
+def _pull_state(db, chat_id: str) -> Dict[str, Any]:
+    return history_state(db.get(ChatSession, chat_id))
+
+
+def _store_pull(
+    db, chat_id: str, state: Dict[str, Any], records: List[Dict[str, Any]], file_index: Dict[str, Any]
+) -> None:
+    session = db.get(ChatSession, chat_id)
+    if records:
+        inbound_observation.record_observed_batch(db, session, records, file_index)
+    save_history_state(db, session, state)
+
+
+async def pull_history(adapter, conn: ChannelConnection, msg: InboundMsg, chat_id: str) -> int:
     """Deterministically pull this group's new messages and fold them into the buffer.
 
     Runs on every @ in a group, driven by code rather than by the model choosing to call a
@@ -43,7 +55,7 @@ async def pull_history(
     fetch = getattr(adapter, "fetch_history", None)
     if fetch is None:
         return 0
-    state = history_state(session)
+    state = await run_in_session(_pull_state, chat_id)
     if int(state.get("failures") or 0) >= inbound_state.HISTORY_MAX_FAILURES:
         return 0
 
@@ -79,7 +91,7 @@ async def pull_history(
             conn.channel_id, msg.external_conversation_id, exc_info=True,
         )
         state["failures"] = int(state.get("failures") or 0) + 1
-        save_history_state(db, session, state)
+        await run_in_session(_store_pull, chat_id, state, [], {})
         return 0
 
     records: List[Dict[str, Any]] = []
@@ -128,8 +140,6 @@ async def pull_history(
     if cold_start:
         # Collected newest→oldest above; the buffer is read as a transcript, so flip it back.
         records.reverse()
-    if records:
-        inbound_observation.record_observed_batch(db, session, records, file_index)
     # Advance the cursor even when nothing was recorded: the window was still covered, and
     # not advancing would re-request it on every message forever.
     state.update({
@@ -138,7 +148,7 @@ async def pull_history(
         # Bounded id memory purely for boundary dedup; the cursor does the real work.
         "seen_ids": list(seen_ids)[-200:],
     })
-    save_history_state(db, session, state)
+    await run_in_session(_store_pull, chat_id, state, records, file_index)
     if records:
         logger.info(
             "[channels] 群历史拉取 %d 条 channel_id=%s conv=%s",

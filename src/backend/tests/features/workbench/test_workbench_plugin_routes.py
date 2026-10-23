@@ -7,6 +7,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import UserShadow
 from tests.features.workbench.workbench_plugin_support import package
+from tests.db_support import share_factory, share_session
 
 
 @pytest.fixture
@@ -33,6 +34,7 @@ def client(db_session, monkeypatch, tmp_path):
         user_id="wb07", user_center_id="wb07", username="WB07", email=""
     )
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     return TestClient(app)
 
 
@@ -188,7 +190,7 @@ def test_css_expansion_is_bounded_before_large_allocation(client):
     assert response.json()["detail"]["code"] == "page_too_large"
 
 
-def test_simultaneous_first_switches_are_atomic(client, db_session):
+def test_simultaneous_first_switches_are_atomic(client, db_session, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from sqlalchemy.orm import sessionmaker
 
@@ -200,6 +202,7 @@ def test_simultaneous_first_switches_are_atomic(client, db_session):
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
 
     def toggle(value):
         return client.patch(

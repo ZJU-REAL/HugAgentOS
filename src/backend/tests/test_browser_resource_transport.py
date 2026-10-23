@@ -61,7 +61,7 @@ async def test_commands_reuse_one_tcp_connection_and_keep_runtime_authentication
 
 async def test_websocket_revocation_stops_commands_and_closes_transport(monkeypatch):
     from starlette.websockets import WebSocketDisconnect
-    from core.capabilities.plugins.resources import stream, authentication
+    from core.capabilities.plugins.resources import stream
     from contextlib import nullcontext
 
     bodies, writers, handlers, transports = [], [], set(), []
@@ -134,12 +134,14 @@ async def test_websocket_revocation_stops_commands_and_closes_transport(monkeypa
         if len(validations) == 4:
             raise HTTPException(403, "fixture_revoked")
 
-    monkeypatch.setattr(stream, "SessionLocal", lambda: nullcontext(object()))
+    from core.db import engine as db_engine
+
+    monkeypatch.setattr(db_engine, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
     monkeypatch.setattr(stream, "RuntimeTransport", TrackedTransport)
     monkeypatch.setattr(stream.store, "consume", lambda *args, **kwargs: ("fixture-user", {}))
     monkeypatch.setattr(stream.store, "descriptor", lambda row: target)
-    monkeypatch.setattr(service, "authorized", lambda *args: SimpleNamespace())
-    monkeypatch.setattr(authentication, "validate", validate)
+    monkeypatch.setattr(service, "authorized_row", lambda *args: SimpleNamespace())
+    monkeypatch.setattr(stream, "validate_authentication", validate)
     socket = Socket()
     try:
         await asyncio.wait_for(stream.connect(socket, "fixture-resource"), 5)

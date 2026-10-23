@@ -16,6 +16,7 @@ from core.projects.edition import build_project_ctx
 from core.projects.edition import ProjectService
 from fastapi import HTTPException
 from tests.services.project_instructions_support import env, local, update
+from tests.db_support import share_session
 
 
 def test_local_file_and_editor_and_next_turn_share_one_source(env):
@@ -261,7 +262,7 @@ def test_saved_chat_binding_controls_initialization(env):
     assert err.value.status_code == 409
 
 
-def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(env):
+def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(env, monkeypatch):
     from api.routes.v1.projects import router
     from core.auth.backend import UserContext, get_current_user
     from core.db.engine import get_db
@@ -273,6 +274,7 @@ def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(en
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     actor = ["alice"]
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=actor[0], user_center_id="test", username=actor[0]

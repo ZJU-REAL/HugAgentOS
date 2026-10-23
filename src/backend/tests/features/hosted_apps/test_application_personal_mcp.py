@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tests.features.hosted_apps.test_application_hosting import create, data, hosted, table
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -35,6 +36,7 @@ def personal(hosted, tmp_path, monkeypatch):
             yield db
 
     client.app.dependency_overrides[get_db] = db_dependency
+    share_factory(monkeypatch, factory)
     client.app.include_router(application_transports.internal_router)
     client.app.include_router(application_transports.mcp_router)
     monkeypatch.setattr('features.sites.api.internal_site_auth._check_internal_token', lambda _: None)

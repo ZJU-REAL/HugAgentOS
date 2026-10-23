@@ -153,7 +153,7 @@ Implementation: `core/capabilities/plugins/runtime/__init__.py` (deferral resolu
 
 ## The Skill Marketplace
 
-The marketplace is an installable skill library with two sources — curated presets and community submissions — implemented in `core/services/marketplace_service.py`.
+The marketplace is an installable skill library with two sources — curated presets and community submissions — implemented in `features/marketplace/`.
 
 ### Browsing and installing
 
@@ -205,7 +205,7 @@ admin  GET/PUT /v1/admin/marketplace/skills/{slug}/visibility          (skill ma
        GET     /v1/admin/visibility/principals    ← brief user/team/role lists (picker data source)
 ```
 
-Storage: `marketplace_listing_states.visibility` (missing row = public) plus the `marketplace_visibility_grants` whitelist table; user-side resolution is centralized in `core/auth/marketplace_visibility.py` (roles include both direct assignments and team-default roles inherited via team membership).
+Storage: `marketplace_listing_states.visibility` (missing row = public) plus the `marketplace_visibility_grants` whitelist table; user-side resolution is centralized in `edition_ee/auth/marketplace_visibility.py` (roles include both direct assignments and team-default roles inherited via team membership).
 
 ## Admin skill management
 
@@ -233,7 +233,7 @@ daily cron (default 02:30, DISTILL_CRON_EXPRESSION)
      approve → promoted to AdminSkill; reject / delete; manual trigger-daily-scan available
 ```
 
-Thresholds, keywords and budgets are all overridable via `DISTILL_*` environment variables (`core/config/distillation.py`). The distillation pipeline (`skill_distiller.py`, the scheduler) is **Enterprise EE**; the CE tree strips it, and the draft-review console only appears in the Enterprise Edition.
+Thresholds, keywords and budgets are all overridable via `DISTILL_*` environment variables (`features/distillation/config.py`). The distillation pipeline (`skill_distiller.py`, the scheduler) is **Enterprise EE**; the CE tree strips it, and the draft-review console only appears in the Enterprise Edition.
 
 ## User self-service skills (capability center)
 
@@ -290,13 +290,13 @@ only submission, never conversation or continued local editing.
 | `src/backend/core/llm/tools/skill_tool.py` | Restricted view_text_file + {baseDir} substitution + Runtime Hint |
 | `src/backend/extensions/skills/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
 | `src/backend/extensions/skills/marketplace/` | The 45 installable marketplace packages |
-| `src/backend/core/services/marketplace_service.py` | Marketplace listing / install / secret injection / submission review |
-| `src/backend/api/routes/v1/marketplace.py` | User-side marketplace API (browse/install/submit/withdraw) |
-| `src/backend/api/routes/v1/admin_marketplace.py` | Admin marketplace API (global install / submission review) |
+| `src/backend/features/marketplace/` | Marketplace listing / install / secret injection / submission review |
+| `src/backend/features/marketplace/api/marketplace.py` | User-side marketplace API (browse/install/submit/withdraw) |
+| `src/backend/features/marketplace/api/admin_marketplace.py` | Admin marketplace API (global install / submission review) |
 | `src/backend/api/routes/v1/admin_skills.py` | Admin skill CRUD / zip / dependency management |
-| `src/backend/api/routes/v1/admin_skill_drafts.py` | Distillation draft review (EE) |
-| `src/backend/core/llm/skill_distiller.py` | Skill distillation LLM pipeline (EE) |
-| `src/backend/orchestration/schedulers/distillation_cron_scheduler.py` | Daily distillation scheduler (EE) |
+| `src/backend/features/distillation/api/admin_skill_drafts.py` | Distillation draft review (EE) |
+| `src/backend/features/distillation/` | Skill distillation LLM pipeline (EE) |
+| `src/backend/orchestration/workers/distillation_cron_scheduler.py` | Daily distillation scheduler (EE) |
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service skill / private MCP API |
 
 Related docs: [Sandbox execution](sandbox.md) · [MCP tool system](mcp-tools.md) · [Capability catalog](catalog.md) · [Admin console](admin-console.md) · [Editions & licensing](../editions/overview.md)

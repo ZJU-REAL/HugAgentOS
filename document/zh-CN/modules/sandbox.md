@@ -63,11 +63,11 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 框架保留最多 64 个进程记录，仅回收已完成记录；新增输出有界，省略内容通过 `output_omitted_chars` 明示。本地及 script_runner 的完整输出存于当前会话工作区的 `.__process_*/stdout.log` 和 `stderr.log`，通过 `output_files` 返回真实路径；单流超过 64 MiB 时停止命令，已写日志仍可读。OpenSandbox 后台日志合并 stdout/stderr；Cube 总输出超过 64 MiB 时停止。运行期间定期调用沙箱保活：OpenSandbox 可续租，Cube 的兼容服务可能不支持延长服务端 TTL，返回 `lifetime_note` 说明这一边界。普通会话的命令账本保存任务状态与有界输出。OpenSandbox 使用原执行标识和日志游标恢复；不重跑命令。其他 provider 正常退出时停止进程；异常重启后标记 unknown。显式删除会话会停止任务。团队项目在命令终态返回后同步源码；必须等待完成，不能把 running 当成已经保存。
 
-后台执行由服务端采集状态、保存日志并保持沙箱活动。模型可以执行独立工作；没有其他工作时，模型结束当前运行。完成事件在下一次推理前进入活动会话，或使用现有会话运行入口唤醒空闲模型。write_stdin 用于按需读取新增输出、短时等待和取消，不用于反复轮询。认证日志 API 的读取不消耗模型输出游标。聊天界面不展示独立的后台命令栏。页面预先订阅 /v1/commands/events 长连接，后端在唤醒运行就绪后立即推送运行标识，页面随即接入现有输出流，不等待任务轮询。重连时补发已就绪的运行；已结束的短回复从历史加载。实现边界见 [后台 Bash ADR](../../internal/adr/20261018-background-bash-completion.md)。
+后台执行由服务端采集状态、保存日志并保持沙箱活动。模型可以执行独立工作；没有其他工作时，模型结束当前运行。完成事件在下一次推理前进入活动会话，或使用现有会话运行入口唤醒空闲模型。write_stdin 用于按需读取新增输出、短时等待和取消，不用于反复轮询。认证日志 API 的读取不消耗模型输出游标。聊天界面不展示独立的后台命令栏。页面预先订阅 /v1/commands/events 长连接，后端在唤醒运行就绪后立即推送运行标识，页面随即接入现有输出流，不等待任务轮询。重连时补发已就绪的运行；已结束的短回复从历史加载。
 
 沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：非空显式 ID 优先，未传或传空值时统一回落到 `chat_id`。主智能体、计划执行、批量项和所有子智能体因此使用同一个会话沙箱；子智能体结束时不会销毁它。
 
-**MySpace 实时登记**：写在 `/myspace` 下的文件**就是**用户「我的空间」里的文件，两侧任何时刻看到的都应是同一份状态。登记由**文件系统本身**驱动（`core/myspace/watcher.py`）：镜像目录 `myspace_cache/{uid}/` 里发生任何写入或删除，都被登记回 artifact 账本，**不区分是谁写的**。
+**MySpace 实时登记**：写在 `/myspace` 下的文件**就是**用户「我的空间」里的文件，两侧任何时刻看到的都应是同一份状态。登记由**文件系统本身**驱动（`core/files/spaces/`）：镜像目录 `myspace_cache/{uid}/` 里发生任何写入或删除，都被登记回 artifact 账本，**不区分是谁写的**。
 
 早先的做法是让会写文件的工具各自登记（write / edit / 文件增删改 / `Bash` 前后拍目录快照）。这套写法的前提是"改动只可能从这几个口子进来"，而这个前提不成立：`nohup` 起的后台进程在命令返回之后才写文件，子智能体和批量任务在另一条协程里写，技能里的 CLI 直接写，MCP 服务端也写。每多一个入口就要多补一处登记，漏掉的那一处的表现是——文件躺在用户网盘的磁盘上，界面上看不见也删不掉，而每个新建沙箱都会把这份目录挂进来，成了"上个会话的残留中间文件"。
 
@@ -88,9 +88,7 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 - **判定基准是 artifact 记录，不是镜像缓存**：开了 bind mount 后沙箱的 `/workspace/myspace/{uid}` 就是后端 `myspace_cache/{uid}` 本身，"沙箱文件与镜像缓存一致"恒真、不能再当作"已登记"。这条拓扑差异曾让回写恒为空转。
 - **"磁盘比账本新"是唯一依据**：后端自己往镜像目录写文件（界面上传的物化、否决后的还原）时会把 mtime 对齐到登记时间，于是监听器不会把后端自己的写入当成沙箱的新改动转头再登记一次——不必另外维护一张"这是我自己写的"的表。
 - **每个 worker 都监听，认领去重**：确认条活在跑这个会话的那个进程里，所以监听器必须每个 worker 都跑（代价是 inotify watch 按「worker 数 × 目录数」占内核配额 `fs.inotify.max_user_watches`，目录极多的部署要相应调大，超限会**静默丢事件**）；同一次改动由 `core.infra.ephemeral` 的认领保证只处理一次，且优先交给托管着该用户会话的进程（它才弹得出确认条）。
-- **沙箱目录不在本机时**（`script_runner` / `cube`：会话工作区在容器内、或整个沙箱在远端）由 `core/myspace/sandbox_sync.py` 在命令结束后把沙箱现状搬进镜像目录，之后的判定与登记完全同路。
-
-历史欠账（本次改造上线前积压的未登记文件 / 该删没删的残留）是**一次性数据迁移**，用 `scripts/reconcile_myspace_mirror.py` 手工跑一次即可（`--dry-run` 先看规模，残留副本的清理加 `--prune-stale`）。它不做成每次启动都执行的扫描：那既是白跑，也会掩盖实时这条路上真正的漏洞。
+- **沙箱目录不在本机时**（`script_runner` / `cube`：会话工作区在容器内、或整个沙箱在远端）由 `core/files/spaces/sandbox.py` 在命令结束后把沙箱现状搬进镜像目录，之后的判定与登记完全同路。
 
 ### 大文件产物交付
 
@@ -175,8 +173,8 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 ## 管理员沙箱管理
 
-- **只读监控（安全管理台）**：`api/routes/v1/config_security.py` 暴露 `/v1/config/security/sandbox/*`——总览、实例列表、单实例详情、快照列表、重建历史、生效配置；底层走 provider 的 `admin_*` 接口，按 `admin_capabilities()` 声明裁剪 UI（script_runner 无法枚举实例即置灰对应列）。
-- **依赖重建（商业版 EE）**：`api/routes/v1/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/capabilities/skills/deps/aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`core/services/sandbox_rebuild_service.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
+- **只读监控（安全管理台）**：`features/security_console/api/config_security.py` 暴露 `/v1/config/security/sandbox/*`——总览、实例列表、单实例详情、快照列表、重建历史、生效配置；底层走 provider 的 `admin_*` 接口，按 `admin_capabilities()` 声明裁剪 UI（script_runner 无法枚举实例即置灰对应列）。
+- **依赖重建（商业版 EE）**：`features/sandbox_ops/api/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/capabilities/skills/deps/aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`features/sandbox_ops/rebuild.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
 
 ## 关键环境变量
 
@@ -210,17 +208,17 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `src/backend/core/sandbox/factory.py` | provider 显式选择；初始化错误直接上报 |
 | `src/backend/core/sandbox/providers/script_runner/provider.py` | 轻量沙箱（CE） |
 | `src/backend/core/sandbox/providers/opensandbox/provider.py` | OpenSandbox 共享 provider 主体 |
-| `src/backend/core/sandbox/providers/opensandbox/session.py` | 会话/快照/park-restore worker（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/` | 会话/快照/park-restore worker（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/execution.py` | 执行路径 + idle reaper（EE） |
-| `src/backend/core/sandbox/providers/opensandbox/internals.py` | volume 构造、metadata、user pool（EE） |
+| `src/backend/core/sandbox/providers/opensandbox/` | volume 构造、metadata、user pool（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/context/offloader.py` | 超长结果落盘 /workspace/.offload |
-| `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
-| `src/backend/api/routes/v1/config_security.py` | 安全管理台沙箱只读视图 |
-| `src/backend/core/services/sandbox_rebuild_service.py` | 镜像/模板重建编排（EE） |
-| `docker/Dockerfile.script-runner` / `docker/Dockerfile.opensandbox` / `docker/Dockerfile.cube-sandbox` | 三种沙箱镜像 |
+| `src/backend/features/sandbox_ops/api/admin_sandbox.py` | 依赖重建管理 API（EE） |
+| `src/backend/features/security_console/api/config_security.py` | 安全管理台沙箱只读视图 |
+| `src/backend/features/sandbox_ops/rebuild.py` | 镜像/模板重建编排（EE） |
+| `docker/sandbox/Dockerfile.script-runner` / `docker/sandbox/Dockerfile.opensandbox` / `docker/sandbox/Dockerfile.cube-sandbox` | 三种沙箱镜像 |
 
 相关文档：[技能系统](agent-skills.md) · [MCP 工具系统](mcp-tools.md) · [个人空间](projects-myspace.md) · [版本与许可](../editions/overview.md)
 

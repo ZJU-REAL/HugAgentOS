@@ -3,7 +3,6 @@
 import asyncio
 from types import SimpleNamespace
 
-import core.chat.operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.db.engine as db_engine
 import core.chat.service as chat_services_ChatService_module
@@ -39,7 +38,6 @@ def api_app(monkeypatch):
             return None
 
     monkeypatch.setattr(chat_services_ChatService_module, "ChatService", FakeChatService)
-    monkeypatch.setattr(chat_session_context, 'release_request_session', lambda db: None)
     app = FastAPI()
     app.include_router(chats.router)
     app.dependency_overrides[auth_backend.get_current_user] = lambda: SimpleNamespace(

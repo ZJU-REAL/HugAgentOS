@@ -72,6 +72,17 @@ def _lookup(db, chat_id: str, user_id: Optional[str], file_key: str):
     return session, conn, entry, None
 
 
+def _resolve(db, chat_id: str, user_id: Optional[str], file_key: str):
+    """``(owner_id, detached connection, entry, inbound)`` or an error string."""
+    session, conn, entry, err = _lookup(db, chat_id, user_id, file_key)
+    if err:
+        return err
+    inbound = _rebuild_inbound(conn, session, entry)
+    owner_id = str(session.user_id)
+    db.expunge(conn)
+    return owner_id, conn, entry, inbound
+
+
 def _rebuild_inbound(conn, session, entry: Dict[str, Any]):
     """Minimal InboundMsg carrying just what ``download_resource`` reads.
 
@@ -117,7 +128,7 @@ def register_channel_attachment(
         """
         from integrations.channels.protocol import ChannelResourceError
         from integrations.channels.registry import get_adapter
-        from core.db.engine import SessionLocal
+        from core.db.threads import run_in_session
         from core.files.artifacts.service import store_bytes_as_artifact
 
         key = (file_key or "").strip()
@@ -126,64 +137,66 @@ def register_channel_attachment(
         if not chat_id:
             return _err("当前不是渠道会话，无法取回群聊附件")
 
-        with SessionLocal() as db:
-            session, conn, entry, err = _lookup(db, chat_id, user_id, key)
-            if err:
-                return _err(err)
+        found = await run_in_session(_resolve, chat_id, user_id, key)
+        if isinstance(found, str):
+            return _err(found)
+        owner_id, conn, entry, inbound = found
 
-            try:
-                adapter = get_adapter(conn.channel_type)
-            except Exception:  # noqa: BLE001
-                return _err(f"渠道 {conn.channel_type} 不可用")
-            download = getattr(adapter, "download_resource", None)
-            if download is None:
-                return _err(f"渠道 {conn.channel_type} 不支持下载消息附件")
+        try:
+            adapter = get_adapter(conn.channel_type)
+        except Exception:  # noqa: BLE001
+            return _err(f"渠道 {conn.channel_type} 不可用")
+        download = getattr(adapter, "download_resource", None)
+        if download is None:
+            return _err(f"渠道 {conn.channel_type} 不支持下载消息附件")
 
-            name = entry.get("name") or "file.bin"
-            try:
-                content = await download(
-                    conn, _rebuild_inbound(conn, session, entry),
-                    {"kind": entry.get("kind") or "file", "key": key, "name": name},
-                )
-            except ChannelResourceError as exc:
-                # 平台给了明确理由（如跨组织访问被拒），原样透出——把它说成“已过期”
-                # 会让用户往完全错误的方向排查。
-                return _err(str(exc) or "渠道拒绝了这次读取")
-            except Exception:  # noqa: BLE001
-                logger.exception("[channels] 按需取回附件失败 key=%s", key[:16])
-                return _err("附件下载失败，可能下载码已过期")
-            if not content:
-                return _err("附件下载失败或已过期（渠道返回空内容）")
-            if len(content) > _MAX_ATTACHMENT_BYTES:
-                return _err(f"文件过大（{len(content)} 字节），超出 50MB 上限")
+        name = entry.get("name") or "file.bin"
+        try:
+            content = await download(
+                conn, inbound,
+                {"kind": entry.get("kind") or "file", "key": key, "name": name},
+            )
+        except ChannelResourceError as exc:
+            # 平台给了明确理由（如跨组织访问被拒），原样透出——把它说成“已过期”
+            # 会让用户往完全错误的方向排查。
+            return _err(str(exc) or "渠道拒绝了这次读取")
+        except Exception:  # noqa: BLE001
+            logger.exception("[channels] 按需取回附件失败 key=%s", key[:16])
+            return _err("附件下载失败，可能下载码已过期")
+        if not content:
+            return _err("附件下载失败或已过期（渠道返回空内容）")
+        if len(content) > _MAX_ATTACHMENT_BYTES:
+            return _err(f"文件过大（{len(content)} 字节），超出 50MB 上限")
 
-            # An online document is fetched as markdown *content*, and its name is a title
-            # with no extension. read_artifact dispatches its parser purely on the filename
-            # extension, so leaving it bare would mean the file downloads fine and then reads
-            # back as "unsupported format" — fetched but unusable. Give it the extension that
-            # matches what the bytes actually are.
-            if entry.get("kind") == "doc" and not os.path.splitext(name)[1]:
-                name = f"{name}.md"
-            mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            art = store_bytes_as_artifact(
-                db, user_id=str(session.user_id), content=content, filename=name,
+        # An online document is fetched as markdown *content*, and its name is a title
+        # with no extension. read_artifact dispatches its parser purely on the filename
+        # extension, so leaving it bare would mean the file downloads fine and then reads
+        # back as "unsupported format" — fetched but unusable. Give it the extension that
+        # matches what the bytes actually are.
+        if entry.get("kind") == "doc" and not os.path.splitext(name)[1]:
+            name = f"{name}.md"
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        artifact_id = await run_in_session(
+            lambda db: store_bytes_as_artifact(
+                db, user_id=owner_id, content=content, filename=name,
                 mime_type=mime, chat_id=chat_id, source="channel_observed",
                 extra={"channel_id": conn.channel_id, "observed_file_key": key},
-            )
-            return ToolChunk(content=[TextBlock(type="text", text=json.dumps({
-                "file_id": art.artifact_id,
-                "filename": name,
-                "mime_type": mime,
-                "size": len(content),
-                # Images can't be parsed into text by read_artifact — point at the
-                # image tool instead, otherwise a group-chat screenshot fetches
-                # fine and then reads back as "unsupported format".
-                "next": (
-                    f"用 read_image(file_id='{art.artifact_id}') 看这张图"
-                    if mime.startswith("image/")
-                    else f"用 read_artifact(file_id='{art.artifact_id}') 读取内容"
-                ),
-            }, ensure_ascii=False))])
+            ).artifact_id
+        )
+        return ToolChunk(content=[TextBlock(type="text", text=json.dumps({
+            "file_id": artifact_id,
+            "filename": name,
+            "mime_type": mime,
+            "size": len(content),
+            # Images can't be parsed into text by read_artifact — point at the
+            # image tool instead, otherwise a group-chat screenshot fetches
+            # fine and then reads back as "unsupported format".
+            "next": (
+                f"用 read_image(file_id='{artifact_id}') 看这张图"
+                if mime.startswith("image/")
+                else f"用 read_artifact(file_id='{artifact_id}') 读取内容"
+            ),
+        }, ensure_ascii=False))])
 
     toolkit.append(function_tool(channel_read_attachment))
 

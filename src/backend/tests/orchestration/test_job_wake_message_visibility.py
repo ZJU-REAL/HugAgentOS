@@ -19,7 +19,6 @@ from core.chat import service as service_module
 import asyncio
 
 import core.chat.runtime.admission as admission
-import core.chat.runtime.job_wakeup as runtime_job_wakeup
 import core.db.engine as db_engine
 import core.runs.runtime as runtime
 import core.chat.operations.session_context as chat_session_context
@@ -40,9 +39,6 @@ def db_session(monkeypatch):
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
-    import core.chat.runtime.job_wakeup as job_wakeup
-
-    monkeypatch.setattr(runtime_job_wakeup, "SessionLocal", Session, raising=False)
     return Session
 
 
@@ -85,6 +81,10 @@ def _stub_run_dependencies(monkeypatch, db_session) -> None:
                 .filter(ChatSession.chat_id == chat_id, ChatSession.user_id == user_id)
                 .first()
             )
+
+        def get_session_with_access(self, chat_id, user_id):
+            session = self.get_session(chat_id, user_id)
+            return (session, "admin") if session is not None else None
 
     async def fake_start_run(**kw):
         return "run_1"

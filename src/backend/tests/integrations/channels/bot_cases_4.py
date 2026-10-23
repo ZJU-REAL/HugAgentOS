@@ -1,4 +1,5 @@
 from tests.integrations.channels.bot_support import (
+    _share_sessions,
     BadRequestError,
     ChannelConnectionRepository,
     InboundMsg,
@@ -131,7 +132,7 @@ def test_inbound_gate_routes_bystander_messages(db_session, monkeypatch):
     # 不 patch close：fixture 是共享文件 SQLite + teardown drop_all，压住 close 会留锁
     # 拖垮后续用例建表。但 _process_inbound 内部会 close，而 Session.close() 会把已加载
     # 对象全部 expunge —— 所以下面一律用 channel_id 重新取 conn，不复用旧引用。
-    monkeypatch.setattr(inbound_mod, "SessionLocal", lambda: db_session)
+    _share_sessions(monkeypatch, db_session)
 
     started = []
 
@@ -348,7 +349,7 @@ def test_inbound_channel_origin_carries_channel_type(db_session, monkeypatch):
     import integrations.channels.inbound as inbound_mod
 
     chan_id = _mk_conn(db_session).channel_id
-    monkeypatch.setattr(inbound_mod, "SessionLocal", lambda: db_session)
+    _share_sessions(monkeypatch, db_session)
 
     captured = {}
 

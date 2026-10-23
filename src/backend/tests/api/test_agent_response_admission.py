@@ -165,20 +165,18 @@ def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, tran
     )
 
     def send(label):
-        with Session() as db:
-            try:
-                response = asyncio.run(
-                    agent_response(
-                        ChatRequest(
-                            chat_id="chat-1", message=label, stream=transports[label == "second"]
-                        ),
-                        user=user,
-                        db=db,
-                    )
+        try:
+            response = asyncio.run(
+                agent_response(
+                    ChatRequest(
+                        chat_id="chat-1", message=label, stream=transports[label == "second"]
+                    ),
+                    user=user,
                 )
-                return "accepted", response
-            except HTTPException as exc:
-                return "busy", exc
+            )
+            return "accepted", response
+        except HTTPException as exc:
+            return "busy", exc
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(send, ("first", "second")))
@@ -224,7 +222,6 @@ def test_non_stream_send_returns_busy_without_running_or_persisting(monkeypatch,
                 agent_response(
                     ChatRequest(chat_id="chat-1", message="must be rejected"),
                     user=_user(),
-                    db=db,
                 )
             )
 
@@ -284,7 +281,7 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
 
     with Session() as db:
         response = asyncio.run(
-            agent_response(ChatRequest(chat_id="chat-1", message="hello"), user=_user(), db=db)
+            agent_response(ChatRequest(chat_id="chat-1", message="hello"), user=_user())
         )
 
     assert response.response == "world"
@@ -340,7 +337,7 @@ def test_both_transports_share_preferences_and_release_request_transaction(
     with Session() as db:
         result = asyncio.run(
             admission.start_response_run(
-                ChatRequest(chat_id="chat-1", message="hello", stream=stream), _user(), db
+                ChatRequest(chat_id="chat-1", message="hello", stream=stream), _user()
             )
         )
         assert not db.in_transaction()

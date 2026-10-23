@@ -176,7 +176,6 @@ async def test_submit_snapshots_without_credentials_then_approve(db, monkeypatch
     _patch_probe(monkeypatch)
 
     result = await mcp_submissions.submit_to_marketplace(
-        db,
         source.server_id,
         owner_user_id="u1",
         submitter_name="Alice",
@@ -201,7 +200,6 @@ async def test_submit_snapshots_without_credentials_then_approve(db, monkeypatch
     assert submission.tools_json == _tools("search_documents")
 
     reviewed = await mcp_submissions.review_submission(
-        db,
         submission.submission_id,
         approve=True,
         reviewed_by="admin",
@@ -219,7 +217,7 @@ async def test_public_http_marketplace_submit_review_and_install(db, monkeypatch
     source.url = "http://8.8.8.8:8082/mcp"
     db.commit()
 
-    async def _probe(row, db=None):
+    async def _probe(row, **_options):
         return True, ""
 
     monkeypatch.setattr(mcp_installation, 'probe_mcp_connectivity', _probe)
@@ -232,7 +230,6 @@ async def test_public_http_marketplace_submit_review_and_install(db, monkeypatch
     monkeypatch.setattr(mcp_publishing, 'refresh_mcp_caches', lambda: None)
 
     submitted = await mcp_submissions.submit_to_marketplace(
-        db,
         source.server_id,
         owner_user_id="u1",
         submitter_name="Alice",
@@ -240,13 +237,11 @@ async def test_public_http_marketplace_submit_review_and_install(db, monkeypatch
         version="1.0.0",
     )
     reviewed = await mcp_submissions.review_submission(
-        db,
         submitted["submission_id"],
         approve=True,
         reviewed_by="admin",
     )
     installed = await mcp_installation.install_market_item(
-        db,
         reviewed["slug"],
         owner_user_id="u2",
         installed_by="u2",
@@ -282,7 +277,6 @@ async def test_market_installed_private_server_cannot_submit_again(db):
 
     with pytest.raises(BadRequestError, match="不能再次申请上架"):
         await mcp_submissions.submit_to_marketplace(
-            db,
             source.server_id,
             owner_user_id="u1",
             submitter_name="Alice",
@@ -299,7 +293,6 @@ async def test_submission_strips_query_secret_into_install_schema(db, monkeypatc
     _patch_probe(monkeypatch)
 
     submitted = await mcp_submissions.submit_to_marketplace(
-        db,
         source.server_id,
         owner_user_id="u1",
         submitter_name="Alice",
@@ -328,10 +321,11 @@ async def test_admin_publish_links_existing_global_instance_without_duplication(
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+        ),
     )
     assert published["installed"] is True
     installation = db.query(McpMarketInstallation).one()
@@ -355,11 +349,12 @@ async def test_marketplace_first_admin_source_is_reused_on_global_install(db, mo
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     db.refresh(source)
     assert published["installed"] is False
@@ -372,7 +367,6 @@ async def test_marketplace_first_admin_source_is_reused_on_global_install(db, mo
     assert "publisher-secret" not in json.dumps(published)
 
     installed = await mcp_installation.install_market_item(
-        db,
         published["slug"],
         owner_user_id=None,
         installed_by="admin",
@@ -395,11 +389,12 @@ async def test_user_install_reuses_admin_managed_credentials_without_exposing_th
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     listed = mcp_listing.get_market_item(
         db,
@@ -412,7 +407,6 @@ async def test_user_install_reuses_admin_managed_credentials_without_exposing_th
     assert "publisher-secret" not in json.dumps(listed)
 
     installed = await mcp_installation.install_market_item(
-        db,
         published["slug"],
         owner_user_id="u2",
         installed_by="u2",
@@ -438,18 +432,18 @@ async def test_user_install_reuses_admin_managed_query_token(db, monkeypatch):
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     assert published["credentials_managed_by_admin"] is True
     assert published["url_origin"] == "https://mcp.example.test"
     assert "publisher-query-secret" not in json.dumps(published)
 
     installed = await mcp_installation.install_market_item(
-        db,
         published["slug"],
         owner_user_id="u2",
         installed_by="u2",

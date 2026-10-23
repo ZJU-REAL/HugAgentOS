@@ -22,12 +22,12 @@ async def test_pending_app_is_shared_and_reset_cancels_task(tmp_path, monkeypatc
         await asyncio.Future()
 
     monkeypatch.setattr(configuration, "app_init_flow", initialize)
-    service = LarkService(None)
+    service = LarkService()
     try:
         result = await service.start_app_init()
         task = state.APP_INIT_TASK
         assert result["verification_url"] == "https://example.test/setup"
-        assert await LarkService(None).start_app_init() == result
+        assert await LarkService().start_app_init() == result
         assert state.APP_INIT_TASK is task and calls == ["start"]
         reset = await service.reset_app()
         with pytest.raises(asyncio.CancelledError):
@@ -45,4 +45,4 @@ async def test_configured_app_does_not_spawn_initialization(monkeypatch):
     async def forbidden():
         raise AssertionError("already configured app spawned initialization")
     monkeypatch.setattr(configuration, "app_init_flow", forbidden)
-    assert (await LarkService(None).start_app_init())["app_id"] == "configured-app"
+    assert (await LarkService().start_app_init())["app_id"] == "configured-app"

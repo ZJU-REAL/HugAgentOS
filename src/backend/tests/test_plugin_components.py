@@ -24,6 +24,7 @@ from core.capabilities.plugins import management as ps
 
 from core.capabilities.plugins.management import packages as plugin_packages
 from core.capabilities.plugins.packaging import sources as plugin_sources
+from tests.db_support import share_session
 
 
 OWNER = "test_user_123"
@@ -175,9 +176,6 @@ async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
     calls = []
 
     class FakeLarkService:
-        def __init__(self, db):
-            assert db is None
-
         def app_status(self):
             calls.append("status")
             return {"configured": True, "status": "configured"}
@@ -202,7 +200,7 @@ async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
     assert calls == ["status", "init", "reset"]
 
 
-def test_route_import_and_uninstall_e2e(tmp_path, db_session):
+def test_route_import_and_uninstall_e2e(tmp_path, db_session, monkeypatch):
     """Import a plugin zip through the real FastAPI route stack, then list and uninstall."""
     from api.app import app
     from core.auth.backend import UserContext, get_current_user
@@ -230,6 +228,7 @@ def test_route_import_and_uninstall_e2e(tmp_path, db_session):
         email="t@e.com",
     )
     app.dependency_overrides[get_db] = _override_db
+    share_session(monkeypatch, db_session)
 
     client = TestClient(app)
     try:

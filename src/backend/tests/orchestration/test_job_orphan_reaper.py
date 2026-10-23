@@ -52,7 +52,7 @@ def db_session(monkeypatch):
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    monkeypatch.setattr(jr, "SessionLocal", Session)
+    monkeypatch.setattr("core.db.engine.SessionLocal", Session)
     monkeypatch.setattr(state, "SessionLocal", Session)
     monkeypatch.setattr(jobs_owner.process_state(), 'loop', None)
     monkeypatch.setattr(supervisor.process_state(), 'entries', {})

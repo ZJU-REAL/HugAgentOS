@@ -3,13 +3,11 @@
 import core.chat.operations.schemas as chat_models
 import api.routes.v1.chats.pending_access as chat_pending_access
 import core.auth.backend as auth_backend
-import core.db.engine as db_engine
 from core.auth.backend import UserContext
 from core.infra.logging import quiet_access_log
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
+from core.db.threads import run_in_session
 
 router = APIRouter()
 
@@ -18,7 +16,6 @@ router = APIRouter()
 @quiet_access_log
 async def list_pending_user_questions(
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Restore sidebar waiting indicators without opening every conversation."""
 
@@ -26,8 +23,7 @@ async def list_pending_user_questions(
 
     items = []
     for chat_id in await user_questions.list_pending_chat_ids_shared():
-        if not await run_in_threadpool(
-            chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+        if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
         ):
             continue
         items.extend(
@@ -44,12 +40,10 @@ async def list_pending_user_questions(
 async def get_pending_user_questions(
     chat_id: str,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Return the authoritative pending queue for refresh/chat switching."""
 
-    if not await run_in_threadpool(
-        chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+    if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
@@ -69,12 +63,10 @@ async def answer_user_question(
     request_id: str,
     body: chat_models.UserQuestionAnswerBody,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Validate the human answer and wake the exact suspended tool call."""
 
-    if not await run_in_threadpool(
-        chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+    if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
@@ -88,8 +80,7 @@ async def answer_user_question(
     if result.get("ok"):
         return success_response(data=result)
     if result.get("reason") == "stale":
-        interrupted = await run_in_threadpool(
-            chat_pending_access._detect_chat_run_interrupted, db, chat_id
+        interrupted = await run_in_session(chat_pending_access._detect_chat_run_interrupted, chat_id
         )
         return success_response(
             data={
@@ -114,12 +105,10 @@ async def cancel_user_question(
     chat_id: str,
     request_id: str,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Cancel the pending request; the tool receives an explicit non-retry result."""
 
-    if not await run_in_threadpool(
-        chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+    if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
@@ -128,8 +117,7 @@ async def cancel_user_question(
     result = await user_questions.cancel_shared(chat_id, request_id)
     if result.get("ok"):
         return success_response(data=result)
-    interrupted = await run_in_threadpool(
-        chat_pending_access._detect_chat_run_interrupted, db, chat_id
+    interrupted = await run_in_session(chat_pending_access._detect_chat_run_interrupted, chat_id
     )
     return success_response(
         data={

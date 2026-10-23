@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import core.db.models  # noqa: F401  registers all models (FKs depend on users_shadow)
 import core.sandbox.workspace.credentials as common_credentials
@@ -42,9 +43,12 @@ _MOUNT_SUBPATHS = (
 
 
 @pytest.fixture
-def db():
-    eng = create_engine("sqlite:///:memory:")
+def db(monkeypatch):
+    eng = create_engine(
+        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(eng)
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=eng))
     s = sessionmaker(bind=eng)()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()
@@ -116,7 +120,7 @@ def test_email_purge_config_preserves_the_himalaya_mount(db, monkeypatch, tmp_pa
     inodes = _seed_tree(root)
     monkeypatch.setattr(integrations_email_storage, 'email_cache_dir', lambda uid: tmp_path / "email_cache" / uid)
 
-    EmailService(db)._purge_config("u1")
+    EmailService()._purge_config("u1")
 
     _assert_emptied_but_mounted(root, inodes)
 
@@ -133,8 +137,8 @@ def test_lark_disconnect_preserves_the_lark_cli_mounts(db, monkeypatch, tmp_path
 
     monkeypatch.setattr(lark_process, 'run_lark', _fake_run)
 
-    svc = lark_service.LarkService(db)
-    svc.repo.ensure("u1")
+    svc = lark_service.LarkService()
+    asyncio.run(svc.repo.ensure("u1"))
     result = asyncio.run(svc.disconnect("u1"))
 
     assert result["status"] == "disconnected"
@@ -153,8 +157,8 @@ def test_dingtalk_disconnect_preserves_the_dws_mounts(db, monkeypatch, tmp_path)
 
     monkeypatch.setattr(ds, "_run_dws", _fake_run)
 
-    svc = ds.DingTalkService(db)
-    svc.repo.ensure("u1")
+    svc = ds.DingTalkService()
+    asyncio.run(svc.repo.ensure("u1"))
     result = asyncio.run(svc.disconnect("u1"))
 
     assert result["status"] == "disconnected"

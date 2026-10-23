@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_opensandbox_controller_copy_sources_survive_restricted_context():
-    dockerfile = ROOT / "docker/Dockerfile.opensandbox-server"
+    dockerfile = ROOT / "docker/opensandbox-server/Dockerfile.opensandbox-server"
     rules = Path(f"{dockerfile}.dockerignore").read_text().splitlines()
     assert rules[0] == "**"
     included = {line[1:].rstrip("/") for line in rules if line.startswith("!")}

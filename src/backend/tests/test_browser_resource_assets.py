@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.db.engine import get_db
 from core.db.models.plugin_resource import PluginResource, PluginResourceAssetTicket
 from core.capabilities.plugins.resources import store
+from tests.db_support import share_session
 
 async def test_opaque_iframe_assets_use_revocable_ticket_without_session_cookie(monkeypatch, tmp_path):
     from api.routes.v1 import plugin_resources
@@ -34,6 +35,7 @@ async def test_opaque_iframe_assets_use_revocable_ticket_without_session_cookie(
     app = FastAPI()
     app.include_router(plugin_resources.router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     prefix = "/v1/plugin-resource-assets/cloud/" + ticket
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:

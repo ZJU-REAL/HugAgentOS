@@ -8,6 +8,7 @@ from core.auth.backend import get_current_user
 from fastapi import FastAPI
 from sqlalchemy import create_engine, inspect, text
 from tests.features.hosted_apps.application_hosting_support import hosted
+from tests.db_support import share_factory
 
 
 def data(response):
@@ -223,6 +224,7 @@ def hosted_sites(hosted, tmp_path, monkeypatch):
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     client.app.include_router(application_transports.public_router)
     client.app.include_router(sites_serve.router)
     yield client, ids

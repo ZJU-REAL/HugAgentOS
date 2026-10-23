@@ -1,8 +1,8 @@
 # 系统整体架构
 
-> 最后更新：2026-07-19
+> 最后更新：2026-10-23
 
-HugAgentOS 是一个面向企业的 AgentOS，同时提供轻量本地运行形态和全容器化生产形态。前端为 React 单页应用，后端为 FastAPI 异步服务，智能体底座为 AgentScope 2.0 的 ReActAgent，工具生态通过 MCP（Model Context Protocol）以独立进程提供，代码执行落在可插拔的沙箱驱动上。平台以「开源社区版（CE）+ 商业版（EE）」双形态发行，两版共用一套代码，通过路由注册表、建表边界与 license 能力位三道接缝裁剪（详见 [版本与授权](../editions/overview.md)）。
+HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS Cloud（全容器化服务端）与 HugAgentOS Local（桌面本机）两种运行形态。前端为 React 单页应用，后端为 FastAPI 异步服务，智能体底座为 AgentScope 2.0 的 ReActAgent，工具生态通过 MCP（Model Context Protocol）以独立进程提供，代码执行落在可插拔的沙箱驱动上。平台以「开源社区版（CE）+ 商业版（EE）」双形态发行，两版共用一套代码，通过路由注册表、建表边界与 license 能力位三道接缝裁剪（详见 [版本与授权](../editions/overview.md)）。
 
 本文从五个视角描述系统：分层架构、本体驱动的企业可信控制平面、一次对话请求的完整生命周期、容器拓扑、关键设计决策。更深入的模块拆解见 [后端架构](./backend.md)、[前端架构](./frontend.md) 与 [数据模型](./data-model.md)。
 
@@ -23,48 +23,38 @@ HugAgentOS 是一个面向企业的 AgentOS，同时提供轻量本地运行形�
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  浏览器（React SPA）                                                │
-│  App.tsx 主应用 · AdminApp 内容台(EE) · ConfigApp 系统台(EE)        │
-│  api.ts 类型化客户端 + useStreaming SSE 解析                        │
+│  入口：Web（React SPA）· 桌面客户端（Tauri）· IM 渠道 · API · 定时 · 心跳 │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │ HTTP / SSE（/api 前缀）
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  Nginx（frontend 容器，:80）                                        │
-│  静态资源托管 · /api → backend 反向代理                             │
+│  FastAPI（src/backend/api/）                                        │
+│  中间件：CORS · 结构化日志 · 统一错误处理 · 版本路由注册表           │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  FastAPI（backend 容器，src/backend/api/）                          │
-│  中间件：CORS · 结构化日志 · 统一错误处理                            │
-│  路由注册表：CE_ROUTERS + EE_ROUTERS（license 能力位守卫）           │
+│  Run 层                                                             │
+│  core/runs：持久 Run、数据库租约、启动对账、工具副作用意图与回执     │
+│  core/chat/runtime：Run 准入、聊天 worker、续播、steer、压缩         │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼─────────────────────────────────────┐
-│  编排层（src/backend/orchestration/）                               │
-│  chat_run_executor：Run 与 HTTP 连接解耦、断线续播                   │
-│  workflow：流式编排 · strategy：路由策略 · citations：引用提取        │
-│  memory_integration：记忆读写 · subagents/plan_mode：计划模式        │
-│  schedulers：自动化定时任务 · 技能蒸馏 cron（EE）                    │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-┌──────────────────────────────▼─────────────────────────────────────┐
-│  智能体层（src/backend/core/llm/）                                  │
-│  factory/build → AgentScope 2.0 ReActAgent                          │
-│  ToolAssembly → Toolkit（自研工具 + 技能 + MCP 工具）               │
-│  middlewares：动态模型/文件上下文/系统提醒 · offloader：超长结果落盘  │
-│  prompts/prompt_runtime：系统提示词装配（DB 优先，文件兜底）          │
+│  智能体执行                                                          │
+│  core/agent_runtime：runner.astream_chat_workflow、路由策略、         │
+│    记忆 / 本体 / 进化集成                                            │
+│  core/llm：factory/build → AgentScope ReActAgent、工具、上下文、引用 │
+│  orchestration/：plans 计划模式 · loops 自主循环 · automations 自动化 │
+│  personal_agent/：身份、任务队列、调度、渠道、设备连接、工作区        │
 └───────┬──────────────────────┬──────────────────────┬──────────────┘
         │ streamable-http      │ 沙箱驱动协议           │ SQL / 向量
 ┌───────▼───────────┐ ┌────────▼──────────┐ ┌─────────▼─────────────┐
-│ MCP 工具池         │ │ 沙箱               │ │ 数据层                 │
-│ mcp 工具进程   │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
-│ 端口见 _ports.py   │ │ OpenSandbox(CE/EE)   │ │ Milvus · Neo4j(可选)  │
-│ 搜索/抓取/插件工具 │ │ CubeSandbox(EE)   │ │ 本地 / S3 / OSS 存储   │
-│ 数仓/产业链(EE)    │ │                   │ │                       │
+│ MCP 工具池         │ │ 沙箱与作业          │ │ 数据层                 │
+│ mcp 工具进程       │ │ OpenSandbox       │ │ PostgreSQL / SQLite   │
+│ 端口见 _ports.py   │ │ script-runner     │ │ Redis · Milvus · Neo4j│
+│ 插件工具           │ │ core/jobs 后台作业 │ │ S3 兼容 / 本地存储     │
 └───────────────────┘ └───────────────────┘ └───────────────────────┘
 ```
 
-依赖方向自上而下单向：`api → orchestration → core`，`core` 内部 `services → db`。MCP 服务器是独立进程，与后端只通过 HTTP 通信，崩溃互不影响。
+依赖方向自上而下单向：`api → features / orchestration / personal_agent → core`；`core` 不依赖上层，`integrations/` 承载钉钉、飞书、邮箱等外部系统接入。MCP 服务器是独立进程，与后端只通过 HTTP 通信，崩溃互不影响。
 
 ## 领域本体驱动的企业可信控制平面
 
@@ -139,21 +129,22 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### 2. 启动 Run（与 HTTP 连接解耦）
 
-`orchestration/chat_run_executor.py::start_run` 把 AI 工作流注册为后台 Run（落 `chat_runs` 表），HTTP 响应只是「跟随」这个 Run：
+`core/chat/runtime/admission.py::start_run` 把本轮注册为后台 Run（落 `chat_runs` 表），由持有数据库租约的聊天 worker 执行；HTTP 响应只是「跟随」这个 Run：
 
-- 浏览器断线、刷新页面后可调 `GET /v1/chats/stream/{run_id}` 从指定偏移续播；
-- 后端重启时 lifespan 钩子 `_startup_recover_chat_runs` 恢复/收割未完成的 Run。
+- 浏览器断线、刷新页面后可调 `GET /v1/chats/stream/{run_id}?from=N` 从指定偏移续播；
+- 运行中可通过 `POST /v1/chat-runs/{run_id}/steer` 追加指令，在下一个安全 ReAct 边界生效；
+- 后端启动时 `core/chat/runtime/recovery.py::recover_orphan_runs` 依据最后提交的安全点对账租约过期的 Run：可恢复的继续，不可恢复的明确收尾。
 
 ### 3. 编排与智能体执行
 
-`orchestration/workflow.py::astream_chat_workflow` 驱动单轮执行：
+`core/agent_runtime/runner.py::astream_chat_workflow` 驱动单轮执行：
 
-1. **记忆检索**——`orchestration/memory_integration.py` 读取 L1 画像 / L2 向量记忆（开启时），注入系统消息；
-2. **路由决策**——`orchestration/strategy.py`，`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；
+1. **记忆检索**——`core/agent_runtime/integrations/memory.py` 读取 L1 画像 / L2 向量记忆（开启时），注入系统消息；
+2. **路由决策**——`core/agent_runtime/strategy.py`，`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；
 3. **构建智能体**——`core/llm/factory/build.py::create_agent_executor`：装配提示词（`prompts/prompt_runtime.py`，DB 版本池优先）、按 catalog 与用户能力位筛选 MCP 服务器、注册自研工具（Read/Write/Edit/Glob/Grep/bash/技能加载等，见 `core/llm/tools/`）、最终一次性构造 AgentScope Toolkit；
-4. **流式执行**——`orchestration/streaming.py::StreamingAgent` 包装 ReActAgent，把推理增量、工具调用、工具结果逐条产出；
-5. **引用提取**——`orchestration/citations.py` 从工具结果中解析 `[ref:tool_name-N]` 标记生成引用项；
-6. **收尾**——落库助手消息与工具调用日志，`core/memory/pipeline.py` 在后台异步抽取记忆（不阻塞 SSE 主链路），独立接口生成追问问题（`orchestration/followups.py`）。
+4. **流式执行**——`core/llm/runtime/streaming.py::StreamingAgent` 包装 ReActAgent，把推理增量、工具调用、工具结果逐条产出；
+5. **引用提取**——`core/llm/citations/` 从工具结果中解析 `[ref:tool_name-N]` 标记生成引用项；
+6. **收尾**——落库助手消息与工具调用日志，`core/memory/pipeline.py` 在后台异步抽取记忆（不阻塞 SSE 主链路），独立接口生成追问问题（`core/chat/followups.py`）。
 
 ### 4. SSE 事件流
 
@@ -166,9 +157,9 @@ RAG 则提供支撑决策所需的文档与证据。
 | `tool_call_start` | 工具调用开始（稳定 ID + 名称） | `core/chat/tool_log.py` |
 | `tool_call_delta` | 合批后的工具参数 JSON 增量 | `core/chat/tool_log.py` |
 | `tool_call` | 工具参数完整、即将执行 | `core/chat/tool_log.py` |
-| `tool_result` | 工具执行结果（含引用、产物卡片载荷） | `core/chat/tool_log.py` + `orchestration/tool_payloads.py` |
+| `tool_result` | 工具执行结果（含引用、产物卡片载荷） | `core/chat/tool_log.py` + `core/chat/tool_payloads.py` |
 | `tool_progress` | 长工具的进度上报 | `chats.py` |
-| `meta` | 末尾元信息：路由、引用源、产物列表等 | `orchestration/workflow.py` |
+| `meta` | 末尾元信息：路由、引用源、产物列表等 | `core/agent_runtime/runner.py` |
 | `error` | 错误事件（随后立即 `[DONE]`） | `chats.py` |
 
 前端 `src/frontend/src/hooks/useStreaming.ts` 按 `type` 分发，并按 `tool_id` 把 start、delta、最终调用与结果原位合并为一张工具卡片。
@@ -181,13 +172,14 @@ RAG 则提供支撑决策所需的文档与证据。
 |---|---|---|---|
 | `frontend` | hugagent-frontend | `3002:80` | Nginx：静态资源 + `/api` 反代 |
 | `backend` | hugagent-backend | `3001` | FastAPI 主服务 |
-| `mcp` | hugagent-mcp | 内部独立端口 | 9 个 MCP 服务器常驻进程（streamable-http；CE 7 个通用工具，EE 另含 2 个行业工具） |
+| `mcp` | hugagent-mcp | 内部独立端口 | 内置 MCP 服务器常驻进程（streamable-http；数仓查询与行业工具为 EE） |
 | `postgres` | hugagent-postgres | `5432` | 主数据库 |
 | `redis` | hugagent-redis | `6379` | 会话 / 缓存 |
-| `script-runner`（profile `script_runner`） | hugagent-script-runner | 内部 | 轻量脚本执行 sidecar（无 DB/密钥访问权） |
-| `opensandbox` + `opensandbox-config-init`（profile `opensandbox`） | hugagent-opensandbox | 内部 | 持久沙箱（商业版 EE） |
+| `script-runner`（profile `script_runner`） | hugagent-script-runner | 内部 | 可选的轻量脚本执行 sidecar（无 DB/密钥访问权） |
+| `opensandbox` + `opensandbox-config-init`（profile `opensandbox`） | hugagent-opensandbox | 内部 | 默认沙箱：持久会话、快照恢复（与 script-runner 互斥） |
 | `etcd` / `minio` / `milvus`（profile `mem0`） | hugagent-etcd 等 | 内部 | L2 向量记忆基础设施 |
 | `neo4j`（profile `mem0`） | hugagent-neo4j | `7474/7687` | L3 图谱记忆（可选） |
+| `personal-agent-opensandbox`（profile `personal-agent`，`docker/personal-agent/compose.personal-agent.yml`） | — | 内部 | Personal Agent 永久云电脑的专用控制器 |
 
 所有服务挂在同一 `hugagent-network` 网络；`postgres_data` 等具名卷跨重建持久化。部署细节见 [Docker Compose 部署](../deployment/docker-compose.md)。
 
@@ -195,7 +187,7 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### Catalog 单一真源
 
-`src/backend/core/config/catalog.json` 是能力开关的唯一权威，四类条目：`skills` / `agents` / `mcp` / `kb`。`core/config/catalog.py` 暴露 `is_enabled(kind, id)` / `get_enabled_ids(kind)`，从 MCP 工具装载、技能注册到路由决策全部经此门控；管理台的启停操作写 `catalog_overrides` 表叠加在文件之上（`core/config/catalog_loader.py`）。新能力只要进 catalog 即可被前端能力中心与智能体工厂同时感知，无需改编排代码。详见 [能力目录](../modules/catalog.md)。
+`src/backend/core/config/catalog.json` 是能力开关的唯一权威，四类条目：`skills` / `agents` / `mcp` / `kb`。`core/capabilities/catalog/` 暴露 `is_enabled(kind, id)` / `get_enabled_ids(kind)`，从 MCP 工具装载、技能注册到路由决策全部经此门控；管理台的启停操作写 `catalog_overrides` 表叠加在文件之上（`core/capabilities/catalog/loader.py`）。新能力只要进 catalog 即可被前端能力中心与智能体工厂同时感知，无需改编排代码。详见 [能力目录](../modules/catalog.md)。
 
 ### 统一响应信封
 
@@ -207,15 +199,15 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### MCP 工具独立进程
 
-每个工具是 `src/backend/extensions/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `extensions/mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp/manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。CE 保留 7 个通用 Server；`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
+每个工具是 `src/backend/extensions/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `extensions/mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp/manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
 
-### Run 与连接解耦
+### Run 与连接、进程解耦
 
-流式对话不绑定 HTTP 连接生命周期：`chat_run_executor` 把执行状态写入 `chat_runs` 表并支持按偏移续播，彻底解决「刷新页面丢回复」「弱网断流」问题，也让自动化调度器能复用同一执行通道。
+流式对话不绑定 HTTP 连接，也不绑定某个进程：Run 状态与按步上下文落库，worker 通过数据库租约领取执行，过期执行者不能再提交结果或调用工具；进程中断后由其他 worker 接管。工具调用先记录意图、有回执才算完成（`core/runs/tool_effects/`），恢复时只重放能证明尚未生效的调用，结果未知的外部操作交给用户确认。自动化、计划模式、自主循环与 Personal Agent 复用同一套 Run 机制。
 
 ### CE/EE 同源双形态
 
-商业版主仓即全量代码；社区版由 `scripts/build_ce.py` 按 `ce/manifest.yaml` 派生（排除 `edition_ee` 实现 + 文本变换 + CE overlay）。运行时边界包括路由注册表 `api/routes/v1/__init__.py`、建表边界 `core/db/edition_tables.py`（CE 不注册 20 张 EE 专属表）、EE 的 `edition_ee/licensing/` 与 CE 固定版本中间件，以及站点可见性等版本策略缝隙。详见 [版本与授权](../editions/overview.md)。
+商业版主仓即全量代码；社区版由 `scripts/build_ce.py` 按 `ce/manifest.yaml` 派生（排除 `edition_ee` 实现 + 文本变换 + CE overlay）。运行时边界包括路由注册表 `api/routes/v1/__init__.py`、建表边界 `edition_ee/db/edition_tables.py`（CE 不注册 20 张 EE 专属表）、EE 的 `edition_ee/licensing/` 与 CE 固定版本中间件，以及站点可见性等版本策略缝隙。详见 [版本与授权](../editions/overview.md)。
 
 ## 相关源码
 
@@ -223,12 +215,13 @@ RAG 则提供支撑决策所需的文档与证据。
 |---|---|
 | FastAPI 应用与启动钩子 | `src/backend/api/app.py` |
 | 流式对话入口 | `src/backend/api/routes/v1/chats/__init__.py` |
-| Run 执行器 | `src/backend/orchestration/chat_run_executor.py` |
-| 流式编排 | `src/backend/orchestration/workflow.py` |
+| Run 执行器 | `src/backend/core/chat/runtime/` |
+| 流式编排 | `src/backend/core/agent_runtime/runner.py` |
 | 智能体工厂 | `src/backend/core/llm/factory/build.py` |
 | MCP 配置与端口 | `src/backend/core/config/mcp_config.py`、`src/backend/extensions/mcp_servers/_ports.py` |
-| 能力目录 | `src/backend/core/config/catalog.json`、`catalog.py` |
+| 能力目录 | `src/backend/core/config/catalog.json`、`src/backend/core/capabilities/catalog/` |
+| Run、租约与恢复 | `src/backend/core/runs/`、`src/backend/core/chat/runtime/recovery.py` |
 | 响应信封 | `src/backend/core/infra/responses.py` |
 | 提示词装配 | `src/backend/prompts/prompt_runtime.py` |
-| CE/EE 接缝 | `src/backend/api/routes/v1/__init__.py`、`src/backend/core/db/edition_tables.py`、`src/backend/api/middleware/edition.py`、`src/backend/edition_ee/licensing/` |
+| CE/EE 接缝 | `src/backend/api/routes/v1/__init__.py`、`src/backend/edition_ee/db/edition_tables.py`、`src/backend/api/middleware/edition.py`、`src/backend/edition_ee/licensing/` |
 | 容器编排 | `docker-compose.yml` |

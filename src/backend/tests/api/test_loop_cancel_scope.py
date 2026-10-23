@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from api.routes.v1 import loops
+from tests.db_support import share_session
 
 
 @pytest.mark.asyncio
@@ -28,7 +29,8 @@ async def test_cancel_loop_passes_authenticated_user_to_run_lookup(monkeypatch, 
     monkeypatch.setattr(loops.runtime, "get_active_run_for_chat", get_active)
     monkeypatch.setattr(loops.runtime, "cancel_run", cancel)
     db = SimpleNamespace(commit=lambda: observed.append(("commit",)))
-    result = await loops.cancel_loop("loop", db=db, user=SimpleNamespace(user_id="owner"))
+    share_session(monkeypatch, db)
+    result = await loops.cancel_loop("loop", user=SimpleNamespace(user_id="owner"))
     assert result["data"]["cancelled"] is True
     assert observed == (
         [("lookup", "chat", "owner"), ("cancel", "run", "owner")]

@@ -27,68 +27,80 @@ def _needs_probe(extra: dict) -> bool:
     return int(extra.get("api_protocol_probe_version") or 1) < PROBE_VERSION
 
 
-async def backfill_missing_api_protocol() -> int:
-    """探测所有还没记录协议（或结论已过期）的 chat 上游并写库，返回写入的条数。"""
-    from core.db.engine import SessionLocal
-    from core.models.repository import list_providers, update_provider
-    from core.models.providers.protocol_probe import PROBE_VERSION, detect_api_protocol
+def _pending_probes(db):
+    from core.models.repository import list_providers
     from core.models.providers.registry import get_spec
 
-    with SessionLocal() as db:
-        pending = []
-        for provider in list_providers(db):
-            if provider.provider_type != "chat" or not provider.is_active:
-                continue
-            extra = provider.extra_config or {}
-            if not _needs_probe(extra):
-                continue
-            if not get_spec(getattr(provider, "provider", "") or "").speaks_responses:
-                continue
-            pending.append(
-                (
-                    provider.provider_id,
-                    provider.model_name,
-                    provider.base_url,
-                    provider.api_key,
-                    dict(extra),
-                )
+    pending = []
+    for provider in list_providers(db):
+        if provider.provider_type != "chat" or not provider.is_active:
+            continue
+        extra = provider.extra_config or {}
+        if not _needs_probe(extra):
+            continue
+        if not get_spec(getattr(provider, "provider", "") or "").speaks_responses:
+            continue
+        pending.append(
+            (
+                provider.provider_id,
+                provider.model_name,
+                provider.base_url,
+                provider.api_key,
+                dict(extra),
             )
-
-        if not pending:
-            return 0
-
-        results = await asyncio.gather(
-            *(
-                # 超时沿用 detect_api_protocol 自己的默认值：保存时探测与这里补齐是
-                # 同一件事，给它第二个数只会让两条路径对同一个上游得出不同结论。
-                detect_api_protocol(
-                    base_url=base_url,
-                    api_key=api_key,
-                    model_name=model_name,
-                )
-                for _, model_name, base_url, api_key, _ in pending
-            ),
-            return_exceptions=True,
         )
+    return pending
 
-        filled = 0
-        for (provider_id, model_name, _, _, extra), result in zip(pending, results):
-            if isinstance(result, BaseException) or not getattr(result, "found", False):
-                logger.info(
-                    "[startup] api_protocol 未能探测 %s：%s",
-                    model_name,
-                    result if isinstance(result, BaseException) else "; ".join(result.notes),
-                )
-                continue
-            extra["api_protocol"] = result.protocol
-            extra["api_protocol_source"] = "probe"
-            extra["api_protocol_probe_version"] = PROBE_VERSION
-            update_provider(db, provider_id, extra_config=extra)
-            filled += 1
-            logger.info(
-                "[startup] api_protocol 已探明 %s -> %s（%s）",
-                model_name,
-                result.protocol,
-                "; ".join(result.notes),
+
+def _save_protocols(db, updates):
+    from core.models.repository import update_provider
+
+    for provider_id, extra in updates:
+        update_provider(db, provider_id, extra_config=extra)
+
+
+async def backfill_missing_api_protocol() -> int:
+    """探测所有还没记录协议（或结论已过期）的 chat 上游并写库，返回写入的条数。"""
+    from core.db.threads import run_in_session
+    from core.models.providers.protocol_probe import PROBE_VERSION, detect_api_protocol
+
+    pending = await run_in_session(_pending_probes)
+    if not pending:
+        return 0
+
+    results = await asyncio.gather(
+        *(
+            # 超时沿用 detect_api_protocol 自己的默认值：保存时探测与这里补齐是
+            # 同一件事，给它第二个数只会让两条路径对同一个上游得出不同结论。
+            detect_api_protocol(
+                base_url=base_url,
+                api_key=api_key,
+                model_name=model_name,
             )
-        return filled
+            for _, model_name, base_url, api_key, _ in pending
+        ),
+        return_exceptions=True,
+    )
+
+    updates = []
+    for (provider_id, model_name, _, _, extra), result in zip(pending, results):
+        if isinstance(result, BaseException) or not getattr(result, "found", False):
+            logger.info(
+                "[startup] api_protocol 未能探测 %s：%s",
+                model_name,
+                result if isinstance(result, BaseException) else "; ".join(result.notes),
+            )
+            continue
+        extra["api_protocol"] = result.protocol
+        extra["api_protocol_source"] = "probe"
+        extra["api_protocol_probe_version"] = PROBE_VERSION
+        updates.append((provider_id, extra))
+        logger.info(
+            "[startup] api_protocol 已探明 %s -> %s（%s）",
+            model_name,
+            result.protocol,
+            "; ".join(result.notes),
+        )
+    if updates:
+        await run_in_session(_save_protocols, updates)
+    return len(updates)

@@ -179,10 +179,10 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 |---|---|
 | Shared ORM / EE ORM | `src/backend/core/db/models/`, `src/backend/edition_ee/db/models/` |
 | Ontology repository | `src/backend/core/db/repository/ontology.py` |
-| Feedback model / repository | `src/backend/edition_ee/db/models/feedback.py`, `db/repository/feedback.py` |
+| Feedback model / repository | `src/backend/edition_ee/db/models/feedback.py`, `edition_ee/db/repository/feedback.py` |
 | Engine and startup table creation | `src/backend/core/db/engine.py` |
 | Repository layer | `src/backend/core/db/repository/` |
-| CE/EE table boundary | `src/backend/core/db/edition_tables.py` |
+| CE/EE table boundary | `src/backend/edition_ee/db/edition_tables.py` |
 | EE migration chain | `src/backend/alembic/versions/` |
 | CE migration baseline | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |
 | Prompt version pool service | `src/backend/core/llm/prompt_versions.py` |

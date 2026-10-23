@@ -1,0 +1,47 @@
+# Use with the root Compose file and --profile personal-agent.
+services:
+  backend:
+    networks: [hugagent-network, personal-agent-compute]
+    depends_on:
+      personal-agent-opensandbox:
+        condition: service_healthy
+  personal-agent-config-init:
+    image: python:3.11-alpine
+    profiles: [personal-agent]
+    restart: "no"
+    environment:
+      HOST_STORAGE_PATH: ${HOST_STORAGE_PATH:?Set HOST_STORAGE_PATH}
+      PERSONAL_AGENT_OPENSANDBOX_API_KEY: ${PERSONAL_AGENT_OPENSANDBOX_API_KEY:?Set a private controller key}
+      PERSONAL_AGENT_COMPUTE_NETWORK: ${COMPOSE_PROJECT_NAME:-hugagent}_personal-agent-compute
+    volumes:
+      - ./docker/personal-agent/render-personal-agent-config.py:/render.py:ro
+      - personal_agent_config:/out
+    command: ["python", "/render.py"]
+  personal-agent-opensandbox:
+    image: hugagent-opensandbox-server:v0.1.13-1
+    build:
+      context: .
+      dockerfile: docker/opensandbox-server/Dockerfile.opensandbox-server
+    profiles: [personal-agent]
+    restart: unless-stopped
+    depends_on:
+      personal-agent-config-init:
+        condition: service_completed_successfully
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - personal_agent_config:/etc/opensandbox:ro
+      - personal_agent_controller:/var/lib/opensandbox
+    networks: [hugagent-network, personal-agent-compute]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+networks:
+  personal-agent-compute:
+    name: ${COMPOSE_PROJECT_NAME:-hugagent}_personal-agent-compute
+volumes:
+  personal_agent_config:
+  personal_agent_controller:

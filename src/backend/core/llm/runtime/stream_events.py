@@ -1,6 +1,5 @@
 """Map AgentScope reply events to SSE events."""
 from __future__ import annotations
-from core.llm.runtime import streaming_constants
 from core.llm.runtime.stream_text import looks_like_tool_error as _looks_like_tool_error, strip_thinking_answer as _strip_thinking_answer
 from core.harness import log_writer
 import time
@@ -55,8 +54,6 @@ async def map_event(
         name = getattr(ev, "tool_call_name", "") or "unknown"
         self._tool_name_buf[tid] = name
         self._tool_args_buf[tid] = ""
-        self._tool_delta_emit_buf[tid] = ""
-        self._tool_delta_last_emit[tid] = time.monotonic()
         self._pending_tool_calls[tid] = {
             "tool_name": name,
             "tool_args": None,
@@ -72,37 +69,16 @@ async def map_event(
         if not delta:
             return
         self._tool_args_buf[tid] = self._tool_args_buf.get(tid, "") + delta
-        pending_delta = self._tool_delta_emit_buf.get(tid, "") + delta
-        self._tool_delta_emit_buf[tid] = pending_delta
-        now = time.monotonic()
-        last_emit = self._tool_delta_last_emit.get(tid, now)
-        if (
-            len(pending_delta) >= streaming_constants.TOOL_CALL_DELTA_FLUSH_CHARS
-            or now - last_emit >= streaming_constants.TOOL_CALL_DELTA_FLUSH_INTERVAL_S
-        ):
-            self._tool_delta_emit_buf[tid] = ""
-            self._tool_delta_last_emit[tid] = now
-            yield (
-                "tool_call_delta",
-                {
-                    "name": self._tool_name_buf.get(tid, "unknown"),
-                    "id": tid,
-                    "delta": pending_delta,
-                },
-            )
+        yield (
+            "tool_call_delta",
+            {"name": self._tool_name_buf.get(tid, "unknown"), "id": tid, "delta": delta},
+        )
         return
 
     if nm == "ToolCallEndEvent":
         tid = getattr(ev, "tool_call_id", "") or ""
         name = self._tool_name_buf.pop(tid, "unknown")
         args_str = self._tool_args_buf.pop(tid, "")
-        pending_delta = self._tool_delta_emit_buf.pop(tid, "")
-        self._tool_delta_last_emit.pop(tid, None)
-        if pending_delta:
-            yield (
-                "tool_call_delta",
-                {"name": name, "id": tid, "delta": pending_delta},
-            )
         import json
 
         try:

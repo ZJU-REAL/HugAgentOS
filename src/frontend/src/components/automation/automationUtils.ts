@@ -1,6 +1,6 @@
 import type { ChannelConversation } from '../../api';
 import { t } from '../../i18n';
-import type { AutomationRunStatus } from '../../types';
+import type { AutomationRun,AutomationRunStatus } from '../../types';
 
 /** A distinguishable label for a channel conversation: bot name · group/direct chat · the real Feishu conversation ID.
  *  Don't use the first message content (title, e.g. "hello") -- it can collide and can't tell conversations apart. */
@@ -17,6 +17,11 @@ export const RUN_STATUS_LABEL: Record<AutomationRunStatus, string> = {
   success: t('成功'),
   failed: t('失败'),
 };
+
+/** Queued or executing — the run has no final result yet. */
+export function isRunActive(run: Pick<AutomationRun, 'status'>): boolean {
+  return run.status === 'running' || run.status === 'pending';
+}
 
 /** Status modifier classes for the run dot (`.jx-automation-runDot`), shared by the task
  *  detail page and the aggregated run list. The running state additionally carries the

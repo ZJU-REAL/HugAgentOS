@@ -3,7 +3,6 @@ import personal_agent.tasks.guards as _pa_guards
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from core.db.engine import Base
 from core.db.models import UserShadow
 from personal_agent.context import AgentContext
@@ -19,10 +18,13 @@ def personal_agent_on(monkeypatch):
 
 
 @pytest.fixture
-def sessions():
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+def sessions(monkeypatch, tmp_path):
+    # A file database: background steps run in worker threads, each on its own connection.
+    engine = create_engine(f"sqlite:///{tmp_path / 'pa.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
+    # Async code reaches the database through core.db.threads, which opens core.db.engine sessions.
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     with factory() as db:
         for uid in ("owner", "other"):
             db.add(UserShadow(user_id=uid, user_center_id=uid, username=uid))

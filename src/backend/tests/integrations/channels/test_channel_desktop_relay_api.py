@@ -1,5 +1,7 @@
 """HTTP contract for desktop channel binding, device isolation and idempotent replies."""
 
+from contextvars import ContextVar
+
 import pytest
 from core.auth.backend import UserContext, get_current_user
 from integrations.channels.protocol import InboundMsg, SendResult
@@ -12,6 +14,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# Set while the cloud app serves a request, so a test that also runs a desktop
+# database in this process can route each session to the right side.
+IN_CLOUD = ContextVar("in_cloud", default=False)
 from sqlalchemy.pool import StaticPool
 
 
@@ -36,6 +42,15 @@ def api(monkeypatch):
         db.commit()
     app = FastAPI()
     setup_error_handlers(app)
+
+    @app.middleware("http")
+    async def cloud_scope(request, call_next):
+        token = IN_CLOUD.set(True)
+        try:
+            return await call_next(request)
+        finally:
+            IN_CLOUD.reset(token)
+
     app.include_router(router)
     app.include_router(desktop_router)
 
@@ -44,6 +59,8 @@ def api(monkeypatch):
             yield db
 
     app.dependency_overrides[get_db] = database
+    # Async routes open their sessions through run_in_session.
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="owner", user_center_id="center", username="owner"
     )

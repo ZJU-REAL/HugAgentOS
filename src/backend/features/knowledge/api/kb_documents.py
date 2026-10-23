@@ -15,7 +15,6 @@ from core.infra.responses import created_response, paginated_response, success_r
 from features.knowledge.service import KBService
 from core.files.storage import generate_storage_key, get_storage
 from fastapi import Depends, File, Form, Path, Query, UploadFile, status
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 import logging
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ from features.knowledge.api import kb_helpers
 from features.knowledge.api import kb_state
 
 @router.post("/{kb_id}/documents", status_code=status.HTTP_201_CREATED, summary="上传文档到知识库")
-async def upload_document(
+def upload_document(
     kb_id: str = Path(..., description="KB space ID"),
     file: UploadFile = File(..., description="Document file to upload"),
     title: Optional[str] = Form(None, description="Document title (defaults to filename)"),
@@ -48,7 +47,7 @@ async def upload_document(
     if not file.filename:
         raise BadRequestError(message="Filename is required", data={"field": "file"})
 
-    content = await file.read()
+    content = file.file.read()
     file_size = len(content)
 
     if file_size > kb_state.MAX_FILE_SIZE:
@@ -68,7 +67,7 @@ async def upload_document(
         storage = get_storage()
         # 对象存储是阻塞的网络调用，直接在 async handler 里调会卡住整个事件循环——
         # 批量上传时后端会连 SSE 和其它接口一起停摆。
-        await run_in_threadpool(storage.upload_bytes, content, storage_key)
+        storage.upload_bytes(content, storage_key)
         logger.info("Document uploaded to storage: %s", storage_key)
     except StorageError as e:
         logger.error("Failed to upload document to storage: %s", e)

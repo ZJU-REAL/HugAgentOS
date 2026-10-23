@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 
 from core.config.settings import settings
 from core.sandbox.errors import SandboxError
+from core.db.threads import run_in_session
 
 MAX_TRANSFER = 64 * 1024 * 1024
 MAX_OUTPUT = 1024 * 1024
@@ -84,7 +85,7 @@ async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, 
         resource={"cpu": str(cpu_count), "memory": f"{memory_mb}Mi"},
         entrypoint=["bash", "-lc", "exec sleep infinity"],
         metadata={"hugagent-evaluation": "true", "attempt-id": _safe_attempt_id(attempt_id)},
-        volumes=None, env=None, skip_health_check=True,
+        volumes=None, env=None, skip_health_check=False,
     )
     try:
         # All native tools use /workspace; Ageval uses /attempt/workspace.
@@ -167,18 +168,19 @@ async def download(lease_id, owner, path):
 
 async def freeze(lease_id, owner):
     import features.evaluation.sandbox_provider.binding as bindings
-    from core.db.engine import SessionLocal
     from core.db.models import ChatRun
     from core.harness.registry.run_cancellation import cancel_run
     from features.evaluation.sandbox_provider.provider import get_evaluation_provider
     sid = session_id(lease_id)
     await bindings.assert_owner(sid, owner)
     await bindings.begin_freeze(sid, owner)
-    with SessionLocal() as db:
+    def _active_runs(db):
         runs = db.query(ChatRun.run_id).filter(
             ChatRun.chat_id == sid, ChatRun.user_id == owner,
             ChatRun.status.in_(("pending", "running", "needs_attention")),
         ).all()
+        return runs
+    runs = await run_in_session(_active_runs)
     for (run_id,) in runs:
         await cancel_run(run_id, user_id=owner)
     await get_evaluation_provider().freeze(sid, owner)

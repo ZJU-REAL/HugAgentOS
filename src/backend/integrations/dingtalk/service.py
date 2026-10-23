@@ -30,7 +30,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
+from core.db.threads import AsyncRepository
 
 from integrations.dingtalk.repository import DingTalkConnectionRepository
 from core.infra.proc import no_window_kwargs
@@ -296,14 +296,14 @@ async def _device_login_flow(user_id: str) -> None:
 
 
 class DingTalkService:
-    def __init__(self, db: Session):
-        self.db = db
-        self.repo = DingTalkConnectionRepository(db)
+    """Connection state lives in the repository; every access is its own short session."""
 
-    def _fresh(self, user_id: str):
+    def __init__(self):
+        self.repo = AsyncRepository(DingTalkConnectionRepository)
+
+    async def _fresh(self, user_id: str):
         """Discard the session cache and re-read — to see the latest state committed by the background login task's independent session."""
-        self.db.expire_all()
-        return self.repo.ensure(user_id)
+        return await self.repo.ensure(user_id)
 
     # ── Status ───────────────────────────────────────────────────────────
     def status_dict(self, record) -> Dict[str, Any]:
@@ -323,8 +323,8 @@ class DingTalkService:
             "last_error": record.last_error,
         }
 
-    def get_status(self, user_id: str) -> Dict[str, Any]:
-        record = self.repo.ensure(user_id)
+    async def get_status(self, user_id: str) -> Dict[str, Any]:
+        record = await self.repo.ensure(user_id)
         return self.status_dict(record)
 
     async def probe_status(self, user_id: str) -> Dict[str, Any]:
@@ -337,16 +337,16 @@ class DingTalkService:
         ``unknown`` (network / rate limiting etc., no conclusion) the DB is
         left untouched, avoiding misjudgment from a blip.
         """
-        record = self._fresh(user_id)
+        record = await self._fresh(user_id)
         # Do not interrupt an in-progress login task; just echo the current (pending) state
         if record.status == "pending" and user_id in _LOGIN_TASKS:
             return self.status_dict(record)
         verdict = await verify_and_refresh(user_id)
         if verdict == "valid" and record.status != "connected":
-            self.repo.update(user_id, {"status": "connected", "last_error": None})
+            await self.repo.update(user_id, {"status": "connected", "last_error": None})
         elif verdict == "invalid" and record.status == "connected":
-            self.repo.update(user_id, {"status": "disconnected", "last_error": _EXPIRED_ERROR})
-        return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "disconnected", "last_error": _EXPIRED_ERROR})
+        return self.status_dict(await self.repo.get(user_id))
 
     # ── Device-flow login (backend subprocess, process stably alive) ─────
     async def start_device_login(self, user_id: str) -> Dict[str, Any]:
@@ -357,12 +357,12 @@ class DingTalkService:
         the user and then polls :meth:`poll_login` until connected. Per-user
         isolated HOME → isolation.
         """
-        self.repo.ensure(user_id)
+        await self.repo.ensure(user_id)
         # Cancel the same user's old task, reset to pending
         old = _LOGIN_TASKS.pop(user_id, None)
         if old is not None and not old.done():
             old.cancel()
-        self.repo.update(user_id, {
+        await self.repo.update(user_id, {
             "status": "pending",
             **_CLEAR_LOGIN,
             "login_started_at": utc_now(),
@@ -373,22 +373,22 @@ class DingTalkService:
         # Wait up to ~15s for the verification URL to appear (the task writes with an independent session; here we expire then re-read)
         for _ in range(30):
             await asyncio.sleep(0.5)
-            rec = self._fresh(user_id)
+            rec = await self._fresh(user_id)
             if rec.login_verification_url or rec.status in ("connected", "error"):
                 break
-        return self.status_dict(self._fresh(user_id))
+        return self.status_dict(await self._fresh(user_id))
 
     async def poll_login(self, user_id: str) -> Dict[str, Any]:
         """Poll login progress. The background task drives the DB to
         connected/error; this only reads the latest state. If the task is
         gone but still pending (e.g. a backend restart lost the task), fall
         back to a single status probe."""
-        record = self._fresh(user_id)
+        record = await self._fresh(user_id)
         if record.status == "pending" and user_id not in _LOGIN_TASKS:
             out, _, _ = await _run_dws(user_id, ["auth", "status", "-f", "json"])
             if dingtalk_parsing.parse_auth_status(out):
-                self.repo.update(user_id, await _build_connected_update(user_id))
-                record = self.repo.get(user_id)
+                await self.repo.update(user_id, await _build_connected_update(user_id))
+                record = await self.repo.get(user_id)
         return self.status_dict(record)
 
     # ── Disconnect ───────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ class DingTalkService:
                 purge_credential_dir(dws_cache_dir(user_id))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[dingtalk] disconnect cache purge failed user=%s: %s", user_id, exc)
-        self.repo.update(
+        await self.repo.update(
             user_id,
             {
                 "status": "disconnected",
@@ -425,4 +425,4 @@ class DingTalkService:
                 "last_error": None,
             },
         )
-        return self.status_dict(self.repo.get(user_id))
+        return self.status_dict(await self.repo.get(user_id))

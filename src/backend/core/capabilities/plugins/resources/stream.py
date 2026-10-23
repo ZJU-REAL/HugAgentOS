@@ -6,8 +6,9 @@ import struct
 import uuid
 import httpx
 from fastapi import HTTPException, WebSocket
-from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from core.capabilities.plugins.resources import service, store
+from core.capabilities.plugins.resources.authentication import validate as validate_authentication
 from core.capabilities.plugins.resources.transport import RuntimeTransport
 
 MAX_PACKET = 8 * 1024 * 1024
@@ -34,7 +35,22 @@ async def packets(stream):
         if len(buffer) > MAX_PACKET + 65540:
             raise ValueError("frame_buffer_overflow")
 
+def _consume_ticket(db, ticket, resource_id, origin):
+    return store.consume(db, ticket, resource_id, origin, with_authentication=True)
+
+
+def _authorized_target(db, resource_id, user_id):
+    row = service.authorized_row(db, resource_id, user_id)
+    return row, store.descriptor(row)
+
+
 async def connect(websocket: WebSocket, resource_id: str):
+    """Relay one viewer to a resource worker.
+
+    Each database step (ticket, authorization, checkpoint) runs to completion on
+    a session of its own before the next network wait, so a long-lived viewer
+    never pins a pooled connection.
+    """
     origin = websocket.headers.get("origin", "")
     await websocket.accept()
     connection_id = uuid.uuid4().hex
@@ -42,16 +58,18 @@ async def connect(websocket: WebSocket, resource_id: str):
     row = None
     try:
         initial = await asyncio.wait_for(websocket.receive_json(), 5)
-        with SessionLocal() as db:
-            attachment = store.consume(db, str(initial.get("ticket", "")), resource_id, origin, with_authentication=True)
-            if attachment is None:
-                await websocket.close(4401)
-                return
-            user_id, authentication = attachment
-            from core.capabilities.plugins.resources.authentication import validate as validate_authentication
-            await validate_authentication(authentication, user_id, db)
-            row = service.authorized(db, resource_id, user_id)
-            target = store.descriptor(row)
+        attachment = await run_in_session(_consume_ticket, str(initial.get("ticket", "")), resource_id, origin)
+        if attachment is None:
+            await websocket.close(4401)
+            return
+        user_id, authentication = attachment
+
+        async def authorize():
+            await validate_authentication(authentication, user_id)
+            return await run_in_session(service.authorized_row, resource_id, user_id)
+
+        await validate_authentication(authentication, user_id)
+        row, target = await run_in_session(_authorized_target, resource_id, user_id)
         send_lock = asyncio.Lock()
         async def send(data, binary=False):
             async with send_lock:
@@ -71,19 +89,15 @@ async def connect(websocket: WebSocket, resource_id: str):
                 payload = await websocket.receive_json()
                 if len(json.dumps(payload)) > 24 * 1024 * 1024:
                     raise ValueError("command_too_large")
-                with SessionLocal() as db:
-                    await validate_authentication(authentication, user_id, db)
-                    current = service.authorized(db, resource_id, user_id)
+                current = await authorize()
                 try:
                     if payload.get("action") == "checkpoint":
-                        with SessionLocal() as db:
-                            data = await service.checkpoint(db, current, str(payload.get("params", {}).get("name", "账号")), connection_id, transport=transport)
+                        data = await service.checkpoint(current, str(payload.get("params", {}).get("name", "账号")), connection_id, transport=transport)
                     else:
                         data = await service.command(current, payload, actor="user", connection_id=connection_id, transport=transport)
                     await send({"type": "result", "id": payload.get("id"), "ok": True, "data": data})
                     if payload.get("action") == "close":
-                        with SessionLocal() as db:
-                            await service.close(db, service.authorized(db, resource_id, user_id))
+                        await service.close(await run_in_session(service.authorized_row, resource_id, user_id))
                         await websocket.close(4410)
                         return
                 except HTTPException as exc:
@@ -91,9 +105,7 @@ async def connect(websocket: WebSocket, resource_id: str):
         async def validate():
             while True:
                 await asyncio.sleep(15)
-                with SessionLocal() as db:
-                    await validate_authentication(authentication, user_id, db)
-                    service.authorized(db, resource_id, user_id)
+                await authorize()
         async with RuntimeTransport(target) as transport:
             tasks = [asyncio.create_task(fn()) for fn in (frames, receive, validate)]
             try:

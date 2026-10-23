@@ -23,7 +23,7 @@
 | `HOST_REPO_PATH` | 仓库绝对路径 | 宿主机仓库根路径；backend 经 docker.sock 调宿主 daemon 重建沙盒镜像时解析 compose 相对路径用 | CE |
 | `DOCKER_GID` | `999` | 宿主 docker 组 GID，授予 backend 容器读写 `/var/run/docker.sock`（`stat -c '%g' /var/run/docker.sock` 查询） | CE |
 | `COMPOSE_PROFILES` | CE Docker: `opensandbox` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
-| `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker-compose.cube.yml` | CE |
+| `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker/sandbox/compose.cube.yml` | CE |
 | `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端单请求体上限（字节） | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2`（入口脚本默认） | 启动迁移重试次数 / 间隔秒 | CE |
 
@@ -57,7 +57,7 @@
 | `ENABLE_SUMMARY` | `true` | 关闭则标题回退为消息截断 | CE |
 | `SUMMARY_MAX_ROUNDS` | `3` | 超过该轮数后标题不再更新 | CE |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE` | （空）/ `https://api.openai.com/v1` | 备用 OpenAI 直连配置（compose 透传） | CE |
-| `ROUTER_STRATEGY` | `main_only`（代码默认） | 路由策略（`orchestration/strategy.py`） | CE |
+| `ROUTER_STRATEGY` | `main_only`（代码默认） | 路由策略（`core/agent_runtime/strategy.py`） | CE |
 | `FOLLOWUP_ENABLED` | `true`（代码默认） | 追问建议生成开关 | CE |
 
 ## 鉴权与登录
@@ -217,7 +217,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 |---|---|---|
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server 地址 |
 | `OPENSANDBOX_API_KEY` | CE 初始化生成 | 控制器与后端使用相同密钥；不在日志中输出 |
-| `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/Dockerfile.opensandbox`） |
+| `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/sandbox/Dockerfile.opensandbox`） |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | 等沙盒就绪上限（秒） |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
 | `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
@@ -334,7 +334,7 @@ License 细节见 [License 机制](../editions/license.md)。
 |---|---|
 | 变量样例（部署起点） | `.env.example` |
 | 集中式设置读取（唯一入口） | `src/backend/core/config/settings.py` |
-| compose 层注入与默认值 | `docker-compose.yml`、`docker-compose.cube.yml` |
+| compose 层注入与默认值 | `docker-compose.yml`、`docker/sandbox/compose.cube.yml` |
 | 沙箱 provider 选择 | `src/backend/core/sandbox/`、`settings.py::SandboxSettings` |
 | 记忆设置 | `settings.py::MemorySettings`、`src/backend/core/memory/`（service.py / pipeline.py） |
 | 问题反馈 GitHub 配置 | `src/backend/edition_ee/services/system_config.py`、`feedback_service.py` |
@@ -383,7 +383,7 @@ License 细节见 [License 机制](../editions/license.md)。
 
 模块开启后，社区版已存在的登录用户即可使用。企业版额外检查 Config 后台的用户、角色或团队 **Personal Agent** 权限（默认关闭）；收回权限会隐藏入口，并停止排队、定时触发和渠道转交任务。不需要 persistent_sandbox License。两个版本都保留对象归属检查和操作批准。
 
-请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/compose.personal-agent.yml 和 personal-agent profile。
+请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/personal-agent/compose.personal-agent.yml 和 personal-agent profile。
 
 <!-- End Personal Agent settings -->
 

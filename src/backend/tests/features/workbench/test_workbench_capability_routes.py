@@ -6,6 +6,7 @@ import zipfile
 
 from tests.features.workbench.test_workbench_plugin_routes import client, launched
 from tests.features.workbench.workbench_plugin_support import package
+from tests.db_support import share_factory
 
 
 def capability_package():
@@ -215,7 +216,7 @@ def test_per_operation_check_detects_policy_revocation(client, db_session):
     assert client.post(endpoint + "/check", json=body, headers=HOST).status_code == 404
 
 
-def test_simultaneous_approval_writes_do_not_grant_another_installation(client, db_session):
+def test_simultaneous_approval_writes_do_not_grant_another_installation(client, db_session, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
     from core.db.engine import get_db
@@ -230,6 +231,7 @@ def test_simultaneous_approval_writes_do_not_grant_another_installation(client, 
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     lease = client.post(endpoint.removesuffix("/capabilities") + "/revision-leases", headers=HOST,
                         json={"revision": launch["revision"], "instanceId": INSTANCE})
     assert lease.status_code == 200, lease.text
@@ -323,6 +325,7 @@ def test_data_query_approved_source_and_inflight_revocation(client, db_session, 
                 yield db
 
         client.app.dependency_overrides[get_db] = database
+        share_factory(monkeypatch, factory)
         body = {"approvalId": token, "revision": launch["revision"], "instanceId": INSTANCE,
                 "sourceId": "records", "params": {}}
         with ThreadPoolExecutor(max_workers=1) as pool:

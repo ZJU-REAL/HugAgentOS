@@ -49,7 +49,7 @@ Pool management and runtime assembly share this read path. After an active versi
 
 ### Execution manifest and runtime binding
 
-Before an Agent can execute, `core/llm/runtime/execution_manifest.py::PromptManifestBuilder` records the exact final request surface. Every ordered prompt section records `id`, origin, trust level, priority, cache class, budget, token estimate, content hash and version. Every final tool definition similarly hashes its name, complete description, canonical parameter schema, permission policy and recovery policy. Tool definitions are sorted by stable id; prompt sections retain their deliberate prefix order.
+Before an Agent can execute, `core/harness/execution_manifest.py::PromptManifestBuilder` records the exact final request surface. Every ordered prompt section records `id`, origin, trust level, priority, cache class, budget, token estimate, content hash and version. Every final tool definition similarly hashes its name, complete description, canonical parameter schema, permission policy and recovery policy. Tool definitions are sorted by stable id; prompt sections retain their deliberate prefix order.
 
 The builder emits `prompt_hash`, `prompt_manifest_hash`, `tool_manifest_hash`, `context_hash` and one `aggregate_hash`. Manifest construction and AgentScope model input consume the same run-scoped frozen tool/skill snapshot, so the recorded surface cannot differ from the request. Progressive plugin activation invalidates that snapshot and publishes an explicit next `surface_generation` before the next model call.
 
@@ -100,8 +100,8 @@ their own enablement state.
 | kind | Runtime consumer | Resolution order |
 |---|---|---|
 | `code_exec` | `factory/build.py` appends this segment (the code-capability prompt) to the system prompt when `CODE_CAPABILITY_ENABLED=true`; the single source of truth is `prompt_version_service.render_code_capability_segment()`, also used by the console preview | active DB version → `prompts/prompt_text/code_exec/system/*.system.md` |
-| `distillation` | Skill distillation (`core/llm/skill_distiller.py`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
-| `plan_mode` | The plan-generation sub-agent (`orchestration/subagents/plan_mode.py::_load_plan_prompt`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
+| `distillation` | Skill distillation (`features/distillation/`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
+| `plan_mode` | The plan-generation sub-agent (`orchestration/plans/`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
 | `turbo` | Turbo mode (when the chat-mode picker is set to Turbo, `factory/build.py` **replaces** the assembled main system prompt with this one). The tool set is admin-configurable via Config "System Config → Turbo" (`turbo.mcp_server_ids`, defaulting to internet search / web fetch / KB retrieval, **independent of catalog enable/disable state**); explicitly summoned skills / @sub-agents / plugins may join per turn (`turbo.manual_invoke_enable`); the react-iteration cap is configurable (`turbo.max_iters`, default 4). The single source of truth is `prompt_version_service.render_turbo_system_prompt()` | active `turbo` DB version → `prompts/prompt_text/turbo/turbo.system.md` → hardcoded fallback |
 
 Sub-agents do not use the full pool assembly: `prompt_runtime.py::build_subagent_system_prompt()` builds around the user-defined `system_prompt`, reusing the `20_tools_policy` / `65_citations` / `60_format` parts from the active version (or files). See [Chat & Agent Orchestration](chat.md).

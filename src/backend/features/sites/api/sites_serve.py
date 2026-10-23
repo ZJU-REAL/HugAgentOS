@@ -25,14 +25,15 @@ import logging
 from typing import Optional
 
 from features.sites.api.site_gate import render_site_gate
-from core.db.engine import get_db
 from features.sites.repository import SiteRepository
 from features.sites.password import ACCESS_COOKIE_NAME, access_cookie_params, check_access_password, issue_access_token, site_base_path, verify_access_token
 from features.sites.service import SiteService
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -93,31 +94,48 @@ def _common_headers(content_type: str, *, sandbox: bool, cache: Optional[str] = 
     return headers
 
 
-async def _load_authorized_site(
-    slug: str, request: Request, db: Session, *, require_unlock: bool = True
-):
-    """取站点并鉴权，返回 ``(site, gate)``。
+def _site(db: Session, slug: str):
+    site = SiteRepository(db).get_by_slug(slug)
+    if site is not None:
+        db.expunge(site)
+    return site
+
+
+def _can_view(db: Session, site_id: str, user_id: Optional[str]) -> bool:
+    from features.sites.models import Site
+
+    return SiteService(db).authorize_view(db.get(Site, site_id), user_id)
+
+
+def _can_unlock(db: Session, site_id: str, user_id: str) -> bool:
+    from features.sites.models import Site
+
+    return SiteService(db).authorize_access(db.get(Site, site_id), user_id, None)
+
+
+async def _load_authorized_site(slug: str, request: Request, *, require_unlock: bool = True):
+    """取站点并鉴权，返回 ``(site, gate)``；``site`` 已脱离会话，只读不改。
 
     两道闸：可见性（不通过一律 404，不泄露站点是否存在）与访问密码（不通过返回
     ``gate`` 响应，由调用方直接回给访客）。默认两道都过——``require_unlock=False``
     是显式豁免，只给 ``__api/*`` 用：站内脚本跑在沙箱的不透明源上、请求不带凭据，
     仅解锁入口 ``__api/access`` 可豁免；应用表单仍执行密码验证。
     """
-    site = await run_in_threadpool(SiteRepository(db).get_by_slug, slug)
+    site = await run_in_session(_site, slug)
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
     if site.visibility != "public":
         from api.deps import _resolve_session_user_id
 
         user_id = await _resolve_session_user_id(request)
-        if not await run_in_threadpool(SiteService(db).authorize_view, site, user_id):
+        if not await run_in_session(_can_view, site.site_id, user_id):
             raise HTTPException(status_code=404, detail="Site not found")
     if not require_unlock or not site.access_password_hash:
         return site, None
-    return site, await _unlock_gate(site, request, db)
+    return site, await _unlock_gate(site, request)
 
 
-async def _unlock_gate(site, request: Request, db: Session) -> Optional[Response]:
+async def _unlock_gate(site, request: Request) -> Optional[Response]:
     """已解锁返回 None；否则返回验证页。凭据校验是纯 HMAC，不值得丢进线程池。"""
     if verify_access_token(site, request.cookies.get(ACCESS_COOKIE_NAME)):
         return None
@@ -125,7 +143,7 @@ async def _unlock_gate(site, request: Request, db: Session) -> Optional[Response
     from api.deps import _resolve_session_user_id
 
     user_id = await _resolve_session_user_id(request)
-    if user_id and await run_in_threadpool(SiteService(db).authorize_access, site, user_id, None):
+    if user_id and await run_in_session(_can_unlock, site.site_id, user_id):
         # 给管理者也发一枚凭据，否则同一个页面的每个资源都要重跑一遍会话 + 权限查询。
         request.state.site_access_grant = site
         return None
@@ -146,12 +164,12 @@ async def site_api_preflight(slug: str, rest: str):
 
 
 @router.post("/{slug}/__api/access", summary="站点访问密码校验")
-async def site_unlock(slug: str, request: Request, db: Session = Depends(get_db)):
+async def site_unlock(slug: str, request: Request):
     """校验访问密码并下发解锁凭据（统一验证页提交到这里）。这是解锁入口，必须免闸。"""
     # 限流放在取站点之前：被挡下的尝试连一次 get_by_slug 都不该花。
     from features.sites.rate_limit import count_attempt
     await count_attempt(_client_ip(request), slug, unlock=True)
-    site, _ = await _load_authorized_site(slug, request, db, require_unlock=False)
+    site, _ = await _load_authorized_site(slug, request, require_unlock=False)
     if not site.access_password_hash:
         return _api_json({"ok": True})
     try:
@@ -180,14 +198,13 @@ async def serve_site_file(
     slug: str,
     path: str,
     request: Request,
-    db: Session = Depends(get_db),
 ):
     if path == "__api" or path.startswith("__api/"):
         raise HTTPException(404, "API route not found")
-    site, gate = await _load_authorized_site(slug, request, db)
+    site, gate = await _load_authorized_site(slug, request)
     if gate is not None:
         return gate
-    response = await run_in_threadpool(_site_file_response, db, site, path)
+    response = await run_in_session(_site_file_response, site.site_id, path)
     granted = getattr(request.state, "site_access_grant", None)
     if granted is not None:
         response.set_cookie(value=issue_access_token(granted), **access_cookie_params(slug))
@@ -211,8 +228,11 @@ def _gate_response(site, request: Request) -> Response:
     )
 
 
-def _site_file_response(db: Session, site, path: str) -> Response:
+def _site_file_response(db: Session, site_id: str, path: str) -> Response:
     # Storage I/O, row updates and ORM refreshes all run off the event loop.
+    from features.sites.models import Site
+
+    site = db.get(Site, site_id)
     resolved = SiteService(db).resolve_site_file(site, path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")

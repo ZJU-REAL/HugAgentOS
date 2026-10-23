@@ -72,7 +72,7 @@ async def test_resume_restores_message_and_child_steps_after_prefix_is_trimmed(r
     with recovery_env() as db:
         response = run_views.chat_run_subscription(
             "run-trimmed",
-            user=UserContext(user_id="user-1", user_center_id="center-1", username="tester"), db=db,
+            user=UserContext(user_id="user-1", user_center_id="center-1", username="tester"),
         )
     iterator = response.body_iterator
     try:

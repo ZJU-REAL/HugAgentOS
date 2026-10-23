@@ -11,6 +11,7 @@ from personal_agent.identity.config import locked_agent
 from personal_agent.conversation.message_routing import admit
 from personal_agent.conversation.conversations import channel_session, listing
 from tests.test_personal_agent_routing import sessions, personal_agent_on, turn, scripted  # noqa: F401
+from tests.db_support import share_factory
 
 
 def conversation(db, peer="alice", bot="bot", kind="p2p"):
@@ -80,7 +81,7 @@ async def test_channel_history_reply_and_task_result_stay_in_source(sessions):
         assert db.get(ChatMessage, admitted["message_id"]).chat_id == alice
 
 
-def test_http_conversation_scope_and_owner_checks(sessions):
+def test_http_conversation_scope_and_owner_checks(sessions, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.auth.backend import UserContext, get_current_user
@@ -94,6 +95,7 @@ def test_http_conversation_scope_and_owner_checks(sessions):
     def database():
         with sessions() as db: yield db
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, sessions)
     app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="owner", user_center_id="owner", username="owner")
     with TestClient(app) as client:
         response = client.post("/v1/personal-agent/messages", params={"chat_id": alice},

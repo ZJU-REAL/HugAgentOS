@@ -6,6 +6,7 @@ from core.db.engine import get_db
 from core.db.models import UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_session
 
 
 @pytest.fixture()
@@ -22,6 +23,7 @@ def client(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = database
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="wb19-reader", user_center_id="wb19-reader", username="Reader"
     )
@@ -263,7 +265,7 @@ def test_probe_checks_peer_and_does_not_follow_redirect(client, probe_target, mo
     assert "127.0.0.1" not in response.text
 
 
-def test_self_resource_observation_distinguishes_registration_from_process_count(client):
+def test_self_resource_observation_distinguishes_registration_from_process_count(client, monkeypatch):
     # Explicitly model unavailable schema independently of collection order or SQL dialect.
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
@@ -273,6 +275,7 @@ def test_self_resource_observation_distinguishes_registration_from_process_count
     try:
         with Session(empty) as db:
             client.app.dependency_overrides[get_db] = lambda: db
+            share_session(monkeypatch, db)
             response = client.get("/v1/workbench/me/diagnostics/resource-metrics?user_id=other")
             assert response.status_code == 200
             assert response.headers["cache-control"] == "private, no-store"

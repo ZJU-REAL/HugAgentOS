@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy import select
 from personal_agent.device_link import CAPABILITIES
 from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from personal_agent.models import PersonalDevice, PersonalDeviceCommand, PersonalWorkItem
 
 def pair(db, user_id, name, platform, capabilities):
@@ -66,26 +67,34 @@ def acknowledge(db, ident, token, command_id, result):
     db.commit()
     return {"accepted": True}
 
+def _queue_command(db, task_id, user_id, ident, action):
+    """Queue the command; returns (command_id, epoch), or a waiting notice."""
+    device = db.scalar(select(PersonalDevice).where(PersonalDevice.id == ident, PersonalDevice.user_id == user_id, PersonalDevice.revoked == 0).with_for_update())
+    if device is None: raise LookupError("Device not found")
+    if not device.control_enabled:return {"waiting": True, "message": "请在本地电脑允许接管"}
+    if action["type"] not in device.capabilities: raise ValueError("Device cannot perform this action")
+    if not device.last_seen or device.last_seen < time.time() - 20: return {"waiting": True, "message": "电脑未连接"}
+    from personal_agent.tasks.guards import owned_task
+    state = owned_task(task_id, user_id)
+    row = PersonalDeviceCommand(run_id=state["run_id"], id="pa_command_" + uuid.uuid4().hex, device_id=ident, epoch=device.epoch,
+        work_item_id=task_id, action=action, deadline=time.time() + 30)
+    db.add(row)
+    db.commit()
+    return row.id, device.epoch
+
+def _command_result(db, ident, command_id, epoch):
+    device, row = db.get(PersonalDevice, ident), db.get(PersonalDeviceCommand, command_id)
+    if device.revoked or device.epoch != epoch: raise ValueError("Device access revoked")
+    return row.result if row.status == "completed" else None
+
 async def execute_command(task_id, user_id, ident, action):
-    with SessionLocal() as db:
-        device = db.scalar(select(PersonalDevice).where(PersonalDevice.id == ident, PersonalDevice.user_id == user_id, PersonalDevice.revoked == 0).with_for_update())
-        if device is None: raise LookupError("Device not found")
-        if not device.control_enabled:return {"waiting": True, "message": "请在本地电脑允许接管"}
-        if action["type"] not in device.capabilities: raise ValueError("Device cannot perform this action")
-        if not device.last_seen or device.last_seen < time.time() - 20: return {"waiting": True, "message": "电脑未连接"}
-        from personal_agent.tasks.guards import owned_task
-        state = owned_task(task_id, user_id)
-        row = PersonalDeviceCommand(run_id=state["run_id"], id="pa_command_" + uuid.uuid4().hex, device_id=ident, epoch=device.epoch,
-            work_item_id=task_id, action=action, deadline=time.time() + 30)
-        db.add(row)
-        db.commit()
-        command_id, epoch = row.id, device.epoch
+    queued = await run_in_session(_queue_command, task_id, user_id, ident, action)
+    if isinstance(queued, dict): return queued
+    command_id, epoch = queued
     for _ in range(120):
         await asyncio.sleep(.25)
-        with SessionLocal() as db:
-            device, row = db.get(PersonalDevice, ident), db.get(PersonalDeviceCommand, command_id)
-            if device.revoked or device.epoch != epoch: raise ValueError("Device access revoked")
-            if row.status == "completed": return row.result
+        result = await run_in_session(_command_result, ident, command_id, epoch)
+        if result is not None: return result
     return {"outcome_unknown": True, "message": "电脑未返回结果，请检查操作结果"}
 
 def consent(db,ident,token,enabled):

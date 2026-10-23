@@ -111,10 +111,9 @@ async def test_preview_and_runtime_use_saved_prompts_without_local_invalidation(
     config = PromptConfig()
     context = {"chat_id": "freshness-test"}
     assert "SYSTEM_BEFORE" in build_system_prompt(config, context)
-    with sessions() as db:
-        before = (await desktop_preview(DesktopPreviewRequest(version_id="default"), db=db))[
-            "data"
-        ]["prompt"]
+    before = (await desktop_preview(DesktopPreviewRequest(version_id="default")))["data"][
+        "prompt"
+    ]
     assert "SYSTEM_BEFORE" in before
     assert "DESKTOP_BEFORE" in before
 
@@ -124,10 +123,9 @@ async def test_preview_and_runtime_use_saved_prompts_without_local_invalidation(
     runtime = build_system_prompt(config, context)
     assert "SYSTEM_AFTER" in runtime
     assert "SYSTEM_BEFORE" not in runtime
-    with sessions() as db:
-        after = (await desktop_preview(DesktopPreviewRequest(version_id="default"), db=db))["data"][
-            "prompt"
-        ]
+    after = (await desktop_preview(DesktopPreviewRequest(version_id="default")))["data"][
+        "prompt"
+    ]
     assert "SYSTEM_AFTER" in after
     assert "DESKTOP_AFTER" in after
     assert "SYSTEM_BEFORE" not in after

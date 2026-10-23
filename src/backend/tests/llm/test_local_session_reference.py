@@ -61,17 +61,17 @@ def test_session_canvas_saves_original_and_rechecks_ownership(local_project, db_
     source = session_file(tmp_path, monkeypatch)
     result = json.loads(asyncio.run(pin_tool(None, "pin-chat")(file_paths=[str(source)])).content[0].text)
     fid = result["pinned"][0]["file_id"]
-    response = asyncio.run(overwrite_file(
+    response = overwrite_file(
         fid, UploadFile(filename="report.txt", file=io.BytesIO(b"saved in original")),
         SimpleNamespace(user_id="pin-user"), db_session,
-    ))
+    )
     assert response["file_id"] == fid
     assert source.read_text() == "saved in original"
     with pytest.raises(HTTPException):
-        asyncio.run(overwrite_file(
+        overwrite_file(
             fid, UploadFile(filename="report.txt", file=io.BytesIO(b"unauthorized")),
             SimpleNamespace(user_id="other-user"), db_session,
-        ))
+        )
 
 
 @pytest.mark.parametrize("change", ["symlink", "revoked"])

@@ -146,7 +146,7 @@
 
 ## 技能市场（Skill Marketplace）
 
-技能市场是"预置 + 社区"双来源的可安装技能库，核心服务在 `core/services/marketplace_service.py`。
+技能市场是"预置 + 社区"双来源的可安装技能库，核心服务在 `features/marketplace/`。
 
 ### 浏览与安装
 
@@ -197,7 +197,7 @@
       GET     /v1/admin/visibility/principals    ← 用户/团队/角色简表（选择器数据源）
 ```
 
-存储：`marketplace_listing_states.visibility`（缺行 = public）+ `marketplace_visibility_grants` 白名单表；用户侧解析收口在 `core/auth/marketplace_visibility.py`（角色含个人直配与经团队获得的部门默认角色）。
+存储：`marketplace_listing_states.visibility`（缺行 = public）+ `marketplace_visibility_grants` 白名单表；用户侧解析收口在 `edition_ee/auth/marketplace_visibility.py`（角色含个人直配与经团队获得的部门默认角色）。
 
 ## 管理员技能管理
 
@@ -223,7 +223,7 @@
      approve → 转正为 AdminSkill；reject / delete；可手动触发 trigger-daily-scan
 ```
 
-阈值、关键词、预算等全部可由 `DISTILL_*` 环境变量覆盖（`core/config/distillation.py`）。蒸馏管线（`skill_distiller.py`、调度器）属**商业版 EE**，社区版派生树剔除；技能草稿审核台随之仅在商业版可见。
+阈值、关键词、预算等全部可由 `DISTILL_*` 环境变量覆盖（`features/distillation/config.py`）。蒸馏管线（`skill_distiller.py`、调度器）属**商业版 EE**，社区版派生树剔除；技能草稿审核台随之仅在商业版可见。
 
 ## 用户自助技能（能力中心）
 
@@ -274,13 +274,13 @@
 | `src/backend/core/llm/tools/skill_tool.py` | 受限 view_text_file + {baseDir} 替换 + Runtime Hint |
 | `src/backend/extensions/skills/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
 | `src/backend/extensions/skills/marketplace/` | 45 个可安装市场技能包 |
-| `src/backend/core/services/marketplace_service.py` | 市场列表/安装/凭据注入/上架审核 |
-| `src/backend/api/routes/v1/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
-| `src/backend/api/routes/v1/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |
+| `src/backend/features/marketplace/` | 市场列表/安装/凭据注入/上架审核 |
+| `src/backend/features/marketplace/api/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
+| `src/backend/features/marketplace/api/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |
 | `src/backend/api/routes/v1/admin_skills.py` | 管理员技能 CRUD / zip / 依赖管理 |
-| `src/backend/api/routes/v1/admin_skill_drafts.py` | 蒸馏草稿审核（EE） |
-| `src/backend/core/llm/skill_distiller.py` | 技能蒸馏 LLM 管线（EE） |
-| `src/backend/orchestration/schedulers/distillation_cron_scheduler.py` | 蒸馏每日调度（EE） |
+| `src/backend/features/distillation/api/admin_skill_drafts.py` | 蒸馏草稿审核（EE） |
+| `src/backend/features/distillation/` | 技能蒸馏 LLM 管线（EE） |
+| `src/backend/orchestration/workers/distillation_cron_scheduler.py` | 蒸馏每日调度（EE） |
 | `src/backend/api/routes/v1/me_capabilities.py` | 用户自助技能/私有 MCP API |
 
 相关文档：[沙箱执行系统](sandbox.md) · [MCP 工具系统](mcp-tools.md) · [能力目录](catalog.md) · [管理台](admin-console.md) · [版本与许可](../editions/overview.md)

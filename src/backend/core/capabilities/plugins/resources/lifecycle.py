@@ -7,14 +7,12 @@ import time
 from contextlib import asynccontextmanager
 
 import httpx
-from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 
 from core.capabilities.plugins.resources import store
 
 
-async def reconcile(db, user_id=None, after="", limit=100):
-    from core.capabilities.plugins.resources import service
-
+def _candidates(db, user_id, after, limit):
     query = db.query(store.PluginResource).filter(
         store.PluginResource.status.in_(["active", "starting", "warming", "warm", "closing"])
     )
@@ -26,6 +24,26 @@ async def reconcile(db, user_id=None, after="", limit=100):
         .limit(limit)
         .all()
     )
+    for row in rows:
+        db.expunge(row)
+    return rows
+
+
+def _validate_binding(db, resource_id, user_id):
+    from core.capabilities.plugins.resources import service
+
+    service.validate_binding(db, db.get(store.PluginResource, resource_id), user_id)
+
+
+async def reconcile(user_id=None, after="", limit=100):
+    """Close persisted workers that are expired, unbound or no longer answering.
+
+    Rows are read, and each binding is checked, on short sessions of their own;
+    the liveness probes and shutdowns in between hold no connection.
+    """
+    from core.capabilities.plugins.resources import service
+
+    rows = await run_in_session(_candidates, user_id, after, limit)
 
     async def valid(row):
         if row.status == "closing" or row.expires_at <= time.time():
@@ -33,7 +51,7 @@ async def reconcile(db, user_id=None, after="", limit=100):
         if row.status in {"starting", "warming"}:
             return True
         try:
-            service.validate_binding(db, row, row.user_id)
+            await run_in_session(_validate_binding, row.resource_id, row.user_id)
             target = store.descriptor(row)
             async with httpx.AsyncClient(
                 timeout=3, trust_env=False, headers=target["headers"]
@@ -47,13 +65,19 @@ async def reconcile(db, user_id=None, after="", limit=100):
     for row, alive in zip(rows, results):
         if not alive:
             try:
-                await service.close(db, row)
+                await service.close(row)
             except Exception as exc:
-                db.rollback()
                 logging.getLogger(__name__).warning(
                     "Resource cleanup failed for %s: %s", row.resource_id, type(exc).__name__
                 )
     return rows[-1].resource_id if len(rows) == limit else ""
+
+
+def _collect(db):
+    from core.harness.registry.resource_owners import resource_owner
+
+    resource_owner().collect(db)
+    db.commit()
 
 
 @asynccontextmanager
@@ -64,8 +88,7 @@ async def lifespan(app):
 
     cursor = ""
     while True:
-        with SessionLocal() as db:
-            cursor = await restore(db, after=cursor)
+        cursor = await restore(after=cursor)
         if not cursor:
             break
     prewarm.resume()
@@ -79,10 +102,8 @@ async def lifespan(app):
                 from core.harness.registry.resource_owners import resource_owner
 
                 owner_cursor = await resource_owner().sweep(owner_cursor)
-                with SessionLocal() as db:
-                    cursor = await reconcile(db, after=cursor)
-                    resource_owner().collect(db)
-                    db.commit()
+                cursor = await reconcile(after=cursor)
+                await run_in_session(_collect)
             except Exception as exc:
                 logging.getLogger(__name__).warning(
                     "Resource reconciliation failed: %s", type(exc).__name__

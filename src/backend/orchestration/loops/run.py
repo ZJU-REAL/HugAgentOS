@@ -11,6 +11,7 @@ import typing as _typing
 from typing import Any, Dict, List, Optional
 
 import core.db.engine as engine
+from core.db.threads import run_db, run_in_session
 import core.runs.events.writer as writer
 import core.runs.ownership as ownership
 import core.runs.runtime as runtime
@@ -22,6 +23,18 @@ import orchestration.loops.presentation as _orchestration_loops_presentation
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _project_binding(db, project_id, chat_id):
+    """The project context, and whether the loop's chat still needs binding to it."""
+    from core.db.models import ChatSession
+    from core.projects.edition import build_project_ctx
+
+    project_ctx = build_project_ctx(db, project_id)
+    if not project_ctx:
+        return project_ctx, False
+    sess = db.get(ChatSession, chat_id)
+    return project_ctx, sess is not None and sess.project_id != project_id
 
 
 async def _run_autonomous_loop_workflow(
@@ -234,14 +247,10 @@ async def _run_autonomous_loop_workflow(
         if project_id:
             try:
                 from core.db.models import ChatSession
-                from core.projects.edition import build_project_ctx
 
-                needs_binding = False
-                with engine.SessionLocal() as db:
-                    project_ctx = build_project_ctx(db, project_id)
-                    if project_ctx:
-                        sess = db.get(ChatSession, chat_id)
-                        needs_binding = sess is not None and sess.project_id != project_id
+                project_ctx, needs_binding = await run_in_session(
+                    _project_binding, project_id, chat_id
+                )
 
                 if project_ctx and needs_binding:
 
@@ -250,7 +259,8 @@ async def _run_autonomous_loop_workflow(
                         if sess is not None:
                             sess.project_id = project_id
 
-                    journal.append_operation(
+                    await run_db(
+                        journal.append_operation,
                         run_id,
                         owner=owner,
                         operation_type="loop_project_bound",

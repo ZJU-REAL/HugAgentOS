@@ -6,8 +6,8 @@ HugAgentOS ships two built-in mechanisms for turning a single instruction into r
 
 | Capability | One-liner | Backend entry |
 |---|---|---|
-| Scheduled automation | Run a prompt or a plan automatically on a cron schedule (or once / manually) | `api/routes/v1/automations.py` + `orchestration/schedulers/automation_scheduler.py` |
-| Plan mode | AI first decomposes a complex task into structured steps, then executes them after confirmation | `api/routes/v1/plans.py` + `orchestration/subagents/plan_mode.py` |
+| Scheduled automation | Run a prompt or a plan automatically on a cron schedule (or once / manually) | `features/automation/api/automations.py` + `orchestration/automations/automation_scheduler.py` |
+| Plan mode | AI first decomposes a complex task into structured steps, then executes them after confirmation | `api/routes/v1/plans.py` + `orchestration/plans/` |
 
 ## Scheduled automation tasks
 
@@ -17,7 +17,7 @@ Local scheduled tasks belong to the signed-in cloud account. The account mapping
 
 ### Task model
 
-Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `core/db/models/automation.py`). Key fields:
+Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `edition_ee/db/models/automation.py`). Key fields:
 
 | Field | Description |
 |---|---|
@@ -40,7 +40,7 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `core/db/models/au
 
 ### Scheduling mechanics (automation_scheduler.py)
 
-`orchestration/schedulers/automation_scheduler.py` is an asyncio polling scheduler started with the backend:
+`orchestration/automations/automation_scheduler.py` is an asyncio polling scheduler started with the backend:
 
 - **Polling**: every 15 seconds (plus 0–5 s random jitter) it queries the DB for tasks whose `next_run_at` is due.
 - **Distributed lock**: before firing, it acquires the Redis lock `jx:auto:lock:{task_id}` with continuous renewal throughout execution and token-checked release on completion so multiple instances never double-fire.
@@ -64,7 +64,7 @@ Opening the right-side Canvas in an execution conversation temporarily hides the
 
 ## Plan mode
 
-Plan mode decomposes a complex task into structured steps before executing them, in two phases (`orchestration/subagents/plan_mode.py`):
+Plan mode decomposes a complex task into structured steps before executing them, in two phases (`orchestration/plans/`):
 
 1. **Generate (Phase 1)**: `POST /v1/plans/generate` (SSE streaming) — the AI analyzes the task description and produces a plan draft with a title, description, and step list; each step can declare `expected_tools` / `expected_skills` / `expected_agents`.
 2. **Execute (Phase 2)**: `POST /v1/plans/{plan_id}/execute` (SSE streaming) — steps run sequentially, each with its own agent; step status, tool-call logs, and AI output are persisted incrementally.
@@ -104,9 +104,9 @@ Every morning an Industry morning brief execution conversation is created. The s
 | Automation service (cron computation / state machine) | `src/backend/features/automation/service.py` |
 | Task / run-record models | `src/backend/features/automation/models.py` |
 | Plan REST API | `src/backend/api/routes/v1/plans.py` |
-| Plan generation / execution orchestration | `src/backend/orchestration/subagents/plan_mode.py`, `src/backend/core/chat/plans.py` |
+| Plan generation / execution orchestration | `src/backend/orchestration/plans/`, `src/backend/core/chat/plans.py` |
 | Plan / step models | `src/backend/core/db/models/agent.py` |
-| Frontend automation UI | `src/frontend/src/components/lab/AutomationPanel.tsx` etc., `src/frontend/src/components/automation/RunTimelinePanel.tsx` |
+| Frontend automation UI | `src/frontend/src/components/automation/AutomationPanel.tsx` etc., `src/frontend/src/components/automation/RunTimelinePanel.tsx` |
 | Frontend state | `src/frontend/src/stores/automationStore.ts`, `automationChatStore.ts` |
 
 Further reading: [Chat System](chat.md) · [MCP Tools](mcp-tools.md) · [Canvas & Artifacts](canvas-artifacts.md)

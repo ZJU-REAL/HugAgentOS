@@ -17,8 +17,18 @@ import core.agent_runtime.targets as targets
 import core.capabilities.catalog.resolver as catalog_resolver
 import core.llm.factory as factory
 from core.agent_runtime.main_state import MainTurn
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
+
+
+def _load_subagent_visibility(db, user_id: str, *, evaluation: bool):
+    """The user's own sub-agents and the built-in ones they switched off."""
+    from core.capabilities.agents.edition import UserAgentService
+    from core.auth.users import UserService
+
+    visible = [] if evaluation else UserAgentService(db).list_for_user(user_id)
+    return visible, UserService(db).get_disabled_builtin_subagent_ids(user_id)
 
 
 async def prepare_main(turn: MainTurn):
@@ -49,20 +59,11 @@ async def prepare_main(turn: MainTurn):
     )
     _mention_agent_id = str(turn.context.get("mention_agent_id") or "")
     try:
-        from core.db.engine import SessionLocal as _SessionLocal
-        from core.capabilities.agents.edition import UserAgentService as _UAS
-        from core.auth.users import UserService as _UserService
-
-        with _SessionLocal() as _db:
-            _ua_svc = _UAS(_db)
-            turn.visible_subagents = (
-                []
-                if turn.context.get("evaluation_session")
-                else _ua_svc.list_for_user(_stream_user_id)
-            )
-            _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
-                _stream_user_id
-            )
+        turn.visible_subagents, _disabled_builtin_ids = await run_in_session(
+            _load_subagent_visibility,
+            _stream_user_id,
+            evaluation=bool(turn.context.get("evaluation_session")),
+        )
     except Exception as _exc:
         logger.warning("[workflow] failed to load visible subagents: %s", _exc)
         _disabled_builtin_ids = set()

@@ -12,6 +12,7 @@ from features.desktop.capabilities import device_catalog, plugins
 from core.db.engine import get_db
 from features.desktop.capability import entities as entities
 from tests.features.desktop.capabilities.test_agents_plugins import cloud_db  # noqa: F401
+from tests.db_support import share_session
 
 
 @pytest.mark.parametrize("connection", ["yida", "lark", "dingtalk", "email"])
@@ -37,6 +38,7 @@ def test_device_detail_exposes_connection(index_db, caps_root, monkeypatch, conn
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: None
+    share_session(monkeypatch, None)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="owner", user_center_id="owner", username="owner")
     with TestClient(app) as client:

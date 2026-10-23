@@ -21,6 +21,7 @@ from core.llm.factory.tools.definitions import ToolAssembly
 
 
 from tests.llm.local_project_test_support import local_project, pin_tool
+from tests.db_support import share_session
 
 
 def test_pin_local_path_opens_original_and_deduplicates(local_project, db_session, tmp_path):
@@ -95,14 +96,12 @@ def test_pinned_file_remains_readable_across_turns_and_saves_to_project(
     assert load_artifact_meta(fid, "pin-user")["name"] == "report.txt"
     assert fetch_parsed_text(fid, "pin-user") == "original report"
     monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))
-    result = asyncio.run(
-        overwrite_file(
+    result = overwrite_file(
             fid,
             UploadFile(filename="report.txt", file=io.BytesIO(b"saved from Canvas")),
             SimpleNamespace(user_id="pin-user"),
             db_session,
         )
-    )
     assert result["file_id"] == fid
     assert source.read_text() == "saved from Canvas"
     assert fetch_parsed_text(fid, "pin-user") == "saved from Canvas"
@@ -344,6 +343,7 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
     app = FastAPI()
     app.include_router(files.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     headers = {
         "x-desktop-bridge": "fixture-only-bridge",
         "x-desktop-bridge-user": base64.b64encode(

@@ -155,9 +155,9 @@ def test_ce_installer_and_script_runner_ship_office_skill_runtime():
         # In the generated public CE tree the overlay becomes the root installer.
         installer_path = repo_root / "install.sh"
     installer = installer_path.read_text(encoding="utf-8")
-    dockerfile = (repo_root / "docker" / "Dockerfile.script-runner").read_text(encoding="utf-8")
+    dockerfile = (repo_root / "docker" / "sandbox" / "Dockerfile.script-runner").read_text(encoding="utf-8")
 
-    assert "pip_install -r docker/requirements-script-runner.txt" in installer
+    assert "pip_install -r docker/sandbox/requirements-script-runner.txt" in installer
     assert '--prefix "${SKILL_NODE_DIR}" playwright' in installer
     assert "apt-get download fonts-wqy-zenhei" in installer
     assert "install_libreoffice" in installer

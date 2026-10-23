@@ -10,6 +10,7 @@ import pytest
 from tests.llm.local_project_test_support import local_project, pin_tool
 from core.llm.factory.tools.definitions import ToolAssembly
 from tests.llm.command_test_support import command_tool_state
+from tests.db_support import share_session
 
 
 def payload(result):
@@ -232,6 +233,7 @@ with ZipFile(p/'delivery.zip', 'w') as z:
     app = FastAPI()
     app.include_router(files.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     headers = {
         "x-desktop-bridge": "cwd-e2e-bridge",
         "x-desktop-bridge-user": base64.b64encode(

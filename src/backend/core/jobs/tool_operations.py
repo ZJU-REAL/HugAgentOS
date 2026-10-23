@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 
 from core.sandbox.workspace.resolution import quote_shell_path as _quote_path
+from core.db.threads import run_db, run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,77 @@ def detached_payload(job_id: str, *, resumed: bool = False) -> Dict[str, Any]:
     }
 
 
+
+def _resolve_job(db, job_id: str, user_id: str, chat_id: str):
+    """Return ``(job_id, None)`` for an owned job, else ``(None, error payload)``."""
+    from core.db.models import Job
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    resolved = svc.get(job_id)
+    if (resolved is None or resolved.user_id != user_id) and not job_id.startswith("job_"):
+        cand = svc.get(f"job_{job_id}")
+        if cand is not None and cand.user_id == user_id:
+            resolved, job_id = cand, f"job_{job_id}"
+    if resolved is not None and resolved.user_id == user_id:
+        return job_id, None
+    rows = (
+        db.query(Job)
+        .filter(Job.user_id == user_id, Job.chat_id == chat_id)
+        .order_by(Job.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return None, {
+        "ok": False,
+        "error": f"job 不存在或无权访问: {job_id}",
+        "jobs_in_this_chat": [
+            {"job_id": r.job_id, "name": r.name, "status": r.status, "stats": svc.stats(r.job_id)}
+            for r in rows
+        ],
+        "hint": "用上面列表里的完整 job_id 重试（注意 job_ 前缀）；"
+        "已经跑完的作业**不要重跑**，直接 export 取结果。",
+    }
+
+
+def _job_status(db, job_id: str, user_id: str) -> Dict[str, Any]:
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    job = svc.get(job_id)
+    if job is None or job.user_id != user_id:
+        return {"ok": False, "error": "job 不存在或无权访问"}
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": job.status,
+        "stats": svc.stats(job_id),
+        "usage": dict(job.usage or {}),
+        "budget_left": svc.budget_left(job_id),
+        "error": job.error_message,
+    }
+
+
+def _ledger_rows(db, job_id: str, user_id: str, status: str) -> Dict[str, Any]:
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    job = svc.get(job_id)
+    if job is None or job.user_id != user_id:
+        return {"ok": False, "error": "job 不存在或无权访问"}
+    wanted = [s.strip() for s in (status or "").split(",") if s.strip()] or [
+        "done",
+        "not_found",
+        "failed",
+        "needs_review",
+        "pending",
+    ]
+    rows = []
+    for st in wanted:
+        rows.extend(svc.pending(job_id, status=st))
+    return {"rows": rows, "stats": svc.stats(job_id)}
+
+
 def job_operations(
     *,
     user_id: str,
@@ -97,7 +169,6 @@ def job_operations(
     ) -> Dict[str, Any]:
         import core.jobs.files as job_files
         import core.jobs.runtime as job_runtime
-        from core.db.engine import SessionLocal
         from core.db.models import Job
         from core.jobs.store import JobService
 
@@ -119,7 +190,7 @@ def job_operations(
             conflict = (on_conflict or "block").strip().lower()
             if chat_id and conflict != "parallel":
                 # 字段必须在 session 内取出：出了 with 块 ORM 实例就 detached，再读属性会炸
-                with SessionLocal() as db:
+                def _live_job(db):
                     live = (
                         db.query(Job)
                         .filter(
@@ -131,6 +202,8 @@ def job_operations(
                     )
                     live_id = live.job_id if live is not None else ""
                     live_name = (live.name or "未命名") if live is not None else ""
+                    return live_id, live_name
+                live_id, live_name = await run_in_session(_live_job)
                 if live_id and conflict == "replace":
                     await job_runtime.cancel_job(live_id, user_id=user_id)
                     logger.info("[run_job] replaced live job %s in chat %s", live_id, chat_id)
@@ -223,12 +296,14 @@ def job_operations(
                 jid, chat_id=chat_id, detach_after=FOREGROUND_WAIT_CAP_S
             )
             if res.get("status") == "detached":
-                return detached_payload(jid)
-            with SessionLocal() as db:
+                return await run_db(detached_payload, jid)
+            def _finished_job(db):
                 svc = JobService(db)
                 stats = svc.stats(jid)
                 job = svc.get(jid)
                 usage = dict(job.usage or {}) if job else {}
+                return stats, usage
+            stats, usage = await run_in_session(_finished_job)
             payload = {
                 "ok": res.get("status") == "completed",
                 "job_id": jid,
@@ -262,77 +337,23 @@ def job_operations(
         # job_id 容错 + 找不到时把本会话的作业列出来。
         # 实测踩过：模型凭记忆抄 id 时漏了 "job_" 前缀，只回一句「job 不存在」它无从自救，
         # 结果决定把 568 次子调用整个重跑一遍。错误信息必须自带下一步。
-        with SessionLocal() as db:
-            svc = JobService(db)
-            resolved = svc.get(job_id)
-            if (resolved is None or resolved.user_id != user_id) and not job_id.startswith("job_"):
-                cand = svc.get(f"job_{job_id}")
-                if cand is not None and cand.user_id == user_id:
-                    resolved, job_id = cand, f"job_{job_id}"
-            if resolved is None or resolved.user_id != user_id:
-                from core.db.models import Job
-
-                rows = (
-                    db.query(Job)
-                    .filter(Job.user_id == user_id, Job.chat_id == chat_id)
-                    .order_by(Job.created_at.desc())
-                    .limit(5)
-                    .all()
-                )
-                return {
-                        "ok": False,
-                        "error": f"job 不存在或无权访问: {job_id}",
-                        "jobs_in_this_chat": [
-                            {
-                                "job_id": r.job_id,
-                                "name": r.name,
-                                "status": r.status,
-                                "stats": svc.stats(r.job_id),
-                            }
-                            for r in rows
-                        ],
-                        "hint": "用上面列表里的完整 job_id 重试（注意 job_ 前缀）；"
-                        "已经跑完的作业**不要重跑**，直接 export 取结果。",
-                    }
+        resolved_id, missing = await run_in_session(_resolve_job, job_id, user_id, chat_id)
+        if missing is not None:
+            return missing
+        job_id = resolved_id
 
         if act == "status":
-            with SessionLocal() as db:
-                svc = JobService(db)
-                job = svc.get(job_id)
-                if job is None or job.user_id != user_id:
-                    return {"ok": False, "error": "job 不存在或无权访问"}
-                return {
-                        "ok": True,
-                        "job_id": job_id,
-                        "status": job.status,
-                        "stats": svc.stats(job_id),
-                        "usage": dict(job.usage or {}),
-                        "budget_left": svc.budget_left(job_id),
-                        "error": job.error_message,
-                    }
+            return await run_in_session(_job_status, job_id, user_id)
 
         if act == "export":
             # 台账在 DB，逐项结果**不进对话上下文**——所以导出的方式是写成沙箱里的
             # JSONL 文件，之后用 Bash/python 处理（写 Excel、跑校验、喂评审）。
             if not sandbox_session_id:
                 return {"ok": False, "error": "当前会话没有可用沙箱"}
-            with SessionLocal() as db:
-                svc = JobService(db)
-                job = svc.get(job_id)
-                if job is None or job.user_id != user_id:
-                    return {"ok": False, "error": "job 不存在或无权访问"}
-                wanted = [s.strip() for s in (status or "").split(",") if s.strip()] or [
-                    "done",
-                    "not_found",
-                    "failed",
-                    "needs_review",
-                    "pending",
-                ]
-                rows = []
-                for st in wanted:
-                    rows.extend(svc.pending(job_id, status=st))
-                stats = svc.stats(job_id)
-
+            ledger = await run_in_session(_ledger_rows, job_id, user_id, status)
+            if "error" in ledger:
+                return ledger
+            rows, stats = ledger["rows"], ledger["stats"]
             dest = dest_path or f"jobs/{job_id}_ledger.jsonl"
             body = "\n".join(_json.dumps(r, ensure_ascii=False) for r in rows)
             # 分块写 + 读回校验：单条 Bash 携带大 base64 到约 170KB 会**静默失败**
@@ -372,9 +393,11 @@ def job_operations(
                 job_id, chat_id=chat_id, detach_after=FOREGROUND_WAIT_CAP_S
             )
             if done.get("status") == "detached":
-                return detached_payload(job_id, resumed=True)
-            with SessionLocal() as db:
+                return await run_db(detached_payload, job_id, resumed=True)
+            def _job_stats(db):
                 stats = JobService(db).stats(job_id)
+                return stats
+            stats = await run_in_session(_job_stats)
             return {
                     "ok": done.get("status") == "completed",
                     "job_id": job_id,

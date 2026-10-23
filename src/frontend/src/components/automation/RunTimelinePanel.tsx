@@ -8,7 +8,8 @@ RightOutlined,
 } from '@ant-design/icons';
 import { Tooltip } from 'antd';
 import { AnimatePresence,motion } from 'motion/react';
-import { useMemo,useState } from 'react';
+import { useEffect,useMemo,useState } from 'react';
+import { getAutomationRuns } from '../../api';
 import { useStatusFlash } from '../../hooks/useFlash';
 import { t } from '../../i18n';
 import { useAutomationChatStore,useCatalogStore } from '../../stores';
@@ -16,7 +17,7 @@ import '../../styles/automation-timeline.css';
 import type { AutomationChatGroup,AutomationRun,AutomationRunStatus } from '../../types';
 import { formatDateKey,formatFullDateTime,formatMonthDay,formatMonthDayTime } from '../../utils/date';
 import { DUR,EASE,staggerStyle } from '../../utils/motionTokens';
-import { RUN_STATUS_LABEL,formatRunDuration } from '../automation/automationUtils';
+import { RUN_STATUS_LABEL,formatRunDuration,isRunActive } from './automationUtils';
 
 /* Stat number y6→0 crossfade (shared config between top stats and mini stats) */
 const STAT_NUM_MOTION = {
@@ -25,6 +26,9 @@ const STAT_NUM_MOTION = {
   exit: { opacity: 0, y: -6 },
   transition: { duration: DUR.fast, ease: EASE.standard },
 };
+
+/* 有执行中的 run 时刷新列表的间隔：状态流转、chat_id 关联都靠它同步到面板 */
+const RUN_POLL_INTERVAL_MS = 5_000;
 
 interface DateGroup {
   date: string;
@@ -39,7 +43,7 @@ function formatRunOrdinal(n: number): string {
 }
 
 function summarizeRun(run: AutomationRun): string {
-  if ((run.status === 'running' || run.status === 'pending')) return t('任务正在执行，结果生成后会自动更新到对话区。');
+  if (isRunActive(run)) return t('任务正在执行，结果生成后会自动更新到对话区。');
   if (run.status === 'failed') {
     return String(run.error_message || run.result_summary || t('执行失败，请进入详情查看错误信息。')).replace(/\s+/g, ' ').trim();
   }
@@ -47,8 +51,30 @@ function summarizeRun(run: AutomationRun): string {
 }
 
 export function RunTimelinePanel() {
-  const { activeGroup, selectedRunId, selectRun, exitAutomationChat } = useAutomationChatStore();
+  const { activeGroup, selectedRunId, selectRun, setRuns, exitAutomationChat } = useAutomationChatStore();
   const { setPanel } = useCatalogStore();
+
+  // activeGroup 只是进入时的快照：有执行中的 run 就轮询，否则状态与 chat_id 永远停在进入那一刻
+  const pollTaskId = activeGroup?.runs.some(isRunActive) ? activeGroup.taskId : null;
+  useEffect(() => {
+    if (!pollTaskId) return;
+    let cancelled = false;
+    const refresh = async () => {
+      if (document.hidden) return;
+      try {
+        const runs = await getAutomationRuns(pollTaskId, 50);
+        // 请求期间可能已退出或切到别的任务，旧响应不能写回
+        if (!cancelled && useAutomationChatStore.getState().activeGroup?.taskId === pollTaskId) setRuns(runs);
+      } catch {
+        /* 下一轮再试 */
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), RUN_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pollTaskId, setRuns]);
 
   // Exit snapshot: when App.tsx's AnimatePresence plays the exit animation, store.activeGroup is already null,
   // so during render we derive state that caches the last non-empty group to render the final frame as a fallback
@@ -59,14 +85,8 @@ export function RunTimelinePanel() {
 
   const numberedRuns = useMemo<(AutomationRun & { runNo: number })[]>(() => {
     if (!group) return [];
-
-    // Number runs in ascending order (oldest = #1)
-    const allRuns = [...group.runs];
-    const ascending = [...allRuns].reverse();
-    return allRuns.map((run) => ({
-      ...run,
-      runNo: ascending.findIndex((r) => r.run_id === run.run_id) + 1,
-    }));
+    // Runs are desc by started_at; number them ascending (oldest = #1)
+    return group.runs.map((run, idx) => ({ ...run, runNo: group.runs.length - idx }));
   }, [group]);
 
   // run_id → flat index (used for enter stagger, following render order consistent with groupedRuns)
@@ -86,8 +106,6 @@ export function RunTimelinePanel() {
   );
 
   const groupedRuns = useMemo<DateGroup[]>(() => {
-    if (!group) return [];
-
     // Group by date (runs are already desc by started_at)
     const map = new Map<string, DateGroup>();
     for (const run of numberedRuns) {
@@ -102,7 +120,7 @@ export function RunTimelinePanel() {
       map.get(key)!.runs.push(run);
     }
     return Array.from(map.values());
-  }, [group, numberedRuns]);
+  }, [numberedRuns]);
 
   // Accumulate all status counts + the most recent success record in a single pass, avoiding the O(kn) cost of multiple filter/find calls.
   const stats = useMemo(() => {
@@ -112,7 +130,7 @@ export function RunTimelinePanel() {
     let latestSuccessRun: AutomationRun | undefined;
     let latestFinishedRun: AutomationRun | undefined;
     for (const run of numberedRuns) {
-      if ((run.status === 'running' || run.status === 'pending')) running += 1;
+      if (isRunActive(run)) running += 1;
       else if (run.status === 'success') {
         success += 1;
         if (!latestSuccessRun) latestSuccessRun = run;
@@ -219,7 +237,7 @@ export function RunTimelinePanel() {
             {latestIndicatorStatus === 'idle' && <CheckCircleOutlined />}
           </span>
           <span className="jx-runTimeline-latestLabel">
-            {latestIndicatorRun ? latestLabel : t('暂无执行')}：
+            {latestLabel}：
           </span>
           <span className="jx-runTimeline-latestTime">
             {latestIndicatorRun ? formatFullDateTime(latestIndicatorRun.started_at) : '—'}
@@ -274,14 +292,18 @@ export function RunTimelinePanel() {
                   <div className="jx-runTimeline-dateBody">
                     {group.runs.map((run) => {
                       const isActive = run.run_id === selectedRunId;
-                      const isRunning = (run.status === 'running' || run.status === 'pending');
-                      const isClickable = !isRunning && !!run.chat_id;
+                      const isRunning = isRunActive(run);
+                      // 执行中的 run 一旦关联了对话就能进入看实时进度；还没关联的（排队/刚触发）才不可点
+                      const isClickable = !!run.chat_id;
                       const summary = summarizeRun(run);
+                      const tooltip = !isRunning
+                        ? RUN_STATUS_LABEL[run.status]
+                        : (isClickable ? t('执行中，点击查看实时进度') : t('准备中，暂不可查看'));
 
                       return (
                         <Tooltip
                           key={run.run_id}
-                          title={isRunning ? t('执行中，暂不可查看') : RUN_STATUS_LABEL[run.status]}
+                          title={tooltip}
                           placement="left"
                         >
                           <div
@@ -329,7 +351,7 @@ export function RunTimelinePanel() {
                                 ].filter(Boolean).join(' ')}
                               >
                                 <MessageOutlined />
-                                <span>{isClickable ? t('进入对话') : t('生成中')}</span>
+                                <span>{!isClickable ? t('生成中') : (isRunning ? t('查看进度') : t('进入对话'))}</span>
                               </span>
                             </div>
                           </div>

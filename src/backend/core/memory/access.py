@@ -4,8 +4,29 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
+from core.db.threads import run_in_session
 from core.memory.context import MemoryContext
 from core.memory import backend
+
+
+def _project_memory_owner(db, project_id: str, actor: str) -> Optional[str]:
+    """The memory scope ``actor`` may edit in a project, or None when it may not."""
+    from core.auth.edition import resolve_project_access
+    from core.db.models import Project
+    from core.projects.edition import project_memory_policy
+
+    project = db.query(Project).filter_by(project_id=project_id, deleted_at=None).first()
+    if project is None:
+        return None
+    access = resolve_project_access(db, actor, project)
+    if access.level not in ("edit", "admin"):
+        return None
+    policy = project_memory_policy(db, project.project_id, actor)
+    if policy is not None:
+        # Read availability does not revoke explicit edits of existing memory.
+        return policy[1]
+    # CE has no policy row for local projects; actor access is checked above.
+    return actor if project.kind == "local" else None
 
 
 async def authorized_memory_context(memory_id: str, actor: str) -> Optional[MemoryContext]:
@@ -27,30 +48,9 @@ async def authorized_memory_context(memory_id: str, actor: str) -> Optional[Memo
     scope = item.get("user_id") or metadata.get("user_id")
     workspace = str(metadata.get("workspace_id") or "default")
     if workspace.startswith("project:"):
-        from core.auth.edition import resolve_project_access
-        from core.db.engine import SessionLocal
-        from core.db.models import Project
-        from core.projects.edition import project_memory_policy
-
-        with SessionLocal() as db:
-            project = db.query(Project).filter_by(
-                project_id=workspace[len("project:"):], deleted_at=None).first()
-            if project is None:
-                return None
-            access = resolve_project_access(db, actor, project)
-            if access.level not in ("edit", "admin"):
-                return None
-            policy = project_memory_policy(db, project.project_id, actor)
-            if policy is not None:
-                # Read availability does not revoke explicit edits of existing memory.
-                expected = policy[1]
-            elif project.kind == "local":
-                # CE has no policy row for local projects; actor access is checked above.
-                expected = actor
-            else:
-                return None
-            if scope != expected:
-                return None
+        expected = await run_in_session(_project_memory_owner, workspace[len("project:"):], actor)
+        if expected is None or scope != expected:
+            return None
     elif scope != actor:
         return None
     return MemoryContext(user_id=actor, workspace_id=workspace,

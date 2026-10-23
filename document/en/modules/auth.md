@@ -120,7 +120,7 @@ User-facing endpoints:
 
 ### Interface layer (CE/EE split seam)
 
-`core/auth/permissions_iface.py` is the **single import point** for permission symbols: mainline code (deps / files / chats / projects / kb, etc.) imports only from here, never from the concrete implementations. In the EE main repo it purely re-exports three real implementations; in the CE-derived tree the whole file is replaced by a single-tenant stub and the three implementation files do not physically exist:
+`core/auth/personal_permissions_iface.py` is the **single import point** for permission symbols: mainline code (deps / files / chats / projects / kb, etc.) imports only from here, never from the concrete implementations. In the EE main repo it purely re-exports three real implementations; in the CE-derived tree the whole file is replaced by a single-tenant stub and the three implementation files do not physically exist:
 
 | Implementation file | Responsibility |
 |---|---|
@@ -210,7 +210,7 @@ Key authentication events all land in the audit table (`audit_logs`): login succ
 | SSO ticket exchange | `src/backend/edition_ee/auth/sso.py`, `src/backend/edition_ee/routes/auth.py` |
 | Mock SSO / local login & registration page | `src/backend/api/routes/v1/mock_sso.py`, `src/backend/core/auth/mock_ticket_store.py` |
 | Password hashing | `src/backend/core/auth/password.py` |
-| Permission interface layer (CE/EE seam) | `src/backend/core/auth/permissions_iface.py` |
+| Permission interface layer (CE/EE seam) | `src/backend/core/auth/personal_permissions_iface.py` |
 | Team roles / file permissions (EE) | `src/backend/edition_ee/auth/roles.py`, `src/backend/edition_ee/auth/team_permissions.py` |
 | Project / chat-share permissions (EE) | `src/backend/edition_ee/auth/project_permissions.py`, `src/backend/edition_ee/auth/chat_share_permissions.py` |
 | Administrative credential dependencies | `src/backend/api/deps.py` |

@@ -25,9 +25,13 @@ def invalidate(db, row):
     activity.save(db, user, current)  # Retain the exact charged cleanup reservation.
 
 
-async def arm(db, row, *, require_background=False):
-    if row.application_key is None or row.chat_id is not None:
-        return  # Ordinary chat resources retain their existing lifetime.
+def _arming(db, resource_id, require_background):
+    """Validate the lease record and resolve the runner timer; None when nothing to arm."""
+    from core.capabilities.plugins.resources import store
+
+    row = db.get(store.PluginResource, resource_id)
+    if row is None or row.application_key is None or row.chat_id is not None:
+        return None  # Ordinary chat resources retain their existing lifetime.
     value = activity.read(db, row.user_id)
     record = value["background"].get(row.resource_id)
     source = origin.current(db)
@@ -48,7 +52,7 @@ async def arm(db, row, *, require_background=False):
         method, process_id = provider_for(row)
     except HTTPException as error:
         if not (require_background or record) and error.status_code == 403:
-            return  # Remote providers have no independent persistent deadline contract.
+            return None  # Remote providers have no independent persistent deadline contract.
         raise
     digest = hashlib.sha256(
         json.dumps(
@@ -65,25 +69,54 @@ async def arm(db, row, *, require_background=False):
             sort_keys=True,
         ).encode()
     ).hexdigest()
+    return {
+        "method": method,
+        "process_id": process_id,
+        "session": runtime_session(row),
+        "user_id": row.user_id,
+        "digest": digest,
+        "expires": expires,
+        "deadline": record["deadline"] if record else None,
+        "background": bool(record),
+    }
+
+
+def _invalidate(db, resource_id):
+    from core.capabilities.plugins.resources import store
+
+    invalidate(db, db.get(store.PluginResource, resource_id))
+
+
+async def arm(resource_id, *, require_background=False):
+    """Hand the lease deadline to the runner; revoke the lease if delivery is uncertain.
+
+    The lease is read and, on failure, invalidated on sessions of their own; the
+    runner call in between holds no connection.
+    """
+    from core.db.threads import run_in_session
+
+    timer = await run_in_session(_arming, resource_id, require_background)
+    if timer is None:
+        return
     try:
-        result = await method(
-            process_id,
-            sandbox_session_id=runtime_session(row),
-            user_id=row.user_id,
-            binding=digest,
-            expires_at=expires,
-            absolute_deadline=record["deadline"] if record else None,
+        result = await timer["method"](
+            timer["process_id"],
+            sandbox_session_id=timer["session"],
+            user_id=timer["user_id"],
+            binding=timer["digest"],
+            expires_at=timer["expires"],
+            absolute_deadline=timer["deadline"],
         )
     except Exception:
         # Do not leave an authorized extended lease after uncertain timer delivery.
-        invalidate(db, row)
+        await run_in_session(_invalidate, resource_id)
         raise HTTPException(503, detail={"code": "release_failed"}) from None
     if result.get("supported") is False:
-        if record:
-            invalidate(db, row)
-        if require_background or record:
+        if timer["background"]:
+            await run_in_session(_invalidate, resource_id)
+        if require_background or timer["background"]:
             raise HTTPException(403, detail={"code": "unsupported_capability"})
         return
     if result.get("armed") is not True:
-        invalidate(db, row)
+        await run_in_session(_invalidate, resource_id)
         raise HTTPException(503, detail={"code": "release_failed"})

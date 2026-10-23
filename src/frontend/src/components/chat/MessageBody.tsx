@@ -9,6 +9,8 @@ import { anyToolRunning } from '../tool/renderers/utils';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
 import { TurnStatusIndicator } from './TurnStatusIndicator';
+import { AgentCursor } from './AgentCursor';
+import type { AgentMarkState } from '../common/AgentMark';
 import { InvocationBadges } from './InvocationBadges';
 import { PlanCard } from './PlanCard';
 import { MessageInheritedPlan } from './MessageInheritedPlan';
@@ -17,7 +19,8 @@ import { CitationMarkdownBlock } from '../citation';
 import { useChatStore, useUIStore } from '../../stores';
 import { updatePlanApi } from '../../api';
 import { markPlanDecision } from '../../hooks/usePlanMode';
-import { useStallDetector } from '../../hooks/useStallDetector';
+import { useActivityAge } from '../../hooks/useActivityAge';
+import { ACTIVITY_THRESHOLDS, TAIL_WAIT_MS, WAIT_CLOCK_MS, agentStateForPhase, runPhase, waitLabel } from '../../utils/turnActivity';
 import { useMessageCitation } from './useMessageCitation';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
@@ -77,8 +80,16 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
     0,
   );
   const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${streamedThinkingLength}|${m.segments?.length ?? 0}`;
-  // Preserve the startup clock across remounts.
-  const stall = useStallDetector(stallSignature, 2500, m.lastActivityTs, !!m.isStreaming);
+  // The startup clock anchors to the persisted activity stamp, so it keeps
+  // counting from the real start across remounts.
+  const turnStartTs = m.lastActivityTs ?? m.ts;
+  // A tool finishing is activity too — it is what starts the "analysing results" wait.
+  const settledTools = (m.toolCalls || []).filter((tool) => tool.status && tool.status !== 'running').length;
+  const activity = useActivityAge(
+    `${stallSignature}|${settledTools}`,
+    !!m.isStreaming && dispatchProcessVisible,
+    ACTIVITY_THRESHOLDS,
+  );
 
   /** Render a settled thinking block. Live thinking is rendered by ThinkingInline. */
   const renderThinkingBlock = (content: string, thinkKey: string) => {
@@ -130,9 +141,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
           /* Segment-based rendering */
           <>
             {(() => {
-              // Group thinking + tool calls + tool-prepare waits into a single
-              // "agent run" shell so the chat flow shows one card per phase
-              // instead of separate thinking / tool-call / preparing entries.
+              // Group thinking + tool calls into a single "agent run" shell so
+              // the chat flow shows one card per phase instead of separate
+              // thinking / tool-call entries.
               //
               // A run is a maximal contiguous sequence of {thinking, tool,
               // empty-text} segments. Non-empty text breaks the run. Pure
@@ -143,28 +154,47 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
               const segs = m.segments!;
               const { runs, suppressedIdx } = groupExecutionRuns(m, dispatchProcessVisible);
 
-              // Only the initial empty response needs a waiting label.
-              const hasVisibleTextProgress = segs.some(s => s.type === 'text' && (s.content || '').trim().length > 0);
-              // A thinking segment that is not folded into a run renders as its
-              // own ThinkingInline below, so the reasoning is already on screen.
-              // Counting only `text` here made the turn indicator sit under a
-              // visibly streaming reasoning block for the whole pre-tool phase —
-              // several seconds on any turn that calls a tool, which is exactly
-              // where "深度拥抱中…" was never meant to appear. It stays for the
-              // genuine dead window: after the bubble exists and before the
-              // model has emitted anything at all.
-              const hasVisibleThinkingProgress = segs.some(
-                s => s.type === 'thinking' && (s.content || '').trim().length > 0,
+              // ON mode gives every moment of a live reply one owner: the tool run
+              // still in flight, or a tail row under the text. The reply's single
+              // agent mark parks on that owner, so a pause never reads as a hang —
+              // except a run with tools, whose lit tool icons already say what is
+              // happening; the mark steps away and comes back on the next owner.
+              const liveTurn = !!m.isStreaming && dispatchProcessVisible;
+              const lastRun = runs[runs.length - 1];
+              const tailRun = liveTurn && lastRun
+                && !segs.slice(lastRun.endIdx + 1).some(s => !(s.type === 'text' && !(s.content || '').trim()))
+                ? lastRun : null;
+              // A reasoning block outside a run is already on screen (OFF mode only).
+              const hasVisibleProgress = runs.length > 0 || segs.some(
+                s => (s.type === 'text' || s.type === 'thinking') && (s.content || '').trim().length > 0,
               );
-              const startupPending =
-                !!m.isStreaming &&
-                dispatchProcessVisible &&
-                runs.length === 0 &&
-                !hasVisibleTextProgress &&
-                !hasVisibleThinkingProgress;
-              const virtualPending = startupPending
-                ? { startTs: stall.since, key: `${m.uid}-pending-virtual` }
-                : null;
+              const tailSlot = `${m.uid}-tail`;
+              let tail: { label: string; startTs: number; clockAfterMs?: number } | null = null;
+              let agent: { slot: string; state: AgentMarkState } | null = null;
+              if (liveTurn && tailRun) {
+                if (tailRun.tools.length === 0) {
+                  const phase = runPhase(tailRun.steps, { isStreaming: true, isTail: true, idleMs: activity.idleMs });
+                  agent = { slot: `${m.uid}-seg-${tailRun.anchor}`, state: agentStateForPhase(phase) };
+                }
+              } else if (liveTurn && !hasVisibleProgress) {
+                // The genuine dead window: the bubble exists and nothing has streamed yet.
+                tail = { label: turnStatusLabel ?? t('正在处理…'), startTs: turnStartTs };
+                agent = { slot: tailSlot, state: 'work' };
+              } else if (liveTurn && activity.idleMs >= TAIL_WAIT_MS && activity.since !== null) {
+                // While words arrive the text speaks for itself — nothing under it.
+                // Once it pauses, say that the next step is being worked out.
+                tail = {
+                  label: waitLabel(activity.idleMs, t('正在思考下一步…')),
+                  startTs: activity.since,
+                  clockAfterMs: WAIT_CLOCK_MS,
+                };
+                agent = { slot: tailSlot, state: 'think' };
+              }
+              // The first run takes over from the startup row only if nothing showed before it.
+              const firstRun = runs[0];
+              const takeOver = liveTurn && firstRun
+                && !segs.slice(0, firstRun.anchor).some(s => (s.content || '').trim())
+                ? firstRun : null;
 
               const runByAnchor = new Map<number, (typeof runs)[number]>();
               runs.forEach((r) => runByAnchor.set(r.anchor, r));
@@ -181,6 +211,10 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
                         key={segKey}
                         steps={run.steps}
                         isStreaming={m.isStreaming}
+                        isTail={liveTurn ? run === tailRun : undefined}
+                        idleMs={run === tailRun ? activity.idleMs : undefined}
+                        agentSlotKey={agent?.slot === segKey ? segKey : undefined}
+                        takeOverFrom={run === takeOver ? (turnStatusLabel ?? t('正在处理…')) : undefined}
                       />
                     );
                   }
@@ -291,7 +325,6 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
                       {showInlineWait && (
                         <StreamWaitIndicator
                           signature={stallSignature}
-                          forceWait={!!m.toolPending}
                           suppressed={anyToolRunning(m.toolCalls || [])}
                           anchorTs={m.lastActivityTs}
                         />
@@ -302,15 +335,21 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
                 return null;
               });
 
-              if (virtualPending) {
-                // Hide the startup label once this response has visible progress.
+              if (tail) {
                 rendered.push(
                   <TurnStatusIndicator
-                    key={virtualPending.key}
-                    startTs={virtualPending.startTs}
-                    label={turnStatusLabel}
+                    key={tailSlot}
+                    startTs={tail.startTs}
+                    label={tail.label}
+                    clockAfterMs={tail.clockAfterMs}
+                    agentSlotKey={tailSlot}
                   />,
                 );
+              }
+              if (agent) {
+                // The startup row (rendered before any segment exists) already played the
+                // brand intro; the travelling mark only plays it if it is the first mark shown.
+                rendered.push(<AgentCursor key={`${m.uid}-agent`} slotKey={agent.slot} state={agent.state} intro={!hasVisibleProgress} />);
               }
 
               return rendered;
@@ -340,7 +379,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
             )}
             {m.isStreaming && !m.content ? (
               dispatchProcessVisible && !m.toolCalls?.length && !m.thinking?.some(block => block.content?.trim()) ? (
-                <TurnStatusIndicator startTs={stall.since} label={turnStatusLabel} />
+                <TurnStatusIndicator startTs={turnStartTs} label={turnStatusLabel} />
               ) : dispatchProcessVisible ? null : (
                 <ThinkingInline content="" isActive={true} />
               )

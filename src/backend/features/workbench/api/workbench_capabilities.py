@@ -12,6 +12,7 @@ from features.workbench import capabilities as grants
 from features.workbench import external, application_config
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 from features.workbench.ui.contract import find_data_source
 from features.workbench.ui.data_proxy import call_data_source
@@ -165,18 +166,9 @@ def revoke(
     return success_response(data={"revoked": True})
 
 
-@router.post("/data/query")
-async def query(
-    key: str,
-    body: Query,
-    response: Response,
-    user: UserContext = Depends(host_identity),
-    db: Session = Depends(get_db),
-):
-    if len(json.dumps(body.params).encode()) > 64 * 1024:
-        external.fail(413, "request_too_large")
+def _reserve_query(db, user_id, key, body):
     lease, selected, effective = grants.reserve(
-        db, user.user_id, key, body.revision, body.approvalId, "data.query", body.instanceId
+        db, user_id, key, body.revision, body.approvalId, "data.query", body.instanceId
     )
     try:
         if "data_source:" + body.sourceId not in effective:
@@ -184,28 +176,48 @@ async def query(
         source = find_data_source(selected.ui, body.sourceId)
         if source is None:
             external.fail(404, "data_source_not_found")
+        return lease, selected, source, {
+            "config_values": application_config.data_values(db, key, selected),
+            "configured_origins": application_config.trusted_origins(db, key, selected),
+        }
+    except BaseException:
+        grants.release(db, body.approvalId, lease)
+        raise
+
+
+def _confirm(db, user_id, key, revision, approval_id, capability, instance_id):
+    grants.authorized(db, user_id, key, revision, approval_id, capability, instance_id)
+
+
+@router.post("/data/query")
+async def query(
+    key: str,
+    body: Query,
+    response: Response,
+    user: UserContext = Depends(host_identity),
+):
+    if len(json.dumps(body.params).encode()) > 64 * 1024:
+        external.fail(413, "request_too_large")
+    lease, selected, source, configuration = await run_in_session(
+        _reserve_query, user.user_id, key, body
+    )
+    try:
         try:
             result = await asyncio.wait_for(
-                call_data_source(
-                    source,
-                    body.params,
-                    slug=selected.slug,
-                    config_values=application_config.data_values(db, key, selected),
-                    configured_origins=application_config.trusted_origins(db, key, selected),
-                ),
+                call_data_source(source, body.params, slug=selected.slug, **configuration),
                 timeout=30,
             )
         except TimeoutError:
             external.fail(504, "capability_timeout")
-        grants.authorized(
-            db, user.user_id, key, body.revision, body.approvalId, "data.query", body.instanceId
+        await run_in_session(
+            _confirm, user.user_id, key, body.revision, body.approvalId, "data.query", body.instanceId
         )
         if len(json.dumps(result).encode()) > 256 * 1024:
             external.fail(413, "response_too_large")
         response.headers["Cache-Control"] = "no-store"
         return success_response(data=result)
     finally:
-        grants.release(db, body.approvalId, lease)
+        await run_in_session(grants.release, body.approvalId, lease)
 
 
 def file_info(artifact):
@@ -343,6 +355,27 @@ def download(
     )
 
 
+def _reserve_save(db, user_id, key, revision, approval_id, instance_id):
+    lease, _, _ = grants.reserve(db, user_id, key, revision, approval_id, "file.save", instance_id)
+    return lease
+
+
+def _store_saved(db, user_id, key, revision, approval_id, instance_id, content, filename, mime_type):
+    runtime(db, user_id)
+    grants.authorized(db, user_id, key, revision, approval_id, "file.save", instance_id)
+    from core.files.artifacts.service import store_bytes_as_artifact
+
+    artifact = store_bytes_as_artifact(
+        db,
+        user_id=user_id,
+        content=content,
+        filename=filename,
+        mime_type=mime_type,
+        source="workbench",
+    )
+    return file_info(artifact)
+
+
 @router.post("/files/save")
 async def save(
     key: str,
@@ -351,11 +384,8 @@ async def save(
     instanceId: str | None = Form(None),
     file: UploadFile = File(...),
     user: UserContext = Depends(host_identity),
-    db: Session = Depends(get_db),
 ):
-    lease, _, _ = grants.reserve(
-        db, user.user_id, key, revision, approvalId, "file.save", instanceId
-    )
+    lease = await run_in_session(_reserve_save, user.user_id, key, revision, approvalId, instanceId)
     try:
         content = await asyncio.wait_for(file.read(50 * 1024 * 1024 + 1), timeout=30)
         if not content or len(content) > 50 * 1024 * 1024:
@@ -363,18 +393,10 @@ async def save(
         filename = file.filename or ""
         if not filename or len(filename) > 200 or "/" in filename or "\\" in filename:
             external.fail(422, "invalid_filename")
-        runtime(db, user.user_id)
-        grants.authorized(db, user.user_id, key, revision, approvalId, "file.save", instanceId)
-        from core.files.artifacts.service import store_bytes_as_artifact
-
-        artifact = store_bytes_as_artifact(
-            db,
-            user_id=user.user_id,
-            content=content,
-            filename=filename,
-            mime_type=file.content_type,
-            source="workbench",
+        info = await run_in_session(
+            _store_saved, user.user_id, key, revision, approvalId, instanceId,
+            content, filename, file.content_type,
         )
-        return success_response(data=file_info(artifact))
+        return success_response(data=info)
     finally:
-        grants.release(db, approvalId, lease)
+        await run_in_session(grants.release, approvalId, lease)

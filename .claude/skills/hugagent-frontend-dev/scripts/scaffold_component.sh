@@ -75,7 +75,10 @@ fi
 
 echo ""
 echo "=== 手动步骤 ==="
-echo "1. 在 styles/index.ts 中 import './${COMPONENT_CAMEL}.css'"
+echo "1. 在 styles/index.ts 中 import './${COMPONENT_CAMEL}.css'（或在组件内直接 import）"
 echo "2. 按需在父组件中引入 <$COMPONENT />"
+echo "3. 新文案的英文翻译加进 src/i18n/en/ 对应分片（EE 专属进 edition-ee/i18n/）"
+echo "4. 模板里标 (v2) 的令牌先 grep variables.css；缺失则按 references/css-variables.md 补齐深浅两档"
+echo "5. 运行门禁: cd src/frontend && npm run check:i18n && npm run check:dark && npm run check:motion"
 echo ""
 echo "Done!"

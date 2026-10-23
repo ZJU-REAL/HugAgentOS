@@ -278,7 +278,6 @@ def test_serve_cli_accepts_explicit_public_bind():
 
 def test_configure_chat_model_persists_context_window(monkeypatch):
     from core.db import engine
-    from core.models.config import ModelConfigService
 
     class FakeDb:
         closed = False
@@ -288,7 +287,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
 
     db = FakeDb()
     captured = {}
-    invalidated = []
 
     def fake_create_provider(_db, **kwargs):
         captured.update(kwargs)
@@ -297,11 +295,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
     monkeypatch.setattr(engine, "SessionLocal", lambda: db)
     monkeypatch.setattr(model_repository, "create_provider", fake_create_provider)
     monkeypatch.setattr(model_repository, "assign_role", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        ModelConfigService,
-        "get_instance",
-        classmethod(lambda cls: SimpleNamespace(invalidate_cache=lambda: invalidated.append(True))),
-    )
 
     configure_model(
         "http://model.example/v1",
@@ -313,7 +306,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
 
     assert captured["extra_config"] == {"context_length": 65536}
     assert db.closed is True
-    assert invalidated == [True]
 
 
 def test_ce_schema_keeps_ontology_control_plane_tables():

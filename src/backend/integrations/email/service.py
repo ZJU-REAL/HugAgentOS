@@ -31,7 +31,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
+from core.db.threads import AsyncRepository
 
 from integrations.email.repository import EmailConnectionRepository
 from core.infra.crypto import decrypt_secret, encrypt_secret
@@ -251,9 +251,10 @@ async def _verify(user_id: str) -> Tuple[bool, str]:
 
 
 class EmailService:
-    def __init__(self, db: Session):
-        self.db = db
-        self.repo = EmailConnectionRepository(db)
+    """Connection state lives in the repository; every access is its own short session."""
+
+    def __init__(self):
+        self.repo = AsyncRepository(EmailConnectionRepository)
 
     # ── Status ───────────────────────────────────────────────────────────
     def status_dict(self, record) -> Dict[str, Any]:
@@ -272,22 +273,22 @@ class EmailService:
             "last_error": record.last_error,
         }
 
-    def get_status(self, user_id: str) -> Dict[str, Any]:
-        return self.status_dict(self.repo.ensure(user_id))
+    async def get_status(self, user_id: str) -> Dict[str, Any]:
+        return self.status_dict(await self.repo.ensure(user_id))
 
     async def probe_status(self, user_id: str) -> Dict[str, Any]:
         """Real connectivity probe and reconciliation (credentials may have been invalidated by a password change). Unconnected records are not probed."""
-        record = self.repo.ensure(user_id)
+        record = await self.repo.ensure(user_id)
         if record.status != "connected":
             return self.status_dict(record)
         ok, detail = await self._reverify(user_id, record)
         if ok and record.status != "connected":
-            self.repo.update(user_id, {"status": "connected", "last_error": None,
+            await self.repo.update(user_id, {"status": "connected", "last_error": None,
                                        "last_verified_at": utc_now()})
         elif not ok:
-            self.repo.update(user_id, {"status": "error",
+            await self.repo.update(user_id, {"status": "error",
                                        "last_error": f"{_VERIFY_FAIL}。详情: {detail}" if detail else _VERIFY_FAIL})
-        return self.status_dict(self.repo.get(user_id))
+        return self.status_dict(await self.repo.get(user_id))
 
     async def _reverify(self, user_id: str, record) -> Tuple[bool, str]:
         """Before probing, ensure the backend HOME has config.toml (after a restart / machine change only the DB row may remain) — rebuild it from secret_enc."""
@@ -307,15 +308,15 @@ class EmailService:
         server_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Save mailbox credentials and verify synchronously. Success → connected, failure → error (no half-baked credentials left behind)."""
-        self.repo.ensure(user_id)
+        await self.repo.ensure(user_id)
         email_address = (email_address or "").strip()
         secret = secret or ""
         if not email_address or "@" not in email_address:
-            self.repo.update(user_id, {"status": "error", "last_error": "邮箱地址格式不正确"})
-            return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "error", "last_error": "邮箱地址格式不正确"})
+            return self.status_dict(await self.repo.get(user_id))
         if not secret:
-            self.repo.update(user_id, {"status": "error", "last_error": "请填写邮箱授权码 / 密码"})
-            return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "error", "last_error": "请填写邮箱授权码 / 密码"})
+            return self.status_dict(await self.repo.get(user_id))
 
         # Resolve servers: built-in detection first, then apply server_overrides (an override only applies when non-empty).
         detected = detect_provider(email_address) or {
@@ -326,11 +327,11 @@ class EmailService:
         ov = {k: v for k, v in (server_overrides or {}).items() if v not in (None, "")}
         cfg = {**detected, **ov}
         if not cfg.get("imap_host") or not cfg.get("smtp_host"):
-            self.repo.update(user_id, {
+            await self.repo.update(user_id, {
                 "status": "error",
                 "last_error": "无法自动识别该邮箱的服务器，请在「高级设置」手填 IMAP / SMTP 服务器地址",
             })
-            return self.status_dict(self.repo.get(user_id))
+            return self.status_dict(await self.repo.get(user_id))
 
         # Normalized account/server fields — shared by render and the failure/success DB writes, avoiding duplication.
         server_data = {
@@ -352,24 +353,24 @@ class EmailService:
         )
         werr = _write_config(user_id, content)
         if werr:
-            self.repo.update(user_id, {"status": "error", "last_error": werr})
-            return self.status_dict(self.repo.get(user_id))
+            await self.repo.update(user_id, {"status": "error", "last_error": werr})
+            return self.status_dict(await self.repo.get(user_id))
 
         # Synchronous verification (really connects to IMAP)
         ok, detail = await _verify(user_id)
         if not ok:
             # Verification failed: remove the just-written config so the sandbox doesn't keep failing with bad credentials
             self._purge_config(user_id)
-            self.repo.update(user_id, {
+            await self.repo.update(user_id, {
                 **server_data,
                 "status": "error",
                 "secret_enc": None, "config_bundle": None,
                 "last_error": f"{_VERIFY_FAIL}。详情: {detail}" if detail else _VERIFY_FAIL,
             })
-            return self.status_dict(self.repo.get(user_id))
+            return self.status_dict(await self.repo.get(user_id))
 
         # Success: encrypt the app password + store the portable config bundle (for cube injection)
-        self.repo.update(user_id, {
+        await self.repo.update(user_id, {
             **server_data,
             "status": "connected",
             "secret_enc": encrypt_secret(secret),
@@ -377,7 +378,7 @@ class EmailService:
             "last_verified_at": utc_now(),
             "last_error": None,
         })
-        return self.status_dict(self.repo.get(user_id))
+        return self.status_dict(await self.repo.get(user_id))
 
     def _materialize_config(self, user_id: str, record, secret: str) -> None:
         """Rebuild config.toml from DB metadata + the decrypted app password (probe/restart fallback)."""
@@ -408,8 +409,8 @@ class EmailService:
     async def disconnect(self, user_id: str) -> Dict[str, Any]:
         """Clear the backend persistent credential directory + wipe sensitive DB fields + set disconnected."""
         self._purge_config(user_id)
-        self.repo.ensure(user_id)
-        self.repo.update(user_id, {
+        await self.repo.ensure(user_id)
+        await self.repo.update(user_id, {
             "status": "disconnected",
             "email_address": None, "display_name": None, "provider": None,
             "imap_host": None, "imap_port": None, "imap_security": None,
@@ -417,7 +418,7 @@ class EmailService:
             "secret_enc": None, "config_bundle": None,
             "last_verified_at": None, "last_error": None,
         })
-        return self.status_dict(self.repo.get(user_id))
+        return self.status_dict(await self.repo.get(user_id))
 
 
 def get_email_config_bundle(user_id: str) -> Optional[str]:

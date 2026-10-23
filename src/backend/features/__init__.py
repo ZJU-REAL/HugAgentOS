@@ -115,7 +115,7 @@ def register_run_capabilities():
     from core.harness.registry.host_runtime import register_remote_execution_policy
     from features.desktop.auth import bridge as desktop_bridge
     from core.harness.registry.authentication import register_host_authentication
-    register_host_authentication(desktop_bridge.resolve_bridge_user)
+    register_host_authentication(desktop_bridge.claims_request, desktop_bridge.resolve_bridge_user)
     register_remote_execution_policy(lambda: desktop_bridge.bridge_enabled())
     from core.harness.registry.run_capabilities import register_run_capability_provider
     from features.desktop.capabilities import paths

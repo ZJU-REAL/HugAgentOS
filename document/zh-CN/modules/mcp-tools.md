@@ -190,7 +190,7 @@ extensions/mcp_servers/<name>_mcp/
    - 中间件（`CitationAnchorMiddleware`）会**优先采用**该声明，就地为每条注入
      `"cite_id": "eN"`，模型引用时原样复制。
 2. **标准列表结构 → 加一行注册表配置**：结果形如 `{"items": [{"title": …, "content": …}]}`
-   的列表型工具，在 `orchestration/citation_anchor.py::TOOL_SPECS` 里登记
+   的列表型工具，在 `core/llm/citations/hook.py::TOOL_SPECS` 里登记
    `items_paths` + 字段别名即可逐条编号，不改工具代码。
 3. **什么都不做 → 自动兜底**：通用启发式能识别顶层（或 `result` 下一层）唯一的
    字典数组字段并逐条编号；彻底认不出时整份结果作为 1 个锚点。
@@ -212,7 +212,7 @@ MCP 工具的执行预算不包含等待用户回答的时间。有效提问会�
 
 ## 统一工具权限网关
 
-`core/llm/tool_permissions.py` 提供运行级 `ToolPermissionRegistry` 与
+`core/llm/tool_permissions/` 提供运行级 `ToolPermissionRegistry` 与
 `ToolPermissionMiddleware`。Registry 是**受控工具清单**，不是全工具声明表：
 
 - 工具名没有进入 Registry 时保持既有行为，直接放行，不要求新工具声明权限；
@@ -248,7 +248,7 @@ MCP 规则只接受平台/管理员持有的可信连接配置，不采信远端
 
 ## 配置注册：DB 驱动 + catalog 门控
 
-MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/models.py::AdminMcpServer`），由 `core/capabilities/mcp/service.py::McpServerConfigService` 以 30 秒 TTL 缓存读出，使用原生客户端配置（`transport / command / args / env / url / headers`）。`core/config/mcp_config.py` 保留为内置 Server 的 URL 构造器（首次部署种子）。
+MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/models/`），由 `core/capabilities/mcp/service.py::McpServerConfigService` 以 30 秒 TTL 缓存读出，使用原生客户端配置（`transport / command / args / env / url / headers`）。`core/config/mcp_config.py` 保留为内置 Server 的 URL 构造器（首次部署种子）。
 
 是否**对模型可见**还要过一道 [catalog](catalog.md) 门控：`core/config/catalog.json` 中 `mcp` 段的每项对应一个 server_id，`is_enabled(id, "mcp_server")` 为 false 的 Server 即使连接着也不会注册给智能体。
 
@@ -356,19 +356,19 @@ docker-compose up -d --build mcp
 | `src/backend/extensions/mcp_servers/_serve.py` | stdio / streamable-http 双 transport 统一入口 |
 | `src/backend/extensions/mcp_servers/registry.py` | 安装位置、暴露方式、包名和基础端口 |
 | `src/backend/extensions/mcp_servers/_ports.py` | 实际部署端口映射 |
-| `src/backend/core/llm/mcp/pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
+| `src/backend/core/llm/mcp/` | MCP 连接池（stdio 池化 / HTTP per-request） |
 | `src/backend/core/llm/mcp/manager.py` | MCPClient 构造 + 工具裸名还原 |
-| `src/backend/core/llm/tool_permissions.py` | 受控工具 Registry、权限判定、确认路由与执行票据 |
+| `src/backend/core/llm/tool_permissions/` | 受控工具 Registry、权限判定、确认路由与执行票据 |
 | `src/backend/core/capabilities/mcp/service.py` | DB 驱动的 Server 配置服务（30s 缓存） |
-| `src/backend/core/services/mcp_marketplace_service.py` | 市场发布、审核、安装、可见性与安全控制 |
+| `src/backend/features/marketplace/` | 市场发布、审核、安装、可见性与安全控制 |
 | `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 登录、SDK 元数据发现、加密令牌存储与刷新 |
-| `src/backend/core/services/mcp_marketplace_monitor.py` | 远程工具快照定期复检与漂移监控 |
+| `src/backend/features/marketplace/` | 远程工具快照定期复检与漂移监控 |
 | `src/backend/core/config/mcp_config.py` | 内置 Server URL 构造（http://mcp:NNNN/mcp/） |
 | `src/backend/core/config/catalog.json` | 能力目录：MCP 启停门控种子 |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | 管理员自定义 MCP API |
 | `src/backend/api/routes/v1/me_capabilities.py` | 用户自助私有 MCP / 技能 API |
-| `src/backend/api/routes/v1/mcp_marketplace.py` | 用户端 MCP 市场 API |
-| `src/backend/api/routes/v1/admin_mcp_marketplace.py` | 管理端 MCP 市场与审核 API |
+| `src/backend/features/marketplace/api/mcp_marketplace.py` | 用户端 MCP 市场 API |
+| `src/backend/features/marketplace/api/admin_mcp_marketplace.py` | 管理端 MCP 市场与审核 API |
 | `docker/Dockerfile.mcp` | mcp 容器镜像（MCP 运行时、绘图依赖与中文字体） |
 
 相关文档：[能力目录](catalog.md) · [技能系统](agent-skills.md) · [知识库](knowledge-base.md) · [版本与许可](../editions/overview.md)

@@ -7,6 +7,8 @@ the reads only; a task gets every operation, and its writes wait for the user's 
 like any other external action.
 """
 import asyncio
+
+from core.db.threads import run_in_session
 import hashlib
 import json
 import time
@@ -64,6 +66,17 @@ def owner(db, uid):
     if row is None: raise PermissionError("Owner unavailable")
     return UserContext(user_id=row.user_id, user_center_id=row.user_center_id or "", username=row.username)
 
+def _caller(db, uid, task_id):
+    """The owner, and the running task's grant when the call belongs to one."""
+    grant = None
+    if task_id:
+        from personal_agent.models import PersonalWorkItem
+        from personal_agent.tasks.guards import owned_task
+        state = owned_task(task_id, uid)
+        task = db.get(PersonalWorkItem, task_id)
+        grant = {"task": task_id, "run": state["run_id"], "owner": task.owner}
+    return owner(db, uid), grant
+
 def request_key(task_id, target, operation, args):
     """A write keeps one key per task and exact action: after the user approves it, the task's
     next run finds the receipt instead of asking again. Reads always run fresh."""
@@ -88,22 +101,14 @@ async def call(uid, operation, args, target="cloud", task_id=None, wait=60):
         return {"status": "completed", "result": list_devices(uid)}
     if operation not in READS and not task_id:
         raise PermissionError("Only a background task may change the user's HugAgentOS")
-    with SessionLocal() as db:
-        grant = None
-        if task_id:
-            from personal_agent.models import PersonalWorkItem
-            from personal_agent.tasks.guards import owned_task
-            state = owned_task(task_id, uid)
-            task = db.get(PersonalWorkItem, task_id)
-            grant = {"task": task_id, "run": state["run_id"], "owner": task.owner}
-        job = await dispatch(db, owner(db, uid), target, operation, args,
-            request_key(task_id, target, operation, args), grant)
-        # A device answers through its queue.
-        end = time.monotonic() + wait
-        while job.get("id") and job.get("status") in {"queued", "sent"} and time.monotonic() < end:
-            await asyncio.sleep(0.3)
-            db.expire_all()
-            job = session_queue.view(db, uid, job["id"], task_id)
+    user, grant = await run_in_session(_caller, uid, task_id)
+    job = await dispatch(user, target, operation, args,
+        request_key(task_id, target, operation, args), grant)
+    # A device answers through its queue; poll it without holding a session.
+    end = time.monotonic() + wait
+    while job.get("id") and job.get("status") in {"queued", "sent"} and time.monotonic() < end:
+        await asyncio.sleep(0.3)
+        job = await run_in_session(session_queue.view, uid, job["id"], task_id)
     if not job.get("id"): return job  # pending_approval, rejected or an earlier receipt
     if job["status"] in {"queued", "sent"}: return {"status": "waiting_for_device", "operation_id": job["id"]}
     return {"status": job["status"], "result": job.get("result")}

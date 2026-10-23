@@ -59,7 +59,6 @@ export function installRunSnapshot(state: ChatStreamState, value: unknown) {
   state.sawThinkCloseTag = false;
   state.implicitThinkSegIdxs.clear();
   state.deferredThinkingText = undefined;
-  state.toolPending = false;
   claimPersistedBubble(state);
   for (const block of projection.blocks) {
     if (block.kind === 'text') processTextChunk(state, block.content ?? '');

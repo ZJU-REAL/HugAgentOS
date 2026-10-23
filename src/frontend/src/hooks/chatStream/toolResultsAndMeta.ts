@@ -201,7 +201,6 @@ if (eventType === 'ontology_review') {
         if (candidate || governance.revision) {
             const revision = ensureOntologyRevision(s);
             revision.status = 'completed';
-            revision.toolPending = false;
             if (candidate)
                 revision.content = candidate;
         }

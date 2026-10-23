@@ -66,7 +66,6 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(
     result = await admission.start_response_run(
         ChatRequest(chat_id="api-chat", message=message, stream=stream, agent_id="ua_one"),
         _user(key),
-        db,
     )
     assert captured["effective_user_message"] == message
     assert captured["raw_user_message"] == message

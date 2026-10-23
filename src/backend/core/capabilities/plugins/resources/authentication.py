@@ -14,7 +14,7 @@ def capture(request):
         headers["cookie"] = settings.session.cookie_name + "=" + token
     return {"headers": headers, "path": request.url.path, "method": request.method}
 
-async def validate(context, user_id, db):
+async def validate(context, user_id):
     from core.auth.backend import get_current_user
     from core.config.local_mode import local_mode_enabled
     headers = context.get("headers", {})
@@ -29,6 +29,6 @@ async def validate(context, user_id, db):
     authorization = headers.get("authorization", "")
     scheme, _, value = authorization.partition(" ")
     credentials = HTTPAuthorizationCredentials(scheme=scheme, credentials=value) if value else None
-    current = await get_current_user(request, credentials=credentials, db=db)
+    current = await get_current_user(request, credentials)
     if str(current.user_id) != user_id:
         raise HTTPException(403, "viewer_identity_changed")

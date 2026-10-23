@@ -90,11 +90,9 @@ async def test_scheduled_create_reconciliation_uses_exact_atomic_receipt(
         db.commit()
 
     import core.db.engine as engine_module
-    import core.runs.tool_effect_recovery as recovery_module
     from extensions.mcp_servers.automation_task_mcp import impl
 
     monkeypatch.setattr(engine_module, "SessionLocal", sessions)
-    monkeypatch.setattr(recovery_module, "SessionLocal", sessions)
     before = await reconcile_scheduled_task_intent(intent)
     assert before.outcome == "not_applied"
 

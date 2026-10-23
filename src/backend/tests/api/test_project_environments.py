@@ -5,6 +5,7 @@ from core.db.engine import get_db
 from core.db.models import Project, UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_session
 
 
 def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
@@ -30,6 +31,7 @@ def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
     app.include_router(router)
     actor = {"id": "outsider"}
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=actor["id"], user_center_id=actor["id"], username=actor["id"]
     )

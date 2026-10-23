@@ -55,6 +55,8 @@ def client(monkeypatch):
         user_id=state["uid"], user_center_id="c", username=state["uid"],
     )
     app.dependency_overrides[get_db] = _override_db
+    # Async routes open their sessions through run_in_session.
+    monkeypatch.setattr("core.db.engine.SessionLocal", Session)
     c = TestClient(app)
     c.uidref = state  # lets tests switch the current user
     try:

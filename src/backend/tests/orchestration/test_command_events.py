@@ -180,7 +180,7 @@ async def test_real_http_sse_is_authenticated_and_pushes_without_polling(command
     monkeypatch.setattr(commands_subscription, "get_command_events", lambda: bus)
     monkeypatch.setattr(commands_subscription, "HEARTBEAT_SECONDS", .03)
     revoked = False
-    async def authenticated(req, credentials, db):
+    async def authenticated(req, credentials):
         if credentials is None or revoked:
             raise HTTPException(401, "Authentication expired")
         return SimpleNamespace(user_id=credentials.credentials,
@@ -293,6 +293,6 @@ def test_followup_active_run_inherits_execution_mode(command_db, monkeypatch, mo
         assert response["data"]["kind"] == "chat"
         from api.routes.v1.chats.run_views import chat_run_subscription
         native = chat_run_subscription(followup_id,
-            user=UserContext(user_id="u", user_center_id="u", username="test"), db=db)
+            user=UserContext(user_id="u", user_center_id="u", username="test"))
         assert native.status_code == 200
         assert native.media_type == "text/event-stream"

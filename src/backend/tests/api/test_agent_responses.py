@@ -26,7 +26,7 @@ def response_client(monkeypatch):
     app.dependency_overrides[get_db] = lambda: db
 
     seen = {}
-    async def start(request, user, session):
+    async def start(request, user):
         seen["stream"] = request.stream
         return SimpleNamespace(run_id="run-1", message_id="message-1", user_message_id="user-message-1", chat_id=request.chat_id)
     async def follow(run_id, *, chat_id):

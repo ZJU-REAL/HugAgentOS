@@ -7,7 +7,7 @@ from fastapi import HTTPException
 import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
-spec = importlib.util.spec_from_file_location("sandbox_capacity", ROOT / "docker/opensandbox_capacity.py")
+spec = importlib.util.spec_from_file_location("sandbox_capacity", ROOT / "docker/opensandbox-server/opensandbox_capacity.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 

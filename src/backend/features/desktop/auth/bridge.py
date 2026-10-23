@@ -103,6 +103,11 @@ def _ensure_bridge_capabilities(db: Session, shadow) -> None:
     db.commit()
 
 
+def claims_request(request: Request) -> bool:
+    """Whether this request presents a bridge credential (header check, no I/O)."""
+    return bridge_enabled() and bool(request.headers.get(BRIDGE_SECRET_HEADER, ""))
+
+
 def resolve_bridge_user(request: Request, db: Session):
     """尝试按桌面桥接头解析用户；未启用/未命中/校验失败返回 None（回落常规认证）。
 

@@ -20,6 +20,7 @@ from features.automation.execution import task_execution_context
 from features.automation.service import AutomationService
 from core.chat.sequencer import ChatSequencer
 from core.chat.service import ChatService
+from core.db.threads import run_db, run_in_session
 
 
 class ConversationStopped(Exception):
@@ -166,6 +167,78 @@ async def resume_conversation(
     return await _wait(run, automation_run_id=automation_run_id, lease_token=lease_token)
 
 
+def _accept_prompt_run(db, **kwargs):
+    accepted = ChatSequencer(db).accept_main_run(**kwargs)
+    db.refresh(accepted.run)
+    db.expunge(accepted.run)
+    return accepted.run
+
+
+def _abandon_run(db, run_id, reason):
+    ChatSequencer(db).abandon_pending_run(run_id, reason=reason)
+
+
+def _approve_plan(db, task_id, user_id, plan_id):
+    """Check the task and plan, re-arm a finished plan; returns the plan title."""
+    from core.chat.plans import PlanService
+
+    task = AutomationService(db).get_task(task_id, user_id)
+    if task is None:
+        raise ValueError("任务不存在或无权访问")
+    task_execution_context(db, task)
+    service = PlanService(db)
+    plan = service.get_plan(plan_id, user_id)
+    if plan is None:
+        raise ValueError("计划不存在或无权访问")
+    title = plan.title
+    if plan.status in ("completed", "failed", "cancelled"):
+        service.update_plan(plan_id, status="approved", completed_steps=0)
+        for step in plan.steps:
+            service.update_step(
+                step.step_id,
+                status="pending",
+                result_summary=None,
+                ai_output=None,
+                error_message=None,
+            )
+    elif plan.status == "draft":
+        service.update_plan(plan_id, status="approved")
+    return title
+
+
+def _loop_target(db, user_id, task_name, loop_id, task_id):
+    """Prepare the loop's chat; returns a skip notice, or (chat_id, goal_spec, budget, project_context)."""
+    from features.automation.loops import LoopService
+
+    task = AutomationService(db).get_task(task_id, user_id)
+    if task is None:
+        raise ValueError("任务不存在或无权访问")
+    project_context = task_execution_context(db, task)
+    loop = LoopService(db).get_loop(loop_id)
+    if loop is None or loop.user_id != user_id:
+        raise ValueError("loop 不存在或无权访问")
+    if loop.status in ("completed", "cancelled"):
+        return f"loop 已终态({loop.status})，跳过"
+    chat_id = loop.chat_id or f"loopchat_{loop_id}"
+    goal_spec, budget = dict(loop.goal_spec or {}), dict(loop.budget or {})
+    ChatService(db).ensure_session(
+        chat_id=chat_id,
+        user_id=user_id,
+        title=task_name,
+        project_id=project_context.get("project_id"),
+        extra_data={
+            "automation_task_id": task_id,
+            "automation_run": True,
+            "autonomous_loop": True,
+            "loop_id": loop_id,
+        },
+    )
+    if not loop.chat_id:
+        loop.chat_id = chat_id
+        db.commit()
+    return chat_id, goal_spec, budget, project_context
+
+
 async def execute_prompt(
     *,
     user_id: str,
@@ -180,16 +253,20 @@ async def execute_prompt(
     lease_token: Optional[str] = None,
 ):
     model = user_model_selection.resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
-    chat_id, project_context = _prepare(
-        user_id, task_id, task_name, None, model, automation_run_id, lease_token=lease_token
+    chat_id, project_context = await run_db(
+        _prepare, user_id, task_id, task_name, None, model, automation_run_id, lease_token=lease_token
     )
-    with db_engine.SessionLocal() as db:
+    def _enabled_capabilities(db):
         skills, agents, mcps = resolve_enabled_capabilities(
             db, user_id, enabled_skill_ids, enabled_agent_ids, enabled_mcp_ids
         )
+        return mcps, agents, skills
+    mcps, agents, skills = await run_in_session(_enabled_capabilities)
     from core.ontology.runtime_policy import build_user_ontology_runtime
 
-    ontology_enabled, ontology_runtime = build_user_ontology_runtime(user_id=user_id, task=prompt)
+    ontology_enabled, ontology_runtime = await run_db(
+        build_user_ontology_runtime, user_id=user_id, task=prompt
+    )
     context = build_runtime_context(
         model_name=model,
         enable_thinking=True,
@@ -218,32 +295,37 @@ async def execute_prompt(
         "chat_mode": context["chat_mode"],
         "enable_thinking": context["enable_thinking"],
     }
-    with db_engine.SessionLocal() as db:
-        with ChatSequencer(db).launching_main_run(
-            on_accept=_accept_link(automation_run_id, task_id, lease_token, {
-                "kind": "chat", "worker_args": {
-                    "session_messages": [{"role": "user", "content": prompt}],
-                    "effective_user_message": prompt, "raw_user_message": prompt,
-                    "context": context, "model_name": model,
-                },
-            }),
+    worker_args = {
+        "session_messages": [{"role": "user", "content": prompt}],
+        "effective_user_message": prompt, "raw_user_message": prompt,
+        "context": context, "model_name": model,
+    }
+    accepted_run = await run_in_session(
+        _accept_prompt_run,
+        on_accept=_accept_link(
+            automation_run_id, task_id, lease_token, {"kind": "chat", "worker_args": worker_args}
+        ),
+        chat_id=chat_id,
+        user_id=user_id,
+        user_content=prompt,
+        request_payload=payload,
+        model=model,
+    )
+    try:
+        run = await admission.start_run(
+            accepted_run=accepted_run,
             chat_id=chat_id,
             user_id=user_id,
-            user_content=prompt,
+            session_messages=[{"role": "user", "content": prompt}],
+            effective_user_message=prompt,
+            raw_user_message=prompt,
+            context=context,
             request_payload=payload,
-            model=model,
-        ) as accepted:
-            run = await admission.start_run(
-                accepted_run=accepted.run,
-                chat_id=chat_id,
-                user_id=user_id,
-                session_messages=[{"role": "user", "content": prompt}],
-                effective_user_message=prompt,
-                raw_user_message=prompt,
-                context=context,
-                request_payload=payload,
-                model_name=model,
-            )
+            model_name=model,
+        )
+    except BaseException as exc:
+        await run_in_session(_abandon_run, accepted_run.run_id, str(exc) or type(exc).__name__)
+        raise
 
     return await _wait(run, automation_run_id=automation_run_id, lease_token=lease_token)
 
@@ -261,33 +343,11 @@ async def execute_plan(
     automation_run_id: Optional[str] = None,
     lease_token: Optional[str] = None,
 ):
-    from core.chat.plans import PlanService
-
     model = user_model_selection.resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
-    with db_engine.SessionLocal() as db:
-        task = AutomationService(db).get_task(task_id, user_id)
-        if task is None:
-            raise ValueError("任务不存在或无权访问")
-        task_execution_context(db, task)
-        service = PlanService(db)
-        plan = service.get_plan(plan_id, user_id)
-        if plan is None:
-            raise ValueError("计划不存在或无权访问")
-        title = plan.title
-        if plan.status in ("completed", "failed", "cancelled"):
-            service.update_plan(plan_id, status="approved", completed_steps=0)
-            for step in plan.steps:
-                service.update_step(
-                    step.step_id,
-                    status="pending",
-                    result_summary=None,
-                    ai_output=None,
-                    error_message=None,
-                )
-        elif plan.status == "draft":
-            service.update_plan(plan_id, status="approved")
+    title = await run_in_session(_approve_plan, task_id, user_id, plan_id)
     content = f"自动化执行计划：{title}"
-    chat_id, _ = _prepare(
+    chat_id, _ = await run_db(
+        _prepare,
         user_id,
         task_id,
         task_name,
@@ -315,38 +375,13 @@ async def execute_plan(
 async def execute_loop(
     *, user_id, task_name, loop_id, task_id, automation_run_id=None, lease_token=None
 ):
-    from features.automation.loops import LoopService
-
     if not loop_id:
         raise ValueError("loop 任务缺少 extra_data.loop_id")
-    with db_engine.SessionLocal() as db:
-        task = AutomationService(db).get_task(task_id, user_id)
-        if task is None:
-            raise ValueError("任务不存在或无权访问")
-        project_context = task_execution_context(db, task)
-        loop = LoopService(db).get_loop(loop_id)
-        if loop is None or loop.user_id != user_id:
-            raise ValueError("loop 不存在或无权访问")
-        if loop.status in ("completed", "cancelled"):
-            return None, f"loop 已终态({loop.status})，跳过", {}
-        chat_id = loop.chat_id or f"loopchat_{loop_id}"
-        goal_spec, budget = dict(loop.goal_spec or {}), dict(loop.budget or {})
-        ChatService(db).ensure_session(
-            chat_id=chat_id,
-            user_id=user_id,
-            title=task_name,
-            project_id=project_context.get("project_id"),
-            extra_data={
-                "automation_task_id": task_id,
-                "automation_run": True,
-                "autonomous_loop": True,
-                "loop_id": loop_id,
-            },
-        )
-        if not loop.chat_id:
-            loop.chat_id = chat_id
-            db.commit()
-    if runtime.get_active_run_for_chat(chat_id, user_id):
+    target = await run_in_session(_loop_target, user_id, task_name, loop_id, task_id)
+    if isinstance(target, str):
+        return None, target, {}
+    chat_id, goal_spec, budget, project_context = target
+    if await run_db(runtime.get_active_run_for_chat, chat_id, user_id):
         return chat_id, "loop 已在推进中，跳过本次触发", {}
     run = await _orchestration_loops_admission.start_autonomous_loop_run(
         on_accept=_accept_link(automation_run_id, task_id, lease_token),

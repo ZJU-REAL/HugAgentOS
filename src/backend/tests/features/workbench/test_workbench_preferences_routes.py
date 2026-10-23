@@ -5,17 +5,19 @@ from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_factory, share_session
 
 BASE = "/v1/workbench/me/navigation-preferences"
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, monkeypatch):
     from features.workbench.api.workbench import router
 
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="alice", user_center_id="alice", username="Alice"
     )
@@ -80,7 +82,7 @@ def test_user_environment_isolation_and_reset_do_not_change_other_preferences(cl
 
 
 @pytest.mark.parametrize("revision", [0, 1])
-def test_two_devices_same_revision_have_one_winner(client, db_session, revision):
+def test_two_devices_same_revision_have_one_winner(client, db_session, revision, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
@@ -95,6 +97,7 @@ def test_two_devices_same_revision_have_one_winner(client, db_session, revision)
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     barrier = Barrier(2)
 
     def write(key):

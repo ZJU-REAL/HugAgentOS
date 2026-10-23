@@ -140,12 +140,12 @@ The tools work for both self-hosted and external knowledge bases; just pass the 
 
 | Layer | Location |
 |---|---|
-| Data model | `src/backend/core/db/models/kb_wiki.py` |
-| Pipeline | `src/backend/core/kb/wiki/` (`extract` / `cite` / `dedup` / `taxonomy` / `reduce` / `finalize` / `pipeline`) |
-| Prompts | `src/backend/core/kb/wiki/prompts.py` |
-| Jobs and worker | `src/backend/core/kb/wiki/jobs.py`, `worker.py` |
-| Read surface | `src/backend/core/kb/wiki/local_provider.py` |
-| Per-base dispatch | `src/backend/core/kb/wiki_router.py` |
-| Routes | `src/backend/api/routes/v1/kb_wiki.py` |
+| Data model | `src/backend/features/knowledge/models.py` |
+| Pipeline | `src/backend/features/knowledge/wiki/` (`extract` / `cite` / `dedup` / `taxonomy` / `reduce` / `finalize` / `pipeline`) |
+| Prompts | `src/backend/features/knowledge/wiki/prompts.py` |
+| Jobs and worker | `src/backend/features/knowledge/wiki/jobs.py`, `worker.py` |
+| Read surface | `src/backend/features/knowledge/wiki/local_provider.py` |
+| Per-base dispatch | `src/backend/features/knowledge/wiki_router.py` |
+| Routes | `src/backend/features/knowledge/api/kb_wiki.py` |
 | Agent tools | `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/wiki_impl.py` |
 | Frontend | `src/frontend/src/components/kb/` (`WikiPanel` / `WikiTree` / `ConceptGraph` / `IndexModePicker`) |

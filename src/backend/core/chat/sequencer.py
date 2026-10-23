@@ -9,7 +9,6 @@ is durable.
 from __future__ import annotations
 
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -81,38 +80,6 @@ class ChatSequencer:
         if run is None:
             return None
         return ActiveRunRef(run_id=run.run_id, message_id=run.message_id, status=run.status)
-
-    @contextmanager
-    def launching_main_run(
-        self,
-        *,
-        chat_id: str,
-        user_id: str,
-        user_content: str,
-        request_payload: Dict[str, Any],
-        model: Optional[str] = None,
-        user_extra_data: Optional[Dict[str, Any]] = None,
-        on_accept=None,
-    ):
-        """Admit a main conversation and release its pending writer if launch fails.
-
-        Preparation after admission and executor launch belong inside this scope.
-        Waiting for the running worker belongs outside it.
-        """
-        accepted = self.accept_main_run(
-            chat_id=chat_id,
-            user_id=user_id,
-            user_content=user_content,
-            request_payload=request_payload,
-            model=model,
-            user_extra_data=user_extra_data,
-            on_accept=on_accept,
-        )
-        try:
-            yield accepted
-        except BaseException as exc:
-            self.abandon_pending_run(accepted.run.run_id, reason=str(exc) or type(exc).__name__)
-            raise
 
     def accept_main_run(
         self,

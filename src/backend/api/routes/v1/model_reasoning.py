@@ -2,10 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from api.deps import require_system_settings
-from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.models.repository import get_provider
 from core.infra.responses import success_response
 from core.models.providers.reasoning_probe import discover_reasoning_efforts
@@ -26,11 +25,10 @@ class DetectReasoningRequest(BaseModel):
 async def detect_reasoning_levels(
     body: DetectReasoningRequest,
     _: None = Depends(require_system_settings),
-    db: Session = Depends(get_db),
 ):
     api_key = body.api_key
     if body.provider_id and not api_key:
-        existing = get_provider(db, body.provider_id)
+        existing = await run_in_session(get_provider, body.provider_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Provider not found")
         api_key = existing.api_key or ""

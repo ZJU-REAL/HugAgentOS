@@ -11,6 +11,7 @@ from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
 from tests.test_personal_agent_routing import sessions, personal_agent_on, turn, scripted
 from tests.test_personal_agent_file_memory import workspace
+from tests.db_support import share_factory
 
 NOW = datetime(2026, 10, 18, 4, tzinfo=timezone.utc).timestamp()
 
@@ -237,7 +238,7 @@ def test_two_workers_do_not_duplicate_model_work(workspace, sessions):
     assert calls == [1]
 
 
-def test_dreaming_api_settings_run_and_owner_isolation(workspace, sessions):
+def test_dreaming_api_settings_run_and_owner_isolation(workspace, sessions, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.db.engine import get_db
@@ -247,6 +248,7 @@ def test_dreaming_api_settings_run_and_owner_isolation(workspace, sessions):
     def database():
         with sessions() as db: yield db
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, sessions)
     app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="owner", user_center_id="owner", username="owner")
     with TestClient(app) as client:
         assert client.patch("/v1/personal-agent/settings", json={"dreaming": {"enabled": True, "hour": 4}}).status_code == 200

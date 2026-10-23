@@ -2,6 +2,7 @@
 
 from urllib.parse import parse_qs, urlsplit
 
+from tests.db_support import share_factory
 from tests.features.workbench.test_workbench_external_routes import AUTH, BASE, client, create  # noqa: F401
 
 KEY = "external:wb_reports"
@@ -151,7 +152,7 @@ def test_revocation_and_auth_rotation_reject_outstanding_tickets(client, db_sess
     assert redeem(client, body).status_code == 401
 
 
-def test_concurrent_target_exchange_has_exactly_one_winner(client, db_session):
+def test_concurrent_target_exchange_has_exactly_one_winner(client, db_session, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
@@ -169,6 +170,7 @@ def test_concurrent_target_exchange_has_exactly_one_winner(client, db_session):
             yield db
 
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     barrier = Barrier(6)
 
     def exchange_once():

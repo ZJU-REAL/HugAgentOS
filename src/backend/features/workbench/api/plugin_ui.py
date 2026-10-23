@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.responses import success_response
 from features.workbench.ui import data_proxy as proxy
@@ -87,14 +88,13 @@ async def call_plugin_data_source(
     slug: str = Path(..., min_length=1, max_length=100),
     source_id: str = Path(..., min_length=1, max_length=64),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Run one manifest-declared upstream call on the caller's behalf.
 
     Params are validated against the declaration's ``params_schema`` and
     credentials are interpolated server-side, so the browser never sees them.
     """
-    ui = _require_ui(db, slug, str(user.user_id))
+    ui = await run_in_session(_require_ui, slug, str(user.user_id))
     source = find_data_source(ui, source_id)
     if source is None:
         raise ResourceNotFoundError("plugin_data_source", f"{slug}/{source_id}")

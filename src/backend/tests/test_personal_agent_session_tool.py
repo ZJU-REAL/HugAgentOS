@@ -29,6 +29,7 @@ def db(monkeypatch):
     for module in (approvals, session_tool, session_watch, tools):
         monkeypatch.setattr(module, "SessionLocal", factory)
         monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     with factory() as session:
         session.add(UserShadow(user_id="owner", user_center_id="owner", username="owner"))
         session.commit()
@@ -40,7 +41,7 @@ def db(monkeypatch):
 def cloud(monkeypatch):
     calls = []
 
-    async def execute(db, user, operation, args, origin=None):
+    async def execute(user, operation, args, origin=None):
         calls.append((operation, args))
         if operation == "chat.send":
             return {"run_id": "run_x", "chat_id": args["chat_id"], "status": "accepted"}
@@ -142,7 +143,7 @@ async def test_a_run_the_task_followed_is_not_reported_again(db, cloud, monkeypa
     ])
     db.commit()
 
-    async def execute(db, user, operation, args, origin=None):
+    async def execute(user, operation, args, origin=None):
         return {"run_id": args["run_id"], "status": "completed"}
 
     monkeypatch.setattr(session_cloud, "execute", execute)

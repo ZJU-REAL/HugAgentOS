@@ -9,6 +9,7 @@ import typing as _typing
 from typing import Any, Dict, List, Optional
 
 import core.db.engine as engine
+from core.db.threads import run_db, run_in_session
 import core.db.models as models
 import core.runs.events.writer as writer
 import core.runs.ownership as ownership
@@ -18,6 +19,22 @@ import core.runs.tool_effects.journal as tool_effect_ledger
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _is_automation_chat(db, chat_id: str) -> bool:
+    session = db.get(models.ChatSession, chat_id)
+    return bool(session and (session.extra_data or {}).get("automation_run"))
+
+
+def _execution_snapshot(db, plan_id, user_id, completed_steps, total_steps, result_text):
+    from core.chat.plans import PlanService
+
+    plan = PlanService(db).get_plan(plan_id, user_id)
+    if not plan:
+        return None
+    return PlanService.build_execution_snapshot(
+        plan, completed_steps=completed_steps, total_steps=total_steps, result_text=result_text
+    )
 
 
 async def _run_plan_execute_workflow(
@@ -44,12 +61,13 @@ async def _run_plan_execute_workflow(
     from core.chat.tool_log import upsert_tool_call as _upsert_tool_call
     from core.llm.runtime import workspace as _workspace_mod
     from core.files.artifacts.service import persist_artifacts as _persist_artifacts
-    from core.chat.plans import PlanService
     from orchestration.plans.mode import astream_execute_plan
 
     owner = journal_owner or ownership.new_worker_owner(run_id)
     journal = ownership.journal()
-    if not journal.claim(run_id, owner=owner, lease_seconds=settings.RUN_LEASE_SECONDS, pending_only=True):
+    if not await run_db(
+        journal.claim, run_id, owner=owner, lease_seconds=settings.RUN_LEASE_SECONDS, pending_only=True
+    ):
         logger.info("plan_run_claim_skipped", run_id=run_id, owner=owner)
         return
     current = asyncio.current_task()
@@ -64,7 +82,8 @@ async def _run_plan_execute_workflow(
     _emit = offsets.emit
 
     async def _pause_plan_tool_outcome(exc: BaseException) -> None:
-        if not journal.needs_attention(
+        if not await run_db(
+            journal.needs_attention,
             run_id,
             owner=owner,
             reason=f"tool outcome pending policy recovery: {exc}",
@@ -176,67 +195,55 @@ async def _run_plan_execute_workflow(
             }
         )
 
-        # astream_execute_plan needs a Session; isolate it from the persistence one.
         from core.harness.tool_call_context import CURRENT_RUN_BINDING
 
         binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
         try:
-            with engine.SessionLocal() as stream_db:
-                from core.db.models import ChatSession
-
-                session = stream_db.get(ChatSession, chat_id)
-                automation_run = bool(session and (session.extra_data or {}).get("automation_run"))
-                async for event in astream_execute_plan(
-                    plan_id=plan_id,
-                    user_id=user_id,
-                    db=stream_db,
-                    model_name=model_name,
-                    enabled_mcp_ids=enabled_mcp_ids,
-                    enabled_skill_ids=enabled_skill_ids,
-                    enabled_kb_ids=enabled_kb_ids,
-                    enabled_agent_ids=enabled_agent_ids,
-                    session_messages=session_messages,
-                    chat_id=chat_id,
-                    run_id=run_id,
-                    automation_run=automation_run,
-                ):
-                    evt_type = event.get("type")
-                    if evt_type == "plan_complete":
-                        result_text = event.get("result_text", "")
-                        completed_steps = event.get("completed_steps", 0)
-                        total_steps = event.get("total_steps", 0)
-                        exec_usage = event.get("usage") or None
-                    elif evt_type == "tool_call":
-                        _upsert_tool_call(
-                            tool_calls_log,
-                            {
-                                "tool_name": event.get("tool_name"),
-                                "tool_id": event.get("tool_id"),
-                                "tool_args": event.get("tool_args", {}),
-                                "step_id": event.get("step_id"),
-                            },
-                        )
-                    elif evt_type == "tool_result":
-                        res = event.get("result")
-                        tid = event.get("tool_id")
-                        tn = event.get("tool_name")
-                        _attach_tool_result(tool_calls_log, tid, tn, res)
-                    await _emit(event)
+            automation_run = await run_in_session(_is_automation_chat, chat_id)
+            async for event in astream_execute_plan(
+                plan_id=plan_id,
+                user_id=user_id,
+                model_name=model_name,
+                enabled_mcp_ids=enabled_mcp_ids,
+                enabled_skill_ids=enabled_skill_ids,
+                enabled_kb_ids=enabled_kb_ids,
+                enabled_agent_ids=enabled_agent_ids,
+                session_messages=session_messages,
+                chat_id=chat_id,
+                run_id=run_id,
+                automation_run=automation_run,
+            ):
+                evt_type = event.get("type")
+                if evt_type == "plan_complete":
+                    result_text = event.get("result_text", "")
+                    completed_steps = event.get("completed_steps", 0)
+                    total_steps = event.get("total_steps", 0)
+                    exec_usage = event.get("usage") or None
+                elif evt_type == "tool_call":
+                    _upsert_tool_call(
+                        tool_calls_log,
+                        {
+                            "tool_name": event.get("tool_name"),
+                            "tool_id": event.get("tool_id"),
+                            "tool_args": event.get("tool_args", {}),
+                            "step_id": event.get("step_id"),
+                        },
+                    )
+                elif evt_type == "tool_result":
+                    res = event.get("result")
+                    tid = event.get("tool_id")
+                    tn = event.get("tool_name")
+                    _attach_tool_result(tool_calls_log, tid, tn, res)
+                await _emit(event)
         finally:
             CURRENT_RUN_BINDING.reset(binding_token)
 
         # Build plan snapshot in its own short session
         plan_snapshot = None
         try:
-            with engine.SessionLocal() as snap_db:
-                updated_plan = PlanService(snap_db).get_plan(plan_id, user_id)
-                if updated_plan:
-                    plan_snapshot = PlanService.build_execution_snapshot(
-                        updated_plan,
-                        completed_steps=completed_steps,
-                        total_steps=total_steps,
-                        result_text=result_text,
-                    )
+            plan_snapshot = await run_in_session(
+                _execution_snapshot, plan_id, user_id, completed_steps, total_steps, result_text
+            )
         except Exception as snap_exc:
             logger.warning("plan_run_snapshot_failed", run_id=run_id, error=str(snap_exc))
 
@@ -247,7 +254,8 @@ async def _run_plan_execute_workflow(
         artifacts_meta = _ws_pinned
         _ws_files = _workspace_mod.get_pinned_file_ids()
 
-        completed = journal.complete(
+        completed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="completed",
@@ -267,17 +275,18 @@ async def _run_plan_execute_workflow(
             # 用户取消时 cancel_run 已先写终态、清租约，上面的 CAS 注定输掉。
             # 协作式取消让生成器正常收尾，本轮已完成的步骤和正文就在手里 ——
             # 不落库的话，用户回到会话只剩自己那句话。
-            if ownership.cancelled_by_user(run_id):
-                _persist_plan_partial()
+            if await run_db(ownership.cancelled_by_user, run_id):
+                await run_db(_persist_plan_partial)
             else:
                 logger.warning("plan_run_terminal_cas_lost", run_id=run_id, owner=owner)
 
     except asyncio.CancelledError:
         if lease_lost.is_set():
             logger.warning("plan_run_worker_fenced", run_id=run_id, owner=owner)
-            if ownership.cancelled_by_user(run_id):
-                _persist_plan_partial()
-        elif journal.complete(
+            if await run_db(ownership.cancelled_by_user, run_id):
+                await run_db(_persist_plan_partial)
+        elif await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="cancelled",
@@ -305,7 +314,8 @@ async def _run_plan_execute_workflow(
             await _pause_plan_tool_outcome(nested_unknown)
             return
         logger.error("plan_run_failed", run_id=run_id, error=str(exc), exc_info=True)
-        failed = journal.complete(
+        failed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="failed",

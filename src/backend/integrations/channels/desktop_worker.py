@@ -12,6 +12,7 @@ import httpx
 from integrations.channels.protocol import ChannelCaps, HistoryItem, InboundMsg, SendResult
 from integrations.channels.models import ChannelConnection
 from core.db.models import ContentBlock, UserShadow
+from core.db.threads import run_db, run_in_session
 from core.infra.exceptions import AccessDeniedError, BadRequestError
 from features.desktop.auth import bridge as bridge_auth
 from integrations.channels.relay_rpc import pack_bytes, unpack_bytes
@@ -67,8 +68,18 @@ def identity_owner(db):
     return identity, owner
 
 
-async def prepare_binding(db, owner):
-    identity, actual_owner = identity_owner(db)
+def _store_grant(db, captured, grant, identity, owner):
+    with bridge_identity.account_scope(captured):
+        db.add(
+            ContentBlock(
+                id=GRANT_PREFIX + grant["binding_id"], payload={**identity, "local_owner": owner}
+            )
+        )
+        db.commit()
+
+
+async def prepare_binding(owner):
+    identity, actual_owner = await run_in_session(identity_owner)
     if owner != actual_owner:
         raise AccessDeniedError("本机账号不匹配")
     captured = bridge_identity.get_state()
@@ -81,13 +92,7 @@ async def prepare_binding(db, owner):
         or not isinstance(grant.get("device_name"), str)
     ):
         raise BadRequestError("本机授权响应格式无效，请重试")
-    with bridge_identity.account_scope(captured):
-        db.add(
-            ContentBlock(
-                id=GRANT_PREFIX + grant["binding_id"], payload={**identity, "local_owner": owner}
-            )
-        )
-        db.commit()
+    await run_in_session(_store_grant, captured, grant, identity, owner)
     return grant
 
 
@@ -197,13 +202,9 @@ class DesktopChannelAdapter:
         return SendResult(**await self.call("recall_message", {"message_id": message_id}))
 
 
-async def run_delivery(factory, captured, identity, owner, item):
-    from integrations.channels.inbound import handle_inbound
-    from integrations.channels.registry import scoped_adapter
+def _accept_delivery(factory, identity, owner, item, receipt_id):
     from core.capabilities.agents.edition import UserAgentService
 
-    bridge_identity.require_current_account(captured)
-    receipt_id = RECEIPT_PREFIX + item["delivery_id"]
     with factory() as db:
         if item["binding_id"] not in local_grants(db, identity, owner):
             raise AccessDeniedError("机器人尚未在这台电脑授权")
@@ -245,6 +246,23 @@ async def run_delivery(factory, captured, identity, owner, item):
             )
         )
         db.commit()
+    return local_id
+
+
+def _finish_receipt(factory, receipt_id, binding_id, error):
+    with factory() as db:
+        receipt = db.get(ContentBlock, receipt_id)
+        receipt.payload = {"state": "failed" if error else "completed", "binding_id": binding_id}
+        db.commit()
+
+
+async def run_delivery(factory, captured, identity, owner, item):
+    from integrations.channels.inbound import handle_inbound
+    from integrations.channels.registry import scoped_adapter
+
+    bridge_identity.require_current_account(captured)
+    receipt_id = RECEIPT_PREFIX + item["delivery_id"]
+    local_id = await run_db(_accept_delivery, factory, identity, owner, item, receipt_id)
     msg = InboundMsg(**{**item["message"], "channel_id": local_id})
     adapter = DesktopChannelAdapter(captured, item, local_id)
     with scoped_adapter(adapter):
@@ -262,14 +280,23 @@ async def run_delivery(factory, captured, identity, owner, item):
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             await adapter.cancel()
-    with factory() as db:
-        receipt = db.get(ContentBlock, receipt_id)
-        receipt.payload = {
-            "state": "failed" if adapter.error else "completed",
-            "binding_id": item["binding_id"],
-        }
-        db.commit()
+    await run_db(_finish_receipt, factory, receipt_id, item["binding_id"], adapter.error)
     return adapter.error
+
+
+def _claim_inputs(factory):
+    with factory() as db:
+        identity, owner = identity_owner(db)
+        return identity, owner, local_grants(db, identity, owner)
+
+
+def _forget_grants(factory, captured, binding_ids):
+    with bridge_identity.account_scope(captured), factory() as db:
+        for binding_id in binding_ids:
+            row = db.get(ContentBlock, GRANT_PREFIX + binding_id)
+            if row:
+                db.delete(row)
+        db.commit()
 
 
 class ChannelDesktopWorker:
@@ -290,20 +317,13 @@ class ChannelDesktopWorker:
             captured = None
             item = None
             try:
-                with self.factory() as db:
-                    identity, owner = identity_owner(db)
-                    bindings = local_grants(db, identity, owner)
+                identity, owner, bindings = await run_db(_claim_inputs, self.factory)
                 captured = bridge_identity.get_state()
                 for offset in range(0, len(bindings), 200):
                     batch = bindings[offset : offset + 200]
                     reply = await cloud_post(captured, "claim", {"binding_ids": batch})
                     retained = set(reply["retained_binding_ids"])
-                    with bridge_identity.account_scope(captured), self.factory() as db:
-                        for binding_id in set(batch) - retained:
-                            row = db.get(ContentBlock, GRANT_PREFIX + binding_id)
-                            if row:
-                                db.delete(row)
-                        db.commit()
+                    await run_db(_forget_grants, self.factory, captured, set(batch) - retained)
                     item = reply["delivery"]
                     if item:
                         error = await run_delivery(self.factory, captured, identity, owner, item)

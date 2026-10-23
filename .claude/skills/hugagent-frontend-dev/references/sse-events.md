@@ -1,246 +1,126 @@
 # SSE 事件类型参考
 
-统一回复端点 `POST /v1/agents/responses` 在请求体 `stream: true` 时返回 Server-Sent Events（默认 false 返回完整 JSON）。后端把 run 跑在后台
-（ChatRun + Redis Stream），SSE 只是"跟随"——断线后可用 `GET /v1/chats/stream/{run_id}`
-重新接上同一条流续播。
+统一回复端点 `POST /v1/agents/responses`（`stream: true` 返回 SSE，默认返回完整 JSON）。后端把每一轮跑成后台 run
+（`core/runs` 持有租约、事件日志与续播；`core/chat/runtime/worker.py` 消费事件并持久化输出），SSE 只是"跟随"。
 
-**前端解析单一真源是 `hooks/chatStream.ts`（`processChatStream()`）**；`hooks/useStreaming.ts`
-只做发送/中止/续播/排队编排；通用分帧器在 `utils/sse.ts`（`parseSSE`）。后端事件产出主体在
-`orchestration/streaming.py`（StreamingAgent）与 `orchestration/chat_run_executor.py`。
+| 端 | 位置 |
+|---|---|
+| 前端解析单一真源 | `hooks/chatStream.ts` → `hooks/chatStream/`（`consume.ts` 入口；`payload.ts` 分帧与分派；`lifecycleAndTools.ts` / `toolResultsAndMeta.ts` / `controls.ts` 分领域 reducer；`snapshot*.ts` 快照恢复） |
+| 前端发送 / 续播编排 | `hooks/useStreaming.ts` + `hooks/streamSend.ts` / `streamFollowing.ts` / `streamRecovery.ts` / `streamQueue.ts` |
+| 通用分帧器 | `utils/sse.ts`（`parseSSE`） |
+| 订阅客户端 | `runSubscriptionClient.ts`（`GET /v1/chats/stream/{run_id}/subscription`） |
+| 后端事件产出 | `core/agent_runtime/stream_main.py` / `stream_direct.py`、`core/llm/runtime/stream_events.py`；SSE 输出 `api/transports/run_sse.py` |
+
+**新增事件处理只写在 `hooks/chatStream/` 对应的 reducer 里**，不要在别处再解析 SSE。
 
 ## 流格式
 
 ```
-data: {"type": "<event_type>", ...payload}    # JSON 事件
-data: [DONE]                                  # 流终止标记
-: heartbeat                                   # SSE 注释行心跳（直接忽略）
+data: {"type": "<event_type>", "server_ts": 1730000000000, "event_offset": 42, ...payload}
+data: [DONE]          # 流终止
+: heartbeat           # 注释行心跳，忽略
 ```
 
-> 没有独立的 `done` 事件——结束是 `end` 事件或 `[DONE]`。正文事件规范名是 `content`，
-> 但 `ai_message` / `text` / `delta` 都会被当作正文别名接受。
+- `server_ts` 更新最后活动时间（停滞检测）；`event_offset` 记录续播偏移。
+- 无 `type` 的裸文本帧当作正文追加。
+- 正文规范名 `content`，`ai_message` / `text` / `delta` 均作别名接受。
 
-## 事件类型
+## 订阅帧（续播 / 刷新后）
 
-### `run_started` — 首帧
+| 事件 | 说明 |
+|---|---|
+| `run_snapshot` | 订阅首帧，携带 `state`：对齐的原生快照（已产生的正文/思考/工具段），`installRunSnapshot()` 直接装入 |
+| `run_terminal` | run 已终态，结束跟随 |
 
-```json
-{"type": "run_started", "run_id": "run_xxx", "message_id": "msg_xxx"}
-```
+## 生命周期
 
-- 必须记录到 `useChatStore.setActiveRun(chatId, { runId, messageId })`
-- `run_id` 是断线续播的凭据
+| 事件 | 载荷要点 | 处理 |
+|---|---|---|
+| `run_started` | `run_id`, `message_id` | 首帧，存 activeRun（续播凭据） |
+| `queued_run_started` | 排队消息交接信息 | 排队中的下一条消息开始执行（`parseQueuedRunHandoff`） |
+| `steer_applied` | 插话边界 | 运行中插话被采纳，切分正文边界 |
+| `meta` | `message_id`, `citations`, `workspace_files`, … | 设置 messageId；`citations` 非空时整体替换 |
+| `follow_up` | `follow_up_questions[]` | 追问建议；也可能流结束后后台生成写入消息 `extra_data` |
+| `error` | `error` | 终止本次流处理 |
+| `end` / `[DONE]` | — | 收尾所有 running 工具，标记流结束 |
 
-### `content` — 文本增量
+## 正文与思考
 
-```json
-{"type": "content", "delta": "你好"}
-```
+| 事件 | 处理 |
+|---|---|
+| `content`（别名 `ai_message` / `text` / `delta`） | 取 `delta || content || text` 追加；内嵌 `<think>` 的模型由 parseBuffer 拆出思考 |
+| `thinking`（别名 `thought`） | 带 `delta` 时按增量追加到最近的 thinking 段，并标记 structuredReasoning |
+| `content_replace` | **整体替换**当前正文（本体治理重写答案） |
 
-- 取 `delta || content || text` 追加到当前消息内容
-- 兼容别名：`ai_message` / `text` / `delta`
-- 内嵌 `<think>...</think>` 标签的模型由 parseBuffer 解析为 thinking（structuredReasoning=false 时）
+## 工具
 
-### `thinking` — 思考过程
+| 事件 | 载荷要点 | 处理 |
+|---|---|---|
+| `tool_call_start`（兼容 `tool_use` / `tool_start`） | `id`, `name` | 先出运行中的工具行 |
+| `tool_call_delta` | `id`, `arguments_delta` | 参数 JSON 增量拼接实时展示 |
+| `tool_call` | `id`, `name`, `input`（兼容 `args` / `tool_args` / `arguments`） | 按 id 更新同一项 |
+| `tool_progress` | `id`, `progress`, `total`, `message` | 运行中工具的进度注记（`progressNote`，如"3/10"） |
+| `tool_result`（兼容 `tool_end`） | `id`, `output`/`result`, `error`, `citations` | 置 success / error；`subagent_name` 存在时改写展示名 |
+| `tool_pending` | — | 工具等待批复，下一个非心跳事件自动解除 |
+| `subagent_event` | `subType`: tool_call / tool_call_delta / tool_result / thinking / content / error | 渲染为父工具的 `subSteps` |
+| `vision_progress` | `status`, `count` | 视觉桥在模型开口前读图，写 `chatStore.setVisionReading` |
 
-```json
-{"type": "thinking", "delta": "让我分析一下..."}
-```
+> **UI 规范（v2）**：工具调用默认是**一行安静的文字**（做了什么 · 结果多少 · 用了多久），点击展开；运行中用文字微光，
+> 完成用 `statusIn` 落定图标。只有文件、表格、网页等产物做成卡片。见 `ui-design-spec.md` §7.3 / §8.6。
 
-- 取 `content || text || delta`；有 `delta` 字段时按增量追加到最近的 thinking segment
-- 收到带 `delta` 的 thinking 即标记 structuredReasoning（思考走独立通道，如 reasoning_content），关闭 `<think>` 内嵌解析
-- 兼容别名：`thought`
+## 需要用户介入（流不结束，带外批复后原地续跑）
 
-### `content_replace` — 整段替换正文
+| 事件 | 处理 |
+|---|---|
+| `file_confirm`（`confirm_id`；`expired: true` 表示超时回收） | 入队 `useUIStore.enqueuePendingConfirm`；用户允许/拒绝走带外接口 |
+| `design_pick` / `choose_design` 工具 | 建站三选一卡片，同 file_confirm 机制；超时由助手自行选择 |
+| `user_question`（`request_id`, `questions[]`） | `ask_user_question` 挂起 run，常驻输入区被问答面板替换；`enqueuePendingUserQuestion`，按 `request_id` 去重 |
+| `user_question_resolved`（`request_id`, `outcome`） | **后端拥有终态**：在这里摘除；`outcome === 'timeout'` 时提示采用默认方案 |
 
-```json
-{"type": "content_replace", "content": "重写后的完整正文"}
-```
+> v2：这些"等你确认"项是**唯一允许扩散涟漪**的状态。
 
-- 本体治理评审后重写答案时使用：**整体替换**当前消息正文，而不是追加
+## 上下文与压缩
 
-### `tool_call_start` / `tool_call_delta` — 工具参数流式展示
+| 事件 | 处理 |
+|---|---|
+| `context_usage` | 上下文用量快照 → `chatStore.setContextUsage`（ContextGauge） |
+| `compaction_progress` | 压缩进度（`phase` 如 `post_turn` = 本轮结束后执行的压缩）→ upsert `compaction` 段 |
+| `compaction_notice` | 上一轮后台压缩完成的提示 → `chatStore.setContextCompaction` |
 
-```json
-{"type": "tool_call_start", "id": "call_abc123", "name": "internet_search"}
-{"type": "tool_call_delta", "id": "call_abc123", "delta": "{\"query\": \"北京"}
-```
+## 计划 / 循环
 
-- 参数尚未生成完时先出卡片（status='running'），delta 增量拼接参数 JSON 实时展示
-- 随后的 `tool_call` 带完整参数，按 id 更新同一张卡片
+- `plan_update`：`update_plan` 工具产生的轻量计划清单；run 正常结束时后端补发全部 completed 的收尾帧。
+- Plan 模式（`plan_step_*` / `plan_complete` 等）与自主循环（`loop_*`）事件经 `ChatStreamOptions.onEvent` 钩子交给
+  `usePlanMode` / `useLoopMode` 先处理，钩子返回 true 则不再进通用 reducer。
 
-### `tool_call` — 工具调用（完整参数）
+## 本体治理
 
-```json
-{"type": "tool_call", "id": "call_abc123", "name": "internet_search", "input": {"query": "北京 天气"}}
-```
+`ontology_activation` / `ontology_gate` / `ontology_review` / `ontology_repair` / `ontology_revision` /
+`ontology_revision_thinking`；`scope === 'ontology_revision'` 的工具事件单独分流（重写结果经 `content_replace` 落地）。
 
-- 参数字段取 `input ?? args ?? tool_args ?? arguments`
-- 按工具 id 去重：已存在则更新（status='running'），否则 push 到 `toolCalls[]` 并追加 `{ type: 'tool', toolIndex }` segment
-- 兼容别名：`tool_use` / `tool_start`
+## 已退役（不要再处理或产出）
 
-### `tool_result` — 工具执行结果
-
-```json
-{
-  "type": "tool_result",
-  "id": "call_abc123",
-  "output": "搜索结果内容...",
-  "citations": [{"title": "...", "url": "...", "source": "internet_search"}]
-}
-```
-
-- 结果字段取 `output ?? result`；`error` 字段存在 → status='error'，否则 'success'
-- `citations` 追加到 `allCitations[]`
-- `subagent_name` 存在时改写 displayName 为「调用子智能体：xxx」
-- 兼容别名：`tool_end`
-
-### `tool_pending` — 工具等待批复
-
-```json
-{"type": "tool_pending"}
-```
-
-- UI 进入 pending 态；收到下一个非 heartbeat 事件自动解除
-
-### `batch_confirm` — 批量计划确认
-
-```json
-{"type": "batch_confirm", "plan_id": "...", "total": 20, "source_type": "xlsx",
- "preview": [...], "default_template": "...", "placeholder_keys": [...], "chat_id": "...", "warnings": [...]}
-```
-
-- batch_runner MCP 返回了执行计划，后端已暂停 agent
-- 调 `useBatchStore.setPendingConfirm(...)` 打开确认弹窗，用户审阅/编辑模板后才执行
-
-### `file_confirm` — 我的空间写确认
-
-```json
-{"type": "file_confirm", "confirm_id": "...", ...}
-{"type": "file_confirm", "confirm_id": "...", "expired": true}
-```
-
-- 某工具协程已挂起等用户确认 /myspace 写。**本 SSE 流不结束**——用户点允许/拒绝走带外
-  `POST /file-confirm`，挂起的工具原地续跑，后续 tool_result/meta 仍从同一条流来
-- 入队 `useUIStore.enqueuePendingConfirm(chatId, info)`；`expired: true` 表示该项超时回收，
-  调 `resolvePendingConfirm` 只摘掉这一个 confirm_id
-
-### `design_pick` — 建站方案三选一
-
-- 与 `file_confirm` 同机制：流不结束，用户选择走带外接口，工具协程原地续跑
-
-### `plan_update` — 计划清单更新
-
-```json
-{"type": "plan_update", "plan": [{"content": "...", "status": "completed"}, ...]}
-```
-
-- `update_plan` 工具产生的轻量计划清单；run 正常结束时后端自动补发全部 completed 的收尾帧
-
-### `subagent_event` — 子智能体嵌套事件
-
-```json
-{"type": "subagent_event", "subType": "tool_call", ...}
-```
-
-- `subType` 取值：`tool_call` / `tool_call_delta` / `tool_result` / `thinking` / `content` / `error`
-- 渲染为父工具卡片的 `subSteps` 子步骤
-
-### `steer_applied` — 运行中插话生效
-
-- 用户在 run 进行中追加的指令（steering）被后端采纳的边界标记
-
-### `compaction_notice` — 上下文压缩提示
-
-- 长会话触发上下文压缩时的提示帧
-
-### `model_progress` — 模型活性信号
-
-- 表示"模型还在飞行中"，用于喂 run 卡死看门狗/停滞检测，UI 不直接渲染
-
-### `ontology_*` — 本体治理事件族
-
-`ontology_activation` / `ontology_gate` / `ontology_review` / `ontology_repair` /
-`ontology_revision` / `ontology_revision_thinking`——本体激活、工具闸、输出评审、修复与重写过程
-（重写结果经 `content_replace` 落地）。另有 `eventObj.scope === 'ontology_revision'` 的分流。
-
-### `follow_up` — 追问建议
-
-```json
-{"type": "follow_up", "follow_up_questions": ["追问1", "追问2"]}
-```
-
-- 追问也可能不走 SSE：流结束后由后台任务生成，写进消息 `extra_data.follow_up_questions`，
-  前端轮询/刷新历史时取到
-
-### `meta` — 元信息
-
-```json
-{"type": "meta", "message_id": "msg_xxx", "citations": [...], "workspace_files": [...], "artifacts": [...]}
-```
-
-- 设置 `messageId`；`citations` 非空时**整体替换** allCitations
-- `artifacts` 追加为下载类 toolCall 展示
-
-### `error` — 错误
-
-```json
-{"type": "error", "error": "错误描述"}
-```
-
-- 直接 throw，终止本次流处理
-
-### `end` / `[DONE]` — 流结束
-
-- `{"type": "end"}` 或 `data: [DONE]` 均表示结束
-- finalize 所有 running 状态的 toolCalls，触发后续操作（摘要、分类等由后端负责）
+- `batch_confirm`（批量执行已退役）
+- `model_progress`（活性信号改由 `server_ts` / 心跳承担）
 
 ## Segment 渲染顺序
 
-消息通过 `segments[]` 按顺序渲染：
+`segments[]` 按到达顺序渲染：`thinking` / `tool` / `text` / `plan` / `compaction`。
 
-```
-[thinking] → [tool] → [thinking] → [tool] → [text]
-```
-
-每个 segment 类型对应不同的 UI 组件：
-- `thinking` → ThinkingBlock (可折叠)
-- `tool` → ToolCall (可展开，显示名称/参数/结果；子智能体带 subSteps)
-- `text` → Markdown 渲染 + 引用锚点胶囊（`[锚文本](cite:eN)`）
+- `thinking` → 一行"已思考 N 秒"，可折叠
+- `tool` → 一行过程记录，可展开（子智能体带 subSteps）
+- `text` → Markdown + 引用锚点胶囊（`[锚文本](cite:eN)`）
 - `plan` → 计划清单条
-
-## 中断流
-
-```typescript
-// AbortController 中断
-const abortController = new AbortController();
-
-// 发送请求时
-const r = await authFetch(url, {
-  method: 'POST',
-  signal: abortController.signal,
-  body: ...,
-});
-
-// 用户点击停止
-abortController.abort();
-```
+- `compaction` → 压缩过程行
 
 ## 断线续播
 
-```typescript
-// run_started 时已存下 activeRun
-const { runId } = useChatStore.getState().activeRuns[chatId];
+`hooks/streamRecovery.ts`：
 
-// 重连：从后台 run 的 Redis Stream 重放 + 继续跟随
-const r = await authFetch(`${apiUrl}/v1/chats/stream/${runId}`);
-// 事件格式与 POST /v1/agents/responses 完全一致
-```
-
-实际编排在 `useStreaming.ts::resumeRunIfAny`：
-
-- `getActiveChatRun` 探测活跃 run；已终态则清僵尸状态（`cleanupZombieRunState`）
-- 普通对话从 `last_event_offset` **断点续传**；`plan_generate` / `plan_execute` / `autonomous_loop`
-  从 offset 0 **全量重放**（loop 会先截掉尾部 assistant 占位再重建）
-- 跨标签页互斥：Web Locks `hugagent_run_follow_${run_id}`（`ifAvailable: true`），
-  只允许一个标签页跟随同一 run
+- 探测活跃 run（`last_event_offset`）；已终态则清理僵尸状态
+- 普通对话：`openRunSubscription(runId)` → `run_snapshot` 首帧恢复已产生内容，再继续跟随
+- `plan_generate` / `plan_execute` / `autonomous_loop`：从 offset 0 全量重放
+- 跨标签页互斥：Web Locks `hugagent_run_follow_${run_id}`，只允许一个标签页跟随同一 run
 - 运行中插话：`steerChatRun` / `withdrawChatRunSteer`，失败时降级为下一轮普通消息
+
+中断：`AbortController.abort()` 只断开跟随；取消 run 走显式取消接口（`markRunCancelledByUser`）。

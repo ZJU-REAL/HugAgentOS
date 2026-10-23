@@ -5,7 +5,7 @@ from features.workbench.coordination import configuration
 
 from typing import Any
 
-from api.deps import _resolve_session_user_id, require_config
+from api.deps import console_actor, require_config
 from features.workbench.api.workbench_auth import browser_write
 from features.workbench.api.workbench_auth import router as auth_router
 from features.workbench.diagnostics import observed
@@ -106,11 +106,14 @@ def admin_audit(response: Response, db: Session = Depends(get_db)):
     "/admin/external-applications",
     dependencies=[Depends(require_config), Depends(require_json_write)],
 )
-async def create_external(
-    body: ExternalWrite, request: Request, response: Response, db: Session = Depends(get_db)
+def create_external(
+    body: ExternalWrite,
+    request: Request,
+    response: Response,
+    actor: str = Depends(console_actor),
+    db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    actor = await _resolve_session_user_id(request) or "config_token"
     external.validate_definition(db, body.declaration)
     embedding = validate_policy(
         body.declaration["target"],
@@ -128,15 +131,15 @@ async def create_external(
     "/admin/external-applications/{key}",
     dependencies=[Depends(require_config), Depends(require_json_write)],
 )
-async def update_external(
+def update_external(
     key: str,
     body: ExternalUpdate,
     request: Request,
     response: Response,
+    actor: str = Depends(console_actor),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    actor = await _resolve_session_user_id(request) or "config_token"
     external.validate_definition(db, body.declaration)
     embedding = validate_policy(
         body.declaration["target"],
@@ -281,11 +284,13 @@ def admin_policy(response: Response, db: Session = Depends(get_db)):
 
 
 @router.put("/admin/policy", dependencies=[Depends(require_config), Depends(require_json_write)])
-async def update_policy(
-    body: PolicyWrite, request: Request, response: Response, db: Session = Depends(get_db)
+def update_policy(
+    body: PolicyWrite,
+    response: Response,
+    actor: str = Depends(console_actor),
+    db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    actor = await _resolve_session_user_id(request) or "config_token"
     return success_response(data=policy.save(db, body.model_dump(), actor, trace_id_var.get()))
 
 

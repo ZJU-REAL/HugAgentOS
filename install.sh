@@ -339,7 +339,7 @@ pip_install --upgrade \
     "pymilvus==2.5.18" \
     "milvus-lite==3.1.0"
 info "Installing Agent Skills Python dependencies"
-pip_install -r docker/requirements-script-runner.txt
+pip_install -r docker/sandbox/requirements-script-runner.txt
 pip_install --no-deps -e .
 
 SKILL_NODE_DIR="${HUGAGENT_DATA_DIR}/node"

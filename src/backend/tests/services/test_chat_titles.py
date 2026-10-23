@@ -188,7 +188,7 @@ def test_real_admission_schedules_title_before_answer_completion(tmp_path, monke
         model(monkeypatch, generate)
         with factory() as db:
             response = await admission.start_response_run(
-                ChatRequest(chat_id="chat-1", message="首条问题", stream=True), _user(), db)
+                ChatRequest(chat_id="chat-1", message="首条问题", stream=True), _user())
         assert response.run_id
         await asyncio.wait_for(entered.wait(), 2)
         with factory() as db:

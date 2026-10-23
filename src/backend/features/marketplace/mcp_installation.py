@@ -9,20 +9,21 @@ from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from features.marketplace import edition as ml
 from core.capabilities.mcp.management import decrypt_mcp_headers, encrypt_mcp_headers, materialize_mcp_http_connection, probe_mcp_connectivity, refresh_mcp_caches, tool_snapshot_hash, validate_remote_mcp_url
 from sqlalchemy.orm import Session
+from core.db.threads import run_in_session
 from features.marketplace import mcp_credentials
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
 
-async def install_market_item(
+def _plan_installation(
     db: Session,
     slug: str,
-    *,
     owner_user_id: Optional[str],
     installed_by: Optional[str],
-    credentials: Optional[Dict[str, str]] = None,
-    auth_method: Optional[str] = None,
-    oauth_bundle: Optional[Dict[str, Any]] = None,
+    credentials: Optional[Dict[str, str]],
+    auth_method: Optional[str],
+    oauth_bundle: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    """Resolve the version, credentials and target server; returns a transient candidate row."""
     item = (
         db.query(McpMarketItem)
         .filter(
@@ -89,12 +90,6 @@ async def install_market_item(
         oauth_bundle=oauth_bundle,
     )
     runtime_url, _ = materialize_mcp_http_connection(version.url, headers)
-    await validate_remote_mcp_url(
-        runtime_url,
-        allow_private_network=mcp_validation.installs_admin_published_endpoint(item, version, runtime_url),
-        require_https=False,
-    )
-
     now = utc_now()
     server_id = existing_server.server_id if existing_server else f"mmcp_{uuid.uuid4().hex[:20]}"
     candidate = AdminMcpServer(
@@ -135,9 +130,70 @@ async def install_market_item(
         updated_at=now,
     )
 
-    ok, error = await probe_mcp_connectivity(candidate, db)
+    return {
+        "candidate": candidate,
+        "headers": headers,
+        "runtime_url": runtime_url,
+        "allow_private_network": mcp_validation.installs_admin_published_endpoint(
+            item, version, runtime_url
+        ),
+        "item_id": item.slug,
+        "version_id": version.version_id,
+        "install_id": existing.install_id if existing else None,
+        "existing_server_id": existing_server.server_id if existing_server else None,
+        "now": now,
+    }
+
+
+async def install_market_item(
+    slug: str,
+    *,
+    owner_user_id: Optional[str],
+    installed_by: Optional[str],
+    credentials: Optional[Dict[str, str]] = None,
+    auth_method: Optional[str] = None,
+    oauth_bundle: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Install a marketplace MCP: plan, probe the live server, then commit.
+
+    The URL check and probe run between two database steps, on a transient
+    candidate row, so nothing is held open while the remote server answers.
+    """
+    plan = await run_in_session(
+        _plan_installation, slug, owner_user_id, installed_by, credentials, auth_method, oauth_bundle
+    )
+    await validate_remote_mcp_url(
+        plan["runtime_url"],
+        allow_private_network=plan["allow_private_network"],
+        require_https=False,
+    )
+    ok, error = await probe_mcp_connectivity(plan["candidate"], validate=True)
     if not ok:
         raise BadRequestError(message=f"MCP 安装检测失败：{error}")
+    result = await run_in_session(_commit_installation, slug, owner_user_id, installed_by, plan)
+    refresh_mcp_caches()
+    return result
+
+
+def _commit_installation(
+    db: Session,
+    slug: str,
+    owner_user_id: Optional[str],
+    installed_by: Optional[str],
+    plan: Dict[str, Any],
+) -> Dict[str, Any]:
+    from features.marketplace.models import McpMarketVersion
+
+    candidate, headers, now = plan["candidate"], plan["headers"], plan["now"]
+    item = db.query(McpMarketItem).filter(McpMarketItem.slug == plan["item_id"]).one()
+    version = db.get(McpMarketVersion, plan["version_id"])
+    existing = db.get(McpMarketInstallation, plan["install_id"]) if plan["install_id"] else None
+    existing_server = (
+        db.query(AdminMcpServer).filter(AdminMcpServer.server_id == plan["existing_server_id"]).first()
+        if plan["existing_server_id"]
+        else None
+    )
+    server_id = candidate.server_id
     discovery_mode = str((version.listing_notice or {}).get("discovery_mode") or "reviewed")
     if discovery_mode == "per_install":
         candidate.extra_config = {
@@ -202,7 +258,6 @@ async def install_market_item(
         db.add(existing)
         action = "installed"
     db.commit()
-    refresh_mcp_caches()
     return {
         "install_id": existing.install_id,
         "server_id": server.server_id,

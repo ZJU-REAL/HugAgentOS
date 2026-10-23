@@ -345,11 +345,17 @@ def refresh_mcp_caches() -> None:
 
 async def probe_mcp_connectivity(
     row: AdminMcpServer,
-    db: Session | None = None,
+    *,
+    validate: bool = False,
     oauth_provider: Any = None,
     timeout_seconds: float | None = None,
 ) -> tuple[bool, str]:
-    """Return whether an MCP server can connect and enumerate its tools."""
+    """Return whether an MCP server can connect and enumerate its tools.
+
+    ``row`` only supplies the connection config and receives ``tools_json``;
+    ``validate`` also runs the Domain Pack build check on the discovered tools,
+    on a session of its own.
+    """
     from core.capabilities.mcp.service import McpServerConfigService
 
     if timeout_seconds is None:
@@ -374,7 +380,8 @@ async def probe_mcp_connectivity(
             discovered = resource.descriptors
             tools_meta = [snapshot_tool(tool) for tool in discovered or []]
             row.tools_json = tools_meta
-            if db is not None and tools_meta:
+            if validate and tools_meta:
+                from core.db.threads import run_in_session
                 from core.harness.registry.build_governance import validate_build
 
                 extra_config = row.extra_config or {}
@@ -392,7 +399,8 @@ async def probe_mcp_connectivity(
                         for tag in tags
                         if str(tag).strip()
                     )
-                report = validate_build(db,
+                report = await run_in_session(
+                    validate_build,
                     asset_type="tool",
                     name=row.display_name,
                     description=row.description or "",

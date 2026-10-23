@@ -107,7 +107,7 @@ Startup probes the actual Chromium sandbox. Known inner-sandbox failures retry w
 After OpenSandbox updates, explicitly build the runtime image from the repository root:
 
 ```bash
-docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker build -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 ```
 
 Ordinary docker compose up --build does not rebuild this on-demand image. Check OPENSANDBOX_IMAGE and create a fresh browser_open session after updating. Resource readiness requires Chromium initialization and real browser verification. Rebuild the corresponding images for other providers too.

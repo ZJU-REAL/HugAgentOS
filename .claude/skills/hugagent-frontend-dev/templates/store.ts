@@ -2,130 +2,101 @@
  * Zustand store template.
  *
  * Replace ${Feature}, ${feature} with actual names.
- * Create as stores/${feature}Store.ts
+ * Create as stores/${feature}Store.ts and re-export it from stores/index.ts.
+ *
+ * Rules:
+ *   - Server data comes from API functions (api.ts or src/api/<domain>.ts), never raw fetch here
+ *   - Business data cached in localStorage MUST be keyed per account with userScopedKey(base, userId)
+ *     (a null key means "not signed in yet": do not read or write)
+ *   - Clear account-scoped state on logout / account switch (reset())
  */
 
 import { create } from 'zustand';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { loadJsonPref, removeLocal, saveJsonPref, userScopedKey } from '../storage';
+// import { list${Feature}s, create${Feature}, delete${Feature} } from '../api/${feature}';
 
 interface ${Feature}Item {
   id: string;
   name: string;
-  // ... add fields
 }
 
-// ---------------------------------------------------------------------------
-// State Interface (state + actions)
-// ---------------------------------------------------------------------------
-
 interface ${Feature}State {
-  // --- State ---
+  userId: string | null;
   items: ${Feature}Item[];
   loading: boolean;
   selectedId: string | null;
   error: string | null;
 
-  // --- Actions ---
-  setItems: (items: ${Feature}Item[]) => void;
-  setLoading: (loading: boolean) => void;
+  bindUser: (userId: string | null) => void;
   selectItem: (id: string | null) => void;
-  fetchItems: () => Promise<void>;
-  createItem: (data: Partial<${Feature}Item>) => Promise<void>;
+  fetchItems: (signal?: AbortSignal) => Promise<void>;
+  createItem: (name: string) => Promise<${Feature}Item>;
   deleteItem: (id: string) => Promise<void>;
   reset: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// localStorage persistence (optional)
-// ---------------------------------------------------------------------------
+const STORAGE_BASE = 'hugagent_ui_${feature}_v1';
 
-const STORAGE_KEY = 'hugagent_ui_${feature}_v1';
-
-function loadFromStorage(): ${Feature}Item[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+function persist(userId: string | null, items: ${Feature}Item[]) {
+  const key = userScopedKey(STORAGE_BASE, userId);
+  if (key) saveJsonPref(key, { items });
 }
-
-function saveToStorage(items: ${Feature}Item[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const use${Feature}Store = create<${Feature}State>((set, get) => ({
-  // --- Initial state ---
-  items: loadFromStorage(),
+  userId: null,
+  items: [],
   loading: false,
   selectedId: null,
   error: null,
 
-  // --- Simple setters ---
-  setItems: (items) => {
-    set({ items });
-    saveToStorage(items);
+  bindUser: (userId) => {
+    const key = userScopedKey(STORAGE_BASE, userId);
+    const cached = key ? loadJsonPref<{ items: ${Feature}Item[] }>(key, { items: [] }) : { items: [] };
+    set({ userId, items: cached.items, selectedId: null, error: null });
   },
-  setLoading: (loading) => set({ loading }),
+
   selectItem: (id) => set({ selectedId: id }),
 
-  // --- Async: fetch ---
-  fetchItems: async () => {
+  fetchItems: async (signal) => {
     set({ loading: true, error: null });
     try {
-      // const r = await authFetch(`${apiUrl}/v1/${feature}s`);
-      // const { data } = await r.json();
-      // set({ items: data.items });
-      // saveToStorage(data.items);
+      const items: ${Feature}Item[] = []; // = await list${Feature}s(signal);
+      void signal;
+      set({ items });
+      persist(get().userId, items);
     } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
       set({ error: (e as Error).message });
-      console.error('Failed to fetch ${feature}s:', e);
     } finally {
       set({ loading: false });
     }
   },
 
-  // --- Async: create ---
-  createItem: async (data) => {
-    try {
-      // const r = await authFetch(`${apiUrl}/v1/${feature}s`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(data),
-      // });
-      // const { data: created } = await r.json();
-      // const items = [...get().items, created];
-      // set({ items });
-      // saveToStorage(items);
-    } catch (e) {
-      console.error('Failed to create ${feature}:', e);
-      throw e;
-    }
+  createItem: async (name) => {
+    const created: ${Feature}Item = { id: '', name }; // = await create${Feature}(name);
+    const items = [created, ...get().items];
+    set({ items });
+    persist(get().userId, items);
+    return created;
   },
 
-  // --- Async: delete ---
+  // Optimistic delete with rollback: the list stays truthful if the request fails.
   deleteItem: async (id) => {
+    const previous = get().items;
+    const items = previous.filter((item) => item.id !== id);
+    set({ items, selectedId: get().selectedId === id ? null : get().selectedId });
     try {
-      // await authFetch(`${apiUrl}/v1/${feature}s/${id}`, { method: 'DELETE' });
-      const items = get().items.filter((i) => i.id !== id);
-      set({ items, selectedId: get().selectedId === id ? null : get().selectedId });
-      saveToStorage(items);
+      // await delete${Feature}(id);
+      persist(get().userId, items);
     } catch (e) {
-      console.error('Failed to delete ${feature}:', e);
+      set({ items: previous });
       throw e;
     }
   },
 
-  // --- Reset ---
   reset: () => {
-    set({ items: [], loading: false, selectedId: null, error: null });
-    localStorage.removeItem(STORAGE_KEY);
+    const key = userScopedKey(STORAGE_BASE, get().userId);
+    if (key) removeLocal(key);
+    set({ userId: null, items: [], loading: false, selectedId: null, error: null });
   },
 }));

@@ -185,7 +185,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | CLI (onboard / serve / doctor) | `src/backend/cli.py` |
 | Local-mode switch | `src/backend/core/config/settings.py` (`DeploySettings`, `DEPLOY_PROFILE=local`) |
 | Frontend static hosting + `/api` bridge | `src/backend/api/local_hosting.py` |
-| MCP / sandbox subprocess supervision | `src/backend/orchestration/local_subprocess.py` |
-| In-process event log / ephemeral state | `src/backend/orchestration/run_event_stream.py`, `src/backend/core/infra/ephemeral.py` (enabled by leaving `REDIS_URL` empty) |
+| MCP / sandbox subprocess supervision | `src/backend/core/infra/local_runtime/` |
+| In-process event log / ephemeral state | `src/backend/core/runs/events/`, `src/backend/core/infra/ephemeral.py` (enabled by leaving `REDIS_URL` empty) |
 | Built-in MCP catalog seed | `src/backend/core/capabilities/mcp/service.py` (`seed_builtin_mcp_servers_if_empty`) |
 | Environment variables | [environment-variables.md](environment-variables.md) (the "No-Docker local mode" section) |

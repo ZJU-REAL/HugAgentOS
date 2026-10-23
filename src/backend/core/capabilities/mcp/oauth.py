@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urlparse
 from core.config.settings import settings
-from core.db.engine import SessionLocal
 from core.db.models import AdminMcpServer
 from core.harness.registry.marketplace_catalog import marketplace_catalog
 from core.infra.crypto import decrypt_secret, encrypt_secret
@@ -115,8 +114,15 @@ def get_version(db: Session, slug: str) -> tuple[Any, Any]:
     return marketplace_catalog().mcp_version(db, slug)
 
 
+def _oauth_method(db: Session, slug: str, auth_method: str):
+    _, version = get_version(db, slug)
+    auth_config = marketplace_catalog().normalize_auth_config(
+        version.auth_config, list(version.auth_schema or [])
+    )
+    return next((row for row in auth_config["methods"] if row["id"] == auth_method), None)
+
+
 async def start_oauth_install(
-    db: Session,
     *,
     slug: str,
     owner_user_id: Optional[str],
@@ -130,12 +136,10 @@ async def start_oauth_install(
     """Start a browser OAuth install and wait only until the authorize URL is known."""
 
 
+    from core.db.threads import run_in_session
+
     purge_expired_flows()
-    _, version = get_version(db, slug)
-    auth_config = marketplace_catalog().normalize_auth_config(
-        version.auth_config, list(version.auth_schema or [])
-    )
-    method = next((row for row in auth_config["methods"] if row["id"] == auth_method), None)
+    method = await run_in_session(_oauth_method, slug, auth_method)
     if not method or method["type"] != "oauth2":
         raise BadRequestError(message="该 MCP 不支持所选 OAuth 认证方式")
     if method.get("client_id_required") and not client_id.strip():
@@ -169,23 +173,42 @@ async def start_oauth_install(
     }
 
 
+def _flow_inputs(db, flow: "OAuthInstallFlow"):
+    """What the OAuth probe needs from the market listing, read in one session."""
+    item, version = get_version(db, flow.slug)
+    auth_config = marketplace_catalog().normalize_auth_config(
+        version.auth_config, list(version.auth_schema or [])
+    )
+    method = next(row for row in auth_config["methods"] if row["id"] == flow.auth_method)
+    headers = marketplace_catalog().installation_secrets(
+        version,
+        flow.credentials,
+        {},
+        auth_method=flow.auth_method,
+    )
+    candidate = AdminMcpServer(
+        server_id=f"oauth_probe_{uuid.uuid4().hex[:16]}",
+        display_name=item.display_name,
+        description=item.description or "",
+        transport=version.transport,
+        url=version.url,
+        headers=headers,
+        args=[],
+        env_vars={},
+        env_inherit=[],
+        is_enabled=False,
+        extra_config={},
+    )
+    runtime_url, _ = market_dependency_materialize_mcp_http_connection(version.url, headers)
+    return method, candidate, runtime_url
+
+
 async def run_flow(flow: OAuthInstallFlow) -> None:
+    """Drive one OAuth install; it may wait minutes for the user and holds no session."""
+    from core.db.threads import run_in_session
 
-
-    db = SessionLocal()
     try:
-        item, version = get_version(db, flow.slug)
-        auth_config = marketplace_catalog().normalize_auth_config(
-            version.auth_config, list(version.auth_schema or [])
-        )
-        method = next(row for row in auth_config["methods"] if row["id"] == flow.auth_method)
-        headers = marketplace_catalog().installation_secrets(
-            version,
-            flow.credentials,
-            {},
-            auth_method=flow.auth_method,
-        )
-        runtime_url, _ = market_dependency_materialize_mcp_http_connection(version.url, headers)
+        method, candidate, runtime_url = await run_in_session(_flow_inputs, flow)
         await validate_remote_mcp_url(runtime_url, require_https=False)
 
         metadata = OAuthClientMetadata(
@@ -244,22 +267,9 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
         )
-        candidate = AdminMcpServer(
-            server_id=f"oauth_probe_{uuid.uuid4().hex[:16]}",
-            display_name=item.display_name,
-            description=item.description or "",
-            transport=version.transport,
-            url=version.url,
-            headers=headers,
-            args=[],
-            env_vars={},
-            env_inherit=[],
-            is_enabled=False,
-            extra_config={},
-        )
         ok, error = await probe_mcp_connectivity(
             candidate,
-            db,
+            validate=True,
             oauth_provider=provider,
             timeout_seconds=300.0,
         )
@@ -276,7 +286,6 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
         flow.status = "installing"
         await store_flow_status(flow)
         flow.result = await marketplace_catalog().install_market_item(
-            db,
             flow.slug,
             owner_user_id=flow.owner_user_id,
             installed_by=flow.installed_by,
@@ -287,13 +296,11 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
         flow.status = "completed"
         await store_flow_status(flow)
     except BaseException as exc:  # noqa: BLE001
-        db.rollback()
         flow.status = "failed"
         flow.error = str(exc)
         await store_flow_status(flow)
     finally:
         flow.ready.set()
-        db.close()
 
 
 async def complete_callback(

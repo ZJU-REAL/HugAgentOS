@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import aclosing
 from core.llm.runtime import stream_loop
 from core.llm.runtime import stream_events
+from core.llm.runtime.delta_coalescer import DeltaCoalescer
 import asyncio
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from agentscope.agent import Agent
@@ -30,9 +31,8 @@ class StreamingAgent:
         # tool_id → name (recorded at ToolCallStart), tool_id → accumulated args string (ToolCallDelta)
         self._tool_name_buf: Dict[str, str] = {}
         self._tool_args_buf: Dict[str, str] = {}
-        # tool_id → not-yet-emitted argument delta / last flush timestamp
-        self._tool_delta_emit_buf: Dict[str, str] = {}
-        self._tool_delta_last_emit: Dict[str, float] = {}
+        # Merges text / thinking / tool-argument deltas before they leave _map_event.
+        self._deltas = DeltaCoalescer()
         # tool_id → accumulated result text (ToolResultTextDelta)
         self._tool_result_buf: Dict[str, str] = {}
         # Accumulated answer text (for dedup in the <think>-suppression scenario)
@@ -253,9 +253,16 @@ class StreamingAgent:
     async def _map_event(
         self, ev: Any, *, result_step: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[Tuple[str, Any]]:
+        """Map one AgentScope event, with deltas merged by ``self._deltas``.
+
+        A merged delta may still be buffered when this returns; whoever drives
+        the stream flushes it through ``self._deltas`` (on its deadline, before
+        its own events, and at the end).
+        """
         async with aclosing(stream_events.map_event(self, ev, result_step=result_step)) as events:
             async for event in events:
-                yield event
+                for out in self._deltas.feed(event):
+                    yield out
 
     async def stop_producer(self):
         """Stop actual model/tool work before closing the stream or its clients."""

@@ -4,14 +4,16 @@ import pytest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db
 from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession, Project
+from core.db.models.command import CommandTask
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 
 @pytest.fixture
-def fork_env(tmp_path):
+def fork_env(tmp_path, monkeypatch):
     from api.routes.v1.chat_forks import router
     from api.routes.v1.chats import router as chats_router
 
@@ -27,6 +29,7 @@ def fork_env(tmp_path):
             ChatRun.__table__,
             ChatCompactionState.__table__,
             Project.__table__,
+            CommandTask.__table__,
         ],
     )
     sessions = sessionmaker(bind=engine)
@@ -99,6 +102,7 @@ def fork_env(tmp_path):
     app.include_router(router)
     app.include_router(chats_router)
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, sessions)
     app.dependency_overrides[get_current_user] = lambda: user
     with TestClient(app) as client:
         yield client, sessions, user

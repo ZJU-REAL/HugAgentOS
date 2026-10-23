@@ -19,7 +19,6 @@ import asyncio
 from typing import Any, Dict, List
 
 import core.chat.runtime.admission as admission
-import core.chat.runtime.job_wakeup as runtime_job_wakeup
 import core.db.engine as db_engine
 import core.runs.runtime as runtime
 import core.chat.operations.session_context as chat_session_context
@@ -40,9 +39,6 @@ def db_session(monkeypatch):
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
-    import core.chat.runtime.job_wakeup as job_wakeup
-
-    monkeypatch.setattr(runtime_job_wakeup, "SessionLocal", Session, raising=False)
     return Session
 
 
@@ -75,8 +71,6 @@ def _seed(db_session, *, chat_meta: Dict[str, Any], status: str = "completed") -
 
 def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
     """把唤醒真正入队的那一发拦下来，只留 context 供断言。"""
-    import core.chat.runtime.job_wakeup as job_wakeup
-
     started: List[Dict[str, Any]] = []
 
     def fake_load_session_messages(_svc, _chat_id, _user_id):
@@ -99,6 +93,10 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
                 .first()
             )
 
+        def get_session_with_access(self, chat_id, user_id):
+            session = self.get_session(chat_id, user_id)
+            return (session, "admin") if session is not None else None
+
     async def fake_start_run(**kw):
         started.append(kw)
         return "run_1"
@@ -111,8 +109,6 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
     monkeypatch.setattr(resolver_mod, "resolve_all_runtime_enabled", fake_resolve_all)
     monkeypatch.setattr(service_module, 'ChatService', _FakeChatService)
     monkeypatch.setattr(admission, "start_run", fake_start_run)
-    # 唤醒文案本身不是本用例的关注点，但它要能生成——JobService 走的是同一个假库
-    monkeypatch.setattr(runtime_job_wakeup, "SessionLocal", db_session, raising=False)
     return started
 
 

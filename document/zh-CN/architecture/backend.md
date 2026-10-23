@@ -145,7 +145,7 @@ src/backend/
 |---|---|
 | `core/chat` | workflow 上下文组装（`context.py`）、SSE 工具日志事件构造（`tool_log.py`） |
 | `core/files/content` | 附件解析（`file_parser.py`）、KB 文档分块/关键词/向量化（`kb_processing.py`）、上传校验（`file_validation.py`）、产物读取与摘要（`artifact_reader/refs/summary.py`）、内容块导入导出（`content_blocks.py`）、`svg_fit.py` |
-| `core/kb` / `edition_ee/kb` | 自建知识库解析与 Milvus 向量库保留在 `core/kb`；Dify 客户端与外部检索适配器只存在于 `edition_ee/kb`（商业版 EE） |
+| `features/knowledge` / `edition_ee/kb` | 自建知识库解析与 Milvus 向量库保留在 `features/knowledge`；Dify 客户端与外部检索适配器只存在于 `edition_ee/kb`（商业版 EE） |
 | `core/files/artifacts` | 产物存储 `store.py`：本地 / OSS 双模式 |
 | `core/infra` | 统一响应（`responses.py`）、异常（`exceptions.py`）、结构化日志（`logging.py`）、Redis 单例（`redis.py`）、指标（`metrics.py`）、后台任务注册表（`runtime_state.py`）、脱敏（`data_masking.py`）、蒸馏预算闸门（`distillation_budget.py`，商业版 EE） |
 | `edition_ee/licensing` | 能力枚举、验签、时钟回拨防护、席位策略、中间件和 manager 全部只存在于商业版 EE；CE 树物理不含 License 包，由 `api/middleware/edition.py` 的 CE overlay 提供固定版本探针 |
@@ -219,8 +219,8 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 | 应用入口与启动钩子 | `src/backend/api/app.py` |
 | 路由注册表 | `src/backend/api/routes/v1/__init__.py` |
 | 智能体工厂 | `src/backend/core/llm/factory/build.py` |
-| Run 执行器 / 工作流 | `src/backend/orchestration/chat_run_executor.py`、`workflow.py` |
-| 能力目录 | `src/backend/core/config/catalog.py` |
+| Run 执行器 / 工作流 | `src/backend/core/chat/runtime/`、`workflow.py` |
+| 能力目录 | `src/backend/core/capabilities/catalog/` |
 | 沙箱协议 | `src/backend/core/sandbox/protocol.py` |
 | 记忆流水线 | `src/backend/core/memory/pipeline.py` |
 | EE License 实现 / CE 版本中间件 | `src/backend/edition_ee/licensing/`、`src/backend/api/middleware/edition.py` |

@@ -121,14 +121,14 @@ State is centralized in `src/frontend/src/stores/catalogStore.ts`; local default
 
 | Topic | Path |
 |---|---|
-| Public API (is_enabled, etc.) | `src/backend/core/config/catalog.py` |
+| Public API (is_enabled, etc.) | `src/backend/core/capabilities/catalog/` |
 | Single-source file | `src/backend/core/config/catalog.json` (overridable via `CATALOG_PATH`) |
-| Loading / dynamic sync / caching | `src/backend/core/config/catalog_loader.py`, `catalog_common.py`, `catalog_migration.py` |
+| Loading / dynamic sync / caching | `src/backend/core/capabilities/catalog/loader.py`, `catalog_common.py`, `catalog_migration.py` |
 | User-override merging | `src/backend/core/capabilities/catalog/resolver.py`, `core/capabilities/catalog/overrides.py` |
 | Catalog route | `src/backend/api/routes/v1/catalog.py` |
 | User self-service capabilities | `src/backend/api/routes/v1/me_capabilities.py` |
 | MCP server config (DB) | `src/backend/core/capabilities/mcp/service.py`, `api/routes/v1/admin_mcp_servers.py` |
 | Skill management | `src/backend/api/routes/v1/admin_skills.py`, `core/capabilities/skills/` |
-| Dify KB injection (EE) | `src/backend/edition_ee/kb/dify.py`, via the shared `core/kb/external_provider.py` seam |
+| Dify KB injection (EE) | `src/backend/edition_ee/kb/dify.py`, via the shared `features/knowledge/extension.py` seam |
 | Frontend Capability Center | `src/frontend/src/components/catalog/`, `stores/catalogStore.ts` |
 | Factory consumption | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

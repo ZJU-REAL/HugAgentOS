@@ -3,6 +3,7 @@ from core.llm import prompt_storage as prompt_storage_module
 from core.llm import prompt_versions as prompt_versions_module
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import Session
 from core.db.models import ContentBlock
 from core.llm import prompt_storage as pvs
@@ -10,11 +11,13 @@ from prompts.desktop_templates import render_desktop_part, desktop_version
 
 @pytest.fixture
 def db(monkeypatch):
-    engine = create_engine("sqlite://")
+    # One connection for every thread: preview steps run in worker threads.
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     ContentBlock.__table__.create(engine)
     prompt_storage_module.invalidate_cache()
     with Session(engine) as session:
         monkeypatch.setattr(pvs, "SessionLocal", lambda: Session(engine))
+        monkeypatch.setattr("core.db.engine.SessionLocal", lambda: Session(engine))
         yield session
     prompt_storage_module.invalidate_cache()
     engine.dispose()
@@ -54,7 +57,7 @@ async def test_full_preview_does_not_activate_version(db, monkeypatch):
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     prompt_versions_module.seed_from_filesystem(db=db)
     prompt_versions_module.upsert_version("desktop", "draft", from_id="default", db=db)
-    data = (await desktop_preview(DesktopPreviewRequest(version_id="draft"), db=db))["data"]
+    data = (await desktop_preview(DesktopPreviewRequest(version_id="draft")))["data"]
     assert data["environment_source"] == "runtime_placeholders"
     assert "{runtime.os}" in data["prompt"]
     assert "本机文件与执行" in data["prompt"]
@@ -77,11 +80,11 @@ async def test_local_preview_uses_runtime_assembly_with_selected_version(db, mon
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     prompt_versions_module.seed_from_filesystem(db=db)
     prompt_versions_module.upsert_version("desktop", "draft", parts=[{"part_id": "guidance", "content": "SELECTED_DRAFT"}], db=db)
-    async def runtime(_, **kwargs):
+    async def runtime(**kwargs):
         assert kwargs["approval_mode"] == "ask"
         return {"prompt": "RUNTIME_TOOLS\n" + render_desktop_part("guidance")}
     monkeypatch.setattr(admin_prompts, "_runtime_prompt_preview", runtime)
-    data = (await admin_prompts.desktop_preview(admin_prompts.DesktopPreviewRequest(version_id="draft"), db=db))["data"]
+    data = (await admin_prompts.desktop_preview(admin_prompts.DesktopPreviewRequest(version_id="draft")))["data"]
     assert data["preview_mode"] == "runtime"
     assert data["prompt"] == "RUNTIME_TOOLS\nSELECTED_DRAFT"
     assert "SELECTED_DRAFT" not in render_desktop_part("guidance")
@@ -94,7 +97,7 @@ async def test_preview_unsaved_parts_and_snapshot_roundtrip(db, monkeypatch):
     prompt_versions_module.seed_from_filesystem(db=db)
     before = api.export_snapshot(db=db)["data"]
     data = (await api.desktop_preview(api.DesktopPreviewRequest(version_id="default", parts=[
-        api.PromptPartPayload(part_id="guidance", content="UNSAVED_PREVIEW")]), db=db))["data"]
+        api.PromptPartPayload(part_id="guidance", content="UNSAVED_PREVIEW")])))["data"]
     assert "UNSAVED_PREVIEW" in data["prompt"]
     assert "UNSAVED_PREVIEW" not in render_desktop_part("guidance")
     api.import_snapshot(before, db=db)
@@ -123,10 +126,10 @@ async def test_management_permission_gate(db, monkeypatch, user_id, allowed, sta
     request = Request({"type": "http", "method": "GET", "path": "/v1/admin/prompts/kinds", "headers": []})
     user = SimpleNamespace(user_id=user_id) if user_id else None
     if status == 200:
-        assert await deps.require_system_settings(request, db=db, user=user) == user_id
+        assert await deps.require_system_settings(request, user=user) == user_id
     else:
         with pytest.raises(HTTPException) as error:
-            await deps.require_system_settings(request, db=db, user=user)
+            await deps.require_system_settings(request, user=user)
         assert error.value.status_code == status
 
 

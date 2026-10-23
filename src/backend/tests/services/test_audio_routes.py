@@ -15,6 +15,7 @@ from core.db.models import UserShadow
 from core.models.repository import create_provider, assign_role, update_provider
 from core.chat.audio_transcription import resolve_audio_model
 from tests.services.test_audio_transcription import wav
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def setup(monkeypatch):
         app = FastAPI()
         app.include_router(audio.router)
         app.dependency_overrides[get_db] = lambda: db
+        share_session(monkeypatch, db)
         auth = audio.audio_transcription.__defaults__[0].dependency
         app.dependency_overrides[auth] = lambda: SimpleNamespace(user_id="owner", public_chat_visitor=None)
         # require_auth creates separate closures for each endpoint.

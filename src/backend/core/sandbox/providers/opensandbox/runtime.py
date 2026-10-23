@@ -110,7 +110,7 @@ def _join_logs(parts: list) -> str:
     "自带换行的不再补" 这一条正是为它留的：两者合起来逐字节还原
     （``A``、``\n``、``\n``、``B`` → ``A\n\n\nB\n``），补重了空行会翻倍。
     execd 早于 v1.0.17 时根本不为空行发事件，那种情况下空行在到达后端之前就没了，
-    这里补不回来——版本钉在 ``docker/opensandbox-config.toml.tpl``。
+    这里补不回来——版本钉在 ``docker/opensandbox-server/opensandbox-config.toml.tpl``。
     """
     if not parts:
         return ""

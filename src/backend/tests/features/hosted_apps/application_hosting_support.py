@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from tests.db_support import share_factory
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
@@ -67,6 +68,7 @@ def hosted(tmp_path, monkeypatch, request):
 
     app = FastAPI()
     app.dependency_overrides[get_db] = platform_dependency
+    share_factory(monkeypatch, platform_sessions)
     app.include_router(applications.router)
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(user_id="owner")
     with TestClient(app) as client:

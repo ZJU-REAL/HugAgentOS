@@ -15,13 +15,14 @@ import json
 
 import pytest
 from core.db.models import UserShadow
+from tests.db_support import share_session
 
 OWNER = "u-ui-routes"
 SLUG = "industry-knowledge-center"
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, monkeypatch):
     from api.app import app
     from core.auth.backend import UserContext, get_current_user
     from core.db.engine import get_db
@@ -39,6 +40,7 @@ def client(db_session):
         user_id=OWNER, user_center_id="c1", username="Tester", email="t@e.com"
     )
     app.dependency_overrides[get_db] = _override_db
+    share_session(monkeypatch, db_session)
     try:
         yield TestClient(app)
     finally:

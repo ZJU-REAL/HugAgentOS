@@ -13,10 +13,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
-from core.db.engine import get_db
 from core.infra.responses import success_response
 from integrations.dingtalk.service import DingTalkService
 from integrations.email.service import EmailService
@@ -30,19 +28,17 @@ router = APIRouter(prefix="/v1/integrations", tags=["Integrations"])
 async def dingtalk_status(
     probe: bool = Query(False, description="true 时到沙箱实时核对登录态并对账"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = DingTalkService(db)
-    data = await svc.probe_status(str(user.user_id)) if probe else svc.get_status(str(user.user_id))
+    svc = DingTalkService()
+    data = await svc.probe_status(str(user.user_id)) if probe else await svc.get_status(str(user.user_id))
     return success_response(data=data)
 
 
 @router.post("/dingtalk/login", summary="发起钉钉设备流登录")
 async def dingtalk_login(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = DingTalkService(db)
+    svc = DingTalkService()
     data = await svc.start_device_login(str(user.user_id))
     return success_response(data=data)
 
@@ -50,9 +46,8 @@ async def dingtalk_login(
 @router.post("/dingtalk/login/poll", summary="轮询钉钉登录是否完成")
 async def dingtalk_login_poll(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = DingTalkService(db)
+    svc = DingTalkService()
     data = await svc.poll_login(str(user.user_id))
     return success_response(data=data)
 
@@ -60,9 +55,8 @@ async def dingtalk_login_poll(
 @router.post("/dingtalk/disconnect", summary="断开钉钉连接并清除凭据")
 async def dingtalk_disconnect(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = DingTalkService(db)
+    svc = DingTalkService()
     data = await svc.disconnect(str(user.user_id))
     return success_response(data=data)
 
@@ -74,19 +68,17 @@ async def dingtalk_disconnect(
 async def lark_status(
     probe: bool = Query(False, description="true 时真实 API 探活并对账"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = LarkService(db)
-    data = await svc.probe_status(str(user.user_id)) if probe else svc.get_status(str(user.user_id))
+    svc = LarkService()
+    data = await svc.probe_status(str(user.user_id)) if probe else await svc.get_status(str(user.user_id))
     return success_response(data=data)
 
 
 @router.post("/lark/login", summary="发起飞书设备流登录（扫码）")
 async def lark_login(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = LarkService(db)
+    svc = LarkService()
     data = await svc.start_device_login(str(user.user_id))
     return success_response(data=data)
 
@@ -94,9 +86,8 @@ async def lark_login(
 @router.post("/lark/login/poll", summary="轮询飞书扫码登录是否完成")
 async def lark_login_poll(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = LarkService(db)
+    svc = LarkService()
     data = await svc.poll_login(str(user.user_id))
     return success_response(data=data)
 
@@ -104,9 +95,8 @@ async def lark_login_poll(
 @router.post("/lark/disconnect", summary="断开飞书连接并清除凭据")
 async def lark_disconnect(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = LarkService(db)
+    svc = LarkService()
     data = await svc.disconnect(str(user.user_id))
     return success_response(data=data)
 
@@ -188,10 +178,9 @@ class _EmailConnectRequest(BaseModel):
 async def email_status(
     probe: bool = Query(False, description="true 时真实连通性探活并对账"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = EmailService(db)
-    data = await svc.probe_status(str(user.user_id)) if probe else svc.get_status(str(user.user_id))
+    svc = EmailService()
+    data = await svc.probe_status(str(user.user_id)) if probe else await svc.get_status(str(user.user_id))
     return success_response(data=data)
 
 
@@ -199,9 +188,8 @@ async def email_status(
 async def email_connect(
     body: _EmailConnectRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = EmailService(db)
+    svc = EmailService()
     data = await svc.connect(
         str(user.user_id),
         email_address=body.email_address,
@@ -215,8 +203,7 @@ async def email_connect(
 @router.post("/email/disconnect", summary="断开电子邮箱连接并清除凭据")
 async def email_disconnect(
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = EmailService(db)
+    svc = EmailService()
     data = await svc.disconnect(str(user.user_id))
     return success_response(data=data)

@@ -5,9 +5,10 @@ from threading import Barrier
 from sqlalchemy.orm import sessionmaker
 from core.db.engine import get_db
 from tests.features.workbench.test_workbench_state_routes import client as client, BASE, SCOPE, body
+from tests.db_support import share_factory
 
 
-def test_concurrent_state_creation_has_one_cas_winner(client, db_session):
+def test_concurrent_state_creation_has_one_cas_winner(client, db_session, monkeypatch):
     factory = sessionmaker(bind=db_session.get_bind())
 
     def database():
@@ -15,6 +16,7 @@ def test_concurrent_state_creation_has_one_cas_winner(client, db_session):
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     barrier = Barrier(2)
 
     def write(value):

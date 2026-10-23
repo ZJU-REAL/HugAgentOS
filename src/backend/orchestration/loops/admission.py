@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-import core.db.engine as engine
 import core.runs.ownership as ownership
 from core.db.models import ChatRun
 from core.infra.logging import get_logger
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
 
@@ -60,7 +60,7 @@ async def start_autonomous_loop_run(
     try:
         from features.automation.loops import LoopService as _LoopSvc
 
-        with engine.SessionLocal() as db:
+        def _save_start_params(db):
             _LoopSvc(db).save_start_params(
                 loop_id,
                 {
@@ -74,6 +74,7 @@ async def start_autonomous_loop_run(
                     "automation_run": automation_run,
                 },
             )
+        await run_in_session(_save_start_params)
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
         logger.warning("loop start_params persist failed", exc_info=True)
     initial_args = {

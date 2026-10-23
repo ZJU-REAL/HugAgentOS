@@ -5,6 +5,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
+from core.db.threads import run_in_session
 logger = logging.getLogger(__name__)
 
 class CubeCredentials:
@@ -65,12 +66,13 @@ class CubeCredentials:
             export fails.
         """
         try:
-            from core.db.engine import SessionLocal
             from integrations.dingtalk.repository import DingTalkConnectionRepository
             from integrations.dingtalk.service import mark_login_expired, verify_and_refresh
 
-            with SessionLocal() as db:
+            def _connection(db):
                 rec = DingTalkConnectionRepository(db).get(user_id)
+                return rec
+            rec = await run_in_session(_connection)
             if not rec or rec.status != "connected":
                 return None
             verdict = await verify_and_refresh(user_id)

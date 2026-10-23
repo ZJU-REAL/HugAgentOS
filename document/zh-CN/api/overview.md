@@ -65,7 +65,7 @@ HugAgentOS 后端是一个 FastAPI 应用，所有业务接口挂在 `/v1/*` 前
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` 系统配置台后端（`/v1/config/*`、`/v1/models`、`/v1/service-configs`、部分 `/v1/admin/*` 观测接口） | `require_config`（环境变量 `CONFIG_TOKEN`） |
 | **ADMIN 或 CONFIG 任一** | 同上 | 提示词快照导入/导出（`/v1/content/prompts/export|import`） | `require_admin_or_config` |
 | **super_admin 会话** | 会话 Cookie（用户 `extra_data.role == "super_admin"`），合法 ADMIN_TOKEN 可兜底 | 个别跨用户管理操作 | `require_super_admin` |
-| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | 站点、浏览器与安全工具的内部服务调用；未配置时拒绝请求 | `api/routes/v1/internal_site_auth.py`、`internal_security.py` |
+| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | 站点、浏览器与安全工具的内部服务调用；未配置时拒绝请求 | `features/sites/api/internal_site_auth.py`、`internal_security.py` |
 
 鉴权优先级（`get_current_user`）：**Cookie 会话 → API-Key Bearer（`sk-jx-` 前缀）→ mock/remote Bearer**。携带了形似 API-Key 的 Bearer 但校验失败时直接 401，绝不静默降级为匿名。
 
@@ -120,7 +120,7 @@ curl -X POST 'https://<HOST>/api/v1/agents/responses' \
 
 ## SSE 流式协议
 
-流式聊天端点 `POST /v1/agents/responses`（`src/backend/api/routes/v1/agent_responses.py`，`stream: true`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/orchestration/workflow.py` 产出、`src/backend/orchestration/chat_run_executor.py` 序列化上 wire。
+流式聊天端点 `POST /v1/agents/responses`（`src/backend/api/routes/v1/agent_responses.py`，`stream: true`）校验通过后启动一个后台 run，再以 SSE 跟随该 run 实时下发事件；断线后可用 `GET /v1/chats/stream/{run_id}` 从任意偏移续播。事件由 `src/backend/core/agent_runtime/runner.py` 产出、`src/backend/core/chat/runtime/` 序列化上 wire。
 
 **Wire 格式**：`Content-Type: text/event-stream`，每个事件一行 `data: {JSON}`，事件类型放在 JSON 的 `type` 字段里（不使用 SSE 的 `event:` 行）；流以 `data: [DONE]` 结束。静默超过 15 秒时发送 SSE 注释行 `: heartbeat` 维持反代连接。
 
@@ -197,7 +197,7 @@ data: [DONE]
 
 答案必须与原问题数量、ID 和顺序完全一致；私有 option ID 必须来自 pending 响应，单选题不能提交多个选项，且每题必须作答或明确 `skipped=true`。后端会先把这些私有 ID 映射回原始选项 label，再向模型返回 DSH 兼容结果 `{"answers":[{"id":"scope","selected":["最小范围"]}]}`。第一个有效回答/取消会原子取得请求，之后的并发提交返回 `stale=true`，不会重复唤醒工具。成功 POST 已代表服务端原子取得请求，当前标签页可立即按 `request_id` 移除；`user_question_resolved` 和周期 pending 权威快照负责同步其他标签页与断线客户端。
 
-正文中的 `[ref:tool_name-N]` 引用标记由 `orchestration/citations.py` 解析为 `citations` 项，前端据此渲染角标（见 [对话模块](../modules/chat.md)）。
+正文中的 `[ref:tool_name-N]` 引用标记由 `core/llm/citations/` 解析为 `citations` 项，前端据此渲染角标（见 [对话模块](../modules/chat.md)）。
 
 ### 续播、Steer 与取消
 
