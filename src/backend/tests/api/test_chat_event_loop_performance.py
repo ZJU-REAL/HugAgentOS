@@ -6,8 +6,8 @@ import time
 from types import SimpleNamespace
 
 import api.routes.v1.chats.questions as chat_questions
-import core.services.session_operations.session_context as chat_session_context
-import core.services as chat_services
+import core.chat.operations.session_context as chat_session_context
+import core.chat.service as chat_services_ChatService_module
 import pytest
 from core.llm.tools import user_questions
 
@@ -27,8 +27,8 @@ async def test_pending_query_does_not_block_event_loop(monkeypatch):
             time.sleep(0.15)
             return object()
 
-    monkeypatch.setattr(chat_services, "ChatService", Service)
-    monkeypatch.setattr(chat_session_context, "_release_request_session", lambda db: None)
+    monkeypatch.setattr(chat_services_ChatService_module, "ChatService", Service)
+    monkeypatch.setattr(chat_session_context, 'release_request_session', lambda db: None)
 
     async def pending(chat_id):
         return []

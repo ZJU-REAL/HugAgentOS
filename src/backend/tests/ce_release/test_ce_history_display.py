@@ -6,7 +6,7 @@ def test_ce_tool_calls_display_migration_preserves_existing_messages(tmp_path):
     import importlib.util
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
-    from core.db.edition_tables import ce_create_all
+    from core.db.edition import ce_create_all
     from core.db.models import ChatMessage, ChatSession
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session

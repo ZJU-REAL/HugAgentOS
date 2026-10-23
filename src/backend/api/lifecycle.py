@@ -9,7 +9,6 @@ logger = get_logger(__name__)
 from api.startup.workers import (
     _env_flag,
     _startup_preload_enabled,
-    _mcp_warmup_enabled,
     _shutdown_automation_scheduler,
     _shutdown_idle_session_reaper,
     _startup_idle_session_reaper,
@@ -42,6 +41,8 @@ from api.startup.runtime import (
     _shutdown_orphan_job_reaper,
     _shutdown_channel_manager,
     _startup_warm_sandbox_pool,
+    _shutdown_sandbox_maintenance,
+    _shutdown_sandbox_provider,
     _startup_local_sidecars,
     _shutdown_local_sidecars,
     _startup_device_link,
@@ -83,7 +84,7 @@ _EXECUTION_PLANE_ONLY = frozenset({EXECUTION_PLANE})
 
 
 def _runtime_role() -> str:
-    from core.auth.desktop_bridge import bridge_enabled
+    from features.desktop.auth.bridge import bridge_enabled
 
     return EXECUTION_PLANE if bridge_enabled() else SERVICE
 
@@ -148,7 +149,7 @@ def _startup_steps():
         (_startup_recover_jobs, None, False, _ALL_ROLES, _SINGLETON),
         (_startup_orphan_job_reaper, _shutdown_orphan_job_reaper, False, _ALL_ROLES, _SINGLETON),
         (_startup_stale_run_reaper, _shutdown_stale_run_reaper, False, _ALL_ROLES, _SINGLETON),
-        (_startup_warm_sandbox_pool, None, False, _ALL_ROLES, _SINGLETON),
+        (_startup_warm_sandbox_pool, _shutdown_sandbox_maintenance, False, _ALL_ROLES, _SINGLETON),
         (
             _startup_idle_session_reaper,
             _shutdown_idle_session_reaper,
@@ -214,13 +215,17 @@ async def _stop_singleton_work() -> None:
     the role. The handlers come from the registry, so this cannot stop a
     different set than the one the leader started.
     """
-    for _step, stop, _gate, _roles, scope in _startup_steps():
+    failures = []
+    for _step, stop, _gate, _roles, scope in reversed(_startup_steps()):
         if scope is not _SINGLETON or stop is None:
             continue
         try:
             await stop()
         except Exception as exc:  # noqa: BLE001 - one failure must not skip the rest
             logger.warning("leader_stop_failed", step=stop.__name__, error=str(exc))
+            failures.append(exc)
+    if failures:
+        raise ExceptionGroup("Singleton work did not stop", failures)
 
 
 async def _run_startup_steps(steps) -> None:
@@ -297,7 +302,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()
     await _shutdown_desktop_observability()
-    from core.services.desktop_gateway_observability import drain
+    from features.desktop.gateway.observability import drain
 
     await drain()
     await _shutdown_orphan_job_reaper()
@@ -308,4 +313,5 @@ async def lifespan(app: FastAPI):
     await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
     await _shutdown_local_sidecars()
+    await _shutdown_sandbox_provider()
     await _shutdown_pools()

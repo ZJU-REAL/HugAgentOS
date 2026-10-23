@@ -2,8 +2,8 @@
 
 import asyncio
 import pytest
-from core.llm.providers.registry import get_spec
-from core.llm.providers.vendor_models import build_native_model, build_litellm_model
+from core.models.providers.registry import get_spec
+from core.models.providers.vendor_models import build_native_model, build_litellm_model
 from agentscope.model import (
     AnthropicChatModel,
     GeminiChatModel,

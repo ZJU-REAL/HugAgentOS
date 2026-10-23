@@ -3,10 +3,11 @@ import json
 import re
 from collections import Counter
 from datetime import datetime
+
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
-from sqlalchemy import select
 from personal_agent.models import PersonalAgent, PersonalWorkItem
+from sqlalchemy import select
 
 MAX_SEGMENT = 30000
 
@@ -44,9 +45,9 @@ async def finalize(goal, text, provider_id=None):
     import asyncio
     from dataclasses import replace
     try:
-        from core.services.model_config import ModelConfigService
-        from core.llm.chat_models import build_model_for_mode
         from agentscope.message import Msg, TextBlock
+        from core.models.chat_models import build_model_for_mode
+        from core.models.config import ModelConfigService
         service = ModelConfigService.get_instance()
         cfg = (service.resolve_provider(provider_id) if provider_id else None) or service.resolve("main_agent")
         model = build_model_for_mode(replace(cfg, temperature=0, max_tokens=2000, timeout=60), mode="fast", stream=False)
@@ -73,8 +74,9 @@ def clock(config):
 
 async def execute_task(task_id, binding):
     import asyncio
+
     from core.llm.factory import create_agent_executor
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
     with SessionLocal() as db:
         task = db.get(PersonalWorkItem, task_id)
         from personal_agent.tasks.execution import bind

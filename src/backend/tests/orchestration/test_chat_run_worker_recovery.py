@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import core.runs.events.store as run_event_stream
 import fakeredis.aioredis
+import orchestration.loops.driver as driver
+import orchestration.loops.run as loops_run
+import orchestration.plans.execute_run as execute_run
+import orchestration.plans.generate_run as generate_run
+import orchestration.plans.mode as mode
 import pytest
 from core.db.models import ChatMessage, ChatRun, ChatRunOperation, ChatSession, Plan
-from core.services.run_journal import RunJournal
-from core.services.tool_effect_ledger import ToolOutcomeUnknown
-from orchestration import chat_run_executor as executor
-from orchestration import run_event_stream
+from core.runs.journal import RunJournal
+from core.runs.tool_effects.errors import ToolOutcomeUnknown
 from tests.orchestration.recovery_test_support import recovery_env
 
 
@@ -18,7 +22,7 @@ from tests.orchestration.recovery_test_support import recovery_env
 async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-tool-unknown",
@@ -28,14 +32,14 @@ async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monk
         request_payload={"kind": "plan_execute", "plan_id": "plan-1"},
         recovery_snapshot={"kind": "plan_execute", "worker_args": {"context": {}}},
     )
-    from orchestration.subagents import plan_mode
+    import orchestration.plans.mode as plan_mode
 
     async def broken_plan(**_kwargs):
         raise ExceptionGroup("plan tool failed", [ToolOutcomeUnknown("effect-plan")])
         yield  # pragma: no cover
 
-    monkeypatch.setattr(plan_mode, "astream_execute_plan", broken_plan)
-    await executor._run_plan_execute_workflow(
+    monkeypatch.setattr(mode, "astream_execute_plan", broken_plan)
+    await execute_run._run_plan_execute_workflow(
         run_id=row.run_id,
         plan_id="plan-1",
         chat_id=row.chat_id,
@@ -59,7 +63,7 @@ async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monk
 async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-fenced",
@@ -69,7 +73,7 @@ async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_e
         request_payload={"kind": "plan_generate"},
         recovery_snapshot={"kind": "plan_generate", "worker_args": {}},
     )
-    from orchestration.subagents import plan_mode
+    import orchestration.plans.mode as plan_mode
 
     async def generated_then_taken_over(**_kwargs):
         yield {
@@ -89,8 +93,8 @@ async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_e
             )
             db.commit()
 
-    monkeypatch.setattr(plan_mode, "astream_generate_plan", generated_then_taken_over)
-    await executor._run_plan_generate_workflow(
+    monkeypatch.setattr(mode, "astream_generate_plan", generated_then_taken_over)
+    await generate_run._run_plan_generate_workflow(
         run_id=row.run_id,
         chat_id=row.chat_id,
         user_id=row.user_id,
@@ -123,7 +127,7 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-complete",
@@ -133,7 +137,7 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
         request_payload={"kind": "plan_generate"},
         recovery_snapshot={"kind": "plan_generate", "worker_args": {}},
     )
-    from orchestration.subagents import plan_mode
+    import orchestration.plans.mode as plan_mode
 
     async def generated(**_kwargs):
         yield {
@@ -145,8 +149,8 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
             "usage": {"total_tokens": 4},
         }
 
-    monkeypatch.setattr(plan_mode, "astream_generate_plan", generated)
-    await executor._run_plan_generate_workflow(
+    monkeypatch.setattr(mode, "astream_generate_plan", generated)
+    await generate_run._run_plan_generate_workflow(
         run_id=row.run_id,
         chat_id=row.chat_id,
         user_id=row.user_id,
@@ -188,7 +192,7 @@ async def test_autonomous_worker_pauses_nested_unknown_without_partial_stale_wri
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-tool-unknown",
@@ -198,13 +202,13 @@ async def test_autonomous_worker_pauses_nested_unknown_without_partial_stale_wri
         request_payload={"kind": "autonomous_loop", "loop_id": "loop-1"},
         recovery_snapshot={"kind": "autonomous_loop", "worker_args": {"context": {}}},
     )
-    from orchestration import autonomous_loop
+    import orchestration.loops.driver as autonomous_loop
 
     async def broken_loop(**_kwargs):
         raise ExceptionGroup("loop tool failed", [ToolOutcomeUnknown("effect-loop")])
 
-    monkeypatch.setattr(autonomous_loop, "run_autonomous_loop", broken_loop)
-    await executor._run_autonomous_loop_workflow(
+    monkeypatch.setattr(driver, "run_autonomous_loop", broken_loop)
+    await loops_run._run_autonomous_loop_workflow(
         run_id=row.run_id,
         loop_id="loop-1",
         chat_id=row.chat_id,
@@ -228,7 +232,7 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-project-fenced",
@@ -238,8 +242,8 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
         request_payload={"kind": "autonomous_loop", "loop_id": "loop-project"},
         recovery_snapshot={"kind": "autonomous_loop", "worker_args": {}},
     )
-    from core.services import project_scope
-    from orchestration import autonomous_loop
+    import orchestration.loops.driver as autonomous_loop
+    from core.projects import edition as project_scope
 
     monkeypatch.setattr(
         project_scope,
@@ -270,8 +274,8 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
         pytest.fail("stale autonomous worker reached model execution")
 
     monkeypatch.setattr(RunJournal, "append_operation", append_after_takeover)
-    monkeypatch.setattr(autonomous_loop, "run_autonomous_loop", must_not_run)
-    await executor._run_autonomous_loop_workflow(
+    monkeypatch.setattr(driver, "run_autonomous_loop", must_not_run)
+    await loops_run._run_autonomous_loop_workflow(
         run_id=row.run_id,
         loop_id="loop-project",
         chat_id=row.chat_id,
@@ -294,7 +298,7 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
 
 def test_retirement_removes_batch_run_ledger_without_losing_plan_recovery(recovery_env):
     from core.db.batch_retirement import retire_batch_execution
-    from core.db.models import ToolEffectLedger, ToolEffectLease, ToolEffectReceipt
+    from core.db.models import ToolEffectLease, ToolEffectLedger, ToolEffectReceipt
 
     sessions = recovery_env
     journal = RunJournal(sessions)

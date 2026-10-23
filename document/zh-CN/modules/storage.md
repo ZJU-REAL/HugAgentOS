@@ -12,7 +12,7 @@ CE 和 EE 的云端 Docker 部署默认使用 S3 兼容存储。桌面离线本�
 
 已有部署切换存储前，先备份配置、数据库和文件引用。复制所需对象并逐对象校验 SHA-256。保留源对象。
 
-存储工厂位于 core/storage/factory.py。S3StorageBackend 使用 boto3 并提供目录操作。LocalStorageBackend 服务桌面本地文件。OSS 和 OBS 适配仍属于 EE。
+存储工厂位于 core/files/storage/factory.py。S3StorageBackend 使用 boto3 并提供目录操作。LocalStorageBackend 服务桌面本地文件。OSS 和 OBS 适配仍属于 EE。
 
 生成物仓库支持 S3、OSS 和 OBS。元数据记录保存在本地，并镜像到对象存储。迁移时保留原存储键，以保持历史下载引用有效。
 

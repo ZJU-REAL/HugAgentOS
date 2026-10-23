@@ -1,6 +1,7 @@
 """多模态主模型直接看图：``Read`` 返回图片块、原生版 ``read_image``、看图方式判定。"""
 
 from __future__ import annotations
+from core.files import artifact_bytes as shared_artifact_bytes
 
 import asyncio
 import base64
@@ -19,7 +20,9 @@ class _Toolkit:
     def __init__(self):
         self.fns = {}
 
-    def register_tool_function(self, fn, **kw):
+    def append(self, tool):
+        fn = tool._func
+        kw = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.fns[fn.__name__] = fn
 
 
@@ -69,9 +72,8 @@ def _register_native_read_image():
 
 
 def test_read_image_returns_pixels_by_file_id(monkeypatch):
-    from core.llm import hooks
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
     fn = _register_native_read_image()
     meta, block = _image_response_parts(asyncio.run(fn(file_id="art-1")))
     assert meta == {
@@ -107,9 +109,8 @@ def test_read_image_requires_a_target():
 
 
 def test_read_image_rejects_non_image_bytes(monkeypatch):
-    from core.llm import hooks
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: b"PK\x03\x04zip")
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: b"PK\x03\x04zip")
     assert "不是可识别的图片格式" in _error(
         asyncio.run(_register_native_read_image()(file_id="art-1"))
     )
@@ -121,10 +122,9 @@ def test_read_image_rejects_paths_outside_workspace():
 
 
 def test_read_image_refuses_oversized_image(monkeypatch):
-    from core.llm import hooks
-    from core.vision import service as svc
+    from core.models.vision import service as svc
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
     monkeypatch.setattr(svc, "MAX_IMAGE_BYTES", len(PNG_1X1) - 1)
     assert "图片过大" in _error(asyncio.run(_register_native_read_image()(file_id="art-1")))
 
@@ -191,7 +191,7 @@ def test_read_falls_back_to_binary_without_vision(monkeypatch):
 
 
 def _model_service(monkeypatch, *, main_vision: bool, provider_vision=None):
-    from core.services.model_config import ModelConfigService
+    from core.models.config import ModelConfigService
 
     class _Service:
         @staticmethod
@@ -210,7 +210,7 @@ def _model_service(monkeypatch, *, main_vision: bool, provider_vision=None):
 
 
 def test_vision_mode_prefers_selected_provider(monkeypatch):
-    from core.vision import resolve_vision_mode
+    from core.models.vision import resolve_vision_mode
 
     _model_service(monkeypatch, main_vision=False, provider_vision=True)
     assert resolve_vision_mode("prov-1") == "native"
@@ -218,8 +218,8 @@ def test_vision_mode_prefers_selected_provider(monkeypatch):
 
 
 def test_vision_mode_probe_failure_means_none(monkeypatch):
-    from core.services.model_config import ModelConfigService
-    from core.vision import resolve_vision_mode
+    from core.models.config import ModelConfigService
+    from core.models.vision import resolve_vision_mode
 
     def _boom():
         raise RuntimeError("db down")
@@ -229,7 +229,7 @@ def test_vision_mode_probe_failure_means_none(monkeypatch):
 
 
 def test_read_image_is_governed_by_local_path_permission():
-    from core.llm.tool_permissions import builtin_tool_permission
+    from core.sandbox.permissions.tool_specs import builtin_tool_permission
 
     spec = builtin_tool_permission("read_image")
     assert spec is not None

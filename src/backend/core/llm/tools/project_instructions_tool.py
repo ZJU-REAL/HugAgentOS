@@ -1,5 +1,6 @@
 """Canonical instruction reads for project chats; writes only during initialization."""
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 
@@ -13,7 +14,7 @@ def project_instruction_path(project_ctx: dict) -> str:
     if project_ctx.get("project_is_local"):
         root = project_ctx.get("project_local_path")
         return f"{root.rstrip('/')}/AGENTS.md" if root else ""
-    from core.services.edition_workspace import context_directory
+    from core.files.edition import context_directory
 
     directory = context_directory(project_ctx)
     if directory:
@@ -23,19 +24,20 @@ def project_instruction_path(project_ctx: dict) -> str:
 
 
 def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str, local_path=None, instruction_path=None, allow_write=True):
-    from core.llm.tool_permissions import READ, WRITE, local_path_tool
-    from core.llm.tools._tool_confirmation import OP_EDIT
+    from core.sandbox.permissions.dispatch_models import READ, WRITE
+    from core.sandbox.permissions.tool_specs import local_path_tool
+    from core.llm.tools.confirmation import OP_EDIT
 
     target = instruction_path or (f"{local_path.rstrip('/')}/AGENTS.md" if local_path else "/myspace/AGENTS.md")
 
     def operate(content=None, revision=None):
-        from core.auth.permissions_iface import resolve_project_permission
+        from core.auth.edition import resolve_project_permission
         from core.db.engine import SessionLocal
         from core.db.models import Project
-        from core.services.project_instructions import ProjectInstructionsService
+        from core.projects.instructions import ProjectInstructionsService
 
         if content is None:
-            from core.services.project_instructions import read_authorized_project_instructions
+            from core.projects.instructions import read_authorized_project_instructions
             return {"ok": True, "path": target, **read_authorized_project_instructions(project_id, user_id)}
 
         with SessionLocal() as db:
@@ -59,7 +61,7 @@ def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str
         """
         try:
             if local_path:
-                from core.llm.tool_permissions import require_local_path_permission
+                from core.sandbox.permissions.dispatch_models import require_local_path_permission
                 require_local_path_permission(target, "read")
             return resp_json(await asyncio.to_thread(operate))
         except HTTPException as exc:
@@ -75,22 +77,16 @@ def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str
         """
         try:
             if local_path:
-                from core.llm.tool_permissions import require_local_path_permission
+                from core.sandbox.permissions.dispatch_models import require_local_path_permission
                 require_local_path_permission(target, "write")
             return resp_json(await asyncio.to_thread(operate, content, expected_revision))
         except HTTPException as exc:
             return resp_json({"ok": False, "error": exc.detail, "status": exc.status_code})
 
-    toolkit.register_tool_function(
-        read_project_instructions,
-        permission=local_path_tool("file_path", READ, tool_name="read_project_instructions", default_path=target),
-    )
+    toolkit.append(function_tool(read_project_instructions, dispatch_spec=local_path_tool("file_path", READ, tool_name="read_project_instructions", default_path=target)))
     if not allow_write:
         return
-    toolkit.register_tool_function(
-        save_project_instructions,
-        permission=local_path_tool(
+    toolkit.append(function_tool(save_project_instructions, dispatch_spec=local_path_tool(
             "file_path", WRITE, tool_name="save_project_instructions",
             default_path=target, myspace_op=OP_EDIT,
-        ),
-    )
+        )))

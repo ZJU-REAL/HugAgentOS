@@ -1,10 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from core.llm.context_usage import (
-    build_compaction_context_usage,
-    build_context_usage_snapshot,
-)
+from core.llm.context.usage import build_compaction_context_usage, build_context_usage_snapshot
 
 
 def _agent():
@@ -118,7 +115,7 @@ def test_compaction_snapshot_uses_post_compaction_backend_estimate():
 
 
 def test_model_call_end_emits_live_context_usage():
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
 
     class ModelCallEndEvent:
         input_tokens = 120
@@ -140,7 +137,7 @@ def test_model_call_end_emits_live_context_usage():
 
 
 def test_auxiliary_call_can_restore_primary_context_snapshot():
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
 
     class ModelCallEndEvent:
         input_tokens = 120
@@ -165,7 +162,7 @@ def test_auxiliary_call_can_restore_primary_context_snapshot():
 def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
     from datetime import datetime, timezone
 
-    from core.services.context_usage_projection import get_chat_context_state
+    from core.chat.compaction.usage_projection import get_chat_context_state
 
     compacted = build_compaction_context_usage(
         {
@@ -208,7 +205,7 @@ def test_compaction_projection_is_hidden_after_a_newer_provider_snapshot():
 
 
 def test_latest_persisted_snapshot_uses_newest_assistant_measurement():
-    from core.services.context_usage_projection import get_chat_context_state
+    from core.chat.compaction.usage_projection import get_chat_context_state
 
     older = build_context_usage_snapshot(
         _agent(), prompt_tokens=100, completion_tokens=10, model_call_index=1

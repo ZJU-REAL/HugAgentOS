@@ -1,13 +1,20 @@
+from core.agent_runtime.integrations import memory_session as memory_session_module
+from core.harness import log_context
+
 from types import SimpleNamespace
 
+import core.agent_runtime.direct as direct
+import core.agent_runtime.events as events
+import core.agent_runtime.integrations.memory as memory
+import core.agent_runtime.runner as runner
+import core.agent_runtime.targets as targets
 import pytest
-from core.services.session_operations.agent_targets import _resolve_chat_agent_targets, _strip_direct_mention_prefix
+from core.agent_runtime.integrations.memory_session import SessionMemory
 from core.chat.schemas import ChatRequest
-from core.llm.subagent_tool import _shared_ontology_runtime, build_explicit_subagent_command_hint
-from core.services.subagent_routing_service import parse_explicit_subagent_command
+from core.llm.subagents.tool import _shared_ontology_runtime, build_explicit_subagent_command_hint
+from core.chat.operations.agent_targets import _resolve_chat_agent_targets, _strip_direct_mention_prefix
+from core.chat.subagent_routing import parse_explicit_subagent_command
 from fastapi import HTTPException
-from orchestration import workflow
-from orchestration.memory_integration import SessionMemory
 
 
 class _FakeUserAgentService:
@@ -43,13 +50,13 @@ class _FakeUserService:
 
 @pytest.fixture(autouse=True)
 def _stub_builtin_preferences(monkeypatch):
-    import core.services.user_service as user_service_module
+    import core.auth.users as user_service_module
 
     monkeypatch.setattr(user_service_module, "UserService", _FakeUserService)
 
 
 def test_explicit_mention_id_resolves_as_per_turn_target(monkeypatch):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
     request = ChatRequest(
@@ -72,7 +79,7 @@ def test_explicit_mention_id_resolves_as_per_turn_target(monkeypatch):
 
 
 def test_legacy_mention_name_resolves_only_unique_accessible_agent(monkeypatch):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
     request = ChatRequest(
@@ -91,7 +98,7 @@ def test_legacy_mention_name_resolves_only_unique_accessible_agent(monkeypatch):
 
 
 def test_unknown_mention_target_is_rejected(monkeypatch):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
     request = ChatRequest(
@@ -168,7 +175,7 @@ def test_duplicate_agent_name_does_not_trigger_ambiguous_direct_routing():
 
 
 def test_natural_language_command_is_resolved_by_chat_route(monkeypatch):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
     request = ChatRequest(
@@ -189,7 +196,7 @@ def test_natural_language_command_is_resolved_by_chat_route(monkeypatch):
 
 
 def test_builtin_subagent_natural_language_command_is_resolved_without_db_row(monkeypatch):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
     request = ChatRequest(
@@ -209,8 +216,8 @@ def test_builtin_subagent_natural_language_command_is_resolved_without_db_row(mo
 
 
 def test_disabled_builtin_subagent_can_be_explicitly_targeted_for_one_turn(monkeypatch):
-    import core.services.user_agent_service as service_module
-    import core.services.user_service as user_service_module
+    import core.capabilities.agents.edition as service_module
+    import core.auth.users as user_service_module
 
     class _DisabledBuiltinUserService(_FakeUserService):
         def get_disabled_builtin_subagent_ids(self, user_id: str):
@@ -239,13 +246,13 @@ def test_disabled_builtin_subagent_can_be_explicitly_targeted_for_one_turn(monke
 def test_disabled_agent_is_absent_by_default_and_added_only_when_explicit():
     custom = [{"agent_id": "ua_off", "name": "停用智能体", "is_enabled": False}]
 
-    default_visible = workflow._runtime_visible_subagents(
+    default_visible = targets._runtime_visible_subagents(
         custom,
         {},
         {"builtin.explorer"},
         [],
     )
-    explicit_visible = workflow._runtime_visible_subagents(
+    explicit_visible = targets._runtime_visible_subagents(
         custom,
         {},
         {"builtin.explorer"},
@@ -274,7 +281,7 @@ def test_parent_and_child_share_the_same_ontology_runtime_object():
 
 def test_only_persistent_agent_chat_uses_direct_route():
     assert (
-        workflow._direct_agent_id_from_context(
+        targets._direct_agent_id_from_context(
             {
                 "agent_id": None,
                 "mention_agent_id": "ua_risk",
@@ -286,7 +293,7 @@ def test_only_persistent_agent_chat_uses_direct_route():
         is None
     )
     assert (
-        workflow._direct_agent_id_from_context(
+        targets._direct_agent_id_from_context(
             {"agent_id": "ua_risk", "direct_agent_id": "ua_risk"}
         )
         == "ua_risk"
@@ -294,10 +301,10 @@ def test_only_persistent_agent_chat_uses_direct_route():
 
 
 def test_dedicated_builtin_chat_preserves_role_write_boundaries():
-    assert workflow._direct_agent_execution_permissions("builtin.explorer") == (True, False)
-    assert workflow._direct_agent_execution_permissions("builtin.worker") == (False, True)
-    assert workflow._direct_agent_execution_permissions("builtin.reviewer") == (True, False)
-    assert workflow._direct_agent_execution_permissions("ua_risk") == (False, True)
+    assert targets._direct_agent_execution_permissions("builtin.explorer") == (True, False)
+    assert targets._direct_agent_execution_permissions("builtin.worker") == (False, True)
+    assert targets._direct_agent_execution_permissions("builtin.reviewer") == (True, False)
+    assert targets._direct_agent_execution_permissions("ua_risk") == (False, True)
 
 
 @pytest.mark.asyncio
@@ -311,9 +318,9 @@ async def test_mention_keeps_normal_main_model_stream(monkeypatch):
         raise AssertionError("@mention must not bypass the main model")
         yield  # pragma: no cover
 
-    monkeypatch.setattr(workflow, "open_session_memory", _fake_memory_retrieval)
-    monkeypatch.setattr(workflow, "_astream_subagent_direct", _unexpected_direct)
-    stream = workflow.astream_chat_workflow(
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', _fake_memory_retrieval)
+    monkeypatch.setattr(direct, "_astream_subagent_direct", _unexpected_direct)
+    stream = runner.astream_chat_workflow(
         session_messages=[{"role": "user", "content": "分析企业风险"}],
         user_message="分析企业风险",
         context={
@@ -353,8 +360,8 @@ async def test_natural_language_command_keeps_normal_main_model_stream(monkeypat
             chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
         )
 
-    monkeypatch.setattr(workflow, "open_session_memory", _fake_memory_retrieval)
-    stream = workflow.astream_chat_workflow(
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', _fake_memory_retrieval)
+    stream = runner.astream_chat_workflow(
         session_messages=[{"role": "user", "content": "分析杭州量知的风险"}],
         user_message="分析杭州量知的风险",
         context={
@@ -378,31 +385,31 @@ async def test_natural_language_command_keeps_normal_main_model_stream(monkeypat
 
 @pytest.mark.asyncio
 async def test_subagent_log_scope_is_closed_before_outer_stream_yields():
-    from core.services import log_service
+    from core.harness import log_writer as log_service
 
     async def source():
-        assert log_service.current_subagent_log_id() == "sublog_1"
+        assert log_context.current_subagent_log_id() == "sublog_1"
         yield ("text_delta", "first")
-        assert log_service.current_subagent_log_id() == "sublog_1"
+        assert log_context.current_subagent_log_id() == "sublog_1"
         yield ("text_delta", "second")
 
     iterator = source().__aiter__()
-    first = await workflow._anext_in_subagent_log_scope(iterator, "sublog_1")
+    first = await events._anext_in_subagent_log_scope(iterator, "sublog_1")
     assert first == ("text_delta", "first")
-    assert log_service.current_subagent_log_id() is None
+    assert log_context.current_subagent_log_id() is None
 
-    second = await workflow._anext_in_subagent_log_scope(iterator, "sublog_1")
+    second = await events._anext_in_subagent_log_scope(iterator, "sublog_1")
     assert second == ("text_delta", "second")
-    assert log_service.current_subagent_log_id() is None
+    assert log_context.current_subagent_log_id() is None
 
     with pytest.raises(StopAsyncIteration):
-        await workflow._anext_in_subagent_log_scope(iterator, "sublog_1")
-    assert log_service.current_subagent_log_id() is None
+        await events._anext_in_subagent_log_scope(iterator, "sublog_1")
+    assert log_context.current_subagent_log_id() is None
 
 
 @pytest.mark.parametrize("message", ["你好", "分析这个问题", "讲解如何调用子智能体", "  hello  "])
 def test_ordinary_message_does_not_load_agent_catalog(monkeypatch, message):
-    import core.services.user_agent_service as service_module
+    import core.capabilities.agents.edition as service_module
 
     class UnexpectedCatalog:
         def __init__(self, _db):

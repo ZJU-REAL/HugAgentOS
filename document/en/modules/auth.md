@@ -185,7 +185,7 @@ The actual gating, verified against each route file's dependencies:
 | `PATCH /v1/me/api-keys/{key_id}` | Enable / disable |
 | `DELETE /v1/me/api-keys/{key_id}` | Revoke |
 
-Keys look like `sk-jx-...` and can be used as a Bearer token to call business APIs **in every AUTH_MODE** (external programmatic callers usually have no cookies). Validation (enabled / not revoked / not expired / user flag still on) is centralized in `core/services/api_key_service.py::resolve_api_key`.
+Keys look like `sk-jx-...` and can be used as a Bearer token to call business APIs **in every AUTH_MODE** (external programmatic callers usually have no cookies). Validation (enabled / not revoked / not expired / user flag still on) is centralized in `core/auth/api_keys.py::resolve_api_key`.
 
 Disabling or revoking an API key rejects new requests and cancels its admitted chat tasks that are pending, running, or awaiting attention. Cancellation stops background execution and terminates the SSE stream; completed external tool effects cannot be undone. Re-enabling the key does not resume cancelled tasks. Call duration stays fixed after execution stops, including the needs-attention state.
 
@@ -216,7 +216,7 @@ Key authentication events all land in the audit table (`audit_logs`): login succ
 | Administrative credential dependencies | `src/backend/api/deps.py` |
 | Profile / preferences | `src/backend/api/routes/v1/users.py` |
 | Per-user permission flags | `src/backend/edition_ee/routes/config_users.py` |
-| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `src/backend/core/services/api_key_service.py` |
+| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `src/backend/core/auth/api_keys.py` |
 | Capability-center self-service (owner isolation) | `src/backend/api/routes/v1/me_capabilities.py` |
 | Invite codes | `src/backend/edition_ee/auth/invite.py`, `src/backend/edition_ee/routes/config_invites.py` |
 | Team management | `src/backend/edition_ee/routes/config_teams.py`, `src/backend/edition_ee/routes/me_teams.py` |

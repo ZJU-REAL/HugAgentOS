@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 from core.infra.exceptions import StorageError
-from core.storage.oss import OSSStorageBackend
-from core.storage.s3 import S3StorageBackend
+from core.files.storage.oss import OSSStorageBackend
+from core.files.storage.s3 import S3StorageBackend
 
 
 class UnavailableBucket:
@@ -48,7 +48,7 @@ def test_s3_distinguishes_absence_from_permission_or_server_failure():
             s3(code).exists("file")
 
 from pathlib import Path
-from core.storage.local import LocalStorageBackend
+from core.files.storage.local import LocalStorageBackend
 
 
 def test_local_io_failure_is_not_reported_as_a_missing_object(tmp_path, monkeypatch):

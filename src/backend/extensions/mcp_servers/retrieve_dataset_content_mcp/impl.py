@@ -6,18 +6,8 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from core.auth.kb_permissions import get_accessible_local_kb_ids, is_shared_visibility
-from core.kb.external_retrieval import (
-    MAX_RETRIEVE_TOKENS,
-    RETRIEVE_MAX_CONCURRENCY,
-    RETRIEVE_REQUEST_TIMEOUT_SECONDS,
-    RETRIEVE_TOTAL_TIMEOUT_SECONDS,
-    DatasetRetrievalTimeoutError,
-    DatasetRetrievalUnavailableError,
-    list_external_datasets,
-    retrieve_dataset_content,
-    retrieve_dataset_content_async,
-)
+from features.knowledge.edition import get_accessible_local_kb_ids, is_shared_visibility
+from features.knowledge.edition import MAX_RETRIEVE_TOKENS, RETRIEVE_MAX_CONCURRENCY, RETRIEVE_REQUEST_TIMEOUT_SECONDS, RETRIEVE_TOTAL_TIMEOUT_SECONDS, DatasetRetrievalTimeoutError, DatasetRetrievalUnavailableError, list_external_datasets, retrieve_dataset_content, retrieve_dataset_content_async
 from extensions.mcp_servers.retrieve_dataset_content_mcp.local_impl import (
     LOCAL_RETRIEVE_STAGE_TIMEOUT_SECONDS,
     LOCAL_RETRIEVE_TOTAL_TIMEOUT_SECONDS,
@@ -36,7 +26,7 @@ def _list_local_datasets(
     private_items: List[Dict[str, Any]] = []
     try:
         from core.db.engine import SessionLocal
-        from core.db.models import KBDocument, KBSpace
+        from features.knowledge.models import KBDocument, KBSpace
 
         allowed = {item.strip() for item in (allowed_kb_ids or "").split(",") if item.strip()}
         user_id = (current_user_id or "").strip() or os.getenv("CURRENT_USER_ID", "").strip()
@@ -79,7 +69,7 @@ def list_all_datasets(
     allowed_kb_ids: str | None = None,
     current_user_id: str | None = None,
 ) -> Dict[str, Any]:
-    from core.kb.external_provider import is_enabled
+    from features.knowledge.edition import is_enabled
 
     local_shared, private_items = _list_local_datasets(
         allowed_kb_ids=allowed_kb_ids, current_user_id=current_user_id

@@ -18,14 +18,18 @@ from core.db.utc_datetime import UTCDateTime
 
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Text, TIMESTAMP,
-    ForeignKey, CheckConstraint, Index, JSON
+    Column,
+    String,
+    Integer,
+    BigInteger,
+    Text,
+    ForeignKey,
+    CheckConstraint,
+    Index,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from core.db.engine import Base
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
+from core.db.models.column_types import JSONType
 
 
 def _utcnow() -> datetime:

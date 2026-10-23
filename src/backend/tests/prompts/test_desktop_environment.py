@@ -1,4 +1,5 @@
 """Desktop environment facts must match the runner and stay out of cloud prompts."""
+from core.llm import prompt_versions as prompt_versions_module
 
 import xml.etree.ElementTree as ET
 import pytest
@@ -10,15 +11,15 @@ from prompts.prompt_runtime import build_system_prompt
 @pytest.fixture(autouse=True)
 def isolated_prompt_sources(monkeypatch, tmp_path):
     from prompts import prompt_runtime
-    from core.services import prompt_version_service
+    from core.llm import prompt_versions as prompt_version_service
     from pathlib import Path
 
     stock = Path(prompt_runtime.__file__).parent / "prompt_text/default/system/40_format.system.md"
     monkeypatch.setattr(prompt_runtime, "_load_db_prompt_parts", lambda: {})
     monkeypatch.setattr(prompt_runtime, "_get_db_prompt_version", lambda: "desktop-test")
     monkeypatch.setattr(
-        prompt_version_service,
-        "get_active_version",
+        prompt_versions_module,
+        'get_active_version',
         lambda kind, **kwargs: (
             {
                 "id": "desktop-test",
@@ -28,7 +29,7 @@ def isolated_prompt_sources(monkeypatch, tmp_path):
             else None
         ),
     )
-    monkeypatch.setattr("core.services.local_grant_service._data_dir", lambda: tmp_path)
+    monkeypatch.setattr('features.desktop.local.grants._data_dir', lambda: tmp_path)
     prompt_runtime._prompt_cache.clear()
 
 
@@ -74,7 +75,7 @@ def test_cloud_has_no_desktop_environment(monkeypatch):
 def test_environment_refreshes_date_permissions_and_workspace_without_stale_cache(
     monkeypatch, tmp_path
 ):
-    from core.services import local_grant_service as grants
+    from features.desktop.local import grants as grants
 
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setattr(grants, "_data_dir", lambda: tmp_path)
@@ -133,7 +134,7 @@ from types import SimpleNamespace
 import core.db.models
 from core.db.engine import Base, engine
 from core.llm import agent_factory
-import core.agent_skills.loader as skill_loader
+import core.capabilities.skills.loader as skill_loader
 from core.config import local_mode
 Base.metadata.create_all(engine)
 local_mode.local_mode_enabled = lambda: True

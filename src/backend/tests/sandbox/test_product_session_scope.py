@@ -11,7 +11,7 @@ from core.sandbox.providers.opensandbox.binding import _OpenSandboxBindingMixin
 from core.sandbox.processes.cloud import CloudProcesses
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 from core.sandbox.protocol import ProcessRequest
-from core.spaces.sandbox import SpaceSandboxMixin
+from core.files.spaces.sandbox import SpaceSandboxMixin
 from personal_agent.computer.sandbox import PersonalSandboxProvider
 
 

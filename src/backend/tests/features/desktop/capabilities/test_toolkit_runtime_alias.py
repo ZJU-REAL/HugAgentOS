@@ -1,0 +1,198 @@
+"""Real AgentScope rendering and loading must use resolved runtime names."""
+from features.desktop.capabilities import skill_account
+from features.desktop.capabilities import skill_candidates
+from features.desktop.capabilities import skill_publication
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from agentscope.state import AgentState
+from agentscope.tool import Toolkit
+from features.desktop.capabilities import registry, runtime, skills
+from core.llm.factory.tools.definitions import ToolAssembly
+from core.llm.tools.skill_tool import register_sandboxed_view_text_file
+from core.capabilities.manifest_protocol import skill_content_hash
+
+
+def factory_template():
+    from core.llm.factory.defaults import _SKILL_INSTRUCTION_TEMPLATE
+
+    return _SKILL_INSTRUCTION_TEMPLATE
+
+
+@pytest.fixture
+def frozen(index_db, caps_root, monkeypatch):
+    monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(
+        'core.capabilities.skills.loader_factory.get_skill_loader',
+        lambda: SimpleNamespace(load_all_metadata=lambda: {}),
+    )
+
+    def create(names, physical=False):
+        for alias, body in names.items():
+            md = (
+                "---\nname: original-cloud-name\ndescription: Synthetic marker reader\n---\n" + body
+            )
+            skill_publication.publish_local_skill(
+                alias,
+                files={"SKILL.md": md},
+                content_hash=skill_content_hash(md, {}),
+                owner_user_id="owner",
+            )
+        prepared = runtime.prepare("run-alias", "owner", skill_ids=list(names))
+        loader = runtime.frozen_loader(prepared)
+        if physical:
+            original_get_dir = loader.get_skill_dir
+            loader.get_skill_dir = lambda sid: str(Path(original_get_dir(sid)).resolve())
+        collector = ToolAssembly()
+        assert loader.register_skills_to_toolkit(collector, list(names)) == len(names)
+        return prepared, loader, collector
+
+    return create
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("physical", [False, True])
+async def test_real_factory_prompt_and_native_registry_preserve_two_custom_aliases(
+    frozen, physical
+):
+    prepared, loader, collector = frozen(
+        {"mine-one": "MARKER_ONE", "mine-two": "MARKER_TWO"}, physical=physical
+    )
+    toolkit = Toolkit(
+        skills_or_loaders=collector.skill_loaders, skill_instruction_template=factory_template()
+    )
+    prompt = await toolkit.get_skill_instructions()
+    native = await toolkit._get_available_skills()
+    assert set(native) == {"mine-one", "mine-two"}
+    for alias, marker in (("mine-one", "MARKER_ONE"), ("mine-two", "MARKER_TWO")):
+        assert "- `" + alias + "`" in prompt
+        assert str(Path(loader.get_skill_dir(alias)).resolve()) in prompt
+        assert native[alias].name == alias and native[alias].dir == str(
+            Path(loader.get_skill_dir(alias)).resolve()
+        )
+        assert native[alias].markdown == marker
+        loaded = await toolkit.builtin_skill_viewer.tool.call(alias, AgentState())
+        assert "\n".join(block.text for block in loaded.content) == marker
+        assert "name: original-cloud-name" in (prepared.view_dir / alias / "SKILL.md").read_text()
+    assert "- `original-cloud-name`" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_native_projection_is_detached_and_custom_alias_reads_frozen_bytes(frozen):
+    prepared, loader, collector = frozen({"custom-local": "FROZEN_CONTENT"})
+    toolkit = Toolkit(
+        skills_or_loaders=collector.skill_loaders, skill_instruction_template=factory_template()
+    )
+    native = await toolkit._get_available_skills()
+    assert "custom-local" in native
+    native["custom-local"].name = "poison"
+    native["custom-local"].dir = "/wrong"
+    again = await toolkit._get_available_skills()
+    assert again["custom-local"].name == "custom-local"
+    assert again["custom-local"].dir == str(Path(loader.get_skill_dir("custom-local")).resolve())
+    register_sandboxed_view_text_file(collector, [loader.get_skill_dir("custom-local")], loader)
+    tool = next(t for t in collector if t.name == "view_text_file")._func
+    response = await tool(str(Path(loader.get_skill_dir("custom-local")).resolve() / "SKILL.md"))
+    assert "FROZEN_CONTENT" in "\n".join(block.text for block in response.content)
+    denied = await tool(
+        "/workspace/skills/" + prepared.bindings["custom-local"]["revision"] + "/SKILL.md"
+    )
+    assert "Access denied" in "\n".join(block.text for block in denied.content)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["revoke", "corrupt"])
+async def test_native_projection_rechecks_frozen_authorization_and_hash_before_cached_read(
+    frozen, mutation
+):
+    prepared, loader, collector = frozen({"mine": "CACHED_BODY"})
+    toolkit = Toolkit(
+        skills_or_loaders=collector.skill_loaders, skill_instruction_template=factory_template()
+    )
+    assert "- `mine`" in await toolkit.get_skill_instructions()
+    if mutation == "revoke":
+        registry.set_enabled("skill:local:mine", False)
+    else:
+        (prepared.view_dir / "mine" / "SKILL.md").write_text("changed")
+    # 撤销或篡改之后这个技能整个从枚举里消失，缓存也不能把旧内容再交出去；
+    # 它只摘掉自己，不牵连这一轮里别的能力。
+    after = await toolkit.get_skill_instructions() or ""
+    assert "- `mine`" not in after and "CACHED_BODY" not in after
+    assert await toolkit._get_available_skills() == {}
+
+
+def test_explicit_skill_hint_uses_authorized_alias_instead_of_store_revision(frozen, monkeypatch):
+    from core.agent_runtime.skills import _build_skill_injection
+
+    prepared, loader, collector = frozen({"chosen-local-alias": "FROZEN_BODY"})
+    physical = str((prepared.view_dir / "chosen-local-alias").resolve())
+    assert Path(physical).name == prepared.bindings["chosen-local-alias"]["revision"]
+    # The global capability-store loader returns this real revision directory.
+    monkeypatch.setattr(loader, "get_skill_dir", lambda sid: physical)
+    monkeypatch.setattr('core.capabilities.skills.loader_factory.get_skill_loader', lambda: loader)
+    hint = _build_skill_injection({"skill_id": "chosen-local-alias", "skill_name": "Chosen"})
+    assert physical + "/SKILL.md" in hint["content"]
+    assert "chosen-local-alias" in hint["content"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_runtime_loader_order_bounds_and_failure():
+    import asyncio
+
+    from core.capabilities.skills.runtime_loader import ParallelRuntimeSkillLoader
+
+    active = 0
+    peak = 0
+    seen = []
+
+    class Loader:
+        def __init__(self, value, fail=False):
+            self.value, self.fail = value, fail
+
+        async def list_skills(self):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep((8 - self.value) / 1000)
+                seen.append(self.value)
+                if self.fail:
+                    raise RuntimeError("validation rejected")
+                return [self.value]
+            finally:
+                active -= 1
+
+    assert await ParallelRuntimeSkillLoader([Loader(i) for i in range(8)]).list_skills() == list(
+        range(8)
+    )
+    assert peak <= 4
+    seen.clear()
+    with pytest.raises(RuntimeError, match="validation rejected"):
+        await ParallelRuntimeSkillLoader([Loader(i, i == 2) for i in range(8)]).list_skills()
+    assert sorted(seen) == list(range(8))
+    assert active == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["revoke", "corrupt"])
+async def test_desktop_batched_loader_matches_native_and_rechecks(frozen, monkeypatch, mutation):
+    from core.capabilities.skills import runtime_loader
+
+    prepared, loader, collector = frozen({"alias": "BODY"})
+    instance = collector.skill_loaders[0]
+    expected = await instance.list_skills()
+    monkeypatch.setattr(runtime_loader, "os", SimpleNamespace(name="nt"))
+    actual = await instance.list_skills()
+    assert actual == expected
+    actual[0].markdown = "poison"
+    assert (await instance.list_skills())[0].markdown == "BODY"
+    if mutation == "revoke":
+        registry.set_enabled("skill:local:alias", False)
+    else:
+        (prepared.view_dir / "alias" / "SKILL.md").write_text("changed")
+    # 批量加载器与原生加载器同样的判据：撤销或篡改之后这份不再出现在清单里。
+    assert await instance.list_skills() == []

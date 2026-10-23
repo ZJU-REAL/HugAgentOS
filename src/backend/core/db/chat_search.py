@@ -6,7 +6,7 @@ PostgreSQL evaluates its equivalent in SQL. No ORM messages/results are loaded
 until after the authorized page has been selected.
 """
 
-from sqlalchemy import Text, and_, case, func, or_, select, null
+from sqlalchemy import Text, and_, case, or_, select, null
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import FunctionElement
 from core.db.reserved_chats import ordinary_chat_filter

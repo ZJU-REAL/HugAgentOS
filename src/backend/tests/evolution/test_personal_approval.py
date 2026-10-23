@@ -6,6 +6,9 @@ else's agent does. Capabilities learned mainly from other people's evidence stay
 with an administrator, because one user approving for the fleet is a governance
 hole regardless of how convenient it is.
 """
+from core.evolution.cycle import activation as activation_module
+from core.evolution.profiles import personal_review as personal_review_module
+from core.evolution.profiles import user_settings_constants as user_settings_state_module
 
 import pytest
 from sqlalchemy import create_engine
@@ -17,7 +20,7 @@ from core.db.models.evolution import (
     EvolutionEpisode,
     EvolutionRelease,
 )
-from core.evolution import user_settings as US
+from core.evolution.profiles import user_settings as US
 
 
 @pytest.fixture
@@ -33,6 +36,8 @@ def db(monkeypatch):
     )
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr(US, "SessionLocal", factory)
+    from core.evolution.profiles import personal_review
+    monkeypatch.setattr(personal_review, "SessionLocal", factory)
     session = factory()
     yield session
     session.close()
@@ -86,7 +91,7 @@ def test_a_candidate_from_my_own_evidence_is_mine_to_approve(db):
     _candidate(db, "c1", [f"e{i}" for i in range(5)])
     db.commit()
 
-    pending = US.pending_for_user("alice")
+    pending = personal_review_module.pending_for_user("alice")
     assert [c["candidate_id"] for c in pending] == ["c1"]
     assert pending[0]["own_share"] == 1.0
 
@@ -100,7 +105,7 @@ def test_a_candidate_mostly_from_others_is_not_mine_to_approve(db):
 
     # 10% of the evidence is Alice's; approving it would activate a capability
     # built from Bob's work.
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_the_threshold_is_explicit_not_incidental(db):
@@ -113,9 +118,9 @@ def test_the_threshold_is_explicit_not_incidental(db):
     )
     db.commit()
 
-    pending = US.pending_for_user("alice")
+    pending = personal_review_module.pending_for_user("alice")
     assert pending and pending[0]["own_share"] == pytest.approx(0.6)
-    assert US.OWN_EVIDENCE_THRESHOLD == 0.6
+    assert user_settings_state_module.OWN_EVIDENCE_THRESHOLD == 0.6
 
 
 def test_another_users_candidate_never_appears(db):
@@ -123,7 +128,7 @@ def test_another_users_candidate_never_appears(db):
         _episode(db, f"e{i}", "bob")
     _candidate(db, "c1", [f"e{i}" for i in range(5)])
     db.commit()
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_already_released_candidates_are_not_pending(db):
@@ -131,20 +136,20 @@ def test_already_released_candidates_are_not_pending(db):
         _episode(db, f"e{i}", "alice")
     _candidate(db, "c1", [f"e{i}" for i in range(5)], status="active")
     db.commit()
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_a_user_with_no_episodes_sees_nothing(db):
     _candidate(db, "c1", ["someone-else"])
     db.commit()
-    assert US.pending_for_user("nobody") == []
+    assert personal_review_module.pending_for_user("nobody") == []
 
 
 def test_candidates_without_evidence_are_skipped(db):
     _episode(db, "e0", "alice")
     _candidate(db, "c1", [])
     db.commit()
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 # ── Approval enforcement ─────────────────────────────────────────────────────
@@ -158,7 +163,7 @@ def test_approving_someone_elses_candidate_is_refused(db):
     db.commit()
 
     with pytest.raises(PermissionError) as exc:
-        US.approve_for_user("c1", "alice")
+        personal_review_module.approve_for_user("c1", "alice")
     # The refusal explains the scope rule rather than just denying.
     assert "管理员" in str(exc.value)
 
@@ -178,11 +183,11 @@ def test_the_pending_list_is_the_authorisation_source(db, monkeypatch):
         )
         return {"skill_id": "evo-x", "tools": ["a", "b"]}
 
-    import core.evolution.activation as A
+    import core.evolution.cycle.activation as A
 
-    monkeypatch.setattr(A, "materialise_skill_candidate", fake_materialise)
+    monkeypatch.setattr(activation_module, 'materialise_skill_candidate', fake_materialise)
 
-    result = US.approve_for_user("c1", "alice")
+    result = personal_review_module.approve_for_user("c1", "alice")
     # Installed privately, so no other user's agent changes.
     assert called["owner"] == "alice"
     assert called["approver"] == "user:alice"
@@ -194,7 +199,7 @@ def test_the_tool_sequence_is_surfaced_so_approval_is_informed(db):
         _episode(db, f"e{i}", "alice")
     _candidate(db, "c1", [f"e{i}" for i in range(5)])
     db.commit()
-    pending = US.pending_for_user("alice")
+    pending = personal_review_module.pending_for_user("alice")
     # Approving a capability without seeing what it will do is a habit, not a
     # decision.
     assert pending[0]["tool_sequence"] == ["a", "b"]
@@ -206,7 +211,7 @@ def test_sequence_only_skill_has_an_inspectable_change_preview(db):
     _candidate(db, "c1", [f"e{i}" for i in range(5)])
     db.commit()
 
-    change = US.pending_for_user("alice")[0]["change"]
+    change = personal_review_module.pending_for_user("alice")[0]["change"]
     assert change["type"] == "skill_sequence"
     assert change["display_name"] == "固定调用顺序：a → b"
     assert change["steps"] == ["a", "b"]
@@ -224,7 +229,7 @@ def test_legacy_single_tool_candidate_is_hidden_without_deleting_evidence(db):
     )
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
     assert db.get(EvolutionCandidate, "single") is not None
 
 
@@ -247,7 +252,7 @@ def test_a_memory_candidate_is_offered_as_a_memory_change_not_an_install(db):
     )
     db.commit()
 
-    row = US.pending_for_user("alice")[0]
+    row = personal_review_module.pending_for_user("alice")[0]
     assert row["action"] == "apply_memory"
     # Not "为我启用": nothing is being installed, a retrieval weight is changing.
     assert row["action_label"] != "为我启用"
@@ -265,7 +270,7 @@ def test_a_memory_operation_with_no_executor_is_not_offered(db):
     )
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_a_medium_risk_draft_skill_is_not_personally_approvable(db):
@@ -274,7 +279,7 @@ def test_a_medium_risk_draft_skill_is_not_personally_approvable(db):
     _candidate(db, "s2", [f"e{i}" for i in range(3)], risk_tier="medium")
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_a_replayed_medium_risk_skill_is_personally_approvable(db):
@@ -288,7 +293,7 @@ def test_a_replayed_medium_risk_skill_is_personally_approvable(db):
     )
     db.commit()
 
-    assert [c["candidate_id"] for c in US.pending_for_user("alice")] == ["s3"]
+    assert [c["candidate_id"] for c in personal_review_module.pending_for_user("alice")] == ["s3"]
 
 
 def test_a_retirement_is_never_offered_as_something_to_enable(db):
@@ -297,7 +302,7 @@ def test_a_retirement_is_never_offered_as_something_to_enable(db):
     _candidate(db, "s4", [f"e{i}" for i in range(3)], operation="deprecate")
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_an_orchestration_profile_is_not_a_personal_decision(db):
@@ -311,7 +316,7 @@ def test_an_orchestration_profile_is_not_a_personal_decision(db):
     )
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_the_skill_body_is_shown_so_approval_is_a_decision(db):
@@ -330,7 +335,7 @@ def test_the_skill_body_is_shown_so_approval_is_a_decision(db):
     )
     db.commit()
 
-    change = US.pending_for_user("alice")[0]["change"]
+    change = personal_review_module.pending_for_user("alice")[0]["change"]
     assert change["type"] == "skill_document"
     assert "## 步骤" in change["content"]
     assert change["allowed_tools"] == ["internet_search"]
@@ -367,7 +372,7 @@ def test_a_candidate_i_accepted_no_longer_appears_in_my_queue(db):
     _personal_release(db, "r1", "c1", "alice")
     db.commit()
 
-    assert US.pending_for_user("alice") == []
+    assert personal_review_module.pending_for_user("alice") == []
 
 
 def test_my_acceptance_does_not_hide_the_candidate_from_others(db):
@@ -382,8 +387,8 @@ def test_my_acceptance_does_not_hide_the_candidate_from_others(db):
     _personal_release(db, "r1", "ca", "alice")
     db.commit()
 
-    assert US.pending_for_user("alice") == []
-    assert [c["candidate_id"] for c in US.pending_for_user("bob")] == ["cb"]
+    assert personal_review_module.pending_for_user("alice") == []
+    assert [c["candidate_id"] for c in personal_review_module.pending_for_user("bob")] == ["cb"]
 
 
 def test_a_rolled_back_personal_release_reoffers_the_candidate(db):
@@ -393,7 +398,7 @@ def test_a_rolled_back_personal_release_reoffers_the_candidate(db):
     _personal_release(db, "r1", "c1", "alice", stage="rolled_back")
     db.commit()
 
-    assert [c["candidate_id"] for c in US.pending_for_user("alice")] == ["c1"]
+    assert [c["candidate_id"] for c in personal_review_module.pending_for_user("alice")] == ["c1"]
 
 
 def test_re_approving_an_accepted_candidate_is_refused_with_the_reason(db):
@@ -404,7 +409,7 @@ def test_re_approving_an_accepted_candidate_is_refused_with_the_reason(db):
     db.commit()
 
     with pytest.raises(PermissionError) as exc:
-        US.approve_for_user("c1", "alice")
+        personal_review_module.approve_for_user("c1", "alice")
     # Not the scope refusal: telling a user they lack permission over a skill
     # they just installed misreports success as failure.
     assert "已启用" in str(exc.value)

@@ -8,10 +8,7 @@ of calling ``os.getenv()`` directly.
 from __future__ import annotations
 
 import os
-import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from dotenv import dotenv_values
 

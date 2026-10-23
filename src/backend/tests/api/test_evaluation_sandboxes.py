@@ -7,7 +7,7 @@ from core.auth.backend import UserContext, get_current_user
 
 @pytest.fixture
 def client(monkeypatch):
-    from api.routes.v1 import evaluation_sandboxes as routes
+    from features.evaluation.api import evaluation_sandboxes as routes
     app = FastAPI()
     app.include_router(routes.router)
     app.dependency_overrides[get_current_user] = lambda: UserContext(

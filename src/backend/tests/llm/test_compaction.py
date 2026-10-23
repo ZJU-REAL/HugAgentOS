@@ -4,7 +4,7 @@
 Covers token estimation, middle-truncation markers, selecting the most recent user messages by budget, summary concatenation and filtering, etc.
 """
 
-from core.llm import compaction as C
+from core.llm.context import compaction as C
 
 # ── token estimation (truncate.rs::approx_token_count) ────────────────────────────
 

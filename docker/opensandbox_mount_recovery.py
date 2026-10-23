@@ -55,7 +55,7 @@ def _specifications(service, container, request):
 def _healthy(container, specs):
     if not specs:
         return True
-    script = """import json,os,sys
+    script = """import errno,json,os,sys
 from pathlib import Path
 mounts = {}
 for line in Path('/proc/self/mountinfo').read_text().splitlines():
@@ -63,14 +63,23 @@ for line in Path('/proc/self/mountinfo').read_text().splitlines():
     separator = fields.index('-')
     mounts[fields[4]] = (fields[separator + 1], fields[5].split(','))
 for target, readonly in json.loads(sys.argv[1]):
+    if target not in mounts:
+        sys.exit(10)
     filesystem, options = mounts[target]
-    assert filesystem.startswith('fuse'), 'Object filesystem is absent'
-    assert ('ro' in options) == readonly, 'Mount access mode differs'
-    os.stat(target)
+    if not filesystem.startswith('fuse') or ('ro' in options) != readonly:
+        sys.exit(10)
+    try:
+        os.stat(target)
+    except OSError as exc:
+        sys.exit(10 if exc.errno == errno.ENOTCONN else 11)
 """
     result = container.exec_run(["timeout", "4", "python3", "-c", script,
                                  json.dumps([(s["target"], s["read_only"]) for s in specs])], user="0")
-    return result.exit_code == 0
+    if result.exit_code == 0:
+        return True
+    if result.exit_code == 10:
+        return False
+    raise HTTPException(503, "Object mount health is uncertain; existing connection retained")
 
 def remove_helper(service, sandbox_id):
     from docker.errors import NotFound
@@ -127,7 +136,8 @@ def ensure_mounts(service, sandbox_id, request):
             if api.exec_inspect(execution["Id"])["ExitCode"] != 0 or not _healthy(container, specs):
                 raise HTTPException(503, "Object mount recovery failed; workspace retained")
         except Exception:
-            remove_helper(service, sandbox_id)
+            # The helper may own live writes even if verification timed out.
+            # A later confirmed-broken probe can replace it safely.
             raise
         return {"epoch": EPOCH, "recovered": True}
 

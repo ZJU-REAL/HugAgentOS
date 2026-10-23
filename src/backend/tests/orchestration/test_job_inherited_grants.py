@@ -11,9 +11,9 @@ from core.llm.factory.selection.sticky_capabilities import sticky_capabilities
 
 @pytest.mark.asyncio
 async def test_fork_reads_parent_grants_without_gaining_later_activations(monkeypatch):
-    from core.capabilities import paths
-    from core.llm import session_capabilities
-    from core.plugins import runtime as plugins
+    from features.desktop.capabilities import paths
+    from core.llm.runtime import session_capabilities
+    from core.capabilities.plugins import runtime as plugins
 
     seen = []
 
@@ -30,11 +30,11 @@ async def test_fork_reads_parent_grants_without_gaining_later_activations(monkey
         lambda **_: SimpleNamespace(install_ids=[], unavailable_ids=[], skill_ids=[], mcp_ids=[]),
     )
     monkeypatch.setattr(paths, "capabilities_enabled", lambda: False)
-    # The imported flag in the phase is also disabled for a deterministic cloud path.
+    # Select the default cloud provider in the phase for deterministic inherited grants.
     import importlib
 
     phase = importlib.import_module("core.llm.factory.selection.sticky_capabilities")
-    monkeypatch.setattr(phase, "capabilities_enabled", lambda: False)
+    monkeypatch.setattr(phase, "has_run_capabilities", lambda: False)
     request = AgentRequest(
         derived_main=True,
         chat_id="fork-chat",
@@ -63,8 +63,8 @@ async def test_fork_reads_parent_grants_without_gaining_later_activations(monkey
     # The grant reaches the real owned-server gate despite a personal disabled switch.
     from core.llm.factory.selection.server_selection import server_selection
     from core.llm.factory.tools import mcp_config
-    from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
-    from core.services.mcp_service import McpServerConfigService
+    from features.desktop.bridge.gateway import cloud_gateway_mcp_configs
+    from core.capabilities.mcp.service import McpServerConfigService
 
     calls = []
 
@@ -75,11 +75,11 @@ async def test_fork_reads_parent_grants_without_gaining_later_activations(monkey
 
     monkeypatch.setattr(McpServerConfigService, "get_instance", lambda: Config())
     monkeypatch.setattr(
-        "core.services.desktop_cloud_bridge.cloud_gateway_mcp_configs", lambda *_a, **_k: {}
+        'features.desktop.bridge.gateway.cloud_gateway_mcp_configs', lambda *_a, **_k: {}
     )
     monkeypatch.setattr(
         mcp_config,
-        "_effective_mcp_server_keys",
+        'effective_mcp_server_keys',
         lambda *_a, **k: [m for m in k["enabled_mcp_ids"] if m in k["owned_servers"]],
     )
     result = await server_selection(

@@ -5,7 +5,7 @@ import os
 import posixpath
 from typing import Any, Optional
 
-from core.agent_skills.loader import get_skill_loader
+from core.capabilities.skills.loader_factory import get_skill_loader
 
 
 def _is_traversal_or_bad(path: str) -> Optional[str]:
@@ -23,7 +23,7 @@ def validate_path(path: str, root: str) -> str | None:
         return error
     if ".." in path.replace(chr(92), "/").split("/"):
         return f"path 不允许包含 ..: {path}"
-    from core.services.edition_workspace import resolve_alias
+    from core.files.edition import resolve_alias
 
     if resolve_alias(path) is not None or path == "/myspace" or path.startswith("/myspace/"):
         return None
@@ -44,7 +44,7 @@ def workspace_directory(root: str, session_id: str | None) -> str:
 
 
 def resolve_path(path: str, root: str, session_id: str | None, user_id=None) -> str:
-    from core.services.edition_workspace import resolve_alias
+    from core.files.edition import resolve_alias
 
     resolved = resolve_alias(path)
     if resolved is not None:
@@ -98,7 +98,7 @@ def resolve_skill_file(file_path: str, loader: Any = None) -> str | None:
                     return candidate
         return None
 
-    from core.agent_skills.config import get_sandbox_skills_dir
+    from core.capabilities.skills.config import get_sandbox_skills_dir
 
     cache_root = str(get_sandbox_skills_dir())
     for skill_id, rel_path in reversed(candidates):
@@ -113,8 +113,9 @@ def resolve_skill_file(file_path: str, loader: Any = None) -> str | None:
                 candidate = os.path.join(skill_dir, rel_path)
                 if os.path.exists(candidate):
                     return candidate
-        except Exception:
-            pass
+        except Exception as fallback_error:
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.sandbox.workspace.container:resolve_skill_file', fallback_error)
 
     return None
 
@@ -156,7 +157,7 @@ def is_myspace_physical(physical_path: str, user_id: Optional[str], root: str) -
 
 def bash_workspace_instructions(root: str, session_id: str | None) -> str:
     _WS = root
-    from core.services.edition_workspace import workspace_instructions
+    from core.files.edition import workspace_instructions
 
     return (
         workspace_instructions() + "\n"

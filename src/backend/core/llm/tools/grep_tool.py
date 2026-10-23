@@ -7,21 +7,17 @@ Three output_modes (aligned with Claude Code):
 """
 
 from __future__ import annotations
-from core.services.edition_workspace import is_shared_scope
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
 
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
-from ._paths import (
-    to_physical_path,
-    validate_project_scope_path,
-    validate_workspace_path,
-)
+from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -181,5 +177,5 @@ def register_grep(
         "             num_matches, truncated}``。\n"
     )
 
-    toolkit.register_tool_function(Grep, namesake_strategy="override")
+    toolkit.append(function_tool(Grep))
     logger.info("[factory] Registered Grep tool (chat_id=%s)", chat_id)

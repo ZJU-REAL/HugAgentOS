@@ -3,7 +3,7 @@ from pathlib import Path
 from threading import Lock
 import time
 import pytest
-from core.content.office_preview_cache import cached_office_pdf
+from core.files.content.office_preview_cache import cached_office_pdf
 
 
 def test_preview_cache_deduplicates_and_invalidates(tmp_path):
@@ -58,7 +58,7 @@ def test_failed_conversion_is_not_cached(tmp_path):
 def test_unexpected_lock_errors_are_not_retried(monkeypatch, tmp_path):
     import errno
     import fcntl
-    from core.content.office_preview_cache import _try_lock
+    from core.files.content.office_preview_cache import _try_lock
 
     def fail(*args):
         raise OSError(errno.ENOLCK, "no locks available")
@@ -104,7 +104,7 @@ def test_preview_deduplicates_across_worker_processes(tmp_path):
 
 
 def test_eviction_keeps_response_file_available(monkeypatch, tmp_path):
-    import core.content.office_preview_cache as cache
+    import core.files.content.office_preview_cache as cache
 
     monkeypatch.setattr(cache, "CACHE_ENTRIES", 0)
     source = tmp_path / "source.docx"

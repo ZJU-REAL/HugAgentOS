@@ -4,10 +4,10 @@
 import argparse
 import json
 
-from core.content.artifact_key_repair import repair_legacy_key, rollback_legacy_key, verified_legacy_key
+from core.files.artifacts.key_repair import repair_legacy_key, rollback_legacy_key, verified_legacy_key
 from core.db.engine import SessionLocal
 from core.db.models import Artifact
-from core.storage import get_storage
+from core.files.storage import get_storage
 
 
 def main():

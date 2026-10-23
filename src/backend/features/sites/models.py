@@ -1,0 +1,81 @@
+"""SQLAlchemy ORM models — site hosting (build sites in chat, hosted by the platform at /site/<slug>/)."""
+
+from datetime import datetime
+
+from core.db.engine import Base
+from features.sites.edition import SiteScopeMixin, site_scope_table_args
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+
+JSONType = JSON().with_variant(JSONB(), "postgresql")
+
+
+class Site(SiteScopeMixin, Base):
+    """User site — a static website generated in chat, files stored under ``sites/<site_id>/v<version>/``.
+
+    slug is globally unique (hosting URL is ``/site/<slug>/``); on soft delete the
+    service rewrites the slug to ``<slug>--del-<ts>`` to release the original address.
+    Version directories are immutable; publishing a new version only increments
+    ``current_version``, and the history list is recorded in ``metadata.versions``.
+    """
+
+    __tablename__ = "sites"
+
+    site_id = Column(String(64), primary_key=True)
+    slug = Column(String(80), nullable=False, unique=True)
+    user_id = Column(
+        String(64),
+        ForeignKey("users_shadow.user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chat_id = Column(
+        String(64),
+        ForeignKey("chat_sessions.chat_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # The source-code project (personal project) this site corresponds to. Non-null → the
+    # site can be "re-edited": building/editing both happen inside this project folder, and
+    # publish_site takes files from the project folder. Old sites are empty (source only in
+    # serve storage, unrecoverable) → not editable. On project deletion SET NULL, reverting
+    # to not-editable but the hosted artifacts remain.
+    project_id = Column(
+        String(64),
+        ForeignKey("projects.project_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    entry_file = Column(String(200), nullable=False, default="index.html")
+    current_version = Column(Integer, nullable=False, default=1)
+    file_count = Column(Integer, nullable=False, default=0)
+    total_size_bytes = Column(BigInteger, nullable=False, default=0)
+    # HTML page view count (asset files not counted)
+    view_count = Column(BigInteger, nullable=False, default=0)
+    # Access password (Argon2id hash only; plaintext is never stored or returned).
+    # Orthogonal to visibility: visibility decides which signed-in users may see the
+    # site, the password decides whether a stranger holding the link must unlock it first.
+    access_password_hash = Column(String(255))
+    extra_data = Column("metadata", JSONType, default={})
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at = Column(UTCDateTime(timezone=True))
+
+    __table_args__ = (
+        *site_scope_table_args(),
+        CheckConstraint("current_version >= 1", name="sites_version_check"),
+        Index("idx_sites_user_id", "user_id"),
+        Index("idx_sites_project_id", "project_id"),
+        Index("idx_sites_updated_at", "updated_at"),
+    )

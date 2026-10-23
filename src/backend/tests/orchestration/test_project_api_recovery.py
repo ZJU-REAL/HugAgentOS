@@ -3,14 +3,17 @@
 from copy import deepcopy
 from types import SimpleNamespace
 
+import core.chat.runtime.recovery as runtime_recovery
+import core.chat.runtime.recovery_snapshot as recovery_snapshot
+import core.db.engine as db_engine
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
 import pytest
+from core.db.engine import Base
+from core.db.models import ChatRun, ChatSession
+from core.runs.api_recovery import validate_recovery_context
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-from core.db.engine import Base
-from core.db.models import ChatSession, ChatRun
-from orchestration.agent_api_recovery import validate_recovery_context
-from orchestration import chat_run_executor as executor
 
 
 @pytest.fixture
@@ -18,7 +21,7 @@ def recovery(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'project-recovery.db'}")
     Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatRun.__table__])
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     scope = {
         "version": 1,
         "owner_user_id": "owner",
@@ -149,9 +152,9 @@ def test_worker_restore_rejects_drift_before_starting_worker(recovery, monkeypat
     _, _, context = recovery
     context["project_id"] = "two"
     monkeypatch.setattr(
-        executor, "_register_run_task", lambda *a, **k: pytest.fail("must not start")
+        runtime, 'register_run_task', lambda *a, **k: pytest.fail("must not start")
     )
-    assert executor._register_recovered_chat(decision(context)) is False
+    assert runtime_recovery._register_recovered_chat(decision(context)) is False
 
 
 @pytest.mark.asyncio
@@ -159,8 +162,8 @@ async def test_completed_snapshot_rejects_missing_scope_before_committing(recove
     _, _, context = recovery
     parked = []
     monkeypatch.setattr(
-        executor,
-        "_journal",
+        ownership,
+        'journal',
         lambda: SimpleNamespace(
             needs_attention=lambda *a, **k: parked.append(k) or True,
             claim=lambda *a, **k: pytest.fail("must not claim damaged snapshot"),
@@ -175,5 +178,5 @@ async def test_completed_snapshot_rejects_missing_scope_before_committing(recove
             "project_id": "two",
         },
     )
-    assert await executor._commit_recovered_chat_snapshot(damaged) is False
+    assert await recovery_snapshot._commit_recovered_chat_snapshot(damaged) is False
     assert parked

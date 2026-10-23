@@ -239,7 +239,7 @@ def test_retirement_rolls_back_atomically(chart_db):
 
 
 def test_chart_role_cannot_be_listed_assigned_or_imported(db_session):
-    from core.db import model_repository as repository
+    from core.models import repository as repository
     from core.db.models import ModelRoleAssignment
 
     assert "chart" not in {

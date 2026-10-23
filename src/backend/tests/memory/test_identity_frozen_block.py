@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import asyncio
 
-from orchestration.memory_integration import (
-    build_user_identity_block,
-    inject_session_blocks,
-)
+from core.agent_runtime.integrations.memory_identity import build_user_identity_block
+from core.agent_runtime.integrations.memory_session import inject_session_blocks
 
 
 def _run(coro):

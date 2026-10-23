@@ -4,11 +4,12 @@ They act only while the turn that runs them still owns its message (see front.ow
 Work with external effects (Bash, files, email, the computer, writes to the user's
 HugAgentOS) belongs to tasks; a turn may only read the user's HugAgentOS sessions.
 """
+from core.llm.factory.tools.definitions import function_tool
 import json
 from contextlib import contextmanager
 from typing import Literal
 from agentscope.message import TextBlock
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
@@ -16,7 +17,7 @@ from personal_agent.models import PersonalAgent, PersonalWorkItem
 from personal_agent.tasks import task_ops
 
 def response(value):
-    return ToolResponse(content=[TextBlock(type="text", text=json.dumps(value, ensure_ascii=False, default=str))])
+    return ToolChunk(content=[TextBlock(type="text", text=json.dumps(value, ensure_ascii=False, default=str))])
 
 def register_front_tools(toolkit, request, loader=None):
     from personal_agent.conversation.front import EVENT_ROLE, current_turn, owned
@@ -53,7 +54,7 @@ def register_front_tools(toolkit, request, loader=None):
             yield AgentContext(db, uid, chat_id=db.get(ChatMessage, ident).chat_id), db.get(ChatMessage, ident)
             db.commit()
 
-    async def pa_task_create(goal: str, title: str = "", related_task_ids: list[str] | None = None) -> ToolResponse:
+    async def pa_task_create(goal: str, title: str = "", related_task_ids: list[str] | None = None) -> ToolChunk:
         """Start a background task. goal: a self-contained instruction in the user's language with the
         requirements and the expected result; the task sees only the last few messages. title: a short
         name of at most 20 characters. related_task_ids: existing tasks this new deliverable builds on.
@@ -71,7 +72,7 @@ def register_front_tools(toolkit, request, loader=None):
         state["count"] += 1
         return response(result)
 
-    async def pa_task_update(task_id: str, instruction: str) -> ToolResponse:
+    async def pa_task_update(task_id: str, instruction: str) -> ToolChunk:
         """Continue or change one existing task, including a completed task. Use only for a clear follow-up to its goal or result, never because it is recent or the only task. Read pa_task_get first before updating a task unless the user explicitly selected its ID. instruction: only what applies to this task."""
         state = turn(changes_tasks=True)
         with checked(state) as db:
@@ -84,7 +85,7 @@ def register_front_tools(toolkit, request, loader=None):
             result = {"updated": True, "status": task_ops.update_task(svc, message, task_id, instruction, attachments=state["attachments"]).status}
         return response(result)
 
-    async def pa_task_control(task_id: str, action: Literal["pause", "resume", "cancel"]) -> ToolResponse:
+    async def pa_task_control(task_id: str, action: Literal["pause", "resume", "cancel"]) -> ToolChunk:
         """Pause, resume or cancel one task. Resume never approves a pending action; the user approves
         those in the approval card. Resume applies to waiting tasks; to continue a completed, failed or
         cancelled task, read it and use pa_task_update with the user's follow-up instruction."""
@@ -92,7 +93,7 @@ def register_front_tools(toolkit, request, loader=None):
             result = {"status": task_ops.control(svc, message, task_id, action).status}
         return response(result)
 
-    async def pa_task_get(task_id: str) -> ToolResponse:
+    async def pa_task_get(task_id: str) -> ToolChunk:
         """Read one task: goal, status, progress, the user's updates and the result."""
         from personal_agent.conversation.associations import instructions
         with checked(turn()) as db:
@@ -104,7 +105,7 @@ def register_front_tools(toolkit, request, loader=None):
                 "updates": instructions(db, db.get(ChatMessage, ident).chat_id, task.id, 10),
                 "result": (task.result or "")[:12000], "updated": task.updated_at})
 
-    async def pa_history_search(query: str, limit: int = 10) -> ToolResponse:
+    async def pa_history_search(query: str, limit: int = 10) -> ToolChunk:
         """Search earlier messages and task results of this conversation."""
         with checked(turn()) as db:
             chat = db.get(ChatMessage, ident).chat_id
@@ -124,7 +125,7 @@ def register_front_tools(toolkit, request, loader=None):
             with SessionLocal() as db: AgentContext(db, uid).identity.adopt_identity_name(data.get("content") or "")
         return response({"path": data["path"], "saved": True})
 
-    async def pa_memory_read(path: str) -> ToolResponse:
+    async def pa_memory_read(path: str) -> ToolChunk:
         """Read a workspace persona or memory file, for example USER.md, MEMORY.md or memory/2026-10-10.md."""
         data = read_file(workspace(), path)
         versions[data["path"]] = data["etag"]
@@ -133,7 +134,7 @@ def register_front_tools(toolkit, request, loader=None):
         return response({"path": data["path"], "content": text[-50000:] if daily else text[:50000],
                          "truncated": data["truncated"] or len(text) > 50000, "slice": "tail" if daily else "head"})
 
-    async def pa_memory_edit(path: str, old_string: str, new_string: str) -> ToolResponse:
+    async def pa_memory_edit(path: str, old_string: str, new_string: str) -> ToolChunk:
         """Replace one exact, unique passage of a persona or memory file. Read the file first."""
         agent = workspace()
         current = read_file(agent, path)
@@ -143,7 +144,7 @@ def register_front_tools(toolkit, request, loader=None):
         versions[data["path"]] = data["etag"]
         return saved(data)
 
-    async def pa_memory_write(path: str, content: str) -> ToolResponse:
+    async def pa_memory_write(path: str, content: str) -> ToolChunk:
         """Create or replace a persona or memory file, for example a new daily note memory/YYYY-MM-DD.md."""
         from personal_agent.workspace.files import relative
         target = WORKSPACE + "/" + relative(path)
@@ -151,25 +152,25 @@ def register_front_tools(toolkit, request, loader=None):
         versions[target] = data["etag"]
         return saved(data)
 
-    async def pa_set_name(name: str) -> ToolResponse:
+    async def pa_set_name(name: str) -> ToolChunk:
         """Change your own name when the user gives you a new one."""
         with checked(turn()) as db:
             return response({"name": AgentContext(db, uid).identity.configure({"name": name})["config"]["name"]})
 
-    async def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolResponse:
+    async def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolChunk:
         """Create a scheduled task that later runs as a background task. cron: five fields in local time, such as
         "0 8 * * *" for 08:00 daily; or run_at: one ISO local time. timezone defaults to the user's."""
         with checked(turn(changes_tasks=True)) as db:
             return response(create(db, uid, title, instruction, cron, run_at, timezone))
 
-    async def pa_schedule_list() -> ToolResponse:
+    async def pa_schedule_list() -> ToolChunk:
         """List the scheduled tasks and their next run times."""
         with checked(turn()) as db:
             return response(listing(db.scalar(select(PersonalAgent.config).where(PersonalAgent.user_id == uid))))
 
     async def pa_schedule_update(schedule_id: str, title: str | None = None, instruction: str | None = None,
                                  cron: str | None = None, run_at: str | None = None,
-                                 timezone: str | None = None, enabled: bool | None = None) -> ToolResponse:
+                                 timezone: str | None = None, enabled: bool | None = None) -> ToolChunk:
         """Edit an existing schedule in place. List schedules first to identify it. Omit unchanged fields;
         use enabled=false to pause. Give cron for repeats or run_at for a one-time ISO local time."""
         from personal_agent.scheduling.schedules import update_schedule
@@ -178,12 +179,12 @@ def register_front_tools(toolkit, request, loader=None):
         with checked(turn(changes_tasks=True)) as db:
             return response(update_schedule(db, uid, schedule_id, patch))
 
-    async def pa_schedule_delete(schedule_id: str) -> ToolResponse:
+    async def pa_schedule_delete(schedule_id: str) -> ToolChunk:
         """Delete one scheduled task when the user asks to stop it."""
         with checked(turn(changes_tasks=True)) as db:
             return response(delete(db, uid, schedule_id))
 
-    async def pa_stay_quiet(reason: str) -> ToolResponse:
+    async def pa_stay_quiet(reason: str) -> ToolChunk:
         """Send nothing to the user for this scheduled result or heartbeat check, because it has nothing new or noteworthy."""
         state = turn()
         if state["kind"] == "event":
@@ -206,4 +207,4 @@ def register_front_tools(toolkit, request, loader=None):
     # The user's HugAgentOS projects, chats and runs: reads only in a conversation turn.
     from personal_agent.sessions.session_tool import build as session_tool
     tools.append(session_tool(uid))
-    for fn in tools: toolkit.register_tool_function(fn)
+    for fn in tools: toolkit.append(function_tool(fn))

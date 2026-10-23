@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 import threading
+from dataclasses import dataclass, field
 from typing import Optional
 from core.config.settings import settings
 
@@ -13,11 +14,8 @@ MEMORY_COLLECTION_NAME = "hugagent_memories"
 # L2 stores procedures; fact extraction belongs to the layered pipeline.
 MEMORY_TYPE_PROCEDURAL = "procedural"
 # One lock and instance per process; account epoch changes invalidate the cache.
-_memory_instance = None
-_memory_epoch: Optional[str] = None
-_memory_lock = threading.Lock()
-_memory_init_failed = False
-_embedding_patched = False
+
+
 _MIGRATION_MAX_ROWS = 10_000
 
 
@@ -28,8 +26,8 @@ def _patch_mem0_embedding() -> None:
     but mem0's OpenAIEmbedding.embed() hardcodes dimensions=...
     Patched only once.
     """
-    global _embedding_patched
-    if _embedding_patched:
+    pass
+    if process_state().embedding_patched:
         return
     try:
         from mem0.embeddings.openai import OpenAIEmbedding as _OAIEmbed
@@ -43,9 +41,10 @@ def _patch_mem0_embedding() -> None:
             )
 
         _OAIEmbed.embed = _patched_embed
-        _embedding_patched = True
-    except Exception:
-        pass
+        process_state().embedding_patched = True
+    except Exception as fallback_error:
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.memory.backend:_patch_mem0_embedding', fallback_error)
 
 
 def _build_mem0_config() -> dict:
@@ -58,7 +57,7 @@ def _build_mem0_config() -> dict:
     """
     # Resolve LLM config from DB
     try:
-        from core.services.model_config import ModelConfigService
+        from core.models.config import ModelConfigService
 
         svc = ModelConfigService.get_instance()
         mem_cfg = svc.resolve("memory")
@@ -139,7 +138,7 @@ def _apply_probed_embed_dims(cfg: dict) -> None:
     vs = cfg["vector_store"]["config"]
     try:
         from openai import OpenAI
-        from core.services.desktop_model_credentials import sync_client_kwargs
+        from core.harness.registry.model_credentials import sync_client_kwargs
 
         client = OpenAI(
             api_key=emb["api_key"],
@@ -252,8 +251,9 @@ def _reconcile_vector_collection(cfg: dict) -> Optional[list]:
         if client is not None:
             try:
                 client.close()
-            except Exception:
-                pass
+            except Exception as fallback_error:
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.memory.backend:_reconcile_vector_collection', fallback_error)
 
 
 def _reembed_rows(client, name: str, cfg: dict) -> Optional[list]:
@@ -266,7 +266,7 @@ def _reembed_rows(client, name: str, cfg: dict) -> Optional[list]:
     emb = cfg["embedder"]["config"]
     try:
         from openai import OpenAI
-        from core.services.desktop_model_credentials import sync_client_kwargs
+        from core.harness.registry.model_credentials import sync_client_kwargs
 
         oai = OpenAI(
             api_key=emb["api_key"],
@@ -319,12 +319,12 @@ def _replay_migrated_rows(instance, rows: list) -> None:
 
 def _desktop_memory_epoch() -> str:
     """Nonsecret identity for clients that hold desktop authorization hooks."""
-    from core.auth.desktop_bridge import bridge_enabled
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
-    if not bridge_enabled() or not capabilities_enabled():
+    if not bridge_enabled() or not has_run_capabilities():
         return ""
-    from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
+    from core.harness.registry.execution_identity import state_fingerprint as _state_fingerprint, get_state
 
     return _state_fingerprint(get_state())
 
@@ -352,23 +352,23 @@ def _close_failed_memory(instance) -> None:
 
 def _get_memory() -> Optional[object]:
     """Thread-safe lazy initialization: cache the instance on success; on failure allow retry next time."""
-    global _memory_instance, _memory_init_failed, _memory_epoch
+    pass
 
     if not settings.memory.enabled:
         return None
 
     epoch = _desktop_memory_epoch()
     # Existing callers retain their captured hooks; only new callers rebuild.
-    if _memory_instance is not None and _memory_epoch == epoch:
-        return _memory_instance
+    if process_state().memory_instance is not None and process_state().memory_epoch == epoch:
+        return process_state().memory_instance
 
-    with _memory_lock:
+    with process_state().memory_lock:
         # Double-check after acquiring lock
         epoch = _desktop_memory_epoch()
-        if _memory_instance is not None and _memory_epoch == epoch:
-            return _memory_instance
-        _memory_instance = None
-        _memory_epoch = None
+        if process_state().memory_instance is not None and process_state().memory_epoch == epoch:
+            return process_state().memory_instance
+        process_state().memory_instance = None
+        process_state().memory_epoch = None
 
         instance = None
         try:
@@ -384,7 +384,7 @@ def _get_memory() -> Optional[object]:
             instance = Memory.from_config(cfg)
             # Existing collections remain released after a local database restart.
             instance.vector_store.client.load_collection(collection_name=MEMORY_COLLECTION_NAME)
-            from core.services.desktop_model_credentials import is_reference, sync_client_kwargs
+            from core.harness.registry.model_credentials import is_reference, sync_client_kwargs
             from openai import OpenAI
 
             for component, section in (
@@ -402,7 +402,7 @@ def _get_memory() -> Optional[object]:
                     )
                     old_client.close()
             if epoch != _desktop_memory_epoch():
-                from core.capabilities.errors import CloudUnavailable
+                from core.harness.capability_errors import CloudUnavailable
 
                 raise CloudUnavailable("cloud account changed while preparing memory")
             if replay_rows:
@@ -410,17 +410,17 @@ def _get_memory() -> Optional[object]:
                 # with the rows re-embedded during reconciliation.
                 _replay_migrated_rows(instance, replay_rows)
             if epoch != _desktop_memory_epoch():
-                from core.capabilities.errors import CloudUnavailable
+                from core.harness.capability_errors import CloudUnavailable
 
                 raise CloudUnavailable("cloud account changed while preparing memory")
-            _memory_instance = instance
-            _memory_epoch = epoch
-            _memory_init_failed = False
-            return _memory_instance
+            process_state().memory_instance = instance
+            process_state().memory_epoch = epoch
+            process_state().memory_init_failed = False
+            return process_state().memory_instance
         except Exception as exc:
             if instance is not None:
                 _close_failed_memory(instance)
-            _memory_init_failed = True
+            process_state().memory_init_failed = True
             logger.error("[MemoryService] 初始化失败，记忆功能将降级为空: %s", exc)
             return None
 
@@ -430,11 +430,11 @@ def _reset_memory() -> None:
 
     Used when the Milvus connection is broken (e.g. closed channel).
     """
-    global _memory_instance, _memory_init_failed, _memory_epoch
-    with _memory_lock:
-        _memory_instance = None
-        _memory_epoch = None
-        _memory_init_failed = False
+    pass
+    with process_state().memory_lock:
+        process_state().memory_instance = None
+        process_state().memory_epoch = None
+        process_state().memory_init_failed = False
     logger.info("[MemoryService] 已重置 mem0 实例，下次调用将重新初始化")
 
 
@@ -471,3 +471,19 @@ def _is_auth_error(exc: Exception) -> bool:
             "401 unauthorized",
         )
     )
+
+
+@dataclass
+class BackendState:
+    memory_instance: object = None
+    memory_epoch: Optional[str] = None
+    memory_lock: object = field(default_factory=lambda: threading.Lock())
+    memory_init_failed: object = False
+    embedding_patched: object = False
+
+
+_STATE = BackendState()
+
+
+def process_state() -> BackendState:
+    return _STATE

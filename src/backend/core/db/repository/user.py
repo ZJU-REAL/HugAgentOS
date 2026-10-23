@@ -6,19 +6,10 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
-import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import sqlalchemy as sa
-from core.db.models import (
-    DingTalkConnection,
-    EmailConnection,
-    LarkConnection,
-    LocalUser,
-    UserShadow,
-)
-from sqlalchemy import and_, desc, func, or_, select
+from core.db.models import LocalUser, UserShadow
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -150,103 +141,3 @@ class LocalUserRepository:
         record.updated_at = utc_now()
         self.db.commit()
         return True
-
-
-class DingTalkConnectionRepository:
-    """Per-user DingTalk connection (dingtalk_connections) CRUD. 1:1 with users_shadow, no soft delete."""
-
-    def __init__(self, db: Session):
-        self.db = db
-
-    def get(self, user_id: str) -> Optional[DingTalkConnection]:
-        return (
-            self.db.query(DingTalkConnection).filter(DingTalkConnection.user_id == user_id).first()
-        )
-
-    def ensure(self, user_id: str) -> DingTalkConnection:
-        """Idempotent: return existing record, otherwise create a disconnected record."""
-        record = self.get(user_id)
-        if record:
-            return record
-        record = DingTalkConnection(user_id=user_id, status="disconnected")
-        self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
-        return record
-
-    def update(self, user_id: str, data: Dict[str, Any]) -> Optional[DingTalkConnection]:
-        record = self.get(user_id)
-        if not record:
-            return None
-        for k, v in data.items():
-            setattr(record, k, v)
-        record.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(record)
-        return record
-
-
-class LarkConnectionRepository:
-    """Per-user Lark connection (lark_connections) CRUD. 1:1 with users_shadow, no soft delete.
-    Structurally identical to [[DingTalkConnectionRepository]]."""
-
-    def __init__(self, db: Session):
-        self.db = db
-
-    def get(self, user_id: str) -> Optional[LarkConnection]:
-        return self.db.query(LarkConnection).filter(LarkConnection.user_id == user_id).first()
-
-    def ensure(self, user_id: str) -> LarkConnection:
-        """Idempotent: return existing record, otherwise create a disconnected record."""
-        record = self.get(user_id)
-        if record:
-            return record
-        record = LarkConnection(user_id=user_id, status="disconnected")
-        self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
-        return record
-
-    def update(self, user_id: str, data: Dict[str, Any]) -> Optional[LarkConnection]:
-        record = self.get(user_id)
-        if not record:
-            return None
-        for k, v in data.items():
-            setattr(record, k, v)
-        record.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(record)
-        return record
-
-
-class EmailConnectionRepository:
-    """Per-user email connection (email_connections) CRUD. 1:1 with users_shadow, no soft delete.
-    Structurally identical to [[LarkConnectionRepository]]."""
-
-    def __init__(self, db: Session):
-        self.db = db
-
-    def get(self, user_id: str) -> Optional[EmailConnection]:
-        return self.db.query(EmailConnection).filter(EmailConnection.user_id == user_id).first()
-
-    def ensure(self, user_id: str) -> EmailConnection:
-        """Idempotent: return existing record, otherwise create a disconnected record."""
-        record = self.get(user_id)
-        if record:
-            return record
-        record = EmailConnection(user_id=user_id, status="disconnected")
-        self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
-        return record
-
-    def update(self, user_id: str, data: Dict[str, Any]) -> Optional[EmailConnection]:
-        record = self.get(user_id)
-        if not record:
-            return None
-        for k, v in data.items():
-            setattr(record, k, v)
-        record.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(record)
-        return record

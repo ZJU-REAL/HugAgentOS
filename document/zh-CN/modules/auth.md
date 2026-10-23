@@ -176,7 +176,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `PATCH /v1/me/api-keys/{key_id}` | 启用 / 禁用 |
 | `DELETE /v1/me/api-keys/{key_id}` | 撤销 |
 
-Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用业务 API（外部程序化调用通常没有 Cookie）。校验逻辑（启用 / 未撤销 / 未过期 / 用户权限位仍开启）集中在 `core/services/api_key_service.py::resolve_api_key`。
+Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用业务 API（外部程序化调用通常没有 Cookie）。校验逻辑（启用 / 未撤销 / 未过期 / 用户权限位仍开启）集中在 `core/auth/api_keys.py::resolve_api_key`。
 
 禁用或撤销 API Key 会拒绝新请求，并取消该 Key 已接收且仍在等待、运行或暂停待处理的对话任务。取消会停止后台执行并结束 SSE 流；已完成的外部工具操作不会撤回。重新启用 Key 不会恢复已取消任务。调用记录进入“需要处理”等停止状态后，耗时固定在停止时间。
 
@@ -207,7 +207,7 @@ Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用�
 | 管理凭证依赖 | `src/backend/api/deps.py` |
 | 用户资料 / 偏好 | `src/backend/api/routes/v1/users.py` |
 | 用户权限位管理 | `src/backend/edition_ee/routes/config_users.py` |
-| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`、`src/backend/core/services/api_key_service.py` |
+| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`、`src/backend/core/auth/api_keys.py` |
 | 能力中心自助（owner 隔离） | `src/backend/api/routes/v1/me_capabilities.py` |
 | 邀请码 | `src/backend/edition_ee/auth/invite.py`、`src/backend/edition_ee/routes/config_invites.py` |
 | 团队管理 | `src/backend/edition_ee/routes/config_teams.py`、`src/backend/edition_ee/routes/me_teams.py` |

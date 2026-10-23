@@ -1,11 +1,13 @@
 """Configured endpoint windows must survive model construction and compaction."""
 
 from types import SimpleNamespace
-from core.services.model_config import ResolvedModelConfig
+
+import core.chat.runtime.compaction as compaction
+from core.models.config import ResolvedModelConfig
 
 
 def test_model_builder_uses_selected_provider_window(monkeypatch):
-    from core.llm import chat_models
+    from core.models import chat_models
 
     calls = []
     monkeypatch.setattr(
@@ -24,13 +26,13 @@ def test_model_builder_uses_selected_provider_window(monkeypatch):
 
 
 def test_post_turn_trigger_uses_frozen_window_not_same_name_provider(monkeypatch):
-    from orchestration import chat_run_executor as executor
-    from core.llm import context_manager
-    from core.services import compaction_service
+    pass
+    from core.models import context_window as context_manager
+    from core.chat.compaction import service as compaction_service
 
     monkeypatch.setattr(context_manager, "resolve_model_context_window", lambda name: 128000)
     monkeypatch.setattr(compaction_service, "resolve_trigger_ratio", lambda: 0.82)
-    assert executor._should_schedule_compaction(
+    assert compaction._should_schedule_compaction(
         model_name="shared-model",
         usage={"context_tokens": 40000},
         budget_inputs={"context_window": 36000},
@@ -39,9 +41,10 @@ def test_post_turn_trigger_uses_frozen_window_not_same_name_provider(monkeypatch
 
 def test_background_compaction_receives_the_frozen_window(monkeypatch):
     import asyncio
-    from orchestration.post_turn_compaction import _spawn_compaction_task
-    from core.services import compaction_service
-    from core.llm import context_manager
+
+    from core.chat.runtime.compaction import _spawn_compaction_task
+    from core.models import context_window as context_manager
+    from core.chat.compaction import service as compaction_service
 
     observed = []
     monkeypatch.setattr(context_manager, "resolve_model_context_window", lambda name: 128000)
@@ -69,8 +72,8 @@ def test_background_compaction_receives_the_frozen_window(monkeypatch):
 
 
 def test_default_model_identity_reaches_usage_and_frozen_budget():
-    from core.llm.context_usage import build_context_usage_snapshot
-    from orchestration.workflow import _compaction_budget_inputs
+    from core.agent_runtime.budget import _compaction_budget_inputs
+    from core.llm.context.usage import build_context_usage_snapshot
 
     agent = SimpleNamespace(
         model=SimpleNamespace(
@@ -87,7 +90,7 @@ def test_default_model_identity_reaches_usage_and_frozen_budget():
 
 
 def test_failover_usage_uses_actual_endpoint_window_over_primary_manifest():
-    from core.llm.context_usage import build_context_usage_snapshot
+    from core.llm.context.usage import build_context_usage_snapshot
 
     agent = SimpleNamespace(
         model=SimpleNamespace(

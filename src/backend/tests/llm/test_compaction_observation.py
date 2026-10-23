@@ -15,12 +15,10 @@ import pytest
 from agentscope.agent import ContextConfig
 from agentscope.message import DataBlock, Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.model import ChatUsage
-from core.llm import compaction as C
-from core.llm.compacting_agent import CompactingAgent, msg_to_history_dict
-from core.llm.context_ir import IMAGE_TOKEN_RESERVE
-from core.services import compaction_service as S
-
-
+from core.llm.context import compaction as C
+from core.llm.context.compacting_agent import CompactingAgent, msg_to_history_dict
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.chat.compaction import service as S
 from tests.llm.test_compaction_mid_turn import _assistant, _make_agent, _user
 
 
@@ -37,7 +35,7 @@ async def test_changed_content_can_compact_again_without_more_messages(monkeypat
             {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
         ]
 
-    monkeypatch.setattr(S, "run_compaction", engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", engine)
     agent.observe_context_tokens(900, 10)
     await agent.compress_context()
     assert len(calls) == 1
@@ -104,7 +102,7 @@ async def test_rewritten_history_invalidates_the_usage_baseline(change):
 async def test_actual_sdk_event_order_does_not_double_count_response(monkeypatch):
     from agentscope.event import ModelCallEndEvent
     from agentscope.model import ChatResponse
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
 
     agent = _make_agent([_user("q")])
     agent.name = "agent"
@@ -138,3 +136,5 @@ async def test_actual_sdk_event_order_does_not_double_count_response(monkeypatch
     assert seen
     assert len(agent.state.context) == 2
     assert await agent._measure_context_tokens() == 1500
+
+from core.harness.registry import compaction as compaction_port

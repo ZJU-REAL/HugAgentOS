@@ -15,6 +15,9 @@ a row in ``evolution_candidates``, an entry in the memory-op ledger, a profile
 that governs the next run. Anything that cannot be observed at that boundary did
 not happen, whatever the intermediate values looked like.
 """
+from core.evolution.cycle import episode_views as episode_views_module, graph_candidates as graph_candidates_module, skill_release as skill_release_module, cycle_extras as X, loop as L
+from core.evolution.generators import skill_gen as skill_gen_module, memory_apply as MA
+from core.evolution.profiles import agent_profile as agent_profile_module, profile_selection as profile_selection_module, agent_profile as AP
 
 import pytest
 from sqlalchemy import create_engine
@@ -29,13 +32,9 @@ from core.db.models.evolution import (
     EvolutionRelease,
     EvolutionTraceEvent,
 )
-from core.evolution import agent_profile as AP
-from core.evolution import cycle_extras as X
-from core.evolution import loop as L
-from core.evolution import memory_apply as MA
-from core.evolution import similarity as S
-from core.evolution import trace_assembler as TA
-from core.evolution.memory_ops import OP_MERGE, OP_REWEIGHT, MemoryOp
+from core.evolution.assessment import similarity as S
+from core.evolution.evidence import trace_assembler as TA
+from core.evolution.generators.memory_ops import OP_MERGE, OP_REWEIGHT, MemoryOp
 
 _TABLES = [
     EvolutionEpisode.__table__,
@@ -52,14 +51,15 @@ def db(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine, tables=_TABLES)
     factory = sessionmaker(bind=engine)
-    for module in (L, MA, AP, X):
-        if hasattr(module, "SessionLocal"):
-            monkeypatch.setattr(module, "SessionLocal", factory)
+    from core.evolution.cycle import episode_views, candidate_records, evaluation
+    from core.evolution.profiles import profile_selection
+    for module in (episode_views, candidate_records, evaluation, MA, AP, X, profile_selection):
+        if hasattr(module, "SessionLocal"): monkeypatch.setattr(module, "SessionLocal", factory)
     import core.db.engine as engine_mod
     import core.memory.weights as weights_mod
 
     monkeypatch.setattr(engine_mod, "SessionLocal", factory)
-    monkeypatch.setattr(weights_mod, "_cache", {})
+    monkeypatch.setattr(weights_mod.process_state(), 'cache', {})
     session = factory()
     yield session
     session.close()
@@ -117,7 +117,7 @@ def test_a_recurring_intent_becomes_a_row_in_the_candidate_table(db, monkeypatch
     # The generator is the one part that talks to a model; its output is fixed
     # here so the test measures the wiring rather than the model.
     async def fake_generate(**kwargs):
-        from core.evolution.skill_gen import DraftResult
+        from core.evolution.generators.skill_evidence import DraftResult
 
         return (
             {
@@ -130,14 +130,14 @@ def test_a_recurring_intent_becomes_a_row_in_the_candidate_table(db, monkeypatch
             DraftResult(ok=True, attempts=1),
         )
 
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", fake_generate)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', fake_generate)
 
-    views = L.load_episode_views(limit=50)
+    views = episode_views_module.load_episode_views(limit=50)
     assert len(views) == 4
 
-    result = L._run_other_engines(views, dry_run=False)
+    result = graph_candidates_module.run_other_engines(views, dry_run=False)
 
     rows = db.query(EvolutionCandidate).filter(
         EvolutionCandidate.proposer == "intent_engine"
@@ -181,15 +181,15 @@ def test_a_skill_that_cannot_be_written_produces_no_candidate(db, monkeypatch):
     monkeypatch.setattr(S, "_embed_all", lambda texts: None)
 
     async def fails(**_kwargs):
-        from core.evolution.skill_gen import DraftResult
+        from core.evolution.generators.skill_evidence import DraftResult
 
         return None, DraftResult(ok=False, violations=["contains_code_block"], attempts=2)
 
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", fails)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', fails)
 
-    L._run_other_engines(L.load_episode_views(limit=50), dry_run=False)
+    graph_candidates_module.run_other_engines(episode_views_module.load_episode_views(limit=50), dry_run=False)
     assert db.query(EvolutionCandidate).count() == 0
 
 
@@ -320,11 +320,10 @@ def _rollback_fixture(db, monkeypatch, *, guardrails):
     from sqlalchemy.orm import sessionmaker
 
     from core.db.models import AdminSkill
-    from core.evolution import activation as A
 
     AdminSkill.__table__.create(db.get_bind(), checkfirst=True)
     factory = sessionmaker(bind=db.get_bind())
-    monkeypatch.setattr(A, "SessionLocal", factory)
+    monkeypatch.setattr(skill_release_module, "SessionLocal", factory)
 
     db.add(
         EvolutionCandidate(
@@ -373,7 +372,7 @@ def _rollback_fixture(db, monkeypatch, *, guardrails):
     MA.demote_promoted_memories(
         candidate_id="cand-9", user_id="u1", memory_refs=["mref-a"], skill_id="evo-fin"
     )
-    return A
+    return skill_release_module
 
 
 def test_release_rollback_restores_demoted_memories_in_the_same_motion(db, monkeypatch):
@@ -391,7 +390,7 @@ def test_release_rollback_restores_demoted_memories_in_the_same_motion(db, monke
     weights, _ = load_overlay("u1", "default")
     assert weights == {"mref-a": MA.PROMOTION_WEIGHT}
 
-    outcome = A.rollback_skill_activation("rel-9", actor="admin", reason="canary 指标崩了")
+    outcome = skill_release_module.rollback_skill_activation("rel-9", actor="admin", reason="canary 指标崩了")
 
     invalidate()
     weights, _ = load_overlay("u1", "default")
@@ -422,7 +421,7 @@ def test_release_rollback_to_a_prior_version_keeps_dependent_profiles(db, monkey
     }
     A = _rollback_fixture(db, monkeypatch, guardrails={"previous": previous})
 
-    outcome = A.rollback_skill_activation("rel-9", actor="admin", reason="人工回滚")
+    outcome = skill_release_module.rollback_skill_activation("rel-9", actor="admin", reason="人工回滚")
 
     invalidate()
     weights, _ = load_overlay("u1", "default")
@@ -444,7 +443,7 @@ def test_a_published_profile_governs_the_next_run_without_a_restart(db):
     Loop thresholds were read into module constants at import, so publishing
     required a restart and replicas disagreed until all of them had.
     """
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.profile_id = "auto-finance"
     profile.task_types = ["finance"]
     profile.max_react_turns = 12
@@ -460,13 +459,13 @@ def test_a_published_profile_governs_the_next_run_without_a_restart(db):
     )
     db.commit()
 
-    assert AP.load_active_profile(task_type="finance").max_react_turns == 12
+    assert profile_selection_module.load_active_profile(task_type="finance").max_react_turns == 12
     # A task type this profile does not claim keeps the built-in assembly.
-    assert AP.load_active_profile(task_type="chat").profile_id == "builtin"
+    assert profile_selection_module.load_active_profile(task_type="chat").profile_id == "builtin"
 
 
 def test_one_tenants_profile_never_governs_anothers_run(db):
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.profile_id = "acme-finance"
     profile.task_types = ["finance"]
     profile.scope = {"tenant_id": "acme"}
@@ -483,14 +482,14 @@ def test_one_tenants_profile_never_governs_anothers_run(db):
     )
     db.commit()
 
-    assert AP.load_active_profile(task_type="finance", tenant_id="acme").max_react_turns == 7
+    assert profile_selection_module.load_active_profile(task_type="finance", tenant_id="acme").max_react_turns == 7
     # The bug the tenant parameter was added for, asserted at the boundary that
     # matters rather than on the helper that picks.
-    assert AP.load_active_profile(task_type="finance", tenant_id="other").profile_id == "builtin"
+    assert profile_selection_module.load_active_profile(task_type="finance", tenant_id="other").profile_id == "builtin"
 
 
 def test_a_deactivated_profile_stops_governing_immediately(db):
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.profile_id = "auto-finance"
     profile.task_types = ["finance"]
     profile.max_react_turns = 12
@@ -504,16 +503,16 @@ def test_a_deactivated_profile_stops_governing_immediately(db):
     )
     db.add(row)
     db.commit()
-    assert AP.load_active_profile(task_type="finance").profile_id == "auto-finance"
+    assert profile_selection_module.load_active_profile(task_type="finance").profile_id == "auto-finance"
 
     row.is_active = False
     db.commit()
-    assert AP.load_active_profile(task_type="finance").profile_id == "builtin"
+    assert profile_selection_module.load_active_profile(task_type="finance").profile_id == "builtin"
 
 
 def test_a_stored_profile_that_no_longer_validates_is_not_applied(db):
     """Applying it partially would produce a configuration nobody reviewed."""
-    broken = AP.builtin_profile()
+    broken = agent_profile_module.builtin_profile()
     broken.profile_id = "broken"
     broken.budget_multiplier = 99.0
     db.add(
@@ -527,7 +526,7 @@ def test_a_stored_profile_that_no_longer_validates_is_not_applied(db):
         )
     )
     db.commit()
-    assert AP.load_active_profile(task_type="chat").profile_id == "builtin"
+    assert profile_selection_module.load_active_profile(task_type="chat").profile_id == "builtin"
 
 
 # ── Skill opens are recoverable from history ─────────────────────────────────

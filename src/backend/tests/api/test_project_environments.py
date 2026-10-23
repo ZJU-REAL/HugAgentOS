@@ -1,3 +1,4 @@
+from core.capabilities.skills import loader_factory as loader_factory_module
 from api.routes.v1.project_environments import router
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
@@ -9,12 +10,12 @@ from fastapi.testclient import TestClient
 def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
     db_session, monkeypatch
 ):
-    from core.agent_skills import loader
+    from core.capabilities.skills import loader
     from core.db import engine
     from sqlalchemy.orm import sessionmaker
 
     monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    monkeypatch.setattr(loader, "_global_loader", None)
+    monkeypatch.setattr(loader_factory_module, 'global_loader', None)
     db_session.add_all(
         [
             UserShadow(user_id="owner", username="Owner"),

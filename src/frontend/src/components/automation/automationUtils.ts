@@ -12,6 +12,7 @@ export function channelConversationLabel(c: ChannelConversation): string {
 
 /** Labels for a single automation run's status. Kept here so they aren't redeclared across multiple components. */
 export const RUN_STATUS_LABEL: Record<AutomationRunStatus, string> = {
+  pending: t('待执行'),
   running: t('执行中'),
   success: t('成功'),
   failed: t('失败'),
@@ -21,6 +22,7 @@ export const RUN_STATUS_LABEL: Record<AutomationRunStatus, string> = {
  *  detail page and the aggregated run list. The running state additionally carries the
  *  `.jx-anim-ripple` motion primitive; colour/spread live in automation.css. */
 export const RUN_STATUS_CLASS: Record<AutomationRunStatus, string> = {
+  pending: 'is-running',
   running: 'is-running jx-anim-ripple',
   success: 'is-success',
   failed: 'is-failed',

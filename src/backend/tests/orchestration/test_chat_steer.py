@@ -1,23 +1,35 @@
 """Mid-run chat steering: Redis hand-off and ReAct middleware behavior."""
+from tests.orchestration.hook_support import make_adapter
+from agentscope.message import ToolCallBlock
+
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.compaction as compaction
+import core.chat.runtime.followups as followups
+import core.chat.runtime.handoff as handoff
+import core.chat.runtime.worker as worker
+import core.db.engine as db_engine
+import core.runs.clock as clock
+import core.runs.events.writer as writer
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
+import core.chat.service as services_ChatService_module
 import fakeredis.aioredis
 import pytest
 from agentscope.message import ToolResultState
 from agentscope.tool._response import ToolChunk
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
-from core.llm.steer_middleware import SteerMiddleware
-from core.services import chat_steer_service
-from core.services.chat_service import ChatService
-from core.services.run_journal import RunJournal, RunLeaseLost
-from core.services.steer_queue import SteerQueue
-from orchestration import chat_run_executor as executor
+from core.chat.steer_hook import SteeringHook
+from core.chat import steer as chat_steer_service
+from core.chat.service import ChatService
+from core.runs.journal import RunJournal, RunLeaseLost
+from core.chat.steer_queue import SteerQueue
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture()
@@ -121,7 +133,7 @@ async def test_middleware_interrupts_tool_then_injects_user_instruction(monkeypa
         return delivery
 
     monkeypatch.setattr(chat_steer_service, "take_pending_steer", take_pending_steer)
-    middleware = SteerMiddleware()
+    middleware = make_adapter(*SteeringHook().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="r1", context=[], steer_delivery=None))
     tool_executed = False
 
@@ -130,7 +142,7 @@ async def test_middleware_interrupts_tool_then_injects_user_instruction(monkeypa
         tool_executed = True
         yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
 
-    results = [item async for item in middleware.on_acting(agent, {}, tool_handler)]
+    results = [item async for item in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool_handler)]
 
     assert tool_executed is False
     assert results[-1].state == ToolResultState.INTERRUPTED
@@ -160,7 +172,7 @@ async def test_middleware_injects_steer_received_while_tool_was_running(monkeypa
         return None if polls == 1 else delivery
 
     monkeypatch.setattr(chat_steer_service, "take_pending_steer", take_pending_steer)
-    middleware = SteerMiddleware()
+    middleware = make_adapter(*SteeringHook().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="r1", context=[], steer_delivery=None))
     tool_executed = False
 
@@ -169,7 +181,7 @@ async def test_middleware_injects_steer_received_while_tool_was_running(monkeypa
         tool_executed = True
         yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
 
-    results = [item async for item in middleware.on_acting(agent, {}, tool_handler)]
+    results = [item async for item in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool_handler)]
     assert tool_executed is True
     assert results[-1].state == ToolResultState.SUCCESS
 
@@ -192,13 +204,13 @@ async def test_middleware_is_pass_through_without_pending_steer(monkeypatch):
         return None
 
     monkeypatch.setattr(chat_steer_service, "take_pending_steer", take_pending_steer)
-    middleware = SteerMiddleware()
+    middleware = make_adapter(*SteeringHook().specs())
     agent = SimpleNamespace(state=SimpleNamespace(run_id="r1", context=[], steer_delivery=None))
 
     async def tool_handler(**_kwargs):
         yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
 
-    results = [item async for item in middleware.on_acting(agent, {}, tool_handler)]
+    results = [item async for item in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool_handler)]
     assert results[-1].state == ToolResultState.SUCCESS
 
 
@@ -277,38 +289,38 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
     async def fake_xadd(_run_id, _offset, event):
         emitted.append(dict(event))
 
-    monkeypatch.setattr(executor, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(executor, "get_run", lambda _run_id: SimpleNamespace(request_payload={}, status="running"))
-    monkeypatch.setattr(executor, "ChatService", FakeChatService)
-    monkeypatch.setattr(executor, "_persisted_history", lambda *_args: [])
+    monkeypatch.setattr(db_engine, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(runtime, "get_run", lambda _run_id: SimpleNamespace(request_payload={}, status="running"))
+    monkeypatch.setattr(services_ChatService_module, "ChatService", FakeChatService)
+    monkeypatch.setattr(handoff, "_persisted_history", lambda *_args: [])
     fake_journal = FakeJournal()
-    monkeypatch.setattr(executor, "_journal", lambda: fake_journal)
-    monkeypatch.setattr(executor, "astream_chat_workflow", fake_workflow)
-    monkeypatch.setattr(executor, "_xadd_event", fake_xadd)
-    monkeypatch.setattr(executor, "_update_run_status", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(executor, "_claim_run_execution", lambda _run_id: executor._utcnow())
-    monkeypatch.setattr(executor, "_acknowledge_terminal_writer", lambda _run_id: False)
-    monkeypatch.setattr(executor, "_finalize_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ownership, 'journal', lambda: fake_journal)
+    monkeypatch.setattr(runner, "astream_chat_workflow", fake_workflow)
+    monkeypatch.setattr(writer, 'xadd_event', fake_xadd)
+    monkeypatch.setattr(ownership, "_update_run_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ownership, "_claim_run_execution", lambda _run_id: clock._utcnow())
+    monkeypatch.setattr(ownership, "_acknowledge_terminal_writer", lambda _run_id: False)
+    monkeypatch.setattr(ownership, "_finalize_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        executor,
+        handoff,
         "_commit_queued_handoff_in_session",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(executor, "is_run_cancelled", lambda _run_id: False)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime, "is_run_cancelled", lambda _run_id: False)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
 
     async def fake_expire(_run_id):
         return None
 
-    monkeypatch.setattr(executor, "_expire_stream", fake_expire)
+    monkeypatch.setattr(writer, 'expire_stream', fake_expire)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
     context = {"chat_id": "c1", "user_id": "u1"}
-    await executor._run_workflow(
+    await worker._run_workflow(
         run_id="r1",
         chat_id="c1",
         user_id="u1",
@@ -361,18 +373,18 @@ async def test_executor_atomically_applies_claimed_queue_item(durable_steer_env,
     async def no_event_write(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
-    monkeypatch.setattr(executor, "astream_chat_workflow", fake_workflow)
-    monkeypatch.setattr(executor, "_xadd_event", no_event_write)
-    monkeypatch.setattr(executor, "_expire_stream", no_event_write)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    monkeypatch.setattr(runner, "astream_chat_workflow", fake_workflow)
+    monkeypatch.setattr(writer, 'xadd_event', no_event_write)
+    monkeypatch.setattr(writer, 'expire_stream', no_event_write)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    await executor._run_workflow(
+    await worker._run_workflow(
         run_id="r1",
         chat_id="chat-1",
         user_id="user-1",
@@ -430,16 +442,16 @@ async def test_crash_after_steer_ack_safe_stops_with_exact_post_steer_context(
     async def no_event_write(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
-    monkeypatch.setattr(executor, "astream_chat_workflow", crashing_workflow)
-    monkeypatch.setattr(executor, "_xadd_event", no_event_write)
-    monkeypatch.setattr(executor, "_expire_stream", no_event_write)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    monkeypatch.setattr(runner, "astream_chat_workflow", crashing_workflow)
+    monkeypatch.setattr(writer, 'xadd_event', no_event_write)
+    monkeypatch.setattr(writer, 'expire_stream', no_event_write)
     # Admission persists the user's message before the worker starts; the
     # post-steer context is read back from those rows.
     with sessions() as db:
         ChatService(db).add_message(chat_id="chat-1", role="user", content="原问题")
 
-    await executor._run_workflow(
+    await worker._run_workflow(
         run_id="r1",
         chat_id="chat-1",
         user_id="user-1",

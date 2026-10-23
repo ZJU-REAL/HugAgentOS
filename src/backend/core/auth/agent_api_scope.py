@@ -5,7 +5,7 @@ import re
 from fastapi import HTTPException
 
 from core.db.models import Artifact, ChatRun, ChatSession
-from core.services.agent_api_service import make_agent_api_scope, session_matches_scope
+from core.auth.agent_api import make_agent_api_scope, session_matches_scope
 
 
 def enforce_agent_api_route(request, db, user) -> None:

@@ -23,7 +23,7 @@ def creator():
 
 
 def stats():
-    return dict.fromkeys(("adopted_jupyter", "adopted_light", "skipped_bound", "killed_legacy", "killed_dead", "killed_overflow"), 0)
+    return dict.fromkeys(("adopted_jupyter", "adopted_light", "skipped_bound", "killed_invalid", "killed_dead", "killed_overflow"), 0)
 
 
 def test_adopter_skips_container_while_creator_is_still_delivering_it(monkeypatch):
@@ -67,7 +67,7 @@ def test_adoption_connect_timeout_preserves_live_container(monkeypatch):
 def test_startup_cleanup_cannot_kill_a_foreign_tracker_or_bound_instance(state, bound):
     b = creator()
     manager = SimpleNamespace(kill_sandbox=AsyncMock())
-    # Missing pool-kind enters the legacy cleanup branch in the Running case.
+    # Missing pool-kind enters the invalid-metadata cleanup branch in the Running case.
     info = SimpleNamespace(id="foreign", status=SimpleNamespace(state=state), metadata={"hugagent-owner": "backend"}, entrypoint=[])
     async def scenario():
         if bound:
@@ -79,9 +79,10 @@ def test_startup_cleanup_cannot_kill_a_foreign_tracker_or_bound_instance(state, 
     asyncio.run(scenario())
 
 
-def test_stopped_untagged_unknown_client_is_never_deleted():
+@pytest.mark.parametrize("entrypoint", [["foreign-agent"], ["sleep", "infinity"], ["/opt/opensandbox/code-interpreter.sh"]])
+def test_stopped_untagged_client_is_never_deleted(entrypoint):
     b = creator()
     manager = SimpleNamespace(kill_sandbox=AsyncMock())
-    info = SimpleNamespace(id="another-client", status=SimpleNamespace(state="Stopped"), metadata={}, entrypoint=["foreign-agent"])
+    info = SimpleNamespace(id="another-client", status=SimpleNamespace(state="Stopped"), metadata={}, entrypoint=entrypoint)
     asyncio.run(b._classify_and_adopt(manager, info, stats()))
     manager.kill_sandbox.assert_not_awaited()

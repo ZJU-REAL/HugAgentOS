@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
 import os
 
 from agentscope.agent import ReActConfig
-from agentscope.agent._config import ModelConfig
-from core.llm.compacting_agent import CompactingAgent
+from agentscope.agent import ModelConfig, InjectionConfig
+from core.llm.context.compacting_agent import CompactingAgent
 from core.llm.factory.request import AgentRequest
+
+logger = logging.getLogger(__name__)
 
 
 async def agent_construction(
@@ -63,11 +64,11 @@ async def agent_construction(
     _offloader = None
     if not request.disable_tools and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true":
         try:
-            from core.llm.offloader import SandboxOffloader
+            from core.llm.context.offloader import SandboxOffloader
             from core.sandbox.factory import get_sandbox_provider
 
             if _api_scope is not None:
-                from core.llm.agent_api_tools import _provider as api_sandbox_provider
+                from core.llm.api_runtime.agent_tools import _provider as api_sandbox_provider
 
                 _offloader = SandboxOffloader(
                     api_sandbox_provider(),
@@ -83,7 +84,7 @@ async def agent_construction(
 
     # CompactingAgent, not the bare framework Agent: its compress_context
     # override is what routes the ReAct step boundary into the one compaction
-    # engine and persists the checkpoint (see core/llm/compacting_agent.py).
+    # engine and persists the checkpoint (see core/llm/context/compacting_agent.py).
     agent = CompactingAgent(
         name=_agent_name,
         system_prompt=system_prompt,
@@ -93,7 +94,8 @@ async def agent_construction(
         state=_state,
         context_config=context_config,
         model_config=ModelConfig(max_retries=3, fallback_model=None),
-        react_config=ReActConfig(max_iters=_max_iters),
+        injection_config=InjectionConfig(inject_runtime_state=False),
+        react_config=ReActConfig(max_iters=_max_iters, interruption_raise_cancelled_error=True),
         offloader=_offloader,
     )
     # Compaction trigger accounting reuses the exact already-frozen execution
@@ -107,8 +109,9 @@ async def agent_construction(
     # and a seed write on a cold config cache, inside the ReAct loop).
     try:
         agent._jx_trigger_ratio = _trigger_ratio
-    except Exception:  # pragma: no cover - agent may reject attributes
-        pass
+    except Exception as fallback_error:  # pragma: no cover - agent may reject attributes
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.llm.factory.runtime.agent_construction:agent_construction', fallback_error)
 
     # Set the agent reference so the call_subagent closure can extract shared context
     if _agent_ref is not None:

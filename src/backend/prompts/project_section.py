@@ -7,6 +7,7 @@ these names for backward compatibility.
 """
 
 from __future__ import annotations
+from core.llm import prompt_versions as prompt_versions_module
 
 from prompts.prompt_runtime import _load_db_prompt_parts  # noqa: E402 (cycle-safe)
 
@@ -77,8 +78,8 @@ def _get_project_mode_template() -> str:
             return content
     # 2) parts of the active system version (edited in the admin UI)
     try:
-        from core.services import prompt_version_service as pvs
-        active = pvs.get_active_version("system")
+        from core.llm import prompt_versions as pvs
+        active = prompt_versions_module.get_active_version("system")
         if active:
             for p in active.get("parts") or []:
                 if (p.get("part_id") or "").strip() != PROJECT_MODE_PART_ID:
@@ -119,7 +120,7 @@ def _build_project_section(
     from prompts.provider import render_template
 
     name = (project_name or "").strip() or "(未命名项目)"
-    from core.services.edition_workspace import folder_scope_label
+    from core.files.edition import folder_scope_label
     scope_text = folder_scope_label(folder_kind)
 
 

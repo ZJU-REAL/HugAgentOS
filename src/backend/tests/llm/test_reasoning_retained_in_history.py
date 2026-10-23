@@ -8,12 +8,8 @@ has to survive replay for that decision to exist at all. Replay comes only from
 the canonical step record.
 """
 
-from core.llm.message_compat import dict_to_msg
-from core.llm.model_steps import (
-    assistant_row_replay,
-    record_assistant_step,
-    record_tool_result_step,
-)
+from core.llm.runtime.message_compat import dict_to_msg
+from core.llm.runtime.model_steps import assistant_row_replay, record_assistant_step, record_tool_result_step
 
 
 def _thinking_texts(msg):

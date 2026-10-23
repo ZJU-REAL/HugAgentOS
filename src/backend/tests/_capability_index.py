@@ -15,15 +15,10 @@ from sqlalchemy.orm import sessionmaker
 
 def bind_capability_index(tmp_dir: Path, monkeypatch: pytest.MonkeyPatch):
     import core.db.models  # noqa: F401 - populate metadata
-    from core.capabilities import registry
+    from features.desktop.capabilities import registry
     from core.db.engine import Base
-    from core.db.models import (
-        ContentBlock,
-        DeviceCapabilityComponent,
-        DeviceCapabilityInstallation,
-        DeviceCapabilityNamePreference,
-        DeviceCapabilityTransaction,
-    )
+    from core.db.models import ContentBlock
+    from features.desktop.models import DeviceCapabilityComponent, DeviceCapabilityInstallation, DeviceCapabilityNamePreference, DeviceCapabilityTransaction
 
     engine = create_engine(
         f"sqlite:///{tmp_dir / 'capability-index.db'}", connect_args={"check_same_thread": False}

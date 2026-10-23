@@ -13,7 +13,7 @@ from core.db.engine import get_db
 from core.db.repository import UserRepository
 from core.infra.exceptions import AccessDeniedError, ResourceNotFoundError, ValidationError
 from core.infra.responses import success_response
-from core.storage import get_storage
+from core.files.storage import get_storage
 from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -77,7 +77,7 @@ def get_current_user_info(
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
     meta = dict(user_shadow.extra_data or {})
 
-    from core.services.local_user_service import ce_onboarding_required
+    from core.auth.local_user_policy import ce_onboarding_required
 
     data = {
         "user_id": user_shadow.user_id,
@@ -96,7 +96,7 @@ def get_current_user_info(
         "created_at": user_shadow.created_at.isoformat(),
     }
 
-    from core.auth.account_view import extend_current_account
+    from core.auth.edition import extend_current_account
 
     data = extend_current_account(db, str(user.user_id), data)
 
@@ -125,7 +125,7 @@ def update_current_user_info(
     """更新当前用户资料（nickname / real_name / phone，仅传的字段才更新）。仅本地账号可改，外部 SSO 用户需到身份源修改。"""
     from core.db.models import LocalUser
     from core.infra.exceptions import ValidationError
-    from core.services.local_user_service import LocalUserService
+    from core.auth.local_users import LocalUserService
 
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
     if not local:
@@ -156,7 +156,7 @@ def change_my_password(
     db: Session = Depends(get_db),
 ):
     """Verify the current password, save the replacement, and clear the first-login flag."""
-    from core.services.local_user_service import LocalUserService
+    from core.auth.local_users import LocalUserService
 
     result = LocalUserService(db).change_password(
         user_id=user.user_id,
@@ -186,7 +186,7 @@ def complete_my_onboarding(
     final, idempotent checkpoint that unlocks the normal application shell.
     """
     from core.db.models import ModelProvider, ModelRoleAssignment
-    from core.services.local_user_service import CE_ONBOARDING_VERSION
+    from core.auth.local_users_constants import CE_ONBOARDING_VERSION
 
     if settings.edition.edition != "ce":
         raise AccessDeniedError(

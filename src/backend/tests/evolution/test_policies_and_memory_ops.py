@@ -1,17 +1,20 @@
 """GCE tickets 20 / 21 — the orchestration asset and memory operations.
 
-The orchestration asset is now :class:`~core.evolution.agent_profile.AgentProfile`
+The orchestration asset is now :class:`~core.evolution.profiles.agent_profile.AgentProfile`
 and the autonomous loop reads a *projection* of it. These tests hold the same
 invariants as before — the built-in must reproduce today's constants, the action
 allow-list must refuse anything resembling code execution, the budget must be
 bounded — against the asset that actually governs behaviour.
 """
+from core.evolution.profiles import agent_profile as agent_profile_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
+from core.evolution.profiles import profile_selection as profile_selection_module
 
 import pytest
 
-from core.evolution import agent_profile as AP
-from core.evolution import memory_ops as MO
-from core.evolution import policies as PL
+from core.evolution.profiles import agent_profile as AP
+from core.evolution.generators import memory_ops as MO
+from core.evolution.profiles import policies as PL
 
 
 # ── The orchestration asset ──────────────────────────────────────────────────
@@ -19,22 +22,22 @@ from core.evolution import policies as PL
 
 def test_builtin_profile_reproduces_todays_constants():
     """Adopting profile resolution must be a no-op until someone publishes."""
-    policy = PL.policy_from_profile(AP.builtin_profile())
+    policy = PL.policy_from_profile(agent_profile_module.builtin_profile())
     assert policy.max_attempts_per_requirement == 6
     assert policy.strategy_change_after == 2
     # The main ReAct agent has no turn cap; the built-in profile must not
     # reintroduce one behind the runtime's back.
-    assert AP.builtin_profile().max_react_turns == AP.UNBOUNDED_REACT_TURNS
+    assert agent_profile_module.builtin_profile().max_react_turns == agent_profile_state_module.UNBOUNDED_REACT_TURNS
     # A profile published without an explicit turn budget stays unbounded too —
     # a missing key must not become an invented ceiling.
-    unspecified = AP.AgentProfile.from_dict({"profile_id": "p"})
-    assert unspecified.max_react_turns == AP.UNBOUNDED_REACT_TURNS
+    unspecified = agent_profile_module.AgentProfile.from_dict({"profile_id": "p"})
+    assert unspecified.max_react_turns == agent_profile_state_module.UNBOUNDED_REACT_TURNS
 
 
 def test_longer_stall_escalates_rather_than_repeating_the_mild_response():
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.intervention_rules.append(
-        AP.InterventionRule(AP.SIGNAL_NO_PROGRESS, 6, AP.ACTION_STOP)
+        agent_profile_module.InterventionRule(agent_profile_state_module.SIGNAL_NO_PROGRESS, 6, agent_profile_state_module.ACTION_STOP)
     )
     policy = PL.policy_from_profile(profile)
     assert policy.action_for({PL.SIGNAL_NO_PROGRESS: 2}) == PL.ACTION_CHANGE_STRATEGY
@@ -44,69 +47,69 @@ def test_longer_stall_escalates_rather_than_repeating_the_mild_response():
 
 
 def test_no_signal_yields_no_intervention():
-    assert PL.policy_from_profile(AP.builtin_profile()).action_for({}) is None
+    assert PL.policy_from_profile(agent_profile_module.builtin_profile()).action_for({}) is None
 
 
 def test_profile_rejects_actions_outside_the_allow_list():
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.intervention_rules = [
-        AP.InterventionRule("no_progress", 2, "exec_arbitrary_code")
+        agent_profile_module.InterventionRule("no_progress", 2, "exec_arbitrary_code")
     ]
-    ok, problems = AP.validate_profile(profile)
+    ok, problems = agent_profile_module.validate_profile(profile)
     # Arbitrary self-modifying behaviour is the one capability refused outright.
     assert ok is False and any("未知动作" in p for p in problems)
 
 
 def test_profile_rejects_an_unbounded_budget_multiplier():
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.budget_multiplier = 50.0
-    ok, problems = AP.validate_profile(profile)
+    ok, problems = agent_profile_module.validate_profile(profile)
     # This is how a policy change becomes a runaway spend unnoticed.
     assert ok is False and any("预算倍数" in p for p in problems)
 
 
 def test_profile_rejects_non_positive_thresholds():
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.intervention_rules = [
-        AP.InterventionRule("no_progress", 0, AP.ACTION_RETRY)
+        agent_profile_module.InterventionRule("no_progress", 0, agent_profile_state_module.ACTION_RETRY)
     ]
-    ok, _ = AP.validate_profile(profile)
+    ok, _ = agent_profile_module.validate_profile(profile)
     assert ok is False
 
 
 def test_a_profile_may_never_widen_tool_authority():
     """The invariant that stops orchestration evolution being an escalation path."""
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.tool_allowlist = ["search_web", "shell_exec"]
-    ok, problems = AP.validate_profile(profile, base_tools=["search_web", "fetch_page"])
+    ok, problems = agent_profile_module.validate_profile(profile, base_tools=["search_web", "fetch_page"])
     assert ok is False and any("工具授权越界" in p for p in problems)
 
     # Narrowing is the whole point, and must pass.
     profile.tool_allowlist = ["search_web"]
-    assert AP.validate_profile(profile, base_tools=["search_web", "fetch_page"])[0]
+    assert agent_profile_module.validate_profile(profile, base_tools=["search_web", "fetch_page"])[0]
 
 
 def test_valid_profile_passes():
-    ok, problems = AP.validate_profile(AP.builtin_profile())
+    ok, problems = agent_profile_module.validate_profile(agent_profile_module.builtin_profile())
     assert ok is True and problems == []
 
 
 def test_profile_roundtrips_through_dict():
-    original = AP.builtin_profile()
-    restored = AP.AgentProfile.from_dict(original.to_dict())
+    original = agent_profile_module.builtin_profile()
+    restored = agent_profile_module.AgentProfile.from_dict(original.to_dict())
     assert restored.to_dict() == original.to_dict()
 
 
 def test_profile_load_degrades_to_builtin_when_store_is_unavailable():
     # No database in this test context → must degrade, not raise.
-    assert AP.load_active_profile(task_type="nonexistent").profile_id == "builtin"
+    assert profile_selection_module.load_active_profile(task_type="nonexistent").profile_id == "builtin"
 
 
 # ── Scope resolution: the bug the tenant parameter was meant to fix ──────────
 
 
 def _profile(profile_id, *, scope=None, task_types=()):
-    profile = AP.builtin_profile()
+    profile = agent_profile_module.builtin_profile()
     profile.profile_id = profile_id
     profile.scope = dict(scope or {})
     profile.task_types = list(task_types)
@@ -114,7 +117,7 @@ def _profile(profile_id, *, scope=None, task_types=()):
 
 
 def test_a_tenants_profile_wins_over_the_deployment_default():
-    chosen = AP.pick_profile(
+    chosen = profile_selection_module.pick_profile(
         [_profile("global"), _profile("acme", scope={"tenant_id": "acme"})],
         task_type="chat",
         tenant_id="acme",
@@ -124,14 +127,14 @@ def test_a_tenants_profile_wins_over_the_deployment_default():
 
 def test_one_tenants_profile_never_serves_another():
     """Inheriting someone else's orchestration is invisible when it happens."""
-    chosen = AP.pick_profile(
+    chosen = profile_selection_module.pick_profile(
         [_profile("acme", scope={"tenant_id": "acme"})], task_type="chat", tenant_id="other"
     )
     assert chosen is None
 
 
 def test_a_users_own_profile_outranks_their_tenants():
-    chosen = AP.pick_profile(
+    chosen = profile_selection_module.pick_profile(
         [
             _profile("tenant", scope={"tenant_id": "acme"}),
             _profile("mine", scope={"user_id": "u1"}),
@@ -144,7 +147,7 @@ def test_a_users_own_profile_outranks_their_tenants():
 
 
 def test_a_task_type_specific_profile_outranks_a_general_one():
-    chosen = AP.pick_profile(
+    chosen = profile_selection_module.pick_profile(
         [_profile("general"), _profile("finance", task_types=["finance"])],
         task_type="finance",
     )
@@ -153,7 +156,7 @@ def test_a_task_type_specific_profile_outranks_a_general_one():
 
 def test_a_profile_for_another_task_type_is_not_used():
     assert (
-        AP.pick_profile([_profile("finance", task_types=["finance"])], task_type="chat")
+        profile_selection_module.pick_profile([_profile("finance", task_types=["finance"])], task_type="chat")
         is None
     )
 

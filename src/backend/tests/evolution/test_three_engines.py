@@ -4,12 +4,17 @@ Every test here corresponds to something that was implemented, reachable, and
 still wrong — the class of defect that survives both code review and a green
 suite, because the code runs and produces output nobody checks against reality.
 """
+from core.evolution.cycle import cycle_extras as cycle_extras_module
+from core.evolution.cycle import cycle_extras_constants as cycle_extras_state_module
+from core.evolution.cycle import extra_findings as extra_findings_module
+from core.evolution.cycle import memory_findings as memory_findings_module
+from core.evolution.cycle import usage_evidence as usage_evidence_module
 
 import pytest
 
-from core.evolution import cycle_extras as X
-from core.evolution import memory_scan as MS
-from core.evolution import similarity as S
+from core.evolution.cycle import cycle_extras as X
+from core.evolution.generators import memory_scan as MS
+from core.evolution.assessment import similarity as S
 
 
 # ── Intent clustering ────────────────────────────────────────────────────────
@@ -88,7 +93,7 @@ def _intent_episodes(n, *, tools_vary=True, verdict="success"):
 
 def test_a_recurring_intent_with_a_stable_plan_yields_no_candidate(monkeypatch):
     monkeypatch.setattr(S, "_embed_all", lambda texts: None)
-    result = X.intent_findings(_intent_episodes(4, tools_vary=False))
+    result = extra_findings_module.intent_findings(_intent_episodes(4, tools_vary=False))
     # Already effectively a skill; writing one down adds an asset to maintain
     # and changes nothing.
     assert not [f for f in result["findings"] if f["action"] == "skill_candidate"]
@@ -96,15 +101,15 @@ def test_a_recurring_intent_with_a_stable_plan_yields_no_candidate(monkeypatch):
 
 def test_a_recurring_intent_replanned_every_time_does_yield_a_candidate(monkeypatch):
     monkeypatch.setattr(S, "_embed_all", lambda texts: None)
-    result = X.intent_findings(_intent_episodes(4))
+    result = extra_findings_module.intent_findings(_intent_episodes(4))
     findings = [f for f in result["findings"] if f["action"] == "skill_candidate"]
     assert findings, result
-    assert findings[0]["cluster"]["plan_variety"] >= X.MIN_PLAN_VARIETY
+    assert findings[0]["cluster"]["plan_variety"] >= cycle_extras_state_module.MIN_PLAN_VARIETY
 
 
 def test_a_recurring_intent_that_keeps_failing_is_not_distilled(monkeypatch):
     monkeypatch.setattr(S, "_embed_all", lambda texts: None)
-    result = X.intent_findings(_intent_episodes(4, verdict="failed"))
+    result = extra_findings_module.intent_findings(_intent_episodes(4, verdict="failed"))
     kinds = {f["kind"] for f in result["findings"]}
     assert "recurring_failure_intent" in kinds
     assert not [f for f in result["findings"] if f["action"] == "skill_candidate"]
@@ -123,7 +128,7 @@ def test_usage_counts_opens_separately_from_offers():
         }
         for i in range(5)
     ]
-    stats = X.skill_usage_from_views(views)
+    stats = usage_evidence_module.skill_usage_from_views(views)
     assert stats["offered-only"]["offers"] == 5 and stats["offered-only"]["opens"] == 0
     assert stats["used"]["opens"] == 5
 
@@ -137,7 +142,7 @@ def test_follow_through_excludes_turns_it_cannot_measure(monkeypatch):
     this, do not retire it* — could never fire.
     """
     monkeypatch.setattr(
-        X, "_declared_tools_for", lambda ids: {"evo-fin": ["dbhub_query", "chart"]}
+        usage_evidence_module, 'declared_tools_for', lambda ids: {"evo-fin": ["dbhub_query", "chart"]}
     )
     views = [
         # Followed: called a declared tool afterwards.
@@ -150,7 +155,7 @@ def test_follow_through_excludes_turns_it_cannot_measure(monkeypatch):
         {"episode_id": "e2", "verdict": "success", "skill_sequence": ["evo-fin"],
          "skills_opened": [{"skill_id": "evo-fin", "tools_after_open": []}]},
     ]
-    stats = X.skill_usage_from_views(views)["evo-fin"]
+    stats = usage_evidence_module.skill_usage_from_views(views)["evo-fin"]
     assert stats["opens"] == 3
     assert stats["opens_measurable"] == 2
     assert stats["follow_through"] == 0.5
@@ -168,7 +173,7 @@ def test_offers_count_availability_because_loading_offers_everything():
         }
         for i in range(4)
     ]
-    stats = X.skill_usage_from_views(views)
+    stats = usage_evidence_module.skill_usage_from_views(views)
     assert stats["b"]["offers"] == 4 and stats["b"]["opens"] == 0
     assert stats["a"]["offers"] == 4 and stats["a"]["opens"] == 4
 
@@ -190,7 +195,7 @@ def test_overlap_uses_declared_tools_not_co_occurrence():
         }
         for i in range(6)
     ]
-    result = X.decremental_findings(views, declared_tools={
+    result = extra_findings_module.decremental_findings(views, declared_tools={
         "skill-a": ["read", "write"],
         "skill-b": ["chart", "export"],
     })
@@ -198,7 +203,7 @@ def test_overlap_uses_declared_tools_not_co_occurrence():
 
 
 def test_genuinely_overlapping_skills_are_surfaced():
-    result = X.decremental_findings([], skill_stats={}, declared_tools={
+    result = extra_findings_module.decremental_findings([], skill_stats={}, declared_tools={
         "skill-a": ["search", "verify", "chart"],
         "skill-b": ["search", "verify", "export"],
     })
@@ -221,7 +226,7 @@ def test_negative_transfer_is_reported_when_the_corpus_can_be_split():
         {"episode_id": "a1", "task_type": "kb_qa", "verdict": "failed", "after": True},
         {"episode_id": "a2", "task_type": "kb_qa", "verdict": "success", "after": True},
     ]
-    findings = X.negative_transfer_findings(views, asset_id="evo-x")
+    findings = extra_findings_module.negative_transfer_findings(views, asset_id="evo-x")
     assert findings, "an unrelated task type dropping must be reported"
 
 
@@ -239,10 +244,10 @@ def test_one_sided_evidence_reports_nothing_rather_than_a_phantom_drop():
         }
         for i in range(6)
     ]
-    split = [{**v, "after": X._is_after(v["created_at"], activated)} for v in views]
+    split = [{**v, "after": usage_evidence_module.is_after(v["created_at"], activated)} for v in views]
     assert all(v["after"] for v in split)
     # Every episode on one side → the detector has no baseline to compare with.
-    assert X.negative_transfer_findings(split, asset_id="evo-x") == []
+    assert extra_findings_module.negative_transfer_findings(split, asset_id="evo-x") == []
 
 
 def test_uplift_needs_both_arms_before_it_licenses_a_rollback(monkeypatch):
@@ -255,13 +260,13 @@ def test_uplift_needs_both_arms_before_it_licenses_a_rollback(monkeypatch):
 
     started = datetime(2026, 7, 1, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        X, "_uplift_from_canary", lambda views: {}  # no canary in flight
+        usage_evidence_module, 'uplift_from_canary', lambda views: {}  # no canary in flight
     )
     views = [
         {"episode_id": "e0", "verdict": "success", "skill_sequence": ["evo-x"],
          "skills_opened": [], "created_at": started}
     ]
-    assert X.skill_usage_from_views(views)["evo-x"]["uplift"] is None
+    assert usage_evidence_module.skill_usage_from_views(views)["evo-x"]["uplift"] is None
 
 
 def test_a_canary_comparison_uses_the_same_bucketing_the_runtime_used():
@@ -273,7 +278,7 @@ def test_a_canary_comparison_uses_the_same_bucketing_the_runtime_used():
     later = started + timedelta(days=1)
     ramping = [("evo-x", "rel-1", 50, started)]
 
-    from core.evolution.release import in_canary_bucket
+    from core.evolution.cycle.release import in_canary_bucket
 
     # Split 40 users the way the runtime would have, then make the exposed arm
     # fail and the withheld arm succeed.
@@ -288,7 +293,7 @@ def test_a_canary_comparison_uses_the_same_bucketing_the_runtime_used():
         }
         for i in range(40)
     ]
-    uplift = X._uplift_from_canary(views, ramping=ramping)
+    uplift = usage_evidence_module.uplift_from_canary(views, ramping=ramping)
     assert uplift["evo-x"] is not None and uplift["evo-x"] < -0.5
 
 
@@ -307,7 +312,7 @@ def test_a_thin_canary_comparison_reports_nothing_rather_than_a_number():
         }
         for i in range(4)
     ]
-    uplift = X._uplift_from_canary(views, ramping=[("evo-x", "rel-1", 50, started)])
+    uplift = usage_evidence_module.uplift_from_canary(views, ramping=[("evo-x", "rel-1", 50, started)])
     assert uplift["evo-x"] is None
 
 
@@ -325,7 +330,7 @@ def test_frequent_retrieval_is_never_treated_as_duplication():
         {"episode_id": f"e{i}", "verdict": "success", "memory_refs": ["mref-useful"]}
         for i in range(8)
     ]
-    result = X.memory_findings(views)
+    result = memory_findings_module.memory_findings(views)
     assert result["merge_proposals"] == 0
     assert result["reweight_proposals"] == 0
 
@@ -337,7 +342,7 @@ def test_duplication_comes_from_scanning_the_store():
         memory_ids=["m1", "m2"],
         reason="两条记忆语义重复",
     )
-    result = X.memory_findings([], scan_findings=[finding])
+    result = memory_findings_module.memory_findings([], scan_findings=[finding])
     assert result["merge_proposals"] == 1
     # The survivor is untouched; the loser stops being injected.
     op = result["needs_review"][0]
@@ -350,7 +355,7 @@ def test_a_memory_retrieved_into_failures_is_down_weighted_not_deleted():
         {"episode_id": f"e{i}", "verdict": "failed", "memory_refs": ["mref-noisy"]}
         for i in range(6)
     ]
-    result = X.memory_findings(views)
+    result = memory_findings_module.memory_findings(views)
     ops = result["auto_applicable"] + result["needs_review"]
     assert any(op["operation"] == "reweight" for op in ops)
     assert not any(op["operation"] == "delete" for op in ops)
@@ -364,7 +369,7 @@ def test_contradictions_are_reported_for_a_human_not_resolved_by_recency():
         memory_ids=["m1", "m2"],
         reason="方向相反",
     )
-    result = X.memory_findings([], scan_findings=[finding])
+    result = memory_findings_module.memory_findings([], scan_findings=[finding])
     assert result["contradictions"] and result["merge_proposals"] == 0
 
 
@@ -372,7 +377,7 @@ def test_content_changing_memory_ops_require_review():
     finding = MS.ScanFinding(
         kind=MS.FINDING_DUPLICATE, refs=["a", "b"], memory_ids=["1", "2"], reason=""
     )
-    result = X.memory_findings([], scan_findings=[finding])
+    result = memory_findings_module.memory_findings([], scan_findings=[finding])
     assert all(op["operation"] != "merge" for op in result["auto_applicable"])
     assert any(op["operation"] == "merge" for op in result["needs_review"])
 
@@ -425,5 +430,5 @@ def test_only_procedural_records_are_eligible_for_compilation():
 
 
 def test_run_extras_returns_all_three_sections_and_survives_a_bad_one():
-    result = X.run_extras([])
+    result = cycle_extras_module.run_extras([])
     assert set(result) == {"intent", "decremental", "memory"}

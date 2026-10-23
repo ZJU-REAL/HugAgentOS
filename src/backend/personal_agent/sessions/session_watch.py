@@ -83,7 +83,7 @@ def report_finished():
 
 def projects(db, uid):
     """The user's most recently active projects, with the same visibility as the projects page."""
-    from core.services.project_service import ProjectService
+    from core.projects.edition import ProjectService
     try:
         items, total = ProjectService(db).list_visible(uid, sort="-last_activity_at", page=1, page_size=STATE_PROJECTS)
     except Exception:

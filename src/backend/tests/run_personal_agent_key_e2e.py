@@ -3,7 +3,7 @@
 import uuid
 from core.db.engine import SessionLocal
 from core.db.models import UserShadow
-from core.services.api_key_service import ApiKeyService
+from core.auth.api_keys import ApiKeyService
 from hugagent_cli.transport import Client
 
 uid = "cli-key-test-" + uuid.uuid4().hex

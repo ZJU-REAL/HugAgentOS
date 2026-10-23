@@ -10,7 +10,7 @@ from typing import Any
 
 from core.config.settings import settings
 from core.sandbox.protocol import ProcessRequest
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
 # Snapshot persistence (see internal design docs). Deferred to a
 # runtime import to avoid a cross-module circular dependency at startup
@@ -143,8 +143,9 @@ class _OpenSandboxExecMixin:
                     sess.sandbox._jx_setup_done = True  # type: ignore[attr-defined]
                     if uid:
                         sess.sandbox._jx_myspace_uid = uid  # type: ignore[attr-defined]
-                except Exception:  # noqa: BLE001 — defensive: opaque SDK object
-                    pass
+                except Exception as fallback_error:  # noqa: BLE001 — defensive: opaque SDK object
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure('core.sandbox.providers.opensandbox.execution:_persistent_setup', fallback_error)
             else:
                 stderr = _join_logs(getattr(getattr(result, "logs", None), "stderr", []) or [])
                 logger.warning(

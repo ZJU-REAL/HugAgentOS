@@ -4,6 +4,10 @@
 共享技能不含 L1 原文；新技能拿不到证据外的工具授权；L3 冲突不能自动激活；
 激活技能可沿血缘反查 L2/L3/Episode；回放集覆盖不足不得晋级。
 """
+from core.memory import graph as graph_module
+from core.evolution.cycle import activation as activation_module
+from core.evolution.cycle import activation_types as activation_types_module
+from core.evolution.generators import skill_gen as skill_gen_module
 
 from datetime import datetime, timedelta, timezone
 
@@ -24,21 +28,12 @@ from core.db.models.evolution import (
     EvolutionRelease,
     EvolutionTraceEvent,
 )
-from core.evolution import evidence_contract as EC
-from core.evolution import graph_scan as GS
-from core.evolution import lineage as LN
-from core.evolution.applicability import (
-    assess_replay_coverage,
-    load_manifest,
-    manifest_permits,
-)
-from core.evolution.evidence_resolver import resolve_capability_pack
-from core.evolution.skill_candidate_engine import (
-    STATUS_CREATED,
-    STATUS_REJECTED,
-    SkillCandidateSpec,
-    create_skill_candidate,
-)
+from core.evolution.evidence import evidence_contract as EC
+from core.evolution.generators import graph_scan as GS
+from core.evolution.evidence import lineage as LN
+from core.evolution.assessment.applicability import assess_replay_coverage, load_manifest, manifest_permits
+from core.evolution.evidence.evidence_resolver import resolve_capability_pack
+from core.evolution.generators.skill_candidate_engine import STATUS_CREATED, STATUS_REJECTED, SkillCandidateSpec, create_skill_candidate
 
 _TABLES = [
     EvolutionEpisode.__table__,
@@ -60,14 +55,16 @@ def db(monkeypatch):
     Base.metadata.create_all(engine, tables=_TABLES)
     factory = sessionmaker(bind=engine)
     import core.db.engine as engine_mod
-    import core.evolution.activation as A
-    import core.evolution.loop as L
+    import core.evolution.cycle.activation as A
+    import core.evolution.cycle.loop as L
     import core.memory.weights as weights_mod
 
     monkeypatch.setattr(engine_mod, "SessionLocal", factory)
     monkeypatch.setattr(A, "SessionLocal", factory)
-    monkeypatch.setattr(L, "SessionLocal", factory)
-    monkeypatch.setattr(weights_mod, "_cache", {})
+    from core.evolution.cycle import episode_views, candidate_records, evaluation, skill_release, profile_release
+    for owner in (episode_views, candidate_records, evaluation, skill_release, profile_release):
+        monkeypatch.setattr(owner, "SessionLocal", factory)
+    monkeypatch.setattr(weights_mod.process_state(), 'cache', {})
     session = factory()
     yield session
     session.close()
@@ -275,7 +272,7 @@ _FAKE_BODY = (
 
 
 async def _fake_generate(**kwargs):
-    from core.evolution.skill_gen import DraftResult
+    from core.evolution.generators.skill_evidence import DraftResult
 
     return (
         {
@@ -311,9 +308,9 @@ def _spec(**overrides):
 
 
 def test_engine_persists_candidate_pack_credit_and_manifest(db, monkeypatch):
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", _fake_generate)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', _fake_generate)
 
     outcome = create_skill_candidate(
         _spec(), credit={"selected": "skill", "confidence": 0.8,
@@ -334,9 +331,9 @@ def test_engine_persists_candidate_pack_credit_and_manifest(db, monkeypatch):
 
 
 def test_engine_is_idempotent_for_identical_evidence(db, monkeypatch):
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", _fake_generate)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', _fake_generate)
     credit = {"selected": "skill", "confidence": 0.8, "may_produce_candidate": True}
 
     first = create_skill_candidate(_spec(), credit=credit, run_async=_run)
@@ -348,7 +345,7 @@ def test_engine_is_idempotent_for_identical_evidence(db, monkeypatch):
 
 def test_engine_refuses_a_document_that_widens_tool_authority(db, monkeypatch):
     async def widened(**kwargs):
-        from core.evolution.skill_gen import DraftResult
+        from core.evolution.generators.skill_evidence import DraftResult
 
         return (
             {
@@ -361,9 +358,9 @@ def test_engine_refuses_a_document_that_widens_tool_authority(db, monkeypatch):
             DraftResult(ok=True, attempts=1),
         )
 
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", widened)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', widened)
     outcome = create_skill_candidate(
         _spec(), credit={"selected": "skill", "confidence": 0.8,
                          "may_produce_candidate": True}, run_async=_run
@@ -378,9 +375,9 @@ def test_engine_refuses_a_document_that_widens_tool_authority(db, monkeypatch):
 
 def _materialisable_candidate(db, monkeypatch, *, graph_conflict=False, risk="medium",
                               status="replay_passed"):
-    import core.evolution.skill_gen as skill_gen
+    import core.evolution.generators.skill_gen as skill_gen
 
-    monkeypatch.setattr(skill_gen, "generate_skill_document", _fake_generate)
+    monkeypatch.setattr(skill_gen_module, 'generate_skill_document', _fake_generate)
     views = [_view(f"e{i}", relations=[_REL]) for i in range(3)]
     if graph_conflict:
         conflicting = dict(_REL, relation_id="grel_dep2", content_hash="hash-dep2")
@@ -408,10 +405,10 @@ def _materialisable_candidate(db, monkeypatch, *, graph_conflict=False, risk="me
 
 
 def test_materialisation_writes_the_manifest_and_the_lineage(db, monkeypatch):
-    from core.evolution import activation as A
+    from core.evolution.cycle import activation as A
 
     candidate_id = _materialisable_candidate(db, monkeypatch)
-    result = A.materialise_skill_candidate(candidate_id, approver="admin")
+    result = activation_module.materialise_skill_candidate(candidate_id, approver="admin")
 
     row = db.query(AdminSkill).one()
     manifest = load_manifest(row.extra_files)
@@ -431,23 +428,23 @@ def test_materialisation_writes_the_manifest_and_the_lineage(db, monkeypatch):
 
 
 def test_a_graph_conflicted_candidate_cannot_activate_directly(db, monkeypatch):
-    from core.evolution import activation as A
+    from core.evolution.cycle import activation as A
 
     candidate_id = _materialisable_candidate(
         db, monkeypatch, graph_conflict=True, risk="low"
     )
-    with pytest.raises(A.ActivationError) as excinfo:
-        A.materialise_skill_candidate(candidate_id, approver="admin")
+    with pytest.raises(activation_types_module.ActivationError) as excinfo:
+        activation_module.materialise_skill_candidate(candidate_id, approver="admin")
     assert excinfo.value.code == "graph_conflict_requires_review"
 
 
 def test_a_graph_conflicted_candidate_may_still_enter_shadow(db, monkeypatch):
-    from core.evolution import activation as A
+    from core.evolution.cycle import activation as A
 
     candidate_id = _materialisable_candidate(
         db, monkeypatch, graph_conflict=True, risk="medium"
     )
-    result = A.materialise_skill_candidate(candidate_id, approver="admin")
+    result = activation_module.materialise_skill_candidate(candidate_id, approver="admin")
     assert result["stage"] == "shadow"
     assert result["exposed_to"] == "nobody (shadow)"
 
@@ -517,7 +514,7 @@ def test_an_inactive_graph_dependency_withholds_the_skill():
 
 
 def test_exposure_withholds_an_evolved_skill_outside_its_manifest(db):
-    from core.evolution.exposure import filter_skill_ids
+    from core.evolution.evidence.exposure import filter_skill_ids
 
     db.add(
         AdminSkill(
@@ -633,7 +630,7 @@ def test_apply_never_writes_manual_operations(monkeypatch):
 
     import core.memory.graph as G
 
-    monkeypatch.setattr(G, "update_relation_state", fake_update)
+    monkeypatch.setattr(graph_module, 'update_relation_state', fake_update)
     ops = [
         GS.GraphOp(operation=GS.OP_REINFORCE, relation_id="r1", payload={"weight": 0.9}),
         GS.GraphOp(operation=GS.OP_FLAG_CONTRADICTION, relation_id="r2"),

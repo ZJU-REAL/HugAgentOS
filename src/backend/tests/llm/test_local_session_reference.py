@@ -7,15 +7,15 @@ from types import SimpleNamespace
 import pytest
 from fastapi import BackgroundTasks, HTTPException, UploadFile
 
-from core.artifacts.store import get_artifact
+from core.files.artifacts.store import get_artifact
 from core.db.models import Artifact
-from core.llm import workspace
+from core.llm.runtime import workspace
 from tests.llm.local_project_test_support import local_project, pin_tool
 
 
 def session_file(tmp_path, monkeypatch):
-    from core.llm.tools import _paths
-    from core.services.local_grant_service import add_grant
+    from core.sandbox.workspace import resolution as _paths
+    from features.desktop.local.grants import add_grant
 
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))
@@ -28,8 +28,8 @@ def session_file(tmp_path, monkeypatch):
 
 def test_session_delivery_is_live_and_keeps_id_across_turns(local_project, db_session, tmp_path, monkeypatch):
     from api.routes.files import local_file_location, download_file
-    from core.content.artifact_reader import fetch_parsed_text
-    from core.services.artifact_service import persist_artifacts
+    from core.files.artifacts.reader import fetch_parsed_text
+    from core.files.artifacts.service import persist_artifacts
 
     source = session_file(tmp_path, monkeypatch)
     pin = pin_tool(None, session_id="pin-chat")
@@ -77,8 +77,8 @@ def test_session_canvas_saves_original_and_rechecks_ownership(local_project, db_
 @pytest.mark.parametrize("change", ["symlink", "revoked"])
 def test_session_access_revalidates_source(local_project, db_session, tmp_path, monkeypatch, change):
     from api.routes.files import local_file_location
-    from core.services.local_grant_service import remove_grant
-    from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET
+    from features.desktop.local.grants import remove_grant
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET
 
     source = session_file(tmp_path, monkeypatch)
     result = json.loads(asyncio.run(pin_tool(None, "pin-chat")(file_paths=[str(source)])).content[0].text)
@@ -101,19 +101,19 @@ def test_session_access_revalidates_source(local_project, db_session, tmp_path, 
 def test_write_and_pin_use_same_session_reference(local_project, tmp_path, monkeypatch):
     from core.llm.tools.write_tool import register_write
     from core.llm.tools._state import ReadStateTracker
-    from core.llm.tool_collector import ToolCollector
-    from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
+    from core.llm.factory.tools.definitions import ToolAssembly
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     source = session_file(tmp_path, monkeypatch)
     source.unlink()
-    collector = ToolCollector()
+    collector = ToolAssembly()
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(name="script_runner"))
     register_write(collector, chat_id="pin-chat", user_id="pin-user", state=ReadStateTracker())
     token = CURRENT_PERMISSION_TICKET.set(PermissionTicket(
         "Write", "write", "", "test", (PermissionIntent("local_path", "write", str(source), "create"),),
     ))
     try:
-        written = json.loads(asyncio.run(collector.get_tool("Write")._func(
+        written = json.loads(asyncio.run(next(t for t in collector if t.name == "Write")._func(
             file_path=str(source), content="written original", register_as_artifact=True,
         )).content[0].text)
     finally:

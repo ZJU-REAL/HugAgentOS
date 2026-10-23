@@ -4,10 +4,12 @@ Key format:  jx:session:{sha256(token)}
 Value:       JSON-encoded user data
 TTL:         SESSION_TTL_HOURS (default 8h)
 """
+from __future__ import annotations
 
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -18,7 +20,6 @@ from core.infra.redis import get_redis
 logger = get_logger(__name__)
 
 SESSION_KEY_PREFIX = "jx:session:"
-_MEMORY_SESSIONS: dict[str, dict[str, Any]] = {}
 
 
 def _ttl_seconds() -> int:
@@ -33,7 +34,7 @@ def remember_ttl_seconds() -> int:
     """
     days = 30.0
     try:
-        from core.services.system_config import SystemConfigService
+        from core.config.store.system_config import SystemConfigService
 
         raw = SystemConfigService.get_instance().get("auth.remember_me_days", "30")
         if raw:
@@ -66,11 +67,11 @@ def _prune_expired_memory_sessions() -> None:
     now = datetime.now(timezone.utc)
     expired = [
         key
-        for key, value in _MEMORY_SESSIONS.items()
+        for key, value in process_state().MEMORY_SESSIONS.items()
         if value.get("expires_at") and value["expires_at"] <= now
     ]
     for key in expired:
-        _MEMORY_SESSIONS.pop(key, None)
+        process_state().MEMORY_SESSIONS.pop(key, None)
 
 
 def generate_token() -> str:
@@ -112,7 +113,7 @@ async def create_session(
 
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        _MEMORY_SESSIONS[token_hash] = {
+        process_state().MEMORY_SESSIONS[token_hash] = {
             "payload": payload,
             "expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl),
         }
@@ -141,7 +142,7 @@ async def validate_session(token: str) -> Optional[Dict[str, Any]]:
 
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        entry = _MEMORY_SESSIONS.get(token_hash)
+        entry = process_state().MEMORY_SESSIONS.get(token_hash)
         if entry is None:
             return None
         # Sliding renewal uses the session's own TTL (a long "remember me" session is not truncated to the default duration)
@@ -178,7 +179,7 @@ async def find_session_by_hash(token_hash: str) -> Optional[Dict[str, Any]]:
         return None
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        entry = _MEMORY_SESSIONS.get(token_hash)
+        entry = process_state().MEMORY_SESSIONS.get(token_hash)
         return dict(entry["payload"]) if entry else None
     raw = await get_redis().get(f"{SESSION_KEY_PREFIX}{token_hash}")
     if raw is None:
@@ -199,18 +200,18 @@ async def revoke_session(token: str) -> bool:
     token_hash = _hash_token(token)
     data = await find_session_by_hash(token_hash)
     if _use_memory_store():
-        deleted = _MEMORY_SESSIONS.pop(token_hash, None) is not None
+        deleted = process_state().MEMORY_SESSIONS.pop(token_hash, None) is not None
     else:
         deleted = bool(await get_redis().delete(f"{SESSION_KEY_PREFIX}{token_hash}"))
     if deleted:
         logger.info("session_revoked", token_hash=token_hash[:8])
         if data and data.get("user_id"):
-            from core.applications.revocation import revoke_user_workbench
+            from core.harness.registry.resource_owners import resource_owner
             from core.db.engine import SessionLocal
 
             try:
                 with SessionLocal() as db:
-                    await revoke_user_workbench(db, data["user_id"], token_hash)
+                    await resource_owner().revoke_session(db, data["user_id"], token_hash)
             except Exception as exc:
                 # The credential is already revoked. Preserve successful logout;
                 # expired workers stay denied while the resource janitor retries.
@@ -244,3 +245,15 @@ def expires_at_iso(ttl_seconds: Optional[int] = None) -> str:
     """Calculate and return the expiration time as an ISO string."""
     ttl = _resolve_ttl(ttl_seconds)
     return (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+
+
+@dataclass
+class SessionState:
+    MEMORY_SESSIONS: dict[str, dict[str, Any]] = field(default_factory=lambda: {})
+
+
+_STATE = SessionState()
+
+
+def process_state() -> SessionState:
+    return _STATE

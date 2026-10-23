@@ -3,7 +3,7 @@
 from dataclasses import replace
 from unittest.mock import AsyncMock
 import pytest
-from core.llm.tool_permissions import ToolPermissionMiddleware
+from tests.orchestration.hook_support import run_permission
 from core.llm.tool_permissions.pending import approve_current_policy
 from tests.llm.test_approval_modes import _service, _tool_call
 from tests.storage.project_fixtures import team
@@ -16,18 +16,16 @@ from tests.storage.project_fixtures import team
 async def test_running_dispatch_rechecks_account_mode(monkeypatch, initial, current, executes):
     service = _service(initial)
     service.runtime = replace(service.runtime, account_approval=True)
-    monkeypatch.setattr("core.llm.tool_permissions.account.read_account_mode", lambda *a: current)
+    monkeypatch.setattr("core.sandbox.permissions.account.read_account_mode", lambda *a: current)
     gate = AsyncMock(return_value={"error": "not approved"})
-    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
+    monkeypatch.setattr("core.llm.tools.confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
 
     result = [
         x
-        async for x in ToolPermissionMiddleware(service)._act(
-            {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute
-        )
+        async for x in run_permission(service, {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute)
     ]
     assert (result == ["executed"]) is executes
     assert gate.await_count == (0 if executes else 1)
@@ -36,20 +34,18 @@ async def test_running_dispatch_rechecks_account_mode(monkeypatch, initial, curr
 @pytest.mark.asyncio
 async def test_explicit_module_policy_is_not_replaced(monkeypatch):
     monkeypatch.setattr(
-        "core.llm.tool_permissions.account.read_account_mode",
+        "core.sandbox.permissions.account.read_account_mode",
         lambda *a: (_ for _ in ()).throw(AssertionError("account cannot replace module")),
     )
     gate = AsyncMock(return_value={"error": "not approved"})
-    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
+    monkeypatch.setattr("core.llm.tools.confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
 
     result = [
         x
-        async for x in ToolPermissionMiddleware(_service("ask"))._act(
-            {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute
-        )
+        async for x in run_permission(_service("ask"), {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute)
     ]
     assert result != ["executed"]
     gate.assert_awaited_once()
@@ -63,18 +59,16 @@ async def test_unavailable_policy_blocks_without_prompt(monkeypatch):
     def unavailable(*args):
         raise OSError("database offline")
 
-    monkeypatch.setattr("core.llm.tool_permissions.account.read_account_mode", unavailable)
+    monkeypatch.setattr("core.sandbox.permissions.account.read_account_mode", unavailable)
     gate = AsyncMock()
-    monkeypatch.setattr("core.llm.tools._tool_confirmation.gate", gate)
+    monkeypatch.setattr("core.llm.tools.confirmation.gate", gate)
 
     async def execute(**kwargs):
         yield "executed"
 
     result = [
         x
-        async for x in ToolPermissionMiddleware(service)._act(
-            {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute
-        )
+        async for x in run_permission(service, {"tool_call": _tool_call("space_delete", {"path": "/myspace/a.txt"})}, execute)
     ]
     assert result != ["executed"]
     gate.assert_not_called()
@@ -82,10 +76,10 @@ async def test_unavailable_policy_blocks_without_prompt(monkeypatch):
 
 def test_api_visitor_and_other_owner_cannot_use_account_policy(team):
     from core.db.models import ChatSession
-    from core.llm.tool_permissions.account import read_account_mode
+    from core.sandbox.permissions.account import read_account_mode
 
     db, _ = team
-    from core.services.user_service import UserService
+    from core.auth.users import UserService
     UserService(db).update_user_metadata("alice", {"tool_approval_mode": "full"})
     db.add_all(
         [

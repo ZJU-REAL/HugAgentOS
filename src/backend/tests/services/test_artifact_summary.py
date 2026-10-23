@@ -1,4 +1,4 @@
-"""Unit tests for core.content.artifact_summary.
+"""Unit tests for core.files.artifacts.summary.
 
 Each test feeds bytes of a specific type and checks the summary shape.
 These are pure-logic tests — no DB, no storage.
@@ -8,7 +8,7 @@ import io
 
 import pytest
 
-from core.content.artifact_summary import build_summary
+from core.files.artifacts.summary import build_summary
 
 
 # ── Plain text & markdown ─────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def test_build_summary_never_raises():
 # ── build_summary_from_text (the parsed-text cache path) ──────────────────
 
 def test_from_text_long_pdf_like_truncates_500():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     text = ("本文档为年度财报，涵盖 " * 200)
     out = build_summary_from_text(text, "report.pdf", "application/pdf")
     assert "共" in out and "字" in out
@@ -162,14 +162,14 @@ def test_from_text_long_pdf_like_truncates_500():
 
 
 def test_from_text_short_text_returned_directly():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     out = build_summary_from_text("hello", "note.txt", "text/plain")
     # short strings return full text; cap 600 chars triggers this path
     assert "hello" in out
 
 
 def test_from_text_markdown_uses_line_truncation():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     text = "\n".join(f"# H{i}" for i in range(50))
     out = build_summary_from_text(text, "notes.md", "text/markdown")
     assert "# H0" in out
@@ -179,7 +179,7 @@ def test_from_text_markdown_uses_line_truncation():
 
 
 def test_from_text_code_uses_line_truncation():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     text = "\n".join(f"def f{i}(): pass" for i in range(100))
     out = build_summary_from_text(text, "m.py", "text/x-python")
     assert "def f29" in out
@@ -188,7 +188,7 @@ def test_from_text_code_uses_line_truncation():
 
 
 def test_from_text_csv_shows_first_rows():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     text = "\n".join([f"r{i},c{i},d{i}" for i in range(20)])
     out = build_summary_from_text(text, "data.csv", "text/csv")
     assert "r0" in out
@@ -200,7 +200,7 @@ def test_from_text_csv_shows_first_rows():
 def test_from_text_xlsx_preserves_sheet_markers():
     """When the parsed markdown uses `### Sheet: N` headers, the truncation
     should preferentially cut at sheet boundaries."""
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     text = (
         "### Sheet 1: 员工\n| 姓名 | 部门 |\n|---|---|\n| 张三 | 工程 |\n" * 20
         + "### Sheet 2: 薪酬\n| 工号 | 金额 |\n|---|---|\n| E001 | 10000 |\n" * 20
@@ -214,14 +214,14 @@ def test_from_text_xlsx_preserves_sheet_markers():
 
 
 def test_from_text_empty_returns_metadata_only():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     out = build_summary_from_text("", "mystery.bin", "application/octet-stream")
     assert "mystery.bin" in out
     assert "octet-stream" in out
 
 
 def test_from_text_whitespace_only_returns_metadata_only():
-    from core.content.artifact_summary import build_summary_from_text
+    from core.files.artifacts.summary import build_summary_from_text
     out = build_summary_from_text("   \n  \t  ", "blank.txt", "text/plain")
     assert "blank.txt" in out
 

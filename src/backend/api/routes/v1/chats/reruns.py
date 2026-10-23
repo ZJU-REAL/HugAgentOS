@@ -2,23 +2,26 @@
 
 from typing import Any, Dict
 
-import core.services.session_operations.admission_errors as chat_admission
-import core.services.session_operations.agent_targets as chat_agent_targets
-import core.services.session_operations.invocation as chat_invocation
-import core.services.session_operations.schemas as chat_models
-import core.services.session_operations.request_context as chat_request_context
 import api.routes.v1.chats.rerun_metadata as chat_rerun_metadata
-import core.services.session_operations.session_context as chat_session_context
+import api.transports.run_sse as run_sse
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
+import core.chat.runtime.admission as admission
 import core.db.engine as db_engine
 import core.infra.responses as responses
-import core.services as chat_services
-from core.chat.schemas import ChatRequest
+import core.chat.service as chat_services_ChatService_module
+import core.auth.users as chat_services_UserService_module
+import core.chat.operations.admission_errors as chat_admission
+import core.chat.operations.agent_targets as chat_agent_targets
+import core.chat.operations.invocation as chat_invocation
+import core.chat.operations.request_context as chat_request_context
+import core.chat.operations.schemas as chat_models
+import core.chat.operations.session_context as chat_session_context
 from core.auth.backend import UserContext
+from core.chat.schemas import ChatRequest
 from core.db.reserved_chats import reserved_chat_error, reserved_chat_owner
 from core.infra.exceptions import ResourceNotFoundError
-from core.services.chat_reference_service import render_reference_block
+from core.chat.references import render_reference_block
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -39,10 +42,10 @@ async def regenerate_message(
         raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
     def prepare():
-        chat_session_context._ensure_main_model_configured()
-        chat_service = chat_services.ChatService(db)
+        chat_session_context.ensure_main_model_configured()
+        chat_service = chat_services_ChatService_module.ChatService(db)
         db_user_id = chat_context.resolve_db_user_id(
-            db, chat_session_context._authenticated_user_id(user)
+            db, chat_session_context.authenticated_user_id(user)
         )
 
         # Shared sessions: deleting/rewriting history is only granted to the session owner / project admin (the "admin" level in the shared context).
@@ -79,7 +82,7 @@ async def regenerate_message(
             **chat_rerun_metadata._restore_invocation(user_extra),
         )
         regen_request, _, execution_message, explicit_subagent_command = (
-            chat_agent_targets._resolve_rerun_agent_targets(
+            chat_agent_targets.resolve_rerun_agent_targets(
                 db,
                 regen_request,
                 db_user_id,
@@ -88,30 +91,30 @@ async def regenerate_message(
                 assistant_message_id=target_msg.message_id,
             )
         )
-        regen_request = chat_invocation._resolve_explicit_capability_invocation(
+        regen_request = chat_invocation.resolve_explicit_capability_invocation(
             db, regen_request, db_user_id
         )
-        from core.services.project_init import resolve_project_init
+        from core.chat.project_init import resolve_project_init
 
         init_message = resolve_project_init(db, regen_request, db_user_id)
-        selected_model_provider_id = chat_session_context._resolve_selected_model_provider_id(
+        selected_model_provider_id = chat_session_context.resolve_selected_model_provider_id(
             db, regen_request, db_user_id
         )
-        actual_model_name = chat_session_context._resolve_actual_chat_model_name(
+        actual_model_name = chat_session_context.resolve_actual_chat_model_name(
             regen_request,
             selected_model_provider_id,
         )
         enabled_skills, enabled_agents, enabled_mcps = chat_context.resolve_enabled_capabilities(
             db, db_user_id
         )
-        _user_settings = chat_services.UserService(db).get_user_settings(db_user_id)
+        _user_settings = chat_services_UserService_module.UserService(db).get_user_settings(db_user_id)
         effective_msg = chat_context.build_effective_user_message(
             init_message or execution_message,
             regen_request.quoted_follow_up,
             render_reference_block(user_extra.get("referenced_chats")),
         )
 
-        context = chat_request_context._build_ctx(
+        context = chat_request_context.build_ctx(
             regen_request,
             db_user_id,
             enabled_skills,
@@ -127,7 +130,7 @@ async def regenerate_message(
             approval_mode=_user_settings.get("tool_approval_mode"),
         )
 
-        from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+        from core.chat.sequencer import ChatBusyError, ChatSequencer
 
         request_payload = regen_request.model_dump(exclude_none=True)
         request_payload["operation"] = "regenerate"
@@ -163,7 +166,7 @@ async def regenerate_message(
             raise chat_admission.chat_busy_http_exception(exc) from exc
 
         try:
-            session_messages = chat_session_context._load_session_messages(
+            session_messages = chat_session_context.load_session_messages(
                 chat_service, chat_id, db_user_id
             )
             kwargs = dict(
@@ -200,10 +203,10 @@ async def edit_and_resend(
         raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
     def prepare():
-        chat_session_context._ensure_main_model_configured()
-        chat_service = chat_services.ChatService(db)
+        chat_session_context.ensure_main_model_configured()
+        chat_service = chat_services_ChatService_module.ChatService(db)
         db_user_id = chat_context.resolve_db_user_id(
-            db, chat_session_context._authenticated_user_id(user)
+            db, chat_session_context.authenticated_user_id(user)
         )
 
         # Shared sessions: editing history is an owner-only operation (rewriting others' / one's own earlier messages would break the collaboration context).
@@ -239,7 +242,7 @@ async def edit_and_resend(
             **saved_invocation,
         )
         edit_request, _, execution_message, explicit_subagent_command = (
-            chat_agent_targets._resolve_rerun_agent_targets(
+            chat_agent_targets.resolve_rerun_agent_targets(
                 db,
                 edit_request,
                 db_user_id,
@@ -247,22 +250,22 @@ async def edit_and_resend(
                 target_msg,
             )
         )
-        from core.services.project_init import resolve_project_init
+        from core.chat.project_init import resolve_project_init
 
         init_message = resolve_project_init(db, edit_request, db_user_id)
-        edit_request = chat_invocation._resolve_explicit_capability_invocation(
+        edit_request = chat_invocation.resolve_explicit_capability_invocation(
             db, edit_request, db_user_id
         )
-        selected_model_provider_id = chat_session_context._resolve_selected_model_provider_id(
+        selected_model_provider_id = chat_session_context.resolve_selected_model_provider_id(
             db, edit_request, db_user_id
         )
-        actual_model_name = chat_session_context._resolve_actual_chat_model_name(
+        actual_model_name = chat_session_context.resolve_actual_chat_model_name(
             edit_request, selected_model_provider_id
         )
         enabled_skills, enabled_agents, enabled_mcps = chat_context.resolve_enabled_capabilities(
             db, db_user_id
         )
-        _user_settings = chat_services.UserService(db).get_user_settings(db_user_id)
+        _user_settings = chat_services_UserService_module.UserService(db).get_user_settings(db_user_id)
 
         # Persist the edited user message
         _edit_extra: Dict[str, Any] = {
@@ -285,7 +288,7 @@ async def edit_and_resend(
         if selected_model_provider_id:
             _edit_extra["model_provider_id"] = selected_model_provider_id
 
-        context = chat_request_context._build_ctx(
+        context = chat_request_context.build_ctx(
             edit_request,
             db_user_id,
             enabled_skills,
@@ -301,7 +304,7 @@ async def edit_and_resend(
             approval_mode=_user_settings.get("tool_approval_mode"),
         )
 
-        from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+        from core.chat.sequencer import ChatBusyError, ChatSequencer
 
         request_payload = edit_request.model_dump(exclude_none=True)
         request_payload["operation"] = "edit"
@@ -328,7 +331,7 @@ async def edit_and_resend(
             raise chat_admission.chat_busy_http_exception(exc) from exc
 
         try:
-            session_messages = chat_session_context._load_session_messages(
+            session_messages = chat_session_context.load_session_messages(
                 chat_service, chat_id, db_user_id
             )
             kwargs = dict(
@@ -358,18 +361,18 @@ async def edit_and_resend(
 
 async def _start_prepared_run(prepare, db: Session, chat_id: str):
     """Release admission locks before streaming; abandon admission if startup fails."""
-    from core.services.chat_sequencer import ChatSequencer
-    from orchestration import chat_run_executor
+    from core.chat.sequencer import ChatSequencer
+    pass
 
     def prepare_and_release():
         try:
             return prepare()
         finally:
-            chat_session_context._release_request_session(db)
+            chat_session_context.release_request_session(db)
 
     kwargs = await run_in_threadpool(prepare_and_release)
     try:
-        run = await chat_run_executor.start_run(**kwargs)
+        run = await admission.start_run(**kwargs)
     except Exception as exc:
         reason = str(exc)
 
@@ -377,8 +380,8 @@ async def _start_prepared_run(prepare, db: Session, chat_id: str):
             try:
                 ChatSequencer(db).abandon_pending_run(kwargs["accepted_run"].run_id, reason=reason)
             finally:
-                chat_session_context._release_request_session(db)
+                chat_session_context.release_request_session(db)
 
         await run_in_threadpool(abandon)
         raise
-    return responses.sse_response(chat_run_executor.follow_run_as_sse(run.run_id, chat_id=chat_id))
+    return responses.sse_response(run_sse.follow_run_as_sse(run.run_id, chat_id=chat_id))

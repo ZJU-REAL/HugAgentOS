@@ -22,10 +22,9 @@ BASE_TOOLS = {"retrieve_dataset_content", "list_datasets", "retrieve_local_kb"}
 
 
 async def _list_tool_names() -> set[str]:
-    """走 lowlevel handler，覆盖到真实的 list_tools 链路而不是内部函数。"""
-    handler = srv.mcp._mcp_server.request_handlers[types.ListToolsRequest]
-    result = await handler(types.ListToolsRequest(method="tools/list"))
-    return {tool.name for tool in result.root.tools}
+    """The public override is also used by the SDK tools/list handler."""
+    return {tool.name for tool in await srv.mcp.list_tools()}
+
 
 
 @pytest.fixture
@@ -120,7 +119,7 @@ def test_external_kb_skips_local_permission_check(monkeypatch):
     """外接库的白名单在其实现模块内把关，不该被本地权限判定误伤。"""
     monkeypatch.setattr(wiki_impl, "_accessible_local_kb_ids", lambda _uid: [])
     sentinel = object()
-    monkeypatch.setattr("core.kb.wiki_router.wiki_module_for", lambda kb_id: sentinel)
+    monkeypatch.setattr('features.knowledge.wiki_router.wiki_module_for', lambda kb_id: sentinel)
 
     assert wiki_impl._wiki_module("external-dataset", current_user_id="u1") is sentinel
 
@@ -201,7 +200,7 @@ def test_resolve_dataset_id_prefers_request_allowlist(monkeypatch):
 def test_resolve_dataset_id_prefers_wiki_capable_local_kb(monkeypatch):
     """自建库排在外接库前面：用户问的多半是自己传的资料。"""
     monkeypatch.setattr(
-        "core.kb.wiki_router.wiki_capable_local_kb_ids",
+        'features.knowledge.wiki_router.wiki_capable_local_kb_ids',
         lambda ids: [i for i in ids if i == "kb_wiki_one"],
     )
     resolved = wiki_impl.resolve_dataset_id("", "external-a", allowed_kb_ids="kb_plain,kb_wiki_one")
@@ -209,6 +208,6 @@ def test_resolve_dataset_id_prefers_wiki_capable_local_kb(monkeypatch):
 
 
 def test_resolve_dataset_id_falls_back_to_external_when_no_local_wiki(monkeypatch):
-    monkeypatch.setattr("core.kb.wiki_router.wiki_capable_local_kb_ids", lambda ids: [])
+    monkeypatch.setattr('features.knowledge.wiki_router.wiki_capable_local_kb_ids', lambda ids: [])
     resolved = wiki_impl.resolve_dataset_id("", "external-a", allowed_kb_ids="kb_plain")
     assert resolved == "external-a"

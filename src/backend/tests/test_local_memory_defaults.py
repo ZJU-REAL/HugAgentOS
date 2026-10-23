@@ -146,6 +146,7 @@ def test_cli_reconfigures_redirected_gbk_stream_to_utf8(monkeypatch):
     [
         "desktop/requirements-desktop-windows-py311.lock",
         "desktop/requirements-desktop-linux-x86_64-py311.lock",
+        "desktop/requirements-desktop-linux-aarch64-py311.lock",
         "desktop/requirements-desktop-macos-aarch64-py311.lock",
         "desktop/requirements-desktop-macos-x86_64-py311.lock",
     ],
@@ -157,7 +158,7 @@ def test_desktop_offline_runtime_includes_persistent_memory_stack(relative_path)
     assert "mem0ai==" in lock
     assert "protobuf==" in lock
     assert "pymilvus==2.5.18" in lock
-    assert "milvus-lite==3.1.0" in lock
+    assert "milvus-lite==3.2.2" in lock
 
 
 def test_hybrid_does_not_install_local_default_plugins(monkeypatch):

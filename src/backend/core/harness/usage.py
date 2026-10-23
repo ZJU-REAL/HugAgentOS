@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -50,10 +50,39 @@ class UsageRecorder(Protocol):
         """Append one attempt and return it with its allocated sequence."""
 
 
+def record_attempt_batch(recorder: UsageRecorder, attempts: Sequence[UsageAttempt]) -> tuple[UsageAttempt, ...]:
+    batch = getattr(recorder, "record_attempts", None)
+    if batch is not None:
+        return tuple(batch(attempts))
+    return tuple(recorder.record_attempt(attempt) for attempt in attempts)
+
+
 def attempt_status_for_exception(exc: BaseException) -> str:
     """Classify provider/library timeout types without importing each SDK."""
     name = type(exc).__name__.lower()
     return "timeout" if isinstance(exc, TimeoutError) or "timeout" in name else "failed"
+
+
+async def record_attempts_safely(
+    recorder: UsageRecorder,
+    attempts: Sequence[UsageAttempt],
+    *,
+    timeout_ms: int = 1_000,
+) -> tuple[UsageAttempt, ...] | None:
+    """Bound observability I/O so it cannot become an execution dependency.
+
+    All attempts go to the recorder in one call, so batching recorders write
+    them in one transaction.
+    """
+    if not attempts:
+        return ()
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(record_attempt_batch, recorder, tuple(attempts)),
+            timeout=max(1, int(timeout_ms)) / 1_000,
+        )
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def record_usage_safely(
@@ -62,21 +91,15 @@ async def record_usage_safely(
     *,
     timeout_ms: int = 1_000,
 ) -> UsageAttempt | None:
-    """Bound observability I/O so it cannot become an execution dependency."""
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(recorder.record_attempt, attempt),
-            timeout=max(1, int(timeout_ms)) / 1_000,
-        )
-    except Exception:  # noqa: BLE001
-        return None
+    recorded = await record_attempts_safely(recorder, (attempt,), timeout_ms=timeout_ms)
+    return recorded[0] if recorded else None
 
 
 class MemoryUsageRecorder:
     """Thread-safe append-only recorder for unit tests and embedded runtimes."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._rows: dict[str, list[UsageAttempt]] = {}
 
     def record_attempt(self, attempt: UsageAttempt) -> UsageAttempt:
@@ -90,6 +113,10 @@ class MemoryUsageRecorder:
             )
             rows.append(recorded)
             return recorded
+
+    def record_attempts(self, attempts: Sequence[UsageAttempt]) -> tuple[UsageAttempt, ...]:
+        with self._lock:
+            return tuple(self.record_attempt(attempt) for attempt in attempts)
 
     def attempts(self, run_id: str) -> tuple[UsageAttempt, ...]:
         with self._lock:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from core.llm.chat_models import get_default_model, make_chat_model
+from core.models.chat_models import get_default_model, make_chat_model
 from core.llm.factory.request import AgentRequest
 
 
@@ -15,15 +15,15 @@ async def model_selection(request: AgentRequest, *, _elapsed, _log, _shared_suba
     _selected_provider_id = (request.model_provider_id or "").strip()
     if _selected_provider_id:
         try:
-            from core.services.model_config import ModelConfigService
+            from core.models.config import ModelConfigService
 
             _selected_provider_cfg = (
                 _shared_subagent_cfg
                 or ModelConfigService.get_instance().resolve_provider(_selected_provider_id)
             )
             if _selected_provider_cfg:
-                from core.llm.chat_models import build_model_for_mode
-                from core.llm.failover import with_failover
+                from core.models.chat_models import build_model_for_mode
+                from core.models.failover import with_failover
 
                 _mode = (request.chat_mode or "medium").lower()
                 default_model = with_failover(
@@ -41,11 +41,11 @@ async def model_selection(request: AgentRequest, *, _elapsed, _log, _shared_suba
     _mode_role = request.model_role or ("plan_agent" if request.plan_mode else None)
     if default_model is None and _mode_role:
         try:
-            from core.services.model_config import ModelConfigService
+            from core.models.config import ModelConfigService
 
             _mode_cfg = ModelConfigService.get_instance().resolve(_mode_role)
             if _mode_cfg:
-                from core.llm.failover import with_failover
+                from core.models.failover import with_failover
 
                 default_model = with_failover(
                     make_chat_model(
@@ -90,8 +90,8 @@ async def model_selection(request: AgentRequest, *, _elapsed, _log, _shared_suba
 
         if _user_provider_id or _user_temp is not None or _user_max_tokens or _user_timeout:
             try:
-                from core.llm.chat_models import build_model_for_mode
-                from core.services.model_config import ModelConfigService
+                from core.models.chat_models import build_model_for_mode
+                from core.models.config import ModelConfigService
 
                 _model_service = ModelConfigService.get_instance()
                 _provider_cfg = (
@@ -111,7 +111,7 @@ async def model_selection(request: AgentRequest, *, _elapsed, _log, _shared_suba
                         max_tokens=_user_max_tokens or _base_cfg.max_tokens,
                         timeout=_user_timeout or _base_cfg.timeout,
                     )
-                    from core.llm.failover import with_failover
+                    from core.models.failover import with_failover
 
                     _overrides = {
                         key: value
@@ -143,7 +143,7 @@ async def model_selection(request: AgentRequest, *, _elapsed, _log, _shared_suba
                 _log.warning("[factory] subagent config override failed: %s, using default", exc)
 
     if request.run_id:
-        from core.llm.model_usage import instrument_model_usage
+        from core.models.usage import instrument_model_usage
 
         instrument_model_usage(default_model)
 

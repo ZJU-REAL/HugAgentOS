@@ -12,7 +12,7 @@ def _on_service_loop(method: Callable[..., Any]) -> Callable[..., Any]:
     """把碰 SDK / 池 / httpx 的入口钉在 provider 的服务事件循环上执行。
 
     provider 是进程级单例，但调用方不止一个事件循环：子智能体跑在
-    ``_subagent_pool`` 线程里的独立循环（``core/llm/subagent_tool.py`` 的
+    ``_subagent_pool`` 线程里的独立循环（``core/llm/subagents/tool.py`` 的
     ``asyncio.new_event_loop()``），且**平台内置子智能体复用主对话的
     session_id**（explorer/worker/reviewer 要看同一份 workspace），于是拿到的是
     主循环创建的那个 ``_Session``。

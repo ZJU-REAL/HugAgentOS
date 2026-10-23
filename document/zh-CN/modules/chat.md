@@ -71,10 +71,10 @@ orchestration/chat_run_executor.py::start_run()
    ▼
 orchestration/workflow.py::astream_chat_workflow()
    │   ├─ orchestration/memory_integration.py  非阻塞记忆检索（后台 task + 预算超时）
-   │   ├─ core/config/catalog_resolver.py      解析本次启用的 skills/mcp/kb
+   │   ├─ core/capabilities/catalog/resolver.py      解析本次启用的 skills/mcp/kb
    │   ├─ core/llm/factory/build.py::create_agent_executor()
    │   │     MCP 连接池 + 技能注册 + 文件工具 + 系统提示词 + 中间件 → Agent
-   │   ├─ core/llm/context_manager.py          历史按 token 预算裁剪
+   │   ├─ core/llm/context/window_policy.py          历史按 token 预算裁剪
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
    │         消费 agent.reply_stream()，归并 25 种细粒度事件并保留工具参数增量
    ▼
@@ -143,8 +143,8 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 `create_agent_executor()` 是所有模式（主对话、计划、批量、子智能体、自动化）共用的工厂：
 
-- **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp_pool.py`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
-- **技能**：经 `core/agent_skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
+- **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp/pool.py`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
+- **技能**：经 `core/capabilities/skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
 - **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
 - **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长。压缩只使用统一协调器，不再运行框架的第二条摘要回退。压缩失败时保留原始上下文；最终请求仍超预算时保存断点并暂停，不继续调用回复模型。
@@ -326,7 +326,7 @@ Enter / Tab 确认和 Escape 返回或关闭。个人在能力中心关闭的技
 - **专属会话**：从子智能体详情页进入的会话使用 `agent_id`，后续轮次持续由该子智能体执行。
 - **主智能体自主编排**：既没有结构化 `@`，也没有命中严格自然语言调用语法时，主智能体可
   按任务需要调用
-  `core/llm/subagent_tool.py` 注册的 `call_subagent`。子智能体在独立线程和事件循环中运行，结果
+  `core/llm/subagents/tool.py` 注册的 `call_subagent`。子智能体在独立线程和事件循环中运行，结果
   回传给主智能体整合。这一路径适合多子智能体并行、任务拆分和跨领域汇总。
 
 ## 会话摘要与上下文压缩
@@ -336,7 +336,7 @@ Enter / Tab 确认和 Escape 返回或关闭。个人在能力中心关闭的技
 | 层次 | 实现 | 触发 |
 |---|---|---|
 | 会话标题摘要 | `core/llm/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
-| 统一上下文检查点 | `core/services/compaction_service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
+| 统一上下文检查点 | `core/chat/compaction/service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
 | 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败时保留原始上下文，最终请求超预算则保存断点并暂停 | 单条工具结果过大，或统一压缩暂时不可用时 |
 
 压缩只在合法边界切分：历史先按步骤展开，从尾部保留装得下
@@ -356,7 +356,7 @@ framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.
 
 ## 超长工具结果 offload
 
-`core/llm/offloader.py::SandboxOffloader` 实现 AgentScope 2.0 `Offloader` 协议：上下文压缩/工具结果截断时，溢出部分不再被静默丢弃，而是落盘到沙箱 `/workspace/.offload/`（`tool_<id>.txt` / `context_<hash>.txt`），框架会在给模型的 `<system-reminder>` 里附上路径，模型可用 `Read` / `bash` 按需读回。仅在沙箱工具启用（`SANDBOX_TOOLS_ENABLED=true`，默认开）时挂载，写失败永不抛异常、返回降级说明。
+`core/llm/context/offloader.py::SandboxOffloader` 实现 AgentScope 2.0 `Offloader` 协议：上下文压缩/工具结果截断时，溢出部分不再被静默丢弃，而是落盘到沙箱 `/workspace/.offload/`（`tool_<id>.txt` / `context_<hash>.txt`），框架会在给模型的 `<system-reminder>` 里附上路径，模型可用 `Read` / `bash` 按需读回。仅在沙箱工具启用（`SANDBOX_TOOLS_ENABLED=true`，默认开）时挂载，写失败永不抛异常、返回降级说明。
 
 ## 会话分享（Chat Shares）
 
@@ -386,15 +386,15 @@ framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.
 | 事件映射（reply_stream → SSE） | `src/backend/orchestration/streaming.py` |
 | 运行时上下文装配 | `src/backend/core/chat/context.py` |
 | Agent 工厂 | `src/backend/core/llm/factory/build.py` |
-| 中间件 | `src/backend/core/llm/middlewares.py`（纯函数 helper 在 `core/llm/hooks.py`） |
+| 中间件 | `src/backend/core/llm/middlewares.py`（纯函数 helper 在 `core/llm/runtime/hooks.py`） |
 | 引用抽取 | `src/backend/orchestration/citations.py` |
-| 跨会话引用（名片 / 摘要 / 分页） | `src/backend/core/services/chat_reference_service.py` |
+| 跨会话引用（名片 / 摘要 / 分页） | `src/backend/core/chat/references.py` |
 | 跨会话历史工具 | `src/backend/core/llm/tools/chat_history_tool.py` |
 | 引用前端渲染 | `src/frontend/src/utils/citations.ts`，`src/frontend/src/components/citation/` |
 | 计划模式 | `src/backend/orchestration/subagents/plan_mode.py`，`api/routes/v1/plans.py` |
-| 子智能体工具 | `src/backend/core/llm/subagent_tool.py`，`api/routes/v1/agents.py` |
-| 标题摘要 / 上下文压缩 / 窗口保护 | `src/backend/core/llm/summarizer.py`、`compaction.py`、`core/services/compaction_service.py`、`context_manager.py` |
-| 超长结果 offload | `src/backend/core/llm/offloader.py` |
+| 子智能体工具 | `src/backend/core/llm/subagents/tool.py`，`api/routes/v1/agents.py` |
+| 标题摘要 / 上下文压缩 / 窗口保护 | `src/backend/core/llm/summarizer.py`、`compaction.py`、`core/chat/compaction/service.py`、`context_manager.py` |
+| 超长结果 offload | `src/backend/core/llm/context/offloader.py` |
 | 会话分享 | `src/backend/api/routes/v1/chat_shares.py` |
 | 追问生成 | `src/backend/orchestration/followups.py` |
 | 前端流式解析 / 追加消息 | `src/frontend/src/hooks/chatStream.ts`，`useStreaming.ts`，`components/chat/QueuedMessageCard.tsx` |

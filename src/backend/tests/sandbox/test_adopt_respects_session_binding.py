@@ -144,9 +144,6 @@ def _server_info(sandbox_id: str, user_id: str = "u1"):
 
 def _provider(monkeypatch):
     """一个只装了认领这条路所需部件的 provider。"""
-    monkeypatch.setattr(
-        "core.sandbox.providers.opensandbox.provider._user_bound_sandbox_required", lambda: True
-    )
     provider = object.__new__(OpenSandboxProvider)
     provider._make_config = lambda: None
     provider._repoint_execd_direct = AsyncMock(return_value=None)

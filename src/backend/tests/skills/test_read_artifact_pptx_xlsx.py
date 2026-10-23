@@ -40,13 +40,13 @@ def _make_two_sheet_xlsx() -> bytes:
 
 
 def test_parse_xlsx_sheet_names_returns_workbook_order():
-    from core.content.file_parser import parse_xlsx_sheet_names
+    from core.files.content.spreadsheet_parser import parse_xlsx_sheet_names
     names = parse_xlsx_sheet_names(_make_two_sheet_xlsx())
     assert names == ["Alpha", "Beta"]
 
 
 def test_parse_xlsx_single_sheet_returns_only_that_sheet():
-    from core.content.file_parser import parse_xlsx_single_sheet
+    from core.files.content.spreadsheet_parser import parse_xlsx_single_sheet
     md = parse_xlsx_single_sheet(_make_two_sheet_xlsx(), "Beta")
     assert "city" in md
     assert "pop" in md
@@ -57,7 +57,7 @@ def test_parse_xlsx_single_sheet_returns_only_that_sheet():
 
 
 def test_parse_xlsx_single_sheet_missing_raises():
-    from core.content.file_parser import parse_xlsx_single_sheet
+    from core.files.content.spreadsheet_parser import parse_xlsx_single_sheet
     with pytest.raises(RuntimeError, match="sheet 不存在"):
         parse_xlsx_single_sheet(_make_two_sheet_xlsx(), "NonExistent")
 
@@ -88,14 +88,12 @@ def test_is_pptx_meta_detects_by_mime_and_extension():
 @pytest.fixture
 def registered_tool():
     """Register read_artifact onto a fresh Toolkit and return the callable."""
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.read_artifact_tool import register_read_artifact
 
-    # AgentScope 2.0: register_* writes into the ToolCollector (duck-compatible with register_tool_function);
-    # the tool's original callable lives at AllowedFunctionTool._func.
-    c = ToolCollector()
+    c = ToolAssembly()
     register_read_artifact(c, user_id="u1")
-    return c.get_tool("read_artifact")._func
+    return next(t for t in c if t.name == "read_artifact")._func
 
 
 async def _call(func, **kwargs) -> Dict[str, Any]:
@@ -115,7 +113,7 @@ async def test_mutual_exclusion_sheet_and_slide(registered_tool):
 
 @pytest.mark.asyncio
 async def test_missing_artifact_returns_error(registered_tool):
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=None):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=None):
         out = await _call(registered_tool, file_id="ua_missing")
     assert "error" in out
     assert "不存在" in out["error"]
@@ -126,9 +124,9 @@ async def test_xlsx_default_call_includes_sheet_names(registered_tool):
     """Without sheet_name, returns concatenated text + sheet_names list."""
     file_bytes = _make_two_sheet_xlsx()
     meta = {"filename": "two.xlsx", "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.content.artifact_reader.fetch_parsed_text", return_value="full concatenated md"), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifacts.reader.fetch_parsed_text', return_value="full concatenated md"), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_xlsx")
     assert out.get("sheet_names") == ["Alpha", "Beta"]
     assert out["content"] == "full concatenated md"
@@ -138,8 +136,8 @@ async def test_xlsx_default_call_includes_sheet_names(registered_tool):
 async def test_xlsx_with_sheet_name_returns_only_that_sheet(registered_tool):
     file_bytes = _make_two_sheet_xlsx()
     meta = {"filename": "two.xlsx", "mime_type": ""}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_xlsx", sheet_name="Beta", limit=20000)
     assert out.get("sheet_names") == ["Alpha", "Beta"]
     assert "city" in out["content"]
@@ -150,8 +148,8 @@ async def test_xlsx_with_sheet_name_returns_only_that_sheet(registered_tool):
 async def test_xlsx_unknown_sheet_returns_error_with_names(registered_tool):
     file_bytes = _make_two_sheet_xlsx()
     meta = {"filename": "two.xlsx", "mime_type": ""}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_xlsx", sheet_name="Gamma")
     assert "error" in out
     assert "Gamma" in out["error"]
@@ -172,26 +170,26 @@ def _make_three_slide_pptx() -> bytes:
 
 
 def test_parse_pptx_emits_one_section_per_slide():
-    from core.content.file_parser import parse_pptx
+    from core.files.content.presentation_parser import parse_pptx
     md = parse_pptx(_make_three_slide_pptx())
     assert md.count("## Slide ") == 3
     assert "Hello" in md and "World" in md and "Goodbye" in md
 
 
 def test_parse_pptx_slide_count_returns_int():
-    from core.content.file_parser import parse_pptx_slide_count
+    from core.files.content.presentation_parser import parse_pptx_slide_count
     assert parse_pptx_slide_count(_make_three_slide_pptx()) == 3
 
 
 def test_parse_pptx_slide_extracts_single_slide():
-    from core.content.file_parser import parse_pptx_slide
+    from core.files.content.presentation_parser import parse_pptx_slide
     text = parse_pptx_slide(_make_three_slide_pptx(), 1)
     assert "World" in text
     assert "Hello" not in text and "Goodbye" not in text
 
 
 def test_parse_pptx_slide_out_of_range_raises():
-    from core.content.file_parser import parse_pptx_slide
+    from core.files.content.presentation_parser import parse_pptx_slide
     with pytest.raises(RuntimeError, match="越界"):
         parse_pptx_slide(_make_three_slide_pptx(), 10)
 
@@ -203,9 +201,9 @@ async def test_pptx_default_returns_full_deck_with_slide_count(registered_tool):
     is reported from the in-process probe."""
     file_bytes = _make_three_slide_pptx()
     meta = {"filename": "deck.pptx", "mime_type": ""}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.content.artifact_reader.fetch_parsed_text", return_value="full deck text"), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifacts.reader.fetch_parsed_text', return_value="full deck text"), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_pptx", limit=20000)
     assert out["content"] == "full deck text"
     assert out["slide_count"] == 3
@@ -215,8 +213,8 @@ async def test_pptx_default_returns_full_deck_with_slide_count(registered_tool):
 async def test_pptx_with_slide_index_extracts_only_that_slide(registered_tool):
     file_bytes = _make_three_slide_pptx()
     meta = {"filename": "deck.pptx", "mime_type": ""}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_pptx", slide_index=1, limit=2000)
     assert "World" in out["content"]
     assert "Hello" not in out["content"]
@@ -228,8 +226,8 @@ async def test_pptx_with_slide_index_extracts_only_that_slide(registered_tool):
 async def test_pptx_slide_index_out_of_range_returns_error_with_count(registered_tool):
     file_bytes = _make_three_slide_pptx()
     meta = {"filename": "deck.pptx", "mime_type": ""}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta), \
-         patch("core.llm.hooks._download_artifact_bytes", return_value=file_bytes):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta), \
+         patch('core.files.artifact_bytes.download_artifact_bytes', return_value=file_bytes):
         out = await _call(registered_tool, file_id="ua_pptx", slide_index=99)
     assert "error" in out
     assert "越界" in out["error"]
@@ -239,7 +237,7 @@ async def test_pptx_slide_index_out_of_range_returns_error_with_count(registered
 @pytest.mark.asyncio
 async def test_non_office_with_sheet_or_slide_param_errors(registered_tool):
     meta = {"filename": "doc.pdf", "mime_type": "application/pdf"}
-    with patch("core.content.artifact_reader.load_artifact_meta", return_value=meta):
+    with patch('core.files.artifacts.reader.load_artifact_meta', return_value=meta):
         out = await _call(registered_tool, file_id="ua_pdf", sheet_name="Sheet1")
     assert "error" in out
     assert "xlsx" in out["error"]

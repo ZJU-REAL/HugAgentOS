@@ -10,8 +10,8 @@ from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.responses import created_response, paginated_response, success_response
-from core.services.agent_api_service import list_agent_api_calls, require_agent_manager
-from core.services.api_key_service import ApiKeyService
+from core.auth.agent_api import list_agent_api_calls, require_agent_manager
+from core.auth.api_keys import ApiKeyService
 
 router = APIRouter(prefix="/v1/agents", tags=["Agent API Keys"])
 _ALLOWED_EXPIRY_DAYS = {7, 30, 90, 180, 365}
@@ -140,7 +140,7 @@ async def toggle_key(
     row = ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, agent_id)
     data = _dto(row)
     if not body.enabled:
-        from core.services.api_key_runs import stop_cancelled_key_workers
+        from core.auth.api_key_runs import stop_cancelled_key_workers
 
         await stop_cancelled_key_workers(db, key_id, user.user_id)
     return success_response(data=data)
@@ -155,7 +155,7 @@ async def revoke_key(
 ):
     _find(db, user, agent_id, key_id)
     ApiKeyService(db).revoke_key(user.user_id, key_id, agent_id)
-    from core.services.api_key_runs import stop_cancelled_key_workers
+    from core.auth.api_key_runs import stop_cancelled_key_workers
 
     await stop_cancelled_key_workers(db, key_id, user.user_id)
     return success_response(data={"id": key_id, "revoked": True})

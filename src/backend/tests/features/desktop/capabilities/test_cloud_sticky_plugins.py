@@ -1,0 +1,286 @@
+"""Persisted cloud plugin selections retain their scoped dependency closure."""
+from core.capabilities.skills import loader_factory as loader_factory_module
+from features.desktop.bridge import gateway as bridge_gateway
+from features.desktop.bridge import identity as bridge_identity
+
+import json
+import pytest
+from features.desktop.capabilities import plugins, registry, runtime, store
+from core.harness.capability_errors import PermissionDenied
+from features.desktop.capabilities.paths import revision_for_hash
+from core.db.models import ChatSession, InstalledPlugin, UserShadow
+from core.capabilities.plugins import runtime as plugin_loader
+from core.capabilities.manifest_protocol import entity_content_hash
+from tests.features.desktop.capabilities.test_cloud_plugin_binding_runtime import cloud_plugin
+from tests.features.desktop.capabilities.test_runtime_recovery import durable_index, state
+
+
+@pytest.fixture
+def selected(durable_index, caps_root, monkeypatch):
+    st, plugin, comp, skill = cloud_plugin(monkeypatch, durable_index)
+    with durable_index() as db:
+        for model in (UserShadow, ChatSession, InstalledPlugin):
+            model.__table__.create(db.get_bind(), checkfirst=True)
+        db.add(UserShadow(user_id="local-owner", username="synthetic-owner"))
+        db.add(ChatSession(chat_id="sticky-cloud", user_id="local-owner", title="synthetic"))
+        db.commit()
+    prepared = store.write_from_files(
+        "skill",
+        skill.profile_id,
+        skill.key,
+        revision_for_hash(skill.content_hash),
+        {"SKILL.md": "private script"},
+    )
+    registry.set_state(skill.install_id, "ready", resolved_revision=prepared.revision)
+    return st, plugin, comp, skill
+
+
+def activate(plugin):
+    plugin_loader.record_plugin_activation("sticky-cloud", [plugin.install_id])
+    return plugin_loader.resolve_sticky_plugin_capabilities(
+        user_id="local-owner", chat_id="sticky-cloud"
+    )
+
+
+def test_real_persisted_selection_restores_cloud_plugin_and_full_preflight(selected):
+    _, plugin, _, skill = selected
+    restored = activate(plugin)
+    assert restored.install_ids == [plugin.install_id]
+    assert restored.skill_ids == [skill.key]
+    assert restored.mcp_ids == ["pack-search"]
+    run = runtime.prepare(
+        "sticky-turn", "local-owner", skill_ids=restored.skill_ids, plugin_ids=restored.install_ids
+    )
+    run = runtime.preflight(run, plugin_ids=restored.install_ids, available_mcp=restored.mcp_ids)
+    assert any(node["install_id"] == plugin.install_id for node in run.dependency_report["nodes"])
+
+
+@pytest.mark.parametrize("kind, field", [("agent", "agents"), ("plugin", "plugins")])
+def test_sticky_complete_plugin_declarations_block_missing_required_component(
+    selected, kind, field
+):
+    _, plugin, comp, _ = selected
+    definition = json.loads(comp.entry_file.read_text())
+    definition["components"][field] = [{"id": "missing-reviewer", "required": True}]
+    files = plugins.plugin_manifest_files(definition)
+    digest = entity_content_hash(files)
+    newer = store.write_from_files(
+        "plugin", plugin.profile_id, plugin.key, revision_for_hash(digest), files
+    )
+    registry.upsert(
+        profile_id=plugin.profile_id, ref=plugin.ref, content_hash=digest, payload=plugin.payload
+    )
+    registry.set_state(plugin.install_id, "ready", resolved_revision=newer.revision)
+    restored = activate(plugin)
+    assert restored.install_ids == [plugin.install_id]
+    run = runtime.prepare(
+        "sticky-blocked",
+        "local-owner",
+        skill_ids=restored.skill_ids,
+        plugin_ids=restored.install_ids,
+    )
+    # 插件声明了一个必需但不存在的组件：这个插件被摘掉，整轮不受牵连。
+    dropped = runtime.preflight(
+        run, plugin_ids=restored.install_ids, available_mcp=restored.mcp_ids
+    )
+    assert dropped.unavailable["plugin:" + plugin.install_id] == "dependency_missing"
+
+
+@pytest.mark.parametrize("change", ["user", "account", "disable"])
+def test_persisted_cloud_selection_rejects_identity_change_or_revocation(
+    selected, monkeypatch, change
+):
+    from features.desktop.bridge import client as bridge
+
+    _, plugin, _, _ = selected
+    plugin_loader.record_plugin_activation("sticky-cloud", [plugin.install_id])
+    user = "local-owner"
+    if change == "user":
+        user = "other-local-user"
+    elif change == "account":
+        monkeypatch.setattr(bridge_identity, 'get_state', lambda: state("other-cloud-owner"))
+    else:
+        registry.set_enabled(plugin.install_id, False)
+    if change == "disable":
+        # 自己账号下被停用的粘滞插件：这一轮不恢复它，如实记成不可用，对话照常。
+        sticky = plugin_loader.resolve_sticky_plugin_capabilities(
+            user_id=user, chat_id="sticky-cloud"
+        )
+        assert sticky.install_ids == []
+        assert sticky.unavailable_ids == [plugin.install_id]
+        return
+    # 身份变了就是另一个人的东西，必须整体拒绝。
+    with pytest.raises(PermissionDenied):
+        plugin_loader.resolve_sticky_plugin_capabilities(user_id=user, chat_id="sticky-cloud")
+
+
+def test_raw_explicit_cloud_id_is_saved_with_its_account_scope(selected):
+    _, plugin, _, _ = selected
+    plugin_loader.record_plugin_activation(
+        "sticky-cloud", ["pack@cloud-owner"], user_id="local-owner"
+    )
+    assert plugin_loader.load_activated_plugin_slugs("sticky-cloud") == [plugin.install_id]
+
+
+def test_soft_run_connector_honors_parent_plugin_disable(selected, monkeypatch):
+    from dataclasses import replace
+    from features.desktop.capabilities.runtime import save
+    from features.desktop.bridge import client as bridge
+
+    _, plugin, _, skill = selected
+    run = runtime.prepare(
+        "plugin-guard",
+        "local-owner",
+        skill_ids=[skill.key],
+        plugin_ids=[plugin.install_id],
+    )
+    run = runtime.preflight(run, plugin_ids=[plugin.install_id], available_mcp=["pack-search"])
+    assert plugin.install_id in run.dependency_report["connector_parents"]["pack-search"]
+    run = replace(
+        run,
+        mcp_bindings={
+            "pack-search": {
+                "install_id": "mcp:" + plugin.profile_id + ":pack-search",
+                "authorization_checked": True,
+            }
+        },
+    )
+    save(run)
+    monkeypatch.setattr(bridge_gateway, 'cloud_gateway_mcp_configs', lambda *a, **kw: {"pack-search": {}})
+    assert run.validate_tool_call("pack-search")
+    registry.set_enabled(plugin.install_id, False)
+    assert not run.validate_tool_call("pack-search")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", ["sticky", "mode", "unselected-mode"])
+async def test_actual_factory_passes_selected_full_plugin_to_prepare_and_preflight(
+    selected, durable_index, monkeypatch, selection
+):
+    from types import SimpleNamespace
+    from core.db.engine import Base
+    from core.llm import factory as agent_factory
+    from core.llm.factory.tools import mcp_config as factory_mcp_config
+    from core.llm.factory.selection import capabilities as factory_capabilities
+    import core.capabilities.catalog.api as catalog
+    import core.capabilities.skills.loader as skill_loader
+    from features.desktop.bridge import client as bridge
+    from core.capabilities.mcp.service import McpServerConfigService
+
+    _, plugin, _, skill = selected
+    with durable_index() as db:
+        Base.metadata.create_all(db.get_bind())
+    if selection == "sticky":
+        plugin_loader.record_plugin_activation("sticky-cloud", [plugin.install_id])
+    mode = SimpleNamespace(
+        plugin_ids=[plugin.install_id],
+        manual_invoke_enabled=True,
+        code_exec_enabled=False,
+        skill_ids=[],
+        mcp_server_ids=[],
+    )
+    monkeypatch.setattr("core.sandbox.permissions.approval.resolve_approval_mode", lambda *a, **kw: "auto")
+    monkeypatch.setattr(catalog, "get_enabled_ids", lambda *a: [])
+    monkeypatch.setattr(factory_capabilities, 'effective_main_available_skills', lambda: [])
+    monkeypatch.setattr(factory_capabilities, 'filter_skill_ids_for_user', lambda ids, uid: ids)
+    monkeypatch.setattr(factory_capabilities, "_mcp_ids_bound_to_skills", lambda *a: [])
+    monkeypatch.setattr(
+        loader_factory_module, 'get_skill_loader', lambda: SimpleNamespace(get_skill_dir=lambda sid: None)
+    )
+    monkeypatch.setattr(
+        McpServerConfigService,
+        "get_instance",
+        classmethod(
+            lambda cls: SimpleNamespace(
+                get_all_servers=lambda **kw: {}, get_owned_servers=lambda *a, **kw: {}
+            )
+        ),
+    )
+    monkeypatch.setattr(bridge_gateway, 'cloud_gateway_mcp_configs', lambda *a, **kw: {})
+    monkeypatch.setattr(
+        factory_mcp_config, 'effective_mcp_server_keys', lambda *a, **kw: ["pack-search"]
+    )
+    monkeypatch.setattr(
+        factory_mcp_config,
+        "_filter_mcp_servers_by_keys",
+        lambda *a, **kw: {
+            "pack-search": {"transport": "stdio", "command": "synthetic-never-executed"}
+        },
+    )
+    captured = {}
+    real_prepare, real_preflight = runtime.prepare, runtime.preflight
+
+    def prepare(*a, **kw):
+        captured["prepare"] = list(kw["plugin_ids"])
+        return real_prepare(*a, **kw)
+
+    class PreflightReached(Exception):
+        pass
+
+    def preflight(*a, **kw):
+        captured["preflight"] = list(kw["plugin_ids"])
+        captured["report"] = real_preflight(*a, **kw).dependency_report
+        raise PreflightReached()
+
+    monkeypatch.setattr(runtime, "prepare", prepare)
+    monkeypatch.setattr(runtime, "preflight", preflight)
+    with pytest.raises(PreflightReached):
+        await agent_factory.create_agent_executor(
+            current_user_id="local-owner",
+            chat_id="sticky-cloud",
+            run_id="sticky-factory",
+            enabled_skill_ids=[],
+            enabled_mcp_ids=[],
+            enabled_kb_ids=[],
+            turbo_mode=selection == "mode",
+            mode_spec=mode,
+        )
+    expected = [] if selection == "unselected-mode" else [plugin.install_id]
+    assert captured["prepare"] == captured["preflight"] == expected
+    assert captured["report"]["ready"]
+    assert any(
+        node["install_id"] == plugin.install_id for node in captured["report"]["nodes"]
+    ) == bool(expected)
+    if not expected:
+        assert runtime.get("sticky-factory").profile is None
+
+
+def test_saved_plugin_replay_uses_frozen_definition_after_manifest_update(selected):
+    _, plugin, comp, _ = selected
+    restored = activate(plugin)
+    kwargs = dict(skill_ids=restored.skill_ids, plugin_ids=restored.install_ids)
+    run = runtime.prepare("sticky-replay", "local-owner", **kwargs)
+    first = runtime.preflight(run, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids)
+    definition = json.loads(comp.entry_file.read_text())
+    definition["components"]["agents"] = [{"id": "new-unavailable-agent", "required": True}]
+    files = plugins.plugin_manifest_files(definition)
+    digest = entity_content_hash(files)
+    newer = store.write_from_files(
+        "plugin", plugin.profile_id, plugin.key, revision_for_hash(digest), files
+    )
+    registry.upsert(
+        profile_id=plugin.profile_id, ref=plugin.ref, content_hash=digest, payload=plugin.payload
+    )
+    registry.set_state(plugin.install_id, "ready", resolved_revision=newer.revision)
+    restored = activate(plugin)
+    replay = runtime.prepare(
+        "sticky-replay",
+        "local-owner",
+        skill_ids=restored.skill_ids,
+        plugin_ids=restored.install_ids,
+    )
+    replay = runtime.preflight(
+        replay, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids
+    )
+    assert replay.dependency_report == first.dependency_report
+    assert any(
+        node["revision"] == comp.revision
+        for node in replay.dependency_report["nodes"]
+        if node["install_id"] == plugin.install_id
+    )
+    # 新的一轮按当前定义走：它要求一个不存在的智能体，所以这个插件被摘掉。
+    fresh = runtime.prepare("sticky-next-turn", "local-owner", **kwargs)
+    dropped = runtime.preflight(
+        fresh, available_mcp=restored.mcp_ids, plugin_ids=restored.install_ids
+    )
+    assert dropped.unavailable["plugin:" + plugin.install_id] == "dependency_missing"

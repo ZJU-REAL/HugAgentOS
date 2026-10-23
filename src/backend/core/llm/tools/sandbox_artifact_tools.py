@@ -10,6 +10,7 @@ no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import base64
@@ -17,19 +18,18 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.projects.edition import ProjectScope
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 from core.llm.tools._common import resolve_sandbox_session
-from core.llm.tools._tool_helpers import (
-    _resolve_artifact_files,
-    _resp_json,
-    _store_generated_file_path,
-    _validate_workspace_path,
-)
+from core.files.artifacts.generated import resolve_artifact_files as _resolve_artifact_files, store_generated_file_path as _store_generated_file_path
+from core.llm.tools._tool_helpers import resp_json as _resp_json, validate_workspace_path as _validate_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def register_sandbox_put_artifact(
 
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
-    async def sandbox_put_artifact(artifact_id: str, dest_path: str) -> ToolResponse:
+    async def sandbox_put_artifact(artifact_id: str, dest_path: str) -> ToolChunk:
         from core.sandbox import SandboxConnectError as _SandboxConnectError
         from core.sandbox import SandboxError as _SandboxError
         from core.sandbox import get_sandbox_provider as _get_provider
@@ -54,7 +54,7 @@ def register_sandbox_put_artifact(
         if not artifact_id or not isinstance(artifact_id, str):
             return _resp_json({"error": "artifact_id 必须为非空字符串"})
 
-        from ._paths import to_physical_path, workspace_directory
+        from core.sandbox.workspace.resolution import to_physical_path, workspace_directory
 
         dest_path = to_physical_path(dest_path, user_id, session_id=_sess)
         path_err = _validate_workspace_path(dest_path, root=workspace_directory(_sess))
@@ -102,7 +102,7 @@ def register_sandbox_put_artifact(
         "限制：单个 artifact 最大 10 MB。\n"
     )
 
-    toolkit.register_tool_function(sandbox_put_artifact, namesake_strategy="override")
+    toolkit.append(function_tool(sandbox_put_artifact))
     logger.info("[factory] Registered sandbox_put_artifact tool (chat_id=%s)", chat_id)
 
 
@@ -123,7 +123,7 @@ def register_sandbox_get_artifact(
 
     max_bytes = _settings.sandbox.artifact_max_bytes
 
-    async def sandbox_get_artifact(src_path: str, name: str = "") -> ToolResponse:
+    async def sandbox_get_artifact(src_path: str, name: str = "") -> ToolChunk:
         import mimetypes as _mt
 
         from core.sandbox import SandboxConnectError as _SandboxConnectError
@@ -131,10 +131,10 @@ def register_sandbox_get_artifact(
         from core.sandbox import get_sandbox_provider as _get_provider
 
         from core.config.local_mode import local_mode_enabled
-        from ._paths import to_physical_path
+        from core.sandbox.workspace.resolution import to_physical_path
 
         if local_mode_enabled():
-            from core.artifacts.local_reference import reference_local_file
+            from core.files.artifacts.local_reference import reference_local_file
             from fastapi import HTTPException
 
             physical = to_physical_path(src_path, user_id, session_id=_sess, scope=scope)
@@ -149,7 +149,7 @@ def register_sandbox_get_artifact(
             ref["url"] = f"/files/{ref['file_id']}"
             return _resp_json({"ok": True, **ref, "artifacts": [ref]})
 
-        from ._paths import to_physical_path, workspace_directory
+        from core.sandbox.workspace.resolution import to_physical_path, workspace_directory
 
         src_path = to_physical_path(src_path, user_id, session_id=_sess)
         path_err = _validate_workspace_path(src_path, root=workspace_directory(_sess))
@@ -243,5 +243,5 @@ def register_sandbox_get_artifact(
         "PDF 应按页拆分，其他格式应拆包或降低体积后再逐个登记。\n"
     )
 
-    toolkit.register_tool_function(sandbox_get_artifact, namesake_strategy="override")
+    toolkit.append(function_tool(sandbox_get_artifact))
     logger.info("[factory] Registered sandbox_get_artifact tool (chat_id=%s)", chat_id)

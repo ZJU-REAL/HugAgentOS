@@ -311,6 +311,20 @@ if (eventType === 'tool_use' || eventType === 'tool_call_start' || eventType ===
     appendOrUpdate(s, true);
     return true;
 }
+if (eventType === 'tool_progress') {
+    const toolId = getEventToolId(s, eventObj);
+    if (!toolId) return true;
+    const index = toolCardIndexById(s.toolCalls, toolId);
+    if (index >= 0 && s.toolCalls[index].status === 'running') {
+        const value = typeof eventObj.progress === 'number' ? eventObj.progress : undefined;
+        const total = typeof eventObj.total === 'number' ? eventObj.total : undefined;
+        const message = typeof eventObj.message === 'string' ? eventObj.message.slice(0, 500) : '';
+        s.toolCalls[index] = { ...s.toolCalls[index], progressNote:
+            [message, value === undefined ? '' : total ? `${value}/${total}` : String(value)].filter(Boolean).join(' · ') };
+        appendOrUpdate(s, true);
+    }
+    return true;
+}
 if (eventType === 'tool_call_delta') {
     const eventToolId = getEventToolId(s, eventObj);
     const delta = typeof eventObj.arguments_delta === 'string' ? eventObj.arguments_delta : '';

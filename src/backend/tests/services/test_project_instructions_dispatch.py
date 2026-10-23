@@ -7,15 +7,15 @@ from datetime import datetime
 
 import pytest
 from core.chat.schemas import ChatRequest
-from core.services.project_instructions import ProjectInstructionsService
-from core.services.project_scope import build_project_ctx
-from core.services.project_service import ProjectService
+from core.projects.instructions import ProjectInstructionsService
+from core.projects.edition import build_project_ctx
+from core.projects.edition import ProjectService
 from tests.services.project_instructions_support import env, local, update
 
 
 def test_chat_dispatch_expands_command_and_loads_fresh_rules(env):
-    from core.services.session_operations.agent_targets import _resolve_chat_agent_targets
-    from core.services.session_operations.request_context import _build_ctx
+    from core.chat.operations.agent_targets import _resolve_chat_agent_targets
+    from core.chat.operations.request_context import build_ctx as _build_ctx
 
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Dispatch")
@@ -65,21 +65,21 @@ def test_combined_project_patch_preserves_metadata_with_production_session_setti
 
 @pytest.mark.asyncio
 async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(env):
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.project_instructions_tool import register_project_instruction_tools
 
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Normal")
     update(db, p, "Current rules")
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_project_instruction_tools(
         collector,
         project_id=p.project_id,
         user_id="alice",
         allow_write=False,
     )
-    assert collector.get_tool("save_project_instructions") is None
-    read = collector.get_tool("read_project_instructions")._func
+    assert not any(t.name == "save_project_instructions" for t in collector)
+    read = next(t for t in collector if t.name == "read_project_instructions")._func
     assert json.loads((await read()).content[0].text)["instructions"] == "Current rules"
     # Permission is checked at execution time, not only at registration.
     p.owner_user_id = "bob"
@@ -89,10 +89,10 @@ async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(e
 
 @pytest.mark.asyncio
 async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(env, monkeypatch):
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.read_tool import register_read
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
 
     db, _ = env
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
@@ -109,7 +109,7 @@ async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(
             cache[path] = data
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_read(
         collector,
         chat_id="read-init-test",
@@ -118,7 +118,7 @@ async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(
         project_folder_name=scope.folder_name,
         scope=scope,
     )
-    read = collector.get_tool("Read")._func
+    read = next(t for t in collector if t.name == "Read")._func
     root = f"/myspace/{scope.folder_name}/AGENTS.md"
     result = json.loads((await read(root)).content[0].text)
     assert "FRESH-628" in result["content"] and "STALE" not in result["content"]

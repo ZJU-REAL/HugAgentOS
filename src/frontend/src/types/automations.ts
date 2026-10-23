@@ -12,7 +12,7 @@ export type AutomationTaskType = 'prompt' | 'plan';
 
 export type AutomationStatus = 'active' | 'paused' | 'disabled' | 'completed' | 'expired';
 
-export type AutomationRunStatus = 'running' | 'success' | 'failed';
+export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed';
 
 export type AutomationScheduleType = 'recurring' | 'once' | 'manual';
 

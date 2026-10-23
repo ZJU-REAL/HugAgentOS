@@ -6,7 +6,7 @@ fixes — better routing versus a better skill — so skill attribution cannot s
 until the record exists.
 """
 
-from core.agent_skills import selection_record as SR
+from core.capabilities.skills import selection_record as SR
 
 
 def test_rejected_candidates_are_recorded_with_a_reason():
@@ -53,7 +53,7 @@ def test_selector_failure_registers_every_candidate():
     def explode(**_kw):
         raise RuntimeError("model down")
 
-    import core.agent_skills.selector as selector_mod
+    import core.llm.skill_selection as selector_mod
 
     original = selector_mod.select_skills_for_query
     selector_mod.select_skills_for_query = explode
@@ -100,7 +100,7 @@ def test_selection_is_intersected_with_enabled_set():
     )
     assert selection.selected_ids == ["a"]
 
-    import core.agent_skills.selector as selector_mod
+    import core.llm.skill_selection as selector_mod
 
     original = selector_mod.select_skills_for_query
     selector_mod.select_skills_for_query = lambda **_kw: ["a", "not-enabled"]

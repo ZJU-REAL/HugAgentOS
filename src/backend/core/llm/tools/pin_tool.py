@@ -3,16 +3,17 @@
 Extracted from the oversized ``core/llm/tool.py``. Heavy deps imported lazily
 inside the function; ``core.llm.tool`` re-exports ``register_pin_to_workspace``.
 """
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.services.project_scope import ProjectScope
+    from core.projects.edition import ProjectScope
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,11 @@ def register_pin_to_workspace(
     output leaked into the personal MySpace root. Now the scope travels with the call chain, no
     timing window.
     """
-    from core.services.project_scope import ProjectScope  # noqa: F401 - re-import for closure
+    from core.projects.edition import ProjectScope  # noqa: F401 - re-import for closure
 
     async def pin_to_workspace(
         file_ids: list[str] = [], file_paths: list[str] = []
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """把文件交付到对话区——**唯一**让用户看到文件的方式。
 
         凡用户要求生成/导出文件（文档、图片、PPT、Excel、PDF、CSV、压缩包、音视频、
@@ -73,8 +74,8 @@ def register_pin_to_workspace(
         """
         import json as _json
 
-        from core.artifacts.store import get_artifact
-        from core.llm import workspace as _workspace
+        from core.files.artifacts.store import get_artifact
+        from core.llm.runtime import workspace as _workspace
 
         # Mark the gate active even if every id below fails — the agent's
         # *intent* to use the workspace is what flips the default. Otherwise
@@ -89,7 +90,7 @@ def register_pin_to_workspace(
         elif isinstance(file_ids, list):
             raw_ids = file_ids
         else:
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -105,7 +106,7 @@ def register_pin_to_workspace(
             )
 
         if not raw_ids and not file_paths:
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -125,7 +126,7 @@ def register_pin_to_workspace(
             from core.infra.logging import user_id_var
             from fastapi import HTTPException
 
-            from core.artifacts.local_reference import reference_local_file
+            from core.files.artifacts.local_reference import reference_local_file
 
             if not isinstance(file_paths, list):
                 file_paths = [file_paths]
@@ -135,7 +136,7 @@ def register_pin_to_workspace(
                     failed_results.append({"path": str(path), "error": "文件路径必须是非空字符串"})
                     continue
                 try:
-                    from core.artifacts.local_reference import project_file_path
+                    from core.files.artifacts.local_reference import project_file_path
                     from core.infra.logging import chat_id_var
 
                     physical = project_file_path(
@@ -218,7 +219,7 @@ def register_pin_to_workspace(
             _cid = chat_id_var.get() or ""
             if _uid and to_persist:
                 from core.db.engine import SessionLocal
-                from core.services.artifact_service import persist_artifacts
+                from core.files.artifacts.service import persist_artifacts
 
                 _db = SessionLocal()
                 try:
@@ -251,7 +252,7 @@ def register_pin_to_workspace(
         }
         if failed_results:
             result["failed"] = failed_results
-        return ToolResponse(
+        return ToolChunk(
             content=[
                 TextBlock(
                     type="text",
@@ -260,10 +261,11 @@ def register_pin_to_workspace(
             ]
         )
 
-    from core.llm.tool_permissions import READ, ToolPermissionSpec, local_path_tool
+    from core.sandbox.permissions.dispatch_models import READ, ToolPermissionSpec
+    from core.sandbox.permissions.tool_specs import local_path_tool
 
     def resolve_pin_paths(args, runtime):
-        from core.artifacts.local_reference import project_file_path
+        from core.files.artifacts.local_reference import project_file_path
 
         paths = args.get("file_paths") or []
         if isinstance(paths, str):
@@ -284,11 +286,7 @@ def register_pin_to_workspace(
                 )
         return intents
 
-    toolkit.register_tool_function(
-        pin_to_workspace,
-        namesake_strategy="override",
-        permission=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths),
-    )
+    toolkit.append(function_tool(pin_to_workspace, dispatch_spec=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths)))
     logger.info("[factory] Registered pin_to_workspace tool")
 
 

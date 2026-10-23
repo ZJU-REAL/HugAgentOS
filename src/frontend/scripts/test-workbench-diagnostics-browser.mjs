@@ -29,7 +29,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);
  bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.css':'empty'}});
 await writeFile(resolve(assets,'index.html'),'<html><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>');
 const server=spawn((process.env.WB_TEST_PYTHON || resolve(root, '.venv/bin/python')),
- ['-m','uvicorn','tests.workbench_diagnostic_http_fixture:app','--host','127.0.0.1','--port','5219'],
+ ['-m','uvicorn','tests.features.workbench.workbench_diagnostic_http_fixture:app','--host','127.0.0.1','--port','5219'],
  {cwd:root,env:{...process.env,PYTHONPATH:'src/backend',AUTH_MODE:'mock',CONFIG_TOKEN:'wb19-http-config',
  DATABASE_URL:'sqlite:///'+resolve(folder,'db.sqlite'),STORAGE_PATH:resolve(folder,'storage'),
  TMPDIR:folder,WB19_ASSET_PATH:assets},stdio:['ignore','pipe','pipe']});

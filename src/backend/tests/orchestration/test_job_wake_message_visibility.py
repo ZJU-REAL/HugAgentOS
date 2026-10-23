@@ -14,11 +14,15 @@
 另外锁一条唤醒文案：作业丢后台之后没有任何一轮会再动 ``update_plan`` 的计划清单，
 终态交付那一轮必须被要求给它收尾——否则计划栏永远停在"提交作业"那一步。
 """
+from core.chat import service as service_module
 
 import asyncio
 
-import core.services.session_operations.session_context as chat_session_context
+import core.chat.runtime.admission as admission
+import core.chat.runtime.job_wakeup as runtime_job_wakeup
 import core.db.engine as db_engine
+import core.runs.runtime as runtime
+import core.chat.operations.session_context as chat_session_context
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatSession, Job
@@ -36,9 +40,9 @@ def db_session(monkeypatch):
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
-    from orchestration import job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
-    monkeypatch.setattr(job_wakeup, "SessionLocal", Session, raising=False)
+    monkeypatch.setattr(runtime_job_wakeup, "SessionLocal", Session, raising=False)
     return Session
 
 
@@ -85,23 +89,23 @@ def _stub_run_dependencies(monkeypatch, db_session) -> None:
     async def fake_start_run(**kw):
         return "run_1"
 
-    import core.config.catalog_resolver as resolver_mod
-    import core.services.chat_service as chat_service_mod
-    from orchestration import chat_run_executor
+    import core.capabilities.catalog.resolver as resolver_mod
+    import core.chat.service as chat_service_mod
+    pass
 
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *a, **k: [])
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *a, **k: [])
     monkeypatch.setattr(
         resolver_mod, "resolve_all_runtime_enabled", lambda *a, **k: (None, None, None)
     )
-    monkeypatch.setattr(chat_service_mod, "ChatService", _FakeChatService)
-    monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
+    monkeypatch.setattr(service_module, 'ChatService', _FakeChatService)
+    monkeypatch.setattr(admission, "start_run", fake_start_run)
 
 
 def test_finish_wake_message_is_marked_hidden(monkeypatch, db_session):
     _seed(db_session)
     _stub_run_dependencies(monkeypatch, db_session)
 
-    from orchestration import job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
     assert asyncio.run(job_wakeup.wake_on_job_finish("job_1")) is True
     with db_session() as db:
@@ -122,9 +126,9 @@ def test_progress_wake_message_is_marked_hidden(monkeypatch, db_session):
     _seed(db_session, status="running")
     _stub_run_dependencies(monkeypatch, db_session)
 
-    from orchestration import chat_run_executor, job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
-    monkeypatch.setattr(chat_run_executor, "get_active_run_for_chat", lambda *a, **k: None)
+    monkeypatch.setattr(runtime, "get_active_run_for_chat", lambda *a, **k: None)
 
     ok = asyncio.run(
         job_wakeup.wake_on_job_progress(
@@ -155,7 +159,7 @@ class _Msg:
 
 def test_message_list_filters_wake_messages():
     """消息列表接口的过滤谓词：带标记的、以及标记上线前落库的老消息，都不进聊天记录。"""
-    from core.services.session_operations.history import _is_internal_message
+    from core.chat.operations.history import _is_internal_message
 
     assert _is_internal_message(_Msg("user", "转述一下", {"hidden_in_chat": True}))
     # 老消息（没有标记，只有开头那句）
@@ -174,8 +178,8 @@ def test_finish_wake_prompt_has_no_plan_noise_without_a_plan():
     有清单时"把清单念回去、要求收尾"的行为改由服务端快照驱动，锁在
     ``test_plan_progress_closeout.py``——那里连清单内容和先后顺序一起验。
     """
+    from core.chat.runtime.job_wakeup import _wake_prompt
     from core.db.models import Job as JobModel
-    from orchestration.job_wakeup import _wake_prompt
 
     job = JobModel(job_id="job_1", name="问答记录分类", status="completed")
     prompt = _wake_prompt(job, {"total": 265, "done": 265, "remaining": 0})

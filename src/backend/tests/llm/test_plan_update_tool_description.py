@@ -10,14 +10,16 @@
 
 import pytest
 
-from core.llm.plan_update_tool import register_plan_update_tool
+from core.llm.tools.plan_update import register_plan_update_tool
 
 
 class _CapturingToolkit:
     def __init__(self) -> None:
         self.functions: dict = {}
 
-    def register_tool_function(self, fn, **_kwargs) -> None:
+    def append(self, tool):
+        fn = tool._func
+        _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.functions[fn.__name__] = fn
 
 
@@ -60,7 +62,7 @@ def test_explanation_is_a_real_parameter():
 
 def test_explanation_never_reaches_the_plan_bar_payload():
     """理由混进 plan_update 载荷就会污染用户可见的计划栏。"""
-    from core.llm.plan_update_tool import parse_plan_update_args
+    from core.llm.tools.plan_update import parse_plan_update_args
 
     parsed = parse_plan_update_args({
         "title": "做 PPT",
@@ -108,6 +110,6 @@ def test_description_forbids_resubmitting_an_unchanged_plan(update_plan_doc):
 
 def test_prompt_section_forbids_resubmitting_an_unchanged_plan():
     """系统提示词那节和工具描述要给出同一条口径，否则两处互相抵消。"""
-    from core.llm.plan_update_tool import build_plan_update_prompt_section
+    from core.llm.tools.plan_update import build_plan_update_prompt_section
 
     assert "状态确实发生变化时才调用" in build_plan_update_prompt_section()

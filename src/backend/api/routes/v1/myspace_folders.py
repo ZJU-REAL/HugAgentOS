@@ -18,13 +18,13 @@ from __future__ import annotations
 
 from typing import Optional
 from api.folder_batch_schemas import FolderBatchBody
-from core.services.folder_batch import create_folder_batch
+from core.files.folder_batch import create_folder_batch
 from core.db.models import UserFolder, UserShadow
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.services.user_folder_service import UserFolderService
+from core.projects.user_folders import UserFolderService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session

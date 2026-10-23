@@ -2,8 +2,9 @@
 import pytest
 from types import SimpleNamespace
 from sqlalchemy import select
-from core.channels.protocol import InboundMsg
-from core.db.models import ChannelConnection, ChatMessage
+from integrations.channels.protocol import InboundMsg
+from integrations.channels.models import ChannelConnection
+from core.db.models import ChatMessage
 from personal_agent.models import PersonalAgent, PersonalMessageInbox, PersonalWorkItem
 from personal_agent.context import AgentContext
 from personal_agent.identity.config import locked_agent
@@ -129,7 +130,7 @@ async def test_channel_delivery_uses_source_session_for_file_and_message(session
         def delete(self, key): pass
     monkeypatch.setattr(delivery, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    monkeypatch.setattr("core.storage.get_storage", lambda: Storage())
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: Storage())
     state={"owner":"worker","run_id":"run","generation":generation}
     receipt = delivery._publish(task_id, "owner", state, "delivery-id", "artifact-id", "hash",
                                b"report", "report.txt", "text/plain", "finished")

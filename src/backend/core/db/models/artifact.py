@@ -2,29 +2,20 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime, timezone
 
 from core.db.engine import Base
-from core.db.model_extensions import ArtifactEditionFields, artifact_edition_table_args
+from core.db.edition import ArtifactEditionFields, artifact_edition_table_args
 from sqlalchemy import (
-    JSON,
     BigInteger,
-    Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
     Index,
-    Integer,
-    Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from sqlalchemy.orm import relationship
+from core.db.models.column_types import JSONType
 
 
 class Artifact(ArtifactEditionFields, Base):
@@ -50,7 +41,7 @@ class Artifact(ArtifactEditionFields, Base):
     storage_key = Column(Text, nullable=False)
     storage_url = Column(Text)
     extra_data = Column("metadata", JSONType, default={})
-    # Lazy caches for cross-turn file reading (populated by core/content/artifact_reader.py)
+    # Lazy caches for cross-turn file reading (populated by core/files/artifacts/reader.py)
     parsed_text = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     parsed_at = Column(UTCDateTime(timezone=True), nullable=True)

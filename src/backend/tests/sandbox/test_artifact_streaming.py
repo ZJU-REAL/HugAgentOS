@@ -19,8 +19,8 @@ from core.sandbox.runner import server as runner_server
 
 
 class _CaptureToolkit:
-    def register_tool_function(self, function, *, namesake_strategy: str):
-        assert namesake_strategy == "override"
+    def append(self, tool):
+        function = tool._func
         self.function = function
 
 
@@ -315,7 +315,7 @@ async def test_remote_providers_reject_known_size_before_stream(provider_kind: s
 
 
 def test_artifact_store_persists_from_file_without_byte_upload(monkeypatch, tmp_path):
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     source = tmp_path / "source.pdf"
     source.write_bytes(b"streamed-pdf")
@@ -336,7 +336,7 @@ def test_artifact_store_persists_from_file_without_byte_upload(monkeypatch, tmp_
 
 
 def test_artifact_store_uses_file_upload_for_oss(monkeypatch, tmp_path):
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     source = tmp_path / "source.pdf"
     source.write_bytes(b"streamed-pdf")

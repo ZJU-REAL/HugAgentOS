@@ -49,7 +49,7 @@ class _OpenSandboxBindingMixin:
         await session_registry.remember(session_id, str(sess.sandbox.id))
         self._maybe_schedule_renew(session_id, sess)
         if newly_bound:
-            from core.plugins.resources.prewarm import schedule
+            from core.capabilities.plugins.resources.prewarm import schedule
             schedule(self, session_id, sess.user_id, str(sess.sandbox.id))
         return sess
 

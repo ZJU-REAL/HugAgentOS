@@ -1,26 +1,29 @@
 """Route-level concurrency proof for POST /v1/agents/responses admission."""
 
 from __future__ import annotations
-import core.services.session_operations.admission as admission
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from types import SimpleNamespace
 
-import core.services.session_operations.agent_targets as chat_agent_targets
-import core.services.session_operations.request_context as chat_request_context
-import core.services.session_operations.session_context as chat_session_context
+import api.transports.run_sse as run_sse
 import core.chat.context as chat_context
+import core.chat.runtime.admission as runtime_admission
 import core.db.engine as db_engine
-import core.services as chat_services
+import core.runs.runtime as runtime
+import core.auth.users as chat_services_UserService_module
+import core.chat.operations.admission as admission
+import core.chat.operations.agent_targets as chat_agent_targets
+import core.chat.operations.request_context as chat_request_context
+import core.chat.operations.session_context as chat_session_context
 import pytest
 from api.routes.v1.agent_responses import agent_response
-from core.chat.schemas import ChatRequest
 from core.auth.backend import UserContext
+from core.chat.schemas import ChatRequest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
-from core.services.chat_sequencer import ChatSequencer
+from core.chat.sequencer import ChatSequencer
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -54,19 +57,19 @@ def _patch_common_chat_route(monkeypatch):
         def get_user_settings(self, _user_id):
             return {}
 
-    monkeypatch.setattr(chat_services, "UserService", FakeUserService)
-    monkeypatch.setattr(chat_session_context, "_ensure_main_model_configured", lambda: None)
+    monkeypatch.setattr(chat_services_UserService_module, "UserService", FakeUserService)
+    monkeypatch.setattr(chat_session_context, 'ensure_main_model_configured', lambda: None)
     monkeypatch.setattr(
         chat_agent_targets,
         "_resolve_chat_agent_targets",
         lambda _db, request, _user_id: (request, None, request.message, None),
     )
     monkeypatch.setattr(
-        chat_session_context, "_resolve_selected_model_provider_id", lambda *_args: None
+        chat_session_context, 'resolve_selected_model_provider_id', lambda *_args: None
     )
     monkeypatch.setattr(
         chat_session_context,
-        "_resolve_actual_chat_model_name",
+        'resolve_actual_chat_model_name',
         lambda request, _: request.model_name,
     )
     monkeypatch.setattr(
@@ -75,14 +78,14 @@ def _patch_common_chat_route(monkeypatch):
     monkeypatch.setattr(
         chat_session_context, "_ensure_chat_session", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(chat_request_context, "_build_ctx", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(chat_request_context, 'build_ctx', lambda *_args, **_kwargs: {})
     monkeypatch.setattr(chat_request_context, "_build_user_extra_data", lambda *_args: {})
 
 
 @pytest.mark.parametrize("transports", [(True, True), (False, False), (True, False)])
 def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, transports):
     from core.chat import plan_progress
-    from orchestration import chat_run_executor
+    pass
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'stream.db'}",
@@ -112,19 +115,19 @@ def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, tran
             yield chat_id
 
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
-    monkeypatch.setattr(chat_services, "UserService", FakeUserService)
-    monkeypatch.setattr(chat_session_context, "_ensure_main_model_configured", lambda: None)
+    monkeypatch.setattr(chat_services_UserService_module, "UserService", FakeUserService)
+    monkeypatch.setattr(chat_session_context, 'ensure_main_model_configured', lambda: None)
     monkeypatch.setattr(
         chat_agent_targets,
         "_resolve_chat_agent_targets",
         lambda _db, request, _user_id: (request, None, request.message, None),
     )
     monkeypatch.setattr(
-        chat_session_context, "_resolve_selected_model_provider_id", lambda *_args: None
+        chat_session_context, 'resolve_selected_model_provider_id', lambda *_args: None
     )
     monkeypatch.setattr(
         chat_session_context,
-        "_resolve_actual_chat_model_name",
+        'resolve_actual_chat_model_name',
         lambda request, _: request.model_name,
     )
     monkeypatch.setattr(
@@ -133,12 +136,12 @@ def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, tran
     monkeypatch.setattr(
         chat_session_context, "_ensure_chat_session", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(chat_request_context, "_build_ctx", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(chat_request_context, 'build_ctx', lambda *_args, **_kwargs: {})
     monkeypatch.setattr(chat_request_context, "_build_user_extra_data", lambda *_args: {})
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *_args: [])
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_args: [])
     monkeypatch.setattr(plan_progress, "clear_plan_progress", lambda _chat_id: None)
-    monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
-    monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", empty_follow)
+    monkeypatch.setattr(runtime_admission, "start_run", fake_start_run)
+    monkeypatch.setattr(run_sse, "follow_run_as_sse", empty_follow)
 
     from api.routes.v1 import agent_responses
     from core.chat.schemas import ChatResponse
@@ -213,7 +216,7 @@ def test_non_stream_send_returns_busy_without_running_or_persisting(monkeypatch,
 
     _patch_common_chat_route(monkeypatch)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *_args: [])
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_args: [])
 
     with Session() as db:
         with pytest.raises(HTTPException) as raised:
@@ -236,7 +239,7 @@ def test_non_stream_send_returns_busy_without_running_or_persisting(monkeypatch,
 
 
 def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch, tmp_path):
-    from orchestration import chat_run_executor
+    pass
 
     engine, Session = _route_database(tmp_path, "send-success.db")
     _patch_common_chat_route(monkeypatch)
@@ -247,7 +250,7 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
         assert (stored.role, stored.chat_seq, stored.content) == ("user", 1, "hello")
         return [{"role": "user", "content": stored.content}]
 
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", load_after_accept)
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', load_after_accept)
 
     launched = {}
 
@@ -276,8 +279,8 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
             worker_db.commit()
         return SimpleNamespace(status="completed", error_message=None)
 
-    monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
-    monkeypatch.setattr(chat_run_executor, "wait_run", fake_wait_run, raising=False)
+    monkeypatch.setattr(runtime_admission, "start_run", fake_start_run)
+    monkeypatch.setattr(runtime, "wait_run", fake_wait_run, raising=False)
 
     with Session() as db:
         response = asyncio.run(
@@ -307,12 +310,12 @@ def test_both_transports_share_preferences_and_release_request_transaction(
 ):
     from api.routes.v1 import agent_responses
     from core.chat import plan_progress
-    from orchestration import chat_run_executor
+    pass
 
     engine, Session = _route_database(tmp_path, "preferences.db")
     _patch_common_chat_route(monkeypatch)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *_args: [])
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_args: [])
     monkeypatch.setattr(plan_progress, "clear_plan_progress", lambda _chat_id: None)
 
     async def preferences(_request, _user_id):
@@ -331,12 +334,12 @@ def test_both_transports_share_preferences_and_release_request_transaction(
     async def start(**kwargs):
         return kwargs["accepted_run"]
 
-    monkeypatch.setattr("core.services.session_operations.admission._read_preferences", preferences)
-    monkeypatch.setattr(chat_request_context, "_build_ctx", context)
-    monkeypatch.setattr(chat_run_executor, "start_run", start)
+    monkeypatch.setattr('core.chat.operations.admission._read_preferences', preferences)
+    monkeypatch.setattr(chat_request_context, 'build_ctx', context)
+    monkeypatch.setattr(runtime_admission, "start_run", start)
     with Session() as db:
         result = asyncio.run(
-            admission._start_response_run(
+            admission.start_response_run(
                 ChatRequest(chat_id="chat-1", message="hello", stream=stream), _user(), db
             )
         )
@@ -361,14 +364,14 @@ def test_both_transports_share_preferences_and_release_request_transaction(
 )
 def test_json_wait_preserves_non_success_terminal_state(monkeypatch, terminal, code):
     from api.routes.v1 import agent_responses
-    from orchestration import chat_run_executor
+    pass
 
     record = SimpleNamespace(status=terminal, error_message=None)
 
     async def wait(_run_id):
         return record
 
-    monkeypatch.setattr(chat_run_executor, "wait_run", wait)
+    monkeypatch.setattr(runtime, "wait_run", wait)
     with pytest.raises(HTTPException) as raised:
         asyncio.run(
             agent_responses._wait_response("run-1", chat_id="chat-1", message_id="message-1")

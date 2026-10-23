@@ -11,12 +11,7 @@ from __future__ import annotations
 import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock
 
-from core.llm.responses_models import (
-    REASONING_ITEMS_ATTR,
-    ResponsesReplayFormatter,
-    WIRE_PROTOCOL,
-    _attach_reasoning_items,
-)
+from core.models.responses import REASONING_ITEMS_ATTR, ResponsesReplayFormatter, WIRE_PROTOCOL, _attach_reasoning_items
 
 PROVIDER = "openai_compatible"
 MODEL = "test-model"

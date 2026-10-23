@@ -1,5 +1,6 @@
 **
 !docker/
+!docker/opensandbox_capacity.py
 !docker/patch_opensandbox_server.py
 !docker/opensandbox_expirations.py
 !docker/opensandbox_mount_worker.py

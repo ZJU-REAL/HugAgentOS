@@ -1,5 +1,5 @@
 """Build a durable ordinary-chat recipient for completion tests."""
-from core.services.chat_sequencer import ChatSequencer
+from core.chat.sequencer import ChatSequencer
 
 def source_run(factory):
     with factory() as db:

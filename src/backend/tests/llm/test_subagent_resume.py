@@ -4,13 +4,9 @@ import asyncio
 
 import pytest
 from core.infra.ephemeral import LocalEphemeralState
-from core.llm import subagent_sessions
-from core.llm.builtin_subagents import (
-    BUILTIN_SUBAGENTS,
-    list_builtin_subagents,
-    load_builtin_subagent_prompt,
-)
-from core.llm.subagent_tool import build_subagent_prompt_section
+from core.llm.subagents import sessions as subagent_sessions
+from core.capabilities.agents.builtin import BUILTIN_SUBAGENTS, list_builtin_subagents, load_builtin_subagent_prompt
+from core.llm.subagents.tool import build_subagent_prompt_section
 
 
 @pytest.fixture(autouse=True)

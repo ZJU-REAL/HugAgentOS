@@ -9,7 +9,7 @@ more importantly, its refusal semantics: every uncertain path refuses.
 import asyncio
 
 import core.memory.extractors._base as base
-from core.evolution.sop_judge import SopVerdict, adjudicate_sequence_sop
+from core.evolution.assessment.sop_judge import SopVerdict, adjudicate_sequence_sop
 
 
 def _judge(monkeypatch, reply):

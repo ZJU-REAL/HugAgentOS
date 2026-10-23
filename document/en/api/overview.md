@@ -59,7 +59,7 @@ The backend runs several parallel authentication mechanisms, each covering a dif
 | Mechanism | How to send the credential | Scope | Implementation |
 |---|---|---|---|
 | **Session cookie** | `Cookie: jx_session=<token>` (set automatically on login) | All end-user-facing `/v1/*` endpoints (chats, projects, kb, memories, …) | `get_current_user`: cookie → Redis session lookup |
-| **Personal API key** | `Authorization: Bearer sk-jx-...` | Same user identity as a session cookie; intended for scripts / third-party integrations | Recognized by the `sk-jx-` prefix; plaintext returned only once at creation, DB stores SHA256 only (`core/services/api_key_service.py`); self-managed at `/v1/me/api-keys` |
+| **Personal API key** | `Authorization: Bearer sk-jx-...` | Same user identity as a session cookie; intended for scripts / third-party integrations | Recognized by the `sk-jx-` prefix; plaintext returned only once at creation, DB stores SHA256 only (`core/auth/api_keys.py`); self-managed at `/v1/me/api-keys` |
 | **Bearer token (mock/remote mode)** | `Authorization: Bearer <token>` | `AUTH_MODE=mock` (development: any token, or none, resolves to the mock user) or `remote` (verified against the user center) | Fallback branch of `get_current_user`; not accepted under `AUTH_MODE=session` |
 | **ADMIN_TOKEN** | `Authorization: Bearer <ADMIN_TOKEN>` | `/admin` console backend (`/v1/admin/skills`, `/v1/admin/kb`, …) and content-block write endpoints | `require_admin` (env var `ADMIN_TOKEN`) |
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` console backend (`/v1/config/*`, `/v1/models`, `/v1/service-configs`, some `/v1/admin/*` observability endpoints) | `require_config` (env var `CONFIG_TOKEN`) |

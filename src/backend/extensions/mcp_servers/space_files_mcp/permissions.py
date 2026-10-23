@@ -1,12 +1,6 @@
 """Developer-owned execution policy for the space MCP contract."""
 
-from core.llm.tool_permissions import (
-    DOMAIN_APPROVAL,
-    DOMAIN_DENY,
-    WRITE,
-    PermissionIntent,
-    ToolPermissionSpec,
-)
+from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, DOMAIN_DENY, WRITE, PermissionIntent, ToolPermissionSpec
 
 from .server import ARGUMENTS, READ_TOOL, WRITE_TOOL
 

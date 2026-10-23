@@ -6,15 +6,13 @@ import asyncio
 import hashlib
 import threading
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from core.db.engine import SessionLocal
 from core.db.models import MemoryOutbox
 from core.memory.executor import run_effect
 from sqlalchemy import text
-
-_local_locks: dict[str, threading.Lock] = {}
-_local_locks_guard = threading.Lock()
 
 
 class EffectLaneDeferred(RuntimeError):
@@ -24,8 +22,8 @@ class EffectLaneDeferred(RuntimeError):
 
 
 def _local_lock(scope_key: str) -> threading.Lock:
-    with _local_locks_guard:
-        return _local_locks.setdefault(scope_key, threading.Lock())
+    with process_state().local_locks_guard:
+        return process_state().local_locks.setdefault(scope_key, threading.Lock())
 
 
 def _advisory_key(scope_key: str) -> int:
@@ -101,3 +99,16 @@ async def ordered_l2_effect(scope_key: str, job_id: str):
         await run_effect(db.close)
         if local is not None and acquired:
             local.release()
+
+
+@dataclass
+class EffectLaneState:
+    local_locks: dict[str, threading.Lock] = field(default_factory=lambda: {})
+    local_locks_guard: object = field(default_factory=lambda: threading.Lock())
+
+
+_STATE = EffectLaneState()
+
+
+def process_state() -> EffectLaneState:
+    return _STATE

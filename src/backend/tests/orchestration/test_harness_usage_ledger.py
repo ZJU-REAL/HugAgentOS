@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import core.chat.followups as chat_followups
 import pytest
 from core.db.engine import Base
 from core.harness.events import Event, EventSink
 from core.harness.hooks import HookBus
 from core.harness.usage import AttemptUsage, MemoryUsageRecorder, UsageAttempt
-from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
-from core.llm.model_usage import (
-    instrument_model_usage,
-    model_usage_scope,
-    record_provider_failure,
-)
-from core.services.harness_ledger import DurableEventStore, HarnessUsageLedger
-from core.services.run_journal import RunJournal
+from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter
+from core.llm.runtime.state import AgentRuntimeState
+from core.models.usage import instrument_model_usage, model_usage_scope, record_provider_failure
+from core.harness.ledger import DurableEventStore, HarnessUsageLedger
+from core.runs.journal import RunJournal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
 
 @pytest.fixture()
 def ledger_env(tmp_path):
@@ -196,6 +193,28 @@ async def test_model_retry_wrapper_records_each_physical_call(ledger_env):
     assert structured_rows[0].usage == AttemptUsage(7, 3)
 
 
+def test_attempt_batch_reserves_consecutive_sequences_in_one_write(ledger_env):
+    ledger = HarnessUsageLedger(ledger_env)
+    ledger.record_attempt(
+        UsageAttempt(run_id="run-ledger", kind="model", operation_name="m",
+                     status="success", latency_ms=1)
+    )
+    batch = ledger.record_attempts(
+        UsageAttempt(run_id="run-ledger", kind="hook", operation_name=name,
+                     status="success", latency_ms=1)
+        for name in ("a", "b", "c")
+    )
+    assert [row.attempt_seq for row in batch] == [2, 3, 4]
+    assert [row.operation_name for row in ledger.attempts("run-ledger")] == ["m", "a", "b", "c"]
+    with pytest.raises(ValueError):
+        ledger.record_attempts([
+            UsageAttempt(run_id="run-ledger", kind="hook", operation_name="x",
+                         status="success", latency_ms=1),
+            UsageAttempt(run_id="other", kind="hook", operation_name="y",
+                         status="success", latency_ms=1),
+        ])
+
+
 @pytest.mark.asyncio
 async def test_durable_event_store_allocates_sequence_before_observers(ledger_env):
     sink = EventSink(DurableEventStore(ledger_env))
@@ -225,10 +244,10 @@ async def test_durable_event_store_allocates_sequence_before_observers(ledger_en
 async def test_compaction_http_retry_is_also_physical_model_usage(
     ledger_env, monkeypatch
 ):
-    import core.services.compaction_summary as compaction
+    import core.chat.compaction.summary as compaction
 
     ledger = HarnessUsageLedger(ledger_env)
-    from core.llm.single_turn import Endpoint
+    from core.models.completions.single_turn import Endpoint
 
     monkeypatch.setattr(
         compaction,
@@ -310,7 +329,7 @@ async def test_agent_level_retry_keeps_chain_across_model_middleware_calls(ledge
     model = instrument_model_usage(Model())
     adapter = AgentScopeHookAdapter(HookBus(usage_recorder=ledger))
     agent = SimpleNamespace(
-        state=SimpleNamespace(run_id="run-ledger"),
+        state=AgentRuntimeState(run_id="run-ledger"),
         model=model,
     )
 
@@ -378,8 +397,8 @@ async def test_model_internal_provider_fallback_records_both_requests(ledger_env
 
 @pytest.mark.asyncio
 async def test_followup_http_call_is_included_in_run_usage(ledger_env, monkeypatch):
-    from core.llm import single_turn
-    from orchestration import followups
+    import core.chat.followups as followups
+    from core.models.completions import single_turn
 
     endpoint = single_turn.Endpoint(
         base_url="http://fake",
@@ -388,7 +407,7 @@ async def test_followup_http_call_is_included_in_run_usage(ledger_env, monkeypat
         provider="followup-provider",
         api_protocol="chat_completions",
     )
-    monkeypatch.setattr(followups, "_resolve_followup_endpoint", lambda: endpoint)
+    monkeypatch.setattr(chat_followups, "_resolve_followup_endpoint", lambda: endpoint)
 
     class Response:
         status_code = 200
@@ -433,8 +452,8 @@ async def test_followup_http_call_is_included_in_run_usage(ledger_env, monkeypat
 
 @pytest.mark.asyncio
 async def test_vision_fallback_records_each_physical_model_attempt(monkeypatch):
-    from core.services.model_config import ResolvedModelConfig
-    from core.vision.provider import VisionCallResult, VisionProvider
+    from core.models.config import ResolvedModelConfig
+    from core.models.vision.provider import VisionCallResult, VisionProvider
 
     provider = VisionProvider(
         ResolvedModelConfig(
@@ -479,8 +498,8 @@ async def test_vision_fallback_records_each_physical_model_attempt(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stream_usage_aggregates_ledger_but_keeps_primary_context(monkeypatch):
-    import core.services.harness_ledger as ledger_module
-    from orchestration.streaming import StreamingAgent
+    import core.harness.ledger as ledger_module
+    from core.llm.runtime.streaming import StreamingAgent
 
     rows = (
         UsageAttempt(

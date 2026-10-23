@@ -8,19 +8,14 @@ from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from core.auth.backend import UserContext, get_current_user
-from core.config.catalog_runtime import get_runtime_catalog
+from core.capabilities.catalog.runtime import get_runtime_catalog
 from core.config.settings import settings
 from core.db.engine import get_db
-from core.db.repository import KBRepository
+from features.knowledge.repository import KBRepository
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
-from core.kb.external_provider import (
-    get_provider_cache_identity,
-    get_provider_name,
-    is_enabled,
-    list_collections,
-)
-from core.services import CatalogService
+from features.knowledge.edition import get_provider_cache_identity, get_provider_name, is_enabled, list_collections
+from core.capabilities.catalog.overrides import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -162,7 +157,7 @@ logger = logging.getLogger(__name__)
 def _index_modes_of(space) -> List[str]:
     """自建知识库的索引模式；解析失败按仅 RAG（历史库的语义）。"""
     try:
-        from core.kb.wiki.config import index_modes_of
+        from features.knowledge.wiki.config import index_modes_of
 
         return index_modes_of(space)
     except Exception:  # noqa: BLE001
@@ -172,14 +167,14 @@ def _index_modes_of(space) -> List[str]:
 def _kb_capabilities(space) -> Dict[str, bool]:
     """索引模式 → 能力位，字段与外接知识库的 capabilities 同构。"""
     try:
-        from core.kb.wiki_router import capabilities_for_local_kb
+        from features.knowledge.wiki_router import capabilities_for_local_kb
 
         return capabilities_for_local_kb(space)
     except Exception:  # noqa: BLE001
         return {"vector": True, "keyword": True, "wiki": False, "graph": False}
 
 
-from .catalog_ownership import _load_owned_capability_items, _plugin_component_ids, _is_owned_capability
+from features.marketplace.api.catalog_ownership import _load_owned_capability_items, _plugin_component_ids, _is_owned_capability
 
 
 def _get_catalog_items_sync(user: UserContext, db: Session):
@@ -199,7 +194,7 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
     # invisible/unusable. The catalog itself queries the DB directly and does not use this
     # cache, so this call only affects agent resolution and is harmless to display.
     try:
-        from core.config.catalog_resolver import invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
 
         invalidate_capability_cache(str(user.user_id))
     except Exception as exc:  # noqa: BLE001
@@ -269,7 +264,7 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
     # global version — otherwise the capability library would show two identically named,
     # identical-content items (private id=entry-fingerprint, global id=entry, which differ
     # so both entered the list). Merge by entry_name; dedupe only against enabled global items.
-    from core.services.marketplace_service import base_entry_name
+    from core.capabilities.skills.installation import base_entry_name as base_entry_name
 
     for kind, owned in (("skills", owned_skill_items), ("mcp", owned_mcp_items)):
         global_ids = {it.get("id") for it in base_catalog.get(kind, []) if it.get("enabled", True)}
@@ -288,7 +283,7 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
         try:
             external_items = _list_datasets_cached()
             # Permission assignment: narrow to datasets visible to the current user (public + granted scoped; defaults to public when unset).
-            from core.auth.kb_permissions import get_dataset_levels
+            from features.knowledge.edition import get_dataset_levels
 
             ds_ids = [str(item.get("id", "")).strip() for item in external_items if item.get("id")]
             ds_levels = get_dataset_levels(db, user.user_id, ds_ids)
@@ -363,8 +358,8 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
     public_local_kb_items: List[Dict[str, Any]] = []
     if not is_ce:
         try:
-            from core.auth.kb_permissions import get_accessible_local_kb_levels, level_to_caps
-            from core.db.models import KBSpace
+            from features.knowledge.edition import get_accessible_local_kb_levels, level_to_caps
+            from features.knowledge.models import KBSpace
 
             levels = get_accessible_local_kb_levels(db, user.user_id)
             owned_ids = {s.kb_id for s in spaces}
@@ -432,7 +427,7 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
     # 桌面双端的本机后端：云端账号的技能与连接器同步在本机登记表里，业务库中没有
     # 对应行。不在这里叠加进来，能力中心就只剩本机自带的内置项——显示的和真正生效的
     # 不是同一份。云端部署下叠加层为空，这几行是恒等变换。
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
 
     overlay = device_catalog.catalog_overlay(user_id=str(user.user_id))
     skill_list = device_catalog.merge_items(

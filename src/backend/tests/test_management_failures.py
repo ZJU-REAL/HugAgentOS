@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import DataError, SQLAlchemyError
 
-from core.services import cloud_management
+from core.capabilities.plugins.management import cloud as cloud_management
 from extensions.mcp_servers.management_registration import ArtifactSource, register
 
 
@@ -52,11 +52,9 @@ def test_unknown_database_error_is_not_empty_or_raw(monkeypatch):
 def test_local_management_uses_same_safe_error(monkeypatch):
     import json
     from agentscope.message import ToolResultState
-    from core.llm.management_tool import ManagementTool
+    from core.llm.tools.management import ManagementTool
 
-    tool = ManagementTool("manager", SimpleNamespace(
-        name="install_skill", description="Install", inputSchema={}
-    ), "skill-manager", {}, cloud_backed=False)
+    tool = ManagementTool("manager", dict(name="install_skill", description="Install", inputSchema={}), "skill-manager", {}, cloud_backed=False)
     original = RuntimeError("private payload")
     original.pgcode = "22001"
     def fail(arguments):

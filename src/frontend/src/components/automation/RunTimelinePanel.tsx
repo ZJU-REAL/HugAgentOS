@@ -39,7 +39,7 @@ function formatRunOrdinal(n: number): string {
 }
 
 function summarizeRun(run: AutomationRun): string {
-  if (run.status === 'running') return t('任务正在执行，结果生成后会自动更新到对话区。');
+  if ((run.status === 'running' || run.status === 'pending')) return t('任务正在执行，结果生成后会自动更新到对话区。');
   if (run.status === 'failed') {
     return String(run.error_message || run.result_summary || t('执行失败，请进入详情查看错误信息。')).replace(/\s+/g, ' ').trim();
   }
@@ -112,7 +112,7 @@ export function RunTimelinePanel() {
     let latestSuccessRun: AutomationRun | undefined;
     let latestFinishedRun: AutomationRun | undefined;
     for (const run of numberedRuns) {
-      if (run.status === 'running') running += 1;
+      if ((run.status === 'running' || run.status === 'pending')) running += 1;
       else if (run.status === 'success') {
         success += 1;
         if (!latestSuccessRun) latestSuccessRun = run;
@@ -274,7 +274,7 @@ export function RunTimelinePanel() {
                   <div className="jx-runTimeline-dateBody">
                     {group.runs.map((run) => {
                       const isActive = run.run_id === selectedRunId;
-                      const isRunning = run.status === 'running';
+                      const isRunning = (run.status === 'running' || run.status === 'pending');
                       const isClickable = !isRunning && !!run.chat_id;
                       const summary = summarizeRun(run);
 

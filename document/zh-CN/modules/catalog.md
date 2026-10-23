@@ -13,7 +13,7 @@ core/config/catalog.json            系统级单一真源（admin 启停 + 展�
 core/config/catalog.py              公共 API：get_catalog / is_enabled / get_enabled_ids
         │                                      set_enabled / reorder_items
         ▼
-core/config/catalog_resolver.py     合并层：catalog.json 默认 ∩ 用户 DB 覆盖
+core/capabilities/catalog/resolver.py     合并层：catalog.json 默认 ∩ 用户 DB 覆盖
         │  resolve_all_runtime_enabled(db, user_id) → (skills, agents, mcps)
         │  resolve_explicit_runtime_capabilities(...) → 本轮显式调用（忽略个人开关，保留硬门控）
         ▼
@@ -39,7 +39,7 @@ core/config/catalog_resolver.py     合并层：catalog.json 默认 ∩ 用户 D
 }
 ```
 
-`catalog_loader.py` 在加载时做**动态源同步**：从技能 loader（`core/agent_skills/`）与 MCP 配置服务（`core/services/mcp_service.py`，DB 表 `admin_mcp_servers`）发现新 id 自动补入、名称/描述/版本随源刷新、源中已消失的陈旧项自动移除；展示详情（能力中心介绍 markdown、图标）属运行时字段，不落盘。结果带短 TTL 内存缓存，写操作调 `invalidate_catalog_cache()` 失效。
+`catalog_loader.py` 在加载时做**动态源同步**：从技能 loader（`core/capabilities/skills/`）与 MCP 配置服务（`core/capabilities/mcp/service.py`，DB 表 `admin_mcp_servers`）发现新 id 自动补入、名称/描述/版本随源刷新、源中已消失的陈旧项自动移除；展示详情（能力中心介绍 markdown、图标）属运行时字段，不落盘。结果带短 TTL 内存缓存，写操作调 `invalidate_catalog_cache()` 失效。
 
 ### 门控 API
 
@@ -54,7 +54,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 
 ## 用户级覆盖（catalog_overrides）
 
-用户在能力中心里开/关某项能力，写入 DB 表 `catalog_overrides`（`core/services/catalog_service.py`），按用户独立、互不影响：
+用户在能力中心里开/关某项能力，写入 DB 表 `catalog_overrides`（`core/capabilities/catalog/overrides.py`），按用户独立、互不影响：
 
 - **合并算法**（`catalog_resolver.py::_merge_kind`）：覆盖只能翻转 base catalog 中**已存在**项的启用位，不能复活已删除项。
 - **管理员锁**：base catalog 中 `enabled=false` 的项，用户覆盖**不可**重新启用，且在 `/v1/catalog` 响应中对前台完全隐藏。
@@ -66,7 +66,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 - **显式插件使用引导**：选择插件后加载其技能和 MCP 工具，提示模型优先按需使用；不限制首个工具调用，也不要求必须调用才能完成回答。
 - **会话级能力恢复**：后续回合在个人开关筛选前恢复已激活的技能、连接器及插件组件，使技能清单与工具名/前缀在该会话中稳定；恢复时仍重新校验安装、管理员全局状态、依赖与归属，硬门控变化会立即生效。
 
-每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把默认合并结果写入 workflow context；`api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` 再校验插件安装实例与能力归属，从服务端安装记录解析组件，并把通过硬门控的显式选择并入当前回合。`core/llm/session_capabilities.py` 和 `core/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` 在后续回合恢复会话已激活能力。
+每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把默认合并结果写入 workflow context；`api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` 再校验插件安装实例与能力归属，从服务端安装记录解析组件，并把通过硬门控的显式选择并入当前回合。`core/llm/runtime/session_capabilities.py` 和 `core/capabilities/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` 在后续回合恢复会话已激活能力。
 
 ## /v1/catalog 路由与 KB 注入
 
@@ -116,7 +116,6 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 ## 管理端能力管理
 
 - **`/admin` 内容管理台**：技能上传/启停/排序（`api/routes/v1/admin_skills.py`，内部调 `catalog.set_enabled` / `reorder_items` 回写 catalog.json）、MCP server 管理（`admin_mcp_servers.py`，DB 表 + 试连 + 缓存刷新）、子智能体管理（`admin_agents.py`）、技能市场上架审核（`admin_marketplace.py`，**商业版 EE**）。
-- **catalog 快照迁移**：`scripts/export_content.py --only catalog` 导出 catalog.json + `catalog_overrides`，`scripts/import_content.py --catalog <snapshot>` 导入。
 
 ## 相关源码
 
@@ -125,11 +124,11 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 | 公共 API（is_enabled 等） | `src/backend/core/config/catalog.py` |
 | 单一真源文件 | `src/backend/core/config/catalog.json`（`CATALOG_PATH` 可覆盖） |
 | 加载 / 动态同步 / 缓存 | `src/backend/core/config/catalog_loader.py`，`catalog_common.py`，`catalog_migration.py` |
-| 用户覆盖合并 | `src/backend/core/config/catalog_resolver.py`，`core/services/catalog_service.py` |
+| 用户覆盖合并 | `src/backend/core/capabilities/catalog/resolver.py`，`core/capabilities/catalog/overrides.py` |
 | 目录路由 | `src/backend/api/routes/v1/catalog.py` |
 | 用户自助能力 | `src/backend/api/routes/v1/me_capabilities.py` |
-| MCP 服务配置（DB） | `src/backend/core/services/mcp_service.py`，`api/routes/v1/admin_mcp_servers.py` |
-| 技能管理 | `src/backend/api/routes/v1/admin_skills.py`，`core/agent_skills/` |
+| MCP 服务配置（DB） | `src/backend/core/capabilities/mcp/service.py`，`api/routes/v1/admin_mcp_servers.py` |
+| 技能管理 | `src/backend/api/routes/v1/admin_skills.py`，`core/capabilities/skills/` |
 | Dify KB 注入（EE） | `src/backend/edition_ee/kb/dify.py`，经共享接缝 `core/kb/external_provider.py` 调用 |
 | 前端能力中心 | `src/frontend/src/components/catalog/`，`stores/catalogStore.ts` |
 | 工厂消费侧 | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

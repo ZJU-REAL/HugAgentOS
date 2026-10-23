@@ -19,9 +19,9 @@ class TaskSteering:
         self.consumed = previous | {ident for ident, _ in self.initial_messages}
         self.artifact_ids = set(artifact_ids)
 
-    def middleware(self):
-        from core.llm.steer_middleware import SteerMiddleware
-        return SteerMiddleware(self.take, self.acknowledge)
+    def hook_policy(self):
+        from core.chat.steer_hook import SteeringHook
+        return SteeringHook(self.take, self.acknowledge)
 
     def _task(self, db, *, lock=False):
         from sqlalchemy import select

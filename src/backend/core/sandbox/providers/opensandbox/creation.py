@@ -10,13 +10,8 @@ from typing import Any, Optional
 import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
 from core.sandbox.errors import SandboxConnectError
-from core.sandbox.providers.opensandbox.account_volumes import (
-    _make_dws_creds_volumes,
-    _make_email_creds_volumes,
-    _make_lark_creds_volumes,
-    _make_yida_creds_volumes,
-)
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.credential_dispatch import credential_mounts
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
 # Snapshot persistence (see internal design docs). Imports are
 # deferred to runtime to avoid cross-module circular dependencies at startup
@@ -24,7 +19,6 @@ from core.sandbox.providers.opensandbox.models import _Session
 from core.sandbox.providers.opensandbox.runtime import (
     _LIGHT_ENTRYPOINT,
     _SETUP_ENTRYPOINT,
-    _user_bound_sandbox_required,
     logger,
 )
 from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes, _pool_metadata
@@ -38,11 +32,11 @@ class _OpenSandboxCreationMixin:
         return _SETUP_ENTRYPOINT if user_id else _LIGHT_ENTRYPOINT
 
     async def _additional_workspace_mounts(self, user_id):
-        from core.spaces.mounts import prepare_volumes
+        from core.files.spaces.mounts import provision_volumes
 
         if not user_id:
             return [], {}
-        return await asyncio.to_thread(prepare_volumes, user_id)
+        return await asyncio.to_thread(provision_volumes, user_id)
 
     async def _create_jupyter_sandbox(
         self,
@@ -59,23 +53,7 @@ class _OpenSandboxCreationMixin:
             volumes = []
         else:
             skills_vols = _make_skills_volumes(user_id)
-            # dws (DingTalk CLI) credential persistence volumes: two bind-mounts per user,
-            # mounted at the sandbox home's ~/.dws and ~/.local/share/dws-cli (where dws
-            # reads/writes by default), so OAuth credentials survive across sessions.
-            dws_vols = _make_dws_creds_volumes(user_id)
-            # lark-cli (Feishu CLI) credential persistence volumes: likewise mounts
-            # ~/.lark-cli and ~/.local/share/lark-cli (including master.key), so the
-            # user's OAuth user_access_token survives across sessions.
-            lark_vols = _make_lark_creds_volumes(user_id)
-            # himalaya (email CLI) credential persistence volume: mounts ~/.config/himalaya
-            # (including config.toml + IMAP/SMTP authorization codes), so the user's
-            # mailbox configuration survives across sessions.
-            email_vols = _make_email_creds_volumes(user_id)
-            # openyida (Yida CLI) login-state persistence volume: mounts the fixed working
-            # directory ~/yida-workspace (including .cache/cookies-*.json QR-login cookies
-            # + project artifacts), so the login state survives across sessions.
-            yida_vols = _make_yida_creds_volumes(user_id)
-            volumes = skills_vols + extra_volumes + dws_vols + lark_vols + email_vols + yida_vols
+            volumes = skills_vols + extra_volumes + credential_mounts(user_id)
         # entrypoint / volumes / metadata / timeout are exactly the same on the image
         # and snapshot paths; volumes must also be passed explicitly on the snapshot
         # path — docker commit does not preserve mount configuration, otherwise the
@@ -103,15 +81,14 @@ class _OpenSandboxCreationMixin:
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 持久会话沙盒: {e}") from e
 
-        # 目录约定已由 entrypoint 在启动时建好，直接打标，让 _persistent_setup 整段跳过
-        # —— 这才是首条命令省下那一秒的地方。老沙箱（旧 entrypoint 建的、adopt 回来的）
-        # 没有这个标记，仍按原路在首次执行前补建，不受影响。
+        # The entrypoint prepared the workspace; avoid repeating setup on first use.
         if setup_uid:
             try:
                 sbx._jx_setup_done = True  # type: ignore[attr-defined]
                 sbx._jx_myspace_uid = setup_uid  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001 — defensive: opaque SDK object
-                pass
+            except Exception as fallback_error:  # noqa: BLE001 — defensive: opaque SDK object
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.sandbox.providers.opensandbox.creation:_create_jupyter_sandbox', fallback_error)
         return sbx
 
     async def _create_light_sandbox(self) -> Any:
@@ -132,9 +109,7 @@ class _OpenSandboxCreationMixin:
         try:
             sbx = await self._create_owned_sandbox(
                 self._image,
-                timeout=timedelta(
-                    seconds=300
-                ),  # ephemeral is short-lived; 5min cap as a safety net
+                timeout=timedelta(seconds=300),  # ephemeral is short-lived; 5min cap as a safety net
                 entrypoint=_LIGHT_ENTRYPOINT,
                 connection_config=config,
                 skip_health_check=True,
@@ -265,8 +240,9 @@ class _OpenSandboxCreationMixin:
         finally:
             try:
                 await sbx.close()
-            except Exception:
-                pass
+            except Exception as fallback_error:
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.sandbox.providers.opensandbox.creation:_destroy_sandbox', fallback_error)
 
     async def _pooled_sandbox_owner(self, sbx: Any) -> Optional[str]:
         """池子用的归属谓词：这台容器当前属于哪个会话，无主返回 ``None``。
@@ -355,18 +331,8 @@ class _OpenSandboxCreationMixin:
         return True
 
     async def _create_session(self, user_id: Optional[str] = None) -> _Session:
-        """Construct a new persistent session (user-bound sandbox, running directly via execd, no Jupyter kernel).
-
-        Plan F: when ``user_id`` is given and any private-data bind mount is on,
-        **bypass the general warm pool** — the pool's sandboxes have no user-bound
-        MySpace/account-credential volumes. Instead, take the user-bound path via
-        ``_create_jupyter_sandbox(user_id=...)``. Adopted old sandboxes have already
-        been slotted per user into ``_jupyter_user_pool`` (see B.7).
-
-        When ``user_id`` is absent (legacy / fallback), take the old path: grab one
-        from the general pool without account volumes.
-        """
-        use_user_pool = bool(user_id and (_user_bound_sandbox_required() or str(user_id).startswith("api_ak_")))
+        """Route account sessions to their user pool; anonymous sessions use the general pool."""
+        use_user_pool = bool(user_id)
 
         if use_user_pool:
             sandbox = await self._jupyter_user_pool.acquire(user_id)
@@ -382,9 +348,7 @@ class _OpenSandboxCreationMixin:
         )
 
     async def _create_session_from_snapshot(
-        self,
-        snapshot_id: str,
-        user_id: Optional[str] = None,
+        self, snapshot_id: str, user_id: Optional[str] = None,
     ) -> _Session:
         """Start a persistent session sandbox directly from an opensandbox snapshot + wrap it into a _Session.
 
@@ -399,8 +363,7 @@ class _OpenSandboxCreationMixin:
           usable as soon as it is up.
         """
         sandbox = await self._create_jupyter_sandbox(
-            from_snapshot_id=snapshot_id,
-            user_id=user_id,
+            from_snapshot_id=snapshot_id, user_id=user_id,
         )
         return _Session(
             sandbox=sandbox,
@@ -422,6 +385,5 @@ class _OpenSandboxCreationMixin:
             sandbox = await Sandbox.create(*args, **kwargs)
             await self._repoint_execd_direct(sandbox)
             if not await self._track_sandbox(str(sandbox.id)):
-                # Another owner may already be using it. Never kill or deliver it.
                 raise SandboxConnectError("sandbox ownership was acquired elsewhere")
             return sandbox

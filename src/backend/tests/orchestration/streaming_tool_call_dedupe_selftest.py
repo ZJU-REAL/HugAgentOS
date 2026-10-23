@@ -7,10 +7,11 @@ deltas update it by stable ``tool_id``, and one completed call supplies parsed
 arguments.
 
 Run from the repository root:
-  PYTHONPATH=src/backend python -m tests.orchestration.streaming_tool_call_dedupe_selftest
+  PYTHONPATH=src/backend python -m tests.core.llm.runtime.streaming_tool_call_dedupe_selftest
 """
 
 from __future__ import annotations
+from core.llm.runtime import streaming_constants as streaming_state_module
 
 import asyncio
 import json
@@ -36,8 +37,8 @@ class ToolCallEndEvent:
 
 
 async def _collect(events: list[Any]) -> list[tuple[str, Any]]:
-    import orchestration.streaming as streaming_mod
-    from orchestration.streaming import StreamingAgent
+    import core.llm.runtime.streaming as streaming_mod
+    from core.llm.runtime.streaming import StreamingAgent
 
     async def reply_stream(inputs=None):  # noqa: ANN001, ARG001
         for event in events:
@@ -53,8 +54,8 @@ async def _collect(events: list[Any]) -> list[tuple[str, Any]]:
 
     # Make the character threshold deterministic for this standalone test; the
     # production time threshold remains covered by the pytest suite.
-    streaming_mod._TOOL_CALL_DELTA_FLUSH_CHARS = 256
-    streaming_mod._TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 999.0
+    streaming_state_module.TOOL_CALL_DELTA_FLUSH_CHARS = 256
+    streaming_state_module.TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 999.0
 
     output: list[tuple[str, Any]] = []
     streamer = StreamingAgent(agent, mcp_clients=[])

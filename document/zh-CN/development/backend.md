@@ -41,7 +41,7 @@ docker-compose logs -f backend
 | `make migrate` | `alembic upgrade head` |
 | `make migrate-new msg="..."` | `alembic revision --autogenerate -m "..."` |
 | `make migrate-down` / `migrate-history` | 回滚一步 / 查看历史 |
-| `make db-reset` / `db-seed` | 重置（破坏性）/ 种子数据 |
+| `make db-reset` | 重置数据库（破坏性） |
 | `make build` / `up` / `down` / `logs` / `ps` 等 | docker-compose 包装 |
 
 > ⚠️ 已提交代码并非 formatter-clean：**不要对未改动的文件整体跑 black/isort**（会把真实 diff 淹没在格式化噪音里），只格式化自己改的范围。
@@ -175,7 +175,7 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 
 ## 新增技能（Agent Skill）步骤
 
-技能加载是多源架构（`core/agent_skills/config.py`）：内置（`extensions/skills/default/`，always-on）、admin（DB / `/app/storage/admin_skills/`）、用户、项目四个加载源按优先级合并；`extensions/skills/marketplace/` 是安装制技能市场种子，由 marketplace 服务单独扫描，**不在默认加载源内**。
+技能加载是多源架构（`core/capabilities/skills/config.py`）：内置（`extensions/skills/default/`，always-on）、admin（DB / `/app/storage/admin_skills/`）、用户、项目四个加载源按优先级合并；`extensions/skills/marketplace/` 是安装制技能市场种子，由 marketplace 服务单独扫描，**不在默认加载源内**。
 
 新增**内置技能**：
 
@@ -208,7 +208,7 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 | ORM / 建表边界 | `src/backend/core/db/models.py`、`src/backend/core/db/edition_tables.py` |
 | MCP 端口表 / 连接配置 | `src/backend/extensions/mcp_servers/_ports.py`、`src/backend/core/config/mcp_config.py` |
 | 能力目录 | `src/backend/core/config/catalog.json` |
-| 技能加载 | `src/backend/core/agent_skills/`（`config.py` / `loader.py` / `registry.py`） |
+| 技能加载 | `src/backend/core/capabilities/skills/`（`config.py` / `loader.py` / `registry.py`） |
 | 工作流编排 | `src/backend/orchestration/workflow.py` |
 
 相关阅读：[前端开发指南](frontend.md) · [API 总览](../api/overview.md) · [MCP 工具](../modules/mcp-tools.md) · [技能系统](../modules/agent-skills.md)

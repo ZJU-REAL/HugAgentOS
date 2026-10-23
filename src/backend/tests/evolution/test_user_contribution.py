@@ -5,6 +5,10 @@ user's episodes must be recorded (so their own card and history still work) yet
 never reach cross-user pattern mining. A setting that only changed a label
 would be a promise the code could not keep.
 """
+from core.evolution.cycle import episode_views as episode_views_module
+from core.evolution.profiles import personal_review as personal_review_module
+from core.evolution.profiles import user_settings as user_settings_module
+from core.evolution.profiles import user_settings_constants as user_settings_state_module
 
 import pytest
 from sqlalchemy import create_engine
@@ -16,7 +20,7 @@ from core.db.models.evolution import (
     EvolutionEpisode,
     EvolutionTraceEvent,
 )
-from core.evolution import user_settings as US
+from core.evolution.profiles import user_settings as US
 
 
 @pytest.fixture
@@ -32,6 +36,8 @@ def db(monkeypatch):
     )
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr(US, "SessionLocal", factory, raising=False)
+    from core.evolution.profiles import personal_review
+    monkeypatch.setattr(personal_review, "SessionLocal", factory, raising=False)
     session = factory()
     yield session
     session.close()
@@ -45,30 +51,30 @@ def db(monkeypatch):
 
 
 def test_participation_follows_the_single_evolution_switch():
-    assert US.is_contribution_enabled({"evolution_prefs": {"enabled": True}}) is True
-    assert US.is_contribution_enabled({"evolution_prefs": {"enabled": False}}) is False
+    assert user_settings_module.is_contribution_enabled({"evolution_prefs": {"enabled": True}}) is True
+    assert user_settings_module.is_contribution_enabled({"evolution_prefs": {"enabled": False}}) is False
 
 
 def test_participation_defaults_to_off_until_evolution_is_enabled():
     """Consent-first: a user who never enabled evolution contributes nothing."""
-    assert US.is_contribution_enabled({}) is False
-    assert US.is_contribution_enabled(None) is False
+    assert user_settings_module.is_contribution_enabled({}) is False
+    assert user_settings_module.is_contribution_enabled(None) is False
 
 
 def test_legacy_contribution_key_no_longer_overrides_the_switch():
-    metadata = {US.SETTING_KEY: True}  # stale value from the two-switch era
-    assert US.is_contribution_enabled(metadata) is False
+    metadata = {user_settings_state_module.SETTING_KEY: True}  # stale value from the two-switch era
+    assert user_settings_module.is_contribution_enabled(metadata) is False
 
 
 def test_opting_out_marks_episodes_private():
-    assert US.privacy_class_for({"evolution_prefs": {"enabled": False}}) == US.PRIVACY_PRIVATE
-    assert US.privacy_class_for({"evolution_prefs": {"enabled": True}}) == US.PRIVACY_TENANT
+    assert user_settings_module.privacy_class_for({"evolution_prefs": {"enabled": False}}) == user_settings_state_module.PRIVACY_PRIVATE
+    assert user_settings_module.privacy_class_for({"evolution_prefs": {"enabled": True}}) == user_settings_state_module.PRIVACY_TENANT
 
 
 def test_missing_user_resolves_to_the_default_rather_than_failing():
-    resolved = US.resolve_for_user("")
-    assert resolved[US.SETTING_KEY] is False
-    assert resolved["privacy_class"] == US.PRIVACY_PRIVATE
+    resolved = user_settings_module.resolve_for_user("")
+    assert resolved[user_settings_state_module.SETTING_KEY] is False
+    assert resolved["privacy_class"] == user_settings_state_module.PRIVACY_PRIVATE
 
 
 # ── Enforcement: the part that makes the promise real ────────────────────────
@@ -88,16 +94,16 @@ def _episode(db, *, episode_id, user, privacy):
 
 def test_private_episodes_are_excluded_from_pattern_mining(monkeypatch, db):
     """An opted-out user's traces must not feed cross-user learning."""
-    from core.evolution import loop as L
+    from core.evolution.cycle import loop as L
 
-    _episode(db, episode_id="pub-1", user="u1", privacy=US.PRIVACY_TENANT)
-    _episode(db, episode_id="priv-1", user="u2", privacy=US.PRIVACY_PRIVATE)
+    _episode(db, episode_id="pub-1", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
+    _episode(db, episode_id="priv-1", user="u2", privacy=user_settings_state_module.PRIVACY_PRIVATE)
     db.commit()
 
     factory = sessionmaker(bind=db.get_bind())
-    monkeypatch.setattr(L, "SessionLocal", factory)
+    monkeypatch.setattr(episode_views_module, "SessionLocal", factory)
 
-    views = L.load_episode_views(limit=50)
+    views = episode_views_module.load_episode_views(limit=50)
     ids = {v["episode_id"] for v in views}
     assert "pub-1" in ids
     assert "priv-1" not in ids
@@ -105,7 +111,7 @@ def test_private_episodes_are_excluded_from_pattern_mining(monkeypatch, db):
 
 def test_opted_out_episodes_are_still_recorded_for_their_owner(db):
     """Opting out is not deletion — the user keeps their own card and history."""
-    _episode(db, episode_id="priv-1", user="u2", privacy=US.PRIVACY_PRIVATE)
+    _episode(db, episode_id="priv-1", user="u2", privacy=user_settings_state_module.PRIVACY_PRIVATE)
     db.commit()
     assert db.query(EvolutionEpisode).filter_by(episode_id="priv-1").first() is not None
 
@@ -113,12 +119,12 @@ def test_opted_out_episodes_are_still_recorded_for_their_owner(db):
 def test_turning_it_off_does_not_retroactively_withdraw_evidence(db, monkeypatch):
     """Silently rewriting history other candidates were derived from would make
     those candidates unexplainable."""
-    _episode(db, episode_id="old-1", user="u1", privacy=US.PRIVACY_TENANT)
+    _episode(db, episode_id="old-1", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
     db.commit()
 
     # Simulate the user switching off afterwards.
     row = db.query(EvolutionEpisode).filter_by(episode_id="old-1").first()
-    assert row.privacy_class == US.PRIVACY_TENANT  # unchanged by the toggle
+    assert row.privacy_class == user_settings_state_module.PRIVACY_TENANT  # unchanged by the toggle
 
 
 # ── Contribution summary ─────────────────────────────────────────────────────
@@ -126,12 +132,14 @@ def test_turning_it_off_does_not_retroactively_withdraw_evidence(db, monkeypatch
 
 def test_summary_separates_contributed_from_private(db, monkeypatch):
     monkeypatch.setattr(US, "SessionLocal", sessionmaker(bind=db.get_bind()))
-    _episode(db, episode_id="a", user="u1", privacy=US.PRIVACY_TENANT)
-    _episode(db, episode_id="b", user="u1", privacy=US.PRIVACY_TENANT)
-    _episode(db, episode_id="c", user="u1", privacy=US.PRIVACY_PRIVATE)
+    from core.evolution.profiles import personal_review
+    monkeypatch.setattr(personal_review, "SessionLocal", sessionmaker(bind=db.get_bind()))
+    _episode(db, episode_id="a", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
+    _episode(db, episode_id="b", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
+    _episode(db, episode_id="c", user="u1", privacy=user_settings_state_module.PRIVACY_PRIVATE)
     db.commit()
 
-    summary = US.summarise_contributions("u1")
+    summary = personal_review_module.summarise_contributions("u1")
     assert summary["episodes"] == 3
     assert summary["contributed_episodes"] == 2
     assert summary["private_episodes"] == 1
@@ -139,7 +147,9 @@ def test_summary_separates_contributed_from_private(db, monkeypatch):
 
 def test_summary_links_candidates_back_to_the_users_own_episodes(db, monkeypatch):
     monkeypatch.setattr(US, "SessionLocal", sessionmaker(bind=db.get_bind()))
-    _episode(db, episode_id="a", user="u1", privacy=US.PRIVACY_TENANT)
+    from core.evolution.profiles import personal_review
+    monkeypatch.setattr(personal_review, "SessionLocal", sessionmaker(bind=db.get_bind()))
+    _episode(db, episode_id="a", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
     db.add(
         EvolutionCandidate(
             candidate_id="c1",
@@ -155,7 +165,7 @@ def test_summary_links_candidates_back_to_the_users_own_episodes(db, monkeypatch
     )
     db.commit()
 
-    summary = US.summarise_contributions("u1")
+    summary = personal_review_module.summarise_contributions("u1")
     assert len(summary["candidates"]) == 1
     item = summary["candidates"][0]
     # The provenance chain: how much of this capability came from this user.
@@ -167,7 +177,9 @@ def test_summary_links_candidates_back_to_the_users_own_episodes(db, monkeypatch
 
 def test_candidates_with_no_shared_evidence_are_not_claimed(db, monkeypatch):
     monkeypatch.setattr(US, "SessionLocal", sessionmaker(bind=db.get_bind()))
-    _episode(db, episode_id="a", user="u1", privacy=US.PRIVACY_TENANT)
+    from core.evolution.profiles import personal_review
+    monkeypatch.setattr(personal_review, "SessionLocal", sessionmaker(bind=db.get_bind()))
+    _episode(db, episode_id="a", user="u1", privacy=user_settings_state_module.PRIVACY_TENANT)
     db.add(
         EvolutionCandidate(
             candidate_id="c2",
@@ -181,16 +193,16 @@ def test_candidates_with_no_shared_evidence_are_not_claimed(db, monkeypatch):
         )
     )
     db.commit()
-    assert US.summarise_contributions("u1")["candidates"] == []
+    assert personal_review_module.summarise_contributions("u1")["candidates"] == []
 
 
 def test_summary_degrades_to_empty_rather_than_raising(monkeypatch):
     monkeypatch.setattr(
         US, "SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("db down"))
     )
-    summary = US.summarise_contributions("u1")
+    summary = personal_review_module.summarise_contributions("u1")
     assert summary["episodes"] == 0 and summary["candidates"] == []
 
 
 def test_summary_for_a_user_with_no_episodes():
-    assert US.summarise_contributions("nobody")["candidates"] == []
+    assert personal_review_module.summarise_contributions("nobody")["candidates"] == []

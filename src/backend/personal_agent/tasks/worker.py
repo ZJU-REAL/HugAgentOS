@@ -6,7 +6,7 @@ import uuid
 from contextlib import suppress
 from sqlalchemy import select
 from core.db.engine import SessionLocal
-from core.services.run_journal import durable_run_binding
+from core.runs.journal import durable_run_binding
 from personal_agent import access
 from personal_agent.computer import computer_wait
 from personal_agent.models import PersonalAgent, PersonalWorkItem
@@ -209,7 +209,7 @@ class PersonalAgentWorker:
                     db.commit()
             raise
         except Exception as exc:
-            from core.services.tool_effect_ledger import find_tool_outcome_unknown
+            from core.runs.tool_effects.errors import find_tool_outcome_unknown
             with SessionLocal() as db:
                 row = db.get(PersonalWorkItem, ident)
                 if row and row.status == "running" and row.owner == self.identity:
@@ -237,23 +237,21 @@ class PersonalAgentWorker:
             bind(row)
             payloads = dict((row.checkpoint or {}).get("approved_action_payloads", {}))
         if not payloads: return
-        class Tools:
-            def __init__(self): self.functions = {}
-            def register_tool_function(self, function): self.functions[function.__name__] = function
-        tools = Tools()
+        tools = []
         from personal_agent.tools.email import register_email_tools
         from personal_agent.computer.computer import register_computer_tools
         register_email_tools(tools, ident, uid)
         register_computer_tools(tools, ident, uid)
+        functions = {tool.name: tool._func for tool in tools}
         for digest, action in payloads.items():
             if action["kind"] == "email.send":
-                await tools.functions["pa_email_send"](action["to"], action["subject"], action["body"],
+                await functions["pa_email_send"](action["to"], action["subject"], action["body"],
                     [item["path"] for item in action.get("attachments", [])])
             elif action["kind"] == "hugagent.session":
                 from personal_agent.sessions.session_manager import dispatch_approved
                 await dispatch_approved(ident, uid, action)
             elif action["kind"] == "computer.action":
-                await tools.functions["pa_computer_action"](action["action"], action["target"])
+                await functions["pa_computer_action"](action["action"], action["target"])
             with SessionLocal() as db:
                 row = db.get(PersonalWorkItem, ident)
                 state = dict(row.checkpoint or {})

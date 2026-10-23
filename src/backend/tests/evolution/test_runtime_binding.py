@@ -8,7 +8,7 @@ everything else untouched, and binding must never be able to fail a turn.
 import pytest
 
 from core.evolution import contract as C
-from core.evolution import runtime_binding as rb
+from core.evolution.cycle import runtime_binding as rb
 
 
 @pytest.fixture(autouse=True)
@@ -212,7 +212,7 @@ def test_bundle_is_retrievable_by_run_id(monkeypatch):
 
 
 def test_bundle_for_run_keeps_workspace_policy_and_sanitized_execution_manifest(monkeypatch):
-    from core.llm.execution_manifest import PromptManifestBuilder
+    from core.harness.execution_manifest import PromptManifestBuilder
 
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
@@ -274,7 +274,7 @@ def test_manifest_required_marks_missing_or_failed_manifest_partial(monkeypatch)
 
 
 def test_binder_uses_rendered_prompt_versions_not_a_new_active_pointer(monkeypatch):
-    from core.llm.execution_manifest import PromptManifestBuilder
+    from core.harness.execution_manifest import PromptManifestBuilder
 
     monkeypatch.setattr(
         rb,
@@ -325,7 +325,7 @@ def test_no_drift_when_assets_republish_after_binding(monkeypatch):
 
 
 def test_request_manifest_rebind_preserves_frozen_refs_and_updates_run_index(monkeypatch):
-    from core.llm.execution_manifest import PromptManifestBuilder
+    from core.harness.execution_manifest import PromptManifestBuilder
 
     live_version = {"v": "v1"}
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])

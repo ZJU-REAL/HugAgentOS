@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Dict
 
 from core.config.settings import settings as _settings
@@ -90,9 +91,6 @@ _WORKFLOW_MODE_HINT = (
     "一旦写入，「哪些还没做」就不再可判定。\n"
 )
 
-_HTTP_MCP_FAIL_AT: Dict[str, float] = {}
-
-_HTTP_MCP_FAIL_COOLDOWN_S = 60.0
 
 KB_MCP_HTTP_URL = (
     f"http://{_settings.server.mcp_host}:{_MCP_PORTS['retrieve_dataset_content']}/mcp/"
@@ -109,3 +107,15 @@ _SKILL_INSTRUCTION_TEMPLATE = (
     "# 可用技能（技能名、说明文件、适用场景）：{% for skill in skills %}\n"
     "- `{{ skill.name }}`：`{{ skill.dir }}/SKILL.md` — {{ skill.description }}{% endfor %}"
 )
+
+
+@dataclass
+class DefaultsState:
+    HTTP_MCP_FAIL_AT: Dict[str, float] = field(default_factory=lambda: {})
+
+
+_STATE = DefaultsState()
+
+
+def process_state() -> DefaultsState:
+    return _STATE

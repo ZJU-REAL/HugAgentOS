@@ -2,11 +2,9 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
-    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -18,9 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
+from core.db.models.column_types import JSONType
 
 
 class OntologyPack(Base):

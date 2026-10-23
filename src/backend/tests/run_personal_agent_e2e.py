@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from sqlalchemy import select
 from core.db.engine import SessionLocal
-from core.db.models import EmailConnection
+from integrations.email.models import EmailConnection
 from core.infra.crypto import encrypt_secret
 from personal_agent.models import PersonalAgent, PersonalWorkItem
 from personal_agent.context import AgentContext
@@ -15,7 +15,9 @@ from personal_agent.computer.sandbox import get_personal_sandbox_provider
 
 class CaptureTools:
     def __init__(self): self.tools = {}
-    def register_tool_function(self, fn): self.tools[fn.__name__] = fn
+    def append(self, tool):
+        fn = tool._func
+        self.tools[fn.__name__] = fn
 
 
 def data(chunk): return json.loads(chunk.content[0].text)

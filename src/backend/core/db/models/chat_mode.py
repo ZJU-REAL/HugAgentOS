@@ -20,11 +20,9 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
-    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -35,9 +33,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from core.db.models.column_types import JSONType
 
-JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 #: 工具面范围。``all`` = 不额外收窄（标准模式：跟随 catalog 与用户自身授权）；
 #: ``restricted`` = 只装配本行显式列出的 MCP / 技能 / 插件（极速模式与自定义模式）。

@@ -1,15 +1,17 @@
 """Agent assembly phase: system prompt. """
 
 from __future__ import annotations
+from core.llm.tools.plugin_activation import register_load_plugin
+from core.llm import prompt_rendering
 
 import os
 from typing import Any, Dict
 
 from core.llm.factory.defaults import _WORKFLOW_MODE_HINT
 from core.llm.factory.request import AgentRequest
-from core.llm.project_environment import validate_project_environment
-from core.ontology.validator import render_runtime_prompt
-from core.services.system_config import code_capability_enabled
+from core.llm.runtime.project_environment import validate_project_environment
+from core.ontology.runtime_pack import render_runtime_prompt
+from core.config.store.execution_options import code_capability_enabled
 from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt
 
 
@@ -37,7 +39,7 @@ async def system_prompt(
     toolkit,
 ):
     if request.profile:
-        from core.extensions import agent_profile
+        from core.harness.registry import agent_profile
 
         system_prompt = await agent_profile(request.profile).system_prompt(request)
         return _agent_ref, _plan_tool_enabled, _plugin_runtime, system_prompt
@@ -93,7 +95,7 @@ async def system_prompt(
         # Bound plugins deferred in the override block above; in-run activation
         # only (persist=False — see the note there).
         if _subagent_progressive is not None:
-            from core.plugins import runtime as _plug
+            from core.capabilities.plugins import runtime as _plug
 
             _plugin_dir_section = _plug.build_plugin_directory_section(
                 _subagent_progressive.directory
@@ -128,7 +130,7 @@ async def system_prompt(
                 "approval_available": _tool_approval_available,
                 "ontology_runtime": _ontology_runtime,
             }
-            _plug.register_load_plugin(
+            register_load_plugin(
                 toolkit, _subagent_progressive.deferred_by_slug(), _plugin_runtime
             )
             _log.info(
@@ -146,14 +148,13 @@ async def system_prompt(
         # 能配自己的提示词。之前把它写在 turbo 分支里，非收窄模式配了也不生效。
         _mode_prompt = ""
         if request.mode_spec is not None:
-            from core.services import prompt_version_service as _pvs_mode
 
             _mode_prompt_text = getattr(request.mode_spec, "prompt_text", None)
             _mode_prompt_kind = getattr(request.mode_spec, "prompt_kind", None)
             if _mode_prompt_text:
                 _mode_prompt = str(_mode_prompt_text)
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
-                _mode_prompt = _pvs_mode.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
+                _mode_prompt = prompt_rendering.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
 
         if request.turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
@@ -162,10 +163,9 @@ async def system_prompt(
             # （开了代码执行位的收窄模式不进这条：装配确实带沙箱/文件工具，
             # turbo 正文"秒级检索、不执行代码"的叙事反而是错的——没配专属
             # 提示词时走默认装配，工具段按实际 toolkit 动态生成。）
-            from core.services import prompt_version_service as _pvs_turbo
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
-            system_prompt = _mode_prompt or _pvs_turbo.render_turbo_system_prompt()
+            system_prompt = _mode_prompt or prompt_rendering.render_turbo_system_prompt()
             from core.config.local_mode import local_mode_enabled
 
             if local_mode_enabled():
@@ -275,9 +275,9 @@ async def system_prompt(
         # Single source of truth render_kind_segment (same source as the Config console preview).
         if code_capability_enabled() and (not request.turbo_mode or _turbo_code_exec):
             try:
-                from core.services import prompt_version_service as _pvs
+                from core.llm import prompt_versions as _pvs
 
-                _code_exec_text = _pvs.render_kind_segment("code_exec")
+                _code_exec_text = prompt_rendering.render_kind_segment("code_exec")
             except Exception:
                 _code_exec_text = ""
             if _code_exec_text:
@@ -302,7 +302,7 @@ async def system_prompt(
         # independent of activation state) so an activation never perturbs this
         # part of the prefix; only the tools/skills it adds do, once.
         if _progressive is not None:
-            from core.plugins import runtime as _plug
+            from core.capabilities.plugins import runtime as _plug
 
             _plugin_dir_section = _plug.build_plugin_directory_section(_progressive.directory)
             if _plugin_dir_section:
@@ -334,7 +334,7 @@ async def system_prompt(
                 "approval_available": _tool_approval_available,
                 "ontology_runtime": _ontology_runtime,
             }
-            _plug.register_load_plugin(toolkit, _progressive.deferred_by_slug(), _plugin_runtime)
+            register_load_plugin(toolkit, _progressive.deferred_by_slug(), _plugin_runtime)
             _log.info(
                 "[factory] +%s progressive plugins: %d in directory, %d deferred "
                 "(skills=%d, mcp=%d)",
@@ -361,8 +361,8 @@ async def system_prompt(
 
         # ── Register call_subagent tool for main agent ──
         if request.visible_subagents:
-            from core.llm.builtin_subagents import refresh_builtin_subagents
-            from core.llm.subagent_tool import build_subagent_prompt_section, register_subagent_tool
+            from core.capabilities.agents.builtin import refresh_builtin_subagents
+            from core.llm.subagents.tool import build_subagent_prompt_section, register_subagent_tool
 
             # Refresh platform-default rows only after the parent toolset has
             # completed catalog defaults, permission filtering, skill-bound MCP
@@ -443,13 +443,10 @@ async def system_prompt(
         # derived/non-interactive constructions get nothing by default. The DB
         # switch auto_plan_entry_enabled (which itself returns False on
         # config-layer errors) can turn this off entirely.
-        from core.services.system_config import auto_plan_entry_enabled
+        from core.config.store.execution_options import auto_plan_entry_enabled
 
         if request.top_level_chat and auto_plan_entry_enabled():
-            from core.llm.plan_update_tool import (
-                build_plan_update_prompt_section,
-                register_plan_update_tool,
-            )
+            from core.llm.tools.plan_update import build_plan_update_prompt_section, register_plan_update_tool
 
             # 计划栏的催更中间件挂在同一个正向开关上：工具没注册就绝不该有人催更新。
             _plan_tool_enabled = True

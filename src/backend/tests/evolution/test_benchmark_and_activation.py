@@ -4,11 +4,13 @@ These cover the mechanism the before/after benchmark exposed: the loop produced
 candidates but nothing reached the runtime, and once it did, transfer was
 blocked by an over-broad conflict veto.
 """
+from core.evolution.cycle import ordering as ordering_module
+from core.evolution.cycle import promotion_types as promotion_types_module
 
 import pytest
 
-from core.evolution import benchmark as B
-from core.evolution import promotion as P
+from core.evolution.assessment import benchmark as B
+from core.evolution.cycle import promotion as P
 
 
 # ── Context-scoped ordering constraints ──────────────────────────────────────
@@ -51,14 +53,14 @@ def _rule(constraints, before, after):
 
 def test_a_rule_contradicted_elsewhere_is_scoped_rather_than_discarded():
     """A global veto threw away rules that were valid where they were observed."""
-    rule = _rule(P.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
+    rule = _rule(ordering_module.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
     assert rule is not None
     assert set(rule.validated_in) == {"industry_report", "finance"}
     assert "trap" in rule.contradicted_in
 
 
 def test_a_scoped_rule_applies_only_where_it_was_validated():
-    rule = _rule(P.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
+    rule = _rule(ordering_module.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
     tools = ["company_verify", "db_query", "risk_score"]
     assert rule.applies_to(tools, "finance") is True
     assert rule.applies_to(["company_verify", "db_query", "doc_export"], "trap") is False
@@ -66,7 +68,7 @@ def test_a_scoped_rule_applies_only_where_it_was_validated():
 
 def test_a_rule_known_to_flip_is_not_extrapolated_to_an_unseen_context():
     """Guessing is exactly what a rule with a known exception must not do."""
-    rule = _rule(P.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
+    rule = _rule(ordering_module.extract_ordering_constraints(_episodes()), "company_verify", "db_query")
     assert rule.applies_to(["company_verify", "db_query"], "never_seen_before") is False
 
 
@@ -79,7 +81,7 @@ def test_an_uncontradicted_rule_does_extend_to_unseen_contexts():
         }
         for i in range(9)
     ]
-    rule = _rule(P.extract_ordering_constraints(episodes, min_contexts=1), "a", "b")
+    rule = _rule(ordering_module.extract_ordering_constraints(episodes, min_contexts=1), "a", "b")
     assert rule is not None and rule.contradicted_in == ()
     assert rule.applies_to(["a", "b"], "brand_new_type") is True
 
@@ -90,7 +92,7 @@ def test_a_pair_that_flips_within_one_task_type_is_dropped_for_that_type():
         [{"verdict": "success", "task_type": "mixed", "tool_sequence": ["a", "b"]}] * 6
         + [{"verdict": "success", "task_type": "mixed", "tool_sequence": ["b", "a"]}] * 6
     )
-    constraints = P.extract_ordering_constraints(episodes, min_contexts=1)
+    constraints = ordering_module.extract_ordering_constraints(episodes, min_contexts=1)
     assert _rule(constraints, "a", "b") is None
     assert _rule(constraints, "b", "a") is None
 
@@ -99,12 +101,12 @@ def test_failed_episodes_are_not_treated_as_evidence():
     episodes = [
         {"verdict": "failed", "task_type": "t", "tool_sequence": ["a", "b"]}
     ] * 20
-    assert P.extract_ordering_constraints(episodes, min_contexts=1) == []
+    assert ordering_module.extract_ordering_constraints(episodes, min_contexts=1) == []
 
 
 def test_constraints_reorder_only_what_they_constrain():
-    rule = P.OrderingConstraint(before="verify", after="query", support=9, contexts=2)
-    ordered = P.apply_ordering_constraints(["query", "chart", "verify", "export"], [rule])
+    rule = promotion_types_module.OrderingConstraint(before="verify", after="query", support=9, contexts=2)
+    ordered = ordering_module.apply_ordering_constraints(["query", "chart", "verify", "export"], [rule])
     assert ordered.index("verify") < ordered.index("query")
     # Unconstrained pairs keep their relative order — applying one rule must not
     # silently reshuffle everything else.
@@ -148,7 +150,7 @@ def test_rules_earn_credit_only_by_correcting_a_wrong_plan():
     """Applying rules to the declared tool list flattered them: that list was
     already correctly ordered, so a rule scored a pass without doing work."""
     tasks = [t for t in B.build_task_set() if t.family == "finance"]
-    unhelpful = P.OrderingConstraint(
+    unhelpful = promotion_types_module.OrderingConstraint(
         before="risk_score", after="nonexistent", support=9, contexts=2
     )
     results = B.run_arm(tasks, {}, ordering_rules=[unhelpful])

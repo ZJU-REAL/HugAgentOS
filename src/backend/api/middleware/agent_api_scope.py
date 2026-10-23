@@ -16,13 +16,8 @@ from core.auth.agent_api_scope import enforce_agent_api_route
 from core.auth.backend import UserContext
 from core.db.engine import SessionLocal
 from core.infra.responses import error_response
-from core.services.api_key_service import api_key_token_from_header, resolve_api_key_identity
-from core.services.agent_api_service import (
-    begin_agent_api_call,
-    call_log_tracking,
-    fail_agent_api_call,
-    make_agent_api_scope,
-)
+from core.auth.api_keys import api_key_token_from_header, resolve_api_key_identity
+from core.auth.agent_api import begin_agent_api_call, call_log_tracking, fail_agent_api_call, make_agent_api_scope
 
 
 class AgentApiScopeMiddleware:
@@ -83,7 +78,7 @@ class AgentApiScopeMiddleware:
                 status_code=503,
             )
             return await response(scope, receive, send)
-        from core.services.api_key_runs import request_api_key
+        from core.auth.api_key_runs import request_api_key
 
         credential_token = request_api_key.set((context.user_id, context.api_key_id))
         try:

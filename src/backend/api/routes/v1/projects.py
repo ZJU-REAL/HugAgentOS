@@ -26,16 +26,16 @@ from typing import Literal, Optional
 from urllib.parse import quote
 
 from core.auth.backend import UserContext, get_current_user
-from core.auth.permissions_iface import ProjectAccess, require_project_access
+from core.auth.edition import ProjectAccess, require_project_access
 from core.config.local_mode import local_mode_enabled
 from core.db.engine import get_db
 from core.db.models import Artifact
 from core.infra.responses import created_response, paginated_response, success_response
 from core.infra.time import utc_now
-from core.project_environment.config import ProjectEnvironment
-from core.services.project_environment import ProjectEnvironmentService
-from core.services.project_file_service import ProjectFileService
-from core.services.project_service import ProjectService
+from core.projects.environment.config import ProjectEnvironment
+from core.projects.environment.service import ProjectEnvironmentService
+from core.projects.files import ProjectFileService
+from core.projects.edition import ProjectService
 from fastapi import (
     APIRouter,
     BackgroundTasks,

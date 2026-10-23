@@ -36,15 +36,11 @@ Before switching an existing deployment, back up configuration and database.
 Copy valid file objects and attachments. Check each object's SHA-256.
 Keep source files. Switch STORAGE_TYPE and recreate the application containers after verification.
 
-## File import
+## Existing file migration
 
-Back up data and pause writes. Preview one user's or team's import plan:
-
-    PYTHONPATH=src/backend python -m scripts.import_space_files --user USER_ID
-    PYTHONPATH=src/backend python -m scripts.import_space_files --team TEAM_ID
-
-Review destinations and conflicts. Add --apply to import.
-The tool verifies content and preserves source objects.
+The standalone file import command has been removed. Back up the database and objects,
+pause destination writes, and review a migration plan before moving existing files.
+Check destinations, name conflicts, and content. Preserve source objects and references.
 
 ## Verification
 

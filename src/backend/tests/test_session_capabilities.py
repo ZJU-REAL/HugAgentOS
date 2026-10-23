@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import core.db.engine as dbe
 import pytest
 from core.db.models import ChatSession, UserShadow
-from core.llm import session_capabilities
+from core.llm.runtime import session_capabilities
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -44,7 +44,7 @@ def test_record_and_restore_direct_capabilities(sticky_env, monkeypatch):
         assert row.extra_data["activated_skill_ids"] == ["skill-a", "skill-b"]
         assert row.extra_data["activated_mcp_ids"] == ["mcp-a", "mcp-b"]
 
-    import core.config.catalog_resolver as resolver
+    import core.capabilities.catalog.resolver as resolver
 
     def hard_gate(db, user_id, *, skill_ids=None, mcp_ids=None):
         assert user_id == USER

@@ -13,6 +13,17 @@ events.  Heavy logic lives in dedicated sub-modules:
 import os
 import sys
 
+from orchestration.configuration import register_configuration
+register_configuration()
+
+from features import register_run_capabilities
+
+register_run_capabilities()
+from features import register_model_credentials
+register_model_credentials()
+from integrations import register_credentials
+register_credentials()
+
 from api.lifecycle import lifespan
 from api.openapi import _build_custom_openapi, _docs_title
 from api.health import router as health_router
@@ -20,7 +31,8 @@ from api.middleware.cors import setup_cors
 from api.middleware.edition import edition_router_dependencies, setup_edition_middleware
 from api.middleware.error_handler import setup_error_handlers
 from api.middleware.logging import setup_logging_middleware
-from api.routes import files_router, sites_serve_router
+from api.routes import files_router
+from features.sites.api.sites_serve import router as sites_serve_router
 from api.routes.v1 import (
     CE_ROUTERS,
     EE_ROUTERS,
@@ -29,9 +41,10 @@ from api.routes.v1 import (
     mock_sso_router,
 )
 from core.config.settings import settings
-from core.extensions import load_extensions
-from core.extensions import routers as extension_routers
+from core.harness.registry import load_extensions
+from core.harness.registry import routers as extension_routers
 from core.infra.logging import get_logger
+from features.installed import INSTALLED_FEATURES
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
@@ -184,7 +197,14 @@ for _name, _router, _feature in iter_edition_routers(EE_ROUTERS):
         dependencies=edition_router_dependencies(_feature),
     )
 # Optional modules mount their routers only when switched on.
-load_extensions()
+from features import register_product_tools, register_package_sources, register_resource_owners
+
+register_product_tools()
+from features import register_catalog_options
+register_catalog_options()
+register_package_sources()
+register_resource_owners()
+load_extensions(INSTALLED_FEATURES)
 for _router, _feature in extension_routers():
     app.include_router(_router, dependencies=edition_router_dependencies(_feature))
 

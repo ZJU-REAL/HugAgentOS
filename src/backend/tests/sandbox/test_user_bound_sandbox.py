@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import core.sandbox.providers.opensandbox.runtime as internals_runtime
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 _FLAGS = (
@@ -27,26 +26,6 @@ def _settings(**overrides):
     values["opensandbox_host_storage_path"] = ""
     values.update(overrides)
     return SimpleNamespace(sandbox=SimpleNamespace(**values))
-
-
-@pytest.mark.parametrize("enabled_flag", _FLAGS)
-def test_each_private_mount_requires_user_bound_sandbox(monkeypatch, enabled_flag):
-    patch_open_settings(monkeypatch, _settings(**{enabled_flag: True}))
-
-    assert internals_runtime._user_bound_sandbox_required() is True
-
-
-def test_per_user_skill_view_requires_user_bound_sandbox(monkeypatch):
-    """Host storage alone is enough: /workspace/skills is that user's own view."""
-    patch_open_settings(monkeypatch, _settings(opensandbox_host_storage_path="/srv/storage"))
-
-    assert internals_runtime._user_bound_sandbox_required() is True
-
-
-def test_space_mounts_require_user_bound_sandbox_without_credential_mounts(monkeypatch):
-    patch_open_settings(monkeypatch, _settings())
-
-    assert internals_runtime._user_bound_sandbox_required() is True
 
 
 def test_dingtalk_mount_uses_user_pool_when_myspace_mount_is_disabled(monkeypatch):

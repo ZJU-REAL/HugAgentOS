@@ -9,8 +9,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, List, Tuple
-from .errors import IntegrityFailed
-from .paths import _WINDOWS_RESERVED
+from core.harness.capability_errors import IntegrityFailed
+from core.capabilities.identity_rules import _WINDOWS_RESERVED
 
 MAX_MEMBERS = 5000
 MAX_DEPTH = 24
@@ -28,7 +28,7 @@ def _reject(name: str, why: str) -> None:
     raise IntegrityFailed(f"unsafe archive member {name!r}: {why}")
 
 
-def _normalize_member(name: str) -> str:
+def normalize_member(name: str) -> str:
     if not name:
         _reject(name, "empty name")
     if name.startswith("/") or "\\" in name:
@@ -48,7 +48,7 @@ def _normalize_member(name: str) -> str:
     return "/".join(parts)
 
 
-def _validate_names(names: List[str]) -> None:
+def validate_names(names: List[str]) -> None:
     spellings: Dict[str, str] = {}
     files = set()
     directories = set()
@@ -91,7 +91,7 @@ def inspect_zip(data: bytes) -> Tuple[zipfile.ZipFile, List[ArchiveEntry], str]:
             if info.flag_bits & 1:
                 _reject(info.filename, "encrypted member")
             name = info.filename.rstrip("/") if info.is_dir() else info.filename
-            norm = _normalize_member(name)
+            norm = normalize_member(name)
             if info.is_dir():
                 continue
             if info.file_size > MAX_MEMBER_BYTES:
@@ -109,7 +109,7 @@ def inspect_zip(data: bytes) -> Tuple[zipfile.ZipFile, List[ArchiveEntry], str]:
         entries = [
             ArchiveEntry(n[len(strip) + 1 :] if strip else n, size) for n, size in normalized
         ]
-        _validate_names([entry.relative_path for entry in entries])
+        validate_names([entry.relative_path for entry in entries])
         return zf, entries, strip
     except Exception:
         zf.close()
@@ -145,13 +145,13 @@ def write_files(dest: Path, files: Dict[str, bytes | str]) -> List[str]:
     prepared = []
     total = 0
     for rel, body in files.items():
-        norm = _normalize_member(rel)
+        norm = normalize_member(rel)
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         total += len(data)
         if len(data) > MAX_MEMBER_BYTES or total > MAX_TOTAL_BYTES:
             raise IntegrityFailed("package exceeds the allowed size")
         prepared.append((norm, data))
-    _validate_names([name for name, _ in prepared])
+    validate_names([name for name, _ in prepared])
     dest.mkdir(parents=True, exist_ok=False)
     for name, data in prepared:
         target = dest.joinpath(*PurePosixPath(name).parts)
@@ -166,7 +166,7 @@ def iter_file_stats(root: Path) -> Iterable[Tuple[str, Path, os.stat_result]]:
     Never descend into links or reparse points. Returning each entry's lstat
     avoids repeating filesystem calls for type checks, signatures and sizes.
     """
-    from .junction import _native, is_directory_link
+    from core.infra.directory_links import native_path as _native, is_directory_link
 
     if is_directory_link(root):
         raise IntegrityFailed("package root must be a real directory")

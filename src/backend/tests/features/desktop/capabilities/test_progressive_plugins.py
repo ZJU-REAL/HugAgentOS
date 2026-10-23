@@ -1,0 +1,489 @@
+from features.desktop import plugin_resolution as desktop_plugin_resolution
+"""Desktop plugin activation keeps the prepared source and tool surface."""
+from features.desktop.bridge import identity as bridge_identity
+from features.desktop.capabilities import skill_account
+from features.desktop.capabilities import skill_candidates
+from features.desktop.capabilities import skill_publication
+
+import asyncio
+from types import SimpleNamespace
+import pytest
+from features.desktop.capabilities import plugins, skills, runtime
+from core.capabilities.plugins import runtime as plugin_loader
+from core.capabilities.manifest_protocol import skill_content_hash
+from core.llm.factory.tools.definitions import ToolAssembly
+from core.llm.tools import plugin_activation
+
+
+def test_desktop_directory_defers_skill_until_load_plugin(index_db, caps_root, monkeypatch):
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    body = "---\nname: report\ndescription: Write reports\n---\nUse the report template."
+    skill_publication.publish_local_skill(
+        "report",
+        files={
+            "SKILL.md": "---\nname: report\ndescription: Write reports\n---\nUse the report template."
+        },
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {"slug": "reports", "name": "Reports", "components": {"skills": ["report"]}},
+        owner_user_id="owner",
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["report"],
+        enabled_mcp_ids=[],
+        plugin_ids=None,
+    )
+    assert [p.slug for p in plan.deferred] == ["reports"]
+    run = runtime.prepare(
+        "run", "owner", skill_ids=["report"], plugin_ids=[plan.directory[0].install_id]
+    )
+    run = runtime.preflight(run, plugin_ids=[plan.directory[0].install_id])
+    basic = SimpleNamespace(tools=[], skills_or_loaders=[])
+    collector = ToolAssembly()
+    context = {
+        "toolkit": SimpleNamespace(tool_groups=[basic]),
+        "loader": runtime.frozen_loader(run),
+        "prepared_run": run,
+        "prepared_servers": {},
+        "persist": False,
+    }
+    plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
+    assert basic.skills_or_loaders == []
+    tool = next(t for t in list(collector) if t.name == "load_plugin")
+    asyncio.run(tool(plugin="reports"))
+    assert len(basic.skills_or_loaders) == 1
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_partial_plugin_and_explicit_skill_preserve_selected_surface(
+    index_db, caps_root, monkeypatch, bound
+):
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    for name in ["report", "chart"]:
+        body = f"---\nname: {name}\ndescription: Test skill\n---\nInstructions"
+        skill_publication.publish_local_skill(
+            name,
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            owner_user_id="owner",
+        )
+    plugins.publish_local_plugin(
+        {"slug": "reports", "components": {"skills": ["report", "chart"]}}, owner_user_id="owner"
+    )
+    args = dict(
+        user_id="owner",
+        enabled_skill_ids=["report"],
+        enabled_mcp_ids=[],
+        plugin_ids=["reports"] if bound else None,
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(**args)
+    assert plan.deferred_skill_ids == {"report"}
+    run = runtime.prepare("partial", "owner", skill_ids=["report"])
+    frozen = runtime.preflight(
+        run)
+    assert frozen.dependency_report["ready"]
+    explicit = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        **args, invoked_skill_ids=["report"]
+    )
+    assert explicit.deferred_skill_ids == set()
+
+
+@pytest.mark.parametrize("mutation", ["revoke", "tamper"])
+def test_load_plugin_rechecks_definition_before_exposing_skills(
+    index_db, caps_root, monkeypatch, mutation
+):
+    from features.desktop.capabilities import registry
+    from core.harness.capability_errors import CapabilityError
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    body = "---\nname: report\ndescription: Test skill\n---\nInstructions"
+    skill_publication.publish_local_skill(
+        "report",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    component = plugins.publish_local_plugin(
+        {"slug": "reports", "components": {"skills": ["report"]}}, owner_user_id="owner"
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner", enabled_skill_ids=["report"], enabled_mcp_ids=[]
+    )
+    run = runtime.prepare("revoke", "owner", skill_ids=["report"])
+    run = runtime.preflight(
+        run)
+    loader = runtime.frozen_loader(run)
+    basic = SimpleNamespace(tools=[], skills_or_loaders=[])
+    collector = ToolAssembly()
+    plugin_activation.register_load_plugin(
+        collector,
+        plan.deferred_by_slug(),
+        {
+            "toolkit": SimpleNamespace(tool_groups=[basic]),
+            "loader": loader,
+            "prepared_run": run,
+            "prepared_servers": {},
+            "persist": False,
+        },
+    )
+    if mutation == "revoke":
+        registry.set_enabled("plugin:local:reports", False)
+    else:
+        component.entry_file.write_text("{}")
+    with pytest.raises(CapabilityError):
+        asyncio.run(next(t for t in collector if t.name == "load_plugin")._func("reports"))
+    assert basic.skills_or_loaders == []
+
+
+def test_pending_cloud_plugin_is_discovered_from_manifest(index_db, caps_root, monkeypatch):
+    import io, zipfile
+    from features.desktop.capabilities import registry
+    from core.capabilities.reference import cloud_ref, profile_id
+    from features.desktop.bridge import client as bridge, bundles as bundles
+    from core.capabilities.manifest_protocol import entity_content_hash
+    from tests.features.desktop.capabilities.test_runtime_recovery import state
+    from core.db.engine import Base
+
+    with index_db() as db:
+        Base.metadata.create_all(db.get_bind())
+    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    st = state("cloud-owner")
+    monkeypatch.setattr(bridge_identity, 'get_state', lambda: st)
+    monkeypatch.setattr(skill_account, 'current_local_user_id', lambda: "owner")
+    monkeypatch.setattr(bridge_identity, 'ensure_current_authorization', lambda: None)
+    files = plugins.plugin_manifest_files({"slug": "reports", "components": {"skills": ["report"]}})
+    inst = registry.upsert(
+        profile_id=profile_id(st["cloud_base"], "cloud-owner"),
+        ref=cloud_ref(st["cloud_base"], "plugin", "reports", scope="private"),
+        content_hash=entity_content_hash(files),
+        payload={"cloud_install_id": "reports@cloud", "components": {"skills": ["report"]}},
+    )
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as out:
+        for name, body in files.items():
+            out.writestr(name, body)
+    # Bundle download is the network boundary; publication/verification remain real.
+    monkeypatch.setattr(bundles, "_download", lambda *a: archive.getvalue())
+    body = "---\nname: report\ndescription: Cloud report\n---\nInstructions"
+    registry.upsert(
+        profile_id=inst.profile_id,
+        ref=cloud_ref(st["cloud_base"], "skill", "report", scope="private"),
+        content_hash=skill_content_hash(body, {}),
+    )
+    skill_archive = io.BytesIO()
+    with zipfile.ZipFile(skill_archive, "w") as out:
+        out.writestr("SKILL.md", body)
+    from features.desktop.bridge import skills as desktop_cloud_skills
+
+    monkeypatch.setattr(desktop_cloud_skills, "_download", lambda *a: skill_archive.getvalue())
+    assert not registry.get(inst.install_id).ready
+    defaults = desktop_plugin_resolution.prepare_desktop_plugin_skill_defaults("owner", [])
+    assert defaults == ["report"]
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner", enabled_skill_ids=defaults, enabled_mcp_ids=[]
+    )
+    assert plan.deferred_skill_ids == {"report"}
+    assert plan.directory[0].install_id == inst.install_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["", "child-agent"])
+async def test_load_plugin_adds_frozen_mcp_schema_to_live_toolkit(
+    index_db, caps_root, monkeypatch, scope
+):
+    from agentscope.tool import Toolkit
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    plugins.publish_local_plugin(
+        {"slug": "lookup", "components": {"mcp": ["lookup-mcp"]}}, owner_user_id="owner"
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=[],
+        enabled_mcp_ids=["lookup-mcp"],
+        plugin_ids=["lookup"] if scope else None,
+    )
+    run = runtime.prepare("mcp-run", "owner", skill_ids=[], scope_id=scope)
+    configs = {
+        "lookup-mcp": {
+            "transport": "streamable_http",
+            "url": "https://cloud.example/call",
+            "schema_source": "cloud_manifest",
+            "gateway_invoke_url": "https://cloud.example/call",
+            "schema_hash": "a" * 64,
+            "manifest_tools": [{"name": "find_record", "inputSchema": {"type": "object"}}],
+        }
+    }
+    runtime.bind_mcp(run, configs, None)
+    run = runtime.preflight(
+        run, available_mcp={"lookup-mcp"})
+    collector = ToolAssembly()
+    context = {
+        "prepared_run": run,
+        "prepared_servers": configs,
+        "persist": False,
+        "loader": runtime.frozen_loader(run),
+        "close_list": [],
+    }
+    plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
+    toolkit = Toolkit(tools=list(collector))
+    context["toolkit"] = toolkit
+    before = await toolkit.get_tool_schemas()
+    assert "find_record" not in str(before)
+    await next(t for t in collector if t.name == "load_plugin")(plugin="lookup")
+    assert "find_record" in str(await toolkit.get_tool_schemas())
+    for client in context["close_list"]:
+        await client.close()
+
+
+def test_plugin_selected_skill_version_constraint_is_not_bypassed(index_db, caps_root, monkeypatch):
+    from core.harness.capability_errors import PackageMissing
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    body = "---\nname: report\ndescription: Test\n---\nInstructions"
+    skill_publication.publish_local_skill(
+        "report",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        version="1.0",
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {
+            "slug": "reports",
+            "components": {"skills": [{"id": "report", "version_constraint": ">=2"}]},
+        },
+        owner_user_id="owner",
+    )
+    # 版本约束对不上：这个插件这一轮直接不出现，不影响别的能力。
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner", enabled_skill_ids=["report"], enabled_mcp_ids=[]
+    )
+    assert [item.install_id for item in plan.directory] == []
+
+
+def test_activation_checks_requirement_against_frozen_skill_version(
+    index_db, caps_root, monkeypatch
+):
+    from features.desktop.capabilities.dependency import DependencyMissing
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+
+    def install(version):
+        body = f"---\nname: report\ndescription: Test\n---\nVersion {version}"
+        skill_publication.publish_local_skill(
+            "report",
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            version=version,
+            owner_user_id="owner",
+        )
+
+    install("1.0")
+    run = runtime.prepare("frozen-version", "owner", skill_ids=["report"])
+    install("2.0")
+    plugins.publish_local_plugin(
+        {
+            "slug": "reports",
+            "components": {"skills": [{"id": "report", "version_constraint": ">=2"}]},
+        },
+        owner_user_id="owner",
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner", enabled_skill_ids=["report"], enabled_mcp_ids=[]
+    )
+    # 约束要拿这一轮冻结的 1.0 去对，而不是拿当前安装的 2.0——所以激活必须被拦下。
+    run = runtime.preflight(run)
+    with pytest.raises(DependencyMissing):
+        runtime.validate_activation(run, plan.directory[0].capability_nodes)
+
+
+@pytest.mark.parametrize("scope", [None, ["sites"]])
+def test_incomplete_plugin_never_advertises_skill_only_success(
+    index_db, caps_root, monkeypatch, scope
+):
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    for sid in ("site-builder", "cloud-site-builder"):
+        body = f"---\nname: {sid}\ndescription: Build and publish a site\n---\nCall publish_site."
+        skill_publication.publish_local_skill(
+            sid,
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            owner_user_id="owner",
+        )
+    plugins.publish_local_plugin(
+        {"slug": "sites", "components": {"skills": ["site-builder"], "mcp": ["site-publish"]}},
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {
+            "slug": "cloud-sites",
+            "components": {"skills": ["cloud-site-builder"], "mcp": ["site-publish-private"]},
+        },
+        owner_user_id="owner",
+    )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["site-builder", "cloud-site-builder"],
+        enabled_mcp_ids=["site-publish-private"],
+        plugin_ids=scope,
+        activated_ids=[None],
+    )
+    assert "sites" not in [p.slug for p in plan.directory]
+    assert plan.unavailable_skill_ids == {"site-builder"}
+    if scope is None:
+        assert [p.slug for p in plan.directory] == ["cloud-sites"]
+        assert plan.directory[0].mcp_ids == ["site-publish-private"]
+
+
+@pytest.mark.parametrize("selection", ["plugin", "skill"])
+def test_explicit_incomplete_plugin_reports_missing_binding(
+    index_db, caps_root, monkeypatch, selection
+):
+    from core.harness.capability_errors import PackageMissing
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    body = "---\nname: site-builder\ndescription: Build a site\n---\nCall publish_site."
+    skill_publication.publish_local_skill(
+        "site-builder",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    plugins.publish_local_plugin(
+        {"slug": "sites", "components": {"skills": ["site-builder"], "mcp": ["site-publish"]}},
+        owner_user_id="owner",
+    )
+    def resolve():
+        return desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+            user_id="owner",
+            enabled_skill_ids=["site-builder"],
+            enabled_mcp_ids=[],
+            activated_ids=["plugin:local:sites"] if selection == "plugin" else [],
+            invoked_skill_ids=["site-builder"] if selection == "skill" else [],
+        )
+
+    if selection == "skill":
+        # 模型点名要用的技能靠一个连不上的连接器：这一轮必须停下来说清楚。
+        with pytest.raises(PackageMissing, match="unavailable MCP servers"):
+            resolve()
+        return
+    # 只是把插件加载进来：插件不出现在目录里，它的技能记为不可用。
+    plan = resolve()
+    assert [item.install_id for item in plan.directory] == []
+    assert "site-builder" in plan.unavailable_skill_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["", "scheduled-task", "child-agent"])
+async def test_available_namespaced_plugin_publishes_tools_after_activation(
+    index_db, caps_root, monkeypatch, scope
+):
+    from agentscope.tool import Toolkit
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    for key, mcp in (("sites", "site-publish"), ("sites-private", "site-publish-private")):
+        body = f"---\nname: {key}\ndescription: Build a site\n---\nCall publish_site."
+        skill_publication.publish_local_skill(
+            key,
+            files={"SKILL.md": body},
+            content_hash=skill_content_hash(body, {}),
+            owner_user_id="owner",
+        )
+        plugins.publish_local_plugin(
+            {"slug": key, "components": {"skills": [key], "mcp": [mcp]}},
+            owner_user_id="owner",
+        )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["sites", "sites-private"],
+        enabled_mcp_ids=["site-publish-private"],
+    )
+    assert [p.slug for p in plan.directory] == ["sites-private"]
+    selected = [sid for sid in ["sites", "sites-private"] if sid not in plan.unavailable_skill_ids]
+    run = runtime.prepare("site-run", "owner", skill_ids=selected, scope_id=scope)
+    configs = {
+        "site-publish-private": {
+            "transport": "streamable_http",
+            "url": "https://cloud.example/call",
+            "schema_source": "cloud_manifest",
+            "gateway_invoke_url": "https://cloud.example/call",
+            "schema_hash": "a" * 64,
+            "manifest_tools": [{"name": "publish_site", "inputSchema": {"type": "object"}}],
+        }
+    }
+    runtime.bind_mcp(run, configs, None)
+    run = runtime.preflight(
+        run, available_mcp=set(configs))
+    collector = ToolAssembly()
+    context = {
+        "prepared_run": run,
+        "prepared_servers": configs,
+        "persist": False,
+        "loader": runtime.frozen_loader(run),
+        "close_list": [],
+    }
+    plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
+    toolkit = Toolkit(tools=list(collector))
+    context["toolkit"] = toolkit
+    assert "publish_site" not in str(await toolkit.get_tool_schemas())
+    await next(t for t in collector if t.name == "load_plugin")(plugin="sites-private")
+    assert "publish_site" in str(await toolkit.get_tool_schemas())
+    for client in context["close_list"]:
+        await client.close()
+
+
+def test_shared_skill_remains_callable_via_complete_plugin(index_db, caps_root, monkeypatch):
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    body = "---\nname: shared\ndescription: Shared skill\n---\nInstructions."
+    skill_publication.publish_local_skill(
+        "shared",
+        files={"SKILL.md": body},
+        content_hash=skill_content_hash(body, {}),
+        owner_user_id="owner",
+    )
+    for slug, mcp in (("broken", "missing-mcp"), ("working", "available-mcp")):
+        plugins.publish_local_plugin(
+            {"slug": slug, "components": {"skills": ["shared"], "mcp": [mcp]}},
+            owner_user_id="owner",
+        )
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=["shared"],
+        enabled_mcp_ids=["available-mcp"],
+        invoked_skill_ids=["shared"],
+    )
+    assert plan.unavailable_skill_ids == set()
+    assert [p.slug for p in plan.directory] == ["working"]
+    assert plan.activated_slugs == ["working"]
+
+
+def test_explicit_mcp_only_plugin_cannot_vanish(index_db, caps_root, monkeypatch):
+    from core.harness.capability_errors import PackageMissing
+
+    monkeypatch.setattr(skill_account, 'current_account_profile', lambda: None)
+    monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
+    plugins.publish_local_plugin(
+        {"slug": "lookup", "components": {"mcp": ["missing"]}}, owner_user_id="owner"
+    )
+    # 插件要的连接器不存在：它这一轮不出现，而不是让整轮失败。
+    plan = desktop_plugin_resolution.resolve_desktop_progressive_plugins(
+        user_id="owner",
+        enabled_skill_ids=[],
+        enabled_mcp_ids=[],
+        activated_ids=["plugin:local:lookup"],
+    )
+    assert [item.install_id for item in plan.directory] == []

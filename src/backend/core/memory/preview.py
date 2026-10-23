@@ -13,6 +13,7 @@ def sanitized_preview(text: str, *, max_chars: int) -> str:
         if result.reject:
             return "[REDACTED]"
         collapsed = result.text or collapsed
-    except Exception:
-        pass
+    except Exception as fallback_error:
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.memory.preview:sanitized_preview', fallback_error)
     return collapsed[:max_chars]

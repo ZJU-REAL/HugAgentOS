@@ -1,16 +1,9 @@
+from core.llm import prompt_files as prompt_files_module
 from core.db.models import UserShadow
-from core.llm.builtin_subagents import (
-    BUILTIN_SUBAGENTS,
-    build_builtin_runtime_profile,
-    effective_builtin_capabilities,
-    get_builtin_subagent,
-    list_builtin_subagents,
-    merge_builtin_subagents,
-    refresh_builtin_subagents,
-)
-from core.llm.subagent_tool import build_subagent_prompt_section
-from core.services import prompt_version_service
-from core.services.user_service import UserService
+from core.capabilities.agents.builtin import BUILTIN_SUBAGENTS, build_builtin_runtime_profile, effective_builtin_capabilities, get_builtin_subagent, list_builtin_subagents, merge_builtin_subagents, refresh_builtin_subagents
+from core.llm.subagents.tool import build_subagent_prompt_section
+from core.llm import prompt_versions as prompt_version_service
+from core.auth.users import UserService
 
 
 def test_platform_defaults_are_exactly_explorer_worker_reviewer():
@@ -223,7 +216,7 @@ def test_main_prompt_omits_parent_disabled_capability_names():
 
 
 def test_subagent_prompt_kind_has_three_independent_filesystem_parts():
-    parts = prompt_version_service._read_fs_parts("subagents")
+    parts = prompt_files_module.read_fs_parts("subagents")
 
     assert [part["part_id"] for part in parts] == ["explorer", "reviewer", "worker"]
     assert all(part["content"].strip() for part in parts)

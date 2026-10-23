@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from api.routes.v1.auth import router as auth_router
 from api.routes.v1.users import router as users_router
 from cli import DEFAULT_LOCAL_CONTEXT_LENGTH, build_parser, configure_model
-from core.db import model_repository
+from core.models import repository as model_repository
 
 
 def test_ce_has_no_commercial_license_package():
@@ -25,7 +25,7 @@ def test_ce_has_no_enterprise_modules_or_model_exports():
 
     for module_name in (
         "edition_ee",
-        "core.kb.dify_kb",
+        "features.knowledge.dify_kb",
         "core.auth.team_permissions",
         "core.services.team_service",
         "core.db.repository.team",
@@ -118,7 +118,7 @@ def test_ce_user_router_exposes_self_service_password_change():
 def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_path):
     import core.sandbox.providers.account_env as _common_account_env
     import core.sandbox.workspace.credentials as _common_credentials
-    from core.services.dingtalk_service import _dws_env
+    from integrations.dingtalk.service import _dws_env
 
     monkeypatch.setattr(_common_credentials, "dws_home_dir", lambda _user_id: tmp_path / "dws-home")
     monkeypatch.setattr(
@@ -134,10 +134,10 @@ def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_
 
 
 def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
-    from core.config.catalog_runtime import get_runtime_catalog, invalidate_runtime_catalog_cache
+    from core.capabilities.catalog.runtime import get_runtime_catalog, invalidate_runtime_catalog_cache
     from core.db.models import AdminMcpServer
-    from core.services import mcp_service
-    from core.services.mcp_service import McpServerConfigService
+    from core.capabilities.mcp import service as mcp_service
+    from core.capabilities.mcp.service import McpServerConfigService
     from extensions.mcp_servers._ports import PORTS
 
     assert "query_database" not in PORTS
@@ -196,7 +196,7 @@ def test_ce_local_launcher_covers_default_plugin_mcp_servers():
 
 def test_ce_fresh_database_bootstraps_default_plugins(db_session):
     from core.db.models import AdminMcpServer, ContentBlock, InstalledPlugin
-    from core.services import plugin_service
+    from core.capabilities.plugins import service as plugin_service
 
     assert plugin_service.ensure_default_plugins_bootstrapped(db_session) is True
     installs = db_session.query(InstalledPlugin).filter(InstalledPlugin.owner_user_id.is_(None))
@@ -217,7 +217,7 @@ def test_ce_fresh_database_bootstraps_default_plugins(db_session):
 
 
 def test_ce_launcher_and_catalog_cover_core_mcp_servers():
-    from core.services.mcp_service import BUILTIN_MCP_SERVERS
+    from core.capabilities.mcp.service import BUILTIN_MCP_SERVERS
     from extensions.mcp_servers._launcher import PORTS as LAUNCHER_PORTS
     from extensions.mcp_servers._ports import PORTS, package_name
 
@@ -238,7 +238,7 @@ def test_ce_launcher_and_catalog_cover_core_mcp_servers():
 
 def test_ce_fresh_database_seeds_core_mcp_servers_enabled(db_session):
     from core.db.models import AdminMcpServer
-    from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
+    from core.capabilities.mcp.service import seed_builtin_mcp_servers_if_empty
 
     expected = {
         "retrieve_dataset_content",
@@ -271,7 +271,7 @@ def test_serve_cli_accepts_explicit_public_bind():
 
 def test_configure_chat_model_persists_context_window(monkeypatch):
     from core.db import engine
-    from core.services.model_config import ModelConfigService
+    from core.models.config import ModelConfigService
 
     class FakeDb:
         closed = False
@@ -368,7 +368,7 @@ def test_ce_opensandbox_provider_is_shared_runtime(monkeypatch):
     from core.sandbox.providers.edition import PersistentSandboxProvider
     from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
-    from core.spaces.sandbox import SpaceSandboxMixin
+    from core.files.spaces.sandbox import SpaceSandboxMixin
 
     assert issubclass(PersistentSandboxProvider, OpenSandboxProvider)
     assert issubclass(PersistentSandboxProvider, SpaceSandboxMixin)
@@ -404,7 +404,7 @@ def _personal_name_migration():
 
 def test_ce_personal_name_migration_after_current_baseline(monkeypatch):
     import sqlalchemy as sa
-    from core.db.edition_tables import ce_create_all
+    from core.db.edition import ce_create_all
     from core.db.personal_file_names import INDEX_NAMES
 
     migration = _personal_name_migration()

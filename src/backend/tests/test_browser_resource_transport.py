@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 import pytest
 
-from core.plugins.resources import service
-from core.plugins.resources.transport import RuntimeTransport
+from core.capabilities.plugins.resources import service
+from core.capabilities.plugins.resources.transport import RuntimeTransport
 
 
 async def test_commands_reuse_one_tcp_connection_and_keep_runtime_authentication():
@@ -61,7 +61,7 @@ async def test_commands_reuse_one_tcp_connection_and_keep_runtime_authentication
 
 async def test_websocket_revocation_stops_commands_and_closes_transport(monkeypatch):
     from starlette.websockets import WebSocketDisconnect
-    from core.plugins.resources import stream, authentication
+    from core.capabilities.plugins.resources import stream, authentication
     from contextlib import nullcontext
 
     bodies, writers, handlers, transports = [], [], set(), []

@@ -25,7 +25,7 @@ allowed_tools: Read, Bash   # 可选，声明技能用到的工具
 ---
 ```
 
-- 后端技能引擎（core/agent_skills/registry.py）对 `name` 的校验是 `^[a-z0-9_-]{1,63}$`——
+- 后端技能引擎（core/capabilities/skills/registry.py）对 `name` 的校验是 `^[a-z0-9_-]{1,63}$`——
   **允许下划线**（与 Anthropic 原版只许连字符不同）。含空格/中文/大写的 name 会在落库时被
   自动规范化，但建议一开始就写规范。
 - `description` 缺失或为空会直接落库失败。

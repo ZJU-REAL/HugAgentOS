@@ -38,7 +38,7 @@ RUN npm ci
 COPY src/frontend/ .
 COPY scripts/build-chat-sdk.mjs /build/scripts/
 COPY scripts/sync-workbench-schema.mjs scripts/build-workbench.mjs scripts/workbench-build-contract.mjs /build/scripts/
-COPY src/backend/core/applications/schemas /build/src/backend/core/applications/schemas
+COPY src/backend/features/workbench/schemas /build/src/backend/features/workbench/schemas
 
 # Build production bundle
 RUN npm run build

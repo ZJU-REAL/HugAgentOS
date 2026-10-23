@@ -31,8 +31,8 @@ from core.memory.graph import delete_graph_relation, list_graph_relations
 from core.memory.profile import delete_field as profile_delete_field
 from core.memory.profile import get as profile_get
 from core.memory.service import delete_all_memories, delete_memory, get_all_memories
-from core.services import UserService
-from core.services.memory_settings_service import MemorySettingsService
+from core.auth.users import UserService
+from core.memory.settings import MemorySettingsService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -68,7 +68,7 @@ class ProfileFieldRequest(BaseModel):
 def _is_reranker_available() -> bool:
     """Check if reranker endpoint is configured at the infra level."""
     try:
-        from core.services.model_config import ModelConfigService
+        from core.models.config import ModelConfigService
 
         cfg = ModelConfigService.get_instance().resolve("reranker")
         if cfg and cfg.base_url and cfg.model_name:
@@ -163,8 +163,8 @@ async def list_memories(
 
     scope_user_id = str(user.user_id)
     if project_id:
-        from core.services.project_scope import project_memory_policy
-        from core.auth.permissions_iface import resolve_project_access
+        from core.projects.edition import project_memory_policy
+        from core.auth.edition import resolve_project_access
         from core.db.models import Project
 
         project = db.query(Project).filter_by(project_id=project_id, deleted_at=None).first()
@@ -291,7 +291,7 @@ async def remove_profile_field(
     if not ok:
         return error_response(code=50001, message="删除失败", status_code=500)
     if message_id:
-        from core.evolution.settlement_store import drop_entry
+        from core.evolution.settlement.settlement_store import drop_entry
 
         drop_entry(message_id, key)
     return success_response(data={"deleted": key})
@@ -311,7 +311,7 @@ async def remove_graph_relation(
     if not ok:
         return error_response(code=50001, message="删除失败", status_code=500)
     if message_id:
-        from core.evolution.settlement_store import drop_entry
+        from core.evolution.settlement.settlement_store import drop_entry
 
         drop_entry(message_id, relation_id)
     return success_response(data={"deleted": relation_id})
@@ -362,7 +362,7 @@ async def remove_memory(
     if not ok:
         return error_response(code=50001, message="删除失败", status_code=500)
     if message_id:
-        from core.evolution.settlement_store import drop_entry
+        from core.evolution.settlement.settlement_store import drop_entry
 
         drop_entry(message_id, memory_id)
     return success_response(data={"deleted": memory_id})
@@ -461,7 +461,7 @@ async def get_memory_graph(
     scope_user_id = str(user.user_id)
     workspace_id = "default"
     if project_id:
-        from core.services.project_scope import project_memory_policy
+        from core.projects.edition import project_memory_policy
 
         policy = project_memory_policy(db, project_id, scope_user_id)
         if policy is None:

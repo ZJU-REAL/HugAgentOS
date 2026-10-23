@@ -69,7 +69,7 @@ def test_preview_file_returns_inline_pdf_for_powerpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(file_routes, "_convert_office_to_pdf", lambda source_path, file_id: (str(pdf_path), str(temp_dir)))
 
     (tmp_path / 'deck.pptx').write_bytes(b'synthetic unique preview cache source')
-    from core.content.office_preview_cache import cached_office_pdf
+    from core.files.content.office_preview_cache import cached_office_pdf
     monkeypatch.setattr(file_routes, "cached_office_pdf", lambda source, fid, convert:
         cached_office_pdf(source, fid, convert, root=tmp_path / "cache", version="test"))
     background_tasks = BackgroundTasks()

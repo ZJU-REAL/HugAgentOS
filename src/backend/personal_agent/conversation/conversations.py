@@ -1,7 +1,8 @@
 """Conversation routing for one identity: web main plus isolated IM peers/rooms."""
 import hashlib
 from sqlalchemy import select
-from core.db.models import ChatSession, ChatMessage, ChannelConnection
+from core.db.models import ChatSession, ChatMessage
+from integrations.channels.models import ChannelConnection
 from personal_agent.models import PersonalMessageTask
 
 MARKER = "personal_agent_channel"

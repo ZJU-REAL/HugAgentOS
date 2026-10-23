@@ -4,26 +4,9 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Sequence, Optional
-from .preferences import DESTRUCTIVE_OPS, _preset_answers
-from .specs import ToolPermissionRegistry, _one_shot_write_root
-from .models import (
-    DOMAIN_APPROVAL,
-    DOMAIN_DENY,
-    DOMAIN_LOCAL_COMMAND,
-    DOMAIN_LOCAL_PATH,
-    DOMAIN_MYSPACE,
-    FAIL_CLOSED_MODE,
-    FALLBACK_ALLOW,
-    LocalCommandAuthorization,
-    PermissionIntent,
-    PermissionOutcome,
-    PermissionRuntime,
-    PermissionTicket,
-    READ,
-    UNCONFINED_APPROVAL_MODES,
-    _call_args,
-    _json_hash,
-)
+from core.sandbox.permissions.approval import DESTRUCTIVE_OPS, _preset_answers
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, _one_shot_write_root
+from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, DOMAIN_DENY, DOMAIN_LOCAL_COMMAND, DOMAIN_LOCAL_PATH, DOMAIN_MYSPACE, FAIL_CLOSED_MODE, FALLBACK_ALLOW, LocalCommandAuthorization, PermissionIntent, PermissionOutcome, PermissionRuntime, PermissionTicket, READ, UNCONFINED_APPROVAL_MODES, _call_args, _json_hash
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +170,7 @@ class ToolPermissionService:
 
         mode = self.runtime.approval_mode
         try:
-            from core.services.local_grant_service import grants_for_gate, policy_for_gate
+            from core.harness.registry.local_files import grants_for_gate, policy_for_gate
 
             return mode, grants_for_gate(), policy_for_gate(mode)
         except Exception:  # unreadable configuration must never grant access
@@ -208,7 +191,7 @@ class ToolPermissionService:
             )
 
     def _execution_directory(self) -> str:
-        from core.llm.tools._paths import workspace_directory
+        from core.sandbox.workspace.resolution import workspace_directory
 
         return workspace_directory(
             self.runtime.sandbox_session_id or self.runtime.chat_id,
@@ -269,7 +252,7 @@ class ToolPermissionService:
         if self._no_ui_pass_through(intent):
             return {"reasons": [*verdict.reasons, "no_approval_ui_pass_through:local_path"]}
 
-        from core.llm.tools import _tool_confirmation as confirm
+        from core.llm.tools import confirmation as confirm
 
         op = confirm.OP_LOCAL_READ if intent.action == READ else confirm.OP_LOCAL_WRITE
         blocked = await confirm.gate(
@@ -325,7 +308,7 @@ class ToolPermissionService:
             and not self._answers_for_user(dangerous=bool(danger_categories(verdict.reasons)))
             and not self._no_ui_pass_through(intent)
         ):
-            from core.llm.tools import _tool_confirmation as confirm
+            from core.llm.tools import confirmation as confirm
 
             blocked = await confirm.gate(
                 chat_id=self.runtime.chat_id,
@@ -360,7 +343,7 @@ class ToolPermissionService:
         approved one-shot write would be silently dropped.
         """
         try:
-            from core.llm.tools._paths import to_physical_path
+            from core.sandbox.workspace.resolution import to_physical_path
 
             session = self.runtime.sandbox_session_id or self.runtime.chat_id
             return to_physical_path(
@@ -457,7 +440,7 @@ class ToolPermissionService:
         *,
         interactive: bool,
     ) -> dict[str, Any]:
-        from core.llm.tools import _tool_confirmation as confirm
+        from core.llm.tools import confirmation as confirm
 
         op = intent.op or intent.action
         if self._answers_for_user(dangerous=op in DESTRUCTIVE_OPS):

@@ -8,18 +8,19 @@ from contextlib import asynccontextmanager
 import pytest
 import uvicorn
 from agentscope.agent import Agent
-from agentscope.mcp import HttpMCPConfig
 from agentscope.message import TextBlock, ToolCallBlock, UserMsg
 from agentscope.model import ChatResponse
 from agentscope.tool import Toolkit
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-from core.llm.mcp_manager import BareNameMCPClient
+from core.llm.mcp.lifetime import discover
 
 
 class ThreeCallsModel:
     model = "mcp-concurrency-probe"
     context_size = 32768
+    from agentscope.formatter import OpenAIChatFormatter
+    formatter = OpenAIChatFormatter()
 
     def __init__(self):
         self.calls = 0
@@ -41,21 +42,23 @@ class ThreeCallsModel:
 
 
 @asynccontextmanager
-async def probe_server():
+async def probe_server(mcp_server=None, *, json_response=True):
     intervals = {}
-    server = FastMCP("parallel-probe", stateless_http=True, json_response=True)
+    server = mcp_server or MCPServer("parallel-probe")
 
-    @server.tool(annotations={"readOnlyHint": True})
     async def probe(item: int) -> str:
         started = time.monotonic()
         await asyncio.sleep(0.4)
         intervals[item] = (started, time.monotonic())
         return f"completed-{item}"
 
+    if mcp_server is None:
+        server.tool(annotations={"readOnlyHint": True})(probe)
+
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
-    http = uvicorn.Server(uvicorn.Config(server.streamable_http_app(), log_level="error"))
+    http = uvicorn.Server(uvicorn.Config(server.streamable_http_app(stateless_http=True, json_response=json_response), log_level="error"))
     task = asyncio.create_task(http.serve(sockets=[sock]))
     try:
         async with asyncio.timeout(10):
@@ -71,23 +74,18 @@ async def probe_server():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stateful", [False, True])
-async def test_agent_overlaps_real_mcp_requests(stateful):
+async def test_agent_overlaps_real_mcp_requests():
     async with probe_server() as (url, intervals):
-        client = BareNameMCPClient(
-            name="parallel-probe",
-            is_stateful=stateful,
-            mcp_config=HttpMCPConfig(url=url),
-        )
+        client = await discover("parallel-probe", {"transport": "streamable_http", "url": url})
         try:
-            await client.connect()
-            # Enumeration and direct lookup must preserve the same policy.
-            await client.list_tools()
+            tools = client.tools
+            # The probe is annotated read-only, so the agent may overlap its calls.
+            assert all(tool.is_concurrency_safe for tool in tools)
             agent = Agent(
                 name="probe-agent",
                 system_prompt="Run the probes.",
                 model=ThreeCallsModel(),
-                toolkit=Toolkit(mcps=[client]),
+                toolkit=Toolkit(tools=tools),
             )
             started = time.monotonic()
             result = await agent.reply(
@@ -98,7 +96,7 @@ async def test_agent_overlaps_real_mcp_requests(stateful):
             overlap = min(end for _, end in intervals.values()) - max(
                 start for start, _ in intervals.values()
             )
-            print(f"stateful={stateful} calls=3 elapsed={elapsed:.3f}s overlap={overlap:.3f}s")
+            print(f"calls=3 elapsed={elapsed:.3f}s overlap={overlap:.3f}s")
             assert overlap > 0.2, "MCP requests did not execute concurrently"
             assert "done" in str(result)
         finally:

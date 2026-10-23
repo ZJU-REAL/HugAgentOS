@@ -1,11 +1,8 @@
 """Environment-backed configuration values."""
 from __future__ import annotations
 import os
-import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
-from .environment import _env, _bool, _int, _float, _REPO_ROOT
+from .environment import _env, _bool, _int
 
 @dataclass(frozen=True)
 class SandboxSettings:
@@ -123,7 +120,7 @@ class SandboxSettings:
     # The all-modes code-execution capability switch has moved out of settings:
     # the sole control source is sandbox.code_capability_enable in the Config
     # admin panel "System Config" (option B, see
-    # core.services.system_config.code_capability_enabled). The env is retired.
+    # core.config.store.system_config.code_capability_enabled). The env is retired.
     # Hard safety for user confirmation of MySpace write operations (docs §13).
     # true (default): Write/Edit/Delete/Move on /myspace must pass out-of-band
     # user confirmation; non-interactive mode (sub-agent) rejects writes
@@ -265,7 +262,7 @@ class SandboxSettings:
     # then hot-swaps _template with the new template id + writes it back to
     # .env. An empty host means "remote rebuild not configured": the rebuild
     # endpoint errors out for cube and directs users to the manual docs path.
-    # See core/services/cube_template_builder.py for details.
+    # See features/sandbox_ops/cube_template.py for details.
     cube_node_ssh_host: str = field(
         default_factory=lambda: _env("CUBE_NODE_SSH_HOST", _env("CUBE_NODE_IP", "")).strip()
     )

@@ -1,5 +1,5 @@
 .PHONY: help install install-dev dev test selftest lint format type-check security-scan \
-	migrate migrate-new migrate-down migrate-history db-reset db-seed \
+	migrate migrate-new migrate-down migrate-history db-reset \
 	build build-no-cache up up-recreate down down-volumes restart logs logs-backend logs-frontend ps \
 	health-check clean clean-docker clean-all
 
@@ -32,7 +32,6 @@ help:
 	@echo "  make migrate-down   - Rollback one migration"
 	@echo "  make migrate-history - Show migration history"
 	@echo "  make db-reset       - Reset DB to latest (destructive)"
-	@echo "  make db-seed        - Seed sample data"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make build          - Build images"
@@ -104,9 +103,6 @@ db-reset:
 	@read confirm
 	alembic downgrade base
 	alembic upgrade head
-
-db-seed:
-	PYTHONPATH=$(PYTHONPATH_BACKEND) $(PYTHON) src/backend/scripts/seed_data.py
 
 build:
 	$(COMPOSE) build

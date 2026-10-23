@@ -225,7 +225,7 @@ the database has no value.
 | `OPENSANDBOX_PORT` | Full repository: `8910`; CE: no mapping | Controller uses 8080 inside the network |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3; compose defaults 2/3 | User session pool (historical setting name); CE minimum is 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | Light bucket (one-shot executions) |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | Pool ceiling (idle + in use) |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | Controller-wide ceiling (all workers, warm and active instances); backend and controller must share this value |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | Snapshot persistence master switch (snapshot+kill when idle, restore on reconnect) |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | Snapshot retention (GC sweeps expired rows) |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | Maximum poll for snapshot readiness (s) |
@@ -323,16 +323,10 @@ estimate only when it is not.
 
 See the [License mechanism](../editions/license.md) for details.
 
-## Miscellaneous (rate limiting, circuit breakers, security, alerting)
+## Miscellaneous (security, alerting)
 
 | Variable | Default | Description | Edition |
 |---|---|---|---|
-| `RATE_LIMIT_ENABLED` | `true` | API rate limiting | CE |
-| `RATE_LIMIT_STORAGE` | `memory://` | Rate-limit counter store (`redis://...` supported) | CE |
-| `RATE_LIMIT_GLOBAL` / `RATE_LIMIT_PER_USER` | `500/minute` / `50/minute` | Global / per-user limits | CE |
-| `CB_USER_CENTER_THRESHOLD` / `CB_USER_CENTER_TIMEOUT` | `5` / `60` | User-center circuit breaker | EE |
-| `CB_MODEL_API_THRESHOLD` / `CB_MODEL_API_TIMEOUT` | `10` / `30` | Model-API circuit breaker | CE |
-| `CB_STORAGE_THRESHOLD` / `CB_STORAGE_TIMEOUT` | `5` / `60` | Storage circuit breaker | CE |
 | `CORS_ORIGINS` | compose default `http://localhost:3000,http://localhost:5173` | Allowed cross-origin sources | CE |
 | `ENABLE_SECURITY_HEADERS` | (commented; recommended `true` in production) | Security response headers | CE |
 | `AUDIT_LOG_RETENTION_DAYS` / `AUDIT_LOG_EXPORT_ENABLED` | `90` / `true` (commented samples) | Audit-log retention / export | EE |

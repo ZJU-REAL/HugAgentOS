@@ -11,7 +11,9 @@ from email.utils import parsedate_to_datetime
 
 import anyio
 import httpx
-from core.config.runtime_env import get_runtime_value
+from orchestration.configuration import register_configuration
+register_configuration()
+from core.config.store.runtime_env import get_runtime_value
 
 from .merge import merge_sources
 from .models import SearchRequest

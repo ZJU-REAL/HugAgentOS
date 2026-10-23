@@ -6,14 +6,16 @@ re-prefill of the whole context on every turn.
 """
 
 from __future__ import annotations
+from core.agent_runtime.integrations import memory as memory_module
+from core.agent_runtime.integrations import memory_session as memory_session_module
 
 import asyncio
 
+import core.agent_runtime.integrations.memory as memory
+import core.agent_runtime.integrations.memory as M
 import pytest
-
 from core.memory.retrieval_types import MemoryRetrievalResult, RetrievedMemory, content_hash
 from core.memory.session_snapshot import SessionMemorySnapshot
-from orchestration import memory_integration as M
 
 
 def _fact(text: str) -> MemoryRetrievalResult:
@@ -57,8 +59,8 @@ def store(monkeypatch):
         saved[chat_id] = snapshot
         return snapshot
 
-    monkeypatch.setattr(M, "load_session_memory_snapshot", _load)
-    monkeypatch.setattr(M, "save_session_memory_snapshot", _save)
+    monkeypatch.setattr(memory_session_module, "load_session_memory_snapshot", _load)
+    monkeypatch.setattr(memory_session_module, "save_session_memory_snapshot", _save)
     return saved
 
 
@@ -74,20 +76,20 @@ def retrievals(monkeypatch):
     async def _profile(*_args, **_kwargs):
         return "- 用户偏好：简洁"
 
-    monkeypatch.setattr(M, "retrieve_memories_structured", _retrieve)
+    monkeypatch.setattr(memory, "retrieve_memories_structured", _retrieve)
     monkeypatch.setattr(M.profile, "get", _profile)
     return calls
 
 
 async def _turn(chat_id: str, message: str) -> str:
-    handle = await M.open_session_memory(
+    handle = await memory_session_module.open_session_memory(
         chat_id=chat_id,
         scope_user_id="u1",
         workspace_id="default",
         user_message=message,
         memory_enabled=True,
     )
-    return await M.resolve_session_memory(handle)
+    return await memory_session_module.resolve_session_memory(handle)
 
 
 @pytest.mark.asyncio
@@ -114,7 +116,7 @@ async def test_later_turns_replay_the_block_without_retrieving(store, retrievals
 @pytest.mark.asyncio
 async def test_replay_turn_exposes_no_retrieval_task(store, retrievals):
     await _turn("chat-1", "第一问")
-    handle = await M.open_session_memory(
+    handle = await memory_session_module.open_session_memory(
         chat_id="chat-1",
         scope_user_id="u1",
         workspace_id="default",
@@ -124,7 +126,7 @@ async def test_replay_turn_exposes_no_retrieval_task(store, retrievals):
 
     # No read happened this turn, so the episode must not claim memory evidence.
     assert handle.retrieval_task is None
-    assert M.get_last_retrieval(handle.retrieval_task) is None
+    assert memory_module.get_last_retrieval(handle.retrieval_task) is None
 
 
 @pytest.mark.asyncio
@@ -158,7 +160,7 @@ async def test_empty_memory_is_frozen_too(store, monkeypatch):
     async def _profile(*_args, **_kwargs):
         return ""
 
-    monkeypatch.setattr(M, "retrieve_memories_structured", _retrieve)
+    monkeypatch.setattr(memory, "retrieve_memories_structured", _retrieve)
     monkeypatch.setattr(M.profile, "get", _profile)
 
     assert await _turn("chat-1", "第一问") == ""
@@ -174,7 +176,7 @@ async def test_a_degraded_read_is_not_frozen(store, monkeypatch):
     async def _profile(*_args, **_kwargs):
         return ""
 
-    monkeypatch.setattr(M, "retrieve_memories_structured", _degraded)
+    monkeypatch.setattr(memory, "retrieve_memories_structured", _degraded)
     monkeypatch.setattr(M.profile, "get", _profile)
 
     await _turn("chat-1", "第一问")
@@ -194,10 +196,10 @@ async def test_a_timed_out_read_is_not_frozen(store, monkeypatch):
     async def _profile(*_args, **_kwargs):
         return ""
 
-    monkeypatch.setattr(M, "retrieve_memories_structured", _slow)
+    monkeypatch.setattr(memory, "retrieve_memories_structured", _slow)
     monkeypatch.setattr(M.profile, "get", _profile)
 
-    handle = await M.open_session_memory(
+    handle = await memory_session_module.open_session_memory(
         chat_id="chat-1",
         scope_user_id="u1",
         workspace_id="default",
@@ -205,7 +207,7 @@ async def test_a_timed_out_read_is_not_frozen(store, monkeypatch):
         memory_enabled=True,
         budget_ms=1,
     )
-    assert await M.resolve_session_memory(handle) == ""
+    assert await memory_session_module.resolve_session_memory(handle) == ""
     assert "chat-1" not in store
 
     release.set()
@@ -214,7 +216,7 @@ async def test_a_timed_out_read_is_not_frozen(store, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_memory_off_neither_retrieves_nor_stores(store, retrievals):
-    handle = await M.open_session_memory(
+    handle = await memory_session_module.open_session_memory(
         chat_id="chat-1",
         scope_user_id="u1",
         workspace_id="default",
@@ -222,7 +224,7 @@ async def test_memory_off_neither_retrieves_nor_stores(store, retrievals):
         memory_enabled=False,
     )
 
-    assert await M.resolve_session_memory(handle) == ""
+    assert await memory_session_module.resolve_session_memory(handle) == ""
     assert handle.retrieval_task is None
     assert retrievals == []
     assert store == {}

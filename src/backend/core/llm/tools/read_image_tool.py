@@ -1,6 +1,6 @@
 """``read_image`` —— 让智能体主动看一张图。
 
-同一个工具名，按主模型能力注册两个版本之一（``core.vision.resolve_vision_mode``）：
+同一个工具名，按主模型能力注册两个版本之一（``core.models.vision.resolve_vision_mode``）：
 
 - **native**：把图原样送进上下文，模型自己看像素（对应 Codex 的 ``view_image``）。
 - **bridge**：交给视觉桥转成结构化文字证据，可带 ``focus`` 针对某处细节追问。
@@ -11,17 +11,18 @@
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit
-from core.services.project_scope import ProjectScope
-from core.vision import VisionMode
+from core.projects.edition import ProjectScope
+from core.models.vision import VisionMode
 
-from ._common import ToolResponse, resolve_sandbox_session, resp_image, resp_json
-from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
+from ._common import ToolChunk, resolve_sandbox_session, resp_image, resp_json
+from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ async def load_image(
 
     label = file_path or file_id
     if file_id.strip():
-        from core.llm.hooks import _download_artifact_bytes
+        from core.files.artifact_bytes import download_artifact_bytes as _download_artifact_bytes
 
         # Storage download (S3/OSS in some deployments) — off the event loop.
         image_bytes = await asyncio.to_thread(
@@ -97,7 +98,7 @@ async def load_image(
         if image_bytes is None:
             raise ImageLoadError(f"读取失败：{file_path}")
 
-    from core.vision import sniff_mime
+    from core.models.vision import sniff_mime
 
     mime = sniff_mime(image_bytes)
     if mime is None:
@@ -107,7 +108,7 @@ async def load_image(
 
 async def transcribe_image(image_bytes: bytes, *, label: str, focus: str = "") -> Optional[dict]:
     """视觉桥：图片 → ``image_evidence`` 载荷。未配视觉模型或识别失败返回 ``None``。"""
-    from core.vision import get_vision_bridge, is_available, render_evidence
+    from core.models.vision import get_vision_bridge, is_available, render_evidence
 
     if not is_available():
         return None
@@ -140,7 +141,7 @@ def register_read_image(
         return
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
-    async def _run(file_path: str, file_id: str, focus: str) -> ToolResponse:
+    async def _run(file_path: str, file_id: str, focus: str) -> ToolChunk:
         try:
             image_bytes, mime, label = await load_image(
                 file_path,
@@ -154,7 +155,7 @@ def register_read_image(
             return resp_json({"error": str(exc)})
 
         if vision_mode == "native":
-            from core.vision.service import MAX_IMAGE_BYTES
+            from core.models.vision.service import MAX_IMAGE_BYTES
 
             if len(image_bytes) > MAX_IMAGE_BYTES:
                 return resp_json(
@@ -165,7 +166,7 @@ def register_read_image(
                 )
             return await resp_image(image_bytes, mime, name=label, meta={"source": label})
 
-        from core.vision import is_available
+        from core.models.vision import is_available
 
         if not is_available():
             return resp_json(
@@ -182,7 +183,7 @@ def register_read_image(
     # and only the bridge variant can act on ``focus``.
     if vision_mode == "native":
 
-        async def read_image(file_path: str = "", file_id: str = "") -> ToolResponse:
+        async def read_image(file_path: str = "", file_id: str = "") -> ToolChunk:
             return await _run(file_path, file_id, "")
 
         read_image.__doc__ = _NATIVE_DOC
@@ -190,12 +191,12 @@ def register_read_image(
 
         async def read_image(
             file_path: str = "", file_id: str = "", focus: str = ""
-        ) -> ToolResponse:
+        ) -> ToolChunk:
             return await _run(file_path, file_id, focus)
 
         read_image.__doc__ = _BRIDGE_DOC
 
-    toolkit.register_tool_function(read_image)
+    toolkit.append(function_tool(read_image))
     logger.info("[factory] Registered read_image tool (%s, chat_id=%s)", vision_mode, chat_id)
 
 
@@ -212,10 +213,7 @@ async def _read_path_bytes(
 
     if local_mode_enabled():
         try:
-            from core.llm.tool_permissions import (
-                PermissionEnforcementError,
-                require_local_path_permission,
-            )
+            from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
 
             require_local_path_permission(physical, "read")
             with open(physical, "rb") as handle:

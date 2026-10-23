@@ -11,17 +11,12 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
-from core.content.archive_browser import (
-    ArchiveError,
-    MAX_ARCHIVE_BYTES,
-    inspect_archive,
-    read_archive_member,
-)
+from core.files.content.archive_browser import ArchiveError, MAX_ARCHIVE_BYTES, inspect_archive, read_archive_member
 from core.db.engine import get_db
 from core.infra.exceptions import StorageError
 from core.infra.responses import success_response
-from core.storage import get_storage
-from core.storage.local import LocalStorageBackend
+from core.files.storage import get_storage
+from core.files.storage.local import LocalStorageBackend
 
 router = APIRouter()
 

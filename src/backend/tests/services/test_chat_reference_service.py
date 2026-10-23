@@ -10,16 +10,7 @@ from __future__ import annotations
 import pytest
 from core.chat.context import build_effective_user_message
 from core.db.models import ChatMessage, ChatSession
-from core.services.chat_reference_service import (
-    OVERVIEW_MAX_CHARS,
-    READ_TOTAL_MAX_CHARS,
-    list_referencable_sessions,
-    read_session_messages,
-    render_reference_block,
-    resolve_reference_cards,
-    session_brief,
-    session_card,
-)
+from core.chat.references import OVERVIEW_MAX_CHARS, READ_TOTAL_MAX_CHARS, list_referencable_sessions, read_session_messages, render_reference_block, resolve_reference_cards, session_brief, session_card
 
 
 def _chat(db, chat_id: str, *, user_id: str = "u1", title: str = "会话", project_id=None):

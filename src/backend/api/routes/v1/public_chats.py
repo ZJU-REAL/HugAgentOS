@@ -5,7 +5,7 @@ from core.auth.public_chat import public_session_matches
 from core.db.engine import get_db
 from core.db.models import ChatSession, Project, UserAgent
 from core.infra.responses import success_response
-from core.services import public_chat_service as service
+from core.chat import public as service
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -54,7 +54,7 @@ async def toggle_link(
     data = service.set_enabled(db, user.user_id, kind, resource_id, body.enabled)
     if not body.enabled:
         from core.db.models import ContentBlock
-        from core.services.api_key_runs import stop_cancelled_key_workers
+        from core.auth.api_key_runs import stop_cancelled_key_workers
 
         row = db.get(ContentBlock, service.link_id(user.user_id, kind, resource_id))
         await stop_cancelled_key_workers(db, row.payload["key_id"], user.user_id)
@@ -75,7 +75,7 @@ def bootstrap(
     )
     if not resource:
         raise HTTPException(404, detail="Resource unavailable")
-    from core.services.session_operations.sessions import _session_to_dict
+    from core.chat.operations.sessions import session_to_dict as _session_to_dict
 
     scope_name = "agent_api_scope" if user.api_key_agent_id else "project_api_scope"
     # JSON extraction is supported by both SQLite and Postgres. Bound the result,

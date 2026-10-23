@@ -10,8 +10,9 @@ from typing import Any, Optional
 from core.db.models import MemoryOutbox
 from sqlalchemy import and_, or_
 
+from core.memory.outbox import common
+
 logger = logging.getLogger(__name__)
-from core.memory.outbox import common as common
 
 
 def _claim_next(worker_id: str) -> Optional[str]:

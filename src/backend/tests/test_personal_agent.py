@@ -11,10 +11,10 @@ from personal_agent.context import AgentContext
 @pytest.fixture(autouse=True)
 def personal_agent_on(monkeypatch):
     """These tests exercise the module itself: it is switched on and every user may use it."""
-    from core.extensions import registry
+    from core.harness.registry import registry
     from personal_agent import access
 
-    monkeypatch.setattr(registry, "_enabled", {*registry._enabled, access.NAME})
+    monkeypatch.setattr(registry.registration_state(), 'enabled', {*registry.registration_state().enabled, access.NAME})
     monkeypatch.setattr(access, "user_has_capability", lambda db, user_id, flag: True)
 
 
@@ -311,7 +311,7 @@ def test_explicit_attachments_reject_other_owner(sessions):
 
 def test_ordinary_chat_cannot_claim_personal_conversation():
     from fastapi import HTTPException
-    from core.services.session_operations.session_context import _ensure_chat_session
+    from core.chat.operations.session_context import _ensure_chat_session
     with pytest.raises(HTTPException) as error:
         _ensure_chat_session(None, "pa_chat_reserved", "owner", "ordinary write")
     assert error.value.status_code == 403
@@ -378,7 +378,7 @@ def test_lifetime_history_starts_recent_and_supports_older_pages(sessions):
 def test_ordinary_search_and_fork_cannot_expose_personal_chat(sessions):
     from fastapi import HTTPException
     from core.db.chat_search import search_sessions
-    from core.services.chat_fork_service import ChatForkService
+    from core.chat.fork import ChatForkService
     from uuid import uuid4
     with sessions() as db:
         chat=AgentContext(db,"owner").identity.ensure()["chat_id"]

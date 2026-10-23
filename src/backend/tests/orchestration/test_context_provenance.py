@@ -1,10 +1,11 @@
 """System-provided orchestration hints must not masquerade as user input."""
 
-from core.llm.context_adapter import AgentScopeContextAdapter, render_session_input
-from core.llm.context_ir import SESSION_CONTEXT_META_KEY
-from core.llm.message_compat import session_to_msgs
-from orchestration.subagents.plan_mode import _build_plan_generation_messages
-from orchestration.workflow import _build_skill_injection
+from core.agent_runtime.skills import _build_skill_injection
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.rendering import render_session_input
+from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
+from core.llm.runtime.message_compat import session_to_msgs
+from orchestration.plans.mode import _build_plan_generation_messages
 
 
 def test_plan_generation_policy_attachment_and_task_keep_distinct_provenance():

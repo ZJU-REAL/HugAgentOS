@@ -9,7 +9,7 @@ def test_database_skill_listing_projects_metadata_and_defers_full_content(
     db_session,
     monkeypatch,
 ):
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
     from core.db.models import AdminSkill
 
     full_content = (
@@ -76,9 +76,9 @@ def test_database_skill_listing_projects_metadata_and_defers_full_content(
 
 
 def test_loader_reads_full_database_skill_only_on_demand():
-    from core.agent_skills.backends.composite import CompositeBackend
-    from core.agent_skills.backends.protocol import SkillFileInfo
-    from core.agent_skills.loader import MultiSourceSkillLoader
+    from core.capabilities.skills.backends.composite import CompositeBackend
+    from core.capabilities.skills.backends.protocol import SkillFileInfo
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
 
     full_content = (
         "---\n"
@@ -136,7 +136,7 @@ def test_loader_reads_full_database_skill_only_on_demand():
 
 
 def test_disabled_installed_skill_is_loadable_on_explicit_selection(db_session, monkeypatch):
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
     from core.db.models import AdminSkill
 
     db_session.add(

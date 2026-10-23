@@ -13,10 +13,10 @@ def available(monkeypatch):
                 "mcp": ["browser-automation-browser_runtime-u"]},
                {"install_id": "sample@owner", "slug": "sample", "name": "Sample", "enabled": True,
                 "skills": ["plugin-skill"], "mcp": ["plugin-tool"]}]
-    monkeypatch.setattr("core.config.catalog_resolver.resolve_all_runtime_enabled",
+    monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (permitted["skills"], [], permitted["mcps"]))
-    monkeypatch.setattr("core.plugins.management.list_installed", lambda db, **kw: plugins)
-    monkeypatch.setattr("core.capabilities.device_catalog.plugin_entries", lambda user_id=None: [])
+    monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: plugins)
+    monkeypatch.setattr('features.desktop.capabilities.device_catalog.plugin_entries', lambda user_id=None: [])
     return permitted, plugins
 
 def test_browser_excluded_from_defaults_and_stale_runtime_config(sessions, available):
@@ -82,10 +82,10 @@ async def test_explicit_profile_does_not_restore_history_or_skill_dependencies(m
     from core.llm.factory.selection.sticky_capabilities import sticky_capabilities
     from core.llm.factory.selection.progressive_bindings import progressive_bindings
     from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
-    monkeypatch.setattr("core.extensions.agent_profile", lambda name: SimpleNamespace(inherit_default_mcps=False))
+    monkeypatch.setattr('core.harness.registry.agent_profile', lambda name: SimpleNamespace(inherit_default_mcps=False))
     def forbidden(**kwargs):
         pytest.fail("Explicit profile must not restore historical capability grants")
-    monkeypatch.setattr("core.plugins.runtime.resolve_sticky_plugin_capabilities", forbidden)
+    monkeypatch.setattr('core.capabilities.plugins.runtime.resolve_sticky_plugin_capabilities', forbidden)
     request = SimpleNamespace(enabled_skill_ids=["document"], enabled_mcp_ids=["web_fetch"],
         enabled_kb_ids=[], derived_main=False, chat_id="old-task", current_user_id="owner",
         disable_tools=False, turbo_mode=False, user_agent=None, profile="personal_agent")
@@ -93,7 +93,7 @@ async def test_explicit_profile_does_not_restore_history_or_skill_dependencies(m
     await sticky_capabilities(request, _elapsed=lambda: "", _eval_scope=None, _log=log,
         _mode_manual_invoke=False, _note_unavailable=lambda _: None,
         required=RequiredCapabilities(), sticky=StickyCapabilities())
-    monkeypatch.setattr("core.llm.factory.selection.capabilities._filter_skill_ids_for_user", lambda ids, uid: ids)
+    monkeypatch.setattr('core.llm.factory.selection.capabilities.filter_skill_ids_for_user', lambda ids, uid: ids)
     monkeypatch.setattr("core.llm.factory.selection.capabilities._mcp_ids_bound_to_skills",
                         lambda ids: ["browser_runtime", "web_fetch", "other"])
     await progressive_bindings(request, _eval_scope=None, _log=log)
@@ -164,7 +164,7 @@ def test_shadowed_private_plugin_components_are_not_standalone(sessions, availab
     global_plugin = {"install_id": "sample@global", "slug": "sample", "enabled": True,
                      "skills": ["plugin-skill"], "mcp": ["plugin-tool"]}
     available[0]["skills"].append("private-component")
-    monkeypatch.setattr("core.plugins.management.list_installed",
+    monkeypatch.setattr('core.capabilities.plugins.management.list_installed',
                         lambda db, **kw: [global_plugin] if kw.get("include_global") else [private])
     with sessions() as db:
         svc = AgentContext(db, "owner")

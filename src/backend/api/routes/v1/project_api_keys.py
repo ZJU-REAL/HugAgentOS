@@ -10,8 +10,8 @@ from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.responses import created_response, success_response
-from core.services.project_api_service import require_project_key_access
-from core.services.api_key_service import ApiKeyService
+from core.projects.api import require_project_key_access
+from core.auth.api_keys import ApiKeyService
 
 router = APIRouter(prefix="/v1/projects", tags=["Project API Keys"])
 _ALLOWED_EXPIRY_DAYS = {7, 30, 90, 180, 365}
@@ -142,7 +142,7 @@ async def toggle_key(
     row = ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, project_id=project_id)
     data = _dto(row)
     if not body.enabled:
-        from core.services.api_key_runs import stop_cancelled_key_workers
+        from core.auth.api_key_runs import stop_cancelled_key_workers
 
         await stop_cancelled_key_workers(db, key_id, user.user_id)
     return success_response(data=data)
@@ -157,7 +157,7 @@ async def revoke_key(
 ):
     _find(db, user, project_id, key_id)
     ApiKeyService(db).revoke_key(user.user_id, key_id, project_id=project_id)
-    from core.services.api_key_runs import stop_cancelled_key_workers
+    from core.auth.api_key_runs import stop_cancelled_key_workers
 
     await stop_cancelled_key_workers(db, key_id, user.user_id)
     return success_response(data={"id": key_id, "revoked": True})

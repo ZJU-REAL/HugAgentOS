@@ -51,14 +51,14 @@ This page describes the system from five angles: the layered architecture, the o
 ┌──────────────────────────────▼─────────────────────────────────────┐
 │  Agent layer (src/backend/core/llm/)                               │
 │  factory/build → AgentScope 2.0 ReActAgent                         │
-│  ToolCollector → Toolkit (built-in tools + skills + MCP tools)     │
+│  ToolAssembly → Toolkit (built-in tools + skills + MCP tools)     │
 │  middlewares: dynamic model / file context / system reminders      │
 │  offloader: oversized tool results spilled to sandbox              │
 │  prompts/prompt_runtime: system prompt assembly (DB-first)         │
 └───────┬──────────────────────┬──────────────────────┬──────────────┘
         │ streamable-http      │ sandbox protocol      │ SQL / vectors
 ┌───────▼───────────┐ ┌────────▼──────────┐ ┌─────────▼─────────────┐
-│ MCP tool pool      │ │ Sandboxes         │ │ Data layer            │
+│ MCP clients      │ │ Sandboxes         │ │ Data layer            │
 │ mcp container,     │ │ script-runner(CE) │ │ PostgreSQL · Redis    │
 │ tool processes     │ │ OpenSandbox CE/EE │ │ Milvus · Neo4j (opt.) │
 │ see _ports.py     │ │ CubeSandbox (EE)  │ │ Local / S3 / OSS      │
@@ -214,11 +214,11 @@ Every v1 endpoint returns `{ code, message, data, trace_id, timestamp }`, produc
 
 ### Prompts live in the database
 
-System prompts are no longer hardcoded: the version pool is stored in the `content_blocks` table (`id=prompt_versions`), managed by `core/services/prompt_version_service.py` (CRUD, activation, first-boot seeding). At assembly time, `prompts/prompt_runtime.py` degrades through three levels — active DB version → file fallback under `prompts/prompt_text/default/system/` → a minimal hardcoded fallback — guaranteeing a non-empty prompt. Operators can canary-switch prompt versions from the admin console without a release. See [Prompt System](../modules/prompts.md).
+System prompts are no longer hardcoded: the version pool is stored in the `content_blocks` table (`id=prompt_versions`), managed by `core/llm/prompt_versions.py` (CRUD, activation, first-boot seeding). At assembly time, `prompts/prompt_runtime.py` degrades through three levels — active DB version → file fallback under `prompts/prompt_text/default/system/` → a minimal hardcoded fallback — guaranteeing a non-empty prompt. Operators can canary-switch prompt versions from the admin console without a release. See [Prompt System](../modules/prompts.md).
 
 ### MCP tools as independent processes
 
-Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the HTTP client pool in `core/llm/mcp_manager.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
+Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the run-owned native client in `core/llm/mcp/lifetime.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
 
 ### Runs decoupled from connections
 

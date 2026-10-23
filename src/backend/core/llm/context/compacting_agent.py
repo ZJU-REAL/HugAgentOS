@@ -1,0 +1,428 @@
+# -*- coding: utf-8 -*-
+"""AgentScope step-boundary compaction backed by the shared checkpoint pipeline.
+
+Only agents with ``state.chat_id`` publish checkpoints. Agents without a chat
+ID still compact their live context but do not modify a parent conversation.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence
+
+from agentscope.agent import ContextConfig
+from agentscope.message import DataBlock, TextBlock, ToolResultBlock
+from agentscope.model import ChatUsage
+from agentscope.workspace import Offloader
+from core.llm.context.safety import enforce_context_budget
+from core.harness.execution_manifest import stable_hash
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+
+logger = logging.getLogger(__name__)
+
+# Appended when dropped context is available from the sandbox offloader.
+_OFFLOAD_REMINDER = (
+    "\n<system-reminder>The compressed context is offloaded to '{path}', "
+    "you can refer to it when needed.</system-reminder>"
+)
+
+
+@dataclass(frozen=True)
+class _MessageCursor:
+    role: str
+    blocks: tuple[str, ...]
+
+
+def _content_blocks(row: Dict[str, Any]) -> list[Any]:
+    content = row.get("content")
+    return content if isinstance(content, list) else [content]
+
+
+def _fingerprint_media(block: Any) -> Any:
+    """Swap a media payload for its identity so the digest never walks base64.
+
+    Length plus media type distinguishes every replacement this history can
+    produce: blocks are appended or swapped whole, never edited byte-wise.
+    """
+    if not isinstance(block, dict):
+        return block
+    if block.get("type") == "data":
+        source = block.get("source")
+        data = source.get("data") if isinstance(source, dict) else None
+        if isinstance(data, str):
+            return {**block, "source": {**source, "data": len(data)}}
+        return block
+    output = block.get("output")
+    if block.get("type") == "tool_result" and isinstance(output, list):
+        return {**block, "output": [_fingerprint_media(item) for item in output]}
+    return block
+
+
+def frozen_prompt_surface(agent: Any) -> tuple[str, Any]:
+    """The system prompt and tool schemas of the agent's latest model request.
+
+    ``agent_factory.cache_compaction_execution_surface`` is the only writer; every
+    consumer reads through here so the pre-turn budget and the mid-turn trigger
+    cannot drift onto different surfaces.
+    """
+    return (
+        str(getattr(agent, "_jx_compaction_system_prompt", "") or ""),
+        getattr(agent, "_jx_compaction_tool_schemas", None),
+    )
+
+
+def _history_cursor(history: List[Dict[str, Any]]) -> tuple[_MessageCursor, ...]:
+    """Fingerprint content, not Msg count or mutable SDK bookkeeping.
+
+    Keep hashes rather than a second copy of potentially large tool outputs.
+    Tool permission/execution state does not change the model's call payload.
+    Media is fingerprinted by identity rather than payload for the same reason
+    its tokens are reserved rather than counted: re-serializing and digesting a
+    7 MB attachment cost 17 ms every time this ran, twice per reasoning step,
+    for bytes that never change once a block is in context.
+    """
+    cursors = []
+    for row in history:
+        hashes = []
+        for block in _content_blocks(row):
+            if isinstance(block, dict) and block.get("type") == "tool_call":
+                block = {key: block.get(key) for key in ("type", "id", "name", "input")}
+            else:
+                block = _fingerprint_media(block)
+            hashes.append(stable_hash(block))
+        cursors.append(_MessageCursor(role=str(row.get("role") or "user"), blocks=tuple(hashes)))
+    return tuple(cursors)
+
+
+@dataclass(frozen=True)
+class _ContextObservation:
+    """Server usage anchored after the corresponding response entered context."""
+
+    tokens: int
+    cursor: tuple[_MessageCursor, ...]
+
+
+class CompactingAgent(ManifestBoundAgent):
+    """Agent whose step-boundary compaction uses the shared persisted engine."""
+
+    offloader: Offloader | None
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._jx_observation: Optional[_ContextObservation] = None
+        # Resolved once by agent_factory to avoid a config DB read per ReAct step.
+        self._jx_trigger_ratio: Optional[float] = None
+        # Prevent repeated compaction when an oversized context cannot shrink.
+        self._jx_compacted_cursor: Optional[tuple[_MessageCursor, ...]] = None
+
+    async def _split_tool_result_for_compression(
+        self, tool_result: ToolResultBlock
+    ) -> tuple[ToolResultBlock, ToolResultBlock | None]:
+        """Own offload notices so SDK 2.0 cannot treat a failure as a path.
+
+        Return no pending overflow after handling it here: the SDK still owns
+        the tool lifecycle, events and persistence, but must not offload twice.
+        """
+        kept, overflow = await self._split_tool_text(tool_result)
+        if overflow is None:
+            return kept, None
+
+        notice = (
+            "完整输出未保存，没有可读取的完整文件。"
+            "请基于现有结果继续；如需缺失内容，缩小查询范围或分页重取，"
+            "不要尝试读取不存在的文件。"
+        )
+        if self.offloader:
+            # Save the complete textual result, not just its tail. An excerpt
+            # starting halfway through JSON is not a useful recovery document.
+            output = tool_result.output
+            if isinstance(output, list):
+                output = [b for b in output if not self._is_image(b)]
+            try:
+                path = await self.offloader.offload_tool_result(
+                    self.state.session_id,
+                    tool_result.model_copy(update={"output": output}),
+                )
+                if path:
+                    notice = (
+                        f"完整工具输出已保存到文件：{path}。"
+                        "当前仅展示节选；需要时使用 Read 分页读取或 grep 定向搜索，"
+                        "不要一次性读回整个大文件。"
+                    )
+            except Exception as exc:
+                logger.warning("[offloader] tool result unavailable kind=%s", type(exc).__name__)
+        reminder = "\n<<<TRUNCATED>>>\n<system-reminder>" + notice + "</system-reminder>"
+        blocks = kept.output
+        if isinstance(blocks, str):
+            blocks = [TextBlock(text=blocks)]
+        return (
+            kept.model_copy(update={"output": [*blocks, TextBlock(text=reminder)]}),
+            None,
+        )
+
+    @staticmethod
+    def _is_image(block: Any) -> bool:
+        return isinstance(block, DataBlock) and block.source.media_type.startswith("image/")
+
+    async def _split_tool_text(
+        self, tool_result: ToolResultBlock
+    ) -> tuple[ToolResultBlock, ToolResultBlock | None]:
+        """Apply the tool text limit without offloading image payloads.
+
+        AgentScope counts base64 transport bytes as text tokens and offloads an
+        indivisible image wholesale. Keep images outside this text-only budget;
+        image loading limits and whole-context admission remain independent.
+        """
+        output = tool_result.output
+        if not isinstance(output, list):
+            return await super()._split_tool_result_for_compression(tool_result)
+        images = []
+        non_images = []
+        for block in output:
+            if self._is_image(block):
+                images.append(block)
+            else:
+                non_images.append(block)
+        if not images:
+            return await super()._split_tool_result_for_compression(tool_result)
+        if not non_images:
+            return tool_result, None
+        kept, overflow = await super()._split_tool_result_for_compression(
+            tool_result.model_copy(update={"output": non_images})
+        )
+        if overflow is None:
+            return tool_result, None
+        # The provider formatter emits text first and promotes media to image
+        # messages. Retain every image in its original relative order.
+        return kept.model_copy(update={"output": [*kept.output, *images]}), overflow
+
+    # ── Token metering ───────────────────────────────────────────────────────
+
+    def _save_to_context(self, blocks: Sequence[Any], usage: ChatUsage | None = None) -> None:
+        # AgentScope emits ModelCallEndEvent *before* saving the response.
+        # Anchor here, after saving it, because completion tokens already pay
+        # for these blocks. This also covers callers that do not use streaming.
+        super()._save_to_context(blocks, usage)
+        if usage is not None:
+            self.observe_context_tokens(usage.input_tokens, usage.output_tokens)
+
+    def observe_context_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        """Record usage after its model response has been saved into context."""
+        total = int(prompt_tokens or 0) + int(completion_tokens or 0)
+        if total <= 0:
+            return
+        self._jx_observation = _ContextObservation(
+            tokens=total, cursor=_history_cursor(self._history_for_summary())
+        )
+
+    async def _measure_context_tokens(self) -> int:
+        """Current context occupancy: real usage + estimate of what came after it.
+
+        Falls back to the shared estimate over the whole prompt when the provider
+        has not reported usage yet (the first reasoning step of a turn, or an
+        endpoint that omits usage).
+        """
+        obs = self._jx_observation
+        if obs is not None:
+            history = self._history_for_summary()
+            cursor = _history_cursor(history)
+            count = len(obs.cursor)
+            # Only an append to the last observed message, followed by new
+            # messages, extends the measured prefix. Rewrites/removals need a
+            # fresh estimate; a stale server baseline no longer describes them.
+            if count == 0:
+                trailing = history
+            elif (
+                len(cursor) >= count
+                and cursor[: count - 1] == obs.cursor[:-1]
+                and cursor[count - 1].role == obs.cursor[-1].role
+                and cursor[count - 1].blocks[: len(obs.cursor[-1].blocks)] == obs.cursor[-1].blocks
+            ):
+                trailing = list(history[count:])
+                blocks = _content_blocks(history[count - 1])[len(obs.cursor[-1].blocks) :]
+                if blocks:
+                    trailing.insert(0, {"role": history[count - 1]["role"], "content": blocks})
+            else:
+                trailing = None
+                self._jx_observation = None
+            if trailing is not None:
+                from core.llm.context.budget import estimate_history_tokens
+
+                return obs.tokens + (estimate_history_tokens(trailing) if trailing else 0)
+        return self._estimate_prompt_tokens()
+
+    def _estimate_prompt_tokens(self) -> int:
+        """Estimate the frozen prompt surface plus live context in one pass.
+
+        Measuring here rather than through the model costs a fraction of
+        materializing the provider payload, and keeps this branch in the same
+        units as the observed one above — both reserve media instead of billing
+        its transport bytes.
+        """
+        from core.llm.context.budget import estimate_context_budget
+
+        system_prompt, tool_schema = frozen_prompt_surface(self)
+        return estimate_context_budget(
+            system_prompt=system_prompt,
+            tool_schema=tool_schema,
+            messages=self._history_for_summary(),
+        )["total_estimated_tokens"]
+
+    # ── MidTurn compaction ───────────────────────────────────────────────────
+
+    async def compress_context(self, context_config: ContextConfig | None = None, instructions=None) -> None:
+        """Compact at a ReAct step boundary without replacing failed work with a summary."""
+        del context_config
+        await enforce_context_budget(self)
+
+        from core.config.settings import settings
+
+        if not settings.compaction.enabled:
+            return
+
+        try:
+            limit, tokens = await self._should_compact()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[compaction] mid-turn measurement failed: %r", exc)
+            return
+        if limit is None or tokens < limit:
+            return
+
+        if not self.state.context:
+            # Only the system prompt remains, so there is nothing to remove.
+            logger.warning(
+                "[compaction] mid-turn skipped: context empty, %d tokens over limit %d",
+                tokens,
+                limit,
+            )
+            return
+
+        if self._jx_compacted_cursor == _history_cursor(self._history_for_summary()):
+            logger.warning(
+                "[compaction] mid-turn skipped: context content is unchanged since the last "
+                "compaction (len=%d), a further summary cannot shrink it",
+                len(self.state.context),
+            )
+            return
+
+        chat_id = str(getattr(self.state, "chat_id", "") or "")
+        logger.info(
+            "[compaction] mid-turn triggered chat=%s tokens=%d limit=%d msgs=%d",
+            chat_id or "(none)",
+            tokens,
+            limit,
+            len(self.state.context),
+        )
+
+        history = self._history_for_summary()
+        try:
+            from core.llm.context.compaction import CompactionPhase
+            from core.harness.registry.compaction import run_compaction, run_mid_turn_compaction
+
+            if chat_id:
+                system_prompt, tool_schema = frozen_prompt_surface(self)
+                replacement = await run_compaction(
+                    chat_id,
+                    history,
+                    phase=CompactionPhase.MID_TURN,
+                    budget_inputs={
+                        "system_prompt": system_prompt,
+                        "tool_schema": tool_schema,
+                        "context_window": int(getattr(self.model, "context_size", 0) or 0),
+                        "model_name": str(getattr(self.model, "model", "") or ""),
+                        "model_provider_id": str(
+                            getattr(self.state, "model_provider_id", "") or ""
+                        ),
+                    },
+                )
+            else:
+                replacement = await run_mid_turn_compaction(chat_id, history)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[compaction] mid-turn engine failed: %r", exc)
+            replacement = None
+
+        if not replacement:
+            logger.warning("[compaction] failed; preserving context for final budget admission")
+            return
+
+        await self._apply_replacement(replacement)
+
+    async def _context_offload_notice(self, dropped: list[Any]) -> str:
+        if not self.offloader or not dropped:
+            return ""
+        try:
+            path = await self.offloader.offload_context(self.state.session_id, msgs=dropped)
+            if path:
+                return _OFFLOAD_REMINDER.format(path=path)
+        except Exception as exc:
+            logger.warning("[compaction] offload unavailable kind=%s", type(exc).__name__)
+        return (
+            "\n<system-reminder>压缩前的完整历史未保存，没有可读取的历史文件。"
+            "请使用现有摘要与保留的消息继续，勿尝试读取不存在的文件。"
+            "</system-reminder>"
+        )
+
+    async def _should_compact(self) -> tuple[Optional[int], int]:
+        """Return ``(limit, measured_tokens)``; ``limit`` is None when undeterminable."""
+        from core.harness.registry.compaction import resolve_token_limit
+
+        window = int(getattr(self.model, "context_size", 0) or 0)
+        limit = resolve_token_limit(window, ratio=self._jx_trigger_ratio)
+        if limit is None:
+            return None, 0
+        return limit, await self._measure_context_tokens()
+
+    def _history_for_summary(self) -> List[Dict[str, Any]]:
+        """Return live context as summary input, including any fallback summary."""
+        history: List[Dict[str, Any]] = []
+        if self.state.summary:
+            history.append({"role": "user", "content": self.state.summary})
+        history.extend(msg_to_history_dict(m) for m in self.state.context)
+        return history
+
+    async def _apply_replacement(self, replacement: List[Dict[str, Any]]) -> None:
+        """Install the compacted history, spilling what was dropped to the sandbox.
+
+        The offload pointer is added to the in-memory copy only — the checkpoint
+        was persisted before the spill, and deliberately stays clean: the sandbox
+        session that owns that path need not outlive this turn, and a checkpoint
+        that points at a vanished file is worse than one that never mentions it.
+        """
+        from core.llm.runtime.message_compat import session_to_msgs
+
+        dropped = list(self.state.context)
+        replacement = [dict(m) for m in replacement]
+
+        if replacement:
+            notice = await self._context_offload_notice(dropped)
+            if notice:
+                # Only the in-memory summary gets a workspace-lifetime pointer.
+                # The persisted checkpoint and verbatim recent steps stay clean.
+                summary_row = replacement[0]
+                summary_row["content"] = f"{summary_row.get('content') or ''}" + notice
+
+        # Summary first, recent steps after it, matching checkpoint replay order.
+        self.state.summary = ""
+        self.state.context = session_to_msgs(replacement)
+        self._jx_observation = None
+        self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
+        logger.info(
+            "[compaction] mid-turn applied msgs=%d→%d",
+            len(dropped),
+            len(self.state.context),
+        )
+
+
+def msg_to_history_dict(msg: Any) -> Dict[str, Any]:
+    """Convert a ``Msg`` while preserving tool-call and tool-result blocks."""
+    content = getattr(msg, "content", None)
+    if isinstance(content, list):
+        blocks: List[Any] = []
+        for block in content:
+            if hasattr(block, "model_dump"):
+                blocks.append(block.model_dump())
+            else:
+                blocks.append(block)
+        return {"role": getattr(msg, "role", "user"), "content": blocks}
+    return {"role": getattr(msg, "role", "user"), "content": content}

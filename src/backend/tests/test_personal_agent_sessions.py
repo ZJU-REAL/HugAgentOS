@@ -204,7 +204,7 @@ def test_project_operations_map_to_fixed_endpoints():
 
 
 def test_send_runs_in_the_chats_own_project(db):
-    from core.services.session_operations.admission import _check_project
+    from core.chat.operations.admission import _check_project
     from core.chat.schemas import ChatRequest
     from core.db.models import ChatSession, Project
 

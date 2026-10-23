@@ -2,11 +2,11 @@
 
 from typing import List, Optional
 
-import core.services.session_operations.schemas as chat_models
-import core.services.session_operations.session_context as chat_session_context
+import core.chat.operations.schemas as chat_models
+import core.chat.operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.db.engine as db_engine
-import core.services as chat_services
+import core.auth.users as chat_services_UserService_module
 from core.auth.backend import UserContext
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends
@@ -25,7 +25,7 @@ def _dedup_id_list(raw: Optional[list]) -> List[str]:
     """Clean + de-duplicate an id list, preserving first-seen order."""
     seen: set = set()
     out: List[str] = []
-    for cid in chat_session_context._clean_id_list(raw):
+    for cid in chat_session_context.clean_id_list(raw):
         if cid in seen:
             continue
         seen.add(cid)
@@ -45,7 +45,7 @@ def get_sidebar_order(
     注意：本路由必须声明在 ``GET /{chat_id}`` **之前**，否则会被 path 参数
     路由吞掉（FastAPI 按声明顺序匹配）。
     """
-    user_settings = chat_services.UserService(db).get_user_settings(str(user.user_id))
+    user_settings = chat_services_UserService_module.UserService(db).get_user_settings(str(user.user_id))
     order = _dedup_id_list(user_settings.get(SIDEBAR_ORDER_KEY))[:SIDEBAR_ORDER_MAX]
     return success_response(data={"order": order})
 
@@ -62,7 +62,7 @@ def update_sidebar_order(
     查不到对应项而被忽略，反倒省掉一次全表校验。超出上限的尾部直接截断。
     """
     order = _dedup_id_list(request.order)[:SIDEBAR_ORDER_MAX]
-    chat_services.UserService(db).update_user_metadata(
+    chat_services_UserService_module.UserService(db).update_user_metadata(
         user_id=str(user.user_id), patch={SIDEBAR_ORDER_KEY: order}
     )
     return success_response(data={"order": order})

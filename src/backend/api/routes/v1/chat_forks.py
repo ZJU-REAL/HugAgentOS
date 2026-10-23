@@ -5,7 +5,7 @@ from uuid import UUID
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.responses import created_response
-from core.services.chat_fork_service import ChatForkError, ChatForkService
+from core.chat.fork import ChatForkError, ChatForkService
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session

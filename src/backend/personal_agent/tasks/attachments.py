@@ -3,13 +3,13 @@ import asyncio
 import posixpath
 from core.db.engine import SessionLocal
 from core.db.models import Artifact
-from core.services.artifact_edition import is_personal_artifact
+from core.db.artifact_scope import is_personal_artifact
 
 
 async def stage_inputs(task_id, uid, box, artifact_ids):
     if not artifact_ids:
         return ""
-    from core.storage import get_storage
+    from core.files.storage import get_storage
     from personal_agent.computer.sandbox import get_personal_sandbox_provider
     provider = get_personal_sandbox_provider()
     prompt = ""

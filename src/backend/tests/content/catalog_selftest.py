@@ -12,13 +12,14 @@ from pathlib import Path
 
 
 def main() -> int:
-    import core.config.catalog as cat
+    import core.capabilities.catalog.api as cat
+    from core.capabilities.catalog import common as catalog_common
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td) / "catalog.json"
 
         # Monkeypatch path to avoid touching repo config.
-        cat._CATALOG_PATH = tmp  # type: ignore[attr-defined]
+        catalog_common.CATALOG_PATH = tmp  # type: ignore[attr-defined]
 
         data = cat.ensure_default_catalog()
         assert isinstance(data.get("skills"), list)

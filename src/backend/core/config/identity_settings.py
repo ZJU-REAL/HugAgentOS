@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
-from .environment import _env, _bool, _int, _float, _REPO_ROOT
+from .environment import _env, _bool, _int
 
 @dataclass(frozen=True)
 class AuthSettings:

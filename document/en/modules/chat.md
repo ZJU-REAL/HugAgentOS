@@ -71,10 +71,10 @@ orchestration/chat_run_executor.py::start_run()
    ▼
 orchestration/workflow.py::astream_chat_workflow()
    │   ├─ orchestration/memory_integration.py  non-blocking memory retrieval (bg task + budget)
-   │   ├─ core/config/catalog_resolver.py      resolve enabled skills/mcp/kb for this request
+   │   ├─ core/capabilities/catalog/resolver.py      resolve enabled skills/mcp/kb for this request
    │   ├─ core/llm/factory/build.py::create_agent_executor()
    │   │     MCP pool + skill registration + file tools + system prompt + middlewares → Agent
-   │   ├─ core/llm/context_manager.py          trim history to the token budget
+   │   ├─ core/llm/context/window_policy.py          trim history to the token budget
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
    │         consumes agent.reply_stream(), coalesces 25 event kinds while preserving tool-argument deltas
    ▼
@@ -160,8 +160,8 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 
 `create_agent_executor()` is the shared factory for every mode (main chat, plan, batch, sub-agents, automation):
 
-- **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp_pool.py`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
-- **Skills**: registered as AgentScope Agent Skills via `core/agent_skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
+- **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp/pool.py`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
+- **Skills**: registered as AgentScope Agent Skills via `core/capabilities/skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
 - **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `FinishPinGuardMiddleware`.
 - **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting. Compaction uses the unified coordinator without a second framework summary fallback. Failure preserves the original context. If the final request still exceeds its budget, the run saves a checkpoint and pauses before calling the reply model.
@@ -428,7 +428,7 @@ or no-longer-owned components are not restored.
 - **Autonomous main-agent dispatch**: when neither a structured `@` selection
   nor the strict natural-language command matches, the main agent can use the
   `call_subagent` tool registered by
-  `core/llm/subagent_tool.py`. Each child runs in its own thread and event loop,
+  `core/llm/subagents/tool.py`. Each child runs in its own thread and event loop,
   then returns text for the main agent to integrate. This path supports parallel
   sub-agents, task decomposition, and cross-domain synthesis.
 
@@ -439,7 +439,7 @@ Three complementary layers:
 | Layer | Implementation | Trigger |
 |---|---|---|
 | Chat title summary | `core/llm/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
-| Unified context checkpoint | `core/services/compaction_service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
+| Unified context checkpoint | `core/chat/compaction/service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
 | Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; failed compaction preserves the original context, and an over-budget final request saves a checkpoint and pauses | A tool result is oversized or unified compaction is temporarily unavailable |
 
 Compaction cuts only at legal boundaries: history is first split into steps,
@@ -468,7 +468,7 @@ recovery stay consistent.
 
 ## Oversized tool-result offloading
 
-`core/llm/offloader.py::SandboxOffloader` implements the AgentScope 2.0 `Offloader` protocol: when context compression or tool-result truncation happens, the overflow is no longer silently discarded — it is written into the sandbox at `/workspace/.offload/` (`tool_<id>.txt` / `context_<hash>.txt`), the framework appends the path to the model-facing `<system-reminder>`, and the model can read it back on demand via `Read` / `bash`. Mounted only when sandbox tools are enabled (`SANDBOX_TOOLS_ENABLED=true`, default on); write failures never raise and degrade to an explanatory message.
+`core/llm/context/offloader.py::SandboxOffloader` implements the AgentScope 2.0 `Offloader` protocol: when context compression or tool-result truncation happens, the overflow is no longer silently discarded — it is written into the sandbox at `/workspace/.offload/` (`tool_<id>.txt` / `context_<hash>.txt`), the framework appends the path to the model-facing `<system-reminder>`, and the model can read it back on demand via `Read` / `bash`. Mounted only when sandbox tools are enabled (`SANDBOX_TOOLS_ENABLED=true`, default on); write failures never raise and degrade to an explanatory message.
 
 ## Chat sharing
 
@@ -498,15 +498,15 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Event mapping (reply_stream → SSE) | `src/backend/orchestration/streaming.py` |
 | Runtime context assembly | `src/backend/core/chat/context.py` |
 | Agent factory | `src/backend/core/llm/factory/build.py` |
-| Middlewares | `src/backend/core/llm/middlewares.py` (pure-function helpers in `core/llm/hooks.py`) |
+| Middlewares | `src/backend/core/llm/middlewares.py` (pure-function helpers in `core/llm/runtime/hooks.py`) |
 | Citation extraction | `src/backend/orchestration/citations.py` |
-| Cross-chat references (cards / digests / paging) | `src/backend/core/services/chat_reference_service.py` |
+| Cross-chat references (cards / digests / paging) | `src/backend/core/chat/references.py` |
 | Cross-chat history tools | `src/backend/core/llm/tools/chat_history_tool.py` |
 | Citation rendering | `src/frontend/src/utils/citations.ts`, `src/frontend/src/components/citation/` |
 | Plan mode | `src/backend/orchestration/subagents/plan_mode.py`, `api/routes/v1/plans.py` |
-| Sub-agent tool | `src/backend/core/llm/subagent_tool.py`, `api/routes/v1/agents.py` |
-| Title summarization / context compaction / window protection | `src/backend/core/llm/summarizer.py`, `compaction.py`, `core/services/compaction_service.py`, `context_manager.py` |
-| Oversized-result offloading | `src/backend/core/llm/offloader.py` |
+| Sub-agent tool | `src/backend/core/llm/subagents/tool.py`, `api/routes/v1/agents.py` |
+| Title summarization / context compaction / window protection | `src/backend/core/llm/summarizer.py`, `compaction.py`, `core/chat/compaction/service.py`, `context_manager.py` |
+| Oversized-result offloading | `src/backend/core/llm/context/offloader.py` |
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
 | Follow-up generation | `src/backend/orchestration/followups.py` |
 | Frontend stream parsing / follow-up queue | `src/frontend/src/hooks/chatStream.ts`, `useStreaming.ts`, `components/chat/QueuedMessageCard.tsx` |

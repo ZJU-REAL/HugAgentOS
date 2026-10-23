@@ -11,14 +11,14 @@
 import json
 
 import pytest
-from core.artifacts import store
+from core.files.artifacts import store
 
 
 @pytest.fixture
 def store_dir(tmp_path, monkeypatch):
     # Every other path derives from _STORE_DIR, so this one patch is the whole redirect.
     monkeypatch.setattr(store, "_STORE_DIR", tmp_path)
-    monkeypatch.setattr(store, "_known_buckets", set())
+    monkeypatch.setattr(store.process_state(), 'known_buckets', set())
     monkeypatch.setenv("STORAGE_TYPE", "local")
     return tmp_path
 

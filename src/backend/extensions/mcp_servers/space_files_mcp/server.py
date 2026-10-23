@@ -4,9 +4,9 @@ import base64
 import json
 from typing import Literal
 
-from core.services.desktop_capability_protocol import canonical_hash
-from core.spaces.access import resolve_grants
-from core.spaces.files import SpaceFiles
+from core.capabilities.manifest_protocol import canonical_hash
+from core.files.spaces.access import resolve_grants
+from core.files.spaces.files import SpaceFiles
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -71,7 +71,7 @@ def manifest():
 
 
 def resolve(user, name, schema_hash):
-    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+    from core.capabilities.manifest_protocol import CapabilityManifestStaleError
 
     if not user or str(user).startswith("api_ak_") or name not in ARGUMENTS:
         return None
@@ -87,7 +87,7 @@ def resolve(user, name, schema_hash):
 
 def execute(user, tool_name, arguments):
     from core.db.engine import SessionLocal
-    from core.storage import get_storage
+    from core.files.storage import get_storage
 
     try:
         args = ARGUMENTS[tool_name].model_validate(arguments)

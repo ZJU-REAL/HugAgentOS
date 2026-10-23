@@ -9,12 +9,12 @@ Supports three AUTH_MODE values:
 from typing import Any, Dict, Optional
 
 import requests
-from core.auth.account_policy import AccountCapacityExceeded
+from core.auth.edition import AccountCapacityExceeded
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.logging import get_logger
-from core.services import UserService
+from core.auth.users import UserService
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -153,7 +153,7 @@ def _resolve_api_key_context(token: Optional[str], db: Session) -> Optional[User
     have no Cookie). Validation (enabled/not-revoked/not-expired/user permission
     bits) is handled uniformly by ``resolve_api_key_identity``.
     """
-    from core.services.api_key_service import resolve_api_key_identity
+    from core.auth.api_keys import resolve_api_key_identity
 
     identity = resolve_api_key_identity(db, token or "")
     if identity is None:
@@ -271,7 +271,7 @@ async def get_current_user(
 
     # An explicit API credential must not be widened by an accompanying cookie
     # or desktop identity. Invalid/revoked scoped keys likewise fail closed.
-    from core.services.api_key_service import api_key_token_from_header, is_api_key_token
+    from core.auth.api_keys import api_key_token_from_header, is_api_key_token
 
     bearer_token = api_key_token_from_header(request.headers.get("authorization"))
     if bearer_token is None and credentials is not None:
@@ -281,7 +281,7 @@ async def get_current_user(
 
     # ── 0. 桌面桥接（仅桌面壳孵化的本机后端启用；混合架构 P2）──
     # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
-    from core.auth.desktop_bridge import resolve_bridge_user
+    from core.harness.registry.authentication import resolve_host_user as resolve_bridge_user
     from starlette.concurrency import run_in_threadpool
 
     bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
@@ -376,7 +376,7 @@ def require_auth(required: bool = True):
                 from core.auth.public_chat import authenticate_public_chat
                 return authenticate_public_chat(request, db)
             auth_mode = _auth_mode()
-            from core.services.api_key_service import api_key_token_from_header
+            from core.auth.api_keys import api_key_token_from_header
 
             auth_header = request.headers.get("Authorization", "")
             raw_bearer = api_key_token_from_header(auth_header)
@@ -385,7 +385,7 @@ def require_auth(required: bool = True):
 
             # Match required authentication: the desktop shell owns the local
             # identity, even when a forwarded cloud cookie is absent or stale.
-            from core.auth.desktop_bridge import resolve_bridge_user
+            from core.harness.registry.authentication import resolve_host_user as resolve_bridge_user
             from starlette.concurrency import run_in_threadpool
 
             bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
@@ -434,14 +434,16 @@ def require_auth(required: bool = True):
                 # Edition admission blocks must not degrade to anonymous access.
                 try:
                     db.rollback()
-                except Exception:
-                    pass
+                except Exception as fallback_error:
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure('core.auth.backend:optional_user', fallback_error)
                 raise
             except Exception as e:
                 try:
                     db.rollback()
-                except Exception:
-                    pass
+                except Exception as fallback_error:
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure('core.auth.backend:optional_user', fallback_error)
                 logger.warning("optional_auth_resolve_failed", error=str(e))
                 return None
 

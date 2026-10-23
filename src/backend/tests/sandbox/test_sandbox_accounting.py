@@ -12,7 +12,7 @@ import pytest
 
 import core.sandbox.providers.opensandbox.lifecycle as runtime
 import core.sandbox.sessions.registry as session_registry
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
@@ -254,17 +254,17 @@ def test_snapshot_readiness_timeout_bounds_a_blocked_http_request(monkeypatch):
 
 def test_lost_shared_claim_interrupts_owner_without_deleting_another_token(monkeypatch, sandbox_session_store):
     monkeypatch.setattr(session_registry,"_LOCK_RENEW_INTERVAL_S",0.001)
-    original_hold=sandbox_session_store.hold
+    original_hold=sandbox_session_store.compare_exchange
     calls=0
-    async def hold(key,token,*,ttl):
+    async def hold(key,expected,token,*,ttl):
         nonlocal calls
         calls+=1
-        if calls > 1:
+        if calls >= 1:
             await sandbox_session_store.drop(key)
             await sandbox_session_store.put(key,"new-owner",ttl=ttl)
             return False
-        return await original_hold(key,token,ttl=ttl)
-    monkeypatch.setattr(sandbox_session_store,"hold",hold)
+        return await original_hold(key,expected,token,ttl=ttl)
+    monkeypatch.setattr(sandbox_session_store,"compare_exchange",hold)
     async def scenario():
         with pytest.raises(RuntimeError,match="claim lost"):
             async with session_registry.claim("chat"):
@@ -290,7 +290,7 @@ def test_lost_claim_after_detach_returns_reservation_without_destroying_containe
 
 
 def test_cancelled_resource_stop_preserves_session_and_reservation(monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     worker=_worker(monkeypatch,None)
     monkeypatch.setattr(prewarm,"stop",AsyncMock(side_effect=asyncio.CancelledError()))
     async def scenario():

@@ -35,9 +35,8 @@ def _settings(**overrides):
 
 
 def _restore_provider(monkeypatch, *, snapshot_id, idle_hit):
-    monkeypatch.setattr("core.agent_skills.publication.prepare_skill_view", lambda uid: None)
+    monkeypatch.setattr('core.capabilities.skills.publication.prepare_skill_view', lambda uid: None)
     patch_open_settings(monkeypatch, _settings())
-    monkeypatch.setattr(session_mod_runtime, "_user_bound_sandbox_required", lambda: True)
     provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     provider._lookup_snapshot = AsyncMock(return_value=snapshot_id)
     provider._jupyter_user_pool = SimpleNamespace(has_idle=lambda uid: idle_hit)

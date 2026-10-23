@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional
 
@@ -20,9 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 # Lazily-loaded OpenAI client + resolved model name (avoids errors at import time)
-_client = None
-_model_name: Optional[str] = None
-_client_lock = asyncio.Lock()
 
 
 def _resolve_memory_model_config() -> tuple[str, str, str]:
@@ -32,7 +30,7 @@ def _resolve_memory_model_config() -> tuple[str, str, str]:
     Consistent with `core/memory/service.py::_build_mem0_config`.
     """
     try:
-        from core.services.model_config import ModelConfigService
+        from core.models.config import ModelConfigService
         svc = ModelConfigService.get_instance()
         mem_cfg = svc.resolve("memory")
         if mem_cfg and mem_cfg.base_url and mem_cfg.api_key:
@@ -46,21 +44,17 @@ def _resolve_memory_model_config() -> tuple[str, str, str]:
 
 def _client_identity(base_url: str, api_key: str) -> tuple:
     """桌面网关引用绑定账号：桥接身份变了就要换客户端（凭据轮换不换）。"""
-    from core.services.desktop_model_credentials import bind, is_reference
+    from core.harness.registry.model_credentials import bind, is_reference
 
     if not is_reference(api_key):
         return (base_url, api_key)
-    from core.services.desktop_cloud_bridge import _state_fingerprint
+    from core.harness.registry.execution_identity import state_fingerprint as _state_fingerprint
 
     return (base_url, api_key, _state_fingerprint(bind(api_key, base_url)))
 
 
-_client_identity_key: tuple | None = None
-
-
 async def _get_client() -> tuple[object, str]:
     """A dedicated memory LLM client, not shared with the main conversation. Returns (client, model_name)."""
-    global _client, _model_name, _client_identity_key
     base_url, api_key, model_name = _resolve_memory_model_config()
     if not base_url or not api_key or not model_name:
         raise RuntimeError(
@@ -68,13 +62,13 @@ async def _get_client() -> tuple[object, str]:
             f"api_key={bool(api_key)} model_name={bool(model_name)}"
         )
     identity = _client_identity(base_url, api_key)
-    if _client is not None and _model_name is not None and _client_identity_key == identity:
-        return _client, _model_name
-    async with _client_lock:
-        if _client is not None and _model_name is not None and _client_identity_key == identity:
-            return _client, _model_name
+    if process_state().client is not None and process_state().model_name is not None and process_state().client_identity_key == identity:
+        return process_state().client, process_state().model_name
+    async with process_state().client_lock:
+        if process_state().client is not None and process_state().model_name is not None and process_state().client_identity_key == identity:
+            return process_state().client, process_state().model_name
         from openai import AsyncOpenAI
-        from core.services.desktop_model_credentials import is_reference, request_hook
+        from core.harness.registry.model_credentials import is_reference, request_hook
 
         http_client = None
         if is_reference(api_key):
@@ -84,7 +78,7 @@ async def _get_client() -> tuple[object, str]:
 
             hook, _captured = request_hook(api_key, base_url)
             http_client = httpx.AsyncClient(timeout=180.0, event_hooks={"request": [hook]})
-        _client = AsyncOpenAI(
+        process_state().client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
             http_client=http_client,
@@ -96,11 +90,11 @@ async def _get_client() -> tuple[object, str]:
             # extractor sets; this only stops a socket hanging forever.
             timeout=180.0,
         )
-        _model_name = model_name
-        _client_identity_key = identity
+        process_state().model_name = model_name
+        process_state().client_identity_key = identity
         logger.info("[extractor] memory LLM client initialized model=%s base=%s",
                     model_name, base_url)
-        return _client, _model_name
+        return process_state().client, process_state().model_name
 
 
 def _strip_fences(text: str) -> str:
@@ -286,3 +280,18 @@ def fill_prompt(
     except KeyError as exc:
         logger.warning("[extractor] prompt template missing key: %s", exc)
         return template
+
+
+@dataclass
+class BaseState:
+    client: object = None
+    model_name: Optional[str] = None
+    client_lock: object = field(default_factory=lambda: asyncio.Lock())
+    client_identity_key: tuple | None = None
+
+
+_STATE = BaseState()
+
+
+def process_state() -> BaseState:
+    return _STATE

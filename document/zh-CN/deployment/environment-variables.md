@@ -223,7 +223,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 全池上限（含使用中） |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 控制器全局上限（所有 worker、预热与使用中实例）；backend 和控制器使用同一值 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
@@ -317,16 +317,10 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 
 License 细节见 [License 机制](../editions/license.md)。
 
-## 其他（限流、熔断、安全、告警）
+## 其他（安全、告警）
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `RATE_LIMIT_ENABLED` | `true` | 接口限流开关 | CE |
-| `RATE_LIMIT_STORAGE` | `memory://` | 限流计数存储（可 `redis://...`） | CE |
-| `RATE_LIMIT_GLOBAL` / `RATE_LIMIT_PER_USER` | `500/minute` / `50/minute` | 全局 / 单用户限流 | CE |
-| `CB_USER_CENTER_THRESHOLD` / `CB_USER_CENTER_TIMEOUT` | `5` / `60` | 用户中心熔断器 | EE |
-| `CB_MODEL_API_THRESHOLD` / `CB_MODEL_API_TIMEOUT` | `10` / `30` | 模型 API 熔断器 | CE |
-| `CB_STORAGE_THRESHOLD` / `CB_STORAGE_TIMEOUT` | `5` / `60` | 存储熔断器 | CE |
 | `CORS_ORIGINS` | compose 默认 `http://localhost:3000,http://localhost:5173` | 允许跨域来源 | CE |
 | `ENABLE_SECURITY_HEADERS` | （注释，建议生产 `true`） | 安全响应头 | CE |
 | `AUDIT_LOG_RETENTION_DAYS` / `AUDIT_LOG_EXPORT_ENABLED` | `90` / `true`（注释示例） | 审计日志保留 / 导出 | EE |

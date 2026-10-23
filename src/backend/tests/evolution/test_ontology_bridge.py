@@ -7,7 +7,7 @@ ontology one of the framework's faster paths.
 
 import pytest
 
-from core.evolution import ontology_bridge as OB
+from core.evolution.generators import ontology_bridge as OB
 
 
 def _candidate(**kw):

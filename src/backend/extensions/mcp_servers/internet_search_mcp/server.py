@@ -5,44 +5,31 @@ from typing import Annotated, Any
 
 import anyio
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from pydantic import Field
 
 from .impl import MAX_INFLIGHT, SearchService
 from .models import Depth, Query, ResultLimit, SearchRequest, Topic
 
-# FastMCP enters lifespan per MCP session. Share one service across overlapping
-# sessions on this server's event loop; the last session closes its client.
-_service: SearchService | None = None
-_sessions = 0
-
-
 @asynccontextmanager
-async def lifespan(server: FastMCP):
-    global _service, _sessions
-    if _service is None:
-        _service = SearchService(
-            httpx.AsyncClient(limits=httpx.Limits(max_connections=MAX_INFLIGHT))
-        )
-    service = _service
-    _sessions += 1
+async def lifespan(server: MCPServer):
+    service = SearchService(
+        httpx.AsyncClient(limits=httpx.Limits(max_connections=MAX_INFLIGHT))
+    )
     try:
         yield service
     finally:
-        _sessions -= 1
-        if _sessions == 0:
-            _service = None
-            with anyio.CancelScope(shield=True):
-                await service.client.aclose()
+        with anyio.move_on_after(5, shield=True):
+            await service.client.aclose()
 
 
-class SearchMCP(FastMCP):
-    """Validate the raw MCP boundary before FastMCP drops unknown arguments."""
+class SearchMCP(MCPServer):
+    """Validate the raw MCP boundary before MCPServer drops unknown arguments."""
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]):
+    async def call_tool(self, name: str, arguments: dict[str, Any], context=None):
         if name == "internet_search":
             SearchRequest.model_validate(arguments)
-        return await super().call_tool(name, arguments)
+        return await super().call_tool(name, arguments, context)
 
 
 mcp = SearchMCP("hugagent-internet-search", lifespan=lifespan)

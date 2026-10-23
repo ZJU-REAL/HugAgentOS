@@ -12,12 +12,14 @@ from types import MappingProxyType
 from typing import Any
 
 from core.harness.events import Event, EventSink, freeze_value, thaw_value
-from core.harness.usage import AttemptUsage, UsageAttempt, UsageRecorder
+from core.harness.observation_writer import observation_writer
+from core.harness.usage import AttemptUsage, UsageAttempt, UsageRecorder, record_attempt_batch
 
 
 class HookStage(str, Enum):
     BEFORE_RUN = "before_run"
     TRANSFORM_CONTEXT = "transform_context"
+    AFTER_CONTEXT = "after_context"
     BEFORE_MODEL = "before_model"
     AFTER_MODEL = "after_model"
     BEFORE_TOOL = "before_tool"
@@ -41,24 +43,25 @@ class FailureMode(str, Enum):
 
 STAGE_MUTABLE_FIELDS: Mapping[HookStage, frozenset[str]] = MappingProxyType(
     {
-        HookStage.BEFORE_RUN: frozenset(),
-        HookStage.TRANSFORM_CONTEXT: frozenset({"messages", "context"}),
+        HookStage.BEFORE_RUN: frozenset({"model_selection"}),
+        HookStage.TRANSFORM_CONTEXT: frozenset({"messages", "context", "context_items", "tool_choice", "steer_delivery"}),
         # AgentScope reaches on_model_call only after HugAgentOS has assembled and
         # bound the execution manifest. Rewriting provider input here would make
         # the evidence bundle describe different inputs than the real request.
+        HookStage.AFTER_CONTEXT: frozenset(),
         HookStage.BEFORE_MODEL: frozenset(),
         HookStage.AFTER_MODEL: frozenset(),
         # AgentScope reaches on_acting after schema and permission checks. A
         # rewrite here would bypass both, so the call is observation-only.
-        HookStage.BEFORE_TOOL: frozenset(),
-        # Tool chunks may already be visible by this point, so results are
-        # read-only here; policies that rewrite calls must act BEFORE_TOOL.
-        HookStage.AFTER_TOOL: frozenset(),
+        HookStage.BEFORE_TOOL: frozenset({"ontology_runtime", "context_items", "tool_response"}),
+        # Tool results may change only while buffered; run() rejects a rewrite
+        # when the adapter has already exposed any result chunks.
+        HookStage.AFTER_TOOL: frozenset({"context_items", "tool_result"}),
         # Source history is read-only because the checkpoint watermark/hash
         # must continue to describe exactly the rows being covered.
         HookStage.BEFORE_COMPACTION: frozenset({"budget"}),
         HookStage.AFTER_COMPACTION: frozenset({"replacement"}),
-        HookStage.BEFORE_FINISH: frozenset(),
+        HookStage.BEFORE_FINISH: frozenset({"pin_file_ids", "continue_run"}),
     }
 )
 
@@ -131,7 +134,7 @@ class HookSpec:
     stage: HookStage
     handler: HookHandler
     priority: int = 100
-    timeout_ms: int = 1_000
+    timeout_ms: int | None = 1_000
     failure_mode: FailureMode = FailureMode.CLOSED
     mutable_fields: frozenset[str] = field(default_factory=frozenset)
 
@@ -174,11 +177,9 @@ class HookBus:
         *,
         event_sink: EventSink | None = None,
         usage_recorder: UsageRecorder | None = None,
-        usage_timeout_ms: int = 1_000,
     ) -> None:
         self.event_sink = event_sink or EventSink()
         self.usage_recorder = usage_recorder
-        self.usage_timeout_ms = max(1, int(usage_timeout_ms))
         self._hooks: dict[HookStage, list[tuple[int, int, HookSpec]]] = {}
         self._registration_seq = 0
 
@@ -195,52 +196,55 @@ class HookBus:
         bucket.append((spec.priority, self._registration_seq, spec))
         bucket.sort(key=lambda item: (item[0], item[1]))
 
-    async def _call(self, spec: HookSpec, invocation: Invocation) -> Decision:
-        async def invoke() -> Decision:
-            if inspect.iscoroutinefunction(spec.handler):
-                result = await spec.handler(invocation)
-            else:
-                result = await asyncio.to_thread(spec.handler, invocation)
-                if inspect.isawaitable(result):
-                    result = await result
-            if result is None:
-                return Decision()
-            if not isinstance(result, Decision):
-                raise HookContractError(
-                    f"hook {spec.name} returned {type(result).__name__}"
-                )
-            return result
+    def registered_specs(self) -> tuple[HookSpec, ...]:
+        """Expose the ordered policy inventory without mutable registry internals."""
+        return tuple(spec for stage in HookStage
+                     for _, _, spec in self._hooks.get(stage, ()))
 
-        return await asyncio.wait_for(invoke(), timeout=max(1, spec.timeout_ms) / 1_000)
+    async def _call(self, spec: HookSpec, invocation: Invocation) -> Decision:
+        # Synchronous handlers are in-memory policies and run inline: a thread
+        # hop plus timeout would let executor saturation reject or skip them.
+        # Policies that block on I/O must be async and own their offloading.
+        result = spec.handler(invocation)
+        if inspect.isawaitable(result):
+            # Interactive policies own their timeout and must retain caller cancellation.
+            if spec.timeout_ms is None:
+                result = await result
+            else:
+                result = await asyncio.wait_for(result, timeout=max(1, spec.timeout_ms) / 1_000)
+        if result is None:
+            return Decision()
+        if not isinstance(result, Decision):
+            raise HookContractError(f"hook {spec.name} returned {type(result).__name__}")
+        return result
 
     async def run(self, invocation: Invocation) -> HookOutcome:
         current = invocation
         executed: list[str] = []
         terminal = Decision()
-        await self.event_sink.append(
-            Event.create(
-                run_id=current.run_id,
-                event_type="hook_stage_started",
-                phase=current.stage.value,
-                payload={"operation_name": current.operation_name},
-            )
-        )
-        for _, _, spec in tuple(self._hooks.get(current.stage, ())):
+        hooks = tuple(self._hooks.get(current.stage, ()))
+        if not hooks:
+            return HookOutcome(current, terminal, ())
+        attempts: list[dict[str, Any]] = []
+        usage: list[UsageAttempt] = []
+        cancellation: asyncio.CancelledError | None = None
+        for _, _, spec in hooks:
             started = time.monotonic()
             status = "success"
             decision = Decision()
-            cancellation: asyncio.CancelledError | None = None
             try:
                 decision = await self._call(spec, current)
-                if decision.kind == DecisionKind.MODIFY:
+                if decision.patch:
                     invalid = set(decision.patch) - set(spec.mutable_fields)
                     if invalid:
                         raise HookContractError(
                             f"hook {spec.name} modified undeclared fields: "
                             f"{sorted(invalid)}"
                         )
+                    if "tool_result" in decision.patch and current.data.get("result_exposed"):
+                        raise HookContractError("cannot rewrite an exposed tool result")
                     current = current.patched(decision.patch)
-                elif decision.kind in {DecisionKind.REJECT, DecisionKind.PAUSE}:
+                if decision.kind in {DecisionKind.REJECT, DecisionKind.PAUSE}:
                     terminal = decision
             except asyncio.CancelledError as exc:
                 status = "cancelled"
@@ -255,57 +259,56 @@ class HookBus:
                     terminal = Decision.reject(f"hook {spec.name} failed: {exc}")
             latency_ms = int((time.monotonic() - started) * 1_000)
             executed.append(spec.name)
-            if self.usage_recorder is not None:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(
-                            self.usage_recorder.record_attempt,
-                            UsageAttempt(
-                                run_id=current.run_id,
-                                kind="hook",
-                                operation_name=spec.name,
-                                status=status,
-                                latency_ms=latency_ms,
-                                usage=decision.usage,
-                                metadata={"stage": current.stage.value},
-                            ),
-                        ),
-                        timeout=self.usage_timeout_ms / 1_000,
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass
-            await self.event_sink.append(
-                Event.create(
+            usage.append(
+                UsageAttempt(
                     run_id=current.run_id,
-                    event_type="hook_attempt_finished",
-                    phase=current.stage.value,
-                    payload={
-                        "hook": spec.name,
-                        "status": status,
-                        "decision": terminal.kind.value
-                        if terminal.kind != DecisionKind.CONTINUE
-                        else decision.kind.value,
-                        "latency_ms": latency_ms,
-                    },
+                    kind="hook",
+                    operation_name=spec.name,
+                    status=status,
+                    latency_ms=latency_ms,
+                    usage=decision.usage,
+                    metadata={"stage": current.stage.value},
                 )
             )
-            if terminal.kind in {DecisionKind.REJECT, DecisionKind.PAUSE}:
+            attempts.append(
+                {
+                    "hook": spec.name,
+                    "status": status,
+                    "decision": terminal.kind.value
+                    if terminal.kind != DecisionKind.CONTINUE
+                    else decision.kind.value,
+                    "latency_ms": latency_ms,
+                }
+            )
+            if terminal.kind in {DecisionKind.REJECT, DecisionKind.PAUSE} or cancellation is not None:
                 break
-            if cancellation is not None:
-                raise cancellation
 
-        await self.event_sink.append(
+        await self._record_stage(current, terminal, executed, attempts, usage)
+        if cancellation is not None:
+            raise cancellation
+        return HookOutcome(current, terminal, tuple(executed))
+
+    async def _record_stage(self, current, terminal, executed, attempts, usage) -> None:
+        """Queue one usage batch and one event per stage, not one per hook.
+
+        Both are written by the background observation writer; the stage never
+        waits for the database and a failed write cannot change its outcome.
+        """
+        if self.usage_recorder is not None and current.run_id:
+            observation_writer().submit(self.usage_recorder, record_attempt_batch, current.run_id, usage)
+        await self.event_sink.publish(
             Event.create(
                 run_id=current.run_id,
                 event_type="hook_stage_finished",
                 phase=current.stage.value,
                 payload={
+                    "operation_name": current.operation_name,
                     "decision": terminal.kind.value,
                     "executed_hooks": executed,
+                    "attempts": attempts,
                 },
             )
         )
-        return HookOutcome(current, terminal, tuple(executed))
 
     async def enforce(self, invocation: Invocation) -> Invocation:
         outcome = await self.run(invocation)

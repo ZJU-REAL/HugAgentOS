@@ -1,4 +1,4 @@
-"""Tests for core.services.skill_deps_aggregator."""
+"""Tests for core.capabilities.skills.deps.aggregator."""
 from __future__ import annotations
 
 import json
@@ -11,13 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models import AdminSkill
-from core.services.skill_deps_aggregator import (
-    aggregate_all,
-    render_apt_packages,
-    render_npm_package_json,
-    render_pip_requirements,
-    write_manifests,
-)
+from core.capabilities.skills.deps.aggregator import aggregate_all, render_apt_packages, render_npm_package_json, render_pip_requirements, write_manifests
 
 
 @pytest.fixture
