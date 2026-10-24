@@ -52,10 +52,6 @@ async def _astream_subagent_direct(
     import time as _time
 
     turn.wf_start = _time.monotonic()
-    turn.direct_read_only, turn.direct_allow_bash = targets._direct_agent_execution_permissions(
-        agent_id
-    )
-
     turn.user_agent = targets._load_direct_user_agent(
         agent_id,
         str(turn.context.get("user_id", "")),

@@ -252,4 +252,13 @@ export const MYSPACE_DICT: Record<string, string> = {
 
   // ── 知识库 Tab（并入我的空间） ──
   '浏览与管理知识库、查看文档列表，并支持文档内检索': 'Browse and manage knowledge bases, view document lists, and search within documents',
+  // ── 团队文件夹目录 ──
+  '读取文件夹失败：{reason}': 'Could not read the folder: {reason}',
+  '仅查看': 'View only',
+  '展开目录': 'Show folders',
+  '收起目录': 'Hide folders',
+  '当前位置': 'Current location',
+  '成员权限': 'Members',
+  '团队目录': 'Team folders',
+  '团队空间 · {n}': 'Team spaces · {n}',
 };

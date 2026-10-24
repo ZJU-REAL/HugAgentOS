@@ -300,13 +300,6 @@ def test_only_persistent_agent_chat_uses_direct_route():
     )
 
 
-def test_dedicated_builtin_chat_preserves_role_write_boundaries():
-    assert targets._direct_agent_execution_permissions("builtin.explorer") == (True, False)
-    assert targets._direct_agent_execution_permissions("builtin.worker") == (False, True)
-    assert targets._direct_agent_execution_permissions("builtin.reviewer") == (True, False)
-    assert targets._direct_agent_execution_permissions("ua_risk") == (False, True)
-
-
 @pytest.mark.asyncio
 async def test_mention_keeps_normal_main_model_stream(monkeypatch):
     async def _fake_memory_retrieval(*_args, **_kwargs):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import core.projects.edition as project_scope
 
@@ -171,16 +171,6 @@ def _direct_agent_id_from_context(context: Dict[str, Any]) -> Optional[str]:
     """
     value = context.get("agent_id")
     return str(value) if value else None
-
-
-def _direct_agent_execution_permissions(agent_id: str) -> Tuple[bool, bool]:
-    """Return ``(read_only, allow_bash)`` for a dedicated sub-agent chat."""
-    from core.capabilities.agents.builtin import get_builtin_subagent
-
-    builtin_spec = get_builtin_subagent(agent_id)
-    if builtin_spec is None:
-        return False, True
-    return builtin_spec.read_only, builtin_spec.allow_bash
 
 
 def _load_direct_user_agent(

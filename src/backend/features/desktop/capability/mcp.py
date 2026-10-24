@@ -195,7 +195,7 @@ async def invoke_gateway_tool(
     async with make_client(str(resolved["server_id"]), target) as client:
         result = await asyncio.wait_for(client.call_tool(raw_tool.name, dict(arguments or {})),
                                         timeout=_execution_timeout(str(resolved["server_id"]), target))
-        chunk = tool_result(result, raw_tool)
+        chunk = tool_result(result)
     chunk.metadata.setdefault("origin", "cloud")
     chunk.metadata.setdefault("mcp_server_id", str(resolved["server_id"]))
     return guard_capability_content(

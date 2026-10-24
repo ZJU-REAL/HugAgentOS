@@ -56,6 +56,7 @@
   --state-press:rgba(16,24,40,.08);
   --material:rgba(255,255,255,.82);
   --shadow-floating:0 2px 8px rgba(16,24,40,.06), 0 20px 48px rgba(16,24,40,.14);
+  --shadow-drawer-edge:8px 0 24px -12px rgba(16,24,40,.16);
 
   /* ── 边框与填充 (Neutral Gray) ── */
   --color-fill-heavy:#8C94A2;
@@ -259,6 +260,7 @@
   --state-press:rgba(255,255,255,.10);
   --material:rgba(28,35,48,.80);
   --shadow-floating:0 2px 8px rgba(0,0,0,.45), 0 20px 48px rgba(0,0,0,.55);
+  --shadow-drawer-edge:8px 0 24px -12px rgba(0,0,0,.6);
 
   --color-fill-heavy:#77828F;
   --color-fill-deep:#66707E;

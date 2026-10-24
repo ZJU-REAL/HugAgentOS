@@ -26,56 +26,23 @@ def test_context_policy_is_worker_inherits_others_independent():
     }
 
 
-def test_read_only_roles_intersect_parent_capabilities():
+def test_every_role_inherits_but_never_invents_parent_capabilities():
     runtime = {
-        "enabled_mcp_ids": [
-            "internet_search",
-            "web_fetch",
-            "automation_task",
-            "site_publish",
-        ],
-        "enabled_skill_ids": ["docs-writer"],
-        "enabled_kb_ids": ["kb-public"],
-    }
-
-    explorer = effective_builtin_capabilities(get_builtin_subagent("builtin.explorer"), runtime)
-    reviewer = effective_builtin_capabilities(get_builtin_subagent("builtin.reviewer"), runtime)
-
-    assert (
-        explorer
-        == reviewer
-        == {
-            "mcp_server_ids": ["internet_search", "web_fetch"],
-            "skill_ids": [],
-            "kb_ids": ["kb-public"],
-        }
-    )
-
-
-def test_worker_inherits_but_never_invents_parent_capabilities():
-    runtime = {
-        "enabled_mcp_ids": ["automation_task"],
+        "enabled_mcp_ids": ["internet_search", "automation_task"],
         "enabled_skill_ids": ["docs-writer"],
         "enabled_kb_ids": ["kb-team"],
     }
-    worker = effective_builtin_capabilities(get_builtin_subagent("builtin.worker"), runtime)
 
-    assert worker == {
-        "mcp_server_ids": ["automation_task"],
-        "skill_ids": ["docs-writer"],
-        "kb_ids": ["kb-team"],
-    }
+    for spec in BUILTIN_SUBAGENTS:
+        assert effective_builtin_capabilities(spec, runtime) == {
+            "mcp_server_ids": ["internet_search", "automation_task"],
+            "skill_ids": ["docs-writer"],
+            "kb_ids": ["kb-team"],
+        }
 
 
-def test_builtin_runtime_profiles_enforce_bash_and_read_only_policy():
-    explorer = get_builtin_subagent("builtin.explorer")
+def test_builtin_runtime_profile_follows_parent_grants():
     worker = get_builtin_subagent("builtin.worker")
-    reviewer = get_builtin_subagent("builtin.reviewer")
-
-    assert explorer.read_only is True and explorer.allow_bash is False
-    assert worker.read_only is False and worker.allow_bash is True
-    assert reviewer.read_only is True and reviewer.allow_bash is False
-
     profile = build_builtin_runtime_profile(worker, {"enabled_mcp_ids": ["internet_search"]})
     assert profile.agent_id == "builtin.worker"
     assert profile.mcp_server_ids == ["internet_search"]
@@ -154,8 +121,11 @@ def test_refresh_uses_parent_final_grants_without_adding_or_inventing_tools():
     )
     by_id = {item["agent_id"]: item for item in refreshed}
 
-    assert by_id["builtin.explorer"]["mcp_server_ids"] == ["internet_search"]
-    assert by_id["builtin.explorer"]["skill_ids"] == []
+    assert by_id["builtin.explorer"]["mcp_server_ids"] == [
+        "internet_search",
+        "automation_task",
+    ]
+    assert by_id["builtin.explorer"]["skill_ids"] == ["docs-writer"]
     assert by_id["builtin.worker"]["mcp_server_ids"] == [
         "internet_search",
         "automation_task",
@@ -182,15 +152,14 @@ def test_main_prompt_explains_context_policy_to_router():
     assert "独立简报" in section
     assert "共享上下文=是" not in section
     assert "默认工具集" not in section
-    assert "未列出的技能、MCP、知识库或基础工具均不可用" in section
-    assert "三个默认角色都没有 `update_plan` 和 `call_subagent`" in section
+    assert "子智能体不能再往下委派" in section
 
     explorer_row = next(line for line in section.splitlines() if "builtin.explorer" in line)
     worker_row = next(line for line in section.splitlines() if "builtin.worker" in line)
-    assert "MCP：internet_search" in explorer_row
-    assert "automation_task" not in explorer_row
-    assert "docs-writer" not in explorer_row
-    assert "Bash" not in explorer_row
+    assert "MCP：internet_search, automation_task" in explorer_row
+    assert "技能：docs-writer" in explorer_row
+    assert "不写文件、不落盘" in explorer_row
+    assert "需要写入或落盘的任务只交给它" in worker_row
     assert "MCP：internet_search, automation_task" in worker_row
     assert "技能：docs-writer" in worker_row
     assert "Bash" in worker_row

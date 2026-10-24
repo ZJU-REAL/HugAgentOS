@@ -1,11 +1,14 @@
 """Assemble context items into the window sent to the model."""
 from __future__ import annotations
+import logging
 from dataclasses import replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 from core.harness.execution_manifest import stable_hash
 from core.llm.context import content
 from core.llm.context import ir_constants
 from core.llm.context.items import ContextAssembly, ContextItem
+
+logger = logging.getLogger(__name__)
 
 class ContextAssembler:
     """Explicit, unit-level selection in context order.
@@ -104,6 +107,24 @@ class ContextAssembler:
                     "final_tokens": capped.token_estimate,
                 }
                 return capped
+        if item.kind == ir_constants.KIND_TOOL_RESULT:
+            # Dropping a result leaves its call unanswered, which the model reads
+            # as a tool that returned nothing. Keep the pair and say what happened.
+            pruned = item.with_content(content.prune_tool_output(item.content, original))
+            logger.warning(
+                "[context] tool result %s cannot fit its %d-token budget (%d tokens); "
+                "sent as a placeholder",
+                item.item_id,
+                budget,
+                original,
+            )
+            records[item.item_id] = {
+                "action": "pruned",
+                "reason": "item_budget",
+                "original_tokens": original,
+                "final_tokens": pruned.token_estimate,
+            }
+            return pruned
         records[item.item_id] = {
             "action": "excluded",
             "reason": "item_budget",

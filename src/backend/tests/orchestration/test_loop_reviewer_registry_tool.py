@@ -27,8 +27,7 @@ def test_review_prompt_points_registry_criteria_at_read_artifact():
 
 
 def test_builtin_reviewer_spec_available():
-    # loop_reviewer 复用平台注册的 builtin.reviewer——spec 必须存在且只读
+    # loop_reviewer 复用平台注册的 builtin.reviewer——spec 必须存在
     spec = get_builtin_subagent("builtin.reviewer")
     assert spec is not None
-    assert spec.read_only is True
     assert spec.max_iters > 0

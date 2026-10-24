@@ -264,8 +264,6 @@ def _run_subagent_in_thread(
             model_name=runtime.get("model_name"),
             model_provider_id=runtime.get("model_provider_id"),
             chat_mode=runtime.get("chat_mode"),
-            read_only=bool(builtin_spec and builtin_spec.read_only),
-            allow_bash=not builtin_spec or builtin_spec.allow_bash,
             ontology_runtime=ontology_runtime,
             approval_mode=runtime.get("approval_mode"),
         )

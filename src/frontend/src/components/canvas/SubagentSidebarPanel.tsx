@@ -41,6 +41,8 @@ function SubagentDetail({ target, message, tool }: { target: SubagentPanelTarget
   const following = useRef(true);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Text already streamed before the panel opened is shown at once; only later deltas fade in.
+  const [revealSnapshot] = useState(() => Date.now());
   const applyOutput = useChatStore((state) => state.applyToolCallOutput);
   const loadOutput = useCallback(async () => {
     if (!message.messageId || !tool.id) return;
@@ -113,7 +115,7 @@ function SubagentDetail({ target, message, tool }: { target: SubagentPanelTarget
             if (segment.type !== 'text' || !segment.content) return null;
             return <div key={key} className={`jx-bubble jx-md${running && index === transcript.segments!.length - 1 ? ' streaming' : ''}`}>
               <CitationMarkdownBlock className="jx-msgText" text={segment.content} isMarkdown
-                citations={message.citations || []} messageIsStreaming={running} />
+                citations={message.citations || []} messageIsStreaming={running} streamingSnapshot={revealSnapshot} />
             </div>;
           })}
         </ToolMessageContext.Provider>

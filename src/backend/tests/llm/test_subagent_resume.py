@@ -104,24 +104,23 @@ def test_prompt_section_carries_every_coordination_rule():
     section = build_subagent_prompt_section(list_builtin_subagents({}))
 
     # dispatch judgement
-    assert "拿不准就选执行员" in section
-    assert "不要把卡住主线的任务派出去然后干等" in section
-    assert "交给子智能体的应当是一段完整的工作" in section
+    assert "按「适用场景」选择角色" in section
+    assert "用户用 @名称 指定了它" in section
+    assert "不要派出去再干等" in section
+    assert "一段完整的工作" in section
     # synthesis stays with the coordinator
-    assert "你自己综合" in section
-    assert "不要委托理解" in section
+    assert "判断问题出在哪、该怎么改，必须由你自己完成" in section
+    assert "具体要查什么、回答什么" in section
     # parallel write safety
-    assert "写入范围必须互不重叠" in section
-    assert "已经派出去的活，不要自己再做一遍" in section
+    assert "互不重叠的文件范围" in section
     # resume vs fresh
     assert "resume_session_id" in section
-    assert "审查要独立" in section
-    assert "不要原样重发同一段 task" in section
+    assert "审查他人产出时，新开一个" in section
+    assert "重派时说明上次具体哪里失败" in section
     # user-approved privileged actions
-    assert "把用户的原话逐字写进 task" in section
+    assert "把原话逐字写进 task 并新开执行" in section
     # result handling
-    assert "先自己核验实际产出" in section
-    assert "不要预测或编造子智能体的结论" in section
+    assert "先自己核验实际产出再汇报" in section
 
 
 def test_role_prompts_keep_their_safety_and_hygiene_rules():

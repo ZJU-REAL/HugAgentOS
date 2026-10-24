@@ -146,7 +146,7 @@ async def test_structured_output_reaches_the_model_once():
         tools = {tool.name: tool for tool in resource.tools}
         try:
             typed = await tools["typed"](text="x")
-            assert len(_texts(typed)) == 1 and typed.metadata["mcp"]["structuredContent"]
+            assert len(_texts(typed)) == 1 and "structuredContent" not in typed.metadata["mcp"]
             assert _texts(await tools["structured_only"]()) == ['{"answer":42}']
             assert _texts(await tools["plain"]()) == ["done"]
             # Text that does not carry the structured value keeps it for the model.

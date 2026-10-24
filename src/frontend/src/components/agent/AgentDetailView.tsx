@@ -64,10 +64,6 @@ export function AgentDetailView({
     const skillLabels = (selectedAgent.skill_ids || []).map((id) => skillNameMap.get(id) || id);
     const mcpLabels = (selectedAgent.mcp_server_ids || []).map((id) => mcpNameMap.get(id) || id);
     const pluginLabels = (selectedAgent.plugin_ids || []).map((id) => pluginNameMap.get(id) || id);
-    const capabilityPolicy = typeof selectedAgent.extra_config?.capability_policy === 'string'
-      ? selectedAgent.extra_config.capability_policy
-      : '';
-    const isReadOnlyBuiltin = isBuiltin && capabilityPolicy === 'read_only_intersection';
     const builtinCapabilityItems: AgentDetailItem[] = [
       {
         label: t('能力来源'),
@@ -75,17 +71,15 @@ export function AgentDetailView({
       },
       {
         label: t('工具 (MCP)'),
-        value: isReadOnlyBuiltin ? t('跟随主智能体，仅保留只读工具') : t('跟随主智能体'),
+        value: t('跟随主智能体'),
       },
       {
         label: t('技能'),
-        value: isReadOnlyBuiltin ? t('不继承执行型技能') : t('跟随主智能体'),
+        value: t('跟随主智能体'),
       },
       {
         label: t('插件'),
-        value: isReadOnlyBuiltin
-          ? t('跟随主智能体，仅使用插件展开后的只读工具')
-          : t('跟随主智能体，运行时展开为工具和技能'),
+        value: t('跟随主智能体，运行时展开为工具和技能'),
       },
       {
         label: t('知识库'),
@@ -93,9 +87,7 @@ export function AgentDetailView({
       },
       {
         label: t('权限边界'),
-        value: isReadOnlyBuiltin
-          ? t('只读，不允许 Bash 或修改工作区')
-          : t('不新增授权，受当前用户权限和会话开关限制'),
+        value: t('不新增授权，受当前用户权限和会话开关限制'),
       },
     ];
     const version = selectedAgent.version || 'V1.0';

@@ -31,7 +31,7 @@ def test_extension_roots_are_independent_of_working_directory(tmp_path, monkeypa
     assert MARKETPLACE_DIR == SKILLS_DIR / "marketplace"
 
 
-def test_builtin_agent_packages_preserve_identity_permissions_and_prompt_source(monkeypatch):
+def test_builtin_agent_packages_preserve_identity_and_prompt_source(monkeypatch):
     from core.capabilities.agents.builtin import BUILTIN_SUBAGENTS, load_builtin_subagent_prompt
     from core.llm import prompt_versions as pvs
     from extensions.paths import DEFAULT_AGENTS_DIR
@@ -42,8 +42,6 @@ def test_builtin_agent_packages_preserve_identity_permissions_and_prompt_source(
         manifest = json.loads((package / "agent.json").read_text(encoding="utf-8"))
         assert spec.agent_id == "builtin." + manifest["role"]
         assert spec.name == manifest["name"]
-        assert spec.read_only == manifest["read_only"]
-        assert spec.allow_bash == manifest["allow_bash"]
         assert spec.max_iters == manifest["max_iters"]
         assert (
             load_builtin_subagent_prompt(spec)

@@ -1,11 +1,8 @@
 {
   "role": "worker",
   "name": "执行员",
-  "description": "继承当前对话约束，在同一项目工作区完成边界清晰的实施任务并验证结果。",
+  "description": "实施改动、修复问题、在明确边界内产出内容（包括写文件、把数据落盘），完成后自己验证再回报。需要写入或落盘的任务只交给它；拿不准选哪个角色时也选它。",
   "shared_context": true,
-  "read_only": false,
-  "allow_bash": true,
-  "capability_policy": "inherit_parent",
   "max_iters": 30,
   "sort_order": 1
 }

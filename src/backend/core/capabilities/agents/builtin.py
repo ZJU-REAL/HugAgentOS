@@ -20,31 +20,12 @@ logger = logging.getLogger(__name__)
 
 BUILTIN_AGENT_PREFIX = "builtin."
 
-# The read-only roles may use only MCP servers whose public contract is query
-# only.  This is intersected with the parent's effective grants at runtime; it
-# never grants a capability the parent did not already have.
-READ_ONLY_MCP_SERVER_IDS = frozenset(
-    {
-        "retrieve_dataset_content",
-        "internet_search",
-        "web_fetch",
-        "database_query",
-        "query_database",
-        "db_query",
-        "es_query",
-    }
-)
-
-
 @dataclass(frozen=True)
 class BuiltinSubagentSpec:
     role: str
     name: str
     description: str
     shared_context: bool
-    read_only: bool
-    allow_bash: bool
-    capability_policy: str
     max_iters: int
     sort_order: int = 0
 
@@ -74,22 +55,15 @@ def get_builtin_subagent(agent_id: str) -> Optional[BuiltinSubagentSpec]:
     return _BUILTIN_BY_ID.get(str(agent_id or ""))
 
 
-def _intersect_parent_ids(parent_ids: Iterable[str], allowed: Iterable[str]) -> List[str]:
-    allowed_set = set(allowed)
-    return list(
-        dict.fromkeys(
-            item
-            for item in parent_ids
-            if isinstance(item, str) and item.strip() and item in allowed_set
-        )
-    )
-
-
 def effective_builtin_capabilities(
     spec: BuiltinSubagentSpec,
     parent_runtime: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, List[str]]:
-    """Return a least-privilege subset of the parent's effective capabilities."""
+    """Return the parent's effective capabilities; built-ins never add grants.
+
+    Role boundaries (e.g. the explorer and reviewer not writing) are expressed
+    in each role's prompt, not by narrowing the tool surface.
+    """
     runtime = parent_runtime or {}
     parent_mcp = runtime.get("enabled_mcp_ids")
     parent_skills = runtime.get("enabled_skill_ids")
@@ -97,10 +71,6 @@ def effective_builtin_capabilities(
     mcp_ids = list(parent_mcp) if isinstance(parent_mcp, list) else []
     skill_ids = list(parent_skills) if isinstance(parent_skills, list) else []
     kb_ids = list(parent_kbs) if isinstance(parent_kbs, list) else []
-
-    if spec.capability_policy == "read_only_intersection":
-        mcp_ids = _intersect_parent_ids(mcp_ids, READ_ONLY_MCP_SERVER_IDS)
-        skill_ids = []
 
     return {
         "mcp_server_ids": mcp_ids,
@@ -159,9 +129,6 @@ def list_builtin_subagents(
                 "context_policy": (
                     "inherit_parent" if spec.shared_context else "independent_brief"
                 ),
-                "read_only": spec.read_only,
-                "allow_bash": spec.allow_bash,
-                "capability_policy": spec.capability_policy,
                 "sandbox_tools_enabled": bool(
                     (parent_runtime or {}).get("sandbox_tools_enabled", False)
                 ),
