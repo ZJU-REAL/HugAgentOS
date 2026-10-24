@@ -46,9 +46,17 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
     return () => abort.abort();
   }, [kind, revision]);
 
+  // Switching space normally starts at its root; open() can hand over a target path for the new space.
+  const pendingPath = useRef<string | null>(null);
   useEffect(() => {
-    setPath('');
+    setPath(pendingPath.current ?? '');
+    pendingPath.current = null;
     setPage(null);
+  }, [selected]);
+  const open = useCallback((space: string, next: string) => {
+    if (space === selected) { setPath(next); return; }
+    pendingPath.current = next;
+    setSelected(space);
   }, [selected]);
 
   useEffect(() => {
@@ -106,6 +114,6 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
       if (!abort.signal.aborted && generation.current === current) setLoading(false);
     }
   }
-  return { revision, roots, selected, setSelected, path, setPath, page, loading, busy, error, root,
+  return { revision, roots, selected, setSelected, open, path, setPath, page, loading, busy, error, root,
     writable, reload, perform, loadMore, dialog, setDialog, name, setName, permissions, setPermissions };
 }

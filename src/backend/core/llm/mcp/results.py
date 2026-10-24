@@ -38,10 +38,20 @@ def _carried_by_text(structured, blocks):
     return False
 
 
-def tool_result(result, descriptor):
+def envelope(result):
+    """The result's protocol fields without its payload.
+
+    ``content`` becomes the model-facing blocks and ``structuredContent`` is
+    carried by them too (see ``tool_result``); a second copy here would only
+    double what every result costs to keep, stream and persist.
+    """
+    return result.model_dump(mode="json", by_alias=True, exclude_none=True,
+                             exclude={"content", "structured_content", "contents", "messages"})
+
+
+def tool_result(result):
     content = content_blocks(result.content)
-    metadata = {"mcp": result.model_dump(mode="json", by_alias=True, exclude_none=True),
-                "output_schema": descriptor.output_schema}
+    metadata = {"mcp": envelope(result)}
     # The model needs the structured value once; skip it only when text already carries it.
     if result.structured_content is not None and not _carried_by_text(result.structured_content, content):
         content.append(TextBlock(text=json.dumps(result.structured_content, ensure_ascii=False,

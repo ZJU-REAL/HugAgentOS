@@ -15,6 +15,10 @@ from core.llm.mcp.chat_sessions import close_chat
 from tests.llm.test_mcp_parallel_execution import probe_server
 
 
+def _text(chunk):
+    return "".join(block.text for block in chunk.content if isinstance(block, TextBlock))
+
+
 def interactions():
     class Model:
         model = "fixture"
@@ -102,7 +106,7 @@ async def test_modern_sampling_elicitation_progress_resources_and_prompts(monkey
             await tools["progress"]()
             assert binding.agent.state.pending_mcp_progress[0]["progress"] == 1
             result = await tools["linked"]()
-            assert result.metadata["mcp"]["structuredContent"] == {"answer": 42}
+            assert '{"answer":42}' in str(result.content) and "structuredContent" not in result.metadata["mcp"]
             assert "report://one" in str(result.content)
             resource_tool = next(t for t in resource.tools if t.name.startswith("mcp_resource_"))
             assert "resource body" in str(await resource_tool())
@@ -122,18 +126,18 @@ async def test_stdio_chat_reuse_isolated_users_stale_lease_and_cancelled_opener(
     scope = ("user-one", "chat", "")
     first = await discover("pid", cfg, scope=scope)
     old_tool = first.tools[0]
-    pid = (await old_tool()).metadata["mcp"]["structuredContent"]
+    pid = _text(await old_tool())
     await first.close()
     second = await discover("pid", cfg, scope=scope)
     try:
-        assert (await second.tools[0]()).metadata["mcp"]["structuredContent"] == pid
+        assert _text(await second.tools[0]()) == pid
         with pytest.raises(RuntimeError, match="lease is closed"):
             await old_tool()
         # A concurrent run in the same chat shares the live process instead of waiting.
         concurrent = await asyncio.wait_for(discover("pid", cfg, scope=scope), 5)
-        assert (await concurrent.tools[0]()).metadata["mcp"]["structuredContent"] == pid
+        assert _text(await concurrent.tools[0]()) == pid
         await concurrent.close()
-        assert (await second.tools[0]()).metadata["mcp"]["structuredContent"] == pid
+        assert _text(await second.tools[0]()) == pid
         # A run cancelled while its process opens leaves a parked session, not a leak.
         opener = asyncio.create_task(discover("pid", cfg, scope=("user-one", "other-chat", "")))
         await asyncio.sleep(0.02)
@@ -147,7 +151,7 @@ async def test_stdio_chat_reuse_isolated_users_stale_lease_and_cancelled_opener(
             await reused.close()
         third = await discover("pid", cfg, scope=("user-two", "chat", ""))
         try:
-            assert (await third.tools[0]()).metadata["mcp"]["structuredContent"] != pid
+            assert _text(await third.tools[0]()) != pid
         finally:
             await third.close()
     finally:

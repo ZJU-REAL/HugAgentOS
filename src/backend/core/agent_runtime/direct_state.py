@@ -19,9 +19,7 @@ class DirectTurn:
     review_owner: str | None = None
     anchor_allocator: AnchorAllocator | None = None
     ctx_window: int = 0
-    direct_allow_bash: bool = False
     direct_log_id: str = ""
-    direct_read_only: bool = False
     direct_skill_count: int = 0
     direct_stream: AsyncIterator | None = None
     direct_tool_count: int = 0

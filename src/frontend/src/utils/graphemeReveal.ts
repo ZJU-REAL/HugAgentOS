@@ -3,6 +3,8 @@ import { morphChildren, type TextPatch } from './domPatch';
 const TEXT_CONTAINER = 'data-jx-reveal-text';
 const SKIP_TEXT = 'pre,code,button,svg,math,.katex,[data-jxcit],[data-chart]';
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+/** Beyond this many new graphemes in one patch the text is shown at once. */
+const MAX_REVEAL_GRAPHEMES = 2000;
 
 function sharedPrefix(a: string, b: string): number {
   let i = 0;
@@ -75,8 +77,16 @@ export class GraphemeReveal {
     }
     const reduced = container.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const restored = snapshot !== undefined && snapshot !== this.snapshot;
-    const revealing = streaming && !reduced && !restored;
-    const prefix = revealing ? sharedPrefix(this.previousText, nextText) : nextText.length;
+    let revealing = streaming && !reduced && !restored;
+    let prefix = revealing ? sharedPrefix(this.previousText, nextText) : nextText.length;
+    let count = revealing ? [...segmenter.segment(nextText.slice(prefix))].length : 0;
+    // A body mounted mid-stream (e.g. a panel opened on a long run) would wrap
+    // everything received so far in animated spans and lock the main thread.
+    if (count > MAX_REVEAL_GRAPHEMES) {
+      revealing = false;
+      prefix = nextText.length;
+      count = 0;
+    }
     if (!revealing) this.settle();
     for (const span of this.pending) if (!span.isConnected) this.pending.delete(span);
 
@@ -85,7 +95,6 @@ export class GraphemeReveal {
     const backlog = parseFloat(style.getPropertyValue('--jx-reveal-backlog'));
     const now = performance.now();
     let cursor = Math.min(now + backlog, Math.max(now, this.nextStart));
-    const count = [...segmenter.segment(nextText.slice(prefix))].length;
     // Keep normal 30ms pacing, but catch up for large server bursts. The
     // animation backlog is bounded independently of model/network speed.
     const interval = Math.min(stagger, Math.max(0, (backlog - (cursor - now)) / Math.max(1, count - 1)));

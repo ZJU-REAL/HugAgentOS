@@ -153,11 +153,11 @@ async def review_requirement(
     emit: Optional[EmitFn] = None,
     capability_scope: str = "",
 ) -> Dict[str, Any]:
-    """Spawn a **read-only** review sub-agent that personally verifies whether the current requirement is truly delivered.
+    """Spawn a review sub-agent that personally verifies whether the current requirement is truly delivered.
 
     This is a **first-class platform sub-agent** (on par with call_subagent / plan_mode):
       - Deterministically triggered by the driver (not the worker) — keeping maker≠checker (the Codex/Claude Code goal-mode consensus);
-      - ``read_only=True`` registers no file-modifying tools (on par with Codex reviewer's sandbox_mode=read-only);
+      - Gets the same tool surface as other built-in sub-agents; its prompt keeps it from modifying files;
       - Bound to the **same** ``session_id`` + ``project_ctx`` as the worker — so it reads exactly the project files the
         worker actually changed (where the site source lives);
       - Writes ``subagent_call_logs`` (type=loop_reviewer) + ``subagent_scope`` so its internal tool calls are attributed to this
@@ -227,8 +227,8 @@ async def review_requirement(
     try:
         # Reuse the platform-registered builtin reviewer (builtin.reviewer) —
         # same construction path as call_subagent: its DB-managed system prompt
-        # (Config console → prompt management → subagents/reviewer), read-only
-        # capability policy and max_iters govern here too, instead of a second
+        # (Config console → prompt management → subagents/reviewer) and
+        # max_iters govern here too, instead of a second
         # hand-rolled reviewer definition. The spec lives in a static module
         # tuple, so it is always present; a prompt-load failure raises into the
         # except below (spawn failed → conservative continue).
@@ -247,8 +247,6 @@ async def review_requirement(
             chat_id=chat_id,
             enabled_skill_ids=[],  # pure verification, load no business skills
             isolated=True,  # independent MCP client, avoid cross-task cancel-scope
-            read_only=_spec.read_only,
-            allow_bash=_spec.allow_bash,
             # Same tight tool-result cap as the loop worker: the reviewer greps
             # the same huge draft files, and evidence only needs excerpts.
             tool_result_limit=_reviewer_tool_result_limit(),

@@ -45,8 +45,6 @@ async def prepare_direct(turn: DirectTurn):
         memory_enabled=turn.memory_enabled,
         agent_api_scope=turn.context.get("agent_api_scope"),
         user_agent=turn.user_agent,
-        read_only=turn.direct_read_only,
-        allow_bash=turn.direct_allow_bash,
         approval_mode=targets._approval_mode(turn.context),
         required_skill_id=str(turn.context.get("skill_id") or "") or None,
         required_skill_name=str(turn.context.get("skill_name") or "") or None,

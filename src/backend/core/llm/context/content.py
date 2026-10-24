@@ -54,11 +54,20 @@ def image_token_reserve(content: Any) -> int:
     return 0
 
 
+def model_facing_tool_result(content: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a tool_result the provider actually receives."""
+    return {
+        key: content[key] for key in ir_constants.TOOL_RESULT_MODEL_FIELDS if key in content
+    }
+
+
 def estimate_context_tokens(content: Any) -> int:
     """Deterministic conservative estimate without provider-specific imports."""
     content = normalize_context_content(content)
     if content is None:
         return 0
+    if isinstance(content, Mapping) and content.get("type") == "tool_result":
+        content = model_facing_tool_result(content)
     if isinstance(content, str):
         return max(1, (len(content.encode("utf-8")) + 3) // 4) if content else 0
     if isinstance(content, Mapping) and content.get("type") == "data":

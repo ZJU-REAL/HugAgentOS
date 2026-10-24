@@ -1,11 +1,8 @@
 {
   "role": "reviewer",
   "name": "审查员",
-  "description": "独立、只读地检查产出与证据，给出通过、修改或升级结论。",
+  "description": "只读核验：对照验收标准独立检查已有产出，亲自复现并试边界情况，给出 pass、revise 或 escalate。凡是需要独立审查的任务都可以交给它，例如核验代码改动、文档、数据或方案；每次新开，不修改文件，也不负责修复。",
   "shared_context": false,
-  "read_only": true,
-  "allow_bash": false,
-  "capability_policy": "read_only_intersection",
   "max_iters": 16,
   "sort_order": 2
 }

@@ -6,7 +6,7 @@ from mcp.shared.uri_template import UriTemplate
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.permission import PermissionBehavior, PermissionDecision
-from core.llm.mcp.results import content_blocks
+from core.llm.mcp.results import content_blocks, envelope
 from core.llm.mcp.tools import SessionTool
 
 
@@ -55,7 +55,7 @@ class ContextTool(SessionTool):
             for message in result.messages:
                 blocks.append(TextBlock(text=json.dumps({"role": message.role}, ensure_ascii=False)))
                 blocks.extend(content_blocks([message.content]))
-        return ToolChunk(content=blocks, metadata={"mcp": result.model_dump(mode="json", by_alias=True, exclude_none=True)})
+        return ToolChunk(content=blocks, metadata={"mcp": envelope(result)})
 
 
 def context_tools(resource, timeout):

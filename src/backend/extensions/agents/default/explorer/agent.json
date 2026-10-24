@@ -1,11 +1,8 @@
 {
   "role": "explorer",
   "name": "探索员",
-  "description": "只读检索代码、文档、知识库与公开信息，返回可核验的事实和证据。",
+  "description": "只读调研：查事实、定位代码或文档、比较候选方案，返回带文件路径、行号或来源链接的证据。适合需要多处检索、可并行的调研；不写文件、不落盘，需要产出文件或数据的任务不要派给它。",
   "shared_context": false,
-  "read_only": true,
-  "allow_bash": false,
-  "capability_policy": "read_only_intersection",
   "max_iters": 12,
   "sort_order": 0
 }

@@ -149,9 +149,7 @@ class _JupyterUserPool:
                     logger.info(
                         "[jupyter-user-pool] release user=%s sandbox_id=%s -> idle "
                         "(idle_count=%d)",
-                        user_id,
-                        getattr(sbx, "id", "?"),
-                        len(q),
+                        user_id, getattr(sbx, "id", "?"), len(q),
                     )
                 else:
                     should_destroy = sbx

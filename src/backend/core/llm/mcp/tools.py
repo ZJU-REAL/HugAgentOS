@@ -107,7 +107,7 @@ class RemoteTool(SessionTool):
                 # wall clock would expire during legacy server-to-client elicitation.
                 read_timeout_seconds=math.inf if interactions is not None else self.timeout,
                 progress_callback=progress)
-            return tool_result(result, self.descriptor)
+            return tool_result(result)
 
         return await self._invoke(operation, exclusive=not self.is_read_only,
                                   write_key=None if self.is_read_only else _call_key(self.name, kwargs))

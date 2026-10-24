@@ -83,4 +83,10 @@ CONVERSATION_KINDS = STEP_KINDS | {KIND_USER_INPUT}
 TRUNCATABLE_BLOCK_TYPES = {"tool_result"}
 
 
+# The only tool_result fields a provider formatter sends. Everything else on
+# the block (metadata, state, timestamps) never reaches the model, so it must
+# never spend the model's context budget either.
+TOOL_RESULT_MODEL_FIELDS = ("type", "id", "name", "output")
+
+
 PRUNED_OUTPUT_TEMPLATE = "[tool output pruned to fit the context budget: {tokens} tokens omitted]"

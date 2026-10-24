@@ -50,24 +50,41 @@
 
 /* ─── 团队 workspace：左右分栏（无背景） ──────────────────── */
 
+.jx-team-workspaceFrame {
+  container: teamworkspace / inline-size;
+  height: 100%;
+}
+
 .jx-team-workspace {
+  position: relative; /* 窄屏目录浮层的定位锚点 */
   display: flex;
-  gap: 20px;
+  gap: 24px;
   align-items: stretch;
   height: 100%;
   min-height: 420px;
   min-width: 0;
-  flex-direction: row;
-  padding-top: 12px;
+  padding-top: 16px;
 }
 
 .jx-team-workspace-sidebar {
-  flex: 0 0 240px;
-  min-width: 220px;
-  max-width: 280px;
-  padding: 8px 12px 8px 0;
-  border-right: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  flex: 0 0 256px;
+  min-width: 0;
+  padding: 0 12px 8px 0;
+  border-right: 1px solid var(--color-border);
   overflow: auto;
+}
+
+.jx-team-workspace-sidebarHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px 8px;
+}
+
+.jx-team-workspace-sidebarTitle {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
 }
 
 .jx-team-workspace-main {
@@ -78,20 +95,140 @@
   flex-direction: column;
 }
 
+/* 目录开关：宽屏只在手动收起后出现展开按钮；窄屏换成浮层的开 / 关按钮 */
+.jx-team-sidebarToggle.ant-btn { color: var(--color-text-tertiary); flex: none; }
+.jx-team-sidebarToggle.ant-btn:hover { color: var(--color-text); }
+.jx-team-sidebarToggle--docked,
+.jx-team-sidebarToggle--drawer,
+.jx-team-sidebarToggle--close { display: none !important; }
+.jx-team-workspace--collapsed .jx-team-sidebarToggle--docked { display: inline-flex !important; }
+.jx-team-workspace--collapsed .jx-team-workspace-sidebar { display: none; }
+
+.jx-team-workspace-scrim { display: none; }
+
+@keyframes jx-kf-teamDrawerIn {
+  from { opacity: 0; transform: translateX(-16px); }
+}
+
+/* 工作区窄于 760px：目录自动收起，点开后以浮层盖在文件区上，始终左右布局，不上下堆叠 */
+@container teamworkspace (max-width: 760px) {
+  .jx-team-workspace .jx-team-workspace-sidebar,
+  .jx-team-workspace--collapsed .jx-team-workspace-sidebar { display: none; }
+  .jx-team-workspace .jx-team-sidebarToggle--docked { display: none !important; }
+  .jx-team-sidebarToggle--drawer { display: inline-flex !important; }
+  .jx-team-sidebarToggle--collapse { display: none !important; }
+  .jx-team-sidebarToggle--close { display: inline-flex !important; }
+
+  .jx-team-workspace--drawerOpen .jx-team-workspace-sidebar,
+  .jx-team-workspace--drawerOpen.jx-team-workspace--collapsed .jx-team-workspace-sidebar {
+    display: block;
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    left: 0;
+    min-height: 100%; /* 跟随目录内容增高，文件区很矮时也不截断目录 */
+    width: 280px;
+    max-width: calc(100% - 48px);
+    padding: 16px 8px 8px;
+    background: var(--color-bg-container);
+    border-right: 1px solid var(--color-border);
+    box-shadow: var(--shadow-drawer-edge);
+    animation: jx-kf-teamDrawerIn var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+  }
+  /* 透明遮罩：只负责点击外部关闭，不压暗文件区 */
+  .jx-team-workspace--drawerOpen .jx-team-workspace-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-teamDrawerIn {
+    from { opacity: 0; }
+  }
+}
+
 .jx-team-workspace-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 2px 14px;
-  margin-bottom: 12px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-text) 8%, transparent);
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 0 8px;
+  min-width: 0;
 }
 
 .jx-team-workspace-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex: none;
+}
+
+.jx-team-toolbar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
+}
+
+/* 面包屑：上级置灰可点，当前层加粗；空间不够时先压缩当前层名称 */
+.jx-team-crumbs {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.jx-team-crumbItem {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 160px;
+}
+
+.jx-team-crumb {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.jx-team-crumb:hover { color: var(--color-text); background: var(--state-hover); }
+.jx-team-crumb:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+.jx-team-crumb--current {
+  flex: 0 1000 auto;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: default;
+}
+
+.jx-team-crumb--current:hover { background: none; }
+
+.jx-team-crumbSep {
+  flex: none;
+  padding: 0 2px;
+  color: var(--color-text-tertiary);
+}
+
+/* 文件区变窄：按钮只保留图标（悬停 title 显示文字），分隔线隐藏 */
+@container teamfiles (max-width: 620px) {
+  .jx-team-toolbar-label,
+  .jx-team-toolbar-divider { display: none; }
+  .jx-team-workspace-toolbar .ant-btn:not(.ant-btn-icon-only) { padding-inline: 8px; }
+  .jx-team-crumbItem { max-width: 96px; }
 }
 
 .jx-team-workspace-readOnly {
@@ -369,18 +506,7 @@
   vertical-align: middle;
 }
 
-@container myspace (max-width: 860px) {
-  .jx-team-workspace { gap: 12px; }
-  .jx-team-workspace-sidebar { flex-basis: 180px; min-width: 140px; max-width: 180px; padding-right: 8px; }
-  .jx-team-workspace-toolbar { flex-wrap: wrap; }
-  .jx-team-scopeTree-header { flex-wrap: wrap; gap: 4px; }
-}
 
-@media (max-width: 860px) {
-  .jx-team-workspace { gap: 12px; }
-  .jx-team-workspace-sidebar { flex-basis: 160px; min-width: 120px; max-width: 160px; padding-right: 8px; }
-  .jx-team-workspace-toolbar { flex-wrap: wrap; }
-}
 
 @container teamfiles (max-width: 720px) {
   .jx-mySpace-docTable-header, .jx-mySpace-docRow {
@@ -413,4 +539,108 @@
 .jx-team-workspace .jx-mySpace-docRow--folder .jx-mySpace-docRow-icon {
   width: 16px;
   height: 16px;
+}
+
+
+/* ─── 团队目录树 SpaceDirectoryTree ──────────────────────── */
+/* 不显示展开箭头：点击整行即选中并展开 / 收起，用打开 / 关闭的文件夹图标表示状态 */
+
+.jx-spaceTree.ant-tree {
+  background: transparent;
+  font-size: 14px;
+}
+
+.jx-spaceTree .ant-tree-switcher { display: none; }
+.jx-spaceTree .ant-tree-indent-unit { width: 16px; }
+.jx-spaceTree .ant-tree-treenode { padding: 0 0 2px; width: 100%; }
+.jx-spaceTree .ant-tree-treenode.jx-spaceTree-root { margin-top: 8px; }
+.jx-spaceTree .ant-tree-treenode.jx-spaceTree-root:first-child { margin-top: 0; }
+
+.jx-spaceTree .ant-tree-node-content-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.jx-spaceTree .ant-tree-node-content-wrapper:hover { background: var(--state-hover); }
+
+.jx-spaceTree .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: var(--color-primary-bg);
+  color: var(--color-primary-text);
+  font-weight: 500;
+}
+
+.jx-spaceTree .ant-tree-iconEle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
+.jx-spaceTree .ant-tree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.jx-spaceTree-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-spaceTree-folderIcon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* 团队根节点：中性线条成员图标 + 加粗名称，不用彩色色块 */
+.jx-spaceTree-root .ant-tree-node-content-wrapper { min-height: 36px; font-weight: 600; }
+
+.jx-spaceTree-rootIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  background: var(--state-hover);
+}
+
+.jx-spaceTree .ant-tree-node-selected .jx-spaceTree-rootIcon {
+  color: var(--color-primary-text);
+  background: transparent;
+}
+
+.jx-spaceTree-rootTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-spaceTree-rootTitle .jx-spaceTree-name { flex: 0 1 auto; min-width: 0; }
+
+.jx-spaceTree-badge {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--color-tint-amber);
+  background: var(--color-tint-amber-bg);
 }
