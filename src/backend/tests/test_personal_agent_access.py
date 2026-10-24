@@ -5,7 +5,7 @@ import pytest
 
 from core.db.models import ChatSession, UserShadow
 from core.db.reserved_chats import ordinary_chat_filter, reserved_chat_owner
-from core.extensions import registry
+from core.harness.registry import registry
 from personal_agent import access
 from personal_agent import extension
 from personal_agent.context import AgentContext
@@ -16,7 +16,7 @@ from tests.test_personal_agent import sessions  # noqa: F401  (shared fixture)
 def empty_registry(monkeypatch):
     for name, value in (("_enabled", set()), ("_agent_profiles", {}), ("_sandbox_routes", []),
                         ("_channel_routes", []), ("_lifecycle", []), ("_routers", [])):
-        monkeypatch.setattr(registry, name, value)
+        monkeypatch.setattr(registry.registration_state(), name.lstrip("_"), value)
 
 
 def grant(db, user_id, value=True):
@@ -99,8 +99,8 @@ def test_reserved_chats_stay_hidden_without_the_module(sessions, empty_registry)
 def test_reserved_chats_are_unreachable_through_ordinary_chat_access(sessions, empty_registry):
     # Every ordinary read (session detail, history, @-references, the history tool,
     # sidebar discovery) resolves chats through these lookups or the reference listing.
-    from core.services.chat_reference_service import list_referencable_sessions
-    from core.services.chat_service import ChatService
+    from core.chat.references import list_referencable_sessions
+    from core.chat.service import ChatService
 
     with sessions() as db:
         db.add_all([ChatSession(chat_id="pa_chat_1", user_id="owner"), ChatSession(chat_id="chat_1", user_id="owner")])
@@ -140,7 +140,7 @@ def test_community_access_requires_existing_user_and_enabled_module(sessions, em
 
 
 def test_history_filters_internal_wake_messages():
-    from core.services.session_operations.history import _is_internal_message
+    from core.chat.operations.history import _is_internal_message
     assert not _is_internal_message(SimpleNamespace(role="user", content="Hello", extra_data={}))
     assert _is_internal_message(SimpleNamespace(role="user", content="[系统] 进度播报：running", extra_data={}))
     assert _is_internal_message(SimpleNamespace(role="assistant", content="hidden", extra_data={"hidden_in_chat": True}))

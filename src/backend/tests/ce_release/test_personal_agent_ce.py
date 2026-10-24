@@ -8,9 +8,11 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy.orm import Session
 
-from core.db.edition_tables import _ce_metadata, ce_create_all
-from core.db.models import PersonalDevice, UserShadow
-from core.extensions import registry
+from core.db.personal_schema import ce_metadata
+from core.db.edition import ce_create_all
+from core.db.models import UserShadow
+from personal_agent.models import PersonalDevice
+from core.harness.registry import registry
 
 
 def migration(connection):
@@ -27,7 +29,7 @@ def test_ce_personal_agent_upgrade_preserves_existing_data_and_refuses_loss(tmp_
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'ce.db'}")
     with engine.begin() as connection:
         revision = migration(connection)
-        metadata = _ce_metadata()
+        metadata = ce_metadata()
         if fresh:
             ce_create_all(connection)
         else:
@@ -58,7 +60,7 @@ def test_ce_session_serialization_exposes_personal_agent_without_license(tmp_pat
     assert importlib.util.find_spec("edition_ee") is None
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'auth.db'}")
     ce_create_all(engine)
-    monkeypatch.setattr(registry, "_enabled", set())
+    monkeypatch.setattr(registry.registration_state(), 'enabled', set())
     with Session(engine) as db:
         db.add(UserShadow(user_id="owner", user_center_id="owner", username="Owner"))
         db.commit()

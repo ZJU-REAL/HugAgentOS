@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.db.models import MemoryOutbox
-from core.evolution import settlement as evolution_settlement
+from core.evolution.settlement import settlement as evolution_settlement
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
 from core.memory.extractors import writers as W
@@ -34,7 +34,7 @@ async def test_worker_shutdown_cancels_woken_consumer_and_releases_lease(db_sess
     memory_settings = _memory_settings(outbox_poll_interval_s=30)
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-stop", write_enabled=True)
     job_id = O.enqueue_candidate_job(
         "parent",
@@ -67,7 +67,7 @@ async def test_lease_renewal_loss_cancels_the_old_writer(db_session, monkeypatch
     memory_settings = _memory_settings(outbox_lease_s=1)
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-lease", write_enabled=True)
     job_id = O.enqueue_candidate_job(
         "parent",
@@ -101,7 +101,7 @@ async def test_crash_before_ack_reuses_external_effect_receipt(db_session, monke
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-effect", write_enabled=True)
     job_id = O.enqueue_candidate_job(
         "parent",
@@ -161,7 +161,7 @@ async def test_interactive_long_term_edits_are_admitted_before_store_effect(
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-edit", write_enabled=True)
     observed = []
 
@@ -211,7 +211,7 @@ async def test_shutdown_waits_for_real_executor_add_then_replay_uses_receipt(
         "settings",
         SimpleNamespace(memory=SimpleNamespace(enabled=True)),
     )
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     started = threading.Event()
     release = threading.Event()
 
@@ -296,7 +296,7 @@ async def test_pipeline_reuses_atomic_extraction_checkpoint_after_crash(db_sessi
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-checkpoint", write_enabled=True)
     pipeline_id = O.enqueue_pipeline_job(ctx, "请记住我叫小明", "好的")
     _add_assistant_message(factory, "m-checkpoint")
@@ -344,7 +344,7 @@ async def test_editing_back_to_an_old_value_creates_a_new_operation(db_session, 
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", write_enabled=True)
     stored = {"text": "A"}
     effects = []

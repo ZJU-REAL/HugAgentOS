@@ -1,7 +1,7 @@
 """Tests for OpenAI-compatible model providers."""
 
-from core.llm.chat_models import make_chat_model
-from core.llm.providers.registry import get_spec, to_frontend_schema
+from core.models.chat_models import make_chat_model
+from core.models.providers.registry import get_spec, to_frontend_schema
 
 
 def _make_model(
@@ -55,7 +55,7 @@ def test_generic_compatible_provider_keeps_existing_reasoning_transport():
 
 def test_unrecorded_protocol_defaults_to_responses():
     """Responses is the default; chat completions is only for endpoints found to lack it."""
-    from core.llm.responses_models import OpenAICompatResponsesModel
+    from core.models.responses import OpenAICompatResponsesModel
 
     model = _make_model("openai_compatible", None, api_protocol=None)
 
@@ -66,7 +66,7 @@ def test_unrecorded_protocol_defaults_to_responses():
 
 
 def test_probed_chat_only_endpoint_stays_on_chat_completions():
-    from core.llm.chat_models import OpenAICompatChatModel
+    from core.models.chat_models import OpenAICompatChatModel
 
     model = _make_model("openai_compatible", None, api_protocol="chat_completions")
 
@@ -76,7 +76,7 @@ def test_probed_chat_only_endpoint_stays_on_chat_completions():
 
 def test_azure_never_uses_responses():
     """Azure addresses Responses per deployment, which the shared client cannot build."""
-    from core.llm.chat_models import OpenAICompatChatModel
+    from core.models.chat_models import OpenAICompatChatModel
 
     model = make_chat_model(
         model="test-model",
@@ -96,8 +96,8 @@ def test_azure_never_uses_responses():
 
 
 def test_config_lookup_failure_does_not_mask_original_failure(monkeypatch):
-    from core.llm.chat_models import _resolve_or_dummy
-    from core.services.model_config import ModelConfigService
+    from core.models.chat_models import _resolve_or_dummy
+    from core.models.config import ModelConfigService
 
     def unavailable():
         raise RuntimeError("configuration unavailable")

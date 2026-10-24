@@ -58,7 +58,7 @@ window.addEventListener('unload',()=>c.dispose());
 await build({entryPoints:[resolve(consumer,'page.js')],outfile:resolve(consumer,'page.bundle.js'),bundle:true,format:'iife',target:'es2022'});
 
 function zip(html,entry='web/index.html'){
- const script="from tests.workbench_plugin_support import package; import sys,io,json,zipfile; raw=package(html=sys.argv[1],entry=sys.argv[2],assets={'web/page.js':open(sys.argv[3]).read(),'web/style.css':'h1{color:rgb(1,2,3)}'}); old=zipfile.ZipFile(io.BytesIO(raw)); out=io.BytesIO(); z=zipfile.ZipFile(out,'w'); manifest=json.loads(old.read('plugin.json')); manifest['extensions']['org.hugagent']['ui']['contributes']['applications'][0]['views']=[{'id':'reports','path':'reports','title':'Reports'},{'id':'encoded','path':'encoded','title':'Encoded view'}]; [z.writestr(n,json.dumps(manifest) if n=='plugin.json' else old.read(n)) for n in old.namelist()]; z.close(); sys.stdout.buffer.write(out.getvalue())";
+ const script="from tests.features.workbench.workbench_plugin_support import package; import sys,io,json,zipfile; raw=package(html=sys.argv[1],entry=sys.argv[2],assets={'web/page.js':open(sys.argv[3]).read(),'web/style.css':'h1{color:rgb(1,2,3)}'}); old=zipfile.ZipFile(io.BytesIO(raw)); out=io.BytesIO(); z=zipfile.ZipFile(out,'w'); manifest=json.loads(old.read('plugin.json')); manifest['extensions']['org.hugagent']['ui']['contributes']['applications'][0]['views']=[{'id':'reports','path':'reports','title':'Reports'},{'id':'encoded','path':'encoded','title':'Encoded view'}]; [z.writestr(n,json.dumps(manifest) if n=='plugin.json' else old.read(n)) for n in old.namelist()]; z.close(); sys.stdout.buffer.write(out.getvalue())";
  const r=spawnSync(python,['-c',script,html,entry,resolve(consumer,'page.bundle.js')],{cwd:root,env,maxBuffer:2**24});
  assert.equal(r.status,0,r.stderr?.toString() || String(r.error));return r.stdout;
 }
@@ -70,7 +70,7 @@ async function login(){
  await page.context().addCookies([{name:cookie.slice(0,split),value:cookie.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
 }
 async function start(){
- server=spawn(python,['-m','uvicorn','tests.workbench_routing_http_fixture:app','--host','127.0.0.1','--port','5288'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
+ server=spawn(python,['-m','uvicorn','tests.features.workbench.workbench_routing_http_fixture:app','--host','127.0.0.1','--port','5288'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
  server.stdout.on('data',b=>log+=b);server.stderr.on('data',b=>log+=b);
  for(let n=0;n<600;n++){if(server.exitCode!==null)throw Error(log);
   try{if((await fetch(serviceOrigin+'/ready')).ok)return;}catch{}

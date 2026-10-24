@@ -1,13 +1,14 @@
 """Navigation reminders are journal verdicts, isolated by authenticated owner."""
+
 from datetime import datetime, timedelta, timezone
 
+import core.runs.runtime as runtime
 import pytest
+from core.db.engine import Base
+from core.db.models import ChatMessage, ChatRun, ChatSession
+from core.chat.sidebar_status import sidebar_run_statuses
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-
-from core.db.engine import Base
-from core.db.models import ChatRun, ChatSession, ChatMessage
-from core.services.sidebar_status import sidebar_run_statuses
 
 
 @pytest.fixture
@@ -74,8 +75,8 @@ def test_new_run_supersedes_old_failure_and_old_live_tasks_are_still_visible(db)
 def test_active_run_route_only_adds_verdicts_when_requested(db,monkeypatch):
     from api.routes.v1.chats import run_views
     from core.auth.backend import UserContext
-    from orchestration import chat_run_executor
-    monkeypatch.setattr(chat_run_executor,"list_active_runs_for_user",lambda *args:([],[]))
+    pass
+    monkeypatch.setattr(runtime,"list_active_runs_for_user",lambda *args:([],[]))
     monkeypatch.setattr(run_views.chat_context,"resolve_db_user_id",lambda db,uid:uid)
     add_chat(db,"mine")
     add_run(db,"final","mine","failed",datetime.now(timezone.utc))

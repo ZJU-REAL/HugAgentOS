@@ -5,7 +5,7 @@ import re
 from fastapi import HTTPException
 
 from core.db.models import Artifact, ChatRun, ChatSession
-from core.services.project_api_service import make_project_api_scope, project_session_matches
+from core.projects.api import make_project_api_scope, project_session_matches
 
 
 def enforce_project_api_route(request, db, user) -> None:

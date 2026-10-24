@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
-from core.chat.display_bounds import bound_result_for_display
+from core.infra.text_bounds import bound_result_for_display
 
 logger = logging.getLogger(__name__)
 

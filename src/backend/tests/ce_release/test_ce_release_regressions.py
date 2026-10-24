@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 @pytest.fixture(scope="module", autouse=True)
 def initialized_ce_database():
     from core.db.engine import SessionLocal, init_db
-    from core.services.local_user_service import ensure_ce_default_admin
+    from core.auth.local_user_bootstrap import ensure_ce_default_admin
 
     init_db()
     db = SessionLocal()
@@ -29,89 +29,92 @@ def initialized_ce_database():
     return user_id
 
 
-def test_ce_login_ticket_exchange_and_session_check(initialized_ce_database):
+@pytest.fixture(scope="module")
+def ce_client(initialized_ce_database):
+    # A deployed app owns one event loop for its entire lifespan.
     from api.app import app
 
     with TestClient(app) as client:
-        login = client.post(
-            "/login",
-            data={"username": "admin", "password": "admin", "redirect": "/"},
-            follow_redirects=False,
-        )
-        assert login.status_code == 303, login.text
-        ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
-
-        exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
-        assert exchange.status_code == 200, exchange.text
-        assert exchange.json()["data"]["user_id"] == initialized_ce_database
-
-        session = client.get("/v1/auth/session/check")
-        assert session.status_code == 200, session.text
-        assert session.json()["data"]["username"] == "admin"
+        yield client
 
 
-def test_ce_api_key_crud_is_reachable_from_personal_settings(initialized_ce_database):
-    from api.app import app
+def test_ce_login_ticket_exchange_and_session_check(initialized_ce_database, ce_client):
+    client = ce_client
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "admin", "redirect": "/"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303, login.text
+    ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
 
-    with TestClient(app) as client:
-        login = client.post(
-            "/login",
-            data={"username": "admin", "password": "admin", "redirect": "/"},
-            follow_redirects=False,
-        )
-        assert login.status_code == 303, login.text
-        ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
-        exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
-        assert exchange.status_code == 200, exchange.text
+    exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
+    assert exchange.status_code == 200, exchange.text
+    assert exchange.json()["data"]["user_id"] == initialized_ce_database
 
-        empty_or_existing = client.get("/v1/me/api-keys")
-        assert empty_or_existing.status_code == 200, empty_or_existing.text
-
-        created = client.post(
-            "/v1/me/api-keys",
-            json={
-                "name": "desktop-test",
-                "expires_in_days": 30,
-                # The shared frontend always sends this field. CE intentionally
-                # ignores it because it has no enterprise model gateway.
-                "for_gateway": False,
-            },
-        )
-        assert created.status_code == 201, created.text
-        created_data = created.json()["data"]
-        key_id = created_data["id"]
-        assert created_data["api_key"].startswith("sk-jx-")
-
-        revealed = client.get(f"/v1/me/api-keys/{key_id}/reveal")
-        assert revealed.status_code == 200, revealed.text
-        assert revealed.json()["data"]["api_key"] == created_data["api_key"]
-
-        disabled = client.patch(f"/v1/me/api-keys/{key_id}", json={"enabled": False})
-        assert disabled.status_code == 200, disabled.text
-        assert disabled.json()["data"]["enabled"] is False
-
-        revoked = client.delete(f"/v1/me/api-keys/{key_id}")
-        assert revoked.status_code == 200, revoked.text
+    session = client.get("/v1/auth/session/check")
+    assert session.status_code == 200, session.text
+    assert session.json()["data"]["username"] == "admin"
 
 
-def test_ce_mcp_marketplace_is_registered_and_returns_items(initialized_ce_database):
-    from api.app import app
+def test_ce_api_key_crud_is_reachable_from_personal_settings(initialized_ce_database, ce_client):
+    client = ce_client
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "admin", "redirect": "/"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303, login.text
+    ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
+    exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
+    assert exchange.status_code == 200, exchange.text
 
-    with TestClient(app) as client:
-        login = client.post(
-            "/login",
-            data={"username": "admin", "password": "admin", "redirect": "/"},
-            follow_redirects=False,
-        )
-        assert login.status_code == 303, login.text
-        ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
-        exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
-        assert exchange.status_code == 200, exchange.text
+    empty_or_existing = client.get("/v1/me/api-keys")
+    assert empty_or_existing.status_code == 200, empty_or_existing.text
 
-        response = client.get("/v1/mcp-market/items")
+    created = client.post(
+        "/v1/me/api-keys",
+        json={
+            "name": "desktop-test",
+            "expires_in_days": 30,
+            # The shared frontend always sends this field. CE intentionally
+            # ignores it because it has no enterprise model gateway.
+            "for_gateway": False,
+        },
+    )
+    assert created.status_code == 201, created.text
+    created_data = created.json()["data"]
+    key_id = created_data["id"]
+    assert created_data["api_key"].startswith("sk-jx-")
 
-        assert response.status_code == 200, response.text
-        assert response.json()["data"]
+    revealed = client.get(f"/v1/me/api-keys/{key_id}/reveal")
+    assert revealed.status_code == 200, revealed.text
+    assert revealed.json()["data"]["api_key"] == created_data["api_key"]
+
+    disabled = client.patch(f"/v1/me/api-keys/{key_id}", json={"enabled": False})
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["data"]["enabled"] is False
+
+    revoked = client.delete(f"/v1/me/api-keys/{key_id}")
+    assert revoked.status_code == 200, revoked.text
+
+
+def test_ce_mcp_marketplace_is_registered_and_returns_items(initialized_ce_database, ce_client):
+    client = ce_client
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "admin", "redirect": "/"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303, login.text
+    ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
+    exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
+    assert exchange.status_code == 200, exchange.text
+
+    response = client.get("/v1/mcp-market/items")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]
 
 
 def test_ce_registers_all_local_auth_routes():
@@ -172,7 +175,8 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
 
     assert "api.routes.v1.admin_" not in inspect.getsource(me_capabilities)
 
-    async def probe_ok(row, db):
+    async def probe_ok(row, *, validate):
+        assert validate is True
         row.tools_json = [{"name": "example_tool", "description": "", "inputSchema": {}}]
         return True, ""
 
@@ -180,6 +184,10 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
         assert allow_private_network is False
         assert require_https is False
 
+    monkeypatch.setattr(
+        me_capabilities, "settings",
+        SimpleNamespace(server=SimpleNamespace(mcp_self_service_allow_private_network=False)),
+    )
     monkeypatch.setattr(me_capabilities, "probe_mcp_connectivity", probe_ok)
     monkeypatch.setattr(me_capabilities, "validate_remote_mcp_url", validate_ok)
     user = SimpleNamespace(user_id=initialized_ce_database)
@@ -199,7 +207,7 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
             display_name="CE release MCP",
             url="https://example.invalid/mcp",
         )
-        asyncio.run(me_capabilities.create_my_mcp_server(mcp_body, user, db))
+        asyncio.run(me_capabilities.create_my_mcp_server(mcp_body, user))
         mcp = (
             db.query(AdminMcpServer)
             .filter(AdminMcpServer.owner_user_id == initialized_ce_database)
@@ -211,7 +219,7 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
 
 
 def test_ce_schema_reconcile_repairs_legacy_sqlite_columns(tmp_path):
-    from core.db.edition_tables import ce_create_all, ce_reconcile_schema
+    from core.db.edition import ce_create_all, ce_reconcile_schema
     from core.db.models import AdminSkill, ChatSession, ModelProvider
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -340,12 +348,7 @@ def test_ce_mcp_market_risk_migration_preserves_existing_notices(tmp_path):
 
 
 def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
-    from core.services.edition_startup import (
-        bootstrap_edition_plugins,
-        create_distillation_scheduler,
-        recover_datasource_sidecars,
-        recover_persona_distill_jobs,
-    )
+    from orchestration.workers.edition_startup import bootstrap_edition_plugins, create_distillation_scheduler, recover_datasource_sidecars, recover_persona_distill_jobs
 
     assert asyncio.run(recover_datasource_sidecars()) == {}
     assert bootstrap_edition_plugins(None) == ()
@@ -367,7 +370,7 @@ def test_ce_model_steps_migration_preserves_existing_messages(tmp_path):
     import importlib.util
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
-    from core.db.edition_tables import ce_create_all
+    from core.db.edition import ce_create_all
     from core.db.models import ChatMessage, ChatSession
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session

@@ -59,7 +59,7 @@ window.addEventListener('unload',()=>c.dispose());
 await build({entryPoints:[resolve(consumer,'page.js')],outfile:resolve(consumer,'page.bundle.js'),bundle:true,format:'iife',target:'es2022'});
 
 function zip(html,entry='web/index.html'){
- const script="from tests.workbench_plugin_support import package; import sys; sys.stdout.buffer.write(package(html=sys.argv[1],entry=sys.argv[2],assets={'web/page.js':open(sys.argv[3]).read(),'web/style.css':'h1{color:rgb(1,2,3)}'}))";
+ const script="from tests.features.workbench.workbench_plugin_support import package; import sys; sys.stdout.buffer.write(package(html=sys.argv[1],entry=sys.argv[2],assets={'web/page.js':open(sys.argv[3]).read(),'web/style.css':'h1{color:rgb(1,2,3)}'}))";
  const r=spawnSync(python,['-c',script,html,entry,resolve(consumer,'page.bundle.js')],{cwd:root,env,maxBuffer:2**24});
  assert.equal(r.status,0,r.stderr?.toString() || String(r.error));return r.stdout;
 }
@@ -71,7 +71,7 @@ async function login(){
  await page.context().addCookies([{name:cookie.slice(0,split),value:cookie.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
 }
 async function start(){
- server=spawn(python,['-m','uvicorn','tests.workbench_routing_http_fixture:app','--host','127.0.0.1','--port','5217'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
+ server=spawn(python,['-m','uvicorn','tests.features.workbench.workbench_routing_http_fixture:app','--host','127.0.0.1','--port','5217'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
  server.stdout.on('data',b=>log+=b);server.stderr.on('data',b=>log+=b);
  for(let n=0;n<100;n++){if(server.exitCode!==null)throw Error(log);
   try{if((await fetch(serviceOrigin+'/ready')).ok)return;}catch{}

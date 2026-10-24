@@ -45,3 +45,33 @@ def test_renew_in_background_keeps_session_on_transient_error():
     p._renew = fake_renew
     asyncio.run(p._renew_in_background("chat-x", sess))
     assert sess.stale_marked is False
+
+@pytest.mark.parametrize("domain,expected", [
+    ("127.0.0.1:46074", "http://127.0.0.1:46074"),
+    ("http://controller:8080/", "http://controller:8080"),
+    ("https://controller.example/prefix/", "https://controller.example/prefix"),
+])
+def test_controller_url_shared_by_sdk_health_and_renew(monkeypatch, domain, expected):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    osp = _import_opensandbox_module()
+    original = osp.settings.sandbox
+    class Config:
+        opensandbox_domain = domain
+        def __getattr__(self, key):
+            return getattr(original, key)
+    monkeypatch.setattr(osp, "settings", SimpleNamespace(sandbox=Config()))
+    p = osp.OpenSandboxProvider()
+    client = SimpleNamespace(
+        post=AsyncMock(return_value=SimpleNamespace(status_code=200)),
+        get=AsyncMock(return_value=SimpleNamespace(status_code=200)),
+    )
+    p._get_http_client = lambda: client
+    p._session_expiry_s = lambda: 600
+    async def check():
+        await p._renew(osp._Session(sandbox=SimpleNamespace(id="recovered")))
+        assert await p.health()
+    asyncio.run(check())
+    assert p._make_config().get_base_url() == expected + "/v1"
+    assert client.post.call_args.args[0] == expected + "/v1/sandboxes/recovered/renew-expiration"
+    assert client.get.call_args.args[0] == expected + "/health"

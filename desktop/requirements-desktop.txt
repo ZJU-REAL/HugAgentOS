@@ -18,17 +18,19 @@ uv==0.11.33
 # Core web service and orchestration.
 fastapi==0.115.12
 uvicorn>=0.27.0
-pydantic>=2.6.0
-anyio>=4.2.0
+pydantic>=2.12.0
+anyio>=4.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 httpx>=0.27.0
 jsonschema>=4.20.0
-agentscope==2.0.0
+agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
 litellm>=1.50.0
 google-genai>=0.3.0
 ollama>=0.3.0
-mcp>=1.0.0,<2.0.0
+mcp==2.3.0
+# Keep the SSE dependency within FastAPI 0.115 Starlette constraints.
+sse-starlette==3.0.3
 tavily-python>=0.5.0
 beautifulsoup4>=4.12.0
 
@@ -40,7 +42,6 @@ redis>=5.0.0
 werkzeug>=3.0.0
 python-multipart>=0.0.9
 structlog>=23.2.0
-slowapi>=0.1.9
 argon2-cffi>=23.1.0
 croniter>=2.0.0
 pytz>=2024.1

@@ -6,18 +6,19 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from core.db.engine import Base
 from core.db.audio_model_upgrade import reconcile_audio_model_type
-from core.db.model_repository import create_provider, assign_role, get_provider, import_all, export_all
-from core.llm.providers.registry import validate_payload
-from core.services.model_config import ModelConfigService
-from core.services import model_config
+from core.models.repository import create_provider, assign_role, get_provider, import_all, export_all
+from core.models.providers.registry import validate_payload
+from core.models.config import ModelConfigService
+from core.models import config as model_config
 
 
 @pytest.fixture
 def model_db():
-    engine = create_engine("sqlite://")
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     with sessionmaker(bind=engine)() as db:
         yield db
@@ -86,8 +87,9 @@ def test_audio_management_can_save_blank_endpoint_and_enforces_role_type(model_d
     from fastapi import HTTPException
     from api.routes.v1 import models
     monkeypatch.setattr(models, "_invalidate_model_caches", lambda: None)
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=model_db.get_bind()))
     created = asyncio.run(models.create_provider_endpoint(
-        models.ProviderCreateRequest(display_name="待配置音频", provider_type="audio", provider="audio_compatible", base_url="", api_key="", model_name="pending-asr"), None, model_db))
+        models.ProviderCreateRequest(display_name="待配置音频", provider_type="audio", provider="audio_compatible", base_url="", api_key="", model_name="pending-asr"), None))
     data = created["data"]
     row = get_provider(model_db, data["provider_id"])
     assert row.base_url == "" and row.api_key == ""
@@ -97,4 +99,4 @@ def test_audio_management_can_save_blank_endpoint_and_enforces_role_type(model_d
     result = models.assign_role_endpoint("audio_transcription", models.RoleAssignRequest(provider_id=row.provider_id), None, model_db)
     assert result["data"]["provider_id"] == row.provider_id
     with pytest.raises(HTTPException):
-        asyncio.run(models.update_provider_endpoint(row.provider_id, models.ProviderUpdateRequest(provider_type="chat", provider="openai_compatible"), None, model_db))
+        asyncio.run(models.update_provider_endpoint(row.provider_id, models.ProviderUpdateRequest(provider_type="chat", provider="openai_compatible"), None))

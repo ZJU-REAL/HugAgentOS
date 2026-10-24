@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.plugins.resources import prewarm
+from core.capabilities.plugins.resources import prewarm
 import core.sandbox.sessions.registry as session_registry
 from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
 from core.sandbox.providers.opensandbox.pool import SandboxPool

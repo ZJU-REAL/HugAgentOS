@@ -2,11 +2,13 @@
 
 from typing import Annotated
 
-import core.services.session_operations.session_context as chat_session_context
+import api.transports.run_sse as run_sse
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
 import core.infra.responses as responses
+import core.runs.runtime as runtime
+import core.chat.operations.session_context as chat_session_context
 from core.auth.backend import UserContext
 from core.db.reserved_chats import reserved_chat_owner
 from core.infra.logging import quiet_access_log
@@ -32,7 +34,7 @@ def list_active_chat_runs(
     侧边栏对没点开过的会话一无所知。这里按用户一次查完：查询只命中 pending /
     running 这一小撮行，与历史 run 的数量无关。
     """
-    from core.services.session_operations.runs import list_active_chat_runs as operation
+    from core.chat.operations.runs import list_active_chat_runs as operation
 
     return operation(user=user, db=db, include_status=include_status, recent_seconds=recent_seconds)
 
@@ -42,27 +44,26 @@ def chat_stream_resume(
     run_id: str,
     from_offset: int = Query(0, alias="from", ge=0, description="从此 offset 之后继续推送"),
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """续播某个进行中的 run：刷新或断线后从指定 offset 之后重新订阅 SSE 事件。
 
     校验 run 存在且归属当前用户（非属主 403、不存在 404），返回 text/event-stream。
     """
-    from orchestration import chat_run_executor
 
-    db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
-    )
-    run = chat_run_executor.get_run(run_id)
+    # A scoped session, not the request's: the stream below outlives this handler.
+    with db_engine.SessionLocal() as db:
+        db_user_id = chat_context.resolve_db_user_id(
+            db, chat_session_context.authenticated_user_id(user)
+        )
+    run = runtime.get_run(run_id)
     # A module-owned chat's run is replayed by its module, not as an ordinary chat.
     if run is None or reserved_chat_owner(run.chat_id):
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != db_user_id:
         raise HTTPException(status_code=403, detail="无权访问该 run")
     resumed_chat_id = run.chat_id
-    chat_session_context._release_request_session(db)
     return responses.sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run_id, chat_id=resumed_chat_id, from_offset=from_offset
         ),
     )
@@ -80,7 +81,7 @@ def chat_active_run(
     有则返回 run_id / message_id / status / 刷新重放 offset / thinking 模式等元信息，
     无则返回 data=null。需认证（有效 cookie 或 API-Key）。
     """
-    from core.services.session_operations.runs import chat_active_run as operation
+    from core.chat.operations.runs import chat_active_run as operation
 
     return operation(chat_id=chat_id, user=user, db=db)
 
@@ -89,16 +90,16 @@ def chat_active_run(
 def chat_run_subscription(
     run_id: str,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Native ordinary-chat snapshot + tail; the raw replay API is separate."""
-    from orchestration import chat_run_executor
-    from orchestration.run_subscription import subscribe_run
+    from core.chat.projection.subscription import subscribe_run
 
-    db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
-    )
-    run = chat_run_executor.get_run(run_id)
+    # A scoped session, not the request's: the stream below outlives this handler.
+    with db_engine.SessionLocal() as db:
+        db_user_id = chat_context.resolve_db_user_id(
+            db, chat_session_context.authenticated_user_id(user)
+        )
+    run = runtime.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != db_user_id:
@@ -106,5 +107,4 @@ def chat_run_subscription(
     payload = run.request_payload if isinstance(run.request_payload, dict) else {}
     if payload.get("kind", "chat") != "chat":
         raise HTTPException(status_code=400, detail="This run uses a specialized progress protocol")
-    chat_session_context._release_request_session(db)
     return responses.sse_response(subscribe_run(run_id))

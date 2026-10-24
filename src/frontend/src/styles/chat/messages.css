@@ -1,6 +1,13 @@
 /* 消息行：竖向堆叠（不再是头像+内容横排） */
 
 .jx-msg{
+  /* Off-screen messages skip rendering. Applied from the start — streaming
+     included — so the browser remembers each message's real height while it
+     is on screen; switching it on only once a reply settled made the long
+     reply collapse to the 240px placeholder for a frame, clamping the scroll
+     upwards and detaching stream-following. */
+  content-visibility:auto;
+  contain-intrinsic-size:auto 240px;
   --motion-duration-message-enter:350ms;
   --motion-duration-user-bubble-enter:300ms;
   --motion-ease-message-enter:ease-out;
@@ -179,7 +186,10 @@
   font-size:11px;
   font-weight:600;
   color:color-mix(in srgb, var(--color-text-tertiary) 88%, transparent);
-  line-height:1;
+  line-height:1.2;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 
 .jx-userQuoteText{

@@ -1,8 +1,8 @@
 """A pending permission is answered only by its declared, current server-side authority."""
 
 import asyncio
-from core.llm import interaction_store
-from .account import read_account_mode
+from core.llm.runtime import interaction_store
+from core.sandbox.permissions.account import read_account_mode
 
 
 async def approve_current_policy(chat_id: str, confirm_id: str, info: dict) -> bool:

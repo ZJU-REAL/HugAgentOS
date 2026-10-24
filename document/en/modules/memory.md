@@ -68,7 +68,7 @@ save_memories_background()
        · sanitizer gate → write L1/L2/L3/session → audit side channel
 ```
 
-The integration layer for retrieval and injection lives in `src/backend/orchestration/memory_integration.py`. mem0's LLM / embedder / Milvus / reranker configuration is assembled in `src/backend/core/memory/service.py`, while Neo4j graph reads and writes live in `src/backend/core/memory/graph.py`. Model configs are resolved from the DB roles `memory` / `embedding` first, falling back to environment variables.
+The integration layer for retrieval and injection lives in `src/backend/core/agent_runtime/integrations/memory.py`. mem0's LLM / embedder / Milvus / reranker configuration is assembled in `src/backend/core/memory/service.py`, while Neo4j graph reads and writes live in `src/backend/core/memory/graph.py`. Model configs are resolved from the DB roles `memory` / `embedding` first, falling back to environment variables.
 
 ## Write pipeline and extractors
 
@@ -140,7 +140,7 @@ Two independent toggles, both stored in `users_shadow.metadata` (ORM column `ext
 | `memory_enabled` | Persistent memory **read**: inject the frozen block at session start | `false` |
 | `memory_write_enabled` | **Write**: extract and save memories after each conversation | `false` |
 
-Project chats get their own scope: personal projects and the default workspace use the real `user_id`, while team projects use `scope_user_id = "team:<team_id>"` — all team members write into the same mem0 bucket for shared recall, with the real author preserved in `metadata.author_user_id` (see `orchestration/memory_integration.py::save_memories_background` and `api/routes/v1/memories.py::list_memories`). Project-level toggles live in `projects.metadata` (`memory_enabled` / `memory_write_enabled`, defaulting to `true` inside a project); see [Projects & MySpace](./projects-myspace.md).
+Project chats get their own scope: personal projects and the default workspace use the real `user_id`, while team projects use `scope_user_id = "team:<team_id>"` — all team members write into the same mem0 bucket for shared recall, with the real author preserved in `metadata.author_user_id` (see `core/agent_runtime/integrations/memory.py::save_memories_background` and `api/routes/v1/memories.py::list_memories`). Project-level toggles live in `projects.metadata` (`memory_enabled` / `memory_write_enabled`, defaulting to `true` inside a project); see [Projects & MySpace](./projects-myspace.md).
 
 ## Frontend memory center
 
@@ -233,8 +233,8 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/memory/sanitizer.py` | Sanitizer gate (hardcoded + DB-managed rules) |
 | `src/backend/core/memory/audit.py` | Audit side channel (Enterprise Edition, EE) |
 | `src/backend/core/memory/context.py` | `MemoryContext` and workspace / layer resolution |
-| `src/backend/orchestration/memory_integration.py` | Retrieval launch, frozen-block assembly and injection, save delegation |
-| `src/backend/orchestration/workflow.py` | Main orchestration: memory hook wiring |
+| `src/backend/core/agent_runtime/integrations/memory.py` | Retrieval launch, frozen-block assembly and injection, save delegation |
+| `src/backend/core/agent_runtime/runner.py` | Main orchestration: memory hook wiring |
 | `src/backend/api/routes/v1/memories.py` | `/v1/memories` management API |
 | `src/backend/core/db/models/memory.py` | `ProfileMemory`, `MemoryOutbox`, and `MemorySanitizerRule` ORM |
 | `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM (EE only) |

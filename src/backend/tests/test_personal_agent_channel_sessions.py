@@ -2,14 +2,16 @@
 import pytest
 from types import SimpleNamespace
 from sqlalchemy import select
-from core.channels.protocol import InboundMsg
-from core.db.models import ChannelConnection, ChatMessage
+from integrations.channels.protocol import InboundMsg
+from integrations.channels.models import ChannelConnection
+from core.db.models import ChatMessage
 from personal_agent.models import PersonalAgent, PersonalMessageInbox, PersonalWorkItem
 from personal_agent.context import AgentContext
 from personal_agent.identity.config import locked_agent
 from personal_agent.conversation.message_routing import admit
 from personal_agent.conversation.conversations import channel_session, listing
 from tests.test_personal_agent_routing import sessions, personal_agent_on, turn, scripted  # noqa: F401
+from tests.db_support import share_factory
 
 
 def conversation(db, peer="alice", bot="bot", kind="p2p"):
@@ -79,7 +81,7 @@ async def test_channel_history_reply_and_task_result_stay_in_source(sessions):
         assert db.get(ChatMessage, admitted["message_id"]).chat_id == alice
 
 
-def test_http_conversation_scope_and_owner_checks(sessions):
+def test_http_conversation_scope_and_owner_checks(sessions, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.auth.backend import UserContext, get_current_user
@@ -93,6 +95,7 @@ def test_http_conversation_scope_and_owner_checks(sessions):
     def database():
         with sessions() as db: yield db
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, sessions)
     app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="owner", user_center_id="owner", username="owner")
     with TestClient(app) as client:
         response = client.post("/v1/personal-agent/messages", params={"chat_id": alice},
@@ -129,7 +132,7 @@ async def test_channel_delivery_uses_source_session_for_file_and_message(session
         def delete(self, key): pass
     monkeypatch.setattr(delivery, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    monkeypatch.setattr("core.storage.get_storage", lambda: Storage())
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: Storage())
     state={"owner":"worker","run_id":"run","generation":generation}
     receipt = delivery._publish(task_id, "owner", state, "delivery-id", "artifact-id", "hash",
                                b"report", "report.txt", "text/plain", "finished")

@@ -1,11 +1,15 @@
 """Tests for the provider-neutral internet search MCP implementation."""
 
 from __future__ import annotations
+from core.config.store import config_keys
+from core.config.store import system_config
+from core.config.store import system_config_constants
 
 import asyncio
 
 import pytest
-from core.services import service_probes, system_config
+from core.infra.probes import service_probes
+from core.config.store import system_config
 
 
 class _FakeResponse:
@@ -106,13 +110,13 @@ def test_service_group_uses_only_selected_engine_key(monkeypatch) -> None:
 
 
 def test_langsearch_has_an_independent_system_config_key() -> None:
-    seed_keys = {item[0] for item in system_config.SEED_CONFIGS}
+    seed_keys = {item[0] for item in system_config_constants.SEED_CONFIGS}
 
     assert "internet_search.langsearch_api_key" in seed_keys
     assert (
-        system_config.get_config_key_for_env("LANGSEARCH_API_KEY")
+        config_keys.get_config_key_for_env("LANGSEARCH_API_KEY")
         == "internet_search.langsearch_api_key"
     )
-    assert system_config.get_config_key_for_env("TAVILY_API_KEY") == (
+    assert config_keys.get_config_key_for_env("TAVILY_API_KEY") == (
         "internet_search.tavily_api_key"
     )

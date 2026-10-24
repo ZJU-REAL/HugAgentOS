@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from core.capabilities.paths import capabilities_enabled
+from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.tools import mcp_config as factory_mcp_config
-from core.services.mcp_service import McpServerConfigService
+from core.capabilities.mcp.service import McpServerConfigService
 
 
 async def server_selection(
@@ -54,7 +54,7 @@ async def server_selection(
     _capability_mcp_resolution = []
     _unavailable_connectors = {}
     try:
-        from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
+        from core.harness.registry.execution_catalog import cloud_gateway_mcp_configs
 
         bridge_mcp_servers = cloud_gateway_mcp_configs(
             request.enabled_mcp_ids,
@@ -62,7 +62,7 @@ async def server_selection(
             unavailable_out=_unavailable_connectors,
         )
     except Exception:  # noqa: BLE001
-        if capabilities_enabled():
+        if has_run_capabilities():
             raise  # a desktop binding failure must not fall back to another source
         bridge_mcp_servers = {}
 
@@ -77,7 +77,7 @@ async def server_selection(
         ]
 
     # Determine which MCP servers to connect
-    enabled_mcp_keys = factory_mcp_config._effective_mcp_server_keys(
+    enabled_mcp_keys = factory_mcp_config.effective_mcp_server_keys(
         cfg,
         request.agent_spec,
         enabled_mcp_ids=request.enabled_mcp_ids,

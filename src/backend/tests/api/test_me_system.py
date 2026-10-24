@@ -246,7 +246,7 @@ def test_ce_excludes_shared_knowledge_base_connector(monkeypatch):
 def test_whitelist_groups_exist_in_seed_configs():
     """Every whitelist group must have config items in SEED_CONFIGS (prevents the whitelist dangling after a seed regroup)."""
     from api.routes.v1.me_system import PERSONAL_GROUPS
-    from core.services.system_config import SEED_CONFIGS
+    from core.config.store.system_config_constants import SEED_CONFIGS
 
     seed_groups = {group for _, _, _, _, group, _ in SEED_CONFIGS}
     missing = set(PERSONAL_GROUPS) - seed_groups

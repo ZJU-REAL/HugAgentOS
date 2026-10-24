@@ -9,9 +9,9 @@ Two bugs shipped in the 0.2.15 desktop local build:
    they never entered Base.metadata and the local SQLite bootstrap could not
    create their tables ("no such table" at runtime).
 
-Both files live under ce/overlay/ (they replace same-named files when the CE
-tree is derived); these tests load them by path from the FULL tree and are
-skipped in a derived CE tree where ce/ does not exist.
+The shared implementations now use a small CE audit policy. These tests load
+that policy, exercise the real APIs and verify the shared models enter CE
+metadata; they are skipped where the source overlay is absent.
 """
 
 import importlib.util
@@ -39,8 +39,8 @@ def _load(path: Path, name: str):
     return module
 
 
-def test_ce_audit_stub_accepts_positional_calls_like_the_real_impl():
-    stub = _load(_OVERLAY / "core" / "memory" / "audit.py", "_ce_audit_stub")
+def test_ce_audit_stub_accepts_positional_calls_like_the_real_impl(ce_audit):
+    stub = ce_audit
     ctx = SimpleNamespace(user_id="u1", workspace_id=None)
 
     # Same positional call style as core/memory/profile.py::_audit_sync_safe.
@@ -49,8 +49,8 @@ def test_ce_audit_stub_accepts_positional_calls_like_the_real_impl():
 
 
 @pytest.mark.asyncio
-async def test_ce_audit_stub_async_variants_accept_positional_calls():
-    stub = _load(_OVERLAY / "core" / "memory" / "audit.py", "_ce_audit_stub_async")
+async def test_ce_audit_stub_async_variants_accept_positional_calls(ce_audit):
+    stub = ce_audit
     ctx = SimpleNamespace(user_id="u1", workspace_id=None)
 
     await stub.record(ctx, "write", "L1", reason="r")
@@ -58,7 +58,9 @@ async def test_ce_audit_stub_async_variants_accept_positional_calls():
 
 
 def test_ce_models_facade_exports_evolution_and_ref_shadow_tables():
-    src = (_OVERLAY / "core" / "db" / "models" / "__init__.py").read_text(encoding="utf-8")
+    from core.db import models
+    from core.db.personal_schema import ce_metadata
+    metadata = ce_metadata()
     required = [
         "EvolutionAgentProfile",
         "EvolutionCandidate",
@@ -72,7 +74,28 @@ def test_ce_models_facade_exports_evolution_and_ref_shadow_tables():
         "EvolutionTraceEvent",
         "MemoryRefShadow",
     ]
-    missing = [name for name in required if name not in src]
+    missing = [name for name in required if not hasattr(models, name)]
     # A model missing from the facade never enters Base.metadata, so the local
     # bootstrap (create_all / reconcile) cannot create its table.
     assert not missing, f"CE models facade is missing imports: {missing}"
+
+    for name in required:
+        assert getattr(models, name).__tablename__ in metadata.tables
+
+
+@pytest.fixture
+def ce_audit(monkeypatch):
+    from core.memory import audit, edition
+    policy = _load(_OVERLAY / "core/memory/edition.py", "_ce_memory_policy")
+    from unittest.mock import Mock
+    assert policy.audit_enabled() is False
+    enabled = Mock(wraps=policy.audit_enabled)
+    monkeypatch.setattr(edition, "audit_enabled", enabled)
+    monkeypatch.setattr(audit, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    single, batch = Mock(), Mock()
+    monkeypatch.setattr(audit, "_sync_insert_one", single)
+    monkeypatch.setattr(audit, "_sync_insert_many", batch)
+    yield audit
+    assert enabled.call_count == 2
+    single.assert_not_called()
+    batch.assert_not_called()

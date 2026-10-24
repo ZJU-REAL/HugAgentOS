@@ -6,17 +6,9 @@ import io
 import zipfile
 
 import pytest
-from core.agent_skills.binary_files import (
-    decode_binary,
-    encode_binary,
-    encode_upload,
-    is_binary_value,
-)
-from core.services.marketplace_service import (
-    build_skill_zip,
-    build_skill_zip_from_dir,
-    parse_skill_zip,
-)
+from core.capabilities.skills.binary_files import decode_binary, encode_binary, encode_upload, is_binary_value
+from features.marketplace.skill_archives import build_skill_zip, build_skill_zip_from_dir
+from core.capabilities.skills.zip_reader import parse_skill_zip
 from fastapi import HTTPException
 
 SKILL_MD = """---
@@ -95,7 +87,7 @@ def test_encode_upload_text_and_binary():
 
 
 def test_validate_skill_file_path():
-    from core.services.skill_management_service import validate_skill_file_path
+    from core.capabilities.skills.management import validate_skill_file_path
 
     assert validate_skill_file_path("scripts/run.py") == "scripts/run.py"
     assert validate_skill_file_path("/config.json") == "config.json"
@@ -137,7 +129,7 @@ def test_zip_rejects_normalized_name_collision():
 
 
 def test_legacy_skill_paths_normalize_without_silent_overwrite():
-    from core.agent_skills.publication import decode_files
+    from core.capabilities.skills.publication import decode_files
 
     assert decode_files("body", {"scripts\\run.py": "code"})["scripts/run.py"] == b"code"
     with pytest.raises(ValueError):
@@ -147,7 +139,7 @@ def test_legacy_skill_paths_normalize_without_silent_overwrite():
 
 
 def test_archive_and_legacy_db_reject_file_directory_conflicts():
-    from core.agent_skills.publication import decode_files
+    from core.capabilities.skills.publication import decode_files
 
     with pytest.raises(ValueError):
         decode_files("body", {"scripts": "file", "scripts/run.py": "code"})

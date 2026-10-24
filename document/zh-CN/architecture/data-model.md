@@ -179,11 +179,11 @@ user_feedback                                             # 问题反馈审核 /
 |---|---|
 | 共享 ORM / EE ORM | `src/backend/core/db/models/`、`src/backend/edition_ee/db/models/` |
 | 本体仓储 | `src/backend/core/db/repository/ontology.py` |
-| 问题反馈模型 / 仓储 | `src/backend/edition_ee/db/models/feedback.py`、`db/repository/feedback.py` |
+| 问题反馈模型 / 仓储 | `src/backend/edition_ee/db/models/feedback.py`、`edition_ee/db/repository/feedback.py` |
 | 引擎与启动建表 | `src/backend/core/db/engine.py` |
 | 仓储层 | `src/backend/core/db/repository/` |
-| CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |
+| CE/EE 建表边界 | `src/backend/edition_ee/db/edition_tables.py` |
 | EE 迁移主链 | `src/backend/alembic/versions/` |
 | CE 迁移基线 | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |
-| 提示词版本池服务 | `src/backend/core/services/prompt_version_service.py` |
+| 提示词版本池服务 | `src/backend/core/llm/prompt_versions.py` |
 | 版本边界权威方案 | [版本与授权](../editions/overview.md) |

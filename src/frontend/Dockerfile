@@ -29,7 +29,6 @@ COPY packages/workbench-protocol /build/packages/workbench-protocol
 COPY packages/workbench-sdk /build/packages/workbench-sdk
 COPY packages/chat-sdk /build/packages/chat-sdk
 RUN cd /build/packages/chat-sdk && npm ci --ignore-scripts && npm run build
-COPY examples/customer-chat /build/examples/customer-chat
 
 # Install dependencies (including dev dependencies for build)
 RUN npm ci
@@ -38,7 +37,7 @@ RUN npm ci
 COPY src/frontend/ .
 COPY scripts/build-chat-sdk.mjs /build/scripts/
 COPY scripts/sync-workbench-schema.mjs scripts/build-workbench.mjs scripts/workbench-build-contract.mjs /build/scripts/
-COPY src/backend/core/applications/schemas /build/src/backend/core/applications/schemas
+COPY src/backend/features/workbench/schemas /build/src/backend/features/workbench/schemas
 
 # Build production bundle
 RUN npm run build

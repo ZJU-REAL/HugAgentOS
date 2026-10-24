@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import core.chat.runtime.handoff as runtime_handoff
+import core.runs.events.store as run_event_stream
 import fakeredis.aioredis
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
-from core.services import ChatService
-from core.services.chat_sequencer import ChatBusyError, ChatSequencer
-from core.services.run_journal import RunJournal, RunLeaseLost
-from core.services.steer_queue import SteerQueue
-from orchestration import chat_run_executor as executor
-from orchestration import run_event_stream
+from core.chat.service import ChatService
+from core.chat.sequencer import ChatBusyError, ChatSequencer
+from core.runs.journal import RunJournal, RunLeaseLost
+from core.chat.steer_queue import SteerQueue
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -74,7 +74,7 @@ def test_terminal_commit_atomically_transfers_writer_and_sequence(harness_sessio
             extra_data={},
             commit=False,
         )
-        handoff = executor._commit_queued_handoff_in_session(
+        handoff = runtime_handoff._commit_queued_handoff_in_session(
             db,
             source_run_id=accepted.run.run_id,
             chat_id="chat-1",
@@ -152,7 +152,7 @@ def test_terminal_commit_hands_late_steer_to_successor_run(harness_sessions, mon
     prepared: dict = {}
 
     def commit_output_and_handoff(db) -> None:
-        handoff = executor._commit_queued_handoff_in_session(
+        handoff = runtime_handoff._commit_queued_handoff_in_session(
             db,
             source_run_id=accepted.run.run_id,
             chat_id="chat-1",
@@ -180,7 +180,7 @@ def test_terminal_commit_hands_late_steer_to_successor_run(harness_sessions, mon
         assert queue_row.applied_run_id == successor.run_id
         assert successor.recovery_snapshot["worker_args"]["raw_user_message"] == queued.message
 
-    from core.services import chat_steer_service
+    from core.chat import steer as chat_steer_service
 
     monkeypatch.setattr(chat_steer_service, "SessionLocal", sessions)
     payload = chat_steer_service.list_run_steers(accepted.run.run_id)[0]

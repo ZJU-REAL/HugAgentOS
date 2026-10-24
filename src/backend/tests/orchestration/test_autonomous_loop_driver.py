@@ -13,16 +13,16 @@
   8. 收尾交付轮：部分完成收场时用现有成果跑一轮 wrap-up。
 """
 from __future__ import annotations
+from core.ontology import runtime_policy
 
 import asyncio
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
+import orchestration.loops.driver as al
 import pytest
-
-import orchestration.autonomous_loop as al
-from orchestration.autonomous_loop import LoopBudget, run_autonomous_loop
-from orchestration.loop_evaluator import CONTINUE, DONE, GoalSpec
+from orchestration.loops.driver import LoopBudget, run_autonomous_loop
+from orchestration.loops.requirements import CONTINUE, DONE, GoalSpec
 
 
 def _run(coro):
@@ -108,9 +108,9 @@ class Harness:
             sleep=self._fast_sleep, gather=asyncio.gather,
             CancelledError=asyncio.CancelledError))
         # ontology 解析不碰 DB
-        import core.services.ontology_service as osvc
+        import core.ontology.service as osvc
 
-        monkeypatch.setattr(osvc, "build_user_ontology_runtime",
+        monkeypatch.setattr(runtime_policy, 'build_user_ontology_runtime',
                             lambda **kw: (False, {"enabled": False, "packs": [],
                                                   "review_level": "none"}))
         self.monkeypatch = monkeypatch

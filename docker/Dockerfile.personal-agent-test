@@ -1,6 +1,0 @@
-FROM hugagent-backend:latest
-USER root
-COPY --chown=appuser:appuser src/backend /app/src/backend
-COPY --chown=appuser:appuser alembic.ini /app/alembic.ini
-USER appuser
-CMD ["bash", "/app/src/backend/scripts/backend_entrypoint.sh"]

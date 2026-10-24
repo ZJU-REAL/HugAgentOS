@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Literal, Optional
 
-from core.services.application_schema import ApplicationPayload, ToolDefinition
+from features.hosted_apps.schema import ApplicationPayload, ToolDefinition
 from pydantic import BaseModel
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from extensions.mcp_servers.site_publish_mcp import impl
 
-mcp = FastMCP("hugagent-site-publish")
+mcp = MCPServer("hugagent-site-publish")
 
 _HDR_USER = "x-current-user-id"
 _HDR_CHAT = "x-chat-id"

@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
-from .environment import _env, _bool, _int, _float, _REPO_ROOT
+from .environment import _env, _bool, _int
 
 @dataclass(frozen=True)
 class AuthSettings:
@@ -135,8 +134,8 @@ class DatabaseSettings:
         )
     )
     echo: bool = field(default_factory=lambda: _bool(_env("DB_ECHO", "false")))
-    pool_size: int = field(default_factory=lambda: _int(_env("DB_POOL_SIZE", "20"), 20))
-    pool_max_overflow: int = field(
-        default_factory=lambda: _int(_env("DB_POOL_MAX_OVERFLOW", "10"), 10)
-    )
+    # Threads per process that run blocking work for requests (sync routes and
+    # dependencies, ``core.db.threads.run_db``). The connection pool is derived
+    # from it in ``core.db.engine.thread_budget`` rather than configured apart.
+    worker_threads: int = field(default_factory=lambda: max(1, _int(_env("WORKER_THREADS", "40"), 40)))
     pool_timeout: int = field(default_factory=lambda: _int(_env("DB_POOL_TIMEOUT", "30"), 30))

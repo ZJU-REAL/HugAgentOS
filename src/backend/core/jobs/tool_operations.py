@@ -1,0 +1,410 @@
+"""run_job 工具 —— 主对话智能体提交批量作业的唯一入口。
+
+定位：这不是「又一个固定形状的批处理工具」，而是一个**可编程的编排面**。智能体先用
+``write`` 把一段作业脚本写进沙箱，再用 ``run_job`` 提交；脚本里的控制流（循环、条件、
+分层取数、动态收敛、嵌套 map）都是普通 Python，平台不需要知道任务在做什么。
+
+与 Bash / read / write / glob / grep 同级原生注册，不走 catalog 开关——「对话内默认
+可用」就落在这里。
+"""
+
+from __future__ import annotations
+
+import json as _json
+import logging
+from typing import Any, Dict, List, Optional
+
+
+from core.sandbox.workspace.resolution import quote_shell_path as _quote_path
+from core.db.threads import run_db, run_in_session
+
+logger = logging.getLogger(__name__)
+
+# 前台等待（wait=True）的硬上限。超过就把作业转后台，不再阻塞这一轮对话。
+# 该等多久是模型自己判断的，而它对"这批要跑多久"的估计经常偏乐观——实测把一个 265 项、
+# 每项都要过模型的分类作业当成"小作业"，前台一口气阻塞了 5 分钟，用户看不到进度、
+# 插不上话、也没法中途取消。提示词已经写过"几分钟以上就走后台"仍然拦不住，所以在
+# 机制上给前台等待封顶：等够 90 秒还没完，作业照跑，对话先还给用户。
+FOREGROUND_WAIT_CAP_S = 90.0
+
+
+def mark_wake_on_finish(job_id: str) -> None:
+    """转后台后要有人叫醒会话播报终态，否则作业跑完没人吭声。"""
+    try:
+        from core.db.engine import SessionLocal
+        from core.jobs.store import JobService
+
+        with SessionLocal() as db:
+            JobService(db).set_wake_on_finish(job_id, True)
+    except Exception:  # noqa: BLE001 —— 叫醒是尽力而为，不该反过来弄挂工具调用
+        logger.warning("[run_job] mark wake_on_finish failed job=%s", job_id, exc_info=True)
+
+
+def detached_payload(job_id: str, *, resumed: bool = False) -> Dict[str, Any]:
+    """前台等超时 → 按后台语义返回（作业没停，只是不占着这一轮对话了）。"""
+    mark_wake_on_finish(job_id)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": "started",
+        "waited": False,
+        "detached": True,
+        "next": (
+            f"作业比预期久（前台已等满 {int(FOREGROUND_WAIT_CAP_S)} 秒），"
+            "**已自动转入后台继续跑，没有中断**。"
+            "现在就结束这轮回复：告诉用户作业仍在进行、"
+            "输入框上方的状态条会实时显示进度，期间可以继续聊别的、也可以随时取消。"
+            "作业跑完会自动叫醒你播报，不要在这里轮询 action='status' 干等，"
+            "也不要重新提交一遍（它还在跑）。"
+        ),
+    }
+
+
+
+def _resolve_job(db, job_id: str, user_id: str, chat_id: str):
+    """Return ``(job_id, None)`` for an owned job, else ``(None, error payload)``."""
+    from core.db.models import Job
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    resolved = svc.get(job_id)
+    if (resolved is None or resolved.user_id != user_id) and not job_id.startswith("job_"):
+        cand = svc.get(f"job_{job_id}")
+        if cand is not None and cand.user_id == user_id:
+            resolved, job_id = cand, f"job_{job_id}"
+    if resolved is not None and resolved.user_id == user_id:
+        return job_id, None
+    rows = (
+        db.query(Job)
+        .filter(Job.user_id == user_id, Job.chat_id == chat_id)
+        .order_by(Job.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return None, {
+        "ok": False,
+        "error": f"job 不存在或无权访问: {job_id}",
+        "jobs_in_this_chat": [
+            {"job_id": r.job_id, "name": r.name, "status": r.status, "stats": svc.stats(r.job_id)}
+            for r in rows
+        ],
+        "hint": "用上面列表里的完整 job_id 重试（注意 job_ 前缀）；"
+        "已经跑完的作业**不要重跑**，直接 export 取结果。",
+    }
+
+
+def _job_status(db, job_id: str, user_id: str) -> Dict[str, Any]:
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    job = svc.get(job_id)
+    if job is None or job.user_id != user_id:
+        return {"ok": False, "error": "job 不存在或无权访问"}
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": job.status,
+        "stats": svc.stats(job_id),
+        "usage": dict(job.usage or {}),
+        "budget_left": svc.budget_left(job_id),
+        "error": job.error_message,
+    }
+
+
+def _ledger_rows(db, job_id: str, user_id: str, status: str) -> Dict[str, Any]:
+    from core.jobs.store import JobService
+
+    svc = JobService(db)
+    job = svc.get(job_id)
+    if job is None or job.user_id != user_id:
+        return {"ok": False, "error": "job 不存在或无权访问"}
+    wanted = [s.strip() for s in (status or "").split(",") if s.strip()] or [
+        "done",
+        "not_found",
+        "failed",
+        "needs_review",
+        "pending",
+    ]
+    rows = []
+    for st in wanted:
+        rows.extend(svc.pending(job_id, status=st))
+    return {"rows": rows, "stats": svc.stats(job_id)}
+
+
+def job_operations(
+    *,
+    user_id: str,
+    chat_id: Optional[str],
+    sandbox_session_id: Optional[str],
+    allowed_tools: Optional[List[str]] = None,
+    model_name: Optional[str] = None,
+    model_provider_id: Optional[str] = None,
+    project_ctx: Optional[Dict[str, Any]] = None,
+    parent_runtime: Optional[Dict[str, Any]] = None,
+):
+    """Build scoped job operations.
+
+    ``parent_runtime`` 保存主智能体的能力配置；每个 agent() 使用独立上下文派生实例。
+    ``allowed_tools`` 保留脚本显式选择 MCP 的权限检查。
+    """
+
+    async def run_job(
+        action: str = "start",
+        script_path: str = "",
+        name: str = "",
+        job_id: str = "",
+        wait: bool = False,
+        # 默认必须是**带三方库**的那个解释器。沙箱里裸 python3 是干净的系统解释器，
+        # 连 openpyxl/pandas 都没有——默认值写成 python3 的直接后果是作业脚本第一行
+        # import 就 ModuleNotFoundError 当场失败（实测踩过）。$PY_BIN 指向预装全套数据
+        # 依赖的解释器，取不到时才退回 python3。
+        interpreter: str = "${PY_BIN:-python3}",
+        max_calls: int = 0,
+        max_seconds: int = 0,
+        concurrency: int = 8,
+        dest_path: str = "",
+        status: str = "",
+        progress_wake_sec: int = 300,
+        on_conflict: str = "block",
+    ) -> Dict[str, Any]:
+        import core.jobs.files as job_files
+        import core.jobs.runtime as job_runtime
+        from core.db.models import Job
+        from core.jobs.store import JobService
+
+        act = (action or "start").strip().lower()
+
+        if act == "start":
+            if not script_path:
+                return {"ok": False, "error": "script_path 必填：先用 write 把作业脚本写进沙箱"}
+            if not sandbox_session_id:
+                return {"ok": False, "error": "当前会话没有可用沙箱，无法提交作业"}
+
+            # 同一会话不许叠加在跑的作业。被进度唤醒后"改个脚本再交一份"是很自然的动作，
+            # 但旧作业不会自己消失：两份并存会同时烧预算、同时叫醒会话，用户在状态条上
+            # 也分不清哪份才算数。要么先 cancel，要么 resume（已完成的项不会重做）。
+            # 本会话已有在跑的作业时**默认**拦一道：默默叠加两份会双倍烧预算、双份叫醒会话，
+            # 用户在状态条上也分不清哪份算数。但这只是默认，不是禁令——确实要换新版本时
+            # 用 on_conflict 明说：'replace' 停掉旧的再跑新的，'parallel' 两份并行。
+            # 判断权留给调用方，工具只负责让"叠加"变成一个显式选择而不是意外。
+            conflict = (on_conflict or "block").strip().lower()
+            if chat_id and conflict != "parallel":
+                # 字段必须在 session 内取出：出了 with 块 ORM 实例就 detached，再读属性会炸
+                def _live_job(db):
+                    live = (
+                        db.query(Job)
+                        .filter(
+                            Job.chat_id == chat_id,
+                            Job.status.in_(("pending", "running")),
+                        )
+                        .order_by(Job.created_at.desc())
+                        .first()
+                    )
+                    live_id = live.job_id if live is not None else ""
+                    live_name = (live.name or "未命名") if live is not None else ""
+                    return live_id, live_name
+                live_id, live_name = await run_in_session(_live_job)
+                if live_id and conflict == "replace":
+                    await job_runtime.cancel_job(live_id, user_id=user_id)
+                    logger.info("[run_job] replaced live job %s in chat %s", live_id, chat_id)
+                elif live_id:
+                    return {
+                            "ok": False,
+                            "error": (
+                                f"本会话已有在跑的作业 {live_id}（{live_name}）。三条路选一条："
+                                "① 想用新脚本取代它 → 再调一次本工具并带 on_conflict='replace'"
+                                "（自动停掉旧作业再提交新的）；"
+                                f"② 旧作业只是中断、脚本没问题 → run_job(action='resume', job_id='{live_id}')"
+                                "断点续跑，已完成的项不会重做；"
+                                "③ 确实需要两份同时跑 → on_conflict='parallel'。"
+                                "默认拦下只是为了让叠加成为显式选择，不是不让跑。"
+                            ),
+                            "job_id": live_id,
+                            "hint": "on_conflict=replace|parallel",
+                        }
+
+            # 读脚本正文：既做存在性校验，也作为 job 的审计快照与 resume 依据。
+            # ⚠️ 必须走 base64，不能直接 `cat`：沙箱 execute 回传的 stdout 会丢换行，
+            # 脚本会被压成一行落地 → SyntaxError（实测踩过）。base64 -w0 保字节不变。
+            try:
+                code, out, err = await job_files._sbx_bash(
+                    f"base64 -w0 {_quote_path(script_path)} 2>/dev/null || base64 -i {_quote_path(script_path)}",
+                    session_id=sandbox_session_id,
+                    user_id=user_id,
+                    timeout=30,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"读取脚本失败: {exc}"}
+            if code != 0 or not (out or "").strip():
+                return {"ok": False, "error": f"脚本不存在或为空: {script_path} {(err or '')[:200]}"}
+            import base64 as _b64dec
+
+            try:
+                out = _b64dec.b64decode("".join((out or "").split())).decode("utf-8")
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"脚本解码失败: {exc}"}
+            if not out.strip():
+                return {"ok": False, "error": f"脚本为空: {script_path}"}
+
+            budget: Dict[str, Any] = {"concurrency": concurrency}
+            if max_calls:
+                budget["max_calls"] = max_calls
+            if max_seconds:
+                budget["max_seconds"] = max_seconds
+
+            try:
+                jid = await job_runtime.start_job(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    name=name or "批量作业",
+                    script_path=script_path,
+                    script_text=out,
+                    session_id=sandbox_session_id,
+                    budget=budget,
+                    start_params={
+                        "allowed_tools": list(allowed_tools or []),
+                        "model_name": model_name,
+                        "model_provider_id": model_provider_id,
+                        "project_ctx": project_ctx,
+                        "parent_runtime": parent_runtime,
+                        # wait=False 时作业跑完没人叫醒本会话 → 打标，让驱动在终态入队一轮续跑
+                        "wake_on_finish": not wait,
+                        # 中途进度播报间隔（秒）；0 = 只在终态叫一次
+                        "progress_wake_sec": max(0, int(progress_wake_sec)),
+                    },
+                    interpreter=interpreter or "${PY_BIN:-python3}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[run_job] start failed: %s", exc)
+                return {"ok": False, "error": f"作业启动失败: {exc}"}
+
+            if not wait:
+                return {
+                        "ok": True,
+                        "job_id": jid,
+                        "status": "started",
+                        "waited": False,
+                        "next": (
+                            "作业已在后台开始。**现在就结束这轮回复**：告诉用户作业已提交、"
+                            "输入框上方的状态条会实时显示进度（几分之几、失败数、已运行多久），"
+                            "期间可以继续聊别的、也可以点状态条上的按钮取消。"
+                            "作业跑完和中途都会自动叫醒你播报，不要在这里轮询 action='status' 干等。"
+                        ),
+                    }
+
+            res = await job_runtime.run_and_wait(
+                jid, chat_id=chat_id, detach_after=FOREGROUND_WAIT_CAP_S
+            )
+            if res.get("status") == "detached":
+                return await run_db(detached_payload, jid)
+            def _finished_job(db):
+                svc = JobService(db)
+                stats = svc.stats(jid)
+                job = svc.get(jid)
+                usage = dict(job.usage or {}) if job else {}
+                return stats, usage
+            stats, usage = await run_in_session(_finished_job)
+            payload = {
+                "ok": res.get("status") == "completed",
+                "job_id": jid,
+                "status": res.get("status"),
+                "stats": stats,
+                "usage": usage,
+            }
+            if res.get("error"):
+                payload["error"] = res["error"]
+            if stats.get("remaining", 0) > 0:
+                payload["note"] = (
+                    f"仍有 {stats['remaining']} 项未完成——必须如实告知用户并给出未覆盖清单与"
+                    f"续跑方式（run_job action=resume job_id={jid}），不得当作已完成。"
+                )
+            # 脚本崩溃时把 runner 日志尾巴带回来，省一轮排查
+            if res.get("status") == "failed" and sandbox_session_id:
+                try:
+                    payload["runner_log"] = (
+                        await job_files.read_runner_log(
+                            jid, user_id=user_id, session_id=sandbox_session_id
+                        )
+                    )[-1500:]
+                except Exception as fallback_error:  # noqa: BLE001
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure("jobs.tool_operations:runner_log", fallback_error)
+            return payload
+
+        if not job_id:
+            return {"ok": False, "error": f"action={act} 需要 job_id"}
+
+        # job_id 容错 + 找不到时把本会话的作业列出来。
+        # 实测踩过：模型凭记忆抄 id 时漏了 "job_" 前缀，只回一句「job 不存在」它无从自救，
+        # 结果决定把 568 次子调用整个重跑一遍。错误信息必须自带下一步。
+        resolved_id, missing = await run_in_session(_resolve_job, job_id, user_id, chat_id)
+        if missing is not None:
+            return missing
+        job_id = resolved_id
+
+        if act == "status":
+            return await run_in_session(_job_status, job_id, user_id)
+
+        if act == "export":
+            # 台账在 DB，逐项结果**不进对话上下文**——所以导出的方式是写成沙箱里的
+            # JSONL 文件，之后用 Bash/python 处理（写 Excel、跑校验、喂评审）。
+            if not sandbox_session_id:
+                return {"ok": False, "error": "当前会话没有可用沙箱"}
+            ledger = await run_in_session(_ledger_rows, job_id, user_id, status)
+            if "error" in ledger:
+                return ledger
+            rows, stats = ledger["rows"], ledger["stats"]
+            dest = dest_path or f"jobs/{job_id}_ledger.jsonl"
+            body = "\n".join(_json.dumps(r, ensure_ascii=False) for r in rows)
+            # 分块写 + 读回校验：单条 Bash 携带大 base64 到约 170KB 会**静默失败**
+            # （exit=0、stderr 空、文件不存在）。568 行台账正好落在这个区间——历史上
+            # 因此出现过「导出报成功 rows=568，文件却从来没出现」。成功与否只认沙箱
+            # 里读回的真实字节数，绝不用 Python 侧的行数报平安。
+            try:
+                ok_write, detail = await job_files.write_sandbox_file(
+                    dest, body, session_id=sandbox_session_id, user_id=user_id
+                )
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"导出失败: {exc}"}
+            if not ok_write:
+                return {"ok": False, "error": f"导出失败（落盘未通过校验）: {detail}"}
+            return {
+                    "ok": True,
+                    "job_id": job_id,
+                    "path": dest,
+                    "rows": len(rows),
+                    "bytes": detail,
+                    "stats": stats,
+                    "hint": "每行一个 JSON：{key, status, payload, result, review, attempts}。"
+                    "用 Bash/python 读这个文件写产物，不要把逐项内容读回对话。",
+                }
+
+        if act == "cancel":
+            ok = await job_runtime.cancel_job(job_id, user_id=user_id)
+            return {"ok": ok, "job_id": job_id, "status": "cancelled" if ok else "unknown"}
+
+        if act == "resume":
+            res = await job_runtime.resume_job(job_id, user_id=user_id, chat_id=chat_id)
+            if not res.get("ok"):
+                return {"ok": False, "error": res.get("error")}
+            if not wait:
+                return {"ok": True, "job_id": job_id, "status": "running", "waited": False}
+            done = await job_runtime.run_and_wait(
+                job_id, chat_id=chat_id, detach_after=FOREGROUND_WAIT_CAP_S
+            )
+            if done.get("status") == "detached":
+                return await run_db(detached_payload, job_id, resumed=True)
+            def _job_stats(db):
+                stats = JobService(db).stats(job_id)
+                return stats
+            stats = await run_in_session(_job_stats)
+            return {
+                    "ok": done.get("status") == "completed",
+                    "job_id": job_id,
+                    "status": done.get("status"),
+                    "stats": stats,
+                }
+
+        return {"ok": False, "error": f"未知 action: {act}"}
+
+    return run_job

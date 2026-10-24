@@ -9,7 +9,7 @@ In Config → Model Management (EE), use the switch in the provider list's Statu
 
 ## Configuring models: providers + roles
 
-Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_name / extra_config / is_active) and `model_role_assignments` (role_key → provider_id). Roles are defined in `core/db/model_repository.py::ROLE_DEFINITIONS`:
+Two tables (`core/db/models/`): `model_providers` (base_url / api_key / model_name / extra_config / is_active) and `model_role_assignments` (role_key → provider_id). Roles are defined in `core/models/repository.py::ROLE_DEFINITIONS`:
 
 | role_key | Purpose | Type |
 |---|---|---|
@@ -35,6 +35,8 @@ Select a chat provider under **Config → Model Management → Role Assignments 
 Precedence is **shared subagent model → an agent's existing explicit model → the user's current model selection → main-agent default**. The shared role is unassigned by default. Subagents without an individual override follow the user's selection. Clearing the assignment or deactivating its provider restores this fallback order. The shared role uses the provider's parameters; individual parameter overrides remain effective when no shared model is assigned. Subagents inherit the current thinking mode, and dynamic model switching does not replace their selected model with the system default.
 
 ### Wire protocol: Responses by default, chat completions only as a fallback
+
+The pinned AgentScope version natively parses raw reasoning and summary events from Responses. The platform preserves each event's `item_id` and part index to prevent streaming failures and keep distinct reasoning items and parts separate.
 
 OpenAI-compatible endpoints come in two wire protocols: the older `POST /chat/completions` and the newer `POST /responses`. The platform **defaults to Responses**, because it carries the model's reasoning as a first-class `reasoning` item that can be handed back verbatim on the next turn; `/chat/completions` has nowhere to put reasoning, so it has to be smuggled through a `reasoning_content` field. Chat completions is used only for endpoints that genuinely do not route `/responses` — commonly thin relay gateways.
 
@@ -124,7 +126,7 @@ Retry policy: the model layer runs with `max_retries=0`; the agent layer's `Mode
 
 ## Dynamic model switching (chat_mode)
 
-Each frontend message may carry `chat_mode` (`turbo / fast / medium / high / max`); before the reply starts, `core/llm/middlewares.py::DynamicModelMiddleware` (`on_reply`) hot-swaps `agent.model`:
+Each frontend message may carry `chat_mode` (`turbo / fast / medium / high / max`); before the reply starts, `core/llm/runtime/` (`on_reply`) hot-swaps `agent.model`:
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
@@ -134,7 +136,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
    high/max → reasoning_effort=high/max (endpoint must declare support)
 ```
 
-Legacy clients that only send `enable_thinking` are mapped to medium / fast. This is the AgentScope 2.0 incarnation of the old 1.x "pre_reply dynamic-model hook" — the hook factories were refactored into middlewares, and `core/llm/hooks.py` now only hosts pure-function helpers.
+Legacy clients that only send `enable_thinking` are mapped to medium / fast. This is the AgentScope 2.0 incarnation of the old 1.x "pre_reply dynamic-model hook" — the hook factories were refactored into middlewares, and `core/harness/hooks.py` now only hosts pure-function helpers.
 
 ## Environment variables and MCP subprocess injection
 
@@ -147,7 +149,7 @@ Full variable list: [Environment Variables](../deployment/environment-variables.
 
 ## Personal API keys
 
-Users can issue personal keys for programmatic access to the platform API (`api/routes/v1/api_keys.py` + `core/services/api_key_service.py`):
+Users can issue personal keys for programmatic access to the platform API (`api/routes/v1/api_keys.py` + `core/auth/api_keys.py`):
 
 - Plaintext keys look like `sk-jx-<random>` and are **returned exactly once at creation**; the DB stores only a SHA256 hash + prefix. Expiry options 7/30/90/180/365 days or never; enable/disable and revoke supported.
 - Usage: `Authorization: Bearer sk-jx-...`; the auth layer (`core/auth/backend.py`) recognizes the prefix and resolves the key to a user context via `resolve_api_key`, checking enabled/unrevoked/unexpired.
@@ -157,7 +159,7 @@ Endpoints: `GET/POST /v1/me/api-keys`, `PATCH /v1/me/api-keys/{id}` (toggle), `D
 
 ## Billing and usage
 
-Token usage is accumulated into the end-of-stream `meta.usage` (`orchestration/streaming.py` sums `ModelCallEndEvent`s) and persisted with the message. Two console report groups sit on top (`CONFIG_TOKEN`):
+Token usage is accumulated into the end-of-stream `meta.usage` (`core/llm/runtime/streaming.py` sums `ModelCallEndEvent`s) and persisted with the message. Two console report groups sit on top (`CONFIG_TOKEN`):
 
 - **Usage logs** `api/routes/v1/admin_usage_logs.py`: `GET /v1/admin/usage-logs` (detail), `/summary` (aggregate), `/models` (distinct model names).
 - **Billing reports** `api/routes/v1/admin_billing.py` (**Enterprise Edition (EE)** — part of the full admin console): `GET /v1/admin/billing/summary` (cost aggregated by user/model), model pricing CRUD (`/pricing`, input/output unit prices, currency), `GET /v1/admin/billing/export` (CSV cost export).
@@ -166,21 +168,21 @@ Community Edition users can see their own token usage; organization-level billin
 
 ## Routing strategy (ROUTER_STRATEGY)
 
-`orchestration/strategy.py`: `ROUTER_STRATEGY=main_only` (default) always routes to the main agent; `llm_router` is a reserved placeholder that currently also falls back to `MainOnlyStrategy` (safe by default). Actual multi-agent dispatch happens via `@mentions` + the `call_subagent` tool — see [Chat & Agent Orchestration](chat.md).
+`core/agent_runtime/strategy.py`: `ROUTER_STRATEGY=main_only` (default) always routes to the main agent; `llm_router` is a reserved placeholder that currently also falls back to `MainOnlyStrategy` (safe by default). Actual multi-agent dispatch happens via `@mentions` + the `call_subagent` tool — see [Chat & Agent Orchestration](chat.md).
 
 ## Source map
 
 | Topic | Path |
 |---|---|
-| Model factory / JxOpenAIChatModel | `src/backend/core/llm/chat_models.py` |
-| Role resolution service (DB + cache) | `src/backend/core/services/model_config.py` |
-| Role definitions / provider repository | `src/backend/core/db/model_repository.py` |
+| Model factory / JxOpenAIChatModel | `src/backend/core/models/chat_models.py` |
+| Role resolution service (DB + cache) | `src/backend/core/models/config.py` |
+| Role definitions / provider repository | `src/backend/core/models/repository.py` |
 | Management API | `src/backend/api/routes/v1/models.py` |
-| Dynamic-model middleware | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`, helpers in `core/llm/hooks.py` |
-| MCP env injection | `src/backend/core/services/model_config.py::get_mcp_env_overlay`, `core/config/runtime_env.py` |
-| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/services/api_key_service.py`, `core/auth/backend.py` |
+| Dynamic-model middleware | `src/backend/core/llm/runtime/`, helpers in `core/harness/hooks.py` |
+| MCP env injection | `src/backend/core/models/config.py::get_mcp_env_overlay`, `core/config/runtime_env.py` |
+| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/auth/api_keys.py`, `core/auth/backend.py` |
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
-| Routing strategy | `src/backend/orchestration/strategy.py` |
+| Routing strategy | `src/backend/core/agent_runtime/strategy.py` |
 | Fail-fast on missing main model | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ### Child cancellation and parameter overrides

@@ -29,7 +29,7 @@ src/backend/prompts/prompt_text/default/system/
 └── 40_format.system.md        # 输出格式 + [ref:工具名-N] 引用规范
 ```
 
-在 base prompt 之后，运行时还会按上下文追加动态段：工具与技能说明（`_TOOLS_AND_SKILLS_NOTICE`）、轻量知识库目录（`prompts/kb_lite_section.py`）、项目模式段（`prompts/project_section.py`，仅项目对话注入）、代码执行段与批量模式提示（由 `factory/build.py` 追加）、子智能体路由表（`core/llm/subagent_tool.py::build_subagent_prompt_section`）。
+在 base prompt 之后，运行时还会按上下文追加动态段：工具与技能说明（`_TOOLS_AND_SKILLS_NOTICE`）、轻量知识库目录（`prompts/kb_lite_section.py`）、项目模式段（`prompts/project_section.py`，仅项目对话注入）、代码执行段与批量模式提示（由 `factory/build.py` 追加）、子智能体路由表（`core/llm/subagents/tool.py::build_subagent_prompt_section`）。
 
 ### 缓存设计
 
@@ -48,7 +48,7 @@ src/backend/prompts/prompt_text/default/system/
 
 ### 执行 Manifest 与运行时绑定
 
-Agent 真正开始执行前，`core/llm/execution_manifest.py::PromptManifestBuilder` 会记录最终请求面。每个有序 PromptSection 都带 `id`、来源、信任级、优先级、缓存类别、预算、token 估算、内容哈希和版本；每个最终 ToolDefinition 同样对名称、完整描述、canonical 参数 schema、权限策略和恢复策略生成稳定哈希。工具定义按稳定 id 排序，提示词分段则保持刻意设计的前缀顺序。
+Agent 真正开始执行前，`core/harness/execution_manifest.py::PromptManifestBuilder` 会记录最终请求面。每个有序 PromptSection 都带 `id`、来源、信任级、优先级、缓存类别、预算、token 估算、内容哈希和版本；每个最终 ToolDefinition 同样对名称、完整描述、canonical 参数 schema、权限策略和恢复策略生成稳定哈希。工具定义按稳定 id 排序，提示词分段则保持刻意设计的前缀顺序。
 
 Builder 最终产出 `prompt_hash`、`prompt_manifest_hash`、`tool_manifest_hash`、`context_hash` 和统一的 `aggregate_hash`。Manifest 构建与 AgentScope 模型请求共用同一份 run-scoped 工具/技能冻结快照，因此“记录的请求面”和“实际发送的请求面”不会错位；渐进式插件激活会让旧快照失效，并在下一次模型调用前发布明确递增的 `surface_generation`。
 
@@ -58,15 +58,15 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 
 ### 统一 Context IR
 
-每次模型调用前，`core/llm/context_ir.py` 都会把最终上下文统一转换成不可变的 `ContextItem`。用户输入、助手历史、账户身份、冻结记忆、项目/文件材料、附件、工具调用与结果、压缩摘要、执行中追加指令、Harness 系统提醒，都会携带机器可读的 `kind`、来源、信任级、可见性、优先级、单项预算、截断策略、内容引用/哈希、缓存类别和创建顺序。为兼容模型，记忆和对话中途的提醒仍可渲染成 `user` role，但系统不再靠 XML 标签或 role 猜测它们是谁说的。
+每次模型调用前，`core/llm/context/ir.py` 都会把最终上下文统一转换成不可变的 `ContextItem`。用户输入、助手历史、账户身份、冻结记忆、项目/文件材料、附件、工具调用与结果、压缩摘要、执行中追加指令、Harness 系统提醒，都会携带机器可读的 `kind`、来源、信任级、可见性、优先级、单项预算、截断策略、内容引用/哈希、缓存类别和创建顺序。为兼容模型，记忆和对话中途的提醒仍可渲染成 `user` role，但系统不再靠 XML 标签或 role 猜测它们是谁说的。
 
 `ContextAssembler` 使用确定性顺序，并设置明确的消息预算：模型窗口先预留 15% 给响应，再扣除最终工具 schema 的 canonical token 预算。关键系统规则和当前用户指令不会被低可信内容挤掉；可选内容按优先级选择；文本和工具输出按声明的头尾保留策略截断；工具调用与对应结果则作为一个整体保留、缩短或排除。脱敏 Context Manifest 会逐项说明“纳入、截断、排除”及原因，不保存正文；其哈希会进入本次请求的 `context_hash` 与 `aggregate_hash`，再重新绑定到该 run 的 Asset Bundle。
 
-`core/llm/context_adapter.py::AgentScopeContextAdapter` 是 Context IR 与 AgentScope 消息之间唯一的转换入口。持久化会话中的来源元数据可在历史回放时保留，最终模型 role 和 SSE 行为继续兼容。`ManifestBoundAgent` 会在 run-scoped 工具/技能请求面冻结后，通过公开的 `Agent.reply` 链路完成最终装配。
+`core/llm/context/adapter.py::AgentScopeContextAdapter` 是 Context IR 与 AgentScope 消息之间唯一的转换入口。持久化会话中的来源元数据可在历史回放时保留，最终模型 role 和 SSE 行为继续兼容。`ManifestBoundAgent` 会在 run-scoped 工具/技能请求面冻结后，通过公开的 `Agent.reply` 链路完成最终装配。
 
 ## 提示词版本池（prompt_versions）
 
-版本池把多套提示词存进单行 `ContentBlock(id="prompt_versions")`，payload 结构 `{active: {kind: version_id}, versions: [...]}`，服务层为 `core/services/prompt_version_service.py`：
+版本池把多套提示词存进单行 `ContentBlock(id="prompt_versions")`，payload 结构 `{active: {kind: version_id}, versions: [...]}`，服务层为 `core/llm/prompt_versions.py`：
 
 - **六类 kind**（`VALID_KINDS`）：`system`（主智能体）、`code_exec`（代码执行能力段）、`distillation`（技能蒸馏）、`plan_mode`（计划模式）、`subagents`（平台默认探索员 / 执行员 / 审查员的独立提示词）、`turbo`（极速模式独立提示词）。
 - 每个版本含 `(kind, id, name, description, parts[])`，part 即 `{part_id, display_name, content, sort_order, is_enabled}`。
@@ -94,8 +94,8 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 | kind | 运行时消费方 | 解析顺序 |
 |---|---|---|
 | `code_exec` | `factory/build.py` 在 `CODE_CAPABILITY_ENABLED=true` 时把该段（代码能力提示词）拼到 system prompt 尾部；单一真源为 `prompt_version_service.render_code_capability_segment()`，管理台 preview 同源 | DB 激活版本 → `prompts/prompt_text/code_exec/system/*.system.md` |
-| `distillation` | 技能蒸馏（`core/llm/skill_distiller.py`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
-| `plan_mode` | 计划模式生成子智能体（`orchestration/subagents/plan_mode.py::_load_plan_prompt`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
+| `distillation` | 技能蒸馏（`features/distillation/`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
+| `plan_mode` | 计划模式生成子智能体（`orchestration/plans/`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
 | `turbo` | 极速模式（对话模式选「极速」时，`factory/build.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
 
 子智能体不走版本池整版拼装：`prompt_runtime.py::build_subagent_system_prompt()` 以用户自定义 `system_prompt` 为核心，复用激活版本（或文件）的 `20_tools_policy` / `65_citations` / `60_format` 分段组装，详见 [对话与智能体编排](chat.md)。
@@ -120,18 +120,6 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 
 两端点接受 `ADMIN_TOKEN` 或 `CONFIG_TOKEN`。快照 schema 经 `PROMPT_BLOCK_MAP` 校验，docs 快照与 prompts 快照不能从错误的端点互导。
 
-### 脚本（src/backend/scripts/）
-
-```bash
-# 导出（走运行中的后端 API；也支持 --database-url 直连库）
-python scripts/export_content.py --api-url http://localhost:3000/api --only prompts
-# → scripts/exported/prompts_snapshot_<ts>.json
-
-# 导入到目标环境（用目标机 .env 的 ADMIN_TOKEN）
-python scripts/import_content.py --api-url http://<HOST>/api --prompts prompts_snapshot_<ts>.json
-# 支持 --no-overwrite / --dry-run
-```
-
 离线生产环境（镜像包交付，DB 卷持久化）同样适用：快照文件随镜像包拷入，在 backend 容器内 `curl -X POST .../v1/content/prompts/import` 导入即可，无需重启。换品牌环境迁移时，需人工通读快照逐处改写品牌相关话术后再导入（不要机械查找替换）。
 
 ## 相关源码
@@ -141,10 +129,9 @@ python scripts/import_content.py --api-url http://<HOST>/api --prompts prompts_s
 | 运行时装配 + 缓存 | `src/backend/prompts/prompt_runtime.py` |
 | Provider（filesystem/inline/minimal） | `src/backend/prompts/provider.py` |
 | 配置（provider/parts/PROMPT_DIR） | `src/backend/prompts/prompt_config.py`，`prompts/config/default.json` |
-| 版本池服务 | `src/backend/core/services/prompt_version_service.py` |
+| 版本池服务 | `src/backend/core/llm/prompt_versions.py` |
 | 管理台路由 | `src/backend/api/routes/v1/admin_prompts.py` |
-| 迁移接口（export/import） | `src/backend/api/routes/v1/content.py`，`core/content/content_blocks.py` |
-| 迁移脚本 | `src/backend/scripts/export_content.py`，`scripts/import_content.py` |
+| 迁移接口（export/import） | `src/backend/api/routes/v1/content.py`，`core/files/content/content_blocks.py` |
 | 系统提示词兜底文件 | `src/backend/prompts/prompt_text/default/system/` |
 | 场景提示词兜底 | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode,turbo}/` |
 | 动态段 | `src/backend/prompts/kb_lite_section.py`，`prompts/project_section.py` |

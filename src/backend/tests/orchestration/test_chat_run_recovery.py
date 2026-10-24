@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import api.routes.v1.chats.run_views as chat_run_views
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.chat.runtime.worker as worker
+import core.runs.runtime as runtime
 import fakeredis.aioredis
 import pytest
 from agentscope.agent import Agent, ReActConfig
@@ -14,10 +18,11 @@ from agentscope.tool import FunctionTool, Toolkit
 from api.routes.v1 import chats as chat_routes
 from core.auth.backend import UserContext
 from core.db.models import ChatRun, ChatSession
-from core.llm.middlewares import AgentRuntimeState, ToolEffectMiddleware
-from core.services.run_journal import RunJournal
-from core.services.tool_effect_ledger import ToolEffectJournal, recover_incomplete_tool_effects
-from orchestration import chat_run_executor as executor
+from core.llm.runtime.state import AgentRuntimeState
+from tests.orchestration.hook_support import make_adapter, durable_adapter
+from core.runs.journal import RunJournal
+from core.runs.tool_effects.journal import ToolEffectJournal
+from core.runs.tool_effects.recovery import recover_incomplete_tool_effects
 from tests.orchestration.recovery_test_support import recovery_env
 
 
@@ -40,9 +45,9 @@ async def test_start_run_commits_acceptance_and_snapshot_before_registering_work
             )
         coro.close()
 
-    monkeypatch.setattr(executor, "_register_run_task", register)
+    monkeypatch.setattr(runtime, 'register_run_task', register)
 
-    run = await executor.start_run(
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -77,7 +82,7 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
     )
     assert journal.claim(internal.run_id, owner="internal", lease_seconds=60)
 
-    assert executor.get_active_run_for_chat("chat-1", "user-1") is None
+    assert runtime.get_active_run_for_chat("chat-1", "user-1") is None
 
     public = journal.accept(
         run_id="run-public-visible",
@@ -88,7 +93,7 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
         recovery_snapshot={"kind": "chat", "worker_args": {}},
     )
     assert journal.claim(public.run_id, owner="public", lease_seconds=60)
-    assert executor.get_active_run_for_chat("chat-1", "user-1").run_id == public.run_id
+    assert runtime.get_active_run_for_chat("chat-1", "user-1").run_id == public.run_id
 
 
 def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
@@ -141,9 +146,9 @@ def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
         recovery_snapshot={"kind": "chat", "worker_args": {}},
     )
 
-    listed, _ = executor.list_active_runs_for_user("user-1")
+    listed, _ = runtime.list_active_runs_for_user("user-1")
     assert {row.chat_id for row in listed} == {"chat-1", "chat-2"}
-    assert "pa_chat_abc" not in executor.list_active_runs_for_user("user-1", 3600)[1]
+    assert "pa_chat_abc" not in runtime.list_active_runs_for_user("user-1", 3600)[1]
     assert {row.run_id for row in listed} == {live_one.run_id, live_two.run_id}
 
     # A finished run must stop lighting the sidebar dot, even while its writer
@@ -152,7 +157,7 @@ def test_list_active_runs_spans_chats_and_hides_background_kinds(recovery_env):
         row = db.get(ChatRun, live_one.run_id)
         row.status = "completed"
         db.commit()
-    assert {row.chat_id for row in executor.list_active_runs_for_user("user-1")[0]} == {"chat-2"}
+    assert {row.chat_id for row in runtime.list_active_runs_for_user("user-1")[0]} == {"chat-2"}
 
 
 def test_active_runs_route_returns_chat_ids_and_outranks_the_detail_route(recovery_env):
@@ -227,7 +232,7 @@ def test_active_runs_route_reports_recent_chats_whose_run_already_ended(recovery
 async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-agent-timeout",
@@ -244,6 +249,8 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recover
         raise DeveloperOrientedException("adapter response was lost")
 
     class ToolModel:
+        from agentscope.formatter import OpenAIChatFormatter
+        formatter = OpenAIChatFormatter()
         model = "ambiguous-tool"
         context_size = 32768
 
@@ -271,7 +278,7 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recover
             system_prompt="Call the tool.",
             model=ToolModel(),
             toolkit=Toolkit(tools=[FunctionTool(exploding_probe)]),
-            middlewares=[ToolEffectMiddleware(session_factory=sessions)],
+            middlewares=[durable_adapter(session_factory=sessions)],
             state=AgentRuntimeState(
                 run_id=context["run_id"],
                 journal_owner=context["journal_owner"],
@@ -283,8 +290,8 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recover
         if False:
             yield {}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    await executor._run_workflow(
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    await worker._run_workflow(
         run_id=row.run_id,
         chat_id=row.chat_id,
         user_id=row.user_id,

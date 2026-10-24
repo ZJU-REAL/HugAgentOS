@@ -44,24 +44,7 @@ The SDK CLI validates declarations. It does not migrate databases or business da
 
 # Workbench configuration migration and recovery
 
-Migration is an explicit operator action. It never runs during startup. Rehearse on an isolated database copy before separately authorizing a real migration. The current command accepts local rehearsal copies only.
-
-## Inventory and cutover
-
-1. Freeze every writer on the copy, including content imports, preferences, plugin installation, and background jobs. --writes-frozen confirms this operator action; it does not stop services.
-2. Set WB20_COPY_DATABASE_URL through protected configuration. SQLite must reside under the current checkout's .scratch/workbench-20 directory. PostgreSQL must use a loopback host and a database name beginning with workbench_20. Never target business data.
-3. Create a private 0700 snapshot directory. Run:
-
-```bash
-PYTHONPATH=src/backend python -m scripts.workbench_migration inventory \
-  --snapshot /absolute/private/path/before.json
-PYTHONPATH=src/backend python -m scripts.workbench_migration apply \
-  --snapshot /absolute/private/path/before.json --digest <reviewed-digest> --writes-frozen
-```
-
-Inventory never writes the database. Reports contain counts, contract versions, redacted locations, and error codes. They omit URLs, user identities, tickets, and secrets. The 0600 snapshot retains all migration inputs: configuration, preferences, role/team relationships, plugin declarations, and workbench records. It does not replace a full database or business-file backup.
-
-A matching digest and unchanged source permit one transactional cutover. Failures roll back the transaction. A workbench_migration:v1 receipt records both snapshot digests. Cutover removes the old app_config row and navigation lists. The directory reads canonical sources. Duplicate external IDs, unknown IDs, dangerous URLs, and unknown fields are quarantined without creating entries or grants. Protected snapshots retain their raw values.
+The standalone migration command has been removed. The following sections describe internal migration and recovery constraints; they are not an executable operator procedure. Back up existing deployments, prepare a version-specific plan, validate it on an isolated copy, and obtain separate authorization before execution.
 
 ## Preserved behavior
 
@@ -69,7 +52,7 @@ A matching digest and unchanged source permit one transactional cutover. Failure
 - External ordering and enabled state survive. Default navigation becomes layout policy. Existing modern preferences win. Confirmed old preferences.pinned_apps/app_order migrate to web preferences: null inherits and an empty list explicitly unpins. Chat order, theme, and unrelated preferences remain unchanged.
 - Unmapped permission references remain unchanged and are reported. They do not grant access to new identities. Plugin UI v1/v2 is not upgraded to v3. Names and slugs never substitute for exact installations.
 - Existing workbench_external_auth:legacy:<id> bindings retain their keys. Missing target adapters produce auth_configuration_required. Administrators must approve explicit login modes. Real legacy targets remain unverified until exercised. Generic SSO token forwarding must never return.
-- Same-service recovery retains workbench_origin_identity. A service clone requires a fresh inventory and clone-origin on the copy. Existing plugin keys do not automatically grant access to the new origin. Review cross-origin state and preferences separately.
+- Same-service recovery retains workbench_origin_identity. A service clone requires a fresh inventory and a regenerated service origin identity on the copy. Existing plugin keys do not automatically grant access to the new origin. Review cross-origin state and preferences separately.
 
 ## External compatibility window
 
@@ -77,13 +60,7 @@ content-v1 remains supported throughout workbench protocol 1.x. Announce a separ
 
 ## Recovery and incremental writes
 
-Freeze every writer again:
-
-```bash
-PYTHONPATH=src/backend python -m scripts.workbench_migration rollback \
-  --snapshot /absolute/private/path/before.json --digest <reviewed-digest> \
-  --delta /absolute/private/path/delta.json --writes-frozen
-```
+Freeze all writers and follow the reviewed recovery plan.
 
 Recovery first exports a protected delta. Changes to already-mapped ordinary legacy links can replay into the old format. New identities, application state, resources, permissions, plugins, authentication, or policy changes block unsafe downgrade with delta_not_representable. New data stays intact. Never restore only the old snapshot. Keep the verified newer version and review the delta. Recovery receipts are idempotent. A restored batch requires a new reviewed batch before another apply.
 

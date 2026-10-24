@@ -2,12 +2,7 @@
 
 import pytest
 
-from core.llm.system_reminder import (
-    REMINDER_CLOSE,
-    REMINDER_OPEN,
-    inject_reminder,
-    wrap_reminder,
-)
+from core.llm.context.system_reminder import REMINDER_CLOSE, REMINDER_OPEN, inject_reminder, wrap_reminder
 
 
 class _FakeState:

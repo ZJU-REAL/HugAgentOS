@@ -13,28 +13,35 @@ from personal_agent.models import PersonalWorkItem, PersonalAgent
 def key(token):
     return "pa:session-grant:" + hashlib.sha256(token.encode()).hexdigest()
 
-async def mint(task_id, uid, ttl):
+def _grant_payload(db, task_id, uid):
     from personal_agent.tasks.guards import owned_task
-    from core.db.engine import SessionLocal
 
     owned_task(task_id, uid)
-    with SessionLocal() as db:
-        task = db.get(PersonalWorkItem, task_id)
-        payload = {
-            "uid": uid,
-            "task": task_id,
-            "run": task.run_id,
-            "owner": task.owner,
-        }
+    task = db.get(PersonalWorkItem, task_id)
+    return {
+        "uid": uid,
+        "task": task_id,
+        "run": task.run_id,
+        "owner": task.owner,
+    }
+
+
+async def mint(task_id, uid, ttl):
+    from core.db.threads import run_in_session
+
+    payload = await run_in_session(_grant_payload, task_id, uid)
     token = "pa_cli_" + secrets.token_urlsafe(32)
     await get_ephemeral_state().put(key(token), json.dumps(payload), ttl=ttl)
     return token
 
-async def resolve(request, db):
+async def resolve(request):
+    """The caller's identity and, for a task's CLI token, its grant."""
+    from core.db.threads import run_in_session
+
     credentials = await security(request)
     token = credentials.credentials if credentials else ""
     if not token.startswith("pa_cli_"):
-        user = await get_current_user(request, credentials, db)
+        user = await get_current_user(request, credentials)
         if user.api_key_agent_id:
             raise HTTPException(403, "Agent-specific key cannot manage sessions")
         return user, None
@@ -42,6 +49,11 @@ async def resolve(request, db):
     if not raw:
         raise HTTPException(401, "Task grant expired")
     payload = json.loads(raw)
+    return await run_in_session(_grant_owner, payload), payload
+
+
+def _grant_owner(db, payload):
+    """The task owner, provided the grant still matches the live task and its lease."""
     task = db.get(PersonalWorkItem, payload["task"])
     agent = db.get(PersonalAgent, task.agent_id) if task else None
     if (
@@ -59,9 +71,6 @@ async def resolve(request, db):
     row = db.get(UserShadow, payload["uid"])
     if not row:
         raise HTTPException(401, "Owner unavailable")
-    return (
-        UserContext(
-            user_id=row.user_id, user_center_id=row.user_center_id or "", username=row.username
-        ),
-        payload,
+    return UserContext(
+        user_id=row.user_id, user_center_id=row.user_center_id or "", username=row.username
     )

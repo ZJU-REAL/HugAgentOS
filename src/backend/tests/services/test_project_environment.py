@@ -1,18 +1,19 @@
+from core.capabilities.skills import loader_factory as loader_factory_module
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def inventory_database(db_session, monkeypatch):
-    from core.agent_skills import loader
+    from core.capabilities.skills import loader
     from core.db import engine
     from sqlalchemy.orm import sessionmaker
 
     monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    monkeypatch.setattr(loader, "_global_loader", None)
+    monkeypatch.setattr(loader_factory_module, 'global_loader', None)
 
 
 from core.db.models import Project, UserShadow
-from core.services.project_environment import ProjectEnvironmentService
+from core.projects.environment.service import ProjectEnvironmentService
 
 
 def test_empty_custom_environment_is_distinct_from_all_and_persists(db_session):
@@ -42,7 +43,7 @@ def test_empty_custom_environment_is_distinct_from_all_and_persists(db_session):
 
 
 def test_dependencies_are_expanded_without_granting_missing_resources():
-    from core.project_environment.dependencies import expand_environment
+    from core.projects.environment.dependencies import expand_environment
 
     graph = {
         "agent_ids": {"analyst": {"name": "Analyst", "dependencies": {"plugin_ids": ["charts"]}}},
@@ -64,7 +65,7 @@ def test_dependencies_are_expanded_without_granting_missing_resources():
 def test_binding_private_connector_cannot_grant_other_user_access(db_session):
     import pytest
     from core.db.models import AdminMcpServer
-    from core.services.project_environment_resources import environment_resources
+    from core.projects.environment_resources import environment_resources
     from fastapi import HTTPException
 
     db_session.add_all(
@@ -93,7 +94,7 @@ def test_binding_private_connector_cannot_grant_other_user_access(db_session):
 
 
 def test_environment_is_saved_in_the_same_project_creation_transaction(db_session):
-    from core.services.project_service import ProjectService
+    from core.projects.edition import ProjectService
 
     db_session.add(UserShadow(user_id="creator", username="Creator"))
     db_session.commit()
@@ -108,7 +109,7 @@ def test_environment_is_saved_in_the_same_project_creation_transaction(db_sessio
 
 
 def test_deep_dependency_cycles_resolve_without_recursion_or_duplicates():
-    from core.project_environment.dependencies import expand_environment
+    from core.projects.environment.dependencies import expand_environment
 
     graph = {field: {} for field in ("agent_ids", "plugin_ids", "skill_ids", "mcp_ids")}
     for index in range(1200):
@@ -123,7 +124,7 @@ def test_deep_dependency_cycles_resolve_without_recursion_or_duplicates():
 
 
 def test_configuration_normalizes_identifiers_without_http_dependencies():
-    from core.project_environment.config import ProjectEnvironment
+    from core.projects.environment.config import ProjectEnvironment
     from pydantic import ValidationError
 
     config = ProjectEnvironment(mode="custom", skill_ids=[" report ", "report"])

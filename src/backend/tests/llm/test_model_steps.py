@@ -10,14 +10,14 @@ import json
 
 import pytest
 from agentscope.message import TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
-from core.llm import model_steps as M
+from core.llm.runtime import model_steps as M
 
 
 @pytest.fixture
 def media_db(tmp_path, monkeypatch):
     """把媒体表指向一个临时 SQLite 库，并清掉取回缓存。"""
     from core.db.models import ToolMediaBlob
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -123,7 +123,7 @@ def test_replay_keeps_the_reference_so_snapshots_do_not_carry_pixels(media_db):
 
 def test_context_assembly_hands_the_model_the_same_pixels_a_later_turn(media_db):
     """装配上下文那一步把引用换回原图，模型下一轮看到的还是当时那张。"""
-    from core.llm.tool_media_store import hydrate_rows
+    from core.llm.runtime.tool_media_store import hydrate_rows
 
     media = hydrate_rows(M.replay_rows([_media_result()]))[0]["content"][0]["output"][1]
 
@@ -137,7 +137,7 @@ def test_context_assembly_hands_the_model_the_same_pixels_a_later_turn(media_db)
 
 def test_hydrating_many_media_refs_costs_one_query(media_db):
     """整段历史只查一次库——每个媒体块查一次会把读历史变成 N+1。"""
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
 
     rows = [
         row
@@ -163,7 +163,7 @@ def test_hydrating_many_media_refs_costs_one_query(media_db):
 
 def test_history_without_media_is_returned_untouched(media_db):
     """没有媒体的历史不查库。"""
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
 
     rows = M.replay_rows([_result("c1", "plain text")])
     original = tool_media_store._load
@@ -188,7 +188,7 @@ def test_the_same_image_read_twice_is_stored_once(media_db):
 
 def test_lost_media_is_reported_as_unavailable_not_silently_described(media_db):
     """引用还在但原件没了：明说不可用，绝不退回成一段像内容的文字。"""
-    from core.llm import tool_media_store
+    from core.llm.runtime import tool_media_store
     from sqlalchemy import text
 
     rows = M.replay_rows([_media_result()])
@@ -240,7 +240,9 @@ def test_replay_reproduces_three_serial_steps_in_order_without_duplication():
         "c1",
         "c2",
     ]
-    assert rows[-1]["content"][-1] == {"type": "text", "text": "done"}
+    assert rows[-1]["content"][-1]["type"] == "text"
+    assert rows[-1]["content"][-1]["text"] == "done"
+    assert rows[-1]["content"][-1]["created_at"] is not None
 
 
 def test_replay_keeps_two_parallel_calls_in_one_step_with_both_results_after_it():
@@ -306,7 +308,8 @@ def test_close_dangling_calls_balances_the_record_at_rest():
 
 def test_cancelled_turn_is_marked_at_the_end_of_the_last_answer():
     rows = M.replay_rows([_assistant(TextBlock(type="text", text="我先看看"))], cancelled=True)
-    assert rows[-1]["content"] == [{"type": "text", "text": "我先看看\n\n[本轮回答被用户中断]"}]
+    assert len(rows[-1]["content"]) == 1
+    assert rows[-1]["content"][0]["text"] == "我先看看\n\n[本轮回答被用户中断]"
 
     rows = M.replay_rows(
         [
@@ -334,10 +337,9 @@ def test_replace_final_text_rewrites_only_the_last_answer_text():
 
     M.replace_final_text(steps, "revised")
 
-    assert steps[-1]["blocks"] == [
-        {"type": "thinking", "thinking": "B"},
-        {"type": "text", "text": "revised"},
-    ]
+    assert len(steps[-1]["blocks"]) == 2
+    assert steps[-1]["blocks"][0]["thinking"] == "B"
+    assert steps[-1]["blocks"][1] == {"type": "text", "text": "revised"}
     assert steps[0]["blocks"][1]["type"] == "tool_call"
 
 

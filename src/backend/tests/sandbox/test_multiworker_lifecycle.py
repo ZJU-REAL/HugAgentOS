@@ -3,7 +3,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from core.plugins.resources import prewarm
+from core.capabilities.plugins.resources import prewarm
 import core.sandbox.sessions.registry as session_registry
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 from tests.sandbox.test_session_affinity import _worker, _fake_opensandbox, _sandbox_settings

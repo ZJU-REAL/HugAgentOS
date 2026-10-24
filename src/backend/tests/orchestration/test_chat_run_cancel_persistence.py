@@ -6,11 +6,18 @@ import asyncio
 import contextlib
 from types import SimpleNamespace
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.db.engine as db_engine
+import core.runs.events.subscription as subscription
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
+import core.runs.settings as settings
+import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
-from orchestration import chat_run_executor as executor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -23,21 +30,21 @@ def cancel_env(tmp_path, monkeypatch):
     )
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
-    executor._active_runs.clear()
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
+    tasks.process_state().active_runs.clear()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
     yield sessions
-    executor._active_runs.clear()
+    tasks.process_state().active_runs.clear()
     engine.dispose()
 
 
 async def _start(workflow, monkeypatch, ready: asyncio.Event):
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    run = await executor.start_run(
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -58,8 +65,8 @@ async def _await_worker(worker) -> None:
 
 async def _start_and_cancel(workflow, monkeypatch, ready: asyncio.Event):
     run = await _start(workflow, monkeypatch, ready)
-    worker = executor._active_runs[run.run_id]
-    assert await executor.cancel_run(run.run_id, user_id="user-1") is True
+    worker = tasks.process_state().active_runs[run.run_id]
+    assert await runtime.cancel_run(run.run_id, user_id="user-1") is True
     await _await_worker(worker)
     return run
 
@@ -126,7 +133,7 @@ async def test_user_cancel_before_any_output_persists_nothing(cancel_env, monkey
 
 def test_cancelled_turn_is_marked_in_replayed_context():
     """继续会话时，被停掉那轮要带上"被中断"的标注，否则模型以为自己已经说完了。"""
-    from core.services.compaction_history import normalize_rows
+    from core.chat.compaction.history import normalize_rows
 
     rows = [
         SimpleNamespace(role="user", content="帮我查一下", extra_data={}, tool_calls=None),
@@ -148,7 +155,7 @@ def test_cancelled_turn_is_marked_in_replayed_context():
 
 
 def test_normal_turn_carries_no_interruption_marker():
-    from core.services.compaction_history import normalize_rows
+    from core.chat.compaction.history import normalize_rows
 
     rows = [SimpleNamespace(role="assistant", content="查完了", extra_data={}, tool_calls=None)]
 
@@ -166,7 +173,7 @@ async def test_fenced_by_user_cancel_still_persists_partial(cancel_env, monkeypa
     一个字都不写，用户刷新后只剩自己那句提问。
     """
     sessions = cancel_env
-    monkeypatch.setattr(executor, "_RUN_LEASE_HEARTBEAT_SEC", 0.01)
+    monkeypatch.setattr(settings, "_RUN_LEASE_HEARTBEAT_SEC", 0.01)
     streamed = asyncio.Event()
 
     async def half_written_workflow(**_kwargs):
@@ -175,9 +182,9 @@ async def test_fenced_by_user_cancel_still_persists_partial(cancel_env, monkeypa
         await asyncio.Event().wait()
 
     run = await _start(half_written_workflow, monkeypatch, streamed)
-    worker = executor._active_runs[run.run_id]
+    worker = tasks.process_state().active_runs[run.run_id]
     # 只写终态 + 清租约，不碰 worker：让心跳去发现，复现被围栏的时序
-    assert executor._journal().cancel(run.run_id, reason="user cancelled") is True
+    assert ownership.journal().cancel(run.run_id, reason="user cancelled") is True
     await _await_worker(worker)
 
     with sessions() as db:
@@ -207,14 +214,14 @@ def test_fenced_by_takeover_stays_silent(cancel_env, monkeypatch):
         )
         db.commit()
 
-    assert executor._cancelled_by_user("run-live") is False
-    assert executor._cancelled_by_user("run-missing") is False
+    assert ownership.cancelled_by_user("run-live") is False
+    assert ownership.cancelled_by_user("run-missing") is False
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("heartbeats", [True, False])
 async def test_first_response_timeout_ends_silent_run(cancel_env, monkeypatch, heartbeats):
-    monkeypatch.setattr(executor, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
+    monkeypatch.setattr(settings, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
     entered = asyncio.Event()
     closed = asyncio.Event()
 
@@ -232,12 +239,12 @@ async def test_first_response_timeout_ends_silent_run(cancel_env, monkeypatch, h
             closed.set()
 
     run = await _start(silent_workflow, monkeypatch, entered)
-    worker = executor._active_runs[run.run_id]
+    worker = tasks.process_state().active_runs[run.run_id]
     try:
         await asyncio.wait_for(asyncio.shield(worker), timeout=1)
         assert closed.is_set()
-        assert executor.get_run(run.run_id).status == "failed"
-        events = [event async for event in executor.follow_run(run.run_id)]
+        assert runtime.get_run(run.run_id).status == "failed"
+        events = [event async for event in subscription.follow_run(run.run_id)]
         errors = [event for event in events if event.get("type") == "error"]
         assert errors[0]["error"] == "当前模型调用量大，算力资源紧张，请稍后再试！"
         with cancel_env() as db:
@@ -257,7 +264,7 @@ async def test_first_response_timeout_ends_silent_run(cancel_env, monkeypatch, h
     {"type": "plan_update", "title": "执行计划", "steps": []},
 ])
 async def test_visible_response_disarms_initial_deadline(cancel_env, monkeypatch, first_event):
-    monkeypatch.setattr(executor, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
+    monkeypatch.setattr(settings, "_FIRST_RESPONSE_TIMEOUT_SEC", 0.1)
     entered = asyncio.Event()
     continued = asyncio.Event()
 
@@ -269,11 +276,11 @@ async def test_visible_response_disarms_initial_deadline(cancel_env, monkeypatch
         await asyncio.Event().wait()
 
     run = await _start(responding_workflow, monkeypatch, entered)
-    worker = executor._active_runs[run.run_id]
+    worker = tasks.process_state().active_runs[run.run_id]
     try:
         await asyncio.wait_for(continued.wait(), timeout=1)
-        assert executor.get_run(run.run_id).status == "running"
+        assert runtime.get_run(run.run_id).status == "running"
     finally:
-        await executor.cancel_run(run.run_id, user_id="user-1")
+        await runtime.cancel_run(run.run_id, user_id="user-1")
         await _await_worker(worker)
-    assert executor.get_run(run.run_id).status == "cancelled"
+    assert runtime.get_run(run.run_id).status == "cancelled"

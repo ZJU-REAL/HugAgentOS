@@ -1,8 +1,13 @@
+import type { QuotedFollowUp } from '../types';
+import { normalizeQuote } from './quotedFollowUp';
+
 export interface ChatInvocationContext {
   skill?: { id: string; name: string };
   plugin?: { id: string; name: string };
   connector?: { id: string; name: string };
   mention?: { id: string; name: string };
+  /** The passage quoted for this turn; a queued turn keeps it until it is sent. */
+  quote?: QuotedFollowUp;
 }
 
 export interface ChatInvocationSource {
@@ -10,6 +15,7 @@ export interface ChatInvocationSource {
   activePlugin?: { id: string; name: string } | null;
   activeConnector?: { id: string; name: string } | null;
   activeMention?: { id: string; name: string } | null;
+  quotedFollowUp?: QuotedFollowUp | null;
 }
 
 export interface QueuedChatTurnSnapshot {
@@ -42,6 +48,8 @@ export function captureChatInvocation(source: ChatInvocationSource): ChatInvocat
     invocation.connector = { id: connectorId, name: connectorName };
   }
   if (mentionId && mentionName) invocation.mention = { id: mentionId, name: mentionName };
+  const quote = normalizeQuote(source.quotedFollowUp);
+  if (quote) invocation.quote = quote;
   return invocation;
 }
 
@@ -94,6 +102,7 @@ export function normalizeChatInvocation(value: unknown): ChatInvocationContext {
     activeMention: mention
       ? { id: cleanString(mention.id), name: cleanString(mention.name) }
       : null,
+    quotedFollowUp: normalizeQuote(candidate.quote),
   });
 }
 
@@ -109,6 +118,7 @@ export function hasChatInvocation(invocation?: ChatInvocationContext): boolean {
     || invocation?.plugin
     || invocation?.connector
     || invocation?.mention
+    || invocation?.quote
   );
 }
 

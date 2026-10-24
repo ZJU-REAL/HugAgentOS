@@ -1,0 +1,1 @@
+"""Core restructuring verification tools."""

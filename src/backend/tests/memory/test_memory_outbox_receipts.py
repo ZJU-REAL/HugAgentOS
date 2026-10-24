@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 
 from core.db.models import ChatMessage, MemoryOutbox, ProfileMemory
-from core.evolution import settlement as evolution_settlement
+from core.evolution.settlement import settlement as evolution_settlement
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
 from core.memory.extractors import writers as W
@@ -32,7 +32,7 @@ async def test_profile_effect_receipt_preserves_written_result_after_crash(db_se
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     monkeypatch.setattr("core.memory.profile._audit_sync_safe", lambda *_args: None)
     monkeypatch.setattr("core.memory.profile._schedule_compact", lambda *_args: None)
     ctx = MemoryContext(user_id="u1", message_id="m-profile-receipt", write_enabled=True)
@@ -230,7 +230,7 @@ async def test_multi_rule_candidate_keeps_each_external_effect_receipt(db_sessio
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(memory_backend, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-multi-effect", write_enabled=True)
     job_id = O.enqueue_candidate_job(
         "parent",
@@ -320,7 +320,7 @@ async def test_later_l2_effect_defers_without_spending_an_attempt(db_session, mo
     memory_settings = _memory_settings()
     monkeypatch.setattr(outbox_common, "settings", SimpleNamespace(memory=memory_settings))
     monkeypatch.setattr(P, "settings", SimpleNamespace(memory=memory_settings))
-    P._bg_semaphore = None
+    P.process_state().bg_semaphore = None
     ctx = MemoryContext(user_id="u1", message_id="m-lane", write_enabled=True)
     older_id = O.enqueue_candidate_job(
         "parent-old",

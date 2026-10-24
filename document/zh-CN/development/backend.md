@@ -41,7 +41,7 @@ docker-compose logs -f backend
 | `make migrate` | `alembic upgrade head` |
 | `make migrate-new msg="..."` | `alembic revision --autogenerate -m "..."` |
 | `make migrate-down` / `migrate-history` | 回滚一步 / 查看历史 |
-| `make db-reset` / `db-seed` | 重置（破坏性）/ 种子数据 |
+| `make db-reset` | 重置数据库（破坏性） |
 | `make build` / `up` / `down` / `logs` / `ps` 等 | docker-compose 包装 |
 
 > ⚠️ 已提交代码并非 formatter-clean：**不要对未改动的文件整体跑 black/isort**（会把真实 diff 淹没在格式化噪音里），只格式化自己改的范围。
@@ -68,10 +68,10 @@ PYTHONPATH=src/backend python -m pytest src/backend/tests/memory -q
 
 ## Alembic 迁移流程
 
-1. 在 `src/backend/core/db/models.py` 改 ORM 模型；
+1. 在 `src/backend/core/db/models/` 改 ORM 模型；
 2. `make migrate-new msg="add xxx table"` 自动生成迁移（**人工审阅生成结果**，autogenerate 不可全信）；
 3. `make migrate`（或容器内 `alembic upgrade head`）应用；
-4. 若是 **EE 专属表**：把表名加进 `core/db/edition_tables.py::EE_ONLY_TABLES`（CE 不建 EE 空表，集合内表名有存在性断言）。
+4. 若是 **EE 专属表**：把表名加进 `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`（CE 不建 EE 空表，集合内表名有存在性断言）。
 
 注意：主仓 alembic 链是 EE 链；CE 派生树用独立的 `ce_0001` 基线链（见 [CE 构建管线](../editions/build-ce.md#ce-数据库差异)），主仓新增迁移不会进入 CE。
 
@@ -175,7 +175,7 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 
 ## 新增技能（Agent Skill）步骤
 
-技能加载是多源架构（`core/agent_skills/config.py`）：内置（`extensions/skills/default/`，always-on）、admin（DB / `/app/storage/admin_skills/`）、用户、项目四个加载源按优先级合并；`extensions/skills/marketplace/` 是安装制技能市场种子，由 marketplace 服务单独扫描，**不在默认加载源内**。
+技能加载是多源架构（`core/capabilities/skills/config.py`）：内置（`extensions/skills/default/`，always-on）、admin（DB / `/app/storage/admin_skills/`）、用户、项目四个加载源按优先级合并；`extensions/skills/marketplace/` 是安装制技能市场种子，由 marketplace 服务单独扫描，**不在默认加载源内**。
 
 新增**内置技能**：
 
@@ -188,7 +188,7 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 
 ## 新功能检查清单
 
-- [ ] ORM 模型 + 索引 + 时间戳（`core/db/models.py`），EE 表已加 `EE_ONLY_TABLES`
+- [ ] ORM 模型 + 索引 + 时间戳（`core/db/models/`），EE 表已加 `EE_ONLY_TABLES`
 - [ ] Repository 过滤软删除；Service 承载业务与权限
 - [ ] 路由用信封响应、异常走 `core/infra/exceptions`
 - [ ] 路由已登记 `CE_ROUTERS` / `EE_ROUTERS`（EE 配能力位 + manifest 排除）
@@ -205,10 +205,10 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 | 响应信封 | `src/backend/core/infra/responses.py` |
 | 异常体系 | `src/backend/core/infra/exceptions.py` |
 | 依赖注入 | `src/backend/api/deps.py` |
-| ORM / 建表边界 | `src/backend/core/db/models.py`、`src/backend/core/db/edition_tables.py` |
+| ORM / 建表边界 | `src/backend/core/db/models/`、`src/backend/edition_ee/db/edition_tables.py` |
 | MCP 端口表 / 连接配置 | `src/backend/extensions/mcp_servers/_ports.py`、`src/backend/core/config/mcp_config.py` |
 | 能力目录 | `src/backend/core/config/catalog.json` |
-| 技能加载 | `src/backend/core/agent_skills/`（`config.py` / `loader.py` / `registry.py`） |
-| 工作流编排 | `src/backend/orchestration/workflow.py` |
+| 技能加载 | `src/backend/core/capabilities/skills/`（`config.py` / `loader.py` / `registry.py`） |
+| 工作流编排 | `src/backend/core/agent_runtime/runner.py` |
 
 相关阅读：[前端开发指南](frontend.md) · [API 总览](../api/overview.md) · [MCP 工具](../modules/mcp-tools.md) · [技能系统](../modules/agent-skills.md)

@@ -3,12 +3,13 @@
 The point of these is the *negative* cases: the trigger must decline far more
 often than it fires, and every decline must carry a reason an operator can read.
 """
+from core.evolution.cycle import loop as loop_module
 
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.evolution import trigger as T
+from core.evolution.cycle import trigger as T
 
 
 @pytest.fixture(autouse=True)
@@ -98,14 +99,14 @@ def test_run_cycle_returns_none_when_not_due(monkeypatch):
 
 def test_cycle_failure_is_swallowed_and_releases_the_lock(monkeypatch):
     monkeypatch.setattr(T, "_episode_count", lambda: 50)
-    import core.evolution.loop as L
+    import core.evolution.cycle.loop as L
 
     monkeypatch.setattr(
-        L, "run_evolution_cycle", lambda **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+        loop_module, 'run_evolution_cycle', lambda **kw: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     assert T.run_cycle_if_due() is None
     # The in-flight flag must not stay stuck, or nothing would ever run again.
-    assert T._running is False
+    assert T.process_state().running is False
 
 
 def test_status_explains_why_it_has_not_run(monkeypatch):

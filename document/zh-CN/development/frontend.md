@@ -132,6 +132,13 @@ const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenan
 - 新增 EE 界面区块时：① 用上面的选择器按对应能力位门控；② 若整个页面属 EE（如 /admin、/config），无需 runtime 门控——CE 派生树直接物理排除组件目录并用 overlay 的 `main.tsx` 摘掉路由（见 [CE 构建管线](../editions/build-ce.md)）；
 - 处理接口报错时记得识别 `LicenseError`（402），给出「联系管理员更新 license」而非笼统失败提示。
 
+## 容器响应式布局
+
+聊天工具栏、项目 / 能力目录 / 知识库卡片按所在面板的可用宽度排版，首页、对话页、项目页和分屏共用同一套规则：
+容器提供宽度，后代按容器响应；不要让元素查询自身，也不要用 JavaScript 重复维护 CSS 断点。触屏点击区域为真实的 44px。
+入口：`components/chat/ComposerToolbar.tsx`、`styles/chat/toolbar-layout.css`、`styles/projects.css`、`styles/catalog/`。
+修改后运行 `npm run test:container-layout-browser`、`npm run test:chat-width-browser`。
+
 ## 新功能检查清单
 
 - [ ] 组件 PascalCase + named export + Props 接口

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from core.harness.events import Event, EventSink
+from core.harness.observation_writer import flush_observations
 from core.harness.hooks import (
     Decision,
     DecisionKind,
@@ -255,8 +256,148 @@ async def test_hook_external_usage_is_recorded_as_its_own_attempt():
             data={"model": "m", "messages": [], "parameters": {}},
         )
     )
+    assert flush_observations()
     rows = usage.attempts("run-usage")
     assert len(rows) == 1
     assert rows[0].kind == "hook"
     assert rows[0].operation_name == "safety_classifier"
     assert usage.aggregate("run-usage")["total_tokens"] == 14
+
+
+@pytest.mark.asyncio
+async def test_interactive_policy_owns_wait_budget_and_preserves_cancellation(monkeypatch):
+    from core.llm.tool_permissions.hook import ToolPermissionHook
+    from dataclasses import replace
+
+    entered = asyncio.Event()
+    approved = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def approval(invocation):
+        entered.set()
+        try:
+            await approved.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return Decision()
+
+    async def short_watchdog(coro, timeout):
+        coro.close()
+        raise AssertionError("Human approval must own its wait budget")
+
+    bus = HookBus()
+    bus.register(replace(ToolPermissionHook(None).spec(), handler=approval))
+    invocation = Invocation.create(run_id="approval", stage=HookStage.BEFORE_TOOL,
+                                   operation_name="write", data={"tool_args": {}, "metadata": {}})
+    monkeypatch.setattr(asyncio, "wait_for", short_watchdog)
+    task = asyncio.create_task(bus.run(invocation))
+    await entered.wait()
+    await asyncio.sleep(0)
+    assert not task.done()
+    approved.set()
+    assert (await task).decision.kind == DecisionKind.CONTINUE
+    entered.clear()
+    approved.clear()
+    task = asyncio.create_task(bus.run(invocation))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sync_handlers_run_inline_without_executor_or_timeout(monkeypatch):
+    import threading
+
+    async def saturated(*args, **kwargs):
+        raise AssertionError("sync hooks must not wait for the default executor")
+
+    loop_thread = threading.get_ident()
+    seen = []
+
+    def inline(invocation):
+        seen.append(threading.get_ident())
+        return Decision()
+
+    bus = HookBus()
+    bus.register(HookSpec("durable", HookStage.BEFORE_TOOL, inline, timeout_ms=1))
+    monkeypatch.setattr(asyncio, "to_thread", saturated)
+    outcome = await bus.run(
+        Invocation.create(
+            run_id="run-inline",
+            stage=HookStage.BEFORE_TOOL,
+            operation_name="write",
+        )
+    )
+    assert outcome.decision.kind == DecisionKind.CONTINUE
+    assert seen == [loop_thread]
+
+
+@pytest.mark.asyncio
+async def test_stage_writes_one_event_and_one_usage_batch():
+    class BatchRecorder(MemoryUsageRecorder):
+        def __init__(self):
+            super().__init__()
+            self.batches = []
+
+        def record_attempts(self, attempts):
+            self.batches.append(len(attempts))
+            return super().record_attempts(attempts)
+
+    usage = BatchRecorder()
+    bus = HookBus(usage_recorder=usage)
+    for name, priority in (("one", 10), ("two", 20), ("three", 30)):
+        bus.register(HookSpec(name, HookStage.TRANSFORM_CONTEXT, lambda invocation: None,
+                              priority=priority))
+    await bus.run(
+        Invocation.create(
+            run_id="run-batch",
+            stage=HookStage.TRANSFORM_CONTEXT,
+            operation_name="agent_reasoning",
+        )
+    )
+    events = bus.event_sink.events()
+    assert [event.event_type for event in events] == ["hook_stage_finished"]
+    assert flush_observations()
+    assert [item["hook"] for item in events[0].payload["attempts"]] == ["one", "two", "three"]
+    assert usage.batches == [3]
+    assert [row.attempt_seq for row in usage.attempts("run-batch")] == [1, 2, 3]
+
+    await bus.run(
+        Invocation.create(
+            run_id="run-batch",
+            stage=HookStage.BEFORE_MODEL,
+            operation_name="model",
+        )
+    )
+    assert len(bus.event_sink.events()) == 1
+    assert flush_observations()
+    assert usage.batches == [3]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_hook_still_flushes_the_stage_batch():
+    usage = MemoryUsageRecorder()
+    bus = HookBus(usage_recorder=usage)
+
+    async def cancelled(invocation):
+        raise asyncio.CancelledError
+
+    bus.register(HookSpec("first", HookStage.BEFORE_TOOL, lambda invocation: None, priority=10))
+    bus.register(HookSpec("cancel", HookStage.BEFORE_TOOL, cancelled, priority=20))
+    bus.register(HookSpec("never", HookStage.BEFORE_TOOL, lambda invocation: None, priority=30))
+    with pytest.raises(asyncio.CancelledError):
+        await bus.run(
+            Invocation.create(
+                run_id="run-cancel",
+                stage=HookStage.BEFORE_TOOL,
+                operation_name="write",
+            )
+        )
+    assert flush_observations()
+    assert [(row.operation_name, row.status) for row in usage.attempts("run-cancel")] == [
+        ("first", "success"),
+        ("cancel", "cancelled"),
+    ]

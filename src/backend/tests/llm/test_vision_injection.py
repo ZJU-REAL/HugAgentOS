@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.files import artifact_bytes as shared_artifact_bytes
 
 import asyncio
 import base64
@@ -57,7 +58,7 @@ def _no_evidence_cache(monkeypatch):
     跨测试文件互相串结果（缓存本身的行为由 test_vision_bridge_e2e 覆盖）。这里整体
     关掉，让每个用例都真的走一次识别。
     """
-    from core.vision.service import VisionBridge
+    from core.models.vision.service import VisionBridge
 
     async def _miss(_key):
         return None
@@ -72,8 +73,8 @@ def _no_evidence_cache(monkeypatch):
 @pytest.fixture()
 def working_bridge(monkeypatch):
     """让视觉桥可用，并总是返回一份固定证据。"""
-    from core.vision import service as svc
-    from core.vision.provider import VisionCallResult
+    from core.models.vision import service as svc
+    from core.models.vision.provider import VisionCallResult
 
     class _FakeProvider:
         def __init__(self, cfg):
@@ -91,21 +92,19 @@ def working_bridge(monkeypatch):
 
 @pytest.fixture()
 def artifact_bytes(monkeypatch):
-    # 附件字节的读取已收归 core.vision.attachments，它在调用时才 from core.llm.hooks
-    # 导入，所以补丁要打在 hooks 上（打在 middlewares 上从此无效）。
-    from core.llm import hooks
+    # 附件字节读取由共享文件模块负责，在该模块替换测试输入。
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
 
 
 # ── 主路径：纯文本模型 → 注入转写证据 ───────────────────────────────────────
 
 
 def test_uploaded_image_becomes_text_evidence(working_bridge, artifact_bytes):
-    from core.llm.middlewares import FileContextMiddleware
+    from tests.orchestration.hook_support import inject_vision_context
 
     st = _stub_state()
-    asyncio.run(FileContextMiddleware._inject_vision_evidence(st, IMAGE_FILES, "u1"))
+    asyncio.run(inject_vision_context(st, IMAGE_FILES, "u1"))
 
     assert len(st.context) == 1
     msg = st.context[0]
@@ -121,12 +120,12 @@ def test_uploaded_image_becomes_text_evidence(working_bridge, artifact_bytes):
 
 
 def test_bridge_unavailable_says_so_instead_of_silently_dropping(monkeypatch, artifact_bytes):
-    from core.llm.middlewares import FileContextMiddleware
-    from core.vision import service as svc
+    from tests.orchestration.hook_support import inject_vision_context
+    from core.models.vision import service as svc
 
     monkeypatch.setattr(svc, "resolve_vision_config", lambda: None)
     st = _stub_state()
-    asyncio.run(FileContextMiddleware._inject_vision_evidence(st, IMAGE_FILES, "u1"))
+    asyncio.run(inject_vision_context(st, IMAGE_FILES, "u1"))
 
     text = st.context[0].content[0].text
     assert "不支持直接读图" in text
@@ -135,18 +134,17 @@ def test_bridge_unavailable_says_so_instead_of_silently_dropping(monkeypatch, ar
 
 def test_all_reads_failing_is_reported(monkeypatch, working_bridge):
     """桥配了但每张图都识别失败时要明说，不能让模型当没收到图。"""
-    from core.llm import hooks
-    from core.llm.middlewares import FileContextMiddleware
-    from core.vision import service as svc
+    from tests.orchestration.hook_support import inject_vision_context
+    from core.models.vision import service as svc
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
 
     class _DeadProvider:
         def __init__(self, cfg):
             pass
 
         async def describe(self, *a, **kw):
-            from core.vision.provider import VisionCallResult
+            from core.models.vision.provider import VisionCallResult
 
             return VisionCallResult(error="boom")
 
@@ -154,18 +152,17 @@ def test_all_reads_failing_is_reported(monkeypatch, working_bridge):
     svc.VisionBridge._instance = None
 
     st = _stub_state()
-    asyncio.run(FileContextMiddleware._inject_vision_evidence(st, IMAGE_FILES, "u1"))
+    asyncio.run(inject_vision_context(st, IMAGE_FILES, "u1"))
     text = st.context[0].content[0].text
     assert "视觉模型调用失败" in text
 
 
 def test_unreadable_attachment_injects_nothing(monkeypatch, working_bridge):
-    from core.llm import hooks
-    from core.llm.middlewares import FileContextMiddleware
+    from tests.orchestration.hook_support import inject_vision_context
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: None)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: None)
     st = _stub_state()
-    asyncio.run(FileContextMiddleware._inject_vision_evidence(st, IMAGE_FILES, "u1"))
+    asyncio.run(inject_vision_context(st, IMAGE_FILES, "u1"))
     assert st.context == []
 
 
@@ -173,8 +170,8 @@ def test_unreadable_attachment_injects_nothing(monkeypatch, working_bridge):
 
 
 def test_effective_capability_prefers_per_request_provider(monkeypatch):
-    from core.llm.middlewares import _effective_model_supports_vision
-    from core.services.model_config import ModelConfigService
+    from core.llm.context.attachment_hook import supports_native_images
+    from core.models.config import ModelConfigService
 
     class _Service:
         @staticmethod
@@ -188,21 +185,21 @@ def test_effective_capability_prefers_per_request_provider(monkeypatch):
     monkeypatch.setattr(ModelConfigService, "get_instance", staticmethod(lambda: _Service()))
 
     # 用户本轮切到了一个多模态模型 → 图片直通，不走桥
-    assert _effective_model_supports_vision(SimpleNamespace(model_provider_id="vl")) is True
+    assert supports_native_images("vl") is True
     # 没切模型 → 看 main_agent，它是纯文本 → 走桥
-    assert _effective_model_supports_vision(SimpleNamespace(model_provider_id="")) is False
+    assert supports_native_images("") is False
 
 
 def test_capability_probe_failure_falls_back_to_bridge(monkeypatch):
     """探测能力位本身出错时，按「看不见」处理——宁可多转写一次，不可让图静默消失。"""
-    from core.llm.middlewares import _effective_model_supports_vision
-    from core.services.model_config import ModelConfigService
+    from core.llm.context.attachment_hook import supports_native_images
+    from core.models.config import ModelConfigService
 
     def _boom():
         raise RuntimeError("db down")
 
     monkeypatch.setattr(ModelConfigService, "get_instance", staticmethod(_boom))
-    assert _effective_model_supports_vision(SimpleNamespace(model_provider_id="")) is False
+    assert supports_native_images("") is False
 
 
 # ── read_tool 的图片分支 ────────────────────────────────────────────────────
@@ -227,7 +224,7 @@ def test_read_tool_leaves_non_images_alone(working_bridge):
 
 def test_read_tool_falls_through_when_vision_unconfigured(monkeypatch):
     from core.llm.tools.read_tool import _read_image_as_evidence
-    from core.vision import service as svc
+    from core.models.vision import service as svc
 
     monkeypatch.setattr(svc, "resolve_vision_config", lambda: None)
     assert asyncio.run(_read_image_as_evidence(PNG_1X1, "/workspace/shot.png")) is None
@@ -244,8 +241,8 @@ def _register_bridge_read_image():
 
     class _Toolkit:
         @staticmethod
-        def register_tool_function(fn, **kw):
-            captured["fn"] = fn
+        def append(tool):
+            captured["fn"] = tool._func
 
     register_read_image(_Toolkit(), chat_id="c1", user_id="u1", vision_mode="bridge")
     return captured["fn"]
@@ -256,9 +253,8 @@ def _tool_json(response):
 
 
 def test_bridge_read_image_reads_by_file_id(working_bridge, monkeypatch):
-    from core.llm import hooks
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
     fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1", focus="发票号是多少")))
     assert payload["type"] == "image_evidence"
@@ -273,19 +269,17 @@ def test_bridge_read_image_requires_a_target(working_bridge):
 
 
 def test_bridge_read_image_rejects_non_image_bytes(working_bridge, monkeypatch):
-    from core.llm import hooks
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: b"PK\x03\x04zip")
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: b"PK\x03\x04zip")
     fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1")))
     assert "不是可识别的图片格式" in payload["error"]
 
 
 def test_bridge_read_image_reports_missing_vision_config(monkeypatch):
-    from core.llm import hooks
-    from core.vision import service as svc
+    from core.models.vision import service as svc
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *a, **kw: PNG_1X1)
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *a, **kw: PNG_1X1)
     monkeypatch.setattr(svc, "resolve_vision_config", lambda: None)
     fn = _register_bridge_read_image()
     payload = _tool_json(asyncio.run(fn(file_id="art-1")))
@@ -294,8 +288,8 @@ def test_bridge_read_image_reports_missing_vision_config(monkeypatch):
 
 def test_native_multimodal_model_gets_native_read_image(monkeypatch):
     """主模型自己能看图时注册原生版——经二道手只会掉精度。"""
-    from core.services.model_config import ModelConfigService
-    from core.vision import resolve_vision_mode
+    from core.models.config import ModelConfigService
+    from core.models.vision import resolve_vision_mode
 
     class _Service:
         @staticmethod

@@ -26,6 +26,10 @@ from core.db.engine import Base
 from core.db.connection import utc_connect_args
 from core.db.utc_datetime import render_utc_type
 from core.db import models as db_models  # noqa: F401
+from core.harness.registry import load_models
+from features.installed import INSTALLED_FEATURES
+
+load_models(INSTALLED_FEATURES)
 
 config.set_main_option("sqlalchemy.url", settings.db.url)
 

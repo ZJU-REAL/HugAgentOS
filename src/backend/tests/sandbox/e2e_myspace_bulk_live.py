@@ -8,8 +8,8 @@ from core.db.engine import SessionLocal
 from core.db.models import Artifact, ChatSession, UserShadow
 from core.infra.logging import LogContext
 from core.llm.tools.sandbox_tool import register_bash
-from core.services.api_key_service import ApiKeyService
-from core.storage import get_storage
+from core.auth.api_keys import ApiKeyService
+from core.files.storage import get_storage
 from tests.sandbox.e2e_myspace_identity_live import Toolkit, decode
 
 
@@ -23,7 +23,7 @@ async def main():
         db.commit()
         _, raw = ApiKeyService(db).create_key(uid, "temporary bulk E2E", expires_in_days=1)
     tk = Toolkit()
-    register_bash(tk, loader=None, loaded_skill_ids=set(), chat_id=chat,
+    register_bash(tk, loader=None, chat_id=chat,
                   sandbox_session_id=chat, user_id=uid)
     metrics = {"user": uid}
 

@@ -1,0 +1,337 @@
+"""作业唤醒 —— 后台作业跑到里程碑/终点时，把智能体叫回同一个会话继续干活。
+
+为什么需要它：``run_job(wait=False)`` 让主对话立刻脱身（小时级作业不能让一次工具调用
+挂那么久），但作业跑完之后**没人叫醒智能体**——用户得再说一句话才会回来看结果。
+这就是"后台干完活，前台不知道"。
+
+做法与定时任务同源：由驱动在**同一个会话**里入队一条新的 chat run，带一条系统口吻的
+指令。智能体因此像收到一条新消息一样自己醒过来。前端不用改——它本来就会看到会话里多
+出一轮对话。
+
+两种唤醒，别混：
+
+- **终态唤醒** ``wake_on_job_finish``：作业进终态叫一次，让智能体读台账、写交付。
+  靠 ``jobs.metadata.woken_at`` 打标去重（驱动重入、进程重启续跑都不会重复叫）。
+- **中途唤醒** ``wake_on_job_progress``：作业跑几十分钟甚至几小时时，只在终点播报等于
+  全程失联——用户既不知道还剩多少，也不知道是不是早就卡死了。所以按间隔播报一次进度，
+  **只汇报、不干活**（提示词里明令禁止重复提交作业/导出台账）。会话里已有在跑的 run
+  时直接跳过：那说明智能体正忙，再入队只会堆栈。
+
+注意中途唤醒是"贵"的（每次都是一轮真实推理），所以间隔默认 5 分钟、且要求确有进展或
+确已停滞才叫——纯粹的噪声播报不如不叫。实时进度看输入框上方的作业状态条（零推理成本），
+中途唤醒解决的是"智能体自己该不该介入"。
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, Optional
+
+import core.chat.runtime.admission as admission
+from core.chat.plan_progress import load_plan_progress, plan_is_unfinished, render_plan_checklist
+from core.db.threads import run_db, run_in_session
+from core.db.models import Job
+from core.llm.context.ir_constants import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+from core.llm.context.items import make_text_context_item, session_context_metadata
+from sqlalchemy.orm.attributes import flag_modified
+
+logger = logging.getLogger(__name__)
+
+
+def _wake_prompt(job: Job, stats: Dict[str, Any], plan: Optional[Dict[str, Any]] = None) -> str:
+    """写给智能体自己的续跑指令 —— 只给事实与下一步，不替它下结论。"""
+    remaining = int(stats.get("remaining", 0))
+    lines = [
+        f"[系统] 你先前提交的批量作业「{job.name or job.job_id}」已结束。",
+        f"作业 ID：{job.job_id}　状态：{job.status}",
+        (
+            f"台账统计：总计 {stats.get('total', 0)} 项，已完成 {stats.get('done', 0)}，"
+            f"查无 {stats.get('not_found', 0)}，失败 {stats.get('failed', 0)}，"
+            f"待办 {stats.get('pending', 0)}。"
+        ),
+    ]
+    if job.error_message:
+        lines.append(f"作业错误信息：{job.error_message}")
+    lines.append("")
+    # 计划清单收尾 —— 排在交付**之前**，而不是末尾一句"顺手也可以做"。
+    #
+    # 线上实测（2026-08-18）：软性提醒放在结尾时，交付轮一次都没调 update_plan，计划栏
+    # 就停在 2/5。所以这里把清单**原样念给它**（状态逐条列出），让要做的动作退化成
+    # "把这几行的 status 改一改再传回来"。
+    if plan_is_unfinished(plan):
+        lines.append(
+            "⚠️ 本轮**第一件事**：调用 `update_plan` 把任务计划清单收尾。"
+            "作业丢后台之后没有任何一轮动过它，它现在停在：\n"
+            f"{render_plan_checklist(plan)}\n"
+            "传入全量步骤列表：这次真做完的标 `completed`；没做/做不成的保持原状并在回复里"
+            "说明——**不要**把没做的写成 completed。收完尾再做下面的交付。\n"
+        )
+    if remaining > 0:
+        lines.append(
+            f"仍有 {remaining} 项未结算。请先判断是环境故障还是脚本问题：可以用 "
+            f"run_job(action='resume', job_id='{job.job_id}') 断点续跑（已完成的项不会重做），"
+            "也可以改脚本后再 resume。**不要**把未完成当作完成交付。"
+        )
+    else:
+        # 交付形态必须回到用户原话。唤醒轮是"系统口吻的新消息"，模型此刻满脑子都是
+        # 台账和脚本，很容易顺着最省事的路径交差——用户要 .xlsx 却给一个 openpyxl
+        # 裸拼的 csv/表格贴回复，或者把中间 JSON 当成果。历史要求就在同一会话里，
+        # 缺的只是一句"回去看一眼"，所以这里把它写成硬要求而不是软提醒。
+        lines.append(
+            "全部工作项已结算。请读取作业结果完成最终交付。\n"
+            "⚠️ **交付形态以用户原话为准**：回看本会话里用户最初提的要求，"
+            "他指定的产物格式（.xlsx / .docx / .pptx / .md / 或者就是在回复里"
+            "直接给结论）、要哪些字段与列、顺序、文件命名，逐条照做。"
+            "**不得**换成更省事的形式交差——要 .xlsx 就不能给 .csv、不能把 markdown "
+            "表格贴进回复让用户自己粘、更不能停在中间产物（patches/JSONL）上；"
+            "要文件就必须真的产出文件并 `pin_to_workspace` 交到用户手上。"
+            "用户没指定格式时，才由你按内容选一个最合适的。\n"
+            "产物写完**先回读一遍再交付**：核对行数与台账总数对得上、用户要的字段"
+            "一个不缺、格式确实是他要的那个。「查无 / 失败」只能落在独立的状态字段，"
+            "**不得**用占位串填进数据位——一旦填了，「哪些还没做」就不再可判定。\n"
+            "最后如实报告覆盖率（分母、完成数、查无数）与未覆盖清单。"
+        )
+    lines.append("查看明细：run_job(action='status', job_id='%s')。" % job.job_id)
+    return "\n".join(lines)
+
+
+def _progress_prompt(
+    job: Job, stats: Dict[str, Any], budget_left: Dict[str, Any], stalled: bool
+) -> str:
+    """进度播报 —— 只让智能体转述现状，**不要**让它顺手再干点什么。
+
+    这里的措辞是刻意的：中途唤醒的每一次都是一轮真实推理，如果不把边界写死，智能体
+    很容易"顺手"再提交一个作业或把台账明细读进对话，既烧钱又污染上下文。
+    """
+    total = int(stats.get("total", 0))
+    settled = int(stats.get("settled", 0))
+    pct = int(settled * 100 / total) if total else 0
+    lines = [
+        f"[系统] 进度播报：你提交的批量作业「{job.name or job.job_id}」仍在后台运行。",
+        f"作业 ID：{job.job_id}",
+        (
+            f"台账：共 {total} 项，已结算 {settled}（{pct}%）——完成 {stats.get('done', 0)}，"
+            f"查无 {stats.get('not_found', 0)}，失败 {stats.get('failed', 0)}，"
+            f"处理中 {stats.get('running', 0)}，待办 {stats.get('pending', 0)}。"
+        ),
+        (
+            f"预算余量：调用 {budget_left.get('calls_left', 0)}，"
+            f"墙钟 {int(budget_left.get('seconds_left', 0) / 60)} 分钟。"
+        ),
+        "",
+    ]
+    if stalled:
+        lines.append(
+            "⚠️ 距上次播报**没有任何新的结算**。请判断是不是卡住了："
+            f"可以 run_job(action='status', job_id='{job.job_id}') 看明细，"
+            "确认是环境故障还是脚本缺陷；确实跑不动就 cancel 掉改脚本，别干等。"
+        )
+    else:
+        lines.append("作业推进正常。**请只用一两句话把上面的进度转述给用户**，然后结束本轮回复。")
+    lines.append(
+        "本轮的硬性边界：不要重复提交作业（它还在跑），不要 export 台账，"
+        "不要把逐项结果读进对话，也不用动 `update_plan` 计划清单"
+        "（作业仍停在同一步，收尾留到作业跑完那一轮）——作业跑完会再叫你一次，那时才做交付。"
+    )
+    return "\n".join(lines)
+
+
+def _progress_wake_target(db, job_id: str, stats, budget_left, stalled):
+    """``(chat_id, user_id, model_name, prompt)`` when a running job should report, else None."""
+    job = db.query(Job).filter(Job.job_id == job_id).first()
+    if job is None or not job.chat_id:
+        return None
+    if job.status != "running":
+        return None
+    meta = dict(job.extra_data or {})
+    start_params = dict(meta.get("start_params") or {})
+    if not start_params.get("wake_on_finish"):
+        return None  # wait=True 的调用方本来就阻塞在那儿等，不需要播报
+    prompt = _progress_prompt(job, stats, budget_left, stalled)
+    return job.chat_id, job.user_id, start_params.get("model_name"), prompt
+
+
+def _claim_finish_wake(db, job_id: str):
+    """Mark a finished job as woken; ``(chat_id, user_id, model_name, prompt)`` or None."""
+    job = db.query(Job).filter(Job.job_id == job_id).with_for_update().first()
+    if job is None or not job.chat_id:
+        return None
+    if job.status not in ("completed", "failed", "cancelled", "interrupted"):
+        return None
+    meta = dict(job.extra_data or {})
+    if meta.get("woken_at"):
+        return None  # 已经叫过了
+    start_params = dict(meta.get("start_params") or {})
+    if not start_params.get("wake_on_finish"):
+        return None  # 只有 wait=False 提交的作业才需要唤醒
+    from core.jobs.store import JobService
+
+    stats = JobService(db).stats(job_id)
+    prompt = _wake_prompt(job, stats, load_plan_progress(job.chat_id, db))
+    target = (job.chat_id, job.user_id, start_params.get("model_name"), prompt)
+    meta["woken_at"] = True
+    job.extra_data = meta
+    flag_modified(job, "extra_data")
+    db.commit()
+    return target
+
+
+async def wake_on_job_progress(
+    job_id: str, *, stats: Dict[str, Any], budget_left: Dict[str, Any], stalled: bool
+) -> bool:
+    """作业运行途中播报一次进度。返回是否真的发起了唤醒。
+
+    三道闸：作业得还在跑、得是 ``wait=False`` 提交的、会话里不能已有在跑的 run。
+    最后一道最重要——智能体正忙时再入队一轮，只会让两轮互相打架。
+    """
+    target = await run_in_session(_progress_wake_target, job_id, stats, budget_left, stalled)
+    if target is None:
+        return False
+    chat_id, user_id, model_name, prompt = target
+
+    try:
+        from core.runs.runtime import get_active_run_for_chat
+
+        if await run_db(get_active_run_for_chat, chat_id, user_id) is not None:
+            logger.info("[job-wake] skip progress wake, chat busy chat=%s job=%s", chat_id, job_id)
+            return False
+    except Exception as fallback_error:  # noqa: BLE001 —— 探测失败就当它不忙，宁可多叫一次也别哑掉
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.chat.runtime.job_wakeup:wake_on_job_progress', fallback_error)
+
+    try:
+        await _enqueue_followup_run(
+            chat_id=chat_id,
+            user_id=user_id,
+            message=prompt,
+            model_name=model_name,
+            wake_kind="job_progress",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[job-wake] progress enqueue failed job=%s: %s", job_id, exc)
+        return False
+    logger.info("[job-wake] progress woke chat=%s job=%s stalled=%s", chat_id, job_id, stalled)
+    return True
+
+
+async def wake_on_job_finish(job_id: str) -> bool:
+    """作业终态后叫醒会话。返回是否真的发起了唤醒。"""
+    target = await run_in_session(_claim_finish_wake, job_id)
+    if target is None:
+        return False
+    chat_id, user_id, model_name, prompt = target
+
+    try:
+        await _enqueue_followup_run(
+            chat_id=chat_id,
+            user_id=user_id,
+            message=prompt,
+            model_name=model_name,
+            wake_kind="job_finish",
+        )
+    except Exception as exc:  # noqa: BLE001 —— 唤醒失败不该反过来影响作业本身的终态
+        logger.warning("[job-wake] enqueue failed job=%s: %s", job_id, exc)
+        return False
+    logger.info("[job-wake] woke chat=%s for job=%s", chat_id, job_id)
+    return True
+
+
+def _accept_wake_run(db, chat_id: str, user_id: str, message: str, wake_kind: str):
+    """Persist the wake message and its accepted run; return what starting it needs."""
+    from core.capabilities.catalog.resolver import resolve_all_runtime_enabled
+    from core.chat.sequencer import ChatSequencer
+    from core.chat.service import ChatService
+    from core.chat.operations.session_context import load_session_messages as _load_session_messages
+
+    chat_service = ChatService(db)
+    enabled = resolve_all_runtime_enabled(db, user_id)
+    # 会话模式要跟着唤醒轮一起走。作业只可能诞生在工作流模式里，而 workflow_mode
+    # 决定了 run_job 注不注册、批量提示词注不注入——唤醒轮丢掉它，模型就会看到
+    # 一条"用 run_job(action='resume') 续跑"的系统消息，却在工具面里找不到
+    # run_job，只能弃用作业、把 N 个工作项拖回主循环逐项重做（成本二次方增长，
+    # 前端也再没有后台作业卡片）。会话元数据里的 workflow_chat 是这件事的真源，
+    # 用户消息路径读的也是它（见 chats.py 的 ctx 组装）。
+    _sess = chat_service.get_session(chat_id, user_id)
+    workflow_chat = bool(dict(getattr(_sess, "extra_data", None) or {}).get("workflow_chat"))
+    # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路。
+    # 但它是**写给模型的系统指令**，不是用户说的话——`hidden_in_chat` 让消息列表接口
+    # 把它从聊天记录里滤掉（模型侧的历史另走 load_session_history，不受影响）。
+    # 没有这个标记，用户一刷新页面就会看到「[系统] 进度播报：……请只用一两句话转述」
+    # 这种内部提示词以自己的口吻贴在对话里。
+    wake_item = make_text_context_item(
+        message,
+        item_id=f"harness:job_wakeup:{wake_kind}",
+        kind=KIND_REMINDER,
+        origin=f"harness:job_wakeup:{wake_kind}",
+        trust="system",
+        created_seq=0,
+        priority=950,
+        token_budget=4_000,
+        truncation_policy=POLICY_NEVER,
+    )
+    wake_metadata = session_context_metadata(wake_item)
+    accepted = ChatSequencer(db).accept_main_run(
+        chat_id=chat_id,
+        user_id=user_id,
+        user_content=message,
+        user_extra_data={
+            "system_wake": wake_kind,
+            "hidden_in_chat": True,
+            SESSION_CONTEXT_META_KEY: wake_metadata,
+        },
+        request_payload={"chat_id": chat_id, "message": message, "kind": "job_wakeup"},
+    )
+    session_messages = _load_session_messages(chat_service, chat_id, user_id)
+    return accepted.run, session_messages, workflow_chat, enabled
+
+
+def _abandon_wake_run(db, run_id: str, reason: str) -> None:
+    from core.chat.sequencer import ChatSequencer
+
+    ChatSequencer(db).abandon_pending_run(run_id, reason=reason)
+
+
+async def _enqueue_followup_run(
+    *,
+    chat_id: str,
+    user_id: str,
+    message: str,
+    model_name: Optional[str],
+    wake_kind: str,
+) -> None:
+    """在既有会话里入队一条 chat run —— 与用户手动发一条消息走的是同一条路。
+
+    这样前端不用任何改动：它本来就会在会话里看到新的一轮（断线还能按 run_id 续播）。
+    """
+    from core.chat.context import build_runtime_context
+
+    accepted_run_id: Optional[str] = None
+    try:
+        run, session_messages, workflow_chat, (skills, agents, mcps) = await run_in_session(
+            _accept_wake_run, chat_id, user_id, message, wake_kind
+        )
+        accepted_run_id = run.run_id
+
+        context = build_runtime_context(
+            model_name=model_name,
+            user_id=user_id,
+            chat_id=chat_id,
+            enabled_skills=skills,
+            enabled_agents=agents,
+            enabled_mcps=mcps,
+        )
+        context["workflow_chat"] = workflow_chat
+        await admission.start_run(
+            accepted_run=run,
+            chat_id=chat_id,
+            user_id=user_id,
+            session_messages=session_messages,
+            effective_user_message=message,
+            raw_user_message=message,
+            context=context,
+            model_name=model_name,
+        )
+    except Exception as exc:
+        if accepted_run_id:
+            await run_in_session(_abandon_wake_run, accepted_run_id, str(exc))
+        raise

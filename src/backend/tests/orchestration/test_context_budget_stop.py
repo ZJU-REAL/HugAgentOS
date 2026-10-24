@@ -1,14 +1,17 @@
+
 import asyncio
 
+import core.runs.events.writer as writer
+import core.runs.ownership as ownership
+import core.runs.settings as settings
 import pytest
 from agentscope.message import UserMsg
 from core.db.models import ChatMessage, ChatRun
-from core.llm.context_safety import ContextBudgetExceeded, request_admission_scope
-from core.llm.manifest_agent import ManifestBoundAgent
-from core.ontology.toolkit import OntologyFilteredToolkit
-from core.services.context_budget_checkpoint import ContextBudgetJournal, ContextStopCheckpoint
-from core.services.run_journal import RunLeaseLost
-from orchestration import chat_run_executor as executor
+from core.llm.context.safety import ContextBudgetExceeded, request_admission_scope
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+from core.chat.compaction.budget_checkpoint import ContextBudgetJournal, ContextStopCheckpoint
+from core.runs.journal import RunLeaseLost
 from tests.llm.test_context_safety import CaptureModel
 from tests.orchestration.test_model_steps_pipeline import _result, _run, _step
 from tests.orchestration.test_model_steps_pipeline import run_env as run_env
@@ -18,7 +21,7 @@ from tests.orchestration.test_model_steps_pipeline import run_env as run_env
 @pytest.mark.parametrize("swallowed", [False, True])
 async def test_budget_stop_saves_checkpoint_and_pauses_worker(run_env, monkeypatch, swallowed):
     monkeypatch.setattr(
-        "core.services.context_budget_checkpoint.ContextBudgetJournal",
+        'core.chat.compaction.budget_checkpoint.ContextBudgetJournal',
         lambda *args: ContextBudgetJournal(run_env),
     )
     model = CaptureModel()
@@ -138,7 +141,7 @@ def test_checkpoint_preserves_post_steer_assistant_identity():
 
 
 def test_lost_owner_cannot_save_budget_checkpoint(run_env, monkeypatch):
-    journal = executor._journal()
+    journal = ownership.journal()
     journal.accept(
         run_id="budget-run",
         message_id="budget-msg",
@@ -149,7 +152,7 @@ def test_lost_owner_cannot_save_budget_checkpoint(run_env, monkeypatch):
     )
     assert journal.claim("budget-run", owner="right-owner", lease_seconds=60)
     monkeypatch.setattr(
-        "core.services.context_budget_checkpoint.ContextBudgetJournal",
+        'core.chat.compaction.budget_checkpoint.ContextBudgetJournal',
         lambda *args: ContextBudgetJournal(run_env),
     )
     stopped = ContextBudgetExceeded(
@@ -163,11 +166,11 @@ def test_lost_owner_cannot_save_budget_checkpoint(run_env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_non_chat_run_saves_and_preserves_budget_pause(run_env, monkeypatch):
-    from core.llm.middlewares import AgentRuntimeState
-    from core.services.run_journal import durable_run_binding
+    from core.llm.runtime.state import AgentRuntimeState
+    from core.runs.journal import durable_run_binding
 
     monkeypatch.setattr(
-        "core.services.context_budget_checkpoint.ContextBudgetJournal",
+        'core.chat.compaction.budget_checkpoint.ContextBudgetJournal',
         lambda *args: ContextBudgetJournal(run_env),
     )
     model = CaptureModel()
@@ -198,7 +201,7 @@ async def test_non_chat_run_saves_and_preserves_budget_pause(run_env, monkeypatc
 @pytest.mark.parametrize("wrapped_error", [False, True])
 async def test_queued_completed_events_are_drained_before_stop(run_env, monkeypatch, wrapped_error):
     monkeypatch.setattr(
-        "core.services.context_budget_checkpoint.ContextBudgetJournal",
+        'core.chat.compaction.budget_checkpoint.ContextBudgetJournal',
         lambda *args: ContextBudgetJournal(run_env),
     )
     model = CaptureModel()
@@ -209,13 +212,13 @@ async def test_queued_completed_events_are_drained_before_stop(run_env, monkeypa
         toolkit=OntologyFilteredToolkit(),
     )
     published = []
-    original_emit = executor._xadd_event
+    original_emit = writer.xadd_event
 
     async def capture(run_id, offset, event, **kwargs):
         published.append(event)
         return await original_emit(run_id, offset, event, **kwargs)
 
-    monkeypatch.setattr(executor, "_xadd_event", capture)
+    monkeypatch.setattr(writer, 'xadd_event', capture)
 
     async def workflow(**kwargs):
         try:
@@ -238,19 +241,19 @@ async def test_queued_completed_events_are_drained_before_stop(run_env, monkeypa
         assert stop["assistant_content"] == "queued answer"
         assert db.get(ChatMessage, run.message_id).content == "queued answer"
     assert any(event.get("type") == "error" for event in published)
-    assert any(event.get("type") == executor._TERMINAL_TYPE for event in published)
+    assert any(event.get("type") == settings.TERMINAL_TYPE for event in published)
     assert not any(event.get("type") == "meta" for event in published)
     assert model.calls == []
 
 
 @pytest.mark.asyncio
 async def test_non_chat_checkpoint_uses_actual_reply_and_completed_output(run_env, monkeypatch):
-    from core.llm.middlewares import AgentRuntimeState
-    from core.services.run_journal import durable_run_binding
+    from core.llm.runtime.state import AgentRuntimeState
+    from core.runs.journal import durable_run_binding
     from personal_agent.tasks.task_threads import StreamRecord
 
     monkeypatch.setattr(
-        "core.services.context_budget_checkpoint.ContextBudgetJournal",
+        'core.chat.compaction.budget_checkpoint.ContextBudgetJournal',
         lambda *args: ContextBudgetJournal(run_env),
     )
     model = CaptureModel()

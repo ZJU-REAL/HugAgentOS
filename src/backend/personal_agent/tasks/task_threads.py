@@ -106,7 +106,7 @@ class StreamRecord:
             **(row.extra_data or {}), "segments":self.segments[-300:],
             "model_history_display_only": not bool(self.model_steps),
         }
-        from core.llm.context_safety import remember_context_output
+        from core.llm.context.safety import remember_context_output
 
         remember_context_output(
             message_id=row.message_id, steps=row.model_steps or [], content=row.content,
@@ -173,7 +173,7 @@ class Transcript(StreamRecord):
                     self.store(row, self.text)
                 else:
                     row.model_steps = [*(row.model_steps or []), payload]
-                    from core.llm.context_safety import remember_context_output
+                    from core.llm.context.safety import remember_context_output
 
                     remember_context_output(
                         message_id=row.message_id, steps=row.model_steps, content=row.content,
@@ -201,7 +201,7 @@ class Transcript(StreamRecord):
                         self.store(row, self.text)
                     else:
                         row.model_steps = [*(row.model_steps or []), payload]
-                        from core.llm.context_safety import remember_context_output
+                        from core.llm.context.safety import remember_context_output
 
                         remember_context_output(
                             message_id=row.message_id, steps=row.model_steps, content=row.content,

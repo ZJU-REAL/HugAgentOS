@@ -7,16 +7,28 @@ loading replays it. A run stopped mid-tool closes its dangling call.
 """
 
 from __future__ import annotations
+from core.agent_runtime.integrations import memory_identity as memory_identity_module
+from core.agent_runtime.integrations import memory_session as memory_session_module
+from core.llm.citations import allocator as allocator_module
 
 import json
 from types import SimpleNamespace
 
+import core.agent_runtime.integrations.memory as memory
+import core.agent_runtime.runner as runner
+import core.agent_runtime.targets as targets
+import core.chat.plan_progress as plan_progress
+import core.capabilities.catalog.resolver as catalog_resolver
+import core.llm.citations.anchor as citation_anchor
+import core.llm.factory as factory
+import core.llm.runtime.streaming as streaming
+import core.runs.events.writer as writer
+import core.chat.service as services_ChatService_module
 import pytest
 from agentscope.message import Msg, ToolResultBlock
+from core.agent_runtime.integrations.memory_session import SessionMemory
 from core.db.models import ChatMessage
-from core.services.compaction_history import normalize_rows
-from orchestration import chat_run_executor as executor
-from orchestration.memory_integration import SessionMemory
+from core.chat.compaction.history import normalize_rows
 from tests.orchestration.test_model_steps_pipeline import _fake, _run, _step, _stream_events
 from tests.orchestration.test_model_steps_pipeline import run_env as run_env
 
@@ -27,16 +39,11 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
     run_env, monkeypatch, persist_result
 ):
     from core.db import engine as db_engine
-    from core.llm import builtin_subagents
-    from core.services import compaction_service, user_agent_service, user_service
-    from orchestration import workflow
-
-    class DummySession:
-        def __enter__(self):
-            return SimpleNamespace()
-
-        def __exit__(self, *_args):
-            return False
+    from core.capabilities.agents import builtin as builtin_subagents
+    from core.chat.compaction import service as compaction_service
+    from core.capabilities.agents import edition as user_agent_service
+    from core.auth import users as user_service
+    pass
 
     class FakeStreamingAgent:
         def __init__(self, agent, _clients):
@@ -55,6 +62,7 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
                 state="success",
             )
             state = SimpleNamespace(
+                pending_mcp_progress=[],
                 user_id="",
                 chat_id="",
                 run_id="",
@@ -120,7 +128,6 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
     async def no_compaction(_chat_id, messages, **_kwargs):
         return messages, None
 
-    monkeypatch.setattr(db_engine, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(
         user_agent_service,
         "UserAgentService",
@@ -133,39 +140,38 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
     )
     monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
     monkeypatch.setattr(compaction_service, "maybe_run_pre_turn_compaction", no_compaction)
-    monkeypatch.setattr(workflow, "create_agent_executor", create_agent)
-    monkeypatch.setattr(workflow, "open_session_memory", no_memory)
-    monkeypatch.setattr(workflow, "build_user_identity_block", no_identity)
-    monkeypatch.setattr(workflow, "anchor_start_for_chat", lambda _chat_id: 0)
-    monkeypatch.setattr(workflow, "enabled_skill_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
-    monkeypatch.setattr(workflow, "StreamingAgent", FakeStreamingAgent)
-    monkeypatch.setattr(workflow, "_persistent_clients", [])
+    monkeypatch.setattr(factory, "create_agent_executor", create_agent)
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', no_memory)
+    monkeypatch.setattr(memory_identity_module, 'build_user_identity_block', no_identity)
+    monkeypatch.setattr(allocator_module, 'anchor_start_for_chat', lambda _chat_id: 0)
+    monkeypatch.setattr(catalog_resolver, "enabled_skill_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_mcp_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
+    monkeypatch.setattr("core.agent_runtime.prepare_main.streaming", SimpleNamespace(StreamingAgent=FakeStreamingAgent))
 
     if not persist_result:
-        original_refresh = executor.ChatService.refresh_streaming_message
+        original_refresh = services_ChatService_module.ChatService.refresh_streaming_message
 
         def fail_result(self, **kwargs):
             if any(s["kind"] == "tool_result" for s in kwargs.get("model_steps", [])):
                 raise RuntimeError("injected result persistence failure")
             return original_refresh(self, **kwargs)
 
-        monkeypatch.setattr(executor.ChatService, "refresh_streaming_message", fail_result)
+        monkeypatch.setattr(services_ChatService_module.ChatService, "refresh_streaming_message", fail_result)
     saved_plans = []
     monkeypatch.setattr(
-        workflow, "_save_plan_progress", lambda chat, plan: saved_plans.append(plan)
+        plan_progress, 'save_plan_progress', lambda chat, plan: saved_plans.append(plan)
     )
     published = []
-    original_emit = executor._xadd_event
+    original_emit = writer.xadd_event
 
     async def emit(run_id, offset, event):
         published.append(event)
         await original_emit(run_id, offset, event)
 
-    monkeypatch.setattr(executor, "_xadd_event", emit)
-    run = await _run(workflow.astream_chat_workflow, monkeypatch)
+    monkeypatch.setattr(writer, 'xadd_event', emit)
+    run = await _run(runner.astream_chat_workflow, monkeypatch)
     if not persist_result:
         assert not saved_plans
         assert not any(event["type"] == "plan_update" for event in published)

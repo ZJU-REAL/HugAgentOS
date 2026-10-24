@@ -109,7 +109,7 @@ def protected_read_paths() -> tuple[str, ...]:
     resolves the *narrowest* matching entry, and the writable workspace root is
     deeper than the data root denied here.
     """
-    from core.capabilities.paths import CAPS_ROOT_ENV
+    from core.config.runtime_env import CAPS_ROOT_ENV
 
     candidates = [local_state_dir()]
     for name in (CAPS_ROOT_ENV, _INSTALL_ROOT_ENV):

@@ -15,6 +15,7 @@ import uuid
 from sqlalchemy import and_, or_, select, update
 
 from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from core.db.models import Artifact, ChatMessage
 from personal_agent import access
 from personal_agent.models import PersonalAgent, PersonalMessageTask
@@ -49,7 +50,7 @@ def exported_artifact(db, chat_id, artifact_id):
     return item
 
 def load_file(chat_id, artifact_id):
-    from core.storage import get_storage
+    from core.files.storage import get_storage
     with SessionLocal() as db:
         item = exported_artifact(db, chat_id, artifact_id)
         if item is None:
@@ -74,15 +75,31 @@ def pack(msg):
     return data
 
 def unpack(data):
-    from core.channels.protocol import InboundMsg
+    from integrations.channels.protocol import InboundMsg
     fields = {field.name for field in dataclasses.fields(InboundMsg)}
     return InboundMsg(**{key: value for key, value in data.items() if key in fields})
 
+def _channel_chat(db, conn, msg):
+    """The Personal Agent conversation this IM conversation feeds."""
+    from personal_agent.context import AgentContext
+    from personal_agent.conversation.conversations import channel_session
+    from personal_agent.identity.config import locked_agent
+    svc = AgentContext(db, conn.owner_user_id)
+    svc.identity.ensure()
+    chat_id = channel_session(db, locked_agent(db, svc.user_id), conn, msg).chat_id
+    db.commit()
+    return chat_id
+
+def _admit_message(db, owner_id, chat_id, text, key, file_ids, origin):
+    from personal_agent.context import AgentContext
+    from personal_agent.conversation.message_routing import admit
+    admit(AgentContext(db, owner_id, chat_id), text, key, file_ids,
+          extra={"origin": "channel", "channel_origin": origin})
+
 async def admit_inbound(conn, msg, adapter):
     """Store the IM message in the Personal Agent conversation. The worker answers it later."""
-    from core.channels.inbound import _ingest_attachments, _speaker_label
-    from personal_agent.conversation.message_routing import admit
-    from personal_agent.context import AgentContext
+    from integrations.channels.inbound_attachments import ingest_attachments as _ingest_attachments
+    from integrations.channels.inbound_observation import speaker_label as _speaker_label
     placeholder = None
     try:
         send = getattr(adapter, "send_placeholder", None) or adapter.send_text
@@ -90,21 +107,14 @@ async def admit_inbound(conn, msg, adapter):
         placeholder = sent.message_id if sent.success else None
     except Exception:  # noqa: BLE001 - a missing acknowledgement must not drop the message
         log.debug("Personal channel acknowledgement failed", exc_info=True)
-    with SessionLocal() as db:
-        svc = AgentContext(db, conn.owner_user_id)
-        svc.identity.ensure()
-        from personal_agent.identity.config import locked_agent
-        from personal_agent.conversation.conversations import channel_session
-        session = channel_session(db, locked_agent(db, svc.user_id), conn, msg)
-        svc.chat_id = session.chat_id
-        agent_view = {"chat_id": session.chat_id}
-        files = await _ingest_attachments(db, adapter, conn, conn.owner_user_id, agent_view["chat_id"], msg)
-        text = (msg.text or "").strip() or ("[收到文件] " + "、".join(item.get("name", "") for item in files))
-        if msg.chat_type == "group": text = _speaker_label(msg) + "：" + text
-        key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
-        origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": placeholder}
-        admit(svc, text[:20000], key[:100], [item["file_id"] for item in files if item.get("file_id")][:10],
-              extra={"origin": "channel", "channel_origin": origin})
+    chat_id = await run_in_session(_channel_chat, conn, msg)
+    files = await _ingest_attachments(adapter, conn, conn.owner_user_id, chat_id, msg)
+    text = (msg.text or "").strip() or ("[收到文件] " + "、".join(item.get("name", "") for item in files))
+    if msg.chat_type == "group": text = _speaker_label(msg) + "：" + text
+    key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
+    origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": placeholder}
+    await run_in_session(_admit_message, conn.owner_user_id, chat_id, text[:20000], key[:100],
+                         [item["file_id"] for item in files if item.get("file_id")][:10], origin)
 
 def origin_of(db, task_id=None, message_id=None):
     """The IM conversation that started a task, or that sent one message."""
@@ -160,9 +170,9 @@ async def send_now(origin, text):
 
 async def send_text(conn, msg, text, sent_chunks=0, record=None):
     """Persist each successful chunk before attempting the next one."""
-    from core.channels.markdown import strip_citation_markers, strip_inline_thinking
-    from core.channels.protocol import chunk_text
-    from core.channels.registry import get_adapter
+    from integrations.channels.markdown import strip_citation_markers, strip_inline_thinking
+    from integrations.channels.protocol import chunk_text
+    from integrations.channels.registry import get_adapter
     adapter = get_adapter(conn.channel_type)
     text = strip_citation_markers(strip_inline_thinking(text))
     send = getattr(adapter, "send_markdown", None) if adapter.caps.supports_markdown else None
@@ -190,7 +200,7 @@ def delivery_allowed(chat_id, conn):
 
 def connection(channel_id):
     """An enabled bot connection, detached with its credentials loaded, or None."""
-    from core.db.repository.channel import ChannelConnectionRepository
+    from integrations.channels.repository import ChannelConnectionRepository
     with SessionLocal() as db:
         conn = ChannelConnectionRepository(db).get_by_id(channel_id)
         if conn is None or not conn.enabled: return None
@@ -279,7 +289,7 @@ async def deliver_pending(limit=20):
                                          delivery.get("text_chunks_sent", 0), record)
                 if not ok: raise RuntimeError("Personal channel text delivery failed")
                 await record(text_sent=True)
-            from core.channels.registry import get_adapter
+            from integrations.channels.registry import get_adapter
             sent = list(delivery.get("sent_file_ids") or [])
             failed = list(delivery.get("failed_file_ids") or [])
             retry = False
@@ -338,7 +348,7 @@ def notify_soon(origin, text):
 
 def bots(db, uid):
     """The owner's bots, with the Personal Agent routing flag."""
-    from core.services.channel_service import ChannelService, bot_to_dict
+    from integrations.channels.service import ChannelService, bot_to_dict
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.user_id == str(uid)))
     routed = set((agent.config or {}).get("channel_ids", [])) if agent else set()
     result = []
@@ -351,7 +361,7 @@ def bots(db, uid):
     return result
 
 def route(db, uid, channel_id, enabled):
-    from core.services.channel_service import ChannelService
+    from integrations.channels.service import ChannelService
     if channel_id not in {conn.channel_id for conn in ChannelService(db).list_bots(str(uid), main_only=True)}:
         raise LookupError("Bot not found")
     from personal_agent.identity.config import update_config

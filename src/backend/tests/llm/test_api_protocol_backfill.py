@@ -10,10 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.db import model_repository
-from core.llm.providers import protocol_probe
-from core.llm.providers.protocol_probe import PROTOCOL_CHAT, PROTOCOL_RESPONSES
-from core.services.api_protocol_backfill import backfill_missing_api_protocol
+from core.models import repository as model_repository
+from core.models.providers import protocol_probe
+from core.models.providers.protocol_probe import PROTOCOL_CHAT, PROTOCOL_RESPONSES
+from core.models.api_protocol_backfill import backfill_missing_api_protocol
 
 
 def _provider(pid, **kw):

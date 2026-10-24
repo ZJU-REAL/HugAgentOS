@@ -1,13 +1,14 @@
+from core.capabilities.skills import loader_factory as loader_factory_module
 from types import SimpleNamespace
 
 import pytest
-from core.services.session_operations.invocation import _resolve_explicit_capability_invocation
+from core.agent_runtime.skills import _build_skill_injection
 from core.chat.schemas import ChatRequest
-from core.config import catalog_resolver
+from core.capabilities.catalog import resolver as catalog_resolver
 from core.db.models import AdminMcpServer, AdminSkill, CatalogOverride, InstalledPlugin, UserShadow
-from core.plugins import management as plugin_service
+from core.capabilities.plugins import management as plugin_service
+from core.chat.operations.invocation import resolve_explicit_capability_invocation as _resolve_explicit_capability_invocation
 from fastapi import HTTPException
-from orchestration.workflow import _build_skill_injection
 
 
 def _runtime_catalog(*_args, **_kwargs):
@@ -128,7 +129,7 @@ def test_direct_selected_installed_skill_ignores_global_off(db_session, monkeypa
 
 
 def test_public_skill_selection_prefers_current_users_private_install(db_session, monkeypatch):
-    from core.services.marketplace_service import compute_install_id
+    from core.capabilities.skills.installation import compute_install_id as compute_install_id
 
     monkeypatch.setattr(catalog_resolver, "get_runtime_catalog", _runtime_catalog)
     private_id = compute_install_id("admin-disabled-skill", "user-a")
@@ -209,13 +210,13 @@ def test_explicit_plugin_injection_guides_optional_usage():
 
 
 def test_explicit_skill_injection_guides_skill_loading(monkeypatch):
-    import core.agent_skills.loader as skill_loader
+    import core.capabilities.skills.loader as skill_loader
 
     fake_loader = SimpleNamespace(
         load_all_metadata=lambda: {"security-overview": SimpleNamespace(name="安全概览")},
         get_skill_dir=lambda _skill_id: "/tmp/security-overview",
     )
-    monkeypatch.setattr(skill_loader, "get_skill_loader", lambda: fake_loader)
+    monkeypatch.setattr(loader_factory_module, 'get_skill_loader', lambda: fake_loader)
     hint = _build_skill_injection(
         {
             "skill_id": "security-overview",
@@ -335,7 +336,7 @@ def test_installed_plugin_distinguishes_personal_enabled_from_hard_callability(
 
 
 def test_explicit_disabled_connector_is_loaded_but_not_ambient(monkeypatch):
-    import core.services.mcp_service as mcp_service
+    import core.capabilities.mcp.service as mcp_service
     from core.llm.factory.tools import mcp_config as factory_mcp_config
 
     class FakeMcpService:
@@ -352,12 +353,12 @@ def test_explicit_disabled_connector_is_loaded_but_not_ambient(monkeypatch):
         "get_instance",
         classmethod(lambda _cls: FakeMcpService()),
     )
-    assert factory_mcp_config._effective_mcp_server_keys(
+    assert factory_mcp_config.effective_mcp_server_keys(
         None, None, enabled_mcp_ids=["installed-off"]
     ) == ["installed-off"]
     assert set(factory_mcp_config._filter_mcp_servers_by_keys(["installed-off"])) == {
         "installed-off"
     }
-    assert factory_mcp_config._effective_mcp_server_keys(
+    assert factory_mcp_config.effective_mcp_server_keys(
         None, None, enabled_mcp_ids=["enabled"]
     ) == ["enabled"]

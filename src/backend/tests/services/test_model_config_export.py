@@ -7,13 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
-from core.db.model_repository import (
-    assign_role,
-    create_provider,
-    export_all,
-    get_provider,
-    import_all,
-)
+from core.models.repository import assign_role, create_provider, export_all, get_provider, import_all
 
 
 @pytest.fixture

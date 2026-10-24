@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import Artifact, ChatSession, UserFolder
-from core.services.artifact_service import store_bytes_as_artifact
-from core.storage import get_storage
-from core.services.upload_retry import prepare_upload
+from core.files.artifacts.service import store_bytes_as_artifact
+from core.files.storage import get_storage
+from core.files.upload_retry import prepare_upload
 from .file_text import router as text_router
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def upload_user_file(
 
     public_meta = {}
     if user.public_chat_visitor:
-        from core.services.public_chat_service import prepare_visitor_upload
+        from core.chat.public import prepare_visitor_upload
         public_meta = prepare_visitor_upload(db, user, chat_id, folder_id)
 
     # Verify the chat_id already exists in the database (the session may not yet be created at upload time)
@@ -121,8 +121,8 @@ def upload_user_file(
         raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
 
     if db_folder_id:
-        from core.spaces.files import SpaceFiles
-        from core.spaces.projects import folder_path
+        from core.files.spaces.files import SpaceFiles
+        from core.files.spaces.projects import folder_path
         directory = folder_path(db, UserFolder, {"user_id": user_id}, db_folder_id)
         SpaceFiles(db, user_id, get_storage()).write(
             "personal", directory + "/" + file.filename, file_bytes,
@@ -138,7 +138,7 @@ def upload_user_file(
 
 
 @router.put("/{file_id}", summary="覆盖已有文件内容")
-async def overwrite_file(
+def overwrite_file(
     file_id: str,
     file: UploadFile = File(...),
     user: UserContext = Depends(get_current_user),
@@ -147,21 +147,21 @@ async def overwrite_file(
     """
     用新内容覆盖已有文件，保持 file_id 和 download_url 不变。
     """
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
     if len(file_bytes) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="文件过大，最大支持 50 MB")
 
-    from core.artifacts.local_reference import is_local_file_ref, overwrite_reference
+    from core.files.artifacts.local_reference import is_local_file_ref, overwrite_reference
     if is_local_file_ref(file_id):
         return overwrite_reference(file_id, str(user.user_id), file_bytes, db)
 
-    from core.auth.permissions_iface import resolve_artifact_access
+    from core.auth.edition import resolve_artifact_access
     artifact = db.query(Artifact).filter(
         Artifact.artifact_id == file_id, Artifact.deleted_at.is_(None),
     ).populate_existing().with_for_update().first()
-    from core.services.artifact_edition import artifact_access_metadata
+    from core.files.edition import artifact_access_metadata
     metadata = artifact_access_metadata(artifact) if artifact else {}
     level = resolve_artifact_access(db, str(user.user_id), metadata.get("owner_id"), metadata.get("scope_id")) if artifact else "none"
     if level == "none":

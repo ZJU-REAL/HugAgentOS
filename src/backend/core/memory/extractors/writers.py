@@ -30,7 +30,8 @@ from core.memory.audit import record as audit_record
 from core.memory.audit import record_batch as audit_record_batch
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
-from core.memory.graph import parse_relation, parse_relations, write_graph_relations
+from core.memory.graph_contract import parse_relation, parse_relations
+from core.memory.graph import write_graph_relations
 from core.memory.pipeline import milvus_breaker
 from core.memory.sanitizer import sanitize
 from core.memory.service import (
@@ -46,7 +47,6 @@ logger = logging.getLogger(__name__)
 LAYER_PROFILE = "L1"
 LAYER_PROCEDURE = "L2"
 LAYER_GRAPH = "L3"
-
 
 async def write_layered(
     results: dict[ExtractorType, Optional[dict]],
@@ -106,7 +106,6 @@ async def write_layered(
             await _write_session_task(task_data, ctx)
 
     return written
-
 
 async def _write_relations_to_neo4j(
     data: dict, ctx: MemoryContext, *, strict: bool = False
@@ -188,7 +187,6 @@ async def _write_relations_to_neo4j(
         for row in rows
     ]
 
-
 async def _write_profile_from_identity(
     data: dict, ctx: MemoryContext, *, strict: bool = False
 ) -> list[dict]:
@@ -202,7 +200,6 @@ async def _write_profile_from_identity(
         strict=strict,
     )
 
-
 async def _write_profile_from_preference(
     data: dict, ctx: MemoryContext, *, strict: bool = False
 ) -> list[dict]:
@@ -215,7 +212,6 @@ async def _write_profile_from_preference(
         confidentiality_aware=False,
         strict=strict,
     )
-
 
 async def _upsert_profile_facts(
     data: dict,
@@ -271,7 +267,6 @@ async def _upsert_profile_facts(
         }
         for item in applied
     ]
-
 
 async def _write_procedures_to_milvus(
     data: dict, ctx: MemoryContext, *, strict: bool = False
@@ -462,7 +457,6 @@ async def _write_procedures_to_milvus(
     if written:
         logger.info("[writer:procedural] wrote %d procedures to L2", len(written))
     return written
-
 
 async def _write_session_task(data: dict, ctx: MemoryContext, *, strict: bool = False) -> int:
     """Write the session task working set into chats.metadata.session_memory.

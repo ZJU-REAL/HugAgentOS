@@ -5,7 +5,7 @@
 所以模型仍然产出思考链）。抑制一旦漏，思考过程就直接落进自动化任务的输出正文。
 """
 
-from orchestration.streaming import _strip_thinking_answer
+from core.llm.runtime.stream_text import strip_thinking_answer as _strip_thinking_answer
 
 
 def strip(raw: str, in_thinking: bool = False):

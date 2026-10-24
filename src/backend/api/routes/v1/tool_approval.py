@@ -5,7 +5,7 @@
 ``core.llm.tool_permissions`` 决定要不要为工具调用停下来问用户。
 
 网页端与桌面端共用这一档——桌面端不再另存一份「本机操作权限档」，本机执行策略由
-``core.services.local_grant_service.policy_for_gate()`` 按本档位翻译。桌面端仍有的
+``features.desktop.local.grants.policy_for_gate()`` 按本档位翻译。桌面端仍有的
 「授权目录 / 危险命令分类处置」（``/v1/local/grants``、``/v1/local/policy``）管的是
 "本机哪些目录能动"，与本档位是两件事。
 """
@@ -17,8 +17,8 @@ from typing import Literal
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.llm.tool_permissions import normalize_approval_mode
-from core.services.user_service import UserService
+from core.sandbox.permissions.approval import normalize_approval_mode
+from core.auth.users import UserService
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -39,7 +39,7 @@ def get_tool_approval_mode(
 ):
     settings = UserService(db).get_user_settings(str(user.user_id))
     if user.public_chat_visitor:
-        from core.services.public_chat_service import visitor_approval_mode
+        from core.chat.public import visitor_approval_mode
         mode = visitor_approval_mode(db, user, settings.get(_METADATA_KEY))
     else:
         mode = normalize_approval_mode(settings.get(_METADATA_KEY))
@@ -54,7 +54,7 @@ def set_tool_approval_mode(
 ):
     mode = normalize_approval_mode(body.mode)
     if user.public_chat_visitor:
-        from core.services.public_chat_service import set_visitor_approval_mode
+        from core.chat.public import set_visitor_approval_mode
         set_visitor_approval_mode(db, user, mode)
     else:
         UserService(db).update_user_metadata(user_id=str(user.user_id), patch={_METADATA_KEY: mode})

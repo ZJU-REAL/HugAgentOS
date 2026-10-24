@@ -1,17 +1,19 @@
-import { CheckOutlined, CloseOutlined, LoadingOutlined, MinusOutlined } from '@ant-design/icons';
+import { CloseOutlined, MinusOutlined } from '@ant-design/icons';
+import { ToolIcon } from './toolIcons';
 import { ElapsedTimer } from '../common';
 import { t } from '../../i18n';
 import { compactionLabel, type CompactionProgress } from '../../utils/compactionProgress';
 
 export function CompactionStepRow({ progress }: { progress: CompactionProgress }) {
   const running = progress.status === 'running';
-  const Icon = running ? LoadingOutlined : progress.status === 'completed' ? CheckOutlined
-    : progress.status === 'skipped' ? MinusOutlined : CloseOutlined;
+  const settledIcon = progress.status === 'skipped' ? <MinusOutlined className="jx-tcr-icon" />
+    : progress.status === 'failed' || progress.status === 'interrupted' ? <CloseOutlined className="jx-tcr-icon" />
+    : null;
   return (
     <div className="jx-tcr" role="status" aria-live="polite">
       <div className="jx-tcr-header">
         <span className="jx-tcr-status">
-          <Icon spin={running} className={`jx-tcr-icon${running ? ' jx-tcr-icon--running' : ''}`} />
+          {settledIcon ?? <ToolIcon kind="compress" className={`jx-tcr-kind${running ? ' jx-tcr-kind--running' : ''}`} />}
         </span>
         <span className="jx-tcr-label">
           <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{t(compactionLabel(progress))}</span>

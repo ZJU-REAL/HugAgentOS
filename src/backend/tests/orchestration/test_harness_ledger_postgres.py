@@ -15,8 +15,8 @@ import pytest
 from core.db.models import ChatSession, UserShadow
 from core.harness.events import Event
 from core.harness.usage import UsageAttempt
-from core.services.harness_ledger import DurableEventStore, HarnessUsageLedger
-from core.services.run_journal import RunJournal
+from core.harness.ledger import DurableEventStore, HarnessUsageLedger
+from core.runs.journal import RunJournal
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker

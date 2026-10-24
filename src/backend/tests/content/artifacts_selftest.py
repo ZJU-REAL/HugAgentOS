@@ -12,13 +12,13 @@ def main() -> int:
         from fastapi import HTTPException
         from starlette.responses import FileResponse
         from api.routes.files import download_file
-        from core.content.artifact_refs import extract_file_ref, resolve_artifact_storage_key
+        from core.files.artifacts.refs import extract_file_ref, resolve_artifact_storage_key
         from core.db.engine import SessionLocal
     except ModuleNotFoundError as e:
         print(f"artifacts_selftest: SKIP (missing dependency: {e})")
         return 0
 
-    import core.artifacts.store as store
+    import core.files.artifacts.store as store
 
     original_store_dir = store._STORE_DIR  # type: ignore[attr-defined]
 

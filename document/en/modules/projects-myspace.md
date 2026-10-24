@@ -35,7 +35,7 @@ Key ORM models (`src/backend/core/db/models/`):
 
 ## Projects
 
-Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logic in `core/services/project_service.py` and `project_file_service.py`.
+Routes: `src/backend/api/routes/v1/projects.py` (CE router table); business logic in `core/projects/` and `project_file_service.py`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -71,16 +71,16 @@ In the project overview, the model and thinking-effort menu always opens downwar
 
 ### How project context enters a conversation
 
-When a conversation is started inside a project (the request carries `project_id`), `core/services/session_operations/request_context.py` assembles the workflow context:
+When a conversation is started inside a project (the request carries `project_id`), `core/chat/operations/request_context.py` assembles the workflow context:
 
 1. Project metadata is loaded — `project_name`, `project_instructions`, the linked folder name and working directory. Instructions still come from `AGENTS.md`; cloud and local project files are not recursively enumerated;
 2. `core/llm/factory/build.py` injects these into the system prompt via `_build_project_section` (`build_system_prompt(cfg, ctx=...)`);
 3. The project-level memory scope takes effect: the workspace becomes `project:<project_id>`; team projects use the mem0 bucket `team:<team_id>` (members share memories), and the project's own `metadata.memory_enabled` / `memory_write_enabled` override the user-level toggles (defaulting to on inside projects) — see [Memory System](./memory.md);
-4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/llm/tools/myspace_vfs/__init__.py`).
+4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/files/spaces/`).
 
 Custom project-mode prompt templates use project names, directory scope and instructions. Before upgrading an existing deployment, remove obsolete file-inventory and file-count placeholders from saved templates; the runtime no longer supplies those variables.
 
-Team project permissions follow team roles: owner/admin always have admin rights; members are governed by `file_permission` (editor/viewer) (`core/auth/permissions_iface.py::require_project_access`).
+Team project permissions follow team roles: owner/admin always have admin rights; members are governed by `file_permission` (editor/viewer) (`core/auth/personal_permissions_iface.py::require_project_access`).
 
 ### Project sidebar controls
 
@@ -167,7 +167,7 @@ Permission model: `TeamMember.role` (owner/admin/member) + `file_permission` (vi
 
 Three complementary paths:
 
-1. **Attachment injection (hooks)**: frontend requests send only `file_id`, `name`, and `mime_type` in each `attachments[]` item, never the file body. `core/llm/hooks.py` lazily downloads and parses by `file_id`, caching `parsed_text` and its summary; the first turn injects only metadata and a bounded preview of at most 5,000 characters, while xlsx previews also include total dimensions, headers, and a few data rows. The model reads content beyond the preview on demand through `read_artifact`; images still use multimodal injection. Every read validates `user_id` ownership to block forged cross-user access;
+1. **Attachment injection (hooks)**: frontend requests send only `file_id`, `name`, and `mime_type` in each `attachments[]` item, never the file body. `core/harness/hooks.py` lazily downloads and parses by `file_id`, caching `parsed_text` and its summary; the first turn injects only metadata and a bounded preview of at most 5,000 characters, while xlsx previews also include total dimensions, headers, and a few data rows. The model reads content beyond the preview on demand through `read_artifact`; images still use multimodal injection. Every read validates `user_id` ownership to block forged cross-user access;
 2. **Project file access**: a project conversation's system prompt supplies project instructions and directory scope without an automatic file inventory or count. The agent discovers files on demand through directory, search and read tools;
 3. **Sandbox virtual filesystem**: with code execution enabled, the `/myspace/...` path maps MySpace into the sandbox (lazy loading + reverse sync); team projects map the team folder — see [Sandbox](./sandbox.md).
 
@@ -176,8 +176,8 @@ Three complementary paths:
 | Path | Responsibility |
 |---|---|
 | `src/backend/api/routes/v1/projects.py` | Projects API |
-| `src/backend/core/services/project_service.py` / `project_file_service.py` | Project business logic |
-| `src/backend/core/services/project_scope.py` | `ProjectScope` (sandbox path scoping) |
+| `src/backend/core/projects/` / `project_file_service.py` | Project business logic |
+| `src/backend/core/projects/personal_scope.py` | `ProjectScope` (sandbox path scoping) |
 | `src/backend/api/routes/v1/myspace_folders.py` | Personal folders API |
 | `src/backend/api/routes/v1/artifacts.py` | Asset list / chat favorites / add-to-KB |
 | `src/backend/edition_ee/routes/team_files.py` | Team folders & files API (Enterprise Edition, EE) |
@@ -186,9 +186,9 @@ Three complementary paths:
 | `src/backend/core/db/models/identity.py` | Shared identity ORM such as `UserFolder` |
 | `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM (EE only) |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
-| `src/backend/core/llm/hooks.py` | Attachment context injection (`_build_file_context`, etc.) |
+| `src/backend/core/harness/hooks.py` | Attachment context injection (`_build_file_context`, etc.) |
 | `src/backend/core/llm/factory/build.py` | Project section injection into the system prompt |
-| `src/backend/core/llm/tools/myspace_vfs/__init__.py` | MySpace ↔ sandbox mapping layer |
+| `src/backend/core/files/spaces/` | MySpace ↔ sandbox mapping layer |
 | `src/frontend/src/components/projects/` | Project frontend components |
 | `src/frontend/src/components/sidebar/Sidebar.tsx` | Sidebar project groups, quick chat creation, and project actions |
 | `src/frontend/src/components/myspace/` | MySpace frontend components |
@@ -262,11 +262,8 @@ staleness is allowed. Failed registrations, missing files and failed downloads a
 revisited at the next normal synchronization, without continuous background retries.
 
 Before upgrading, stop writers and back up the database and myspace_cache.
-Preview with `python src/backend/scripts/clean_myspace_duplicates.py --all`.
-Apply only with `--apply --backup-dir <new-backup-directory>`.
-Cleanup deletes every live record in each duplicate group and its mirror path;
-it does not retain the newest record. Tombstones prevent historical backfill from
-resurrecting deleted identities. Original objects and recovery journals are retained.
+Inspect duplicate names and review a cleanup and recovery plan before upgrading.
+There is no standalone deduplication script.
 Then upgrade Alembic (EE: personalname01; CE: ce_0018), resume services and run
 reconciliation and end-to-end checks. Migration refuses remaining duplicates
 instead of silently deleting data in another environment.
@@ -275,13 +272,13 @@ never restore duplicate records into the running service.
 
 ### Space file tools
 
-Space file tools share the `core/llm/tools/space_tools.py` registration entry point: `space_list_myspace_files`, `space_stage_myspace_file`, `space_create_folder`, `space_move`, and `space_delete`. EE also provides `space_list_team_files`. Generic Read/Write/Edit/Glob/Grep names remain unchanged.
+Space file tools share the `core/files/spaces/` registration entry point: `space_list_myspace_files`, `space_stage_myspace_file`, `space_create_folder`, `space_move`, and `space_delete`. EE also provides `space_list_team_files`. Generic Read/Write/Edit/Glob/Grep names remain unchanged.
 Favorite-chat tools have been removed; historical chats remain accessible through `list_related_chats` and `read_chat`.
 
 
 ### Unified mounted-space synchronization
 
-Personal listeners live in `core/space_sync/`; team adapters live in `edition_ee/services/space_sync/`. Callbacks enqueue in memory, workers batch a durable SQLite journal outside writable mounts, then update database metadata and object storage with authorization and version checks. Native moves retain file/folder IDs. Empty directories, deletion, restart recovery and parsed-cache invalidation share this pipeline. Committed database changes refresh registered mounts; rollback publishes nothing. Conflicts preserve local bytes and fail synchronization barriers. Network transfers and human approval are outside callback latency; measure complete synchronization in the actual deployment.
+Personal listeners live in `core/files/spaces/`; team adapters live in `edition_ee/services/workspace_adapter.py`. Callbacks enqueue in memory, workers batch a durable SQLite journal outside writable mounts, then update database metadata and object storage with authorization and version checks. Native moves retain file/folder IDs. Empty directories, deletion, restart recovery and parsed-cache invalidation share this pipeline. Committed database changes refresh registered mounts; rollback publishes nothing. Conflicts preserve local bytes and fail synchronization barriers. Network transfers and human approval are outside callback latency; measure complete synchronization in the actual deployment.
 
 ### Project environment
 
@@ -291,7 +288,7 @@ Custom environments bind subagents, plugins, skills and connectors. The main age
 
 The backend limits capability registration, explicit invocation, restored session capabilities, subagents and dynamic plugin loading. An empty custom environment never falls back to all resources. Changes apply from the next turn; running responses and their derived jobs keep the original configuration. Conversations outside the project are unaffected. Basic file and conversation tools retain their existing permission rules.
 
-Implementation follows separate responsibilities: `core/project_environment/` validates configuration and resolves dependencies without catalog access. The resource service reads authorized inventory, the environment service saves and previews configuration, and the runtime policy freezes and narrows registration and invocation. The frontend editor composes the interface; `useProjectEnvironment` loads resources, previews dependencies and handles marketplace acquisition. Resource pickers display explicit bindings and inferred dependencies.
+Implementation follows separate responsibilities: `core/projects/environment/` validates configuration and resolves dependencies without catalog access. The resource service reads authorized inventory, the environment service saves and previews configuration, and the runtime policy freezes and narrows registration and invocation. The frontend editor composes the interface; `useProjectEnvironment` loads resources, previews dependencies and handles marketplace acquisition. Resource pickers display explicit bindings and inferred dependencies.
 
 ### Online cloud document editing
 

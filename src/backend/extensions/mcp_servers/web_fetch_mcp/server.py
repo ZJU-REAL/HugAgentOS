@@ -4,13 +4,13 @@ import logging
 from typing import Annotated, Any, Literal
 
 import httpx
-from mcp.server import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from .impl import fetch_url
 
 logger = logging.getLogger(__name__)
-mcp = FastMCP("hugagent-web-fetch")
+mcp = MCPServer("hugagent-web-fetch")
 
 
 @mcp.tool()

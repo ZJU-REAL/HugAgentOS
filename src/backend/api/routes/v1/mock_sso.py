@@ -15,7 +15,7 @@ import os
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
-from core.content.content_blocks import get_branding_info, is_register_allowed
+from core.files.content.branding import get_branding_info, is_register_allowed
 from core.infra.logging import get_logger
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -1453,7 +1453,7 @@ def _try_local_login(username: str, password: str) -> Optional[Dict[str, Any]]:
 
     try:
         from core.db.engine import SessionLocal
-        from core.services.local_user_service import LocalUserService
+        from core.auth.local_users import LocalUserService
     except Exception as exc:
         logger.warning("local auth unavailable: %s", exc)
         return None
@@ -1610,30 +1610,27 @@ async def _handle_register_submit(
         return _bounce("两次输入的密码不一致")
 
     try:
-        from core.db.engine import SessionLocal
-        from core.services.local_user_service import LocalUserService
+        from core.auth.local_users import LocalUserService
+        from core.db.threads import run_in_session
     except Exception as exc:
         logger.warning("local auth module unavailable: %s", exc)
         return _bounce("注册服务暂不可用")
 
-    db = SessionLocal()
     try:
-        service = LocalUserService(db)
-        result = service.register(
-            code=code,
-            username=username,
-            nickname=nickname,
-            email=email,
-            password=password,
-            real_name=real_name,
-            phone=phone,
+        result = await run_in_session(
+            lambda db: LocalUserService(db).register(
+                code=code,
+                username=username,
+                nickname=nickname,
+                email=email,
+                password=password,
+                real_name=real_name,
+                phone=phone,
+            )
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("register failed: %s", exc)
-        db.close()
         return _bounce("注册失败，请稍后重试")
-    finally:
-        db.close()
 
     if not result.ok or not result.user_info:
         return _bounce(result.message or "注册失败")

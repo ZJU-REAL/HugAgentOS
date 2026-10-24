@@ -8,33 +8,41 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from core.artifacts.store import get_artifact
+from core.files.artifacts.store import get_artifact
 from core.auth.backend import UserContext, require_auth
-from core.content.office import find_libreoffice_binary
-from core.content.office_preview_cache import cached_office_pdf
+from core.files.content.office import find_libreoffice_binary
+from core.files.content.office_preview_cache import cached_office_pdf
 from core.config.local_mode import local_mode_enabled
-from core.storage.local import LocalStorageBackend
+from core.files.storage.local import LocalStorageBackend
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.exceptions import StorageError
 from core.infra.proc import no_window_kwargs
-from core.services.artifact_edition import artifact_access_metadata, can_access_artifact_metadata
-from core.storage import get_storage
+from core.files.edition import artifact_access_metadata, can_access_artifact_metadata
+from core.files.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from api.routes.file_archive import router as archive_router
-from api.routes.local_file_actions import router as local_actions_router
+from features.desktop.api.local_file_actions import router as local_actions_router
 
 router = APIRouter(prefix="/files", tags=["files"])
 router.include_router(archive_router)
 router.include_router(local_actions_router)
-POWERPOINT_EXTENSIONS = {".ppt", ".pptx"}
-POWERPOINT_MIME_MARKERS = ("presentationml", "powerpoint")
-WORD_EXTENSIONS = {".doc", ".docx"}
-WORD_MIME_MARKERS = ("wordprocessingml", "msword")
+# Documents rendered to PDF by LibreOffice for browser preview: legacy binary
+# Word/PowerPoint, OOXML, OpenDocument text/presentation and RTF.
+OFFICE_PREVIEW_EXTENSIONS = {".doc", ".docx", ".rtf", ".odt", ".ppt", ".pptx", ".odp"}
+OFFICE_PREVIEW_MIME_MARKERS = (
+    "wordprocessingml",
+    "msword",
+    "presentationml",
+    "powerpoint",
+    "opendocument.text",
+    "opendocument.presentation",
+    "application/rtf",
+)
 
 
 def _load_artifact_item(file_id: str, db: Session) -> dict[str, Any]:
@@ -208,28 +216,16 @@ def _prepare_local_file(
     return str(temp_path)
 
 
-def _is_powerpoint_file(item: dict[str, Any]) -> bool:
-    name = str(item.get("name", ""))
+def _is_office_previewable(item: dict[str, Any]) -> bool:
+    ext = Path(str(item.get("name", ""))).suffix.lower()
     mime_type = str(item.get("mime_type", "")).lower()
-    ext = Path(name).suffix.lower()
-    return ext in POWERPOINT_EXTENSIONS or any(
-        marker in mime_type for marker in POWERPOINT_MIME_MARKERS
+    return ext in OFFICE_PREVIEW_EXTENSIONS or any(
+        marker in mime_type for marker in OFFICE_PREVIEW_MIME_MARKERS
     )
 
 
-def _is_word_file(item: dict[str, Any]) -> bool:
-    name = str(item.get("name", ""))
-    mime_type = str(item.get("mime_type", "")).lower()
-    ext = Path(name).suffix.lower()
-    return ext in WORD_EXTENSIONS or any(marker in mime_type for marker in WORD_MIME_MARKERS)
-
-
-def _is_office_previewable(item: dict[str, Any]) -> bool:
-    return _is_powerpoint_file(item) or _is_word_file(item)
-
-
 def _convert_office_to_pdf(source_path: str, file_id: str) -> tuple[str, str]:
-    """Render an Office document (PPT/PPTX/DOC/DOCX) to PDF via headless LibreOffice."""
+    """Render an Office document (DOC/DOCX/RTF/ODT/PPT/PPTX/ODP) to PDF via headless LibreOffice."""
     libreoffice = find_libreoffice_binary()
     if not libreoffice:
         raise RuntimeError(
@@ -421,7 +417,7 @@ def preview_file(
     user: Optional[UserContext] = Depends(require_auth(required=False)),
     db: Session = Depends(get_db),
 ):
-    """将 Office 文件（PPT/PPTX/DOC/DOCX）经 LibreOffice 转为可在浏览器内联预览的 PDF。
+    """将 Office 文件（DOC/DOCX/RTF/ODT/PPT/PPTX/ODP）经 LibreOffice 转为可在浏览器内联预览的 PDF。
 
     需通过文件访问鉴权；目前 format 仅支持 pdf。
     """
@@ -439,7 +435,7 @@ def preview_file(
     if not _is_office_previewable(item):
         raise HTTPException(
             status_code=400,
-            detail="Only Word (DOC/DOCX) and PowerPoint (PPT/PPTX) files support preview",
+            detail="Only Word (DOC/DOCX/RTF/ODT) and PowerPoint (PPT/PPTX/ODP) files support preview",
         )
 
     source_path = _prepare_local_file(

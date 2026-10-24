@@ -4,10 +4,10 @@ This is the machinery that makes the system learn rather than merely record, so
 the tests cover both directions: what must be promoted, and — more importantly —
 what must not be.
 """
+from core.evolution.cycle import patterns as patterns_module, promotion as promotion_module, promotion_constants as promotion_state_module, retirement as retirement_module, promotion as P
 
 import pytest
 
-from core.evolution import promotion as P
 
 
 def _episodes(n, *, verdict="success", tools=("search", "verify", "chart", "export")):
@@ -26,25 +26,25 @@ def _episodes(n, *, verdict="success", tools=("search", "verify", "chart", "expo
 
 
 def test_recurring_successful_subsequence_is_discovered():
-    patterns = P.discover_patterns(_episodes(8))
-    success = [p for p in patterns if p.kind == P.PATTERN_SUCCESS_SUBSEQUENCE]
+    patterns = patterns_module.discover_patterns(_episodes(8))
+    success = [p for p in patterns if p.kind == promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE]
     assert success and success[0].support == 8
     assert success[0].tool_sequence == ["search", "verify", "chart", "export"]
 
 
 def test_repeated_failures_are_discovered_separately():
-    patterns = P.discover_patterns(_episodes(7, verdict="failed"))
-    assert any(p.kind == P.PATTERN_REPEATED_FAILURE for p in patterns)
+    patterns = patterns_module.discover_patterns(_episodes(7, verdict="failed"))
+    assert any(p.kind == promotion_state_module.PATTERN_REPEATED_FAILURE for p in patterns)
 
 
 def test_low_support_clusters_produce_nothing():
     """One-off noise must not become a permanent asset."""
-    assert P.discover_patterns(_episodes(2)) == []
+    assert patterns_module.discover_patterns(_episodes(2)) == []
 
 
 def test_patterns_carry_the_memories_they_came_from():
-    patterns = P.discover_patterns(_episodes(6))
-    success = [p for p in patterns if p.kind == P.PATTERN_SUCCESS_SUBSEQUENCE][0]
+    patterns = patterns_module.discover_patterns(_episodes(6))
+    success = [p for p in patterns if p.kind == promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE][0]
     assert len(success.memory_refs) == 6
 
 
@@ -52,8 +52,8 @@ def test_patterns_carry_the_memories_they_came_from():
 
 
 def _success_pattern(support=27, rate=0.9, tools=("search", "verify", "chart", "export")):
-    return P.Pattern(
-        kind=P.PATTERN_SUCCESS_SUBSEQUENCE,
+    return patterns_module.Pattern(
+        kind=promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE,
         signature="→".join(tools),
         support=support,
         success_rate=rate,
@@ -81,7 +81,7 @@ def _supporting_episodes(
 
 def test_recurring_pattern_is_compiled_into_a_skill_proposal():
     """The 27-weekly-reports case: same request, same tools, separate chats."""
-    proposal = P.promote_tool_sequence_to_skill(
+    proposal = promotion_module.promote_tool_sequence_to_skill(
         _success_pattern(),
         episodes=_supporting_episodes(27),
         skill_credit=0.81,
@@ -102,8 +102,8 @@ def test_recurring_pattern_is_compiled_into_a_skill_proposal():
 
 
 def test_one_repeated_tool_call_is_not_mislabelled_as_a_sequence_skill():
-    pattern = P.Pattern(
-        kind=P.PATTERN_SUCCESS_SUBSEQUENCE,
+    pattern = patterns_module.Pattern(
+        kind=promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE,
         signature="call_subagent",
         support=9,
         success_rate=1.0,
@@ -112,7 +112,7 @@ def test_one_repeated_tool_call_is_not_mislabelled_as_a_sequence_skill():
     )
 
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             pattern, skill_credit=0.9, workflow_credit=0.1
         )
         is None
@@ -120,7 +120,7 @@ def test_one_repeated_tool_call_is_not_mislabelled_as_a_sequence_skill():
 
 
 def test_promotion_is_refused_when_orchestration_explains_it_better():
-    proposal = P.promote_tool_sequence_to_skill(
+    proposal = promotion_module.promote_tool_sequence_to_skill(
         _success_pattern(),
         episodes=_supporting_episodes(27),
         skill_credit=0.3,
@@ -133,7 +133,7 @@ def test_promotion_is_refused_when_orchestration_explains_it_better():
 
 def test_low_success_rate_is_not_promoted():
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             _success_pattern(rate=0.4), episodes=_supporting_episodes(27), skill_credit=0.9
         )
         is None
@@ -142,7 +142,7 @@ def test_low_success_rate_is_not_promoted():
 
 def test_insufficient_support_is_not_promoted():
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             _success_pattern(support=2), episodes=_supporting_episodes(2), skill_credit=0.9
         )
         is None
@@ -150,7 +150,7 @@ def test_insufficient_support_is_not_promoted():
 
 
 def test_existing_equivalent_skill_becomes_a_patch_not_a_twin():
-    proposal = P.promote_tool_sequence_to_skill(
+    proposal = promotion_module.promote_tool_sequence_to_skill(
         _success_pattern(),
         episodes=_supporting_episodes(27),
         skill_credit=0.9,
@@ -165,7 +165,7 @@ def test_a_trivial_sequence_is_never_promoted():
     for tools in (("view_text_file",), ("call_subagent", "view_text_file")):
         pattern = _success_pattern(support=9, rate=1.0, tools=tools)
         assert (
-            P.promote_tool_sequence_to_skill(
+            promotion_module.promote_tool_sequence_to_skill(
                 pattern, episodes=_supporting_episodes(9), skill_credit=0.9
             )
             is None
@@ -193,7 +193,7 @@ def test_unrelated_conversations_are_not_an_sop():
         for i in range(6)
     ]
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             _success_pattern(support=6), episodes=episodes, skill_credit=0.9
         )
         is None
@@ -204,7 +204,7 @@ def test_recurrence_within_one_conversation_is_one_occasion():
     """一场会话里反复跑同一套流程只算一次场合，不构成"这件事总在发生"。"""
     episodes = _supporting_episodes(6, chats=["chat-same"] * 6)
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             _success_pattern(support=6), episodes=episodes, skill_credit=0.9
         )
         is None
@@ -215,7 +215,7 @@ def test_no_request_text_means_no_commonality_and_no_promotion():
     """Commonality that cannot be established is not commonality."""
     episodes = _supporting_episodes(6, objective="")
     assert (
-        P.promote_tool_sequence_to_skill(
+        promotion_module.promote_tool_sequence_to_skill(
             _success_pattern(support=6), episodes=episodes, skill_credit=0.9
         )
         is None
@@ -225,12 +225,12 @@ def test_no_request_text_means_no_commonality_and_no_promotion():
 def test_promotion_without_supporting_views_is_refused():
     """A caller that cannot show the episodes gets a refusal, not the benefit
     of the doubt."""
-    assert P.promote_tool_sequence_to_skill(_success_pattern(), skill_credit=0.9) is None
+    assert promotion_module.promote_tool_sequence_to_skill(_success_pattern(), skill_credit=0.9) is None
 
 
 def test_personal_support_floor_is_honoured_when_passed():
     """个人路径发现阶段用门槛 3；晋升阶段必须沿用同一门槛，而不是全局的 5。"""
-    proposal = P.promote_tool_sequence_to_skill(
+    proposal = promotion_module.promote_tool_sequence_to_skill(
         _success_pattern(support=3),
         episodes=_supporting_episodes(3),
         min_support=3,
@@ -241,7 +241,7 @@ def test_personal_support_floor_is_honoured_when_passed():
 
 def test_procedural_memories_are_what_becomes_a_skill():
     """The chain the design promised: memory *content* compiled into a skill."""
-    proposal = P.promote_procedural_memory_to_skill(
+    proposal = promotion_module.promote_procedural_memory_to_skill(
         memories=[
             {
                 "ref": "mref-1",
@@ -270,7 +270,7 @@ def test_procedural_memories_are_what_becomes_a_skill():
 
 def test_a_recurring_intent_with_no_procedural_memory_yields_no_skill():
     assert (
-        P.promote_procedural_memory_to_skill(
+        promotion_module.promote_procedural_memory_to_skill(
             memories=[{"ref": "m", "memory_type": "fact", "content": "某公司是电池厂商"}],
             intent_cluster={"representative": "x", "episode_ids": []},
             occurrences=9,
@@ -284,7 +284,7 @@ def test_a_recurring_intent_with_no_procedural_memory_yields_no_skill():
 def test_a_failing_recurring_intent_is_never_distilled():
     """Distilling a failing approach would make it the house style."""
     assert (
-        P.promote_procedural_memory_to_skill(
+        promotion_module.promote_procedural_memory_to_skill(
             memories=[{"ref": "m", "memory_type": "procedural", "content": "先做 X"}],
             intent_cluster={"representative": "x", "episode_ids": []},
             occurrences=9,
@@ -298,7 +298,7 @@ def test_a_failing_recurring_intent_is_never_distilled():
 def test_a_stable_plan_needs_no_skill():
     """Same request, same plan every time: already effectively a skill."""
     assert (
-        P.promote_procedural_memory_to_skill(
+        promotion_module.promote_procedural_memory_to_skill(
             memories=[{"ref": "m", "memory_type": "procedural", "content": "先做 X"}],
             intent_cluster={"representative": "x", "episode_ids": []},
             occurrences=9,
@@ -313,8 +313,8 @@ def test_a_stable_plan_needs_no_skill():
 
 
 def _combo_pattern(support=9):
-    return P.Pattern(
-        kind=P.PATTERN_SUCCESS_SUBSEQUENCE,
+    return patterns_module.Pattern(
+        kind=promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE,
         signature="kb-search→fin-analyse→report",
         support=support,
         success_rate=0.9,
@@ -323,7 +323,7 @@ def _combo_pattern(support=9):
 
 
 def test_frequent_and_better_combination_is_promoted():
-    proposal = P.promote_skills_to_orchestration(
+    proposal = promotion_module.promote_skills_to_orchestration(
         _combo_pattern(), combo_success_rate=0.88, individual_success_rate=0.70
     )
     assert proposal is not None
@@ -336,7 +336,7 @@ def test_frequent_and_better_combination_is_promoted():
 def test_frequent_but_no_better_combination_is_not_promoted():
     """Frequency alone would promote every common sequence."""
     assert (
-        P.promote_skills_to_orchestration(
+        promotion_module.promote_skills_to_orchestration(
             _combo_pattern(), combo_success_rate=0.71, individual_success_rate=0.70
         )
         is None
@@ -347,7 +347,7 @@ def test_single_skill_is_never_an_orchestration_change():
     pattern = _combo_pattern()
     pattern.skill_sequence = ["only-one"]
     assert (
-        P.promote_skills_to_orchestration(
+        promotion_module.promote_skills_to_orchestration(
             pattern, combo_success_rate=0.99, individual_success_rate=0.1
         )
         is None
@@ -355,13 +355,13 @@ def test_single_skill_is_never_an_orchestration_change():
 
 
 def test_profile_invalidates_when_a_dependency_moves():
-    proposal = P.promote_skills_to_orchestration(
+    proposal = promotion_module.promote_skills_to_orchestration(
         _combo_pattern(),
         combo_success_rate=0.9,
         individual_success_rate=0.7,
         skill_versions={"kb-search": "v1", "fin-analyse": "v2", "report": "v1"},
     )
-    ok, stale = P.dependencies_satisfied(
+    ok, stale = promotion_module.dependencies_satisfied(
         proposal, {"kb-search": "v1", "fin-analyse": "v3", "report": "v1"}
     )
     # A profile pointing at a dead skill version is worse than no profile.
@@ -369,13 +369,13 @@ def test_profile_invalidates_when_a_dependency_moves():
 
 
 def test_profile_stays_valid_while_dependencies_hold():
-    proposal = P.promote_skills_to_orchestration(
+    proposal = promotion_module.promote_skills_to_orchestration(
         _combo_pattern(),
         combo_success_rate=0.9,
         individual_success_rate=0.7,
         skill_versions={"kb-search": "v1", "fin-analyse": "v2", "report": "v1"},
     )
-    ok, stale = P.dependencies_satisfied(
+    ok, stale = promotion_module.dependencies_satisfied(
         proposal, {"kb-search": "v1", "fin-analyse": "v2", "report": "v1"}
     )
     assert ok is True and stale == []
@@ -385,7 +385,7 @@ def test_profile_stays_valid_while_dependencies_hold():
 
 
 def test_overlapping_assets_are_surfaced_for_merge():
-    overlaps = P.find_overlaps(
+    overlaps = promotion_module.find_overlaps(
         {
             "skill-a": ["search", "verify", "chart"],
             "skill-b": ["search", "verify", "export"],
@@ -405,7 +405,7 @@ def test_retirement_reads_opens_not_offers():
     "never chosen" from "chosen and useless" is whether the model opened the
     document for itself.
     """
-    out = P.find_retirement_candidates(
+    out = retirement_module.find_retirement_candidates(
         {
             "never-opened": {
                 "offers": 40, "opens": 0, "success_rate": 0.0,
@@ -429,16 +429,16 @@ def test_retirement_reads_opens_not_offers():
     assert set(by_id) == {"never-opened", "opened-but-ignored", "opened-and-failing"}
 
     # Never opened is a discovery problem, not a reason to remove a capability.
-    assert by_id["never-opened"]["action"] == P.ACTION_LOWER_EXPOSURE
+    assert by_id["never-opened"]["action"] == promotion_state_module.ACTION_LOWER_EXPOSURE
     # Opened and ignored is a *content* problem: retiring it would remove a
     # capability the model actively wanted.
-    assert by_id["opened-but-ignored"]["action"] == P.ACTION_REWRITE
-    assert by_id["opened-and-failing"]["action"] == P.ACTION_RETIRE
+    assert by_id["opened-but-ignored"]["action"] == promotion_state_module.ACTION_REWRITE
+    assert by_id["opened-and-failing"]["action"] == promotion_state_module.ACTION_RETIRE
 
 
 def test_a_freshly_shipped_skill_is_never_retired():
     """The old rule's answer here was "retire it", which punished newness."""
-    out = P.find_retirement_candidates(
+    out = retirement_module.find_retirement_candidates(
         {
             "just-shipped": {
                 "offers": 30, "opens": 0, "success_rate": 0.0,
@@ -450,7 +450,7 @@ def test_a_freshly_shipped_skill_is_never_retired():
 
 
 def test_a_harmful_skill_is_rolled_back_immediately():
-    out = P.find_retirement_candidates(
+    out = retirement_module.find_retirement_candidates(
         {
             "harmful": {
                 "offers": 40, "opens": 20, "success_rate": 0.9,
@@ -460,14 +460,14 @@ def test_a_harmful_skill_is_rolled_back_immediately():
     )
     # The one case that does not wait for the exposure window: a paired
     # comparison already showed it makes things worse.
-    assert out and out[0]["action"] == P.ACTION_ROLLBACK
+    assert out and out[0]["action"] == promotion_state_module.ACTION_ROLLBACK
 
 
 # ── Negative transfer: the dangerous, silent failure ─────────────────────────
 
 
 def test_collateral_damage_on_unrelated_tasks_is_detected():
-    findings = P.detect_negative_transfer(
+    findings = retirement_module.detect_negative_transfer(
         asset_id="skill-weekly-report",
         related_task_types=["report_generation"],
         before={"report_generation": 0.70, "db_analysis": 0.85, "kb_qa": 0.80},
@@ -480,7 +480,7 @@ def test_collateral_damage_on_unrelated_tasks_is_detected():
 
 
 def test_a_dip_on_the_targeted_task_is_not_negative_transfer():
-    findings = P.detect_negative_transfer(
+    findings = retirement_module.detect_negative_transfer(
         asset_id="skill-x",
         related_task_types=["report_generation"],
         before={"report_generation": 0.9},
@@ -491,7 +491,7 @@ def test_a_dip_on_the_targeted_task_is_not_negative_transfer():
 
 
 def test_small_fluctuations_are_not_flagged():
-    findings = P.detect_negative_transfer(
+    findings = retirement_module.detect_negative_transfer(
         asset_id="skill-x",
         related_task_types=[],
         before={"kb_qa": 0.800},
@@ -501,7 +501,7 @@ def test_small_fluctuations_are_not_flagged():
 
 
 def test_task_types_without_a_baseline_are_skipped():
-    findings = P.detect_negative_transfer(
+    findings = retirement_module.detect_negative_transfer(
         asset_id="skill-x", related_task_types=[], before={}, after={"new_task": 0.1}
     )
     assert findings == []

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from core.db.model_repository import assign_role, create_provider
+from core.models.repository import assign_role, create_provider
 from tests.services.test_audio_routes import setup as setup
 
 BASE_URL = os.environ.get("HUGAGENT_TEST_ASR_URL")

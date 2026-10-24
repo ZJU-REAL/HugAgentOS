@@ -2,9 +2,9 @@
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-from core.applications.migration import inventory
-from core.applications.migration_snapshot import read_snapshot
-from core.db.edition_tables import ce_create_all
+from features.workbench.migration import inventory
+from features.workbench.migration_snapshot import read_snapshot
+from core.db.edition import ce_create_all
 from core.db.models import ContentBlock, InstalledPlugin, UserShadow, CatalogOverride
 
 

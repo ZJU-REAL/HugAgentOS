@@ -162,13 +162,6 @@ export function OntologyRevisionPanel({
   revisionToolCalls.forEach((tool, index) => {
     revisionRunSteps.push({ kind: 'tool', tool, key: `${chatMessage.ts}-ontology-tool-${tool.id || index}` });
   });
-  if (revision?.toolPending) {
-    revisionRunSteps.push({
-      kind: 'pending',
-      startTs: chatMessage.lastActivityTs || chatMessage.ts,
-      key: `${chatMessage.ts}-ontology-pending`,
-    });
-  }
 
   const handleAccept = useCallback(async () => {
     if (!candidate.trim() || accepting || accepted) return;

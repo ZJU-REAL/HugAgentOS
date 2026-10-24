@@ -84,7 +84,7 @@ async def monitor(svc=Depends(service)):
     from personal_agent.conversation.message_routing import pending
     from personal_agent.delivery.outputs import listing
     from personal_agent.computer.devices import list_devices
-    from core.db.models import EmailConnection
+    from integrations.email.models import EmailConnection
     from personal_agent.scheduling.schedules import listing as schedule_listing
     from personal_agent.scheduling.heartbeat import view as heartbeat_view
 

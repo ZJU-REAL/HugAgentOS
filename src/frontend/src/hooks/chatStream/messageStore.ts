@@ -45,9 +45,8 @@ export function commitUpdate(s: ChatStreamState, streaming: boolean, cits?: Cita
             segments: s.segments.length > 0 ? [...s.segments] : undefined,
             isStreaming: streaming,
             inFlight: streaming && s.runId ? { eventOffset: s.eventOffset, textSnapshotOffset: s.textSnapshotOffset } : undefined,
-            toolPending: streaming && s.toolPending,
-            // Persisted activity stamp — anchors the "正在准备调用工具…" timer so
-            // it survives a session switch / refresh remount (see useStallDetector).
+            // Persisted activity stamp — anchors the stall clock so it survives
+            // a session switch / refresh remount (see useStallDetector).
             // 取服务端下发的时刻而非本地钟：另一台设备接上同一轮时读到的是同一个值。
             lastActivityTs: s.lastEventTs,
         };
@@ -206,7 +205,6 @@ export function applySteerBoundary(s: ChatStreamState, eventObj: Record<string, 
     s.metaWorkspaceFiles = null;
     s.parseBuffer = '';
     s.deferredThinkingText = undefined;
-    s.toolPending = false;
     s.implicitThinkSegIdxs.clear();
     s.sawThinkCloseTag = false;
     s.thinkingPhaseActive = s.enableThinking && !s.structuredReasoning;

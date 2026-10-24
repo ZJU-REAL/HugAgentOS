@@ -7,14 +7,13 @@ from datetime import datetime, timedelta, timezone
 from threading import Barrier
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
+from core.chat.runtime.handoff import _commit_queued_handoff_in_session
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
-from core.services.run_journal import RunJournal
-from core.services.steer_queue import SteerClaimLost, SteerQueue, SteerQueueConflict
-from orchestration.chat_run_executor import _commit_queued_handoff_in_session
+from core.runs.journal import RunJournal
+from core.chat.steer_queue import SteerClaimLost, SteerQueue, SteerQueueConflict
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 class Clock:
@@ -357,7 +356,7 @@ def test_run_completion_atomically_creates_exactly_one_handoff_run(queue_env, mo
         assert queued_messages[0].content == item.message
         assert handoff["user_message_id"] == queued_messages[0].message_id
 
-    from core.services import chat_steer_service
+    from core.chat import steer as chat_steer_service
 
     monkeypatch.setattr(chat_steer_service, "SessionLocal", sessions)
     payload = chat_steer_service.list_run_steers("run-1")[0]

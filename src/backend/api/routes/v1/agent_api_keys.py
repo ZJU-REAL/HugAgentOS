@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import created_response, paginated_response, success_response
-from core.services.agent_api_service import list_agent_api_calls, require_agent_manager
-from core.services.api_key_service import ApiKeyService
+from core.auth.agent_api import list_agent_api_calls, require_agent_manager
+from core.auth.api_keys import ApiKeyService
 
 router = APIRouter(prefix="/v1/agents", tags=["Agent API Keys"])
 _ALLOWED_EXPIRY_DAYS = {7, 30, 90, 180, 365}
@@ -134,15 +135,16 @@ async def toggle_key(
     key_id: str,
     body: ToggleAgentApiKeyRequest,
     user: UserContext = Depends(_manager),
-    db: Session = Depends(get_db),
 ):
-    _find(db, user, agent_id, key_id)
-    row = ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, agent_id)
-    data = _dto(row)
-    if not body.enabled:
-        from core.services.api_key_runs import stop_cancelled_key_workers
+    def toggle(db):
+        _find(db, user, agent_id, key_id)
+        return _dto(ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, agent_id))
 
-        await stop_cancelled_key_workers(db, key_id, user.user_id)
+    data = await run_in_session(toggle)
+    if not body.enabled:
+        from core.auth.api_key_runs import stop_cancelled_key_workers
+
+        await stop_cancelled_key_workers(key_id, user.user_id)
     return success_response(data=data)
 
 
@@ -151,13 +153,15 @@ async def revoke_key(
     agent_id: str,
     key_id: str,
     user: UserContext = Depends(_manager),
-    db: Session = Depends(get_db),
 ):
-    _find(db, user, agent_id, key_id)
-    ApiKeyService(db).revoke_key(user.user_id, key_id, agent_id)
-    from core.services.api_key_runs import stop_cancelled_key_workers
+    def revoke(db):
+        _find(db, user, agent_id, key_id)
+        ApiKeyService(db).revoke_key(user.user_id, key_id, agent_id)
 
-    await stop_cancelled_key_workers(db, key_id, user.user_id)
+    await run_in_session(revoke)
+    from core.auth.api_key_runs import stop_cancelled_key_workers
+
+    await stop_cancelled_key_workers(key_id, user.user_id)
     return success_response(data={"id": key_id, "revoked": True})
 
 

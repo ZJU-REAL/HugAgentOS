@@ -44,11 +44,8 @@ def db_session(monkeypatch):
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
     import core.chat.plan_progress as pp_mod
-    from orchestration import job_wakeup, workflow
 
     monkeypatch.setattr(pp_mod, "SessionLocal", Session, raising=False)
-    monkeypatch.setattr(job_wakeup, "SessionLocal", Session, raising=False)
-    monkeypatch.setattr(workflow, "SessionLocal", Session, raising=False)
 
     with Session() as db:
         db.add(ChatSession(chat_id="chat_1", user_id="u1", title="批量分类", extra_data={}))
@@ -101,7 +98,7 @@ def test_new_user_turn_clears_the_plan(db_session):
 
 def test_live_job_blocks_settling(db_session):
     """作业还在后台跑 → 本轮结束不收尾（交付轮还会来更新它）。"""
-    from orchestration.workflow import _chat_has_live_job
+    from core.agent_runtime.events import _chat_has_live_job
 
     assert _chat_has_live_job("chat_1") is False
     with db_session() as db:
@@ -129,8 +126,8 @@ def test_live_job_blocks_settling(db_session):
 def test_finish_wake_prompt_reads_the_checklist_back(db_session):
     """终态唤醒必须把清单原样念给模型，并把收尾排在交付之前。"""
     from core.chat.plan_progress import save_plan_progress
+    from core.chat.runtime.job_wakeup import _wake_prompt
     from core.db.models import Job as JobModel
-    from orchestration.job_wakeup import _wake_prompt
 
     save_plan_progress("chat_1", PLAN_5)
     from core.chat.plan_progress import load_plan_progress
@@ -146,8 +143,8 @@ def test_finish_wake_prompt_reads_the_checklist_back(db_session):
 
 def test_finished_plan_is_not_nagged_about(db_session):
     """清单已经全部结算（或压根没用过计划栏）→ 别在唤醒轮里凭空要求它调 update_plan。"""
+    from core.chat.runtime.job_wakeup import _wake_prompt
     from core.db.models import Job as JobModel
-    from orchestration.job_wakeup import _wake_prompt
 
     job = JobModel(job_id="job_1", name="问答记录分类", status="completed")
     done_plan = {"title": "x", "steps": [{"title": "a", "status": "completed"}]}

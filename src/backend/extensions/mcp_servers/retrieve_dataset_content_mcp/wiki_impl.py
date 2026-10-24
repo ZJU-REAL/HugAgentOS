@@ -54,7 +54,7 @@ def _accessible_local_kb_ids(current_user_id: Optional[str]) -> List[str]:
     if not user_id:
         return []
     try:
-        from core.auth.kb_permissions import get_accessible_local_kb_ids
+        from features.knowledge.edition import get_accessible_local_kb_ids
         from core.db.engine import SessionLocal
 
         with SessionLocal() as db:
@@ -68,7 +68,7 @@ def _assert_access(
     kb_id: str, *, allowed_kb_ids: Optional[str], current_user_id: Optional[str]
 ) -> None:
     """自建库要过权限；外接库的白名单由其实现模块把关。"""
-    from core.kb.wiki_router import is_local_kb
+    from features.knowledge.wiki_router import is_local_kb
 
     if not is_local_kb(kb_id):
         return
@@ -89,7 +89,7 @@ def _wiki_module(
     权限校验和模块解析绑在一起，是为了让「先鉴权再取数」成为唯一写法——分开写
     迟早会有某个工具漏掉那一行。
     """
-    from core.kb.wiki_router import wiki_module_for
+    from features.knowledge.wiki_router import wiki_module_for
 
     _assert_access(kb_id, allowed_kb_ids=allowed_kb_ids, current_user_id=current_user_id)
     module = wiki_module_for(kb_id)
@@ -101,7 +101,7 @@ def _wiki_module(
 def wiki_supported() -> bool:
     """平台上是否存在任何 Wiki 源（决定工具是否暴露在清单里）。"""
     try:
-        from core.kb.wiki_router import supports_wiki
+        from features.knowledge.wiki_router import supports_wiki
 
         return bool(supports_wiki())
     except Exception:
@@ -125,7 +125,7 @@ def resolve_dataset_id(
     if explicit:
         return explicit
 
-    from core.kb.wiki_router import wiki_capable_local_kb_ids
+    from features.knowledge.wiki_router import wiki_capable_local_kb_ids
 
     local_candidates = _split_ids(allowed_kb_ids) or _accessible_local_kb_ids(current_user_id)
     wiki_locals = wiki_capable_local_kb_ids(local_candidates)
@@ -137,7 +137,7 @@ def resolve_dataset_id(
         return external[0]
 
     try:
-        from core.kb.external_provider import list_collections
+        from features.knowledge.edition import list_collections
 
         for item in list_collections() or []:
             caps = item.get("capabilities") or {}

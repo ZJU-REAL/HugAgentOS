@@ -45,7 +45,6 @@ s.metaDurationMs = null;
 s.compactionPending = false;
 s.parseBuffer = '';
 s.deferredThinkingText = undefined;
-s.toolPending = false;
 s.ontologySidebarAutoOpened = false;
 s.aborted = false;
 s.thinkingPhaseActive = s.enableThinking;

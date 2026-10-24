@@ -1,4 +1,5 @@
 """Versioned desktop templates. Facts and selection stay in runtime code."""
+from core.llm import prompt_rendering as prompt_rendering_module
 from contextlib import contextmanager
 from contextvars import ContextVar
 from prompts.provider import render_template
@@ -7,9 +8,9 @@ _override = ContextVar("desktop_prompt_version", default=None)
 
 
 def desktop_parts():
-    from core.services import prompt_version_service as pvs
+    from core.llm import prompt_versions as pvs
     version = _override.get()
-    return version.get("parts", []) if version is not None else pvs.effective_parts("desktop")
+    return version.get("parts", []) if version is not None else prompt_rendering_module.effective_parts("desktop")
 
 
 def render_desktop_part(part_id, **variables):

@@ -54,8 +54,6 @@ interface AutomationChatState {
   exitAutomationChat: () => void;
   selectRun: (runId: string) => void;
   setRuns: (runs: AutomationRun[]) => void;
-  toggleSidebarPinned: (taskId: string) => void;
-  toggleSidebarFavorite: (taskId: string) => void;
   setSidebarFavorite: (taskId: string, favorite: boolean) => void;
   /** Switch into the given user's context (idempotent). */
   hydrateForUser: (userId: string) => void;
@@ -93,8 +91,9 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
   sidebarPrefs: {},
 
   enterAutomationChat: (taskId, taskName, runs, initialRunId) => {
-    const completedRuns = runs.filter(run => run.status !== 'running' && run.chat_id);
-    const target = completedRuns.find(run => run.run_id === initialRunId) || completedRuns[0];
+    // 执行中的 run 在后端接受时就已关联对话，打开即可看到实时进度，不必等它结束
+    const viewableRuns = runs.filter(run => run.chat_id);
+    const target = viewableRuns.find(run => run.run_id === initialRunId) || viewableRuns[0];
     set({ activeGroup: { taskId, taskName, runs }, selectedRunId: target?.run_id || null });
     if (target?.chat_id) {
       prepareRunChat(taskId, taskName, target);
@@ -107,7 +106,7 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
   selectRun: (runId) => {
     const group = get().activeGroup;
     const run = group?.runs.find(item => item.run_id === runId);
-    if (!group || !run?.chat_id || run.status === 'running') return;
+    if (!group || !run?.chat_id) return;
     set({ selectedRunId: runId });
     prepareRunChat(group.taskId, group.taskName, run);
     navigateTo(pathForAutomationChat(group.taskId, run.chat_id));
@@ -117,32 +116,6 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
     const group = get().activeGroup;
     if (group) set({ activeGroup: { ...group, runs } });
   },
-
-  toggleSidebarPinned: (taskId) => set((state) => {
-    const prev = state.sidebarPrefs[taskId] || {};
-    const nextPrefs = {
-      ...state.sidebarPrefs,
-      [taskId]: {
-        ...prev,
-        pinned: !prev.pinned,
-      },
-    };
-    saveSidebarPrefs(get().currentUserId, nextPrefs);
-    return { sidebarPrefs: nextPrefs };
-  }),
-
-  toggleSidebarFavorite: (taskId) => set((state) => {
-    const prev = state.sidebarPrefs[taskId] || {};
-    const nextPrefs = {
-      ...state.sidebarPrefs,
-      [taskId]: {
-        ...prev,
-        favorite: !prev.favorite,
-      },
-    };
-    saveSidebarPrefs(get().currentUserId, nextPrefs);
-    return { sidebarPrefs: nextPrefs };
-  }),
 
   setSidebarFavorite: (taskId, favorite) => set((state) => {
     const prev = state.sidebarPrefs[taskId] || {};

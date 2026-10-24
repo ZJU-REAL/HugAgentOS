@@ -4,7 +4,7 @@ import json
 
 import pytest
 from agentscope.tool import Toolkit
-from core.llm.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 from core.llm.tools import ask_user_question_tool as tool_module
 
 
@@ -64,13 +64,13 @@ def test_registration_policy_only_allows_standard_interactive_root(kwargs, expec
 
 @pytest.mark.asyncio
 async def test_registered_schema_matches_dsh_model_contract():
-    collector = ToolCollector()
+    collector = ToolAssembly()
     tool_module.register_ask_user_question(
         collector,
         chat_id="chat-schema",
         interactive=True,
     )
-    toolkit = Toolkit(tools=collector.function_tools)
+    toolkit = Toolkit(tools=list(collector))
 
     schema = next(
         item["function"]
@@ -110,7 +110,9 @@ async def test_tool_returns_structured_answer_from_suspended_service(monkeypatch
     captured = {}
 
     class CaptureToolkit:
-        def register_tool_function(self, function, **_kwargs):
+        def append(self, tool):
+            function = tool._func
+            _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             captured["function"] = function
 
     async def fake_ask(**kwargs):
@@ -179,7 +181,9 @@ async def test_tool_surfaces_non_answer_outcomes_without_retry_loop(
     captured = {}
 
     class CaptureToolkit:
-        def register_tool_function(self, function, **_kwargs):
+        def append(self, tool):
+            function = tool._func
+            _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             captured["function"] = function
 
     async def fake_ask(**_kwargs):

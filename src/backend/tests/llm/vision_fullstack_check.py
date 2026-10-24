@@ -199,7 +199,7 @@ def _run(client, headers, stub_url) -> tuple[bool, str]:
     )
     ok &= _check("指派 vision 角色", assign.status_code == 200, assign.text[:160])
 
-    from core.services.model_config import ModelConfigService
+    from core.models.config import ModelConfigService
 
     ModelConfigService.get_instance().invalidate_cache()
 
@@ -291,7 +291,7 @@ def main() -> int:
             if provider_id:
                 client.delete("/v1/models/roles/vision", headers=headers)
                 client.delete(f"/v1/models/providers/{provider_id}", headers=headers)
-                from core.services.model_config import ModelConfigService
+                from core.models.config import ModelConfigService
 
                 ModelConfigService.get_instance().invalidate_cache()
                 print("cleanup: 临时视觉供应商已删除", flush=True)

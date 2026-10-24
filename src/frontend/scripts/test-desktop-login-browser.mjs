@@ -29,7 +29,7 @@ async function until(fn, message, ms = 30000) {
   }
   throw new Error(message);
 }
-const server = child('.venv/bin/python', ['src/backend/tests/desktop_login_browser_server.py']);
+const server = child('.venv/bin/python', ['src/backend/tests/features/desktop/desktop_login_browser_server.py']);
 let browser;
 try {
   const base = await until(() => server.output.match(/FIXTURE_URL (\S+)/)?.[1], 'fixture startup: ' + server.errors);

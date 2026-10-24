@@ -11,8 +11,9 @@ from core.memory.executor import run_effect
 from core.memory.ttl_sweeper import memory_entry_expired
 from core.memory.retrieval_types import MemoryRetrievalResult, RetrievedRelation, build_memory_item
 
-logger = logging.getLogger(__name__)
 from . import backend
+
+logger = logging.getLogger(__name__)
 
 
 async def retrieve_memories(

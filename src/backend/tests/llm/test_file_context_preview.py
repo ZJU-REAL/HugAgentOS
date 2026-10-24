@@ -1,4 +1,7 @@
 """Regression tests for file_id-only attachment requests and bounded previews."""
+from core.llm.runtime import file_context as file_context_module
+from core.files.content import spreadsheet_parser
+from core.files import artifact_bytes as shared_artifact_bytes
 
 
 def test_attachment_schema_discards_legacy_content_and_download_url():
@@ -22,8 +25,8 @@ def test_attachment_schema_discards_legacy_content_and_download_url():
 
 
 def test_regular_file_context_uses_bounded_lazy_preview(monkeypatch):
-    from core.content import artifact_reader
-    from core.llm.hooks import _build_file_context
+    from core.files.artifacts import reader as artifact_reader
+    from core.llm.runtime.file_context import build_file_context as _build_file_context
 
     parsed = "A" * artifact_reader.ATTACHMENT_PREVIEW_MAX_CHARS + "UNSEEN_TAIL"
     monkeypatch.setattr(artifact_reader, "fetch_parsed_text", lambda *args, **kwargs: parsed)
@@ -47,13 +50,12 @@ def test_regular_file_context_uses_bounded_lazy_preview(monkeypatch):
 
 
 def test_xlsx_context_uses_preview_budget_without_batch_hint(monkeypatch):
-    from core.content import artifact_reader
-    from core.content import file_parser
-    from core.llm import hooks
+    from core.files.artifacts import reader as artifact_reader
+    from core.files.content import file_parser
 
     seen = {}
 
-    monkeypatch.setattr(hooks, "_download_artifact_bytes", lambda *args, **kwargs: b"xlsx")
+    monkeypatch.setattr(shared_artifact_bytes, 'download_artifact_bytes', lambda *args, **kwargs: b"xlsx")
     monkeypatch.setattr(artifact_reader, "fetch_parsed_text", lambda *args, **kwargs: "cached")
 
     def fake_preview(_file_bytes, char_budget):
@@ -68,9 +70,9 @@ def test_xlsx_context_uses_preview_budget_without_batch_hint(monkeypatch):
             "truncated_cells": 0,
         }
 
-    monkeypatch.setattr(file_parser, "parse_xlsx_preview", fake_preview)
+    monkeypatch.setattr(spreadsheet_parser, 'parse_xlsx_preview', fake_preview)
 
-    block = hooks._build_xlsx_preview_block(
+    block = file_context_module.build_xlsx_preview_block(
         {
             "name": "large.xlsx",
             "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

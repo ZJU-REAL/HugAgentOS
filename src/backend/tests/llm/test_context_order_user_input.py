@@ -10,17 +10,11 @@ that for a fresh request, and ran the whole turn again.
 
 from agentscope.message import Msg, ToolCallBlock, ToolResultBlock
 
-from core.llm.context_adapter import (
-    AgentScopeContextAdapter,
-    next_request_sequence,
-    render_context_item,
-)
-from core.llm.context_ir import (
-    KIND_USER_INPUT,
-    POLICY_NEVER,
-    ContextAssembler,
-    ContextItem,
-)
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.rendering import next_request_sequence, render_context_item
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir import ContextAssembler
+from core.llm.context.items import ContextItem
 
 USER_TEXT = "新建一个 test 文件夹，派 5 个子智能体各生成一份 html 放进去"
 

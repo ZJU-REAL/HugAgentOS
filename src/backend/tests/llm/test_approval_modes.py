@@ -10,19 +10,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from agentscope.message import ToolCallBlock
-from core.llm.tool_permissions import (
-    APPROVAL_ASK,
-    APPROVAL_AUTO,
-    APPROVAL_FULL,
-    READ,
-    WRITE,
-    PermissionRuntime,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    local_path_tool,
-    normalize_approval_mode,
-)
-from core.llm.tools._tool_confirmation import OP_DELETE, OP_WRITE
+from core.sandbox.permissions.approval import APPROVAL_ASK, APPROVAL_AUTO, APPROVAL_FULL, normalize_approval_mode
+from core.sandbox.permissions.dispatch_models import READ, WRITE, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, local_path_tool
+from core.llm.tool_permissions import ToolPermissionService
+from core.llm.tools.confirmation import OP_DELETE, OP_WRITE
 from core.sandbox.permissions.models import DANGER_REASON_PREFIX
 from core.sandbox.permissions.models import DELETE
 from core.sandbox.permissions.models import danger_categories
@@ -80,7 +72,7 @@ def test_danger_categories_are_recovered_from_verdict_reasons():
 @pytest.mark.asyncio
 async def test_ask_preset_still_confirms_an_ordinary_write():
     gate = AsyncMock(return_value={"status": "blocked", "error": "等确认"})
-    with patch("core.llm.tools._tool_confirmation.gate", gate):
+    with patch("core.llm.tools.confirmation.gate", gate):
         outcome = await _service(APPROVAL_ASK).authorize(
             _tool_call("Write", {"file_path": "/myspace/a.txt", "content": "x"})
         )
@@ -92,7 +84,7 @@ async def test_ask_preset_still_confirms_an_ordinary_write():
 @pytest.mark.asyncio
 async def test_approve_for_me_passes_writes_but_still_asks_before_deleting():
     gate = AsyncMock(return_value={"status": "blocked", "error": "等确认"})
-    with patch("core.llm.tools._tool_confirmation.gate", gate):
+    with patch("core.llm.tools.confirmation.gate", gate):
         service = _service(APPROVAL_AUTO)
         written = await service.authorize(
             _tool_call("Write", {"file_path": "/myspace/a.txt", "content": "x"})
@@ -110,7 +102,7 @@ async def test_approve_for_me_passes_writes_but_still_asks_before_deleting():
 @pytest.mark.asyncio
 async def test_full_access_never_asks_even_to_delete():
     gate = AsyncMock()
-    with patch("core.llm.tools._tool_confirmation.gate", gate):
+    with patch("core.llm.tools.confirmation.gate", gate):
         outcome = await _service(APPROVAL_FULL).authorize(
             _tool_call("space_delete", {"path": "/myspace/a.txt"})
         )

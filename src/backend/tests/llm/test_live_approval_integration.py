@@ -3,15 +3,15 @@
 import asyncio
 import uuid
 import pytest
-from core.llm.tools import _tool_confirmation as confirms
-from core.services.user_service import UserService
+from core.llm.tools import confirmation as confirms
+from core.auth.users import UserService
 from tests.llm.test_shared_human_interactions import shared_store, pending_on
 from tests.storage.project_fixtures import team
 
 
 @pytest.fixture(autouse=True)
 def isolated_local_confirm_state(monkeypatch):
-    monkeypatch.setattr(confirms.state, "_CHATS", {})
+    monkeypatch.setattr(confirms.state.process_state(), "CHATS", {})
 
 
 @pytest.mark.asyncio
@@ -178,7 +178,7 @@ async def test_cancelled_waiter_does_not_claim_execution(monkeypatch):
         pending = await pending_on(confirms, chat)
         cid = pending[0]["confirm_id"]
         for _ in range(100):
-            if confirms.state._CHATS[chat].pending[cid].waiters == 2:
+            if confirms.state.process_state().CHATS[chat].pending[cid].waiters == 2:
                 break
             await asyncio.sleep(0.01)
         assert (await confirms.set_decision_shared(chat, cid, "allow"))["ok"]

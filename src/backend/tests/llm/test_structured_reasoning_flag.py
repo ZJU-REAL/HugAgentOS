@@ -13,8 +13,8 @@ own output item, so it is a protocol constant there rather than a per-model sett
 These tests therefore pin the chat protocol explicitly.
 """
 
-from core.llm.chat_models import make_chat_model
-from core.llm.providers.registry import get_spec
+from core.models.chat_models import make_chat_model
+from core.models.providers.registry import get_spec
 
 
 def _mk(**kw):

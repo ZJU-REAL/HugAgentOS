@@ -14,10 +14,12 @@ hash in the store rather than the raw value.
 Degrades to in-process storage when the backend has no Redis (same approach as
 session.py, dev/single-instance only).
 """
+from __future__ import annotations
 
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -27,7 +29,6 @@ from core.infra.logging import get_logger
 logger = get_logger(__name__)
 
 TICKET_KEY_PREFIX = "jx:oa_ticket:"
-_MEMORY_TICKETS: dict[str, dict[str, Any]] = {}
 
 
 def _ttl_seconds() -> int:
@@ -44,8 +45,8 @@ def _use_memory_store() -> bool:
 
 def _prune_expired_memory() -> None:
     now = datetime.now(timezone.utc)
-    for key in [k for k, v in _MEMORY_TICKETS.items() if v.get("expires_at") and v["expires_at"] <= now]:
-        _MEMORY_TICKETS.pop(key, None)
+    for key in [k for k, v in process_state().MEMORY_TICKETS.items() if v.get("expires_at") and v["expires_at"] <= now]:
+        process_state().MEMORY_TICKETS.pop(key, None)
 
 
 async def issue_ticket(payload: Dict[str, Any]) -> str:
@@ -62,7 +63,7 @@ async def issue_ticket(payload: Dict[str, Any]) -> str:
 
     if _use_memory_store():
         _prune_expired_memory()
-        _MEMORY_TICKETS[key] = {
+        process_state().MEMORY_TICKETS[key] = {
             "payload": body,
             "expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl),
         }
@@ -84,7 +85,7 @@ async def consume_ticket(token: str) -> Optional[Dict[str, Any]]:
 
     if _use_memory_store():
         _prune_expired_memory()
-        entry = _MEMORY_TICKETS.pop(key, None)
+        entry = process_state().MEMORY_TICKETS.pop(key, None)
         if entry is None:
             return None
         return dict(entry["payload"])
@@ -106,3 +107,15 @@ async def consume_ticket(token: str) -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, TypeError):
         logger.warning("oa_ticket_corrupt", token_hash=key[:8])
         return None
+
+
+@dataclass
+class OaTicketStoreState:
+    MEMORY_TICKETS: dict[str, dict[str, Any]] = field(default_factory=lambda: {})
+
+
+_STATE = OaTicketStoreState()
+
+
+def process_state() -> OaTicketStoreState:
+    return _STATE

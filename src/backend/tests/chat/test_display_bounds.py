@@ -4,7 +4,7 @@
 这几条不是"覆盖率"，是这套裁剪能不能上线的**前提**：前端的知识库列表 / 搜索结果 /
 通用列表卡片全靠字段名认结构，一旦裁剪动了键或数组长度，它们就会集体退化成裸 JSON。
 """
-from core.chat.display_bounds import (
+from core.infra.text_bounds import (
     DISPLAY_STRING_MAX,
     HISTORY_STRING_MAX,
     bound_result_for_display,

@@ -1,96 +1,126 @@
 /**
- * CSS module template.
+ * CSS template (UI design spec v2).
  *
- * Replace ${componentName} with actual name.
- * Add to styles/ or alongside the component.
- * Import in styles/index.ts or component file.
+ * Replace ${componentName} with the actual name. Put it in styles/ (or a styles/<area>/ subfolder) and import it
+ * from styles/index.ts, or import it from the component file.
  *
- * Rules:
- *   - All classes prefixed with .jx-
- *   - Colors use CSS variables (--color-*), see references/ui-design-spec.md
- *   - BEM-like: .jx-name (block), .jx-name-child (element), .jx-name--mod (modifier)
- *   - Spacing: 4px grid (--space-xs/sm/md/lg/xl)
- *   - Border-radius: --radius-xs(4) / --radius-sm(8) / --radius-md(12) / --radius-lg(20)
- *   - Font size: 12/14(default)/16/18/22/44px
+ * Rules — see references/ui-design-spec.md and references/css-variables.md:
+ *   - Classes prefixed .jx- ; BEM-like: .jx-name / .jx-name-child / .jx-name--mod
+ *   - Colors only through tokens (npm run check:dark fails on literals, rgba(), and var(--x, #fff) fallbacks)
+ *   - 8-point grid: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64. Do not use --space-lg (20) / --space-xl (40) in new code
+ *   - Concentric radii: inner radius = outer radius − padding. --radius-xs 6 / sm 10 / md 16 / lg 24 / full 999px
+ *   - Resting cards have no shadow; shadow only on hover (raised) and on floating layers
+ *   - Hover/press = overlay that darkens, never a lighter color; disabled = opacity .4
+ *   - Motion: only opacity/transform, tokens for duration/easing, never `ease` / `ease-out` / new cubic-bezier
+ *   - Font weights 400 / 500 / 600 only; sizes in rem
+ *
+ * v2 tokens marked (v2) may not be in variables.css yet: grep first; if missing, add them to BOTH the light
+ * :root block and the dark block (values from assets/design-v2/tokens/hugagentos-tokens.v2.css) before use.
  */
 
-/* --- Container --- */
+/* --- Block --- */
 .jx-${componentName} {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);     /* 16px */
-  padding: var(--space-lg); /* 20px */
+  gap: var(--space-md);   /* 16 */
+  padding: 24px;          /* --space-6 (v2) */
+  color: var(--color-text);
 }
 
-/* --- Header --- */
+/* --- Header: hierarchy from size/weight/spacing, not boxes --- */
 .jx-${componentName}-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;              /* --space-3 (v2) */
 }
 
-.jx-${componentName}-header h3 {
+.jx-${componentName}-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 1.125rem;    /* title-3: --font-size-title-3 (v2) */
+  line-height: 1.625rem;
   font-weight: 600;
-  color: var(--color-text);
 }
 
 /* --- List --- */
 .jx-${componentName}-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm); /* 8px */
+  gap: var(--space-sm);   /* 8 */
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* --- Item --- */
+/* --- L1 item: resting = no border, no shadow; grouped by background + spacing --- */
 .jx-${componentName}-item {
   display: flex;
   align-items: center;
-  gap: var(--space-md);       /* 16px */
-  padding: var(--space-md);   /* 16px */
-  border-radius: var(--radius-md); /* 12px - card level */
-  border: 1px solid var(--color-border);
-  background: #fff;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  gap: 12px;
+  min-height: 32px;       /* default control height; touch targets ≥ 44 */
+  padding: 12px var(--space-md);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-container);
+  font-size: 0.875rem;    /* body */
+  line-height: 1.375rem;
   cursor: pointer;
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .jx-${componentName}-item:hover {
-  border-color: var(--color-primary-hover);
-  box-shadow: 0 4px 12px rgba(18, 109, 255, 0.08);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-raised);   /* (v2) — until merged: var(--shadow-card-hover) */
 }
 
-/* --- Item active modifier --- */
+.jx-${componentName}-item:active {
+  transform: scale(.97);
+}
+
+/* Selected: primary light background + primary text; no extra border */
 .jx-${componentName}-item--active {
-  border-color: var(--color-primary);
   background: var(--color-primary-light);
+  color: var(--color-primary-text);   /* (v2) — until merged: var(--color-primary) */
 }
 
-/* --- Item disabled modifier --- */
 .jx-${componentName}-item--disabled {
-  opacity: 0.5;
+  opacity: .4;
   cursor: not-allowed;
 }
 
-/* --- Empty state --- */
-.jx-${componentName}-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 0;
+/* Secondary metadata: footnote/caption + tertiary text; numbers tabular */
+.jx-${componentName}-meta {
+  font-size: 0.8125rem;   /* footnote */
   color: var(--color-text-tertiary);
-  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
-/* --- Responsive --- */
+/* Semantic hint: light background + *-text foreground, never the fill color as text */
+.jx-${componentName}-hint--error {
+  padding: var(--space-sm) 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-error-bg);   /* v2 value = v1 --color-error-light */
+  color: var(--color-error-text);      /* (v2) */
+}
+
+/* --- Empty state: one plain sentence, no illustration box --- */
+.jx-${componentName}-empty {
+  padding: 48px 0;        /* --space-12 (v2) */
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-text-tertiary);
+}
+
+/* --- Entrance: reuse motion primitives (.jx-anim-fadeInUp etc.) instead of new keyframes --- */
+
+/* --- Narrow container / mobile --- */
 @media (max-width: 768px) {
   .jx-${componentName} {
-    padding: var(--space-md); /* 16px */
+    padding: var(--space-md);   /* 16 + safe area where relevant */
   }
 
   .jx-${componentName}-item {
-    padding: 10px var(--space-md);
+    min-height: 44px;
   }
 }

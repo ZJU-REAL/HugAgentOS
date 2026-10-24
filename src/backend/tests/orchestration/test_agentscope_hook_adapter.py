@@ -10,12 +10,10 @@ from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultState, U
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool._response import ToolResponse
 from core.harness.hooks import Decision, HookBus, HookContractError, HookSpec, HookStage
+from core.harness.observation_writer import flush_observations
 from core.harness.usage import MemoryUsageRecorder
-from core.llm.agentscope_hook_adapter import (
-    AgentScopeHookAdapter,
-    adapt_agentscope_event,
-)
-from core.llm.middleware_migration import MIDDLEWARE_MIGRATION, deletion_checklist
+from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter, adapt_agentscope_event
+from core.llm.middleware.migration_map import MIDDLEWARE_MIGRATION, deletion_checklist
 
 
 def _fake(name: str, **fields):
@@ -71,9 +69,13 @@ def test_every_registered_business_middleware_has_a_deletion_entry():
         "ToolEffectMiddleware",
         "JobLedgerReminderMiddleware",
         "FinishPinGuardMiddleware",
+        "CommandCompletionMiddleware",
+        "ProjectEnvironmentMiddleware",
+        "ScreenshotPruningMiddleware",
+        "PlanStaleReminderMiddleware",
     }
     assert {item.middleware for item in MIDDLEWARE_MIGRATION} == expected
-    assert all(item.status == "adapter-covered" for item in MIDDLEWARE_MIGRATION)
+    assert all(item.status == "neutral-hook" for item in MIDDLEWARE_MIGRATION)
     assert all(item.delete_after for item in MIDDLEWARE_MIGRATION)
     assert len(deletion_checklist()) == len(expected)
 
@@ -224,17 +226,11 @@ def test_model_and_tool_inputs_are_read_only_at_post_manifest_permission_seams()
 
 
 @pytest.mark.asyncio
-async def test_legacy_policy_executes_only_through_adapter_and_is_accounted():
-    class LegacyPolicy(MiddlewareBase):
-        async def on_reply(self, agent, input_kwargs, next_handler):
-            async for item in next_handler(**input_kwargs):
-                yield item
-
+async def test_neutral_policy_executes_through_adapter_and_is_accounted():
     usage = MemoryUsageRecorder()
-    adapter = AgentScopeHookAdapter(
-        HookBus(usage_recorder=usage),
-        legacy_middlewares=(LegacyPolicy(),),
-    )
+    bus = HookBus(usage_recorder=usage)
+    bus.register(HookSpec("reply-policy", HookStage.BEFORE_RUN, lambda invocation: Decision()))
+    adapter = AgentScopeHookAdapter(bus)
     agent = SimpleNamespace(state=SimpleNamespace(run_id="run-adapter", context=[]))
 
     async def handler(**kwargs):
@@ -242,9 +238,10 @@ async def test_legacy_policy_executes_only_through_adapter_and_is_accounted():
 
     events = [item async for item in adapter.on_reply(agent, {"inputs": None}, handler)]
     assert len(events) == 1
+    assert flush_observations()
     rows = usage.attempts("run-adapter")
     assert [(row.kind, row.operation_name, row.status) for row in rows] == [
-        ("hook", "LegacyPolicy.on_reply", "success")
+        ("hook", "reply-policy", "success")
     ]
 
 

@@ -127,3 +127,51 @@ def _recorder(sink):
         sink.append("x")
 
     return step
+
+async def test_shutdown_cannot_delete_successor_lease(shared_store):
+    holder = leader.Leadership("shutdown")
+    holder.start(on_elected=_noop, on_deposed=_noop)
+    await asyncio.sleep(0.01)
+    await shared_store.drop(holder._key)
+    successor = leader.Leadership("shutdown")
+    assert await successor._hold()
+    await holder.stop()
+    assert await shared_store.get(successor._key) == successor._token
+
+
+async def test_shutdown_stops_work_before_releasing_role(shared_store):
+    observed = []
+    holder = leader.Leadership("ordered")
+    async def stopped():
+        observed.append(await shared_store.get(holder._key))
+    holder.start(on_elected=_noop, on_deposed=stopped)
+    await asyncio.sleep(0.01)
+    await holder.stop()
+    assert observed == [holder._token]
+
+
+async def test_failed_gate_cannot_admit_other_workers(shared_store):
+    async def fail():
+        raise ValueError("required initialization failed")
+    with pytest.raises(Exception):
+        await leader.run_once("failure", fail)
+    with pytest.raises(Exception):
+        await leader.run_once("failure", _noop)
+
+
+async def test_renewal_uncertainty_deposes_work(shared_store, monkeypatch):
+    stopped = asyncio.Event()
+    holder = leader.Leadership("failure", lease_seconds=1)
+    holder.start(on_elected=_noop, on_deposed=_recorder_event(stopped))
+    await asyncio.sleep(0.02)
+    async def failed(*args, **kwargs):
+        raise ConnectionError("Redis lost")
+    monkeypatch.setattr(shared_store, "compare_exchange", failed)
+    await asyncio.wait_for(stopped.wait(), 1)
+    await holder.stop()
+
+
+def _recorder_event(event):
+    async def record():
+        event.set()
+    return record

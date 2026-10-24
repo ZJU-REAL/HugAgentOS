@@ -1,0 +1,29 @@
+# Permanent graphical computer. Task Bash and desktop input use different OS users.
+FROM hugagent-opensandbox-custom:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb xauth dbus-x11 xfce4-session xfwm4 xfce4-panel xfdesktop4 xclip scrot python3-tk python3-dev && rm -rf /var/lib/apt/lists/*
+RUN /opt/python/current/bin/python3 -m pip install --no-cache-dir pyautogui==0.9.54 Pillow==11.3.0
+# Everyday desktop apps: terminal, file manager, text editor, app finder and xdg-open.
+RUN apt-get update && apt-get install -y --no-install-recommends xfce4-terminal thunar mousepad xfce4-appfinder xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+# Live screen for the owner: VNC on a private socket, behind a token-checked WebSocket.
+RUN apt-get update && apt-get install -y --no-install-recommends x11vnc && rm -rf /var/lib/apt/lists/*
+# A browser launcher with the flags this container needs, registered as the default browser.
+COPY docker/personal-agent/desktop/ /opt/personal-agent/desktop/
+RUN install -m 755 /opt/personal-agent/desktop/pa-browser /usr/local/bin/pa-browser \
+    && install -m 644 /opt/personal-agent/desktop/pa-browser.desktop /usr/share/applications/pa-browser.desktop \
+    && install -d /usr/share/xfce4/helpers \
+    && install -m 644 /opt/personal-agent/desktop/pa-browser-helper.desktop /usr/share/xfce4/helpers/pa-browser.desktop \
+    && install -m 644 /opt/personal-agent/desktop/mimeapps.list /etc/xdg/mimeapps.list \
+    && install -m 755 /opt/personal-agent/desktop/pa-stream.py /usr/local/bin/pa-stream
+RUN useradd --create-home --uid 1001 --shell /bin/bash pa-desktop && chmod 700 /home/pa-desktop && mkdir -p /opt/personal-agent
+COPY src/backend/personal_agent/device_link/driver.py /opt/personal-agent/computer-driver.py
+COPY docker/personal-agent/personal-agent-entrypoint.sh /opt/personal-agent/start.sh
+RUN chmod 755 /opt/personal-agent/start.sh /opt/personal-agent/computer-driver.py
+
+RUN find / -xdev -type f -perm /6000 -exec chmod a-s {} + 2>/dev/null && rm -f /etc/sudoers.d/ubuntu
+
+# Lightweight client only. The cloud computer does not run another backend.
+COPY src/backend/hugagent_cli /opt/hugagent-cli/hugagent_cli
+COPY docker/personal-agent/hugagent-cli-entrypoint.sh /usr/local/bin/hugagent
+RUN chmod 755 /usr/local/bin/hugagent

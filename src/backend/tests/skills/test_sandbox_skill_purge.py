@@ -10,16 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.agent_skills.config import (
-    SHARED_LINK_NAME,
-    get_default_skill_sources,
-    get_sandbox_skills_dir,
-    get_user_skills_dir,
-    prune_orphan_sandbox_skill_dirs,
-    purge_skill_sandbox_files,
-    skill_files_dir,
-    sync_user_skill_view,
-)
+from core.capabilities.skills.config import SHARED_LINK_NAME, get_default_skill_sources, get_sandbox_skills_dir, get_user_skills_dir, prune_orphan_sandbox_skill_dirs, purge_skill_sandbox_files, skill_files_dir, sync_user_skill_view
 
 
 def _a_builtin_skill_id() -> str:
@@ -158,9 +149,9 @@ def test_loader_materializes_a_private_skill_into_its_owners_dir(skills_dir) -> 
     """The owner recorded on the row picks the dir, which is what keeps views correct."""
     from pathlib import Path
 
-    from core.agent_skills.backends.composite import CompositeBackend
-    from core.agent_skills.backends.protocol import SkillFileInfo
-    from core.agent_skills.loader import MultiSourceSkillLoader
+    from core.capabilities.skills.backends.composite import CompositeBackend
+    from core.capabilities.skills.backends.protocol import SkillFileInfo
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
 
     def _info(skill_id: str, owner):
         return SkillFileInfo(

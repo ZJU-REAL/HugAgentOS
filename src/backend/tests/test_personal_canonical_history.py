@@ -2,8 +2,8 @@
 
 import pytest
 from core.db.models import ChatMessage
-from core.llm.model_steps import record_assistant_step, record_tool_result_step
-from core.services.compaction_history import normalize_rows
+from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
+from core.chat.compaction.history import normalize_rows
 from tests.test_personal_agent_monitor import sessions as sessions
 from tests.test_personal_task_transcript_order import prepared as prepared
 from tests.test_personal_task_transcript_order import running as running

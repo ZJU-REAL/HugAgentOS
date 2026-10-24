@@ -15,15 +15,16 @@ def main() -> int:
         print(f"catalog_api_selftest: SKIP (missing dependency: {e})")
         return 0
 
-    import core.config.catalog as cat
+    import core.capabilities.catalog.api as cat
+    from core.capabilities.catalog import common as catalog_common
 
-    original_catalog_path = cat._CATALOG_PATH  # type: ignore[attr-defined]
+    original_catalog_path = catalog_common.CATALOG_PATH  # type: ignore[attr-defined]
     old_auth_mode = os.environ.get("AUTH_MODE")
     os.environ["AUTH_MODE"] = "mock"
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td) / "catalog.json"
         try:
-            cat._CATALOG_PATH = tmp  # type: ignore[attr-defined]
+            catalog_common.CATALOG_PATH = tmp  # type: ignore[attr-defined]
             cat.ensure_default_catalog()
 
             client = TestClient(app)
@@ -45,7 +46,7 @@ def main() -> int:
             bad = client.patch(f"/v1/catalog/unsupported/{skill_id}", json={"enabled": True})
             assert bad.status_code == 400
         finally:
-            cat._CATALOG_PATH = original_catalog_path  # type: ignore[attr-defined]
+            catalog_common.CATALOG_PATH = original_catalog_path  # type: ignore[attr-defined]
             if old_auth_mode is None:
                 os.environ.pop("AUTH_MODE", None)
             else:

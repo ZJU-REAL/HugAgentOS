@@ -127,7 +127,9 @@ async def claim(session_id: str) -> AsyncIterator[None]:
         while True:
             await asyncio.sleep(min(_LOCK_RENEW_INTERVAL_S, ttl / 3))
             try:
-                retained = await state.hold(key, token, ttl=ttl)
+                retained = await asyncio.wait_for(
+                    state.compare_exchange(key, token, token, ttl=ttl), timeout=ttl / 3
+                )
             except Exception:
                 retained = False
             if not retained:
@@ -312,7 +314,9 @@ async def destruction_guard(
         while True:
             await asyncio.sleep(min(_LOCK_RENEW_INTERVAL_S, ttl / 3))
             try:
-                retained = await state.hold(key, token, ttl=ttl)
+                retained = await asyncio.wait_for(
+                    state.compare_exchange(key, token, token, ttl=ttl), timeout=ttl / 3
+                )
             except Exception:
                 retained = False
             if not retained:
@@ -378,3 +382,16 @@ async def creation_pending(token: str) -> bool:
     return bool(await get_ephemeral_state().get(
         _LOCK_KEY.format(session_id=f"creating:{token}")
     ))
+
+
+async def bindings():
+    """Snapshot shared bindings without extending activity or their lifetime."""
+    prefix = _KEY.split("{")[0]
+    state = get_ephemeral_state()
+    entries = []
+    for key in await state.keys(prefix):
+        session_id = key[len(prefix):]
+        entry = await _read(session_id)
+        if entry is not None:
+            entries.append((session_id, entry[0], entry[1]))
+    return entries

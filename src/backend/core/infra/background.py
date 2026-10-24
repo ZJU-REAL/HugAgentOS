@@ -18,13 +18,12 @@ False、改用 ``asyncio.run``），失效还不报。
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Any, Coroutine, Set
 
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
-
-_tasks: Set[asyncio.Task] = set()
 
 
 def spawn(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
@@ -42,16 +41,27 @@ def spawn(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
         ) from None
 
     task = loop.create_task(coro, name=name)
-    _tasks.add(task)
+    process_state().tasks.add(task)
     task.add_done_callback(_forget)
     return task
 
 
 def _forget(task: asyncio.Task) -> None:
-    _tasks.discard(task)
+    process_state().tasks.discard(task)
     if task.cancelled():
         return
     exc = task.exception()
     if exc is not None:
         logger.warning("background_task_failed", task=task.get_name(), error=str(exc))
 
+
+@dataclass
+class BackgroundState:
+    tasks: Set[asyncio.Task] = field(default_factory=lambda: set())
+
+
+_STATE = BackgroundState()
+
+
+def process_state() -> BackgroundState:
+    return _STATE

@@ -11,10 +11,10 @@ tool list and briefly overwrote the sibling's output.
 ``_synthesize_missing_tool_call`` closes that hole at the tool_result stage.
 """
 
+from core.agent_runtime.events import _synthesize_missing_tool_call
 from core.chat.tool_log import attach_tool_result, build_tool_call_event, upsert_tool_call
+from core.chat.tool_payloads import _tool_args_ready
 from core.config.display_names import TOOL_DISPLAY_NAMES
-from orchestration.tool_payloads import _tool_args_ready
-from orchestration.workflow import _synthesize_missing_tool_call
 
 # The tool this was found on. Its display name is edition-dependent (the industry
 # MCP is trimmed out of CE), so the tests resolve it through the same map the

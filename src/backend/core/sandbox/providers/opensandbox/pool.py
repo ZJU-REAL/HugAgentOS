@@ -224,8 +224,7 @@ class SandboxPool:
                             logger.info(
                                 "[sandbox-pool] sweep: evicting dead idle sandbox kind=%s "
                                 "id=%s (server-side reaped); refilling",
-                                kind,
-                                getattr(sbx, "id", "?"),
+                                kind, getattr(sbx, "id", "?"),
                             )
                             if (id(sbx) not in foreign
                                     and (self._owner is None or not await self._owner(sbx))):

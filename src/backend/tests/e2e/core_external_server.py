@@ -14,8 +14,8 @@ from tests.e2e.core_refactor_server import build_app as build_isolated_app
 def build_app():
     app = build_isolated_app()
     from core.db.engine import SessionLocal
-    from core.db.model_repository import create_provider, assign_role
-    from core.services.model_config import ModelConfigService
+    from core.models.repository import create_provider, assign_role
+    from core.models.config import ModelConfigService
 
     path = Path(os.environ["CORE_E2E_MODEL_CONFIG"])
     assert path.is_relative_to("/tmp"), "Use a private disposable config file"

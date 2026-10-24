@@ -16,8 +16,8 @@ TABLES = (
 
 def upgrade():
     # CE bootstrap also creates current metadata; checkfirst handles fresh installs.
-    from core.db.edition_tables import _ce_metadata
-    metadata = _ce_metadata()
+    from core.db.personal_schema import ce_metadata
+    metadata = ce_metadata()
     metadata.create_all(op.get_bind(), tables=[metadata.tables[name] for name in TABLES], checkfirst=True)
 
 

@@ -7,13 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from core.db.engine import get_db
 from core.db.models.plugin_resource import PluginResource, PluginResourceAssetTicket
-from core.plugins.resources import store
+from core.capabilities.plugins.resources import store
+from tests.db_support import share_session
 
 async def test_opaque_iframe_assets_use_revocable_ticket_without_session_cookie(monkeypatch, tmp_path):
     from api.routes.v1 import plugin_resources
     from core.auth import session
     from core.config.settings import settings
-    from core.plugins.resources import service, installation
+    from core.capabilities.plugins.resources import service, installation
     monkeypatch.setattr(session, "_use_memory_store", lambda: True)
     token = await session.create_session({"user_id": "owner", "user_center_id": "owner", "username": "test"})
     engine = create_engine("sqlite://")
@@ -34,6 +35,7 @@ async def test_opaque_iframe_assets_use_revocable_ticket_without_session_cookie(
     app = FastAPI()
     app.include_router(plugin_resources.router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     prefix = "/v1/plugin-resource-assets/cloud/" + ticket
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:

@@ -53,7 +53,7 @@ async function run(method,params){
 }
 async function result(){const output=page.frameLocator('iframe').locator('output');await output.filter({hasNotText:'pending'}).waitFor();return output.innerText();}
 try{
- server=spawn(python,['-m','uvicorn','tests.workbench_capabilities_http_fixture:app','--host','127.0.0.1','--port','5299'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
+ server=spawn(python,['-m','uvicorn','tests.features.workbench.workbench_capabilities_http_fixture:app','--host','127.0.0.1','--port','5299'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
  server.stdout.on('data',b=>log+=b);server.stderr.on('data',b=>log+=b);
  for(let n=0;n<100;n++){try{if((await fetch(origin+'/ready')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));if(n===99)throw new Error(log);}
  const login=await fetch(origin+'/fixture/session',{method:'POST'}),cookie=login.headers.get('set-cookie').split(';')[0];

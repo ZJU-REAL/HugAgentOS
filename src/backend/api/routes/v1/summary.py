@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.auth.backend import get_current_user, UserContext
 from core.infra.responses import success_response
-from core.llm.summarizer import get_summarizer
+from core.models.completions.summarizer import get_summarizer
 from core.infra.exceptions import BadRequestError
 
 router = APIRouter(prefix="/v1/summary", tags=["Summary"])

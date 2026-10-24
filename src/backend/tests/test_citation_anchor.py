@@ -1,4 +1,4 @@
-"""统一证据锚点（orchestration/citation_anchor.py）单元测试。
+"""统一证据锚点（core/llm/citations/anchor.py）单元测试。
 
 覆盖：发号器连续性、四层提取降级（__citations__ / 配置映射 / 启发式 / 整体兜底）、
 JSON/纯文本回注、跳过名单、错误结果放行、collect_citation_dicts 双路径。
@@ -7,17 +7,9 @@ JSON/纯文本回注、跳过名单、错误结果放行、collect_citation_dict
 import json
 
 import pytest
-
-from orchestration.citation_anchor import (
-    CITATION_ALLOCATOR,
-    SKIP_TOOLS,
-    AnchorAllocator,
-    anchor_start_for_chat,
-    annotate_tool_result,
-    attach_allocator,
-    collect_citation_dicts,
-    resolve_allocator,
-)
+from core.llm.citations.allocator import CITATION_ALLOCATOR, AnchorAllocator, anchor_start_for_chat, attach_allocator, collect_citation_dicts, resolve_allocator
+from core.llm.citations.anchor_state import SKIP_TOOLS
+from core.llm.citations.anchor import annotate_tool_result
 
 
 @pytest.fixture(autouse=True)

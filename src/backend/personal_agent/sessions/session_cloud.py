@@ -3,10 +3,49 @@
 from fastapi import HTTPException
 from hugagent_cli.contract import validate
 
-async def execute(db, user, operation, args, origin=None):
+
+async def execute(user, operation, args, origin=None):
+    """Run one session operation as ``user``; database operations run in a worker thread."""
     args = validate(operation, args)
-    from core.services.session_operations import sessions, history, runs as run_views
-    from core.services.session_operations import schemas as models
+    if operation == "chat.send":
+        from core.chat.schemas import ChatRequest
+        from core.chat.operations.admission import start_response_run as _start_response_run
+
+        run = await _start_response_run(ChatRequest(**args, stream=True), user)
+        return {
+            "run_id": run.run_id,
+            "chat_id": run.chat_id,
+            "message_id": run.message_id,
+            "status": "accepted",
+        }
+    if operation == "run.status":
+        from core.db.threads import run_db
+
+        return await run_db(run_status, args["run_id"], user)
+    if operation == "run.cancel":
+        from core.chat.operations.commands import cancel_chat_run
+
+        return (await cancel_chat_run(args["run_id"], user=user))["data"]
+    if operation == "run.steer":
+        from core.chat.operations.commands import steer_chat_run
+        from core.chat.operations.schemas import SteerChatRunRequest
+
+        result = await steer_chat_run(
+            args["run_id"],
+            SteerChatRunRequest(**{k: v for k, v in args.items() if k != "run_id"}),
+            user=user,
+        )
+        return result["data"]
+    from core.db.threads import run_in_session
+
+    return await run_in_session(_execute_in_session, user, operation, args, origin)
+
+
+def _execute_in_session(db, user, operation, args, origin):
+    from core.chat.operations import history
+    from core.chat.operations import runs as run_views
+    from core.chat.operations import schemas as models
+    from core.chat.operations import sessions
 
     if operation == "chat.list":
         result = sessions.list_chats(
@@ -54,39 +93,13 @@ async def execute(db, user, operation, args, origin=None):
             user=user,
             db=db,
         )
-    elif operation == "chat.send":
-        from core.services.session_operations.admission import _start_response_run
-        from core.chat.schemas import ChatRequest
-
-        run = await _start_response_run(ChatRequest(**args, stream=True), user, db)
-        return {
-            "run_id": run.run_id,
-            "chat_id": run.chat_id,
-            "message_id": run.message_id,
-            "status": "accepted",
-        }
     elif operation == "run.active":
         result = run_views.chat_active_run(args["chat_id"], user=user, db=db)
     elif operation == "run.list":
         result = run_views.list_active_chat_runs(user=user, db=db)
-    elif operation == "run.status":
-        return run_status(args["run_id"], user)
-    elif operation == "run.cancel":
-        from core.services.session_operations.commands import cancel_chat_run
-
-        result = await cancel_chat_run(args["run_id"], user=user)
-    elif operation == "run.steer":
-        from core.services.session_operations.commands import steer_chat_run
-        from core.services.session_operations.schemas import SteerChatRunRequest
-
-        result = await steer_chat_run(
-            args["run_id"],
-            SteerChatRunRequest(**{k: v for k, v in args.items() if k != "run_id"}),
-            user=user,
-        )
     # Defaults match the HTTP routes that the device path calls.
     elif operation == "project.list":
-        from core.services.session_operations.projects import list_projects
+        from core.chat.operations.projects import list_projects
 
         result = list_projects(
             q=args.get("q"),
@@ -97,31 +110,31 @@ async def execute(db, user, operation, args, origin=None):
             db=db,
         )
     elif operation == "project.get":
-        from core.services.session_operations.projects import get_project
+        from core.chat.operations.projects import get_project
 
-        result = get_project(access=await project_access(args, user, db), db=db)
+        result = get_project(access=project_access(args, user, db), db=db)
     elif operation == "project.chats":
-        from core.services.session_operations.projects import list_project_chats
+        from core.chat.operations.projects import list_project_chats
 
         result = list_project_chats(
             page=args.get("page", 1),
             page_size=args.get("page_size", 50),
             scope="all",
-            access=await project_access(args, user, db),
+            access=project_access(args, user, db),
             db=db,
         )
     return result["data"]
 
-async def project_access(args, user, db):
+def project_access(args, user, db):
     """The HTTP routes' own view check, which also audits denials."""
-    from core.auth.permissions_iface import require_project_access
+    from core.auth.edition import require_project_access
 
-    return await require_project_access("view")(
+    return require_project_access("view")(
         project_id=args["project_id"], request=None, user=user, db=db
     )
 
 def run_status(ident, user):
-    from orchestration.chat_run_executor import get_run
+    from core.runs.runtime import get_run
 
     row = get_run(ident)
     if row is None or row.user_id != user.user_id:

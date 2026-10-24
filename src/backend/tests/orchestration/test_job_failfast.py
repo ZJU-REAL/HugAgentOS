@@ -31,8 +31,9 @@
 
 import asyncio
 
+import core.jobs.supervisor as jobs_supervisor
 import pytest
-from orchestration.jobs.sdk import SDK_SOURCE
+from core.jobs.sdk import SDK_SOURCE
 
 # ── ① job.map 预检：脚本级 bug 必须当场中止 ──────────────────────────
 
@@ -191,7 +192,7 @@ def _mk_items(db, job_id, statuses):
     ],
 )
 def test_finish_downgrades_completed_when_nothing_was_produced(db_session, statuses, expected):
-    from core.services.job_service import JobService
+    from core.jobs.store import JobService
 
     _mk_job(db_session, "job_x")
     _mk_items(db_session, "job_x", statuses)
@@ -207,7 +208,7 @@ def test_finish_downgrades_completed_when_nothing_was_produced(db_session, statu
 
 def test_finish_keeps_explicit_failure_reason(db_session):
     """真正的崩溃原因优先于兜底文案 —— 别把 traceback 覆盖掉。"""
-    from core.services.job_service import JobService
+    from core.jobs.store import JobService
 
     _mk_job(db_session, "job_y")
     _mk_items(db_session, "job_y", ["pending"])
@@ -219,7 +220,7 @@ def test_finish_keeps_explicit_failure_reason(db_session):
 
 def test_set_wake_on_finish_flips_start_params(db_session):
     """前台转后台后要有人叫醒会话播报，标记必须真的落库。"""
-    from core.services.job_service import JobService
+    from core.jobs.store import JobService
 
     job = _mk_job(db_session, "job_z")
     job.extra_data = {"start_params": {"wake_on_finish": False, "model_name": "m"}}
@@ -241,8 +242,9 @@ async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
     """wait=True 撞上长作业时，等够上限就把对话还给用户，作业继续在后台跑。"""
     from types import SimpleNamespace
 
-    from orchestration import job_runtime
-    from orchestration.jobs import owner, supervisor
+    import core.jobs.owner as owner
+    import core.jobs.runtime as job_runtime
+    import core.jobs.supervisor as supervisor
 
     owner.bind()
 
@@ -259,7 +261,7 @@ async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
         return {"status": "completed"}
 
     task = asyncio.create_task(fake_drive("job_d", chat_id="c1"))
-    monkeypatch.setattr(supervisor, "_entries", {"job_d": SimpleNamespace(task=task)})
+    monkeypatch.setattr(jobs_supervisor.process_state(), 'entries', {"job_d": SimpleNamespace(task=task)})
 
     res = await job_runtime.run_and_wait("job_d", chat_id="c1", detach_after=0.05)
 
@@ -267,7 +269,7 @@ async def test_run_and_wait_detaches_instead_of_blocking_forever(monkeypatch):
     assert started.is_set()
     await asyncio.sleep(0.05)
     assert not cancelled.is_set(), "转后台 ≠ 取消作业，它必须继续跑"
-    assert "job_d" in supervisor._entries, "还在跑就得留在活跃表里，否则重复提交拦不住"
+    assert "job_d" in supervisor.process_state().entries, "还在跑就得留在活跃表里，否则重复提交拦不住"
 
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -278,8 +280,9 @@ async def test_run_and_wait_returns_result_when_job_finishes_in_time(monkeypatch
     """作业按时收工时行为不变 —— 封顶不能把正常的前台等待也改坏。"""
     from types import SimpleNamespace
 
-    from orchestration import job_runtime
-    from orchestration.jobs import owner, supervisor
+    import core.jobs.owner as owner
+    import core.jobs.runtime as job_runtime
+    import core.jobs.supervisor as supervisor
 
     owner.bind()
 
@@ -287,7 +290,7 @@ async def test_run_and_wait_returns_result_when_job_finishes_in_time(monkeypatch
         return {"status": "completed", "stats": {"done": 3}}
 
     task = asyncio.create_task(fake_drive("job_e", chat_id="c1"))
-    monkeypatch.setattr(supervisor, "_entries", {"job_e": SimpleNamespace(task=task)})
+    monkeypatch.setattr(jobs_supervisor.process_state(), 'entries', {"job_e": SimpleNamespace(task=task)})
 
     res = await job_runtime.run_and_wait("job_e", chat_id="c1", detach_after=5)
     assert res["status"] == "completed"
@@ -296,19 +299,19 @@ async def test_run_and_wait_returns_result_when_job_finishes_in_time(monkeypatch
 
 def test_tool_caps_foreground_wait():
     """上限得是个真常量，别又退回「让模型自己判断」。"""
-    from core.llm.tools.job_tool import _FOREGROUND_WAIT_CAP_S
+    from core.jobs.tool_operations import FOREGROUND_WAIT_CAP_S
 
-    assert 30 <= _FOREGROUND_WAIT_CAP_S <= 180
+    assert 30 <= FOREGROUND_WAIT_CAP_S <= 180
 
 
 def test_detached_payload_tells_the_model_to_wrap_up(monkeypatch):
     """转后台的返回体是模型唯一的行动依据：得说清「没中断」且「这轮就收掉」。"""
-    from core.llm.tools import job_tool
+    from core.jobs import tool_operations as job_tool
 
     marked = []
-    monkeypatch.setattr(job_tool, "_mark_wake_on_finish", marked.append)
+    monkeypatch.setattr(job_tool, "mark_wake_on_finish", marked.append)
 
-    out = job_tool._detached_payload("job_q")
+    out = job_tool.detached_payload("job_q")
 
     assert marked == ["job_q"], "转后台必须打开唤醒标记，否则跑完没人播报"
     assert out["ok"] is True and out["job_id"] == "job_q"

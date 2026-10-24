@@ -6,6 +6,7 @@ import time
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from personal_agent.models import PersonalAgent
+from core.db.threads import run_in_session
 
 log = logging.getLogger(__name__)
 SCHEDULE_INTERVAL_SEC = 15
@@ -97,10 +98,12 @@ class BackgroundServices:
         await self.every(MAINTENANCE_INTERVAL_SEC, "computer maintenance", self.maintain_computers)
 
     async def maintain_computers(self):
-        with SessionLocal() as db:
+        def _computer_bindings(db):
             bindings = db.execute(
                 select(PersonalAgent.id, PersonalAgent.sandbox_session_id, PersonalAgent.user_id)
             ).all()
+            return bindings
+        bindings = await run_in_session(_computer_bindings)
         if not bindings:
             return
         from personal_agent.computer.sandbox import get_personal_sandbox_provider
@@ -112,8 +115,9 @@ class BackgroundServices:
                     await provider.ensure_user_workspace(box, uid)
                     await provider.touch_session(box)
             except Exception:
-                with SessionLocal() as db:
+                def _mark_degraded(db):
                     row = db.get(PersonalAgent, ident)
                     if row:
                         row.computer_status = "degraded"
                     db.commit()
+                await run_in_session(_mark_degraded)

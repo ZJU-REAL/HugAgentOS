@@ -7,14 +7,11 @@ from typing import Any, Optional
 
 
 @dataclass
-class _Session:
+class SandboxSessionRecord:
     sandbox: Any  # opensandbox.Sandbox
-    # The user_id owning this sandbox (binds MySpace/account-credential volumes +
-    # user re-homing on adopt across restarts). None when legacy paths call
-    # _get_or_create_session without a user_id — execution then falls back to a
-    # credential-less general sandbox.
+    # None identifies an anonymous session without account volumes.
     user_id: Optional[str] = None
-    # Plan F: which pool this sandbox was actually taken from. **release must follow this,
+    # Which pool this sandbox was actually taken from. **release must follow this,
     # never re-decide from the current user-bound-volume settings** — a mid-flight
     # flag change (ops toggle, hot reload) would route release to a different pool,
     # corrupting counts / cross-user contamination. The snapshot restore path builds

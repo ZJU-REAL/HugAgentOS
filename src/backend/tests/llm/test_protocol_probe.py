@@ -9,12 +9,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from core.llm.providers import protocol_probe
-from core.llm.providers.protocol_probe import (
-    PROTOCOL_CHAT,
-    PROTOCOL_RESPONSES,
-    detect_api_protocol,
-)
+from core.models.providers import protocol_probe
+from core.models.providers.protocol_probe import PROTOCOL_CHAT, PROTOCOL_RESPONSES, detect_api_protocol
 
 
 # 第二阶段（工具结果回灌）默认让它"通过"，这样只想测路由判定的用例不必关心它。

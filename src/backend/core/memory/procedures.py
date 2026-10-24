@@ -11,8 +11,9 @@ from core.memory.context import Confidentiality
 from core.memory.executor import run_effect
 from core.memory.ttl_sweeper import memory_entry_expired
 
-logger = logging.getLogger(__name__)
 from . import backend
+
+logger = logging.getLogger(__name__)
 
 
 def _expiration_from_ttl(ttl_days: int) -> Optional[str]:

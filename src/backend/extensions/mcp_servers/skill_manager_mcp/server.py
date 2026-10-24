@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from extensions.mcp_servers.skill_manager_mcp import impl
 
-mcp = FastMCP("hugagent-skill-manager")
+mcp = MCPServer("hugagent-skill-manager")
 
 _HDR_USER = "x-current-user-id"
 

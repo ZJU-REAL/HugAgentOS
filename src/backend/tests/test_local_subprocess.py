@@ -5,9 +5,10 @@ import os
 import tarfile
 from types import SimpleNamespace
 
+import core.infra.local_runtime.startup as startup
+import core.infra.local_runtime.startup as local_subprocess
 import pytest
 from extensions.mcp_servers import _serve
-from orchestration import local_subprocess
 
 
 def test_child_env_binds_local_mcp_to_loopback(monkeypatch):
@@ -38,7 +39,7 @@ def test_site_publish_callback_uses_local_listener_port(monkeypatch):
 @pytest.mark.asyncio
 async def test_local_site_pack_uses_portable_python_archive(monkeypatch):
     import core.sandbox as sandbox
-    from core.services import site_packaging
+    from features.sites import packaging as site_packaging
 
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w:gz") as tf:
@@ -52,6 +53,7 @@ async def test_local_site_pack_uses_portable_python_archive(monkeypatch):
         async def run_to_completion(self, request):
             requests.append(request)
             return SimpleNamespace(exit_code=0, stdout="", stderr="")
+
         async def get_file(self, session_id, path, user_id=None):
             return archive.getvalue()
 
@@ -103,7 +105,7 @@ async def test_local_start_waits_for_ports_and_verifies_plugin_tools(monkeypatch
         calls.append(("verify", dict(ports)))
 
     monkeypatch.setattr(
-        local_subprocess,
+        startup,
         "settings",
         SimpleNamespace(
             deploy=SimpleNamespace(is_local=True),
@@ -113,9 +115,9 @@ async def test_local_start_waits_for_ports_and_verifies_plugin_tools(monkeypatch
             ),
         ),
     )
-    monkeypatch.setattr(local_subprocess, "_spawn", fake_spawn)
-    monkeypatch.setattr(local_subprocess, "_wait_for_mcp_ports", fake_wait)
-    monkeypatch.setattr(local_subprocess, "_verify_required_plugin_tools", fake_verify)
+    monkeypatch.setattr(startup, "_spawn", fake_spawn)
+    monkeypatch.setattr(startup, "_wait_for_mcp_ports", fake_wait)
+    monkeypatch.setattr(startup, "_verify_required_plugin_tools", fake_verify)
 
     # 品牌隔离端口预检返回未占用；runner 就绪等待随后返回已就绪
     port_probes = iter([False, True, True, True])
@@ -123,7 +125,7 @@ async def test_local_start_waits_for_ports_and_verifies_plugin_tools(monkeypatch
     async def fake_port_ready(host, port):
         return next(port_probes, True)
 
-    monkeypatch.setattr(local_subprocess, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
 
     await local_subprocess.start_local_sidecars()
 
@@ -162,11 +164,9 @@ def test_mcp_port_namespace_offset_is_validated():
 
 def test_script_runner_port_requires_loopback_url(monkeypatch):
     monkeypatch.setattr(
-        local_subprocess,
+        startup,
         "settings",
-        SimpleNamespace(
-            sandbox=SimpleNamespace(runner_url="http://127.0.0.1:32202")
-        ),
+        SimpleNamespace(sandbox=SimpleNamespace(runner_url="http://127.0.0.1:32202")),
     )
     assert local_subprocess._script_runner_port() == 32202
 
@@ -227,9 +227,7 @@ def test_find_stale_sidecar_pids_matches_only_own_install(runner_module):
 def test_find_stale_sidecar_pids_excludes_self():
     root = "/r/local-server"
     ps = f"  42 {root}/venv/bin/python -m extensions.mcp_servers._launcher"
-    assert (
-        local_subprocess._find_stale_sidecar_pids(ps, root_marker=root, my_pid=42) == []
-    )
+    assert local_subprocess._find_stale_sidecar_pids(ps, root_marker=root, my_pid=42) == []
 
 
 @pytest.mark.asyncio
@@ -253,7 +251,7 @@ async def test_start_fails_fast_when_runner_port_is_occupied(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        local_subprocess,
+        startup,
         "settings",
         SimpleNamespace(
             deploy=SimpleNamespace(is_local=True),
@@ -263,10 +261,10 @@ async def test_start_fails_fast_when_runner_port_is_occupied(monkeypatch):
             ),
         ),
     )
-    monkeypatch.setattr(local_subprocess, "_spawn", fake_spawn)
-    monkeypatch.setattr(local_subprocess, "_reap_stale_sidecars", fake_reap)
-    monkeypatch.setattr(local_subprocess, "_tcp_port_ready", fake_port_ready)
-    monkeypatch.setattr(local_subprocess, "stop_local_sidecars", fake_stop)
+    monkeypatch.setattr(startup, "_spawn", fake_spawn)
+    monkeypatch.setattr(startup, "_reap_stale_sidecars", fake_reap)
+    monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "stop_local_sidecars", fake_stop)
 
     with pytest.raises(RuntimeError, match="32202"):
         await local_subprocess.start_local_sidecars()
@@ -328,14 +326,16 @@ async def test_windows_reap_terminates_stale_trees_before_starting(monkeypatch):
         return next(port_probe)
 
     monkeypatch.setattr(local_subprocess.os, "name", "nt")
-    monkeypatch.setattr(local_subprocess, "_packaged_install_root", lambda: r"C:\app\local-server")
-    monkeypatch.setattr(local_subprocess, "_process_table", fake_table)
-    monkeypatch.setattr(local_subprocess, "_terminate_process_trees", fake_kill)
-    monkeypatch.setattr(local_subprocess, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "_packaged_install_root", lambda: r"C:\app\local-server")
+    monkeypatch.setattr(startup, "_process_table", fake_table)
+    monkeypatch.setattr(startup, "_terminate_process_trees", fake_kill)
+    monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
     monkeypatch.setattr(
-        local_subprocess,
+        startup,
         "settings",
-        SimpleNamespace(sandbox=SimpleNamespace(provider="script_runner", runner_url="http://127.0.0.1:32202")),
+        SimpleNamespace(
+            sandbox=SimpleNamespace(provider="script_runner", runner_url="http://127.0.0.1:32202")
+        ),
     )
     await local_subprocess._reap_stale_sidecars()
     assert killed == [77]
@@ -356,8 +356,8 @@ async def test_windows_stop_terminates_whole_sidecar_tree(monkeypatch):
             self.returncode = 0
 
     monkeypatch.setattr(local_subprocess.os, "name", "nt")
-    monkeypatch.setattr(local_subprocess, "_terminate_process_trees", fake_kill)
-    monkeypatch.setattr(local_subprocess, "_PROCS", [("script_runner", DummyProcess())])
+    monkeypatch.setattr(startup, "_terminate_process_trees", fake_kill)
+    monkeypatch.setattr(startup, "_PROCS", [("script_runner", DummyProcess())])
     await local_subprocess.stop_local_sidecars()
     assert killed == [4242]
 
@@ -386,16 +386,16 @@ async def test_cloud_tools_mode_starts_only_the_script_runner(monkeypatch):
     async def fake_port_ready(host, port):
         return next(port_probes)
 
-    monkeypatch.setattr(local_subprocess, "_cloud_serves_tools", lambda: True)
-    monkeypatch.setattr(local_subprocess, "_reap_stale_sidecars", fake_reap)
-    monkeypatch.setattr(local_subprocess, "_spawn", fake_spawn)
-    monkeypatch.setattr(local_subprocess, "_wait_for_mcp_ports", fail_wait)
-    monkeypatch.setattr(local_subprocess, "_verify_required_plugin_tools", fail_wait)
-    monkeypatch.setattr(local_subprocess, "_tcp_port_ready", fake_port_ready)
-    monkeypatch.setattr(local_subprocess, "_start_watchdog", lambda: calls.append(("watchdog",)))
-    monkeypatch.setattr(local_subprocess, "_PROCS", [])
+    monkeypatch.setattr(startup, "_cloud_serves_tools", lambda: True)
+    monkeypatch.setattr(startup, "_reap_stale_sidecars", fake_reap)
+    monkeypatch.setattr(startup, "_spawn", fake_spawn)
+    monkeypatch.setattr(startup, "_wait_for_mcp_ports", fail_wait)
+    monkeypatch.setattr(startup, "_verify_required_plugin_tools", fail_wait)
+    monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "_start_watchdog", lambda: calls.append(("watchdog",)))
+    monkeypatch.setattr(startup, "_PROCS", [])
     monkeypatch.setattr(
-        local_subprocess,
+        startup,
         "settings",
         SimpleNamespace(
             deploy=SimpleNamespace(is_local=True),
@@ -406,3 +406,26 @@ async def test_cloud_tools_mode_starts_only_the_script_runner(monkeypatch):
     assert [c[1] for c in calls if c[0] == "spawn"] == ["script_runner"]
     assert ("watchdog",) in calls
 
+
+def test_child_pythonpath_resolves_relocated_backend_packages(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    from core.infra.local_runtime import lifecycle as lifecycle
+
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    env = lifecycle._child_env()
+    probe = (
+        "from importlib.util import find_spec; "
+        "assert find_spec('extensions.mcp_servers._launcher') is not None; "
+        "assert find_spec('core.sandbox.runner.server') is not None"
+    )
+    subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )

@@ -1,4 +1,4 @@
-from core.content import artifact_refs as artifact_routes
+from core.files.artifacts import refs as artifact_routes
 
 
 def test_extract_file_refs_supports_artifacts_array():

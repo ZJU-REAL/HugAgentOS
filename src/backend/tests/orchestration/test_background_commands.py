@@ -1,16 +1,24 @@
 """Background command ownership, handoff and completion delivery."""
+
 import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import core.chat.runtime.worker as runtime_worker
+import core.db.engine as db_engine
+import core.sandbox.commands.events as commands_events
+import core.sandbox.commands.notifications as commands_notifications
+import core.sandbox.commands.runtime as commands_runtime
 import pytest
+from core.db import models
+from core.db.engine import Base
+from core.sandbox.commands.runtime import CommandRuntime
+from core.sandbox.commands import store
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from core.db.engine import Base
-from core.db import models
-from core.services.commands import store
-from orchestration.commands.runtime import CommandRuntime
 from tests.orchestration.command_test_support import source_run
+
 
 @pytest.fixture
 def command_db(tmp_path, monkeypatch):
@@ -19,9 +27,9 @@ def command_db(tmp_path, monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(store, "SessionLocal", factory)
-    from orchestration.commands import events
+    import core.sandbox.commands.events as events
     isolated_events = events.MemoryCommandEvents()
-    monkeypatch.setattr(events, "get_command_events", lambda: isolated_events)
+    monkeypatch.setattr(commands_events, "get_command_events", lambda: isolated_events)
     with factory() as db:
         db.add(models.UserShadow(user_id="u", username="test"))
         db.flush()
@@ -74,8 +82,8 @@ def test_terminal_notification_is_atomic_with_result(command_db):
 @pytest.fixture
 async def http_provider(tmp_path, monkeypatch):
     import httpx
-    from core.sandbox.runner import server
     from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
+    from core.sandbox.runner import server
     monkeypatch.setattr(server, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     monkeypatch.setattr(server, "_AUTH_TOKEN", "")
     monkeypatch.setenv("DEPLOY_PROFILE", "local")
@@ -100,17 +108,22 @@ async def http_provider(tmp_path, monkeypatch):
     await client.aclose()
 
 async def test_real_process_background_concurrency_and_cancel(command_db, http_provider, monkeypatch, tmp_path):
+    import core.sandbox.commands.runtime as module
     from core.llm.tools.sandbox_tool import register_bash
-    from orchestration.commands import runtime as module
     runtime = CommandRuntime()
-    monkeypatch.setattr(module, "runtime", runtime)
+    monkeypatch.setattr(commands_runtime, "runtime", runtime)
+    from core.llm.ports import process_state
+    monkeypatch.setattr(process_state(), "commands", runtime)
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: http_provider)
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     class Tools:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn, **_): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            _ = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
+            self.functions[fn.__name__] = fn
     tools = Tools()
-    register_bash(tools, loader=None, loaded_skill_ids=set(), chat_id="c", user_id="u")
+    register_bash(tools, loader=None, chat_id="c", user_id="u")
     def data(response): return json.loads(response.content[0].text)
     marker = tmp_path / "launches"
     command = f"printf x >> '{marker}'; printf first; sleep 1; printf second"
@@ -175,16 +188,19 @@ async def test_soft_delete_stops_real_background_process(command_db, http_provid
 async def test_busy_react_delivery_and_final_output_race(command_db):
     run_id = source_run(command_db)
     from agentscope.agent import Agent
-    from agentscope.model import ChatModelBase, ChatResponse
     from agentscope.message import Msg, TextBlock
-    from core.llm.middlewares import AgentRuntimeState
-    from core.llm.command_middleware import CommandCompletionMiddleware
+    from agentscope.model import ChatModelBase, ChatResponse
+    from core.sandbox.commands.completion_hook import command_completion_hooks
+    from tests.orchestration.hook_support import make_adapter
+    from core.llm.runtime.state import AgentRuntimeState
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"running","session_id":"p"}, None)
     seen = []
     class Model(ChatModelBase):
         def __init__(self):
             super().__init__(None, "deterministic", self.Parameters(), stream=False, max_retries=0)
+            from agentscope.formatter import OpenAIChatFormatter
+            self.formatter = OpenAIChatFormatter()
         async def count_tokens(self, **kwargs): return 10
         async def _call_api(self, model_name, messages, **kwargs):
             seen.append([str(m.content) for m in messages])
@@ -194,7 +210,7 @@ async def test_busy_react_delivery_and_final_output_race(command_db):
             return ChatResponse(content=[TextBlock(type="text", text="step")], is_last=True)
     agent = Agent(name="test", system_prompt="test", model=Model(),
         state=AgentRuntimeState(chat_id="c", user_id="u", run_id=run_id),
-        middlewares=[CommandCompletionMiddleware()])
+        middlewares=[make_adapter(*command_completion_hooks())])
     async for _ in agent.reply_stream(Msg(name="user", content=[TextBlock(type="text", text="start")], role="user")):
         pass
     assert len(seen) == 2
@@ -202,13 +218,13 @@ async def test_busy_react_delivery_and_final_output_race(command_db):
     assert store.snapshot(row["task_id"])["notice_status"] == "delivered"
 
 async def test_idle_completion_uses_real_run_admission_and_executor(command_db, monkeypatch):
-    from core.services.chat_sequencer import ChatSequencer
-    from orchestration import chat_run_executor as executor
-    from orchestration.commands import notifications
-    from core.services.commands import delivery
-    from core.services.session_operations import session_context
-    from core.services import chat_service
-    monkeypatch.setattr(executor, "SessionLocal", command_db)
+    from core.chat.sequencer import ChatSequencer
+    pass
+    import core.sandbox.commands.notifications as notifications
+    from core.chat import service as chat_service
+    from core.sandbox.commands import delivery
+    from core.chat.operations import session_context
+    monkeypatch.setattr(db_engine, "SessionLocal", command_db)
     with command_db() as db:
         accepted = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={})
@@ -229,7 +245,7 @@ async def test_idle_completion_uses_real_run_admission_and_executor(command_db, 
             run = db.get(models.ChatRun, kwargs["run_id"])
             run.status, run.writer_slot = "completed", None
             db.commit()
-    monkeypatch.setattr(executor, "_run_workflow", worker)
+    monkeypatch.setattr(runtime_worker, "_run_workflow", worker)
     await notifications.dispatch()
     await asyncio.sleep(0.1)
     await notifications.dispatch()
@@ -250,14 +266,14 @@ def test_bounded_output_reports_omitted_characters(command_db):
     assert store.read(row["task_id"], "u", "c")["output_omitted_chars"] == 0
 
 async def test_recovery_preserves_terminal_result_and_cursor(command_db, monkeypatch):
-    from orchestration.commands import runtime as module
+    import core.sandbox.commands.runtime as module
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "dead", {"status":"running","session_id":"old"},
                  {"provider":"opensandbox","cursor":7})
     store.release_lease(row["task_id"], "dead")
     recover = AsyncMock(return_value={"status":"exited","session_id":None,
         "stdout":"remaining","stderr":"","exit_code":0,"execution_cursor":20})
-    monkeypatch.setattr(module, "recover_execution", recover)
+    monkeypatch.setattr(commands_runtime, "recover_execution", recover)
     provider = SimpleNamespace(start_process=AsyncMock())
     runtime = CommandRuntime()
     await runtime.recover(provider)
@@ -282,7 +298,7 @@ async def test_deadline_stops_real_process_without_relaunch(command_db, http_pro
     await runtime.shutdown()
 
 async def test_boundary_event_is_durable_before_model_call(command_db):
-    from core.services.commands import delivery
+    from core.sandbox.commands import delivery
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"running","session_id":"p"}, None)
     store.collect(row["task_id"], "owner", {"status":"exited","exit_code":0})
@@ -297,8 +313,9 @@ async def test_boundary_event_is_durable_before_model_call(command_db):
 
 async def test_failed_model_request_keeps_durable_notice(command_db):
     run_id = source_run(command_db)
-    from core.services.commands import delivery
-    from core.llm.command_middleware import CommandCompletionMiddleware
+    from core.sandbox.commands.completion_hook import command_completion_hooks
+    from tests.orchestration.hook_support import make_adapter
+    from core.sandbox.commands import delivery
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"running","session_id":"p"}, None)
     store.collect(row["task_id"], "owner", {"status":"exited","exit_code":0})
@@ -307,16 +324,16 @@ async def test_failed_model_request_keeps_durable_notice(command_db):
         raise ConnectionError("model down")
         yield
     with pytest.raises(ConnectionError):
-        async for _ in CommandCompletionMiddleware().on_reasoning(agent, {}, broken): pass
+        async for _ in make_adapter(*command_completion_hooks()).on_reasoning(agent, {}, broken): pass
     assert store.snapshot(row["task_id"])["notice_status"] == "delivered"
     with command_db() as db:
         assert row["task_id"] in str(db.get(models.ChatRun, run_id).recovery_snapshot)
 
 async def test_command_http_authorization_and_nonconsuming_ui(command_db):
     import httpx
-    from fastapi import FastAPI
-    from core.auth.backend import get_current_user, UserContext
     from api.routes.v1.commands import router
+    from core.auth.backend import UserContext, get_current_user
+    from fastapi import FastAPI
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"exited","exit_code":0,"stdout":"result"}, None)
     app = FastAPI()
@@ -346,7 +363,7 @@ async def test_immediate_shutdown_stops_owned_process(command_db):
     assert not runtime.providers
 
 async def test_cancel_does_not_publish_intermediate_terminal_notice(command_db, monkeypatch):
-    from orchestration.commands import notifications
+    import core.sandbox.commands.notifications as notifications
     stopped = asyncio.Event()
     release = asyncio.Event()
     async def poll(pid, **kwargs):
@@ -391,8 +408,8 @@ async def test_deleted_chat_keeps_monitor_until_stop_confirmed(command_db):
     await runtime.shutdown()
 
 async def test_notification_pages_pass_fifty_blocked_events(command_db, monkeypatch):
-    from core.services.chat_sequencer import ChatSequencer
-    from orchestration.commands import notifications
+    import core.sandbox.commands.notifications as notifications
+    from core.chat.sequencer import ChatSequencer
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="source", request_payload={}).run
@@ -409,7 +426,7 @@ async def test_notification_pages_pass_fifty_blocked_events(command_db, monkeypa
             db.get(models.CommandTask, tid).task_id = f"cmd_{index:03}"
             db.commit()
     launch = AsyncMock()
-    monkeypatch.setattr(notifications, "launch", launch)
+    monkeypatch.setattr(commands_notifications, "launch", launch)
     await notifications.dispatch()
     launch.assert_awaited_once()
     assert store.snapshot("cmd_050")["notice_status"] == "reserved"

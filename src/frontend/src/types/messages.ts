@@ -191,7 +191,6 @@ export interface OntologyRevisionSummary {
   thinking: ThinkingBlock[];
   toolCalls: ToolCall[];
   toolCallCount?: number;
-  toolPending?: boolean;
 }
 
 /** User-visible ontology governance evidence, intentionally separate from model thinking. */

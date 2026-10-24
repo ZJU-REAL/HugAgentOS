@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from core.db.models.plugin_resource import PluginResource, PluginResourceTicket, PluginResourceAssetTicket
-from core.plugins.resources import store
-from core.llm import mcp_invocation as proof
+from core.capabilities.plugins.resources import store
+from core.llm.mcp import invocation as proof
 
 def test_invocation_proof_rejects_impersonation_expiry_and_wrong_audience(monkeypatch):
     monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "isolated-test-signing-key")
@@ -68,29 +68,34 @@ def test_migration_upgrade_and_downgrade_match_resource_tables():
 async def test_viewer_authentication_is_revoked_with_real_session_store(monkeypatch):
     from core.auth import session
     from core.config.settings import settings
-    from core.plugins.resources import authentication
+    from core.capabilities.plugins.resources import authentication
     monkeypatch.setattr(session, "_use_memory_store", lambda: True)
     token = await session.create_session({"user_id": "owner", "user_center_id": "owner", "username": "test"})
     context = {"headers": {"cookie": settings.session.cookie_name + "=" + token}, "path": "/api/v1/plugin-resources/resource/attach", "method": "POST"}
-    await authentication.validate(context, "owner", None)
+    await authentication.validate(context, "owner")
     await session.revoke_session(token)
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as error:
-        await authentication.validate(context, "owner", None)
+        await authentication.validate(context, "owner")
     assert error.value.status_code == 401
 
 async def test_expired_starting_reservation_is_cleaned_without_endpoint(monkeypatch):
-    from core.plugins.resources import lifecycle
-    engine = create_engine("sqlite://")
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from core.db import engine as db_engine
+    from core.capabilities.plugins.resources import lifecycle
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for model in (PluginResource, PluginResourceTicket, PluginResourceAssetTicket):
         model.__table__.create(engine)
     monkeypatch.setattr(store, "descriptor", lambda row: {})
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=engine))
     with Session(engine) as db:
         row = PluginResource(resource_id="starting", user_id="owner", chat_id="chat",
             install_id="install", revision="revision", slug="fixture", module_id="module",
             scope="local", descriptor="", status="starting", created_at=0, expires_at=0)
         db.add(row); db.commit()
-        await lifecycle.reconcile(db, "owner")
+        await lifecycle.reconcile("owner")
+        db.expire_all()
         assert db.get(PluginResource, "starting").status == "closed"
 
 
@@ -118,16 +123,20 @@ async def test_opensandbox_endpoint_auth_is_confined_to_control_plane_origin():
     assert headers == {"X-Endpoint-Route": "public"}
 
 
-def test_opensandbox_template_allows_the_actual_builtin_skill_mount(monkeypatch, tmp_path):
+def test_opensandbox_template_allows_the_actual_skill_mount(monkeypatch, tmp_path):
     import tomllib
     from pathlib import Path
-    import importlib
     import core.sandbox.providers.opensandbox.volumes as volumes
+    from core.capabilities.skills import config, publication
     root = Path(__file__).resolve().parents[3]
     monkeypatch.setenv("HOST_REPO_PATH", str(root))
-    monkeypatch.setattr(volumes, "_BUILTIN_SKILLS_HOST_PATH", None)
-    source = Path(volumes._resolve_builtin_skills_host_path())
-    rendered = (root / "docker/opensandbox-config.toml.tpl").read_text().replace(
+    from types import SimpleNamespace
+    monkeypatch.setattr(volumes, "settings", SimpleNamespace(sandbox=SimpleNamespace(
+        opensandbox_host_storage_path=str(tmp_path))))
+    monkeypatch.setattr(config, "get_sandbox_skills_dir", lambda: tmp_path / "sandbox_skills")
+    monkeypatch.setattr(publication, "prepare_skill_view", lambda user_id: None)
+    source = Path(volumes._make_skills_volumes()[0].host.path)
+    rendered = (root / "docker/opensandbox-server/opensandbox-config.toml.tpl").read_text().replace(
         "@@HOST_REPO_PATH@@", str(root)).replace("@@HOST_STORAGE_PATH@@", str(tmp_path))
     allowed = tomllib.loads(rendered)["storage"]["allowed_host_paths"]
     assert any(source == Path(path) or source.is_relative_to(path) for path in allowed)
@@ -159,9 +168,9 @@ async def test_resource_callback_rejects_changed_signed_installation(monkeypatch
     body = plugin_resources.ToolRequest(chat_id="chat", slug="fixture", module_id="browser",
         install_id="plugin:local:installation-b" if changed_body else source,
         resource_id="resource-b", action="state")
-    monkeypatch.setattr(plugin_resources.service, "authorized", lambda *args: SimpleNamespace(
+    monkeypatch.setattr(plugin_resources.service, "authorized_row", lambda *args: SimpleNamespace(
         chat_id="chat", slug="fixture", module_id="browser", install_id="plugin:local:installation-b"))
     with pytest.raises(HTTPException) as error:
-        await plugin_resources.tool_resource(body, request, db=object())
+        await plugin_resources.tool_resource(body, request)
     assert error.value.status_code == 403
     assert error.value.detail in {"plugin_binding_mismatch", "resource_binding_mismatch"}

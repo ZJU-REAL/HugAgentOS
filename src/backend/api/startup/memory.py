@@ -1,8 +1,10 @@
 """Application lifecycle operations."""
 import os
 import sys
+
 from core.config.settings import settings
 from core.infra.logging import get_logger
+
 logger = get_logger(__name__)
 
 _persona_distill_worker = None
@@ -12,7 +14,7 @@ _memory_outbox_worker = None
 async def _startup_evolution_scheduler():
     """Start the nightly evolution-cycle backstop."""
     try:
-        from orchestration.schedulers.evolution_scheduler import EvolutionCronScheduler
+        from orchestration.workers.evolution_scheduler import EvolutionCronScheduler
 
         await EvolutionCronScheduler().start()
     except Exception as exc:
@@ -24,7 +26,7 @@ async def _startup_memory_ttl_scheduler():
     if not settings.memory.enabled:
         return
     try:
-        from orchestration.schedulers.memory_ttl_scheduler import MemoryTtlScheduler
+        from orchestration.workers.memory_ttl_scheduler import MemoryTtlScheduler
 
         await MemoryTtlScheduler().start()
     except Exception as exc:
@@ -66,7 +68,7 @@ async def _startup_persona_distill_worker():
     should not depend on which worker took the HTTP request.
     """
     try:
-        from orchestration.schedulers.persona_distill_worker import PersonaDistillWorker
+        from orchestration.workers.persona_distill_worker import PersonaDistillWorker
 
         global _persona_distill_worker
         _persona_distill_worker = PersonaDistillWorker()
@@ -91,7 +93,7 @@ async def _startup_warmup_memory():
 
     async def _warmup() -> None:
         try:
-            from core.memory.service import _get_memory  # type: ignore[attr-defined]
+            from core.memory.service import get_memory as _get_memory  # type: ignore[attr-defined]
 
             # _get_memory is thread-safe lazy loading; the first call establishes the Milvus + Neo4j connections
             instance = _get_memory()

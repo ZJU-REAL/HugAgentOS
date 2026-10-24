@@ -1,19 +1,4 @@
-export type PreviewKind =
-  | 'docx'
-  | 'xlsx'
-  | 'pdf'
-  | 'ppt'
-  | 'pptx'
-  | 'image'
-  | 'markdown'
-  | 'text'
-  | 'html'
-  | 'json'
-  | 'csv'
-  | 'video'
-  | 'audio'
-  | 'archive'
-  | 'unknown';
+import type { FilePreviewKind } from './filePreviewKind';
 
 const MB = 1024 * 1024;
 
@@ -25,13 +10,12 @@ const MB = 1024 * 1024;
  * the original file size. Audio/video are excluded because the native player
  * can stream them without materialising the complete file in JavaScript.
  */
-const PREVIEW_LIMIT_BYTES: Partial<Record<PreviewKind, number>> = {
+const PREVIEW_LIMIT_BYTES: Partial<Record<FilePreviewKind, number>> = {
   archive: 100 * MB,
   docx: 20 * MB,
   xlsx: 8 * MB,
   pdf: 30 * MB,
-  ppt: 20 * MB,
-  pptx: 20 * MB,
+  office: 20 * MB,
   image: 25 * MB,
   markdown: 2 * MB,
   text: 2 * MB,
@@ -52,7 +36,7 @@ export class PreviewFileTooLargeError extends Error {
   }
 }
 
-export function getPreviewLimitBytes(kind: PreviewKind): number | null {
+export function getPreviewLimitBytes(kind: FilePreviewKind): number | null {
   return PREVIEW_LIMIT_BYTES[kind] ?? null;
 }
 

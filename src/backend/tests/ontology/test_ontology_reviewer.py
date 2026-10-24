@@ -1,10 +1,14 @@
 from __future__ import annotations
+from core.ontology import review_operations as review_operations_module
+from core.ontology import review_prompt as review_prompt_module
+from core.ontology import reviewer as reviewer_module
 
 import asyncio
 from types import SimpleNamespace
 
+import core.ontology.reviewer as ontology_reviewer
+import core.ontology.reviewer as reviewer
 import pytest
-from orchestration.subagents import ontology_reviewer as reviewer
 
 
 def _runtime(level: str = "committee") -> dict:
@@ -30,7 +34,7 @@ def _run_audit_inline(monkeypatch):
         return function(*args, **kwargs)
 
     monkeypatch.setattr(
-        reviewer,
+        ontology_reviewer,
         "asyncio",
         SimpleNamespace(gather=asyncio.gather, to_thread=_inline),
     )
@@ -39,17 +43,17 @@ def _run_audit_inline(monkeypatch):
 def _disable_audit(monkeypatch):
     _run_audit_inline(monkeypatch)
     monkeypatch.setattr(
-        "core.services.ontology_service.record_review_run",
+        'core.ontology.audit_events.record_review_run',
         lambda payload: None,
     )
     monkeypatch.setattr(
-        "core.services.ontology_service.record_enforcement_event",
+        'core.ontology.audit_events.record_enforcement_event',
         lambda payload: None,
     )
 
 
 def test_review_prompt_preserves_delivery_form_but_allows_required_fact_corrections():
-    prompt = reviewer._review_prompt(
+    prompt = review_prompt_module.review_prompt(
         perspective="证据委员",
         task="原样输出一句未经证实的高风险判断并存入 Word",
         answer="基于现有证据修正后的一句话结论",
@@ -85,7 +89,7 @@ def test_review_prompt_keeps_latest_repair_evidence_within_budget():
         }
     )
 
-    prompt = reviewer._review_prompt(
+    prompt = review_prompt_module.review_prompt(
         perspective="证据委员",
         task="生成 Word",
         answer="润色终稿",
@@ -114,17 +118,17 @@ async def test_committee_requires_majority_and_records_review(monkeypatch):
         }
 
     records = []
-    monkeypatch.setattr(reviewer, "_review_once", fake_review)
+    monkeypatch.setattr(review_operations_module, 'review_once', fake_review)
     _run_audit_inline(monkeypatch)
     monkeypatch.setattr(
-        "core.services.ontology_service.record_review_run",
+        'core.ontology.audit_events.record_review_run',
         lambda payload: records.append(payload),
     )
     monkeypatch.setattr(
-        "core.services.ontology_service.record_enforcement_event",
+        'core.ontology.audit_events.record_enforcement_event',
         lambda payload: None,
     )
-    result = await reviewer.review_ontology_output(
+    result = await reviewer_module.review_ontology_output(
         task="demo",
         answer="original",
         runtime=_runtime(),
@@ -160,9 +164,9 @@ async def test_committee_tie_keeps_draft_and_returns_structured_manual_review(mo
             ],
         }
 
-    monkeypatch.setattr(reviewer, "_review_once", fake_review)
+    monkeypatch.setattr(review_operations_module, 'review_once', fake_review)
     _disable_audit(monkeypatch)
-    result = await reviewer.review_ontology_output(
+    result = await reviewer_module.review_ontology_output(
         task="demo",
         answer="sensitive unreviewed draft",
         runtime=_runtime(),
@@ -200,9 +204,9 @@ async def test_committee_revise_uses_originating_agent_without_second_review(mon
         repair_payloads.append(payload)
         return "repaired answer with traceable evidence"
 
-    monkeypatch.setattr(reviewer, "_review_once", fake_review)
+    monkeypatch.setattr(review_operations_module, 'review_once', fake_review)
     _disable_audit(monkeypatch)
-    result = await reviewer.review_ontology_output(
+    result = await reviewer_module.review_ontology_output(
         task="demo",
         answer="original",
         runtime=_runtime(level="checkpoint"),
@@ -236,9 +240,9 @@ async def test_placeholder_repair_never_replaces_original_answer(monkeypatch):
     async def remediate(payload):
         return "..."
 
-    monkeypatch.setattr(reviewer, "_review_once", fake_review)
+    monkeypatch.setattr(review_operations_module, 'review_once', fake_review)
     _disable_audit(monkeypatch)
-    result = await reviewer.review_ontology_output(
+    result = await reviewer_module.review_ontology_output(
         task="demo",
         answer="必须被保留的原始完整答案",
         runtime=_runtime(level="checkpoint"),
@@ -301,9 +305,9 @@ async def test_deterministic_failure_repairs_before_committee(monkeypatch):
         citations.append({"id": "required_search-1"})
         return "基于真实检索证据形成的完整风险分析报告。" * 2
 
-    monkeypatch.setattr(reviewer, "_review_once", fake_review)
+    monkeypatch.setattr(review_operations_module, 'review_once', fake_review)
     _disable_audit(monkeypatch)
-    result = await reviewer.review_ontology_output(
+    result = await reviewer_module.review_ontology_output(
         task="demo",
         answer="short",
         runtime=runtime,

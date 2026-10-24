@@ -36,7 +36,7 @@ interface MessageBubbleProps {
  */
 export const MessageBubble = memo(function MessageBubble({ m, messageIndex, currentChatId, send, exportChatRecord, regenerate, editAndResend }: MessageBubbleProps) {
   const publicChat = usePublicChat();
-  const { contentRef, onMouseDown, onMouseUp, selectionMenu } = useMessageSelection(m, currentChatId);
+  const { ref: contentRef, toolbar: selectionMenu } = useMessageSelection(m, currentChatId);
   const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
   const selectedShareMessageUids = useChatStore((s) => s.selectedShareMessageUids);
   const toggleShareMessageUid = useChatStore((s) => s.toggleShareMessageUid);
@@ -56,7 +56,6 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
     <ToolMessageContext.Provider value={toolMessageIdentity}>
     <div
       className={`jx-msg ${m.role === 'user' ? 'user' : 'assistant'}${isFresh ? ' jx-msg--fresh' : ''}`}
-      style={!m.isStreaming ? { contentVisibility: 'auto', containIntrinsicSize: 'auto 240px' } : undefined}
       data-message-ts={m.ts}
       data-message-uid={m.uid}
     >
@@ -74,8 +73,6 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
       <div
         className="jx-msgContent"
         ref={contentRef}
-        onMouseDown={onMouseDown}
-        onMouseUp={onMouseUp}
       >
         {/* User attachments */}
         {m.role === 'user' && m.attachments && m.attachments.length > 0 && (

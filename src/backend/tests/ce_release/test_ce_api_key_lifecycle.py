@@ -8,8 +8,8 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models import ChatRun, UserApiKey, UserShadow
-from core.services.api_key_runs import cancel_key_runs, require_admission_key
-from core.services.run_journal import RunJournal
+from core.auth.api_key_runs import cancel_key_runs, require_admission_key
+from core.runs.journal import RunJournal
 
 
 def test_ce_revocation_cancels_only_bound_runs_and_blocks_admission(tmp_path):
@@ -41,8 +41,8 @@ def test_ce_project_credentials_keep_scope_and_register_http_routes(tmp_path, mo
     from core.chat.schemas import ChatRequest
     from core.auth.backend import UserContext
     from core.db.models import ChatSession, Project
-    from core.services.api_key_service import ApiKeyService
-    from core.services.project_api_service import prepare_project_api_request
+    from core.auth.api_keys import ApiKeyService
+    from core.projects.api import prepare_project_api_request
 
     paths = app.openapi()["paths"]
     assert "/v1/projects/{project_id}/api-keys" in paths

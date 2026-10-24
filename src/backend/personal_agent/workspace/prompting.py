@@ -1,11 +1,12 @@
 """Prompting for Personal Agent."""
+from core.llm import prompt_rendering as prompt_rendering_module
 
 from datetime import datetime, timedelta
 
 def prompt_spec():
     from personal_agent.workspace.constants import PROMPT_DIR
     from personal_agent.workspace.constants import PROMPT_KIND
-    from core.services.prompt_version_service import KindSpec
+    from core.llm.prompt_kinds import KindSpec
     return KindSpec((PROMPT_KIND,), "independent", "个人智能体", "default - 个人智能体",
                     "个人智能体的平台规则与工作区文件模板。模板只在新建工作区时写入一次；"
                     "{skill_ids} {name} 为运行时变量，{task_id} 统一渲染为 <task_id>（真实 ID 写在任务消息里，各任务共享缓存前缀）；任务提示词末尾自动附上可用技能清单", root=PROMPT_DIR)
@@ -15,8 +16,8 @@ def prompt_part(part_id):
     from personal_agent.workspace.constants import PROMPT_DIR
     from personal_agent.workspace.constants import PROMPT_KIND
     try:
-        from core.services import prompt_version_service as pvs
-        text = pvs.render_active_prompt_part(PROMPT_KIND, part_id)
+        from core.llm import prompt_versions as pvs
+        text = prompt_rendering_module.render_active_prompt_part(PROMPT_KIND, part_id)
     except Exception:
         text = None
     return text if text is not None else (PROMPT_DIR / (part_id + ".system.md")).read_text(encoding="utf-8").strip()

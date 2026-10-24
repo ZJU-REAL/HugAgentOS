@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
-import json
 import pytest
-from orchestration.citation_anchor import AnchorAllocator, annotate_tool_result
-from orchestration.workflow import (
-    _astream_subagent_direct,
+from core.agent_runtime.direct import _astream_subagent_direct
+from core.agent_runtime.integrations.ontology_evidence import (
     _capture_nested_ontology_evidence,
-    _ontology_repair_prompt,
     _ontology_review_failure_result,
-    _run_ontology_repair_round,
-    astream_chat_workflow,
 )
+from core.agent_runtime.integrations.ontology_repair import (
+    _ontology_repair_prompt,
+    _run_ontology_repair_round,
+)
+from core.agent_runtime.runner import astream_chat_workflow
+from core.llm.citations.allocator import AnchorAllocator
+from core.llm.citations.anchor import annotate_tool_result
 
 
 def test_repair_prompt_requires_polished_delivery_instead_of_validation_report():
@@ -290,7 +293,7 @@ async def test_repair_round_streams_revision_adjacent_to_reasoning_close_tag():
     )
 
     assert answer == (
-        "第一段修订正文包含充分事实依据和明确结论，" "第二段继续说明证据边界并给出审慎判断。"
+        "第一段修订正文包含充分事实依据和明确结论，"  "第二段继续说明证据边界并给出审慎判断。"
     )
     assert len(content_events) >= 2
     assert "".join(item["delta"] for item in content_events) == answer

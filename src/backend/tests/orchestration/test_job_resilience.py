@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 from api.routes.v1.internal_jobs import AgentBody, LedgerBody
 from core.chat.tool_log import _payload_carries_error
-from orchestration.jobs.sdk import SDK_SOURCE
+from core.jobs.sdk import SDK_SOURCE
 
 # ── ② 主键类型：int 必须能进门 ──────────────────────────────────────
 
@@ -166,7 +166,7 @@ def test_runner_persists_receipt_even_when_callback_fails(tmp_path, script, star
     import subprocess
     import sys
 
-    from orchestration.jobs.runner import RUNNER_SOURCE
+    from core.jobs.runner import RUNNER_SOURCE
 
     (tmp_path / "_runner.py").write_text(RUNNER_SOURCE)
     (tmp_path / "execution.json").write_text(json.dumps({"JOB_ATTEMPT_ID": "attempt"}))

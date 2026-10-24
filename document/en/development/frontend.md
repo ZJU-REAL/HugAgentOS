@@ -132,6 +132,15 @@ Caveats:
 - When adding new EE UI: ① gate it with the selector on the matching feature bit; ② if the entire page is EE (like /admin, /config), no runtime gating is needed — the CE derived tree physically excludes the component directories and removes the routes via the overlay `main.tsx` (see [CE Build Pipeline](../editions/build-ce.md));
 - When handling API errors, branch on `LicenseError` (402) and show "contact your administrator to update the license" rather than a generic failure message.
 
+## Container-responsive layout
+
+The chat toolbar and project / capability / knowledge cards lay out by the available width of their pane; home,
+conversation, project and split views share the same rules. Containers provide width and descendants respond to the
+container; elements must not query themselves, and CSS breakpoints must not be duplicated in JavaScript. Touch targets
+are real 44px areas. Entry points: `components/chat/ComposerToolbar.tsx`, `styles/chat/toolbar-layout.css`,
+`styles/projects.css`, `styles/catalog/`. After changes, run `npm run test:container-layout-browser` and
+`npm run test:chat-width-browser`.
+
 ## New-feature checklist
 
 - [ ] Components are PascalCase + named export + Props interface

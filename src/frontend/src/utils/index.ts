@@ -31,5 +31,5 @@ export {
   readLimitedArrayBuffer,
   readLimitedBlob,
   readLimitedText,
-  type PreviewKind,
 } from './filePreviewSafety';
+export { fileExtension, getFilePreviewKind, type FilePreviewKind, type PreviewFile } from './filePreviewKind';

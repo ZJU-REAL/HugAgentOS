@@ -182,6 +182,7 @@ async def test_durable_foreign_actor_replay_cannot_modify_owned_memory(
     from core.memory.access import authorized_memory_context
 
     monkeypatch.setattr(common, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db_session.get_bind()))
     ident = await service.save_procedure_entry(ctx=context(), content="Keep original authority")
     assert ident
     assert await authorized_memory_context(ident, context().user_id)

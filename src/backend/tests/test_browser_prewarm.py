@@ -4,8 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 import httpx
+import core.db.engine as db_engine
 from core.db.models import ChatSession
-from core.plugins.resources import installation, service
+from core.capabilities.plugins.resources import installation, service
 import core.sandbox.processes.interactive as interactive
 from core.sandbox import factory
 
@@ -17,7 +18,12 @@ def test_database_url(tmp_path):
 
 @pytest.fixture
 def runtime(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from core.db import engine as db_engine
+
     monkeypatch.setenv("PLUGIN_RESOURCE_SECRET_KEY", "isolated-prewarm-fixture")
+    # Reconcile and close run on sessions of their own (core.db.threads).
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db_session.bind))
     db_session.add(ChatSession(chat_id="warm-chat", user_id="warm-user", title="warm"))
     db_session.commit()
     module = {"id": "browser", "resource": {"entry": "runtime", "callable": "worker:main", "prewarm": True}}
@@ -42,12 +48,12 @@ def runtime(db_session, monkeypatch):
 
 async def test_first_open_adopts_warm_worker_once(runtime):
     db, launches, _, _ = runtime
-    warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+    warm = await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     assert warm["status"] == "warm"
-    opened = await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    opened = await service.create("browser", "browser", "warm-user", "warm-chat")
     assert opened["resource_id"] == warm["resource_id"]
     assert opened["status"] == "active"
-    again = await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    again = await service.create("browser", "browser", "warm-user", "warm-chat")
     assert again["resource_id"] != warm["resource_id"]
     assert len(launches) == 2
 
@@ -60,30 +66,27 @@ async def test_open_joins_inflight_warm_start(runtime, monkeypatch):
         await release.wait()
         return await original(*args)
     monkeypatch.setattr(interactive, "launch", slow_launch)
-    warming = asyncio.create_task(service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True))
+    warming = asyncio.create_task(service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True))
     await entered.wait()
-    # A separate request session observes the committed start reservation.
-    from sqlalchemy.orm import Session
-    with Session(db.bind) as other:
-        opened = asyncio.create_task(service.create(other, "browser", "browser", "warm-user", "warm-chat"))
-        await asyncio.sleep(0.1)
-        assert not opened.done()
-        release.set()
-        warm, active = await asyncio.gather(warming, opened)
+    # A second request, on sessions of its own, observes the committed start reservation.
+    opened = asyncio.create_task(service.create("browser", "browser", "warm-user", "warm-chat"))
+    await asyncio.sleep(0.1)
+    assert not opened.done()
+    release.set()
+    warm, active = await asyncio.gather(warming, opened)
     assert warm["resource_id"] == active["resource_id"]
     assert len(launches) == 1
 
 async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
     from core.db.models import InstalledPlugin
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
     from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
     db.commit()
     monkeypatch.setattr(device_catalog, "active", lambda: False)
-    monkeypatch.setattr(prewarm.engine, "SessionLocal", sessionmaker(bind=db.bind))
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
     ensured, entered, release = [], asyncio.Event(), asyncio.Event()
     original = interactive.launch
     async def launch(*args):
@@ -104,8 +107,8 @@ async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(run
     release.set()
     for _ in range(100):
         await asyncio.sleep(0.01)
-        with prewarm.engine.SessionLocal() as check:
-            from core.plugins.resources import store
+        with db_engine.SessionLocal() as check:
+            from core.capabilities.plugins.resources import store
             rows = check.query(store.PluginResource).filter_by(status="warm").all()
             if rows:
                 resource_id = rows[0].resource_id
@@ -122,36 +125,36 @@ async def test_warm_is_private_and_counts_against_quota(runtime, monkeypatch):
     from fastapi import HTTPException
     db, launches, _, _ = runtime
     monkeypatch.setenv("PLUGIN_RESOURCE_MAX_PER_USER", "1")
-    warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+    warm = await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     with pytest.raises(HTTPException) as unavailable:
         service.authorized(db, warm["resource_id"], "warm-user")
     assert unavailable.value.status_code == 410
     db.add(ChatSession(chat_id="second-chat", user_id="warm-user", title="Second"))
     db.commit()
     with pytest.raises(HTTPException) as limited:
-        await service.create(db, "browser", "browser", "warm-user", "second-chat")
+        await service.create("browser", "browser", "warm-user", "second-chat")
     assert limited.value.status_code == 429
     assert len(launches) == 1
-    active = await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    active = await service.create("browser", "browser", "warm-user", "warm-chat")
     assert active["resource_id"] == warm["resource_id"]
 
 async def test_checkpoint_opens_its_own_worker_and_never_consumes_blank_warm(runtime):
-    from core.plugins.resources import store
-    from core.plugins.resources.crypto import encrypt_secret
+    from core.capabilities.plugins.resources import store
+    from core.capabilities.plugins.resources.crypto import encrypt_secret
     db, launches, selected, _ = runtime
-    warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+    warm = await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     db.add(store.PluginResourceCheckpoint(checkpoint_id="saved", user_id="warm-user",
         install_id=selected.install_id, name="Saved", state_enc=encrypt_secret('{"cookies":[]}')))
     db.commit()
-    restored = await service.create(db, "browser", "browser", "warm-user", "warm-chat", checkpoint_id="saved")
+    restored = await service.create("browser", "browser", "warm-user", "warm-chat", checkpoint_id="saved")
     assert restored["resource_id"] != warm["resource_id"]
     assert launches[-1]["checkpoint"] == {"cookies": []}
 
 @pytest.mark.parametrize("change", ["expired", "sandbox", "revision"])
 async def test_invalid_warm_is_never_reused(runtime, monkeypatch, change):
-    from core.plugins.resources import store
+    from core.capabilities.plugins.resources import store
     db, launches, selected, provider = runtime
-    warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+    warm = await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     if change == "expired":
         db.get(store.PluginResource, warm["resource_id"]).expires_at = 0
         db.commit()
@@ -162,7 +165,7 @@ async def test_invalid_warm_is_never_reused(runtime, monkeypatch, change):
     else:
         newer = installation.Installation(selected.install_id, "rev-2", selected.slug, selected.ui, selected.package)
         monkeypatch.setattr(installation, "resolve", lambda *a, **kw: newer)
-    active = await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    active = await service.create("browser", "browser", "warm-user", "warm-chat")
     assert active["resource_id"] != warm["resource_id"]
     assert len(launches) == 2
 
@@ -181,12 +184,12 @@ async def test_revoked_chat_during_prewarm_cannot_publish_ready_worker(runtime, 
     provider.write_stdin = write
     monkeypatch.setattr(interactive, "launch", launch)
     with pytest.raises(HTTPException) as denied:
-        await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+        await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     assert denied.value.status_code == 403
     assert cancelled == ["\x03"]
 
 async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(tmp_path, monkeypatch):
-    from core.plugins.resources import confinement
+    from core.capabilities.plugins.resources import confinement
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     (runtime / "worker.py").write_text("def main(config): pass")
@@ -213,16 +216,16 @@ async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(t
     assert cleaned == [("owned-start", "\x03")]
 
 async def test_close_fence_blocks_readmission_until_provider_close_finishes(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
     from core.db.models import InstalledPlugin
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
     db.commit()
     monkeypatch.setattr(device_catalog, "active", lambda: False)
-    monkeypatch.setattr(prewarm.engine, "SessionLocal", sessionmaker(bind=db.bind))
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
     entered, release = asyncio.Event(), asyncio.Event()
     async def close(chat):
         entered.set()
@@ -278,11 +281,11 @@ def test_background_binding_accepts_its_live_sandbox():
         require_available("bound")
 
 async def test_failed_warm_shutdown_reports_sandbox_dirty(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     from sqlalchemy.orm import sessionmaker
     db, _, _, _ = runtime
-    monkeypatch.setattr(prewarm.engine, "SessionLocal", sessionmaker(bind=db.bind))
-    await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
+    await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     db.commit()
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: HTTPClient(
         **kwargs, transport=httpx.MockTransport(lambda request: httpx.Response(503))))

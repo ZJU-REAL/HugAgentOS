@@ -1,7 +1,6 @@
 # 桌面端离线本机模式
 
-> 适用于 Windows x86_64、macOS Apple Silicon / Intel、Linux x86_64；UOS 1070
-> aarch64 使用独立的 [Electron 43 桌面发行线](uos1070-desktop.md)。
+> 适用于 Windows x86_64、macOS Apple Silicon / Intel、Linux x86_64。
 
 桌面端默认发行“完整离线包”。安装包同时携带当前平台的 CE 服务源码和私有 CPython 3.11
 运行时，最终用户不需要安装 Python、uv、pip、编译器或 Docker，也不需要在首次启动时访问

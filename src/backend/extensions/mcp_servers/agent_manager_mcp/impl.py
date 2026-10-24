@@ -10,6 +10,9 @@
 """
 
 from __future__ import annotations
+from features.marketplace import agent_catalog
+from features.marketplace import agent_installation
+from features.marketplace import agent_submissions
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,11 +28,9 @@ _MAX_PROMPT_BYTES = 200 * 1024
 # 绑定类字段一次最多绑多少项，防止模型把整库 id 一股脑塞进来。
 _MAX_BINDINGS = 100
 
-
 # ── 通用 ────────────────────────────────────────────────────────────────
 def _no_user() -> Dict[str, Any]:
     return {"ok": False, "message": "❌ 无法确定用户身份（缺 X-Current-User-Id 头），拒绝操作。"}
-
 
 def _invalidate_user_cache(user_id: Optional[str]) -> None:
     """清掉该用户的 30s 能力解析缓存。
@@ -40,12 +41,11 @@ def _invalidate_user_cache(user_id: Optional[str]) -> None:
     CATALOG_MUTATING_TOOLS 白名单。本调用作为进程内一致性的兜底保留，无害。
     """
     try:
-        from core.config.catalog_resolver import invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
 
         invalidate_capability_cache(str(user_id) if user_id else None)
     except Exception as exc:  # noqa: BLE001
         logger.debug("agent_manager: invalidate_capability_cache failed (%s)", exc)
-
 
 def _require_cap(db, user_id: str, cap: str) -> Optional[Dict[str, Any]]:
     """能力位校验。缺权限返回错误 dict，否则 None。"""
@@ -62,12 +62,10 @@ def _require_cap(db, user_id: str, cap: str) -> Optional[Dict[str, Any]]:
         return {"ok": False, "message": f"❌ 权限校验失败：{exc}"}
     return None
 
-
 def _svc(db):
-    from core.services.user_agent_service import UserAgentService
+    from core.capabilities.agents.edition import UserAgentService
 
     return UserAgentService(db)
-
 
 def valid_categories() -> List[str]:
     """子智能体市场的固定分类（**与技能市场的 8 类不同**）。
@@ -75,10 +73,9 @@ def valid_categories() -> List[str]:
     从单一真相源读，别在工具描述里硬写一份——分类调整时两边会漂移，
     模型照着过期的列表猜，每次上架都要失败一轮。
     """
-    from core.services.agent_market_categories import AGENT_MARKETPLACE_CATEGORIES
+    from features.marketplace.agent_categories import AGENT_MARKETPLACE_CATEGORIES
 
     return list(AGENT_MARKETPLACE_CATEGORIES)
-
 
 def _clean_ids(raw: Optional[List[str]], field: str) -> Tuple[Optional[List[str]], Optional[str]]:
     """绑定 id 数组归一化：去空白/去重/保序/限量。返回 (清洗后, 错误信息)。"""
@@ -95,7 +92,6 @@ def _clean_ids(raw: Optional[List[str]], field: str) -> Tuple[Optional[List[str]
     if len(out) > _MAX_BINDINGS:
         return None, f"❌ {field} 一次最多绑 {_MAX_BINDINGS} 项（收到 {len(out)} 项）。"
     return out, None
-
 
 def _binding_updates(
     raw: Dict[str, Optional[List[str]]], *, fill_missing: bool
@@ -115,7 +111,6 @@ def _binding_updates(
         data[field] = cleaned or []
     return data, None
 
-
 def _clean_max_iters(value: Optional[int]) -> Tuple[Optional[int], Optional[str]]:
     """max_iters 校验。None 表示"没传"，返回 (None, None) 让调用方跳过。"""
     if value is None:
@@ -127,7 +122,6 @@ def _clean_max_iters(value: Optional[int]) -> Tuple[Optional[int], Optional[str]
     if not 1 <= mi <= 100:
         return None, "❌ max_iters 取值范围 1–100。"
     return mi, None
-
 
 def _slim(a: Dict[str, Any]) -> Dict[str, Any]:
     """把 service 的完整序列化裁成智能体读得动的摘要（别把 change_history 等整包回吐）。"""
@@ -148,7 +142,6 @@ def _slim(a: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": a.get("updated_at"),
     }
 
-
 def _my_agents(db, user_id: str) -> List[Dict[str, Any]]:
     """只取"我自己建的/装的"子智能体。
 
@@ -164,7 +157,6 @@ def _my_agents(db, user_id: str) -> List[Dict[str, Any]]:
         and not str(a.get("agent_id") or "").startswith(_BUILTIN_PREFIX)
     ]
 
-
 def _resolve_agent(db, user_id: str, ref: str) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
     """agent_ref → (唯一命中, 候选)。先精确 agent_id，再按名称模糊匹配。仅本人的子智能体。"""
     ref = (ref or "").strip()
@@ -178,7 +170,6 @@ def _resolve_agent(db, user_id: str, ref: str) -> Tuple[Optional[Dict[str, Any]]
         return cands[0], []
     return None, cands[:10]
 
-
 def _need_clarify(cands: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "ok": False,
@@ -187,23 +178,22 @@ def _need_clarify(cands: List[Dict[str, Any]]) -> Dict[str, Any]:
         "candidates": [{"agent_id": c.get("agent_id"), "name": c.get("name")} for c in cands],
     }
 
-
 # ── ① 搜索子智能体市场（只读）──────────────────────────────────────────
 def search_agent_market(*, user_id: str, query: str = "", category: str = "") -> Dict[str, Any]:
     if not user_id:
         return _no_user()
     from core.db.engine import SessionLocal
-    from core.services import agent_market_service
+
 
     q = (query or "").strip().lower()
     cat = (category or "").strip()
     with SessionLocal() as db:
         # 与用户端市场接口同一套可见范围过滤（scoped 条目仅授权者可见）
-        items = agent_market_service.list_marketplace_agents(db, viewer_user_id=user_id)
+        items = agent_catalog.list_marketplace_agents(db, viewer_user_id=user_id)
         # list_marketplace_agents 只标 market_enabled/visibility，不标 installed——不补这一下，
         # 每条都会显示"未安装"，模型就会去重装用户已经有的智能体（一次代价高昂的克隆）。
         # 插件侧的 list_plugins 自带该标注，两边口径要一致。
-        agent_market_service.annotate_installed(items, db, user_id)
+        agent_installation.annotate_installed(items, db, user_id)
 
     def _match(it: Dict[str, Any]) -> bool:
         if cat and str(it.get("category") or "") != cat:
@@ -235,7 +225,6 @@ def search_agent_market(*, user_id: str, query: str = "", category: str = "") ->
     )
     return {"ok": True, "count": len(slim), "agents": slim, "message": msg}
 
-
 # ── ② 从市场安装（私有，写）────────────────────────────────────────────
 def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not user_id:
@@ -244,7 +233,7 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的子智能体 slug。"}
     from core.db.engine import SessionLocal
-    from core.services import agent_market_service
+
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_add_agent")
@@ -252,13 +241,13 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
             return cap_err
         # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端安装接口一致）。
         # 不要包 try——守卫出错就该报错，静默跳过等于对不可见条目失败开放。
-        from core.auth.marketplace_visibility import is_item_visible
-        from core.services import marketplace_listing as ml
+        from features.marketplace.edition import is_item_visible
+        from features.marketplace import edition as ml
 
         if not is_item_visible(db, ml.KIND_AGENT, slug, user_id):
             return {"ok": False, "message": f"❌ 子智能体市场里找不到「{slug}」。"}
         try:
-            res = agent_market_service.install_marketplace_agent(
+            res = agent_installation.install_marketplace_agent(
                 db, slug, owner_user_id=user_id, operator_name=user_id
             )
         except Exception as exc:  # noqa: BLE001
@@ -284,7 +273,6 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
             + tail
         ),
     }
-
 
 # ── ③ 列出可绑能力（只读，创建/修改前必调）──────────────────────────────
 def list_bindable_capabilities(*, user_id: str) -> Dict[str, Any]:
@@ -328,7 +316,6 @@ def list_bindable_capabilities(*, user_id: str) -> Dict[str, Any]:
             "创建/修改子智能体时 id 必须取自这里，不要自行编造。"
         ),
     }
-
 
 # ── ④ 从零创建（写）────────────────────────────────────────────────────
 def create_agent(
@@ -412,7 +399,6 @@ def create_agent(
         ),
     }
 
-
 def _friendly_error(action: str, exc: Exception) -> str:
     """把 service 层异常转成人话。本体校验失败要说清楚是本体没过，而不是甩一句失败。"""
     text = str(exc) or exc.__class__.__name__
@@ -424,7 +410,6 @@ def _friendly_error(action: str, exc: Exception) -> str:
     if isinstance(exc, LookupError):
         return f"❌ {action}失败：找不到该子智能体（可能已被删除）。"
     return f"❌ {action}失败：{text}"
-
 
 # ── ⑤ 列出我的子智能体（只读）──────────────────────────────────────────
 def list_my_agents(*, user_id: str) -> Dict[str, Any]:
@@ -441,7 +426,6 @@ def list_my_agents(*, user_id: str) -> Dict[str, Any]:
         else "你还没有自己的子智能体（可用 create_agent 新建，或用 search_agent_market 从市场装一个）。"
     )
     return {"ok": True, "count": len(agents), "agents": agents, "message": msg}
-
 
 # ── ⑥ 修改（字段级部分更新，写）────────────────────────────────────────
 def edit_agent(
@@ -544,7 +528,6 @@ def edit_agent(
         ),
     }
 
-
 # ── ⑦ 删除（写）────────────────────────────────────────────────────────
 def delete_agent(*, user_id: str, agent_ref: str) -> Dict[str, Any]:
     if not user_id:
@@ -576,7 +559,6 @@ def delete_agent(*, user_id: str, agent_ref: str) -> Dict[str, Any]:
         "message": f"✅ 已删除子智能体「{display}」（agent_id={deleted_id}）。",
     }
 
-
 # ── ⑧ 申请上架市场（写）────────────────────────────────────────────────
 def submit_agent_to_market(
     *, user_id: str, agent_id: str, category: str = "", summary: str = "", note: str = ""
@@ -587,7 +569,7 @@ def submit_agent_to_market(
     if not agent_id:
         return {"ok": False, "message": "❌ 请提供要上架的 agent_id（取自 list_my_agents）。"}
     from core.db.engine import SessionLocal
-    from core.services import agent_market_service
+
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_add_agent")
@@ -612,7 +594,7 @@ def submit_agent_to_market(
                 ),
             }
         try:
-            sub = agent_market_service.submit_to_marketplace(
+            sub = agent_submissions.submit_to_marketplace(
                 db,
                 str(hit.get("agent_id")),
                 owner_user_id=user_id,

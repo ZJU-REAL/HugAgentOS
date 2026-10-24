@@ -77,7 +77,7 @@ def test_runtime_operation_modules_import_without_order_dependency(module):
     import sys
 
     result = subprocess.run(
-        [sys.executable, "-c", f"import core.capabilities.{module}"],
+        [sys.executable, "-c", f"import features.desktop.capabilities.{module}"],
         env=os.environ.copy(),
         capture_output=True,
         text=True,
@@ -99,3 +99,24 @@ async def test_decorated_async_callable_counts_failure():
         await call()
     with pytest.raises(CircuitBreakerOpenError):
         await call()
+
+
+def test_rate_limit_configuration_is_not_advertised_without_a_reader():
+    """The global HTTP limiter was never mounted; its knobs must not reappear."""
+    from pathlib import Path
+
+    from core.config.settings import settings
+
+    assert not hasattr(settings, "rate_limit")
+    root = Path(__file__).resolve().parents[4]
+    for relative in (
+        "docker-compose.yml",
+        "requirements.txt",
+        "desktop/requirements-desktop.txt",
+        "document/en/deployment/environment-variables.md",
+        "document/zh-CN/deployment/environment-variables.md",
+    ):
+        path = root / relative
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            assert "RATE_LIMIT_" not in text and "slowapi" not in text, relative

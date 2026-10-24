@@ -77,7 +77,9 @@ async def test_action_not_dispatched_or_marked_unknown_while_desktop_busy(sessio
     monkeypatch.setattr(computer, "cloud_driver", driver)
     class Toolkit:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            self.functions[fn.__name__] = fn
     with sessions() as db:
         svc = AgentContext(db, "owner")
         svc.identity.configure({"approval_mode": "full"})
@@ -134,7 +136,7 @@ async def test_worker_preserves_unknown_tool_outcome_despite_desktop_wait(sessio
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
     from personal_agent.tasks import worker as module
-    from core.services.tool_effect_ledger import ToolOutcomeUnknown
+    from core.runs.tool_effects.errors import ToolOutcomeUnknown
     monkeypatch.setattr(module, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     @asynccontextmanager

@@ -7,13 +7,25 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import api.routes.v1.chats.run_views as chat_run_views
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.chat.runtime.compaction as compaction
+import core.chat.runtime.followups as followups
+import core.chat.runtime.recovery as recovery
+import core.runs.events.store as run_event_stream
+import core.runs.events.subscription as subscription
+import core.runs.events.writer as writer
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
+import core.runs.settings as settings
+import core.runs.tasks as tasks
+import core.runs.watchdog as watchdog
 import fakeredis.aioredis
+import orchestration.workers.run_recovery as _run_recovery
 import pytest
 from core.auth.backend import UserContext
 from core.db.models import ChatMessage, ChatRun
-from core.services.run_journal import RunJournal
-from orchestration import chat_run_executor as executor
-from orchestration import run_event_stream
+from core.runs.journal import RunJournal
 from tests.orchestration.recovery_test_support import recovery_env
 
 
@@ -33,16 +45,16 @@ async def test_public_start_follow_and_history_complete_on_durable_offsets(
             "usage": {"input_tokens": 2, "output_tokens": 2},
         }
 
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    run = await executor.start_run(
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -54,7 +66,7 @@ async def test_public_start_follow_and_history_complete_on_durable_offsets(
     )
 
     async def collect():
-        return [event async for event in executor.follow_run(run.run_id)]
+        return [event async for event in subscription.follow_run(run.run_id)]
 
     events = await asyncio.wait_for(collect(), timeout=5)
     offsets = [event["_offset"] for event in events]
@@ -75,7 +87,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-partial-stream",
@@ -104,7 +116,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
     )
     for text in ("old partial one", "old partial two"):
         offset = journal.allocate_event_offset(row.run_id, owner="dead-worker")
-        await executor._xadd_event(
+        await writer.xadd_event(
             row.run_id,
             offset,
             {"type": "content", "delta": text, "chat_id": "chat-1"},
@@ -119,18 +131,18 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
         yield {"type": "content", "delta": "recovered answer"}
         yield {"type": "meta", "route": "main", "usage": {}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    assert await executor.recover_orphan_runs() == 1
+    assert await recovery.recover_orphan_runs() == 1
 
     async def collect_from_crash_offset():
-        return [event async for event in executor.follow_run(row.run_id, from_offset=2)]
+        return [event async for event in subscription.follow_run(row.run_id, from_offset=2)]
 
     events = await asyncio.wait_for(collect_from_crash_offset(), timeout=5)
     assert events[0]["_offset"] == 3
@@ -142,14 +154,14 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
     )
     decoded = [json.loads(fields["data"]) for _entry_id, fields in raw_entries]
     assert all("old partial" not in str(event) for event in decoded)
-    assert decoded[-1]["type"] == executor._TERMINAL_TYPE
+    assert decoded[-1]["type"] == settings.TERMINAL_TYPE
 
 
 @pytest.mark.asyncio
 async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-refresh-replay",
@@ -162,7 +174,7 @@ async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_en
     assert journal.claim(row.run_id, owner="live-worker", lease_seconds=60)
     for text in ("already produced one", "already produced two"):
         offset = journal.allocate_event_offset(row.run_id, owner="live-worker")
-        await executor._xadd_event(
+        await writer.xadd_event(
             row.run_id,
             offset,
             {"type": "content", "delta": text, "chat_id": "chat-1"},
@@ -182,7 +194,7 @@ async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_en
     replay_from = response["data"]["last_event_offset"]
 
     async def collect_existing_prefix():
-        follower = executor.follow_run(row.run_id, from_offset=replay_from)
+        follower = subscription.follow_run(row.run_id, from_offset=replay_from)
         try:
             return [await anext(follower), await anext(follower)]
         finally:
@@ -203,12 +215,12 @@ async def test_lease_heartbeat_fails_closed_when_renew_raises(monkeypatch):
         def renew(self, *_args, **_kwargs):
             raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(executor, "_journal", lambda: ExplodingJournal())
-    monkeypatch.setattr(executor, "_RUN_LEASE_HEARTBEAT_SEC", 0.0)
+    monkeypatch.setattr(ownership, 'journal', lambda: ExplodingJournal())
+    monkeypatch.setattr(settings, "_RUN_LEASE_HEARTBEAT_SEC", 0.0)
     lease_lost = asyncio.Event()
     worker = asyncio.create_task(asyncio.Event().wait())
     heartbeat = asyncio.create_task(
-        executor._lease_heartbeat("run-heartbeat", "worker", worker, lease_lost)
+        ownership.lease_heartbeat("run-heartbeat", "worker", worker, lease_lost)
     )
 
     await asyncio.wait_for(heartbeat, timeout=1)
@@ -251,10 +263,10 @@ async def test_periodic_recovery_retries_a_lease_that_was_live_at_startup(
         coro.close()
         registered.set()
 
-    monkeypatch.setattr(executor, "_register_run_task", register)
-    monkeypatch.setattr(executor, "_RUN_RECOVERY_INTERVAL_SEC", 0.01)
-    monkeypatch.setattr(executor, "_STALE_REAPER_INTERVAL_SEC", 60.0)
-    loop_task = asyncio.create_task(executor.run_stale_reaper_loop())
+    monkeypatch.setattr(runtime, 'register_run_task', register)
+    monkeypatch.setattr(settings, 'RUN_RECOVERY_INTERVAL_SEC', 0.01)
+    monkeypatch.setattr(settings, 'STALE_REAPER_INTERVAL_SEC', 60.0)
+    loop_task = asyncio.create_task(_run_recovery.run_stale_reaper_loop())
     try:
         await asyncio.wait_for(registered.wait(), timeout=1)
     finally:
@@ -276,9 +288,9 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
         yield {"type": "model_progress"}
         await asyncio.Event().wait()
 
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
-    monkeypatch.setattr(executor, "astream_chat_workflow", blocked_workflow)
-    run = await executor.start_run(
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
+    monkeypatch.setattr(runner, "astream_chat_workflow", blocked_workflow)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -289,9 +301,9 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
         model_name="test-model",
     )
     await asyncio.wait_for(entered.wait(), timeout=1)
-    worker = executor._active_runs[run.run_id]
+    worker = tasks.process_state().active_runs[run.run_id]
     hard_expired_at = datetime.now(timezone.utc) - timedelta(
-        seconds=executor._HARD_MAX_AGE_SEC + 60
+        seconds=settings._HARD_MAX_AGE_SEC + 60
     )
     with sessions() as db:
         db.query(ChatRun).filter(ChatRun.run_id == run.run_id).update(
@@ -299,11 +311,11 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
         )
         db.commit()
 
-    assert await executor.reap_stale_runs() == 1
+    assert await watchdog.reap_stale_runs() == 1
     await asyncio.wait_for(worker, timeout=1)
     entries = await redis.xrange(run_event_stream.redis_stream_key(run.run_id), min="-", max="+")
     events = [json.loads(fields["data"]) for _entry_id, fields in entries]
-    assert sum(event.get("type") == executor._TERMINAL_TYPE for event in events) == 1
+    assert sum(event.get("type") == settings.TERMINAL_TYPE for event in events) == 1
     assert not any(event.get("_cancelled") for event in events)
     assert any("长时间无响应" in str(event.get("error") or "") for event in events)
     with sessions() as db:
@@ -316,7 +328,7 @@ async def test_follow_run_survives_none_stream_reads(recovery_env, monkeypatch):
 
     follow_run must treat both as "no events yet" instead of failing the SSE
     stream with "流式响应中断". The Redis client now sits behind
-    orchestration.run_event_stream, so that is where the empty read enters.
+    core.runs.events.store, so that is where the empty read enters.
     """
 
     class _NoneStreamRedis:
@@ -326,7 +338,7 @@ async def test_follow_run_survives_none_stream_reads(recovery_env, monkeypatch):
         async def xread(self, *a, **k):
             return None
 
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: _NoneStreamRedis())
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: _NoneStreamRedis())
     journal = RunJournal(recovery_env)
     journal.accept(
         run_id="run-none-stream",
@@ -340,7 +352,7 @@ async def test_follow_run_survives_none_stream_reads(recovery_env, monkeypatch):
     assert journal.complete("run-none-stream", owner="w", status="failed")
 
     events = []
-    async for event in executor.follow_run("run-none-stream", from_offset=0):
+    async for event in subscription.follow_run("run-none-stream", from_offset=0):
         events.append(event)
     assert events == []
 
@@ -398,16 +410,16 @@ async def test_follower_drops_the_poisoned_connection_when_xread_fails(recovery_
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
 
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: client)
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: client)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(compaction, "_spawn_compaction_task", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "core.services.artifact_service.persist_artifacts",
+        'core.files.artifacts.service.persist_artifacts',
         lambda *_args, **_kwargs: None,
     )
 
-    run = await executor.start_run(
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -419,7 +431,7 @@ async def test_follower_drops_the_poisoned_connection_when_xread_fails(recovery_
     )
 
     async def collect():
-        return [event async for event in executor.follow_run(run.run_id)]
+        return [event async for event in subscription.follow_run(run.run_id)]
 
     follower = asyncio.create_task(collect())
     await asyncio.wait_for(dropped.wait(), timeout=5)

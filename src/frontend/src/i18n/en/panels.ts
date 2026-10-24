@@ -349,9 +349,8 @@ export const PANELS_DICT: Record<string, string> = {
 
   // ── CanvasPanel ──────────────────────────────────────────────────────
   '文档预览失败': 'Failed to preview document',
+  '正在转换文档…': 'Converting document…',
   '正在渲染文档…': 'Rendering document…',
-  'PPT 预览失败': 'Failed to preview presentation',
-  '正在渲染演示文稿…': 'Rendering presentation…',
   '文本加载失败': 'Failed to load text',
   '正在加载…': 'Loading…',
   '文件超过 {limit} 的安全预览上限，请下载后在本地打开': 'This file exceeds the {limit} safe preview limit. Download it and open it locally.',

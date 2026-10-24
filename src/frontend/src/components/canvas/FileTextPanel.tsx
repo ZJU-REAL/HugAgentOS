@@ -9,7 +9,7 @@ import { type CanvasArtifact } from '../../stores/canvasStore';
 import { artifactOrigin, artifactUrl } from '../../utils/artifactAccess';
 import './FileTextPanel.css';
 import { MarkdownFileEditor } from './MarkdownFileEditor';
-import { getFileCategory } from './canvasFileCategory';
+import { getFilePreviewKind } from '../../utils/filePreviewKind';
 import { htmlPreviewDocument } from './htmlPreviewDocument';
 
 export interface FileTextState { canEdit: boolean; dirty: boolean; saving: boolean }
@@ -37,7 +37,7 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
   const [document, setDocument] = useState<TextDocument>();
   const [draft, setDraft] = useState('');
   const [htmlView, setHtmlView] = useState<'preview' | 'source'>('preview');
-  const isHtml = getFileCategory(artifact) === 'html';
+  const isHtml = getFilePreviewKind(artifact) === 'html';
   const sourceUrl = artifactUrl(artifact);
   const htmlDraft = useMemo(() => isHtml && document
     ? htmlPreviewDocument(draft, new URL(sourceUrl, window.location.href).href)
@@ -166,7 +166,7 @@ export function FileTextPanel({ artifact, preview, ref, onStateChange, headerCon
       : <textarea ref={editorRef} className="jx-fileTextPanel-editor" aria-label={t('文件内容')}
           value={draft} readOnly={!editing} disabled={saving} spellCheck={false}
           onChange={event => setDraft(event.target.value)} />
-      : editing && getFileCategory(artifact) === 'markdown'
+      : editing && getFilePreviewKind(artifact) === 'markdown'
       ? <MarkdownFileEditor value={draft} disabled={saving} onChange={setDraft} />
       : editing ? <textarea ref={editorRef} className="jx-fileTextPanel-editor"
       aria-label={t('文件内容')} value={draft} disabled={saving} spellCheck={false}

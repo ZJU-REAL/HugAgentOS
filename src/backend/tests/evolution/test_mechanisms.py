@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.evolution import counterfactual as CF
-from core.evolution import evaluator as EV
-from core.evolution import timescales as TS
+from core.evolution.evidence import counterfactual as CF
+from core.evolution.assessment import evaluator as EV
+from core.evolution.cycle import timescales as TS
 
 
 # ── Counterfactual attribution (28) ──────────────────────────────────────────

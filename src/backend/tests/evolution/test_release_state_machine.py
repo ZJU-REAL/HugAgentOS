@@ -7,7 +7,7 @@ paths are the easy half; the reason this module exists is the negative half.
 
 import pytest
 
-from core.evolution import release as R
+from core.evolution.cycle import release as R
 
 
 # ── State machine ────────────────────────────────────────────────────────────

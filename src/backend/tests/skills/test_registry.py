@@ -1,6 +1,6 @@
 """Focused tests for the agent-skill SKILL.md parser."""
 
-from core.agent_skills.registry import _load_skill_metadata_from_str, _split_frontmatter
+from core.capabilities.skills.registry import load_skill_metadata_from_str, split_frontmatter
 
 
 def test_frontmatter_accepts_windows_crlf_line_endings():
@@ -16,8 +16,8 @@ def test_frontmatter_accepts_windows_crlf_line_endings():
         "Follow the instructions.\r\n"
     )
 
-    frontmatter, body = _split_frontmatter(raw)
-    metadata = _load_skill_metadata_from_str(raw, "windows-skill")
+    frontmatter, body = split_frontmatter(raw)
+    metadata = load_skill_metadata_from_str(raw, "windows-skill")
 
     assert frontmatter["name"] == "windows-skill"
     assert body.startswith("\n# Windows skill\n")

@@ -10,10 +10,10 @@ from sqlalchemy.orm import sessionmaker
 import core.db.engine as engine_mod
 from core.config import settings as config_settings
 from core.db.models import ChatSession
-from core.llm import compaction as C
-from core.services import compaction_budget as budget
-from core.services.compaction_coordinator import CompactionCoordinator
-from core.services.chat_service import ChatService
+from core.llm.context import compaction as C
+from core.llm.context import budget as budget
+from core.chat.compaction.coordinator import CompactionCoordinator
+from core.chat.service import ChatService
 
 INPUTS = {
     "system_prompt": "",
@@ -61,7 +61,7 @@ def test_measured_threshold_publishes_checkpoint_despite_lower_estimate(db_sessi
         called.append(history)
         return "synthetic summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     result = asyncio.run(
         CompactionCoordinator("measured-compaction").compact(
             budget_inputs=INPUTS, token_limit=29520
@@ -110,7 +110,7 @@ def test_finalizing_covered_assistant_fences_only_mid_turn_checkpoint(
     db_session, monkeypatch, phase, pending
 ):
     from core.chat import inflight
-    from core.services.compaction_service import _load_history
+    from core.chat.compaction.service import _load_history
 
     chat = "covered-growth"
     db_session.add(ChatSession(chat_id=chat, user_id="u1", title="test"))
@@ -175,7 +175,7 @@ def test_finalizing_covered_assistant_fences_only_mid_turn_checkpoint(
     async def summarize(history, *, timeout):
         return "complete summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     assert asyncio.run(CompactionCoordinator(chat).compact(budget_inputs=INPUTS, token_limit=29520))
     db_session.expire_all()
     final = svc.get_latest_compaction_checkpoint(chat)

@@ -2,22 +2,22 @@
 
 from typing import Any, Dict, List, Optional
 
+import api.transports.run_sse as run_sse
+import core.runs.runtime as runtime
+import orchestration.plans.admission as admission
+from core.auth.backend import UserContext, get_current_user
+from core.chat.context import generate_smart_title
+from core.db.engine import get_db
+from core.db.threads import run_db, run_in_session
+from core.infra.logging import get_logger
+from core.infra.responses import sse_response, success_response
+from core.chat.service import ChatService
+from core.chat.plans import PlanService
+from core.auth.model_selection import UserModelSelectionError, resolve_user_model_provider_id
+from core.models.selection import resolve_effective_chat_model_name
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-
-from core.auth.backend import get_current_user, UserContext
-from core.chat.context import generate_smart_title
-from core.db.engine import get_db
-from core.infra.responses import success_response, sse_response
-from core.services.plan_service import PlanService
-from core.services.chat_service import ChatService
-from core.services.user_model_selection import (
-    UserModelSelectionError,
-    resolve_effective_chat_model_name,
-    resolve_user_model_provider_id,
-)
-from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -155,7 +155,7 @@ def _load_chat_history(
     #    structured tool replay); long sessions get the compacted history rather than the full raw text.
     if chat_id:
         try:
-            from core.services.compaction_service import load_session_history
+            from core.chat.compaction.service import load_session_history
 
             history = load_session_history(ChatService(db), chat_id, user_id)
             if history:
@@ -177,64 +177,66 @@ def _load_chat_history(
 async def generate_plan(
     req: GeneratePlanRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """SSE stream — generate a structured plan from a task description.
 
     后台 task 跑生成工作流，HTTP 连接断开（刷新页面）任务继续；前端可通过
     ``GET /v1/chats/{chat_id}/active-run`` 探测，结束后从消息列表拿到完整 plan。
     """
-    db_chat_id = _ensure_plan_session(
-        db,
-        req.chat_id,
-        user.user_id,
-        req.task_description,
-        project_id=req.project_id,
-    )
-    if not db_chat_id:
-        raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台生成任务")
-    try:
-        selected_model_provider_id = resolve_user_model_provider_id(
-            db, req.model_provider_id, user_id=user.user_id
-        )
-    except UserModelSelectionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    actual_model_name = resolve_effective_chat_model_name(
-        selected_model_provider_id,
-        fallback_model_name=req.model_name,
-    )
 
-    # On automatic entry into plan mode (enter_plan_mode), task_description is an
-    # AI-expanded internal prompt and is NOT persisted as a user message — the original
-    # user request and that main-agent turn are already in the same session history;
-    # storing another copy would make a refresh display the internal prompt as a user
-    # bubble. Manual plan mode (typed by the user) echoes normally.
-    if not req.suppress_user_echo:
-        _save_plan_message(
+    def prepare(db: Session):
+        db_chat_id = _ensure_plan_session(
             db,
-            db_chat_id,
-            "user",
+            req.chat_id,
+            user.user_id,
             req.task_description,
-            model=actual_model_name,
-            extra_data=(
-                {"model_provider_id": selected_model_provider_id}
-                if selected_model_provider_id
-                else None
-            ),
+            project_id=req.project_id,
+        )
+        if not db_chat_id:
+            raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台生成任务")
+        try:
+            selected_model_provider_id = resolve_user_model_provider_id(
+                db, req.model_provider_id, user_id=user.user_id
+            )
+        except UserModelSelectionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        actual_model_name = resolve_effective_chat_model_name(
+            selected_model_provider_id,
+            fallback_model_name=req.model_name,
         )
 
-    session_messages = _load_chat_history(db, req.chat_id, user.user_id, req.history_messages)
-    logger.warning(
-        "[plan-generate] chat_id=%s, loaded %d history messages", req.chat_id, len(session_messages)
-    )
+        # On automatic entry into plan mode (enter_plan_mode), task_description is an
+        # AI-expanded internal prompt and is NOT persisted as a user message — the original
+        # user request and that main-agent turn are already in the same session history;
+        # storing another copy would make a refresh display the internal prompt as a user
+        # bubble. Manual plan mode (typed by the user) echoes normally.
+        if not req.suppress_user_echo:
+            _save_plan_message(
+                db,
+                db_chat_id,
+                "user",
+                req.task_description,
+                model=actual_model_name,
+                extra_data=(
+                    {"model_provider_id": selected_model_provider_id}
+                    if selected_model_provider_id
+                    else None
+                ),
+            )
+
+        session_messages = _load_chat_history(db, req.chat_id, user.user_id, req.history_messages)
+        logger.warning(
+            "[plan-generate] chat_id=%s, loaded %d history messages", req.chat_id, len(session_messages)
+        )
+        return db_chat_id, actual_model_name, selected_model_provider_id, session_messages
+
+    db_chat_id, actual_model_name, selected_model_provider_id, session_messages = await run_in_session(prepare)
 
     uploaded_files = None
     if req.attachments:
         uploaded_files = [a.model_dump() for a in req.attachments if a.file_id]
 
-    from orchestration import chat_run_executor
-
-    run = await chat_run_executor.start_plan_generate_run(
+    run = await admission.start_plan_generate_run(
         chat_id=db_chat_id,
         user_id=user.user_id,
         task_description=req.task_description,
@@ -249,7 +251,7 @@ async def generate_plan(
     )
 
     return sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run.run_id,
             chat_id=db_chat_id,
             error_event_factory=lambda reason: {"type": "plan_error", "error": reason},
@@ -351,7 +353,6 @@ async def execute_plan(
     plan_id: str,
     req: ExecutePlanRequest = ExecutePlanRequest(),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """SSE stream — execute an approved plan step by step.
 
@@ -359,34 +360,37 @@ async def execute_plan(
     断开（用户刷新页面）不会取消任务，前端可通过 ``GET /v1/chats/{chat_id}/active-run``
     + ``GET /v1/chats/stream/{run_id}`` 续播。
     """
-    svc = PlanService(db)
-    plan = svc.get_plan(plan_id, user.user_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail="计划不存在")
-    if plan.status != "approved":
-        raise HTTPException(status_code=400, detail=f"计划状态为 '{plan.status}'，需要先审批")
 
-    # Ensure chat session and save "确认执行" user message
-    db_chat_id = _ensure_plan_session(
-        db,
-        req.chat_id,
-        user.user_id,
-        plan.title,
-        project_id=req.project_id,
-    )
-    if not db_chat_id:
-        raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台执行任务")
-    actual_model_name = resolve_effective_chat_model_name() or "qwen"
-    _save_plan_message(db, db_chat_id, "user", "确认执行", model=actual_model_name)
+    def prepare(db: Session):
+        svc = PlanService(db)
+        plan = svc.get_plan(plan_id, user.user_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        if plan.status != "approved":
+            raise HTTPException(status_code=400, detail=f"计划状态为 '{plan.status}'，需要先审批")
 
-    session_messages = _load_chat_history(db, req.chat_id, user.user_id, req.history_messages)
-    logger.warning(
-        "[plan-execute] chat_id=%s, loaded %d history messages", req.chat_id, len(session_messages)
-    )
+        # Ensure chat session and save "确认执行" user message
+        db_chat_id = _ensure_plan_session(
+            db,
+            req.chat_id,
+            user.user_id,
+            plan.title,
+            project_id=req.project_id,
+        )
+        if not db_chat_id:
+            raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台执行任务")
+        actual_model_name = resolve_effective_chat_model_name() or "qwen"
+        _save_plan_message(db, db_chat_id, "user", "确认执行", model=actual_model_name)
 
-    from orchestration import chat_run_executor
+        session_messages = _load_chat_history(db, req.chat_id, user.user_id, req.history_messages)
+        logger.warning(
+            "[plan-execute] chat_id=%s, loaded %d history messages", req.chat_id, len(session_messages)
+        )
+        return db_chat_id, actual_model_name, session_messages
 
-    run = await chat_run_executor.start_plan_execute_run(
+    db_chat_id, actual_model_name, session_messages = await run_in_session(prepare)
+
+    run = await admission.start_plan_execute_run(
         plan_id=plan_id,
         chat_id=db_chat_id,
         user_id=user.user_id,
@@ -399,7 +403,7 @@ async def execute_plan(
     )
 
     return sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run.run_id,
             chat_id=db_chat_id,
             error_event_factory=lambda reason: {
@@ -415,26 +419,25 @@ async def execute_plan(
 async def cancel_plan(
     plan_id: str,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Cancel a running plan — 同时杀掉关联的后台 chat_run（如果有）。"""
-    svc = PlanService(db)
-    plan = svc.get_plan(plan_id, user.user_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail="计划不存在")
-    if plan.status not in ("running", "approved", "draft"):
-        raise HTTPException(status_code=400, detail=f"计划状态为 '{plan.status}'，无法取消")
+    def cancel(db: Session) -> None:
+        svc = PlanService(db)
+        plan = svc.get_plan(plan_id, user.user_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        if plan.status not in ("running", "approved", "draft"):
+            raise HTTPException(status_code=400, detail=f"计划状态为 '{plan.status}'，无法取消")
+        svc.update_plan(plan_id, status="cancelled")
 
-    svc.update_plan(plan_id, status="cancelled")
+    await run_in_session(cancel)
 
     # Also cancel the background run in lockstep (only exists during the plan execute phase)
-    from orchestration import chat_run_executor
-
-    run = chat_run_executor.get_run_by_plan_id(plan_id)
+    run = await run_db(admission.get_run_by_plan_id, plan_id)
     if run is not None:
         try:
-            await chat_run_executor.cancel_run(run.run_id, user_id=user.user_id)
-        except chat_run_executor.ChatRunPermissionDenied:
+            await runtime.cancel_run(run.run_id, user_id=user.user_id)
+        except runtime.ChatRunPermissionDenied:
             pass  # the plan was already authorized; a run auth failure means user_id inference went wrong — do not block
         except Exception as exc:
             logger.warning(

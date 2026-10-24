@@ -1,0 +1,104 @@
+/* ══ PDF viewer (pdf.js pages + DOM text layer) ══ */
+.jx-pdfViewer {
+  position: relative;
+  height: 100%;
+  background: var(--color-bg-gray);
+}
+.jx-pdfViewer-scroll {
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.jx-pdfViewer-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.jx-pdfPage {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  position: relative;
+  flex-shrink: 0;
+  /* dark-ok: PDF pages are paper; their content is drawn for a white sheet. */
+  background: #fff;
+  border-radius: var(--radius-xs);
+  box-shadow: 0 0 0 1px var(--color-border);
+  overflow: hidden;
+}
+.jx-pdfPage-canvas,
+.jx-pdfPage-canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.jx-pdfViewer-pageIndicator {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 72%, transparent);
+  color: var(--color-bg-container);
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* Text layer: transparent, absolutely positioned runs over the bitmap so the
+   browser's own selection (and the canvas quote toolbar) works on PDF text.
+   Rules adapted from pdfjs-dist/web/pdf_viewer.css. */
+.jx-pdfPage .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+}
+.jx-pdfPage .textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
+.jx-pdfPage .textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
+.jx-pdfPage .textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
+.jx-pdfPage .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.jx-pdfPage .textLayer > :not(.markedContent),
+.jx-pdfPage .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.jx-pdfPage .textLayer .markedContent { display: contents; }
+.jx-pdfPage .textLayer ::selection {
+  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+.jx-pdfPage .textLayer br::selection { background: transparent; }
+.jx-pdfPage .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.jx-pdfPage .textLayer.selecting .endOfContent { top: 0; }

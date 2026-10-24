@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
 from core.llm.factory.defaults import DYNAMIC_BLOCK_HEADER
+
+logger = logging.getLogger(__name__)
 
 
 def _render_turn_budget_hint(max_iters: int) -> str:

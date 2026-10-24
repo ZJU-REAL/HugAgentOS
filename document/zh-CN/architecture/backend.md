@@ -128,7 +128,7 @@ src/backend/
 
 `runner` 仅依赖不加载后端配置或数据库的进程和路径基础模块。OpenSandbox 专属组件留在自己的驱动目录；Cube 与 OpenSandbox 共用的进程、路径和账号环境能力由共享包提供。
 
-### core/agent_skills — 技能引擎
+### core/capabilities/skills — 技能引擎
 
 | 文件 | 职责 |
 |---|---|
@@ -144,12 +144,12 @@ src/backend/
 | 子模块 | 职责与关键文件 |
 |---|---|
 | `core/chat` | workflow 上下文组装（`context.py`）、SSE 工具日志事件构造（`tool_log.py`） |
-| `core/content` | 附件解析（`file_parser.py`）、KB 文档分块/关键词/向量化（`kb_processing.py`）、上传校验（`file_validation.py`）、产物读取与摘要（`artifact_reader/refs/summary.py`）、内容块导入导出（`content_blocks.py`）、`svg_fit.py` |
-| `core/kb` / `edition_ee/kb` | 自建知识库解析与 Milvus 向量库保留在 `core/kb`；Dify 客户端与外部检索适配器只存在于 `edition_ee/kb`（商业版 EE） |
-| `core/artifacts` | 产物存储 `store.py`：本地 / OSS 双模式 |
-| `core/infra` | 统一响应（`responses.py`）、异常（`exceptions.py`）、结构化日志（`logging.py`）、限流（`rate_limit.py`）、Redis 单例（`redis.py`）、指标（`metrics.py`）、后台任务注册表（`runtime_state.py`）、脱敏（`data_masking.py`）、蒸馏预算闸门（`distillation_budget.py`，商业版 EE） |
+| `core/files/content` | 附件解析（`file_parser.py`）、KB 文档分块/关键词/向量化（`kb_processing.py`）、上传校验（`file_validation.py`）、产物读取与摘要（`artifact_reader/refs/summary.py`）、内容块导入导出（`content_blocks.py`）、`svg_fit.py` |
+| `features/knowledge` / `edition_ee/kb` | 自建知识库解析与 Milvus 向量库保留在 `features/knowledge`；Dify 客户端与外部检索适配器只存在于 `edition_ee/kb`（商业版 EE） |
+| `core/files/artifacts` | 产物存储 `store.py`：本地 / OSS 双模式 |
+| `core/infra` | 统一响应（`responses.py`）、异常（`exceptions.py`）、结构化日志（`logging.py`）、Redis 单例（`redis.py`）、指标（`metrics.py`）、后台任务注册表（`runtime_state.py`）、脱敏（`data_masking.py`）、蒸馏预算闸门（`distillation_budget.py`，商业版 EE） |
 | `edition_ee/licensing` | 能力枚举、验签、时钟回拨防护、席位策略、中间件和 manager 全部只存在于商业版 EE；CE 树物理不含 License 包，由 `api/middleware/edition.py` 的 CE overlay 提供固定版本探针 |
-| `core/storage` | 存储协议 `protocol.py` + 工厂 `factory.py`；`local.py`（CE）、`s3.py` / `oss.py`（商业版 EE） |
+| `core/files/storage` | 存储协议 `protocol.py` + 工厂 `factory.py`；`local.py`（CE）、`s3.py` / `oss.py`（商业版 EE） |
 
 ## orchestration/ — 编排层
 
@@ -219,12 +219,12 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 | 应用入口与启动钩子 | `src/backend/api/app.py` |
 | 路由注册表 | `src/backend/api/routes/v1/__init__.py` |
 | 智能体工厂 | `src/backend/core/llm/factory/build.py` |
-| Run 执行器 / 工作流 | `src/backend/orchestration/chat_run_executor.py`、`workflow.py` |
-| 能力目录 | `src/backend/core/config/catalog.py` |
+| Run 执行器 / 工作流 | `src/backend/core/chat/runtime/`、`workflow.py` |
+| 能力目录 | `src/backend/core/capabilities/catalog/` |
 | 沙箱协议 | `src/backend/core/sandbox/protocol.py` |
 | 记忆流水线 | `src/backend/core/memory/pipeline.py` |
 | EE License 实现 / CE 版本中间件 | `src/backend/edition_ee/licensing/`、`src/backend/api/middleware/edition.py` |
-| 技能引擎 | `src/backend/core/agent_skills/loader.py` |
+| 技能引擎 | `src/backend/core/capabilities/skills/loader.py` |
 | MCP 注册表与端口 | `src/backend/extensions/mcp_servers/registry.py`、`_ports.py` |
 
 空间 MCP 接口位于 `extensions/mcp_servers/space_files_mcp/`。注册表分别管理安装位置和暴露方式；混合模式通过桌面能力网关访问空间，修改操作接入统一审批。详见[空间文件挂载](../deployment/space-files.md)。

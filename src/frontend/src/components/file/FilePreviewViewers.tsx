@@ -19,7 +19,8 @@ import {
   readLimitedText,
 } from '../../utils/filePreviewSafety';
 
-import { extOf, buildRawUrl } from './filePreviewUrls';
+import { buildRawUrl } from './filePreviewUrls';
+import { fileExtension } from '../../utils/filePreviewKind';
 
 // ─── small async-text hook ─────────────────────────────────────────
 
@@ -94,31 +95,6 @@ export function FrameViewer({ src }: { src: string }) {
       title={t('文件预览')}
       onLoad={() => setLoaded(true)}
     />
-  );
-}
-
-export function VideoViewer({ src }: { src: string }) {
-  const media = usePublicMediaUrl(src);
-  if (media.error) return <PreviewError msg={media.error} />;
-  if (!media.url) return <PreviewLoading />;
-  return (
-    <div className="jx-spaceImportPreview-media">
-      <video src={media.url} controls playsInline preload="metadata" />
-    </div>
-  );
-}
-
-export function AudioViewer({ src, name }: { src: string; name: string }) {
-  const media = usePublicMediaUrl(src);
-  if (media.error) return <PreviewError msg={media.error} />;
-  if (!media.url) return <PreviewLoading />;
-  const initial = (name || '?').slice(0, 1).toUpperCase();
-  return (
-    <div className="jx-spaceImportPreview-audio">
-      <div className="jx-spaceImportPreview-audioCover">{initial}</div>
-      <div className="jx-spaceImportPreview-audioName" title={name}>{name}</div>
-      <audio src={media.url} controls preload="metadata" />
-    </div>
   );
 }
 
@@ -215,7 +191,7 @@ function parseCsv(text: string, sep: string): { rows: string[][]; truncated: boo
 
 export function CsvViewer({ item, maxBytes }: { item: ResourceItem; maxBytes: number }) {
   const { text, err, loading } = useFetchText(item, maxBytes);
-  const sep = extOf(item.name) === 'tsv' ? '\t' : ',';
+  const sep = fileExtension(item.name) === 'tsv' ? '\t' : ',';
   const parsed = useMemo(() => parseCsv(text || '', sep), [text, sep]);
   const { rows } = parsed;
   if (loading) return <PreviewLoading />;

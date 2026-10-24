@@ -94,8 +94,9 @@ class _OpenSandboxAdminMixin:
         finally:
             try:
                 await mgr.close()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as fallback_error:  # noqa: BLE001
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.sandbox.providers.opensandbox.admin:_iter_server_sandbox_infos', fallback_error)
 
     @_on_service_loop
     async def admin_get_sandbox(self, sandbox_id: str) -> Optional[SandboxInfo]:

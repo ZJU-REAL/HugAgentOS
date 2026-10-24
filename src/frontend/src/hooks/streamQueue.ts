@@ -37,7 +37,11 @@ export function createStreamQueue(ctx: Pick<StreamingContext, 'abortControllersR
       invocationOverride,
     });
     state.setQueuedMessage(state.currentChatId, queued);
-    if (directMessage === undefined) draft.consume(draft, ['text', 'invocation']);
+    if (directMessage === undefined) {
+      draft.consume(draft, ['text', 'invocation']);
+      // The quote now travels with the queued turn, not the next one typed.
+      if (queued.invocation?.quote) draft.setQuotedFollowUp(null);
+    }
   }
 
 

@@ -2,6 +2,7 @@
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
 
@@ -32,6 +33,40 @@ def _resolve_database_url() -> str:
     return url
 
 
+@dataclass(frozen=True)
+class ThreadBudget:
+    """How many threads of one process can hold a database connection at once.
+
+    Database work runs on threads, never on the event loop, and a process has two
+    pools of them: anyio's default limiter (sync routes and dependencies, and
+    ``core.db.threads.run_db``) and the event loop's default executor
+    (``asyncio.to_thread``). The connection pool is one connection per thread of
+    both, plus a little overflow for the few dedicated threads outside them
+    (sub-agent runs, index workers, schedulers), which otherwise queue on
+    ``DB_POOL_TIMEOUT``. A pool larger than this only reserves Postgres
+    connections no thread can use; a smaller one makes threads wait for each
+    other inside a request.
+    """
+
+    request_threads: int
+    background_threads: int
+    overflow: int = 10
+
+    @property
+    def pool_size(self) -> int:
+        return self.request_threads + self.background_threads
+
+
+def thread_budget() -> ThreadBudget:
+    """The one place the per-process thread limits and the pool size come from."""
+    return ThreadBudget(
+        request_threads=settings.db.worker_threads,
+        # CPython's own default for the loop executor, made explicit so the
+        # pool is sized against the number the executor will really use.
+        background_threads=min(32, (os.cpu_count() or 1) + 4),
+    )
+
+
 # Database URL from environment variable
 DATABASE_URL = _resolve_database_url()
 
@@ -57,8 +92,8 @@ if DATABASE_URL.startswith("sqlite://"):
     else:
         engine_kwargs["poolclass"] = NullPool
 else:
-    engine_kwargs["pool_size"] = settings.db.pool_size
-    engine_kwargs["max_overflow"] = settings.db.pool_max_overflow
+    engine_kwargs["pool_size"] = thread_budget().pool_size
+    engine_kwargs["max_overflow"] = thread_budget().overflow
     engine_kwargs["pool_timeout"] = settings.db.pool_timeout
     # 等锁必须有上界：无上界的行锁等待会把持有它的工作线程（或误写成 async 的路由的
     # 事件循环）无限期占住，另一侧又要等这条请求收尾才能释放锁，形成互相干等的死结。
@@ -159,12 +194,12 @@ def init_db():
         reconcile_audio_model_type(engine)
         reconcile_resource_owners(engine)
         from core.db.site_storage_retirement import retire_site_storage
-        from core.services.application_store import initialize_local_store
+        from core.harness.registry.schema_lifecycle import initialize_local_schema
 
         directory = settings.storage.root / "migration-backups"
         directory = Path(os.getenv("SITE_STORAGE_BACKUP_DIR", str(directory)))
         retire_site_storage(engine, directory)
-        initialize_local_store()
+        initialize_local_schema()
     if settings.edition.edition == "ce":
         if settings.deploy.is_local:
             from core.db.local_schema_upgrade import reconcile_local_chat_sequences
@@ -180,7 +215,7 @@ def init_db():
             if any(local_report.values()):
                 logger.info("Local database compatibility schema reconciled: %s", local_report)
 
-        from core.db.edition_tables import ce_reconcile_schema
+        from core.db.edition import ce_reconcile_schema
 
         report = ce_reconcile_schema(engine)
         if any(report.values()):

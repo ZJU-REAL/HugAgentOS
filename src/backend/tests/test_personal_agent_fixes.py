@@ -1,4 +1,5 @@
 """Personal Agent usability fixes: approvals, schedules, recovery, run limits and final answers."""
+from integrations.channels import inbound_attachments
 import personal_agent.tasks.guards as _pa_guards
 import asyncio
 import time
@@ -198,7 +199,7 @@ def test_pending_approval_blocks_other_tools_until_user_decides(sessions, monkey
 
 def test_screen_match_tolerates_clock_but_not_navigation():
     from PIL import Image, ImageDraw
-    from core.device_link import driver
+    from personal_agent.device_link import driver
     base = Image.new("RGB", (1280, 800), "white")
     clock = base.copy(); ImageDraw.Draw(clock).rectangle((1220, 0, 1280, 20), fill="black")
     page = base.copy(); ImageDraw.Draw(page).rectangle((0, 100, 1280, 700), fill="black")
@@ -208,18 +209,30 @@ def test_screen_match_tolerates_clock_but_not_navigation():
     assert not driver.same_screen({"observation_id": "old"}, {"observation_id": "new", "signature": driver.signature(base)})
 
 
-def test_old_screenshots_are_pruned_from_context():
+@pytest.mark.asyncio
+async def test_old_screenshots_are_pruned_from_context():
     from agentscope.message import DataBlock, Msg, TextBlock, ToolResultBlock
-    from personal_agent.computer.screenshot_pruning import prune, PLACEHOLDER
+    from personal_agent.computer.screenshot_pruning import screenshot_pruning_hook, PLACEHOLDER
+    from tests.orchestration.hook_support import make_adapter
+    adapter = make_adapter(screenshot_pruning_hook())
     image = {"type": "base64", "media_type": "image/png", "data": "AAAA"}
     messages = [Msg(name="agent", role="assistant", content=[ToolResultBlock(id=str(i), name="pa_computer_observe",
         output=[TextBlock(text="observation " + str(i)), DataBlock(source=image)])]) for i in range(4)]
-    assert prune(messages, keep=2) == 2
+    agent = SimpleNamespace(state=SimpleNamespace(context=messages))
+    async def reasoning(**kwargs):
+        if False:
+            yield None
+    async for _ in adapter.on_reasoning(agent, {}, reasoning):
+        pass
+    messages = agent.state.context
     outputs = [m.content[0].output for m in messages]
     assert [o[1].text for o in outputs[:2]] == [PLACEHOLDER, PLACEHOLDER]
     assert all(isinstance(o[1], DataBlock) for o in outputs[2:])
     assert outputs[0][0].text == "observation 0"
-    assert prune(messages, keep=2) == 0
+    before = [m.model_dump() for m in messages]
+    async for _ in adapter.on_reasoning(agent, {}, reasoning):
+        pass
+    assert [m.model_dump() for m in agent.state.context] == before
 
 
 def test_final_answer_always_links_files_from_this_run():
@@ -232,15 +245,15 @@ def test_final_answer_always_links_files_from_this_run():
 
 @pytest.mark.asyncio
 async def test_channel_message_enters_inbox_and_reply_returns_to_same_conversation(sessions, monkeypatch):
-    from core.channels.protocol import InboundMsg, SendResult
+    from integrations.channels.protocol import InboundMsg, SendResult
     from core.db.models import ChatMessage
     from personal_agent.channels import channel_bridge
-    import core.channels.inbound as inbound
+    import integrations.channels.inbound as inbound
     monkeypatch.setattr(channel_bridge, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
 
     async def no_files(*args): return []
-    monkeypatch.setattr(inbound, "_ingest_attachments", no_files)
+    monkeypatch.setattr(inbound_attachments, 'ingest_attachments', no_files)
     sent = []
 
     class Adapter:
@@ -270,7 +283,7 @@ async def test_channel_message_enters_inbox_and_reply_returns_to_same_conversati
 
     async def fake_send(conn, msg, text):
         delivered.append((msg.external_conversation_id, text)); return SendResult.ok()
-    monkeypatch.setattr("core.channels.registry.get_adapter", lambda kind: SimpleNamespace(
+    monkeypatch.setattr('integrations.channels.registry.get_adapter', lambda kind: SimpleNamespace(
         caps=SimpleNamespace(supports_markdown=False, max_message_len=0), send_text=fake_send))
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: conn)
     await channel_bridge.deliver_pending()
@@ -308,7 +321,9 @@ def test_schedule_is_not_duplicated_and_scheduled_run_cannot_schedule(sessions, 
 
     class Toolkit:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            self.functions[fn.__name__] = fn
     toolkit = Toolkit()
     monkeypatch.setattr("personal_agent.tools.email.register_email_tools", lambda *a: None)
     monkeypatch.setattr("personal_agent.computer.computer.register_computer_tools", lambda *a: None)

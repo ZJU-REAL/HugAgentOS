@@ -9,13 +9,13 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.models import Project, UserShadow, ChatSession
 
-from core.llm import workspace
+from core.llm.runtime import workspace
 
-from core.llm.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 
 from core.llm.tools.pin_tool import register_pin_to_workspace
 
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 
 @pytest.fixture
@@ -27,14 +27,14 @@ def local_project(tmp_path, db_session, monkeypatch):
     from api.routes import files
 
     monkeypatch.setattr(files, "local_mode_enabled", lambda: True)
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     monkeypatch.setattr(store, "_STORE_DIR", tmp_path / "artifacts")
     monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db_session.get_bind()))
     root = tmp_path / "project"
     root.mkdir()
     monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))
-    from core.services.local_grant_service import add_grant
+    from features.desktop.local.grants import add_grant
 
     add_grant(str(root))
     source = root / "report.txt"
@@ -64,11 +64,7 @@ def local_project(tmp_path, db_session, monkeypatch):
         local_slug="reports",
         local_path=str(root),
     )
-    from core.llm.tool_permissions import (
-        CURRENT_PERMISSION_TICKET,
-        PermissionTicket,
-        PermissionIntent,
-    )
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     ticket_token = CURRENT_PERMISSION_TICKET.set(
         PermissionTicket(
@@ -87,16 +83,13 @@ def local_project(tmp_path, db_session, monkeypatch):
 
 
 def pin_tool(scope, session_id=None):
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_pin_to_workspace(collector, scope=scope, sandbox_session_id=session_id)
 
     async def invoke(**args):
-        from core.llm.tool_permissions import (
-            ToolPermissionRegistry,
-            ToolPermissionService,
-            PermissionRuntime,
-            CURRENT_PERMISSION_TICKET,
-        )
+        from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+        from core.llm.tool_permissions import ToolPermissionService
+        from core.sandbox.permissions.dispatch_models import PermissionRuntime, CURRENT_PERMISSION_TICKET
 
         registry = ToolPermissionRegistry()
         registry.register(
@@ -115,7 +108,7 @@ def pin_tool(scope, session_id=None):
             raise PermissionError(str(outcome.payload))
         token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
         try:
-            return await collector.get_tool("pin_to_workspace")._func(**args)
+            return await next(t for t in collector if t.name == "pin_to_workspace")._func(**args)
         finally:
             CURRENT_PERMISSION_TICKET.reset(token)
 

@@ -13,12 +13,15 @@ context，没带 `workflow_chat`，而 `workflow_mode` 正是 run_job 注册与�
 所以这里锁的是这条不变量：唤醒轮的 context 必须如实反映会话元数据里的
 `workflow_chat`，进度唤醒和终态唤醒两条路都要带。
 """
+from core.chat import service as service_module
 
 import asyncio
 from typing import Any, Dict, List
 
-import core.services.session_operations.session_context as chat_session_context
+import core.chat.runtime.admission as admission
 import core.db.engine as db_engine
+import core.runs.runtime as runtime
+import core.chat.operations.session_context as chat_session_context
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatSession, Job
@@ -36,9 +39,6 @@ def db_session(monkeypatch):
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
 
-    from orchestration import job_wakeup
-
-    monkeypatch.setattr(job_wakeup, "SessionLocal", Session, raising=False)
     return Session
 
 
@@ -71,8 +71,6 @@ def _seed(db_session, *, chat_meta: Dict[str, Any], status: str = "completed") -
 
 def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
     """把唤醒真正入队的那一发拦下来，只留 context 供断言。"""
-    from orchestration import job_wakeup
-
     started: List[Dict[str, Any]] = []
 
     def fake_load_session_messages(_svc, _chat_id, _user_id):
@@ -95,20 +93,22 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
                 .first()
             )
 
+        def get_session_with_access(self, chat_id, user_id):
+            session = self.get_session(chat_id, user_id)
+            return (session, "admin") if session is not None else None
+
     async def fake_start_run(**kw):
         started.append(kw)
         return "run_1"
 
-    import core.config.catalog_resolver as resolver_mod
-    import core.services.chat_service as chat_service_mod
-    from orchestration import chat_run_executor
+    import core.capabilities.catalog.resolver as resolver_mod
+    import core.chat.service as chat_service_mod
+    pass
 
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", fake_load_session_messages)
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', fake_load_session_messages)
     monkeypatch.setattr(resolver_mod, "resolve_all_runtime_enabled", fake_resolve_all)
-    monkeypatch.setattr(chat_service_mod, "ChatService", _FakeChatService)
-    monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
-    # 唤醒文案本身不是本用例的关注点，但它要能生成——JobService 走的是同一个假库
-    monkeypatch.setattr(job_wakeup, "SessionLocal", db_session, raising=False)
+    monkeypatch.setattr(service_module, 'ChatService', _FakeChatService)
+    monkeypatch.setattr(admission, "start_run", fake_start_run)
     return started
 
 
@@ -118,7 +118,7 @@ def test_finish_wake_inherits_workflow_mode(monkeypatch, db_session, status):
     _seed(db_session, chat_meta={"workflow_chat": True}, status=status)
     started = _capture_started_runs(monkeypatch, db_session)
 
-    from orchestration import job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
     assert asyncio.run(job_wakeup.wake_on_job_finish("job_1")) is True
     assert len(started) == 1
@@ -133,7 +133,7 @@ def test_finish_wake_does_not_invent_workflow_mode(monkeypatch, db_session):
     _seed(db_session, chat_meta={})
     started = _capture_started_runs(monkeypatch, db_session)
 
-    from orchestration import job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
     assert asyncio.run(job_wakeup.wake_on_job_finish("job_1")) is True
     assert started[0]["context"]["workflow_chat"] is False
@@ -144,9 +144,9 @@ def test_progress_wake_inherits_workflow_mode(monkeypatch, db_session):
     _seed(db_session, chat_meta={"workflow_chat": True}, status="running")
     started = _capture_started_runs(monkeypatch, db_session)
 
-    from orchestration import chat_run_executor, job_wakeup
+    import core.chat.runtime.job_wakeup as job_wakeup
 
-    monkeypatch.setattr(chat_run_executor, "get_active_run_for_chat", lambda *a, **k: None)
+    monkeypatch.setattr(runtime, "get_active_run_for_chat", lambda *a, **k: None)
 
     ok = asyncio.run(
         job_wakeup.wake_on_job_progress(

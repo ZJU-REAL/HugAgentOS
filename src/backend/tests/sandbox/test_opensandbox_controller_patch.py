@@ -19,7 +19,7 @@ from starlette.routing import Route
 PATCH_PATH = (
     Path(os.environ["OPENSANDBOX_PATCH_SCRIPT"])
     if "OPENSANDBOX_PATCH_SCRIPT" in os.environ
-    else Path(__file__).resolve().parents[4] / "docker/patch_opensandbox_server.py"
+    else Path(__file__).resolve().parents[4] / "docker/opensandbox-server/patch_opensandbox_server.py"
 )
 ROOT = PATCH_PATH.parent.parent
 spec = importlib.util.spec_from_file_location("controller_patch", PATCH_PATH)

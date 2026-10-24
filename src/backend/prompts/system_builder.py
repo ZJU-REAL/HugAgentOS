@@ -1,5 +1,6 @@
 """System prompt assembly; cache and public hooks live in prompt_runtime."""
 from __future__ import annotations
+from core.llm import prompt_versions as prompt_versions_module
 from prompts import prompt_runtime as runtime
 
 def build_system_prompt(
@@ -66,9 +67,9 @@ def build_system_prompt(
     # Active pool version (preferred source) — bust cache on change
     active_version_key: tuple[str, str] = ("", "")
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        _av = pvs.get_active_version("system")
+        _av = prompt_versions_module.get_active_version("system")
         if _av:
             active_version_key = (str(_av.get("id") or ""), str(_av.get("updated_at") or ""))
     except Exception:
@@ -160,9 +161,9 @@ def build_system_prompt(
     # collision for backward compatibility with rows created by the old admin UI.
     active_system_version: runtime.Optional[runtime.Dict[str, runtime.Any]] = None
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        active_system_version = pvs.get_active_version("system")
+        active_system_version = prompt_versions_module.get_active_version("system")
     except Exception:
         active_system_version = None
 
@@ -382,7 +383,7 @@ def build_system_prompt(
                 sensitive=True,
             )
 
-    from core.services.edition_workspace import workspace_instructions
+    from core.files.edition import workspace_instructions
     workspace_hint = workspace_instructions()
     if workspace_hint:
         base = (base + "\n\n" + workspace_hint).strip()
@@ -403,7 +404,7 @@ def build_system_prompt(
                 local_slug=ctx.get("project_local_slug") or "",
             )
         else:
-            from core.services.edition_workspace import context_directory
+            from core.files.edition import context_directory
             proj_section = runtime._build_project_section(
                 workspace_path=context_directory(ctx),
                 project_name=ctx.get("project_name") or "",

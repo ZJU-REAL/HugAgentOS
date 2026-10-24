@@ -64,7 +64,7 @@ save_memories_background()
        · sanitize 脱敏闸门 → 写 L1/L2/L3/Session → audit 旁路
 ```
 
-检索与注入的整合层在 `src/backend/orchestration/memory_integration.py`；mem0 的 LLM / Embedder / Milvus / Reranker 配置在 `src/backend/core/memory/service.py`，Neo4j 图谱读写在 `src/backend/core/memory/graph.py`。模型配置优先取 DB 中 `memory` / `embedding` 角色，缺省回落到环境变量。
+检索与注入的整合层在 `src/backend/core/agent_runtime/integrations/memory.py`；mem0 的 LLM / Embedder / Milvus / Reranker 配置在 `src/backend/core/memory/service.py`，Neo4j 图谱读写在 `src/backend/core/memory/graph.py`。模型配置优先取 DB 中 `memory` / `embedding` 角色，缺省回落到环境变量。
 
 ## 写入流水线与抽取器
 
@@ -136,7 +136,7 @@ save_memories_background()
 | `memory_enabled` | 永久记忆**读取**：会话启动时是否注入冻结块 | `false` |
 | `memory_write_enabled` | **写入**：对话结束后是否抽取并保存记忆 | `false` |
 
-项目对话有独立作用域：个人项目 / 默认空间用真实 `user_id`，团队项目用 `scope_user_id = "team:<team_id>"`——同团队成员写入同一个 mem0 桶实现共享，真实作者保留在 `metadata.author_user_id`（见 `orchestration/memory_integration.py::save_memories_background` 与 `api/routes/v1/memories.py::list_memories`）。项目级开关存于 `projects.metadata`（`memory_enabled` / `memory_write_enabled`，项目内缺省 `true`），详见 [项目空间与我的空间](./projects-myspace.md)。
+项目对话有独立作用域：个人项目 / 默认空间用真实 `user_id`，团队项目用 `scope_user_id = "team:<team_id>"`——同团队成员写入同一个 mem0 桶实现共享，真实作者保留在 `metadata.author_user_id`（见 `core/agent_runtime/integrations/memory.py::save_memories_background` 与 `api/routes/v1/memories.py::list_memories`）。项目级开关存于 `projects.metadata`（`memory_enabled` / `memory_write_enabled`，项目内缺省 `true`），详见 [项目空间与我的空间](./projects-myspace.md)。
 
 ## 前端记忆中心
 
@@ -229,8 +229,8 @@ RERANKER_API_KEY=...
 | `src/backend/core/memory/sanitizer.py` | 脱敏闸门（硬编码规则 + DB 动态规则） |
 | `src/backend/core/memory/audit.py` | 审计旁路（商业版 EE） |
 | `src/backend/core/memory/context.py` | `MemoryContext` 与 workspace / 层级解析 |
-| `src/backend/orchestration/memory_integration.py` | 检索启动、冻结块组装与注入、保存转调 |
-| `src/backend/orchestration/workflow.py` | 主编排：记忆 hook 接线点 |
+| `src/backend/core/agent_runtime/integrations/memory.py` | 检索启动、冻结块组装与注入、保存转调 |
+| `src/backend/core/agent_runtime/runner.py` | 主编排：记忆 hook 接线点 |
 | `src/backend/api/routes/v1/memories.py` | `/v1/memories` 管理 API |
 | `src/backend/core/db/models/memory.py` | `ProfileMemory`、`MemoryOutbox`、`MemorySanitizerRule` ORM |
 | `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM（仅 EE） |

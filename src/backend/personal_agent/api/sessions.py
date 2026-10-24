@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, Request, HTTPException, Header
 from pydantic import BaseModel, Field, ConfigDict
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 from personal_agent import access
 from personal_agent.sessions.session_auth import resolve
@@ -21,9 +22,9 @@ class OperationRequest(BaseModel):
     request_key: str = Field(min_length=1, max_length=100)
 
 
-async def identity(request: Request, db=Depends(get_db)):
-    user, grant = await resolve(request, db)
-    access.require(db, user.user_id)
+async def identity(request: Request):
+    user, grant = await resolve(request)
+    await run_in_session(access.require, user.user_id)
     return user, grant
 
 
@@ -43,12 +44,12 @@ def devices(auth=Depends(identity)):
 
 
 @router.post("/session-manager/operations", status_code=202)
-async def submit(body: OperationRequest, auth=Depends(identity), db=Depends(get_db)):
+async def submit(body: OperationRequest, auth=Depends(identity)):
     user, grant = auth
     try:
         return success_response(
             data=await dispatch(
-                db, user, body.target, body.operation, body.args, body.request_key, grant
+                user, body.target, body.operation, body.args, body.request_key, grant
             )
         )
     except LookupError as exc:

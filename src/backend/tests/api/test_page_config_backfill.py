@@ -12,10 +12,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.content.content_blocks import (
-    DEFAULT_PAGE_CONFIG,
-    backfill_navigation_entries,
-)
+from core.files.content.content_blocks_constants import DEFAULT_PAGE_CONFIG
+from core.files.content.branding import backfill_navigation_entries
 
 
 def _make_row(payload: dict) -> MagicMock:

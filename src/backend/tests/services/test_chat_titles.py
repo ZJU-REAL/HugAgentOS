@@ -1,13 +1,15 @@
 """First-message titles use an independent call and respect later user edits."""
+
 import asyncio
 from types import SimpleNamespace
 
+import core.chat.runtime.admission as runtime_admission
 import pytest
+from core.db.engine import Base
+from core.db.models import ChatMessage, ChatSession, UserShadow
+from core.chat import titles as chat_titles
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from core.db.engine import Base
-from core.db.models import ChatSession, ChatMessage, UserShadow
-from core.services import chat_titles
 
 
 @pytest.fixture
@@ -132,9 +134,9 @@ def test_changed_title_is_preserved_even_if_an_old_writer_loses_the_manual_flag(
 
 
 def test_metadata_patch_refreshes_stale_state_and_keeps_a_manual_title(env, monkeypatch):
-    from core.services.chat_service import ChatService
-    from core.services.session_operations import sessions
-    from core.services.session_operations.schemas import UpdateChatRequest
+    from core.chat.service import ChatService
+    from core.chat.operations import sessions
+    from core.chat.operations.schemas import UpdateChatRequest
 
     # Use the public session operation with a session that cached old metadata.
     with env() as stale:
@@ -147,7 +149,7 @@ def test_metadata_patch_refreshes_stale_state_and_keeps_a_manual_title(env, monk
             fresh.commit()
         monkeypatch.setattr(ChatService, "get_session_with_access",
                             lambda self, cid, uid: (self.db.get(ChatSession, cid), "admin"))
-        monkeypatch.setattr(sessions, "_session_view_for_user",
+        monkeypatch.setattr(sessions, 'session_view_for_user',
                             lambda db, row, uid, level: {"title": row.title, "metadata": row.extra_data})
         def update(self, cid, fields, **kwargs):
             row = self.db.get(ChatSession, cid)
@@ -161,18 +163,22 @@ def test_metadata_patch_refreshes_stale_state_and_keeps_a_manual_title(env, monk
 
 
 def test_real_admission_schedules_title_before_answer_completion(tmp_path, monkeypatch):
-    from tests.api.test_agent_response_admission import _route_database, _patch_common_chat_route, _user
-    from core.services.session_operations import admission, session_context
     from core.chat.schemas import ChatRequest
-    from orchestration import chat_run_executor
+    from core.chat.operations import admission, session_context
+    from tests.api.test_agent_response_admission import (
+        _patch_common_chat_route,
+        _route_database,
+        _user,
+    )
+    pass
 
     engine, factory = _route_database(tmp_path, "admission-title.db")
     monkeypatch.setattr(chat_titles.db_engine, "SessionLocal", factory)
     _patch_common_chat_route(monkeypatch)
-    monkeypatch.setattr(session_context, "_load_session_messages", lambda *args: [])
+    monkeypatch.setattr(session_context, 'load_session_messages', lambda *args: [])
     async def start(**kwargs):
         return kwargs["accepted_run"]
-    monkeypatch.setattr(chat_run_executor, "start_run", start)
+    monkeypatch.setattr(runtime_admission, "start_run", start)
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
         async def generate(messages):
@@ -181,8 +187,8 @@ def test_real_admission_schedules_title_before_answer_completion(tmp_path, monke
             return "首问标题"
         model(monkeypatch, generate)
         with factory() as db:
-            response = await admission._start_response_run(
-                ChatRequest(chat_id="chat-1", message="首条问题", stream=True), _user(), db)
+            response = await admission.start_response_run(
+                ChatRequest(chat_id="chat-1", message="首条问题", stream=True), _user())
         assert response.run_id
         await asyncio.wait_for(entered.wait(), 2)
         with factory() as db:
@@ -201,6 +207,7 @@ def test_real_admission_schedules_title_before_answer_completion(tmp_path, monke
 
 def test_title_write_keeps_concurrent_message_activity_time(env, monkeypatch):
     from datetime import datetime, timezone
+
     from sqlalchemy import event
 
     async def scenario():

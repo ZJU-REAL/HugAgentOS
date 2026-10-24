@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
 from core.db.models import Artifact
-from core.services.artifact_location import artifact_location
+from core.files.artifacts.location import artifact_location
 
 router = APIRouter()
 

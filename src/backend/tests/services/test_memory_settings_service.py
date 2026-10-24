@@ -1,11 +1,11 @@
 """Tests for memory availability and default-on user settings."""
 
 import pytest
-from core.db import model_repository
+from core.models import repository as model_repository
 from core.db.models import UserShadow
 from core.infra.exceptions import BadRequestError
-from core.services.memory_settings_service import MemorySettingsService
-from core.services.user_service import UserService
+from core.memory.settings import MemorySettingsService
+from core.auth.users import UserService
 
 
 def _create_user(db_session, *, extra_data=None) -> UserShadow:
@@ -38,7 +38,7 @@ def test_memory_defaults_off_and_enable_is_rejected_without_embedding(
 ):
     _create_user(db_session)
     monkeypatch.setattr(
-        "core.services.memory_settings_service._memory_runtime_available",
+        'core.memory.settings._memory_runtime_available',
         lambda: True,
     )
 
@@ -57,7 +57,7 @@ def test_memory_defaults_on_when_runtime_and_embedding_are_available(
     _create_user(db_session)
     _assign_embedding(db_session)
     monkeypatch.setattr(
-        "core.services.memory_settings_service._memory_runtime_available",
+        'core.memory.settings._memory_runtime_available',
         lambda: True,
     )
 
@@ -77,7 +77,7 @@ def test_explicit_memory_off_is_preserved(db_session, monkeypatch):
     )
     _assign_embedding(db_session)
     monkeypatch.setattr(
-        "core.services.memory_settings_service._memory_runtime_available",
+        'core.memory.settings._memory_runtime_available',
         lambda: True,
     )
 
@@ -91,7 +91,7 @@ def test_inactive_embedding_provider_does_not_unlock_memory(db_session, monkeypa
     _create_user(db_session)
     _assign_embedding(db_session, active=False)
     monkeypatch.setattr(
-        "core.services.memory_settings_service._memory_runtime_available",
+        'core.memory.settings._memory_runtime_available',
         lambda: True,
     )
 
@@ -108,7 +108,7 @@ def test_missing_memory_runtime_rejects_enable(db_session, monkeypatch):
     _create_user(db_session)
     _assign_embedding(db_session)
     monkeypatch.setattr(
-        "core.services.memory_settings_service._memory_runtime_available",
+        'core.memory.settings._memory_runtime_available',
         lambda: False,
     )
 

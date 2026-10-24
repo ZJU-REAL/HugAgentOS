@@ -1,0 +1,143 @@
+/* ══ Outline: full-height floating sidebar (headings / pdf bookmarks) ══
+   An L2 floating layer — material + blur + floating shadow — inset 12px from
+   the pane's left, top and bottom edges, like a macOS inspector sidebar. It
+   sits over the document and never reflows it.
+   Radii are concentric: card 16 − padding 8 = rows 8. */
+.jx-canvasOutline {
+  position: absolute;
+  top: calc(var(--jx-outline-top) + 12px);
+  bottom: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: min(264px, calc(100% - 24px));
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--material);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--shadow-floating), 0 0 0 .5px color-mix(in srgb, var(--color-text) 10%, transparent);
+  transform-origin: 16px 0;
+  animation: jx-kf-outlineIn var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+@keyframes jx-kf-outlineIn {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+
+.jx-canvasOutline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 8px 8px;
+}
+.jx-canvasOutline-title {
+  font-size: .75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+}
+.jx-canvasOutline-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--color-text-tertiary);
+  font-size: .75rem;
+  cursor: pointer;
+}
+.jx-canvasOutline-close:hover { background: var(--state-hover); color: var(--color-text-secondary); }
+.jx-canvasOutline-close:active { background: var(--state-press); }
+
+.jx-canvasOutline-tree,
+.jx-canvasOutline-tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.jx-canvasOutline-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.jx-canvasOutline-row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 8px;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-canvasOutline-row:hover { background: var(--state-hover); }
+.jx-canvasOutline-row:has(.jx-canvasOutline-link:active) { background: var(--state-press); }
+.jx-canvasOutline-row.is-active { background: var(--color-primary-light); }
+
+.jx-canvasOutline-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-tertiary);
+  font-size: .625rem;
+  cursor: pointer;
+}
+.jx-canvasOutline-toggle :is(svg) {
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-canvasOutline-toggle.is-open :is(svg) { transform: rotate(90deg); }
+
+.jx-canvasOutline-link {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px 0 2px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: .8125rem;
+  line-height: 28px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.jx-canvasOutline-row.is-top .jx-canvasOutline-link {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.jx-canvasOutline-row.is-active .jx-canvasOutline-link {
+  color: var(--color-primary-text);
+  font-weight: 500;
+}
+.jx-canvasOutline-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.jx-canvasOutline-empty {
+  padding: 4px 8px 8px;
+  font-size: .8125rem;
+  color: var(--color-text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-outlineIn {
+    from { opacity: 0; }
+  }
+  .jx-canvasOutline-toggle :is(svg),
+  .jx-canvasOutline-row { transition: none; }
+}

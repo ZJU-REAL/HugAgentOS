@@ -1,15 +1,15 @@
 """Capability catalog preference mutations."""
 from typing import Any, Dict, Optional
 from core.auth.backend import UserContext, get_current_user
-from core.config.catalog_runtime import get_runtime_catalog
+from core.capabilities.catalog.runtime import get_runtime_catalog
 from core.db.engine import get_db
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
-from core.services import CatalogService
+from core.capabilities.catalog.overrides import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from .catalog_ownership import _is_owned_capability
+from features.marketplace.api.catalog_ownership import _is_owned_capability
 router = APIRouter()
 
 # Request/Response Models
@@ -76,7 +76,7 @@ def update_catalog_item(
     # 云端同步来的技能 / 智能体登记在本机登记表里，业务库没有对应行，写目录覆盖
     # 不会生效也读不回来。启停就写它——读写同源，运行时解析读的也是这份。
     if request.enabled is not None and normalized_kind in ("skill", "agent"):
-        from core.capabilities import device_catalog
+        from features.desktop.capabilities import device_catalog
 
         if device_catalog.set_enabled(normalized_kind, id, request.enabled, user_id=str(user.user_id)):
             return success_response(
@@ -92,7 +92,7 @@ def update_catalog_item(
     # 云端下发的连接器不在本机目录里，它是在目录解析之后按 mcp.json 的托管标志
     # 追加回来的——所以启停只有写进那里才作数，写目录覆盖不会生效。
     if normalized_kind == "mcp" and request.enabled is not None:
-        from core.services.desktop_cloud_bridge import set_managed_connector_enabled
+        from features.desktop.bridge.managed_connectors import set_managed_connector_enabled
 
         if set_managed_connector_enabled(id, request.enabled):
             return success_response(
@@ -194,7 +194,7 @@ def update_catalog_item(
     # Invalidate this user's capability cache so the toggle takes effect on the
     # next message (otherwise resolve_all_runtime_enabled's 30s cache hides it).
     try:
-        from core.config.catalog_resolver import invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
 
         invalidate_capability_cache(str(user.user_id))
     except Exception:

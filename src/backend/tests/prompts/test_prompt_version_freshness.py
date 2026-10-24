@@ -1,6 +1,8 @@
 """Saved prompts must be visible to already-warm backend workers."""
 
 from __future__ import annotations
+from core.llm import prompt_versions as prompt_versions_module
+from core.config.store import system_config
 
 import os
 import subprocess
@@ -12,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db import engine as db_engine
 from core.db.models import AdminPromptPart, ContentBlock, SystemConfig
-from core.services import prompt_version_service as pvs
+from core.llm import prompt_storage as pvs
 
 
 @pytest.fixture
@@ -26,9 +28,9 @@ def prompt_db(tmp_path, monkeypatch):
     monkeypatch.setattr(pvs, "SessionLocal", sessions)
     monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     from prompts import prompt_runtime
-    from core.services import system_config
+    from core.config.store import system_config
 
-    monkeypatch.setattr(system_config, "SessionLocal", sessions)
+    monkeypatch.setattr("core.db.system_configuration.SessionLocal", sessions)
     monkeypatch.setattr(system_config.SystemConfigService, "_instance", None)
     prompt_runtime.invalidate_prompt_cache()
     yield url, sessions
@@ -42,7 +44,7 @@ import sys
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from core.db import engine as db_engine
-from core.services import prompt_version_service as pvs
+from core.llm import prompt_storage as pvs
 sessions = sessionmaker(bind=create_engine(sys.argv[1]))
 pvs.SessionLocal = sessions
 db_engine.SessionLocal = sessions
@@ -70,7 +72,7 @@ def test_saved_version_is_visible_to_another_warm_worker(prompt_db):
     from api.routes.v1.prompt_management import get_pool_version
 
     url, sessions = prompt_db
-    pvs.upsert_version(
+    prompt_versions_module.upsert_version(
         "system", "default", parts=[{"part_id": "system/00_role", "content": "BEFORE_SAVE"}]
     )
     with sessions() as db:
@@ -99,20 +101,19 @@ async def test_preview_and_runtime_use_saved_prompts_without_local_invalidation(
 
     url, sessions = prompt_db
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: False)
-    pvs.seed_from_filesystem()
-    pvs.upsert_version(
+    prompt_versions_module.seed_from_filesystem()
+    prompt_versions_module.upsert_version(
         "system", "default", parts=[{"part_id": "system/00_role", "content": "SYSTEM_BEFORE"}]
     )
-    pvs.upsert_version(
+    prompt_versions_module.upsert_version(
         "desktop", "default", parts=[{"part_id": "guidance", "content": "DESKTOP_BEFORE"}]
     )
     config = PromptConfig()
     context = {"chat_id": "freshness-test"}
     assert "SYSTEM_BEFORE" in build_system_prompt(config, context)
-    with sessions() as db:
-        before = (await desktop_preview(DesktopPreviewRequest(version_id="default"), db=db))[
-            "data"
-        ]["prompt"]
+    before = (await desktop_preview(DesktopPreviewRequest(version_id="default")))["data"][
+        "prompt"
+    ]
     assert "SYSTEM_BEFORE" in before
     assert "DESKTOP_BEFORE" in before
 
@@ -122,10 +123,9 @@ async def test_preview_and_runtime_use_saved_prompts_without_local_invalidation(
     runtime = build_system_prompt(config, context)
     assert "SYSTEM_AFTER" in runtime
     assert "SYSTEM_BEFORE" not in runtime
-    with sessions() as db:
-        after = (await desktop_preview(DesktopPreviewRequest(version_id="default"), db=db))["data"][
-            "prompt"
-        ]
+    after = (await desktop_preview(DesktopPreviewRequest(version_id="default")))["data"][
+        "prompt"
+    ]
     assert "SYSTEM_AFTER" in after
     assert "DESKTOP_AFTER" in after
     assert "SYSTEM_BEFORE" not in after
@@ -134,17 +134,17 @@ async def test_preview_and_runtime_use_saved_prompts_without_local_invalidation(
 
 def test_warm_worker_does_not_overwrite_other_workers_saved_version(prompt_db):
     url, _ = prompt_db
-    pvs.upsert_version(
+    prompt_versions_module.upsert_version(
         "system", "default", parts=[{"part_id": "system/00_role", "content": "FIRST_BEFORE"}]
     )
-    pvs.upsert_version(
+    prompt_versions_module.upsert_version(
         "code_exec", "default", parts=[{"part_id": "system/00_role", "content": "SECOND_BEFORE"}]
     )
-    assert pvs.get_version("system", "default")["parts"][0]["content"] == "FIRST_BEFORE"
+    assert prompt_versions_module.get_version("system", "default")["parts"][0]["content"] == "FIRST_BEFORE"
     save_in_other_worker(url, "system", "default", "FIRST_AFTER")
 
-    pvs.upsert_version(
+    prompt_versions_module.upsert_version(
         "code_exec", "default", parts=[{"part_id": "system/00_role", "content": "SECOND_AFTER"}]
     )
-    assert pvs.get_version("system", "default")["parts"][0]["content"] == "FIRST_AFTER"
-    assert pvs.get_version("code_exec", "default")["parts"][0]["content"] == "SECOND_AFTER"
+    assert prompt_versions_module.get_version("system", "default")["parts"][0]["content"] == "FIRST_AFTER"
+    assert prompt_versions_module.get_version("code_exec", "default")["parts"][0]["content"] == "SECOND_AFTER"

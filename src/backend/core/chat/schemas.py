@@ -1,6 +1,6 @@
 """API request/response models."""
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -16,11 +16,32 @@ class AttachmentItem(BaseModel):
     file_id: str = Field(..., min_length=1, description="持久化后的文件 ID")
 
 
+class QuoteMessageSource(BaseModel):
+    """引用来自本会话的一条消息。"""
+
+    kind: Literal["message"]
+    ts: Optional[int] = Field(None, description="被引用消息的前端时间戳")
+
+
+class QuoteFileSource(BaseModel):
+    """引用来自右侧预览中打开的一份文件。"""
+
+    kind: Literal["file"]
+    file_id: str = Field(..., min_length=1, max_length=128, description="文件 ID")
+    file_name: str = Field(..., min_length=1, max_length=255, description="文件名")
+    locator: Optional[str] = Field(
+        None, max_length=200, description="文件内位置：最近的标题、页码或 Sheet1!A1:C5 这类区域"
+    )
+
+
+QuoteSource = Annotated[Union[QuoteMessageSource, QuoteFileSource], Field(discriminator="kind")]
+
+
 class QuotedFollowUpItem(BaseModel):
-    """追问引用信息"""
+    """用户为本轮引用的一段原文，及其出处。"""
 
     text: str = Field(..., description="被引用的原始文本", min_length=1, max_length=8000)
-    ts: Optional[int] = Field(None, description="前端消息时间戳（可选）")
+    source: Optional[QuoteSource] = Field(None, description="原文出处：会话消息或文件")
 
     @field_validator("text")
     @classmethod
@@ -34,7 +55,7 @@ class ReferencedChatItem(BaseModel):
     """用户为本轮显式引用的一段历史会话。
 
     只带 ID：标题、时间、概览等名片信息一律由后端按当前权限现查（见
-    ``core.services.chat_reference_service``），前端传什么都不作数——否则任何人都能伪造
+    ``core.chat.references``），前端传什么都不作数——否则任何人都能伪造
     一段"来自另一个会话"的内容塞进模型。
     """
 
@@ -188,7 +209,7 @@ class ChatRequest(BaseModel):
     )
     quoted_follow_up: Optional[QuotedFollowUpItem] = Field(
         default=None,
-        description="追问场景下引用的原始文本，用于增强上下文理解",
+        description="本轮引用的原文及出处（会话消息或文件），拼进发给模型的用户消息",
     )
     project_id: Optional[str] = Field(
         default=None,

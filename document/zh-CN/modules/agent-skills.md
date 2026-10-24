@@ -29,11 +29,11 @@
 └── _scripts.json     # 可选：脚本白名单声明（缺省时按扩展名自动探测）
 ```
 
-解析与数据结构在 `core/agent_skills/registry.py`：`AgentSkillMetadata`（轻量元数据，列表场景用）与 `AgentSkillSpec`（含完整指令，执行场景用）。`_scripts.json` 缺失时 `loader._auto_detect_scripts` 按扩展名自动生成白名单，用户无需手写。
+解析与数据结构在 `core/capabilities/skills/registry.py`：`AgentSkillMetadata`（轻量元数据，列表场景用）与 `AgentSkillSpec`（含完整指令，执行场景用）。`_scripts.json` 缺失时 `loader._auto_detect_scripts` 按扩展名自动生成白名单，用户无需手写。
 
 ## 多源加载与优先级
 
-`core/agent_skills/loader.py::MultiSourceSkillLoader` 通过后端抽象层（`backends/`：filesystem / database / composite）从多个来源加载技能，同 ID 冲突时高优先级覆盖（`core/agent_skills/config.py`）：
+`core/capabilities/skills/loader.py::MultiSourceSkillLoader` 通过后端抽象层（`backends/`：filesystem / database / composite）从多个来源加载技能，同 ID 冲突时高优先级覆盖（`core/capabilities/skills/config.py`）：
 
 | 来源 | 目录 | 优先级 | 说明 |
 |---|---|---|---|
@@ -142,11 +142,11 @@
 - **范围**：主对话链路 + 子智能体。子智能体绑定的插件同样延迟加载，但激活只在该次运行内生效、不落库（子智能体运行短暂且相互隔离，落到父会话的键上会把激活泄漏进主智能体装配）；收窄模式（对话模式）圈定的插件保持全量装配（那是管理员的显式圈定）；组件含 stdio 形态 MCP 的插件不延迟。
 - **开关**：环境变量 `PLUGIN_PROGRESSIVE_LOADING=false` 可整体回退到全量装配。
 
-实现：`core/plugins/runtime/__init__.py`（延迟解析 / 目录渲染 / 激活工具）+ `core/llm/factory/build.py` 装配接入。
+实现：`core/capabilities/plugins/runtime/__init__.py`（延迟解析 / 目录渲染 / 激活工具）+ `core/llm/factory/build.py` 装配接入。
 
 ## 技能市场（Skill Marketplace）
 
-技能市场是"预置 + 社区"双来源的可安装技能库，核心服务在 `core/services/marketplace_service.py`。
+技能市场是"预置 + 社区"双来源的可安装技能库，核心服务在 `features/marketplace/`。
 
 ### 浏览与安装
 
@@ -197,7 +197,7 @@
       GET     /v1/admin/visibility/principals    ← 用户/团队/角色简表（选择器数据源）
 ```
 
-存储：`marketplace_listing_states.visibility`（缺行 = public）+ `marketplace_visibility_grants` 白名单表；用户侧解析收口在 `core/auth/marketplace_visibility.py`（角色含个人直配与经团队获得的部门默认角色）。
+存储：`marketplace_listing_states.visibility`（缺行 = public）+ `marketplace_visibility_grants` 白名单表；用户侧解析收口在 `edition_ee/auth/marketplace_visibility.py`（角色含个人直配与经团队获得的部门默认角色）。
 
 ## 管理员技能管理
 
@@ -206,7 +206,7 @@
 - **创建/编辑**：手写 SKILL.md（`POST /`、`PUT /{id}`），或 **zip 上传**整个技能包（`POST /upload`，自动识别目录前缀、二进制文件 base64 入库，上限 200MB）；
 - **文件级管理**：`GET/PUT/DELETE /{id}/files/{filename}` 在线编辑技能附属文件；
 - **运维**：启停（`/{id}/toggle`）、排序、图标、fork 复制、批量导出/导入（跨环境迁移）；
-- **依赖管理**：`POST /{id}/rescan-deps` 用 `core/agent_skills/deps_detector.py` 静态扫描脚本的 pip/apt 依赖，`PUT /{id}/dependencies` 人工修正；聚合后的依赖清单用于沙箱镜像重建（见[沙箱模块](sandbox.md)的管理员依赖重建）。
+- **依赖管理**：`POST /{id}/rescan-deps` 用 `core/capabilities/skills/deps/detector.py` 静态扫描脚本的 pip/apt 依赖，`PUT /{id}/dependencies` 人工修正；聚合后的依赖清单用于沙箱镜像重建（见[沙箱模块](sandbox.md)的管理员依赖重建）。
 
 ## 技能蒸馏（Distillation）（商业版 EE）
 
@@ -223,7 +223,7 @@
      approve → 转正为 AdminSkill；reject / delete；可手动触发 trigger-daily-scan
 ```
 
-阈值、关键词、预算等全部可由 `DISTILL_*` 环境变量覆盖（`core/config/distillation.py`）。蒸馏管线（`skill_distiller.py`、调度器）属**商业版 EE**，社区版派生树剔除；技能草稿审核台随之仅在商业版可见。
+阈值、关键词、预算等全部可由 `DISTILL_*` 环境变量覆盖（`features/distillation/config.py`）。蒸馏管线（`skill_distiller.py`、调度器）属**商业版 EE**，社区版派生树剔除；技能草稿审核台随之仅在商业版可见。
 
 ## 用户自助技能（能力中心）
 
@@ -265,22 +265,22 @@
 
 | 路径 | 说明 |
 |---|---|
-| `src/backend/core/agent_skills/registry.py` | SKILL.md 解析、元数据/完整 Spec 数据结构 |
-| `src/backend/core/agent_skills/loader.py` | 多源加载、DB 技能物化、沙箱路径重定向 |
-| `src/backend/core/agent_skills/config.py` | 加载源优先级、统一沙箱技能目录、内置技能同步 |
-| `src/backend/core/agent_skills/selector.py` | 按用户意图 LLM 选技能（渐进式披露） |
-| `src/backend/core/agent_skills/deps_detector.py` | 脚本 pip/apt 依赖静态探测 |
-| `src/backend/core/agent_skills/backends/` | filesystem / database / composite 加载后端 |
+| `src/backend/core/capabilities/skills/registry.py` | SKILL.md 解析、元数据/完整 Spec 数据结构 |
+| `src/backend/core/capabilities/skills/loader.py` | 多源加载、DB 技能物化、沙箱路径重定向 |
+| `src/backend/core/capabilities/skills/config.py` | 加载源优先级、统一沙箱技能目录、内置技能同步 |
+| `src/backend/core/llm/skill_selection.py` | 按用户意图 LLM 选技能（渐进式披露） |
+| `src/backend/core/capabilities/skills/deps/detector.py` | 脚本 pip/apt 依赖静态探测 |
+| `src/backend/core/capabilities/skills/backends/` | filesystem / database / composite 加载后端 |
 | `src/backend/core/llm/tools/skill_tool.py` | 受限 view_text_file + {baseDir} 替换 + Runtime Hint |
 | `src/backend/extensions/skills/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
 | `src/backend/extensions/skills/marketplace/` | 45 个可安装市场技能包 |
-| `src/backend/core/services/marketplace_service.py` | 市场列表/安装/凭据注入/上架审核 |
-| `src/backend/api/routes/v1/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
-| `src/backend/api/routes/v1/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |
+| `src/backend/features/marketplace/` | 市场列表/安装/凭据注入/上架审核 |
+| `src/backend/features/marketplace/api/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
+| `src/backend/features/marketplace/api/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |
 | `src/backend/api/routes/v1/admin_skills.py` | 管理员技能 CRUD / zip / 依赖管理 |
-| `src/backend/api/routes/v1/admin_skill_drafts.py` | 蒸馏草稿审核（EE） |
-| `src/backend/core/llm/skill_distiller.py` | 技能蒸馏 LLM 管线（EE） |
-| `src/backend/orchestration/schedulers/distillation_cron_scheduler.py` | 蒸馏每日调度（EE） |
+| `src/backend/features/distillation/api/admin_skill_drafts.py` | 蒸馏草稿审核（EE） |
+| `src/backend/features/distillation/` | 技能蒸馏 LLM 管线（EE） |
+| `src/backend/orchestration/workers/distillation_cron_scheduler.py` | 蒸馏每日调度（EE） |
 | `src/backend/api/routes/v1/me_capabilities.py` | 用户自助技能/私有 MCP API |
 
 相关文档：[沙箱执行系统](sandbox.md) · [MCP 工具系统](mcp-tools.md) · [能力目录](catalog.md) · [管理台](admin-console.md) · [版本与许可](../editions/overview.md)

@@ -9,7 +9,7 @@ it explicitly.
 
 import pytest
 
-from core.evolution import readiness as R
+from core.evolution.cycle import readiness as R
 
 
 @pytest.fixture(autouse=True)

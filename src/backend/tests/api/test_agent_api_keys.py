@@ -26,14 +26,10 @@ from sqlalchemy.orm import sessionmaker
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import AgentApiCallLog, ChatRun, UserApiKey
-from core.services.agent_api_service import (
-    begin_agent_api_call,
-    bind_agent_api_run,
-    list_agent_api_calls,
-    prepare_agent_api_request,
-)
+from core.auth.agent_api import begin_agent_api_call, bind_agent_api_run, list_agent_api_calls, prepare_agent_api_request
 from tests.api.test_agent_api_scope import db, _key, _user
 from core.chat.schemas import ChatRequest
+from tests.db_support import share_session
 
 
 def _app(db, monkeypatch, *, user_id="owner", middleware=False):
@@ -52,6 +48,7 @@ def _app(db, monkeypatch, *, user_id="owner", middleware=False):
         username=user_id,
     )
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     if middleware:
         from api.middleware import agent_api_scope
 

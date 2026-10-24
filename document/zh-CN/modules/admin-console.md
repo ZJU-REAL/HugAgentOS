@@ -53,11 +53,11 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 
 `/v1/admin/skills`（`api/routes/v1/admin_skills.py`，`ADMIN_TOKEN`）：技能全生命周期管理——CRUD、zip 上传、启停、排序、图标、依赖扫描与编辑、技能内单文件读写删、复刻内置技能、导入 / 导出。技能存于 `admin_skills` 表，技能体系详见 [Agent 技能](agent-skills.md)。
 
-`/v1/admin/skill-drafts`（`api/routes/v1/admin_skill_drafts.py`，`ADMIN_TOKEN`）：自动蒸馏出的技能草稿审核——列表 / 计数 / 详情、先编辑后通过（approve）、驳回（reject）、删除，以及手动触发每日蒸馏扫描。
+`/v1/admin/skill-drafts`（`features/distillation/api/admin_skill_drafts.py`，`ADMIN_TOKEN`）：自动蒸馏出的技能草稿审核——列表 / 计数 / 详情、先编辑后通过（approve）、驳回（reject）、删除，以及手动触发每日蒸馏扫描。
 
 ### 市场审核（admin_marketplace）（商业版 EE：content_admin）
 
-`/v1/admin/marketplace`（`api/routes/v1/admin_marketplace.py`，`ADMIN_TOKEN`）：两件事——
+`/v1/admin/marketplace`（`features/marketplace/api/admin_marketplace.py`，`ADMIN_TOKEN`）：两件事——
 
 1. **安装市场技能为全局技能**：浏览市场列表（标注「是否已全局安装」）、安装后 owner 为空、全员可用，可继续在「技能管理」编辑。
 2. **审核用户上架申请**：申请列表（按 status 过滤）、详情（含 SKILL.md 预览）、通过（上架，全员可装）、驳回 / 下架。
@@ -91,14 +91,14 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 
 ### 知识库管理（admin_kb）（商业版 EE：content_admin）
 
-`/v1/admin/kb`（`api/routes/v1/admin_kb.py`，`ADMIN_TOKEN`）：自建**公共知识库**管理（`KBSpace.visibility == "public"`，归属系统属主），能力镜像用户态 `kb.py`——库 CRUD、AI 生成简介、文档上传 / 列表 / 原文预览（Office 转 PDF）/ 删除 / 重新索引、分块预览与逐块编辑（内容 / 标签 / 问题）。公共库对全部用户在能力目录可见、可被检索。Dify 模式下仅只读展示 Dify 数据集，写操作返回 409。详见 [知识库](knowledge-base.md)。
+`/v1/admin/kb`（`edition_ee/routes/admin_kb.py`，`ADMIN_TOKEN`）：自建**公共知识库**管理（`KBSpace.visibility == "public"`，归属系统属主），能力镜像用户态 `kb.py`——库 CRUD、AI 生成简介、文档上传 / 列表 / 原文预览（Office 转 PDF）/ 删除 / 重新索引、分块预览与逐块编辑（内容 / 标签 / 问题）。公共库对全部用户在能力目录可见、可被检索。Dify 模式下仅只读展示 Dify 数据集，写操作返回 409。详见 [知识库](knowledge-base.md)。
 
 ### 沙箱管理（admin_sandbox + config_security/sandbox）
 
 两个互补面板：
 
-- `/v1/admin/sandbox`（`api/routes/v1/admin_sandbox.py`，`ADMIN_TOKEN`，**商业版 EE：content_admin**）：聚合技能依赖清单预览、触发沙盒镜像重建 + 容器热切、重建历史与日志查询。
-- `/v1/config/security/sandbox/*`（`api/routes/v1/config_security.py`，`CONFIG_TOKEN`，**商业版 EE：system_config**）：只读安全视图——沙盒概览、运行实例列表 / 详情、快照、重建历史、脱敏配置。Provider 不支持的能力（如 ScriptRunner 无法枚举实例）返回 `code=42210`，前端置灰。
+- `/v1/admin/sandbox`（`features/sandbox_ops/api/admin_sandbox.py`，`ADMIN_TOKEN`，**商业版 EE：content_admin**）：聚合技能依赖清单预览、触发沙盒镜像重建 + 容器热切、重建历史与日志查询。
+- `/v1/config/security/sandbox/*`（`features/security_console/api/config_security.py`，`CONFIG_TOKEN`，**商业版 EE：system_config**）：只读安全视图——沙盒概览、运行实例列表 / 详情、快照、重建历史、脱敏配置。Provider 不支持的能力（如 ScriptRunner 无法枚举实例）返回 `code=42210`，前端置灰。
 
 详见 [沙箱](sandbox.md)。
 
@@ -166,13 +166,13 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 | 管理凭证依赖 | `src/backend/api/deps.py` |
 | License 能力位 | `src/backend/edition_ee/licensing/features.py`、`src/backend/edition_ee/licensing/deps.py` |
 | 技能 / 草稿 / 市场 | `src/backend/api/routes/v1/admin_skills.py`、`admin_skill_drafts.py`、`admin_marketplace.py` |
-| 问题反馈与 GitHub 发布 | `src/backend/edition_ee/routes/feedbacks.py`、`admin_feedbacks.py`、`services/feedback_service.py` |
+| 问题反馈与 GitHub 发布 | `src/backend/edition_ee/routes/feedbacks.py`、`admin_feedbacks.py`、`edition_ee/services/feedback_service.py` |
 | 提示词 / MCP / 子智能体 | `src/backend/api/routes/v1/admin_prompts.py`、`admin_mcp_servers.py`、`admin_agents.py` |
-| 知识库 / 沙盒 | `src/backend/edition_ee/routes/admin_kb.py`、`src/backend/api/routes/v1/admin_sandbox.py` |
+| 知识库 / 沙盒 | `src/backend/edition_ee/routes/admin_kb.py`、`src/backend/features/sandbox_ops/api/admin_sandbox.py` |
 | 计费 / 用量 / 日志 / 会话审查 | `src/backend/api/routes/v1/admin_billing.py`、`admin_usage_logs.py`、`admin_logs.py`、`admin_chat_history.py` |
 | 内容管理 | `src/backend/api/routes/v1/content.py` |
 | 用户 / 团队 / 邀请 / License（EE） | `src/backend/edition_ee/routes/config_users.py`、`config_teams.py`、`config_invites.py`、`config_license.py` |
-| 安全 | `src/backend/api/routes/v1/config_security.py` |
+| 安全 | `src/backend/features/security_console/api/config_security.py` |
 | 服务配置 | `src/backend/api/routes/v1/service_configs.py` |
 
 延伸阅读：[认证与权限](auth.md) · [提示词系统](prompts.md) · [版本与授权](../editions/overview.md)

@@ -9,7 +9,7 @@ from typing import Optional
 
 from core.config.settings import settings
 from core.sandbox.errors import SandboxNotFoundError, SandboxError
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
 # Snapshot persistence (see internal design docs). Imports are
 # deferred to runtime to avoid cross-module circular dependencies at startup
@@ -40,7 +40,7 @@ class _OpenSandboxLifecycleMixin(_OpenSandboxBindingMixin, _OpenSandboxTrackingM
         workspace it built up. The ~7s warm path is only correct for a chat with
         nothing to restore, so the idle pool is checked after the lookup misses.
         """
-        from core.agent_skills.publication import prepare_skill_view
+        from core.capabilities.skills.publication import prepare_skill_view
 
         # This runs even on a pre-warmed pool hit, before any snapshot/fresh
         # fallback can hide a publication failure.

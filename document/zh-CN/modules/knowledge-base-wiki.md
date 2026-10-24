@@ -138,12 +138,12 @@ Wiki 是纯离线批处理，调用量随文档量线性增长，**建议单独�
 
 | 层 | 位置 |
 |---|---|
-| 数据模型 | `src/backend/core/db/models/kb_wiki.py` |
-| 生成管线 | `src/backend/core/kb/wiki/`（`extract` / `cite` / `dedup` / `taxonomy` / `reduce` / `finalize` / `pipeline`） |
-| 提示词 | `src/backend/core/kb/wiki/prompts.py` |
-| 作业与 worker | `src/backend/core/kb/wiki/jobs.py`、`worker.py` |
-| 读取面 | `src/backend/core/kb/wiki/local_provider.py` |
-| 按库分发 | `src/backend/core/kb/wiki_router.py` |
-| 路由 | `src/backend/api/routes/v1/kb_wiki.py` |
+| 数据模型 | `src/backend/features/knowledge/models.py` |
+| 生成管线 | `src/backend/features/knowledge/wiki/`（`extract` / `cite` / `dedup` / `taxonomy` / `reduce` / `finalize` / `pipeline`） |
+| 提示词 | `src/backend/features/knowledge/wiki/prompts.py` |
+| 作业与 worker | `src/backend/features/knowledge/wiki/jobs.py`、`worker.py` |
+| 读取面 | `src/backend/features/knowledge/wiki/local_provider.py` |
+| 按库分发 | `src/backend/features/knowledge/wiki_router.py` |
+| 路由 | `src/backend/features/knowledge/api/kb_wiki.py` |
 | 智能体工具 | `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/wiki_impl.py` |
 | 前端 | `src/frontend/src/components/kb/`（`WikiPanel` / `WikiTree` / `ConceptGraph` / `IndexModePicker`） |

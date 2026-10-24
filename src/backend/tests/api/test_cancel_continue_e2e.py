@@ -10,20 +10,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+import core.agent_runtime.runner as runner
+import core.db.engine as core_db_engine
+import core.runs.tasks as tasks
 import fakeredis.aioredis
 import httpx
 import pytest
 from api.routes.v1 import agent_responses, chat_runs, chats
-from core.services.session_operations import invocation
 from core.auth.backend import UserContext, get_current_user
 from core.db import engine as db_engine
 from core.db.engine import Base, get_db
 from core.db.models import ChatRun, ChatSession
-from core.llm.chat_models import ReasoningEchoChatFormatter
-from core.llm.message_compat import session_to_msgs
-from core.llm.model_steps import record_assistant_step
+from core.models.chat_models import ReasoningEchoChatFormatter
+from core.llm.runtime.message_compat import session_to_msgs
+from core.llm.runtime.model_steps import record_assistant_step
+from core.chat.operations import invocation
 from fastapi import FastAPI
-from orchestration import chat_run_executor as executor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tests.api.test_chat_stream_sequencer import _patch_common_chat_route
@@ -45,18 +47,18 @@ def environment(tmp_path, monkeypatch):
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
     monkeypatch.setattr(db_engine, "SessionLocal", sessions)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(core_db_engine, "SessionLocal", sessions)
     monkeypatch.setattr("core.chat.plan_progress.SessionLocal", sessions)
-    monkeypatch.setattr("core.services.chat_steer_service.SessionLocal", sessions)
+    monkeypatch.setattr('core.chat.steer.SessionLocal', sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     _patch_common_chat_route(monkeypatch)
-    monkeypatch.setattr(invocation, "_resolve_explicit_capability_invocation", lambda db, r, u: r)
+    monkeypatch.setattr(invocation, 'resolve_explicit_capability_invocation', lambda db, r, u: r)
 
     async def preferences(*_):
         return (None, None, None), {}
 
-    monkeypatch.setattr("core.services.session_operations.admission._read_preferences", preferences)
+    monkeypatch.setattr('core.chat.operations.admission._read_preferences', preferences)
     app = FastAPI()
     for router in (agent_responses.router, chats.router, chat_runs.router):
         app.include_router(router)
@@ -69,9 +71,9 @@ def environment(tmp_path, monkeypatch):
             yield db
 
     app.dependency_overrides[get_db] = database
-    executor._active_runs.clear()
+    tasks.process_state().active_runs.clear()
     yield app, sessions
-    executor._active_runs.clear()
+    tasks.process_state().active_runs.clear()
     engine.dispose()
 
 
@@ -144,7 +146,7 @@ async def test_cancel_reload_continue_never_echoes_private_reasoning(
 ):
     app, sessions = environment
     workflow, ready, calls, observed_wire = make_workflow(scenario)
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -219,7 +221,7 @@ async def test_cancel_reload_continue_never_echoes_private_reasoning(
                 first.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await first
-            for worker in list(executor._active_runs.values()):
+            for worker in list(tasks.process_state().active_runs.values()):
                 worker.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await worker
@@ -239,7 +241,7 @@ async def test_browser_cancel_reload_continue(environment, monkeypatch, scenario
         pytest.skip("Set RUN_REASONING_BROWSER_E2E=1 for Chromium end-to-end checks")
     app, _sessions = environment
     workflow, _ready, calls, observed_wire = make_workflow(scenario)
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -273,7 +275,7 @@ async def test_browser_cancel_reload_continue(environment, monkeypatch, scenario
         assert PRIVATE not in str(observed_wire)
         assert calls == (["scan"] if scenario == "completed_tool_then_partial" else [])
     finally:
-        for worker in list(executor._active_runs.values()):
+        for worker in list(tasks.process_state().active_runs.values()):
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker

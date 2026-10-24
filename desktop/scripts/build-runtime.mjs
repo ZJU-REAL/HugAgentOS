@@ -112,6 +112,9 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
         "--break-system-packages",
         "--only-binary",
         ":all:",
+        // AgentScope is pinned to a reviewed source commit; other packages require wheels.
+        "--no-binary",
+        "agentscope",
         join(repoRoot, config.lockFile),
       ],
       { cwd: repoRoot },

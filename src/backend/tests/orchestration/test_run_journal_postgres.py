@@ -12,9 +12,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
-
+from core.chat.runtime.handoff import _commit_queued_handoff_in_session
 from core.db.models import (
     ChatMessage,
     ChatRun,
@@ -24,11 +22,12 @@ from core.db.models import (
     ToolEffectLedger,
     UserShadow,
 )
-from core.services.chat_service import ChatService
-from core.services.run_journal import RunJournal
-from core.services.steer_queue import SteerQueue, SteerQueueConflict
-from core.services.tool_effect_ledger import ToolEffectJournal
-from orchestration.chat_run_executor import _commit_queued_handoff_in_session
+from core.chat.service import ChatService
+from core.runs.journal import RunJournal
+from core.chat.steer_queue import SteerQueue, SteerQueueConflict
+from core.runs.tool_effects.journal import ToolEffectJournal
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
 
 POSTGRES_URL = os.getenv("RUN_JOURNAL_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(

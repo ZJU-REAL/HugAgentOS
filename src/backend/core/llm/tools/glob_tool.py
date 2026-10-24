@@ -1,5 +1,6 @@
 """Authorized sandbox file search with stateless continuation."""
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 import json
@@ -8,10 +9,10 @@ from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
 from core.db.paging import normalize_page, normalize_page_size
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
-from ._paths import to_physical_path, validate_project_scope_path, validate_workspace_path
+from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -95,5 +96,5 @@ def register_glob(
         "limit 默认 100；0 或负数返回全部。page 仅兼容第一页。"
     )
 
-    toolkit.register_tool_function(Glob, namesake_strategy="override")
+    toolkit.append(function_tool(Glob))
     logger.info("[factory] Registered Glob tool (chat_id=%s)", chat_id)

@@ -19,30 +19,18 @@ import logging
 import uuid
 from typing import Dict, List, Optional
 
-from core.capabilities.paths import capabilities_enabled
-from core.services import local_skill_editor as local_editor
+from core.harness.registry.run_capabilities import has_run_capabilities
+from features.desktop.local.skills import editor as local_editor
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.config.settings import settings
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
-from core.services.mcp_management_service import (
-    encrypt_mcp_headers,
-    probe_mcp_connectivity,
-    refresh_mcp_caches,
-    validate_remote_mcp_url,
-)
-from core.services.skill_management_service import (
-    build_skill_content,
-    extract_instructions,
-    extract_mcp_server_ids,
-    parse_and_upsert_skill_zip,
-    refresh_skill_caches,
-    resolve_mcp_bindings,
-    resolve_ontology_workflows,
-)
+from core.capabilities.mcp.management import encrypt_mcp_headers, probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
+from core.capabilities.skills.management import build_skill_content, extract_instructions, extract_mcp_server_ids, parse_and_upsert_skill_zip, refresh_skill_caches, resolve_mcp_bindings, resolve_ontology_workflows
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -82,14 +70,15 @@ class CreateUserMcpRequest(BaseModel):
 async def create_my_mcp_server(
     body: CreateUserMcpRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """添加一个仅自己可见可用的远程 MCP 工具（HTTP/SSE）。
 
     创建即试连：连不上返回 422，避免把不可达端点落库。出于安全，用户入口**不支持
     stdio**（不能在服务器执行任意命令）。
     """
-    _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    await run_in_session(
+        lambda db: _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    )
 
     if not body.url.strip():
         raise BadRequestError(message="url 不能为空")
@@ -113,7 +102,6 @@ async def create_my_mcp_server(
         transport=body.transport,
         url=body.url.strip(),
         headers=body.headers or {},
-        is_stable=False,  # user-private MCPs don't enter the warmup connection pool
         is_enabled=True,
         owner_user_id=str(user.user_id),
         icon=body.icon,
@@ -122,14 +110,18 @@ async def create_my_mcp_server(
         created_by=str(user.user_id),
     )
 
-    ok, err = await probe_mcp_connectivity(row, db)
+    ok, err = await probe_mcp_connectivity(row, validate=True)
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
     row.headers = encrypt_mcp_headers(body.headers)
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+
+    def save(db: Session) -> None:
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    await run_in_session(save)
     refresh_mcp_caches()
 
     return created_response(
@@ -172,7 +164,7 @@ def delete_my_mcp_server(
 
 
 @router.post("/skills/upload", status_code=201, summary="自助上传私有技能")
-async def upload_my_skill(
+def upload_my_skill(
     file: UploadFile = File(...),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -182,16 +174,16 @@ async def upload_my_skill(
     复用 admin 上传的解析链路，但打上 ``owner_user_id`` 并限 50MB。技能 id 取
     SKILL.md frontmatter ``name``，须全局唯一（与公共/他人技能冲突会被拒绝）。
     """
-    if capabilities_enabled():
+    if has_run_capabilities():
         return created_response(
-            data=local_editor.install_archive(str(user.user_id), await file.read())
+            data=local_editor.install_archive(str(user.user_id), file.file.read())
         )
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     if not file.filename or not file.filename.endswith(".zip"):
         raise BadRequestError(message="仅接受 .zip 技能包")
 
-    data = await file.read()
+    data = file.file.read()
     if len(data) > USER_SKILL_MAX_BYTES:
         raise BadRequestError(
             message=f"技能包过大（上限 {USER_SKILL_MAX_BYTES // (1024 * 1024)}MB）"
@@ -242,7 +234,7 @@ def create_my_skill(
     技能 id 须全局唯一：不能与公共技能或他人私有技能冲突；与本人已有同名私有技能
     则视为更新。
     """
-    if capabilities_enabled():
+    if has_run_capabilities():
         return created_response(data=local_editor.save(str(user.user_id), body))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
@@ -333,7 +325,7 @@ def create_my_skill(
         )
     db.commit()
     if body.icon is not None:
-        from core.services.skill_icon_service import set_skill_icon
+        from core.capabilities.skills.icons import set_skill_icon
 
         set_skill_icon(db, skill_id, body.icon)
     refresh_skill_caches()
@@ -375,13 +367,13 @@ def get_my_skill(
     与手写新建表单的「技能正文」一一对应，编辑保存走 ``POST /v1/me/skills`` upsert。
     附带 ``extra_files`` 清单（文件名/大小/是否二进制），供技能文件管理 UI 渲染。
     """
-    if capabilities_enabled():
+    if has_run_capabilities():
         return success_response(data=local_editor.detail(str(user.user_id), skill_id))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = _get_own_skill(db, str(user.user_id), skill_id)
 
-    from core.agent_skills.binary_files import is_binary_value
-    from core.services.skill_icon_service import get_skill_icon
+    from core.capabilities.skills.binary_files import is_binary_value
+    from core.capabilities.skills.icons import get_skill_icon
 
     extra_files = [
         {
@@ -415,7 +407,7 @@ def delete_my_skill(
     db: Session = Depends(get_db),
 ):
     """删除自己上传的私有技能。只能删自己的（owner 校验）。"""
-    if capabilities_enabled():
+    if has_run_capabilities():
         return success_response(data=local_editor.uninstall(str(user.user_id), skill_id))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = (
@@ -431,13 +423,13 @@ def delete_my_skill(
     db.delete(row)
     db.commit()
 
-    from core.services.skill_icon_service import delete_skill_icon
+    from core.capabilities.skills.icons import delete_skill_icon
 
     delete_skill_icon(db, skill_id)
-    from core.agent_skills.config import purge_skill_sandbox_files
+    from core.capabilities.skills.config import purge_skill_sandbox_files
 
     # Desktop reconciliation retains immutable revisions and a removed tombstone.
-    if not capabilities_enabled():
+    if not has_run_capabilities():
         purge_skill_sandbox_files(skill_id)
     refresh_skill_caches()
     return success_response(data={"skill_id": skill_id, "deleted": True})
@@ -455,7 +447,7 @@ def set_my_skill_icon(
     db: Session = Depends(get_db),
 ):
     """给自己的私有技能设置图标（owner 校验）。空串=恢复默认。"""
-    if capabilities_enabled():
+    if has_run_capabilities():
         return success_response(data=local_editor.icon(str(user.user_id), skill_id, body.icon))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = (
@@ -466,7 +458,7 @@ def set_my_skill_icon(
     if not row:
         raise ResourceNotFoundError("skill", skill_id)
 
-    from core.services.skill_icon_service import set_skill_icon
+    from core.capabilities.skills.icons import set_skill_icon
 
     icon = set_skill_icon(db, skill_id, body.icon)
     refresh_skill_caches()

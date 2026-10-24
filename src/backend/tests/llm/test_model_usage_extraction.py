@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass
 
 import pytest
-from core.llm.model_usage import _usage_from_response, instrument_model_usage, model_usage_scope
+from core.models.usage import _usage_from_response, instrument_model_usage, model_usage_scope
 
 
 class _DictMixinUsage(dict):

@@ -12,7 +12,7 @@ import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
 
-from core.llm.chat_models import ReasoningEchoChatFormatter, make_chat_model
+from core.models.chat_models import ReasoningEchoChatFormatter, make_chat_model
 
 
 def _assistant_with_thinking():
@@ -187,6 +187,6 @@ def test_every_openai_compatible_model_echoes_its_reasoning():
 def test_responses_wire_replays_reasoning_through_its_own_formatter():
     # Same guarantee on the other wire, by a different mechanism: reasoning rides back
     # as its own item rather than being folded into an assistant row.
-    from core.llm.responses_models import ResponsesReplayFormatter
+    from core.models.responses import ResponsesReplayFormatter
 
     assert isinstance(_mk(api_protocol="responses").formatter, ResponsesReplayFormatter)

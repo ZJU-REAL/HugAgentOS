@@ -21,7 +21,7 @@ def _load(rel_path: str, name: str):
 
 @pytest.fixture(scope="module")
 def paths():
-    return _load("core/llm/tools/_paths.py", "_paths_test_module")
+    return _load("core/sandbox/workspace/resolution.py", "_paths_test_module")
 
 
 class TestValidateProjectScopePath:

@@ -26,8 +26,9 @@ async def run_effect(fn: Callable[..., T], *args, **kwargs) -> T:
     except asyncio.CancelledError:
         try:
             await future
-        except Exception:
+        except Exception as fallback_error:
             # Cancellation remains the owner-visible outcome.  The durable row
             # is released/retried only after this thread has actually stopped.
-            pass
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.memory.executor:run_effect', fallback_error)
         raise

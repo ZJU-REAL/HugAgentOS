@@ -1,6 +1,7 @@
 """Read-checked mutations of files in the active sandbox."""
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import difflib
 import hashlib
@@ -8,7 +9,7 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 from ._common import (
     pin_artifact_to_workspace,
@@ -18,16 +19,7 @@ from ._common import (
     shell_quote,
     register_file_artifact,
 )
-from ._paths import (
-    basename,
-    is_myspace_physical,
-    space_metadata,
-    WORKSPACE_ROOT,
-    parent_dir,
-    to_physical_path,
-    validate_project_scope_path,
-    validate_workspace_path,
-)
+from core.sandbox.workspace.resolution import basename, is_myspace_physical, space_metadata, WORKSPACE_ROOT, parent_dir, to_physical_path, validate_project_scope_path, validate_workspace_path
 from ._state import ReadEntry, ReadStateTracker
 
 logger = logging.getLogger(__name__)
@@ -69,10 +61,7 @@ def register_write(
         content: str,
         register_as_artifact: bool = False,
     ) -> "ToolResponse":  # type: ignore[name-defined]
-        from core.llm.tool_permissions import (
-            PermissionEnforcementError,
-            require_local_path_permission,
-        )
+        from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
         from core.sandbox import SandboxConnectError as _SCE
         from core.sandbox import SandboxError as _SE
         from core.sandbox import get_sandbox_provider as _get_provider
@@ -218,11 +207,12 @@ def register_write(
         # Local-mode write-back snapshot (ticket #08): back up the real file
         # before overwriting it, so the user can roll back. No-op on cloud/web.
         try:
-            from core.services.local_snapshot_service import maybe_snapshot_local
+            from core.harness.registry.local_files import maybe_snapshot_local
 
             maybe_snapshot_local(physical)
-        except Exception:
-            pass
+        except Exception as fallback_error:
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.llm.tools.write_tool:Write', fallback_error)
         try:
             if _is_local:
                 # Local desktop mode: the backend runs on the host, so write the
@@ -273,7 +263,7 @@ def register_write(
         artifact_ref: Optional[dict] = None
         needs_registration = bool(register_as_artifact and user_id and not is_persistent)
         if needs_registration and _is_local:
-            from core.artifacts.local_reference import reference_local_file
+            from core.files.artifacts.local_reference import reference_local_file
             from fastapi import HTTPException
 
             try:
@@ -346,5 +336,5 @@ def register_write(
         "    ``persistent=true`` 表示文件保存于个人或团队空间；``space_type`` 为 personal/team/temporary。\n"
     )
 
-    toolkit.register_tool_function(Write, namesake_strategy="override")
+    toolkit.append(function_tool(Write))
     logger.info("[factory] Registered Write tool (chat_id=%s)", chat_id)

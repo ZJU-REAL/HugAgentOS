@@ -7,10 +7,11 @@ deltas update it by stable ``tool_id``, and one completed call supplies parsed
 arguments.
 
 Run from the repository root:
-  PYTHONPATH=src/backend python -m tests.orchestration.streaming_tool_call_dedupe_selftest
+  PYTHONPATH=src/backend python -m tests.core.llm.runtime.streaming_tool_call_dedupe_selftest
 """
 
 from __future__ import annotations
+from core.llm.runtime import streaming_constants as streaming_state_module
 
 import asyncio
 import json
@@ -36,8 +37,8 @@ class ToolCallEndEvent:
 
 
 async def _collect(events: list[Any]) -> list[tuple[str, Any]]:
-    import orchestration.streaming as streaming_mod
-    from orchestration.streaming import StreamingAgent
+    import core.llm.runtime.streaming as streaming_mod
+    from core.llm.runtime.streaming import StreamingAgent
 
     async def reply_stream(inputs=None):  # noqa: ANN001, ARG001
         for event in events:
@@ -48,13 +49,14 @@ async def _collect(events: list[Any]) -> list[tuple[str, Any]]:
         chat_id="dedupe_case",
         apply_request_context=lambda ctx, text: None,
         context=SimpleNamespace(extend=lambda messages: None),
+        pending_mcp_progress=[],
     )
     agent = SimpleNamespace(state=state, model=None, reply_stream=reply_stream)
 
     # Make the character threshold deterministic for this standalone test; the
     # production time threshold remains covered by the pytest suite.
-    streaming_mod._TOOL_CALL_DELTA_FLUSH_CHARS = 256
-    streaming_mod._TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 999.0
+    streaming_state_module.DELTA_FLUSH_CHARS = 256
+    streaming_state_module.DELTA_FLUSH_INTERVAL_S = 999.0
 
     output: list[tuple[str, Any]] = []
     streamer = StreamingAgent(agent, mcp_clients=[])
@@ -81,7 +83,8 @@ def main() -> int:
         errors.append(f"expected one stable start event, got {starts!r}")
     if "".join(item["delta"] for item in deltas) != full_json:
         errors.append("batched deltas did not reconstruct the original argument JSON")
-    max_expected_deltas = (len(full_json) + 255) // 256
+    # The first fragment goes out at once; the rest are merged 256 characters at a time.
+    max_expected_deltas = 1 + (len(full_json) + 255) // 256
     if len(deltas) > max_expected_deltas:
         errors.append(
             f"delta batching regressed: {len(deltas)} events for {len(full_json)} characters"

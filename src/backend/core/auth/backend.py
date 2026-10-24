@@ -8,13 +8,13 @@ Supports three AUTH_MODE values:
 
 from typing import Any, Dict, Optional
 
-import requests
-from core.auth.account_policy import AccountCapacityExceeded
+from core.auth.bearer import MOCK_TOKEN, verify_bearer
+from core.auth.edition import AccountCapacityExceeded
 from core.config.settings import settings
-from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
+from core.db.threads import run_in_session
 from core.infra.logging import get_logger
-from core.services import UserService
+from core.auth.users import UserService
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -46,100 +46,71 @@ def _auth_mode() -> str:
     return settings.auth.mode
 
 
-class AuthService:
-    """Authentication service for mock / remote Bearer token modes."""
-
-    def __init__(self):
-        self.auth_mode = _auth_mode()
-        self.user_center_url = settings.auth.api_url
-        self.timeout = settings.auth.api_timeout
-        self.retry_count = settings.auth.retry_count
-
-    def verify_token_remote(self, token: str) -> Optional[Dict[str, Any]]:
-        """Verify token with remote user center."""
-        if not self.user_center_url:
-            raise HTTPException(
-                status_code=500,
-                detail={"code": 52002, "message": "AUTH_API_URL not configured", "data": {}},
-            )
-
-        headers = {"Authorization": f"Bearer {token}"}
-
-        for attempt in range(self.retry_count):
-            try:
-                response = requests.get(
-                    f"{self.user_center_url}/verify", headers=headers, timeout=self.timeout
-                )
-
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 401:
-                    return None
-                else:
-                    continue
-
-            except requests.RequestException as e:
-                if attempt == self.retry_count - 1:
-                    raise HTTPException(
-                        status_code=502,
-                        detail={
-                            "code": 52001,
-                            "message": "User center unavailable",
-                            "data": {"error": str(e)},
-                        },
-                    )
-                continue
-
-        return None
-
-    def verify_token_mock(self, token: str) -> Dict[str, Any]:
-        """Mock authentication for development."""
-        if token and token != "mock_token":
-            return {
-                "user_center_id": token,
-                "username": token,
-                "email": f"{token}@mock.local",
-                "avatar_url": None,
+def _audit_rejected_token(db: Session) -> None:
+    # No user to attribute it to: user_id is a foreign key, so it stays NULL, and
+    # status must be one of success / failure / error.
+    try:
+        AuditLogRepository(db).create(
+            {
+                "user_id": None,
+                "action": "auth.login.failed",
+                "resource_type": "user",
+                "resource_id": "unknown",
+                "status": "failure",
+                "details": {"reason": "invalid_or_expired_token"},
             }
-        return {
-            "user_center_id": settings.auth.mock_user_id,
-            "username": settings.auth.mock_username,
-            "email": "dev@example.com",
-            "avatar_url": None,
-        }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log auth failure: {e}")
 
-    def verify_token(self, token: str, db: Session = None) -> Dict[str, Any]:
-        """Verify token based on configured auth mode (mock or remote)."""
-        if self.auth_mode == "mock":
-            return self.verify_token_mock(token)
-        else:
-            user_info = self.verify_token_remote(token)
-            if not user_info:
-                if db:
-                    try:
-                        audit_repo = AuditLogRepository(db)
-                        audit_repo.create(
-                            {
-                                "user_id": "unknown",
-                                "action": "auth.login.failed",
-                                "resource_type": "user",
-                                "resource_id": "unknown",
-                                "status": "failed",
-                                "details": {"reason": "invalid_or_expired_token"},
-                            }
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to log auth failure: {e}")
 
-                raise HTTPException(
-                    status_code=401,
-                    detail={
-                        "code": 30002,
-                        "message": "Invalid or expired token",
-                        "data": {"login_url": _sso_login_url()},
-                    },
-                )
-            return user_info
+def _bind_bearer_user(db: Session, identity: Dict[str, Any], *, audit_login: bool) -> UserContext:
+    """Map a verified identity onto its shadow user (database work, run off the event loop)."""
+    user_shadow = UserService(db).get_or_create_user_shadow(
+        user_center_id=identity["user_center_id"],
+        username=identity["username"],
+        email=identity.get("email"),
+        avatar_url=identity.get("avatar_url"),
+        refresh_unchanged=False,
+    )
+    if audit_login:
+        AuditLogRepository(db).create(
+            {
+                "user_id": user_shadow.user_id,
+                "action": "auth.login.success",
+                "resource_type": "user",
+                "resource_id": user_shadow.user_id,
+                "status": "success",
+            }
+        )
+    return UserContext(
+        user_id=user_shadow.user_id,
+        user_center_id=user_shadow.user_center_id,
+        username=user_shadow.username,
+        email=user_shadow.email,
+        avatar_url=user_shadow.avatar_url,
+    )
+
+
+async def _resolve_bearer_user(token: str, *, audit: bool) -> UserContext:
+    """Verify a mock / remote Bearer token and bind it to its shadow user.
+
+    A login is audited when the user center actually verified the token, not
+    on every request that reuses that verification.
+    """
+    identity, checked = await verify_bearer(token)
+    if identity is None:
+        if audit:
+            await run_in_session(_audit_rejected_token)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": 30002,
+                "message": "Invalid or expired token",
+                "data": {"login_url": _sso_login_url()},
+            },
+        )
+    return await run_in_session(_bind_bearer_user, identity, audit_login=audit and checked)
 
 
 # Bearer token scheme (do not auto-reject missing header so mock mode can inject dev user)
@@ -153,7 +124,7 @@ def _resolve_api_key_context(token: Optional[str], db: Session) -> Optional[User
     have no Cookie). Validation (enabled/not-revoked/not-expired/user permission
     bits) is handled uniformly by ``resolve_api_key_identity``.
     """
-    from core.services.api_key_service import resolve_api_key_identity
+    from core.auth.api_keys import resolve_api_key_identity
 
     identity = resolve_api_key_identity(db, token or "")
     if identity is None:
@@ -172,7 +143,7 @@ def _resolve_api_key_context(token: Optional[str], db: Session) -> Optional[User
 
 
 def _require_api_key_context(
-    token: Optional[str], db: Session, request: Optional[Request] = None
+    db: Session, token: Optional[str], request: Optional[Request] = None
 ) -> UserContext:
     """Resolve an API-Key; any failure is a 401. A Bearer that looks like an API-Key
     must be valid — never silently downgrade to anonymous. Shared by get_current_user
@@ -248,10 +219,23 @@ async def _resolve_session_user(request: Request) -> Optional[UserContext]:
     )
 
 
+async def _resolve_host_user(request: Request) -> Optional[UserContext]:
+    """Identity injected by the host (desktop shell), when it claims this request.
+
+    Most requests are not claimed — no resolver is registered, or the request
+    carries no host credential — and pay no thread hop for asking.
+    """
+    from core.harness.registry.authentication import host_user_resolver
+
+    resolver = host_user_resolver(request)
+    if resolver is None:
+        return None
+    return await run_in_session(lambda db: resolver(request, db))
+
+
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db),
 ) -> UserContext:
     """Dependency to get current authenticated user.
 
@@ -262,29 +246,31 @@ async def get_current_user(
 
     AUTH_MODE=session still accepts explicit API Keys; other Bearer tokens
     require a session cookie.
+
+    It holds no database session: each lookup runs to completion on a session
+    of its own in a worker thread, so nothing stays checked out while the
+    request (or a stream it starts) continues. Websockets and re-validation
+    call it directly with the request and credentials they have.
     """
     if request.headers.get("x-public-chat") is not None:
         from core.auth.public_chat import authenticate_public_chat
 
-        return authenticate_public_chat(request, db)
+        return await run_in_session(lambda db: authenticate_public_chat(request, db))
     auth_mode = _auth_mode()
 
     # An explicit API credential must not be widened by an accompanying cookie
     # or desktop identity. Invalid/revoked scoped keys likewise fail closed.
-    from core.services.api_key_service import api_key_token_from_header, is_api_key_token
+    from core.auth.api_keys import api_key_token_from_header, is_api_key_token
 
     bearer_token = api_key_token_from_header(request.headers.get("authorization"))
     if bearer_token is None and credentials is not None:
         bearer_token = credentials.credentials.strip()
     if is_api_key_token(bearer_token):
-        return _require_api_key_context(bearer_token, db, request)
+        return await run_in_session(_require_api_key_context, bearer_token, request)
 
     # ── 0. 桌面桥接（仅桌面壳孵化的本机后端启用；混合架构 P2）──
     # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
-    from core.auth.desktop_bridge import resolve_bridge_user
-    from starlette.concurrency import run_in_threadpool
-
-    bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
+    bridge_user = await _resolve_host_user(request)
     if bridge_user is not None:
         return bridge_user
 
@@ -306,8 +292,6 @@ async def get_current_user(
         )
 
     # ── 3. mock / remote: Bearer token path ──
-    current_auth = AuthService()
-
     if credentials is None:
         if auth_mode != "mock":
             raise HTTPException(
@@ -318,39 +302,10 @@ async def get_current_user(
                     "data": {"login_url": _sso_login_url()},
                 },
             )
-        token = "mock_token"
+        token = MOCK_TOKEN
     else:
         token = credentials.credentials
-
-    user_info = current_auth.verify_token(token, db)
-
-    user_service = UserService(db)
-    user_shadow = user_service.get_or_create_user_shadow(
-        user_center_id=user_info["user_center_id"],
-        username=user_info["username"],
-        email=user_info.get("email"),
-        avatar_url=user_info.get("avatar_url"),
-    )
-
-    # Audit log for successful authentication
-    audit_repo = AuditLogRepository(db)
-    audit_repo.create(
-        {
-            "user_id": user_shadow.user_id,
-            "action": "auth.login.success",
-            "resource_type": "user",
-            "resource_id": user_shadow.user_id,
-            "status": "success",
-        }
-    )
-
-    return UserContext(
-        user_id=user_shadow.user_id,
-        user_center_id=user_shadow.user_center_id,
-        username=user_shadow.username,
-        email=user_shadow.email,
-        avatar_url=user_shadow.avatar_url,
-    )
+    return await _resolve_bearer_user(token, audit=True)
 
 
 def require_auth(required: bool = True):
@@ -369,26 +324,22 @@ def require_auth(required: bool = True):
         return get_current_user
     else:
 
-        async def optional_user(
-            request: Request, db: Session = Depends(get_db)
-        ) -> Optional[UserContext]:
+        async def optional_user(request: Request) -> Optional[UserContext]:
             if request.headers.get("x-public-chat") is not None:
                 from core.auth.public_chat import authenticate_public_chat
-                return authenticate_public_chat(request, db)
+
+                return await run_in_session(lambda db: authenticate_public_chat(request, db))
             auth_mode = _auth_mode()
-            from core.services.api_key_service import api_key_token_from_header
+            from core.auth.api_keys import api_key_token_from_header
 
             auth_header = request.headers.get("Authorization", "")
             raw_bearer = api_key_token_from_header(auth_header)
             if raw_bearer is not None:
-                return _require_api_key_context(raw_bearer, db, request)
+                return await run_in_session(_require_api_key_context, raw_bearer, request)
 
             # Match required authentication: the desktop shell owns the local
             # identity, even when a forwarded cloud cookie is absent or stale.
-            from core.auth.desktop_bridge import resolve_bridge_user
-            from starlette.concurrency import run_in_threadpool
-
-            bridge_user = await run_in_threadpool(resolve_bridge_user, request, db)
+            bridge_user = await _resolve_host_user(request)
             if bridge_user is not None:
                 return bridge_user
 
@@ -406,42 +357,18 @@ def require_auth(required: bool = True):
                 return None
 
             # ── mock / remote: try Bearer ──
-            current_auth = AuthService()
             if not auth_header or not auth_header.startswith("Bearer "):
                 if auth_mode != "mock":
                     return None
-                token = "mock_token"
+                token = MOCK_TOKEN
             else:
                 token = auth_header.split(" ", 1)[1]
             try:
-                user_info = current_auth.verify_token(token)
-                user_service = UserService(db)
-                user_shadow = user_service.get_or_create_user_shadow(
-                    user_center_id=user_info["user_center_id"],
-                    username=user_info["username"],
-                    email=user_info.get("email"),
-                    avatar_url=user_info.get("avatar_url"),
-                )
-
-                return UserContext(
-                    user_id=user_shadow.user_id,
-                    user_center_id=user_shadow.user_center_id,
-                    username=user_shadow.username,
-                    email=user_shadow.email,
-                    avatar_url=user_shadow.avatar_url,
-                )
+                return await _resolve_bearer_user(token, audit=False)
             except AccountCapacityExceeded:
                 # Edition admission blocks must not degrade to anonymous access.
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
                 raise
             except Exception as e:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
                 logger.warning("optional_auth_resolve_failed", error=str(e))
                 return None
 

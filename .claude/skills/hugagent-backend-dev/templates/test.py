@@ -1,115 +1,86 @@
 """Test template.
 
 Replace ${Feature}, ${feature} with actual names.
-Create as tests/test_${feature}.py.
-Run: PYTHONPATH=src/backend pytest src/backend/tests/test_${feature}.py -v
+Create as src/backend/tests/features/${feature}/test_${feature}.py (core domains: tests/<domain>/test_*.py).
+Run:  PYTHONPATH=src/backend pytest src/backend/tests/features/${feature} -q
+
+Rules:
+  - Test behaviour at a real boundary (service against a real DB session, or HTTP through the router);
+    do not assert internal call order
+  - The shared `db_session` fixture (tests/conftest.py) gives a fresh database per test (SQLite unless
+    TEST_DATABASE_URL points at PostgreSQL); schema changes should pass on both
+  - Write the failing test first; never weaken an assertion to make it pass
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from core.db.engine import Base
-from core.db.models import ${Feature}
-from core.db.repository import ${Feature}Repository
-from core.services.${feature}_service import ${Feature}Service
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def db_session():
-    """In-memory SQLite session for testing."""
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
-    Base.metadata.drop_all(engine)
+from core.infra.exceptions import BadRequestError, ResourceNotFoundError, ResourceOwnershipError
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from features.${feature}.service import ${Feature}Service
 
 
 @pytest.fixture
 def service(db_session):
-    """${Feature}Service with test DB session."""
     return ${Feature}Service(db_session)
 
 
+def test_create_and_list(service):
+    created = service.create("user_a", "  周报  ")
+    assert created.name == "周报"
+    items, total = service.list_items("user_a", 1, 20)
+    assert total == 1 and items[0].id == created.id
+
+
+def test_rejects_blank_name(service):
+    with pytest.raises(BadRequestError):
+        service.create("user_a", "   ")
+
+
+def test_other_users_cannot_read_or_delete(service):
+    item = service.create("user_a", "私有")
+    with pytest.raises(ResourceOwnershipError):
+        service.get_owned(item.id, "user_b")
+    with pytest.raises(ResourceOwnershipError):
+        service.delete(item.id, "user_b")
+
+
+def test_soft_delete_hides_item(service):
+    item = service.create("user_a", "待删")
+    service.delete(item.id, "user_a")
+    with pytest.raises(ResourceNotFoundError):
+        service.get_owned(item.id, "user_a")
+    assert service.list_items("user_a", 1, 20)[1] == 0
+
+
+# --- HTTP boundary: mount only this router, override auth and DB --------------------------------
+
+
 @pytest.fixture
-def sample_data():
-    """Sample creation data."""
-    return {
-        "user_id": "test_user_001",
-        "name": "Test ${Feature}",
-        "description": "Test description",
-    }
+def client(db_session, monkeypatch):
+    from core.auth.backend import UserContext, get_current_user
+    from core.db.engine import get_db
+    from core.infra.exceptions import AppException
+    from features.${feature}.api.${feature}s import router
+    from fastapi.responses import JSONResponse
+    from tests.db_support import share_session
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db_session
+    # async routes reach the database through run_in_session, not get_db
+    share_session(monkeypatch, db_session)
+    app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="user_a", user_center_id="uc_a", username="a")
+
+    @app.exception_handler(AppException)
+    async def _envelope(_, exc: AppException):
+        return JSONResponse(status_code=exc.status_code, content={"code": exc.code, "message": exc.message})
+
+    return TestClient(app)
 
 
-# ---------------------------------------------------------------------------
-# Repository Tests
-# ---------------------------------------------------------------------------
-
-class TestRepository:
-    def test_create(self, db_session, sample_data):
-        repo = ${Feature}Repository(db_session)
-        item = repo.create({
-            "id": "${feature}_test001",
-            **sample_data,
-        })
-        assert item.id == "${feature}_test001"
-        assert item.name == sample_data["name"]
-        assert item.deleted_at is None
-
-    def test_get_by_id(self, db_session):
-        repo = ${Feature}Repository(db_session)
-        repo.create({"id": "${feature}_001", "user_id": "u1", "name": "A"})
-        found = repo.get_by_id("${feature}_001")
-        assert found is not None
-        assert found.name == "A"
-
-    def test_get_by_id_respects_soft_delete(self, db_session):
-        repo = ${Feature}Repository(db_session)
-        repo.create({"id": "${feature}_del", "user_id": "u1", "name": "D"})
-        repo.soft_delete("${feature}_del")
-        assert repo.get_by_id("${feature}_del") is None
-
-    def test_list_by_user_pagination(self, db_session):
-        repo = ${Feature}Repository(db_session)
-        for i in range(5):
-            repo.create({"id": f"${feature}_{i}", "user_id": "u1", "name": f"Item {i}"})
-        items, total = repo.list_by_user("u1", page=1, page_size=3)
-        assert total == 5
-        assert len(items) == 3
-
-
-# ---------------------------------------------------------------------------
-# Service Tests
-# ---------------------------------------------------------------------------
-
-class TestService:
-    def test_create(self, service, sample_data):
-        item = service.create(**sample_data)
-        assert item.name == sample_data["name"]
-        assert item.user_id == sample_data["user_id"]
-        assert item.id.startswith("${feature}_")
-
-    def test_get_item_ownership(self, service):
-        item = service.create(user_id="u1", name="Mine")
-        # Owner can access
-        assert service.get_item(item.id, "u1") is not None
-        # Non-owner raises
-        with pytest.raises(Exception):
-            service.get_item(item.id, "u2")
-
-    def test_delete(self, service):
-        item = service.create(user_id="u1", name="ToDelete")
-        assert service.delete(item.id, "u1") is True
-        assert service.get_item(item.id, "u1") is None
-
-    def test_ensure_idempotent(self, service):
-        item1 = service.create(user_id="u1", name="First")
-        item2 = service.ensure(item1.id, "u1")
-        assert item1.id == item2.id
+def test_http_create_returns_envelope(client):
+    resp = client.post("/v1/${feature}s", json={"name": "周报"})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["code"] == 10001
+    assert body["data"]["name"] == "周报"

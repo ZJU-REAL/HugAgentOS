@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from core.auth.capabilities import user_has_capability
 from core.config.settings import settings
 from core.db.models import UserShadow
-from core.extensions import is_enabled
+from core.harness.registry import is_enabled
 
 NAME = "personal_agent"
 CAPABILITY = "can_use_personal_agent"

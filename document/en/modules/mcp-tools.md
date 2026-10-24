@@ -29,7 +29,7 @@ must execute in separate rounds.
 │  agent) │        │        │   :9103  unified Industry Knowledge Center (EE)│
 └─────────┘        │        │   :9104  reserved (retired chart MCP)          │
      │             │        │   :9105  reserved (former report export MCP)   │
- MCPConnectionPool │        │   :9106  web_fetch                              │
+ Native MCP Client │        │   :9106  web_fetch                              │
   mcp_pool.py)     └───┬────┘   :9108  automation_task (automation plugin)    │
                        │        9109–9111 reserved (former office MCPs)       │
                        │        :9112  skill_manager                          │
@@ -223,7 +223,7 @@ priority order:
      injects `"cite_id": "eN"` into each entry in place; the model copies the id as-is.
 2. **Standard list shape → one registry line**: list-style tools returning
    `{"items": [{"title": …, "content": …}]}` just need an `items_paths` + field-alias
-   entry in `orchestration/citation_anchor.py::TOOL_SPECS` — per-item numbering with no
+   entry in `core/llm/citations/hook.py::TOOL_SPECS` — per-item numbering with no
    tool code change.
 3. **Do nothing → automatic fallback**: a generic heuristic finds the unique dict-array
    field at the top level (or one level under `result`) and numbers items; when nothing is
@@ -237,21 +237,18 @@ before the result enters the model context and before persistence; the frontend 
 render `cite_id` as per-item chips that match the `[anchor text](cite:eN)` references in
 the answer body.
 
-## Backend client: connection pool & bare-name restoration
+## Backend client: native MCP lifetimes
 
-The backend connects through AgentScope 2.0's `MCPClient`, centred on two files:
+The backend uses MCP SDK 2.3 `Client(mode="auto")` and AgentScope `ToolBase`. `client.py` owns transport authorization; `lifetime.py` owns SDK scopes and complete paginated discovery. HTTP calls reuse the same client throughout a run. STDIO sessions use exclusive leases scoped to the executing user, chat and configuration; successful sessions remain idle for 60 seconds, while failed or cancelled calls destroy them. There is no stable-connection switch or startup connection pool.
 
-- **`core/llm/mcp_pool.py` — `MCPConnectionPool`** (process-level singleton): at startup `warmup_mcp_tools()` reads all enabled server configs from the DB and pre-connects. Pooling semantics under 2.0:
-  - **stdio servers marked `is_stable=true`** keep their connection across requests (saving the 1–7 s subprocess cold start);
-  - **HTTP servers are never pooled** — 2.0's stateful HTTP client is bound to its asyncio task, and reuse across requests triggers cancel-scope crashes, so each request gets a fresh `is_stateful=False` connection;
-  - per-request servers (KB retrieval with user headers) connect on demand and are closed via `close_transient()` when the request ends.
-- **`core/llm/mcp_manager.py` — `BareNameMCPClient`**: AgentScope 2.0 rewrites tool names to `mcp__<server>__<tool>`; this subclass restores the server-side bare name (`internet_search`, not `mcp__internet_search__internet_search`) so the display-name mapping (`core/config/display_names.py`), [citation extraction](chat.md) keyed by tool name, and frontend icon rendering all keep working as in 1.x.
+`callbacks.py` binds isolated text sampling and user elicitation to the active run. Resources, URI templates and prompts become permission-governed tools. Progress reaches the existing tool card. Structured results and resource links remain in tool metadata and model-facing output. SDK Tasks extensions are not available in 2.3.
 
-The 2.0 `Toolkit` is constructed once, in `core/llm/factory/build.py`: `Toolkit(tools=[...], mcps=clients)`.
+MCP execution budgets exclude time waiting for user answers. Valid questions pause the current invocation; answering or cancelling a question resumes its remaining budget. Repeated or overlapping questions do not reset that budget. Other invocations keep independent timers. Existing human-interaction deadlines still apply, and cancelling a run clears pending questions. Invocation budgets bound SDK requests and HTTP reads; connection, write and discovery timeouts remain active.
+
 
 ## Unified tool-permission gateway
 
-`core/llm/tool_permissions.py` provides the run-scoped
+`core/llm/tool_permissions/` provides the run-scoped
 `ToolPermissionRegistry` and `ToolPermissionMiddleware`. The registry is a
 **governed-tool list**, not a mandatory declaration table:
 
@@ -270,7 +267,7 @@ The 2.0 `Toolkit` is constructed once, in `core/llm/factory/build.py`: `Toolkit(
   tools become dispatchable.
 
 Native tools may opt in with
-`ToolCollector.register_tool_function(..., permission=spec)`. The platform's
+`ToolAssembly.append(function_tool(..., dispatch_spec=spec))`. The platform's
 local-file, Bash, and My Space rules live in `builtin_tool_permission()`.
 Native tools with neither an explicit spec nor a built-in entry pass through.
 
@@ -297,7 +294,7 @@ tools that should be governed need a registry rule.
 
 ## Registration: DB-driven config + catalog gating
 
-The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models.py::AdminMcpServer`), read through `core/services/mcp_service.py::McpServerConfigService` with a 30-second TTL cache, in a dict format compatible with the legacy `MCP_SERVERS` (`transport / command / args / env / url / headers / is_stable`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
+The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models/`), read through `core/capabilities/mcp/service.py::McpServerConfigService` with a 30-second TTL cache, using native client configuration (`transport / command / args / env / url / headers`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
 
 Whether a server is **visible to the model** additionally passes through [catalog](catalog.md) gating: each entry in the `mcp` section of `core/config/catalog.json` corresponds to a server_id, and a server whose `is_enabled(id, "mcp_server")` is false will not be registered with the agent even if connected.
 
@@ -309,7 +306,7 @@ The `/config` system console's **MCP Tools → MCP Server Management** view maps
 - **Probe-on-create**: `_probe_connectivity` performs a real connection; failures are rejected before persisting;
 - **Toggle & ordering**: `POST /{id}/toggle` switches a server instantly (refreshing the catalog and the connection pool);
 - **Secret protection**: HTTP header values are encrypted at rest and returned as `***`; secret-looking `env_vars` values are masked as well;
-- **Test & reload**: `POST /{id}/test` re-probes a single server; `POST /reload-pool` hot-rebuilds the connection pool.
+- **Test & reload**: `POST /{id}/test` re-probes a single server; `automatic cache invalidation` refreshes discovery on the next run.
 - **Move to MCP Marketplace**: creates a credential-free marketplace snapshot
   from an existing remote HTTP/SSE MCP and disables the original global
   instance. The service then leaves the MCP server list and can be reviewed,
@@ -329,7 +326,7 @@ Regular users can add remote MCP servers visible **only to themselves** (`api/ro
 - `POST /v1/me/mcp-servers`: add a private remote MCP over public HTTP or HTTPS using HTTP/SSE transports; the user entry point deliberately forbids stdio (no arbitrary command execution on the server), and DNS/IP validation blocks localhost, private, link-local, and reserved addresses; probe-on-create means unreachable endpoints are never persisted. HTTP is plaintext, so HTTPS remains recommended for production;
 - `DELETE /v1/me/mcp-servers/{id}`: remove one's own private MCP.
 
-Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes, and `is_stable=False` to keep them out of the warmup pool. HTTP header values are encrypted with Fernet at rest and decrypted only at runtime. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
+Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes. HTTP header values are encrypted with Fernet at rest and decrypted only at runtime. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
 
 ## MCP marketplace
 
@@ -409,19 +406,19 @@ docker-compose up -d --build mcp
 | `src/backend/extensions/mcp_servers/_serve.py` | Unified stdio / streamable-http entry point |
 | `src/backend/extensions/mcp_servers/registry.py` | Installation placement, exposure, packages, and base ports |
 | `src/backend/extensions/mcp_servers/_ports.py` | Deployment port mapping |
-| `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
-| `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
-| `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |
-| `src/backend/core/services/mcp_service.py` | DB-driven server config service (30 s cache) |
-| `src/backend/core/services/mcp_marketplace_service.py` | Marketplace publishing, review, installation, visibility, and security controls |
-| `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
-| `src/backend/core/services/mcp_marketplace_monitor.py` | Periodic remote tool-snapshot revalidation and drift monitoring |
+| `src/backend/core/llm/mcp/lifetime.py` | Native MCP client ownership and discovery |
+| `src/backend/core/llm/mcp/manager.py` | MCPClient construction + bare tool-name restoration |
+| `src/backend/core/llm/tool_permissions/` | Governed-tool registry, decisions, approval routing, and execution tickets |
+| `src/backend/core/capabilities/mcp/service.py` | DB-driven server config service (30 s cache) |
+| `src/backend/features/marketplace/` | Marketplace publishing, review, installation, visibility, and security controls |
+| `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
+| `src/backend/features/marketplace/` | Periodic remote tool-snapshot revalidation and drift monitoring |
 | `src/backend/core/config/mcp_config.py` | Built-in server URL builder (http://mcp:NNNN/mcp/) |
 | `src/backend/core/config/catalog.json` | Capability catalog: MCP enable/disable seeds |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | Admin custom-MCP API |
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service private MCP / skill API |
-| `src/backend/api/routes/v1/mcp_marketplace.py` | User-facing MCP marketplace API |
-| `src/backend/api/routes/v1/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |
+| `src/backend/features/marketplace/api/mcp_marketplace.py` | User-facing MCP marketplace API |
+| `src/backend/features/marketplace/api/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |
 | `docker/Dockerfile.mcp` | mcp container image (MCP runtime, plotting dependencies, and CJK fonts) |
 
 Related docs: [Capability catalog](catalog.md) · [Agent skills](agent-skills.md) · [Knowledge base](knowledge-base.md) · [Editions & licensing](../editions/overview.md)

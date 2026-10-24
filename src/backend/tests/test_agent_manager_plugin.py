@@ -74,7 +74,7 @@ def test_bundle_manifest_is_wellformed():
     assert manifest["name"] == "agent-manager"
     ext_mcp = manifest["extensions"]["org.hugagent"]["mcp"]
     assert set(ext_mcp) == set(mcp_json["mcpServers"]), "扩展段的服务名必须与 mcp.json 一一对应"
-    assert mcp_json["mcpServers"]["agent_manager"]["url"] == "http://mcp:9115/mcp/"
+    assert mcp_json["mcpServers"]["agent_manager"]["url"] == "http://mcp:9115/mcp"
 
     # The declared tool list must match what the server actually exposes — a manifest that
     # advertises a tool the server doesn't have is a silently broken promise to the model.
@@ -125,7 +125,7 @@ def test_port_is_registered():
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(am_env):
-    from core.plugins import management as ps
+    from core.capabilities.plugins import management as ps
 
     with am_env.Session() as db:
         res = ps.install_plugin(db, "agent-manager", owner_user_id=OWNER, created_by=OWNER)
@@ -141,15 +141,12 @@ def test_install_plugin_creates_rows_and_is_agent_visible(am_env):
         mcp = mcps[0]
         assert mcp.owner_user_id == OWNER
         assert mcp.transport == "streamable_http"
-        assert mcp.url == "http://mcp:9115/mcp/"
+        assert mcp.url == "http://mcp:9115/mcp"
         assert mcp.is_enabled is True  # http MCP is not needs_runtime → enabled upon install
         assert len(mcp.tools_json) == 8
         assert plugin is not None
 
-        from core.config.catalog_resolver import (
-            invalidate_capability_cache,
-            resolve_all_runtime_enabled,
-        )
+        from core.capabilities.catalog.resolver import invalidate_capability_cache, resolve_all_runtime_enabled
 
         invalidate_capability_cache()
         enabled_skills, _agents, enabled_mcps = resolve_all_runtime_enabled(db, OWNER)
@@ -272,7 +269,7 @@ def test_cannot_touch_other_users_agents(am_env):
 
 def test_admin_agents_are_not_listed_as_mine(am_env):
     """list_for_user also returns admin-owned agents; the self-serve entry must not claim them."""
-    from core.services.user_agent_service import UserAgentService
+    from core.capabilities.agents.edition import UserAgentService
     from extensions.mcp_servers.agent_manager_mcp import impl
 
     with am_env.Session() as db:
