@@ -160,7 +160,7 @@ async def test_cube_uses_background_without_connection_deadline_and_bounds_lifet
 
 async def test_runner_provider_checks_capability_integrity_before_returning_output(monkeypatch):
     import httpx
-    from core.capabilities.errors import IntegrityFailed
+    from core.harness.capability_errors import IntegrityFailed
     from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
     requests = []
@@ -186,12 +186,12 @@ async def test_runner_provider_checks_capability_integrity_before_returning_outp
         "core.sandbox.providers.script_runner.provider.httpx.AsyncClient",
         lambda **kwargs: client_type(transport=httpx.MockTransport(request), **kwargs),
     )
-    monkeypatch.setattr("core.capabilities.runtime.get", lambda *args, **kwargs: object())
+    monkeypatch.setattr('features.desktop.capabilities.runtime.get', lambda *args, **kwargs: object())
 
     def invalid(*args, **kwargs):
         raise IntegrityFailed("changed capability")
 
-    monkeypatch.setattr("core.capabilities.runtime.validate", invalid)
+    monkeypatch.setattr('features.desktop.capabilities.runtime.validate', invalid)
     with pytest.raises(IntegrityFailed, match="changed capability"):
         await ScriptRunnerProvider().write_stdin(
             "p1", sandbox_session_id="chat-a", user_id="alice", yield_time_ms=0

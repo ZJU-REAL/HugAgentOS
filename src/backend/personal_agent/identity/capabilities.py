@@ -17,7 +17,7 @@ def blocked(ident):
 def default_capabilities(db, user_id):
     """The curated skills and tools this user is allowed to use, plus the plugins they have turned on,
     as {"skill_ids", "mcp_ids", "plugins"}."""
-    from core.config.catalog_resolver import resolve_all_runtime_enabled
+    from core.capabilities.catalog.resolver import resolve_all_runtime_enabled
     skills, _, mcps = resolve_all_runtime_enabled(db, user_id)
     # None: the catalog could not be read this time; the caller keeps what it has.
     pick = lambda curated, permitted: None if permitted is None else [ident for ident in curated if ident in permitted]
@@ -26,8 +26,8 @@ def default_capabilities(db, user_id):
 
 def plugin_inventory(db, user_id):
     """Read this owner's installed plugins, including disabled component identities."""
-    from core.capabilities import device_catalog
-    from core.plugins import management
+    from features.desktop.capabilities import device_catalog
+    from core.capabilities.plugins import management
     try:
         # A savepoint: the agent's own rows may be pending in this transaction.
         with db.begin_nested():
@@ -60,7 +60,7 @@ def installed_plugins(db, user_id, skills, mcps, items=None):
     return out
 
 def available_capabilities(db, user_id):
-    from core.config.catalog_resolver import resolve_all_runtime_enabled
+    from core.capabilities.catalog.resolver import resolve_all_runtime_enabled
     skills, _, mcps = resolve_all_runtime_enabled(db, user_id)
     if skills is None or mcps is None:
         raise ValueError("Capability catalog unavailable; try again")

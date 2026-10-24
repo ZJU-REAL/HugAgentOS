@@ -3,9 +3,9 @@ from types import SimpleNamespace
 import pytest
 from agentscope.message import TextBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
-from core.llm.manifest_agent import ManifestBoundAgent
-from core.ontology.toolkit import OntologyFilteredToolkit
-from core.services.compaction_history import normalize_rows
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+from core.chat.compaction.history import normalize_rows
 
 
 class CaptureModel:
@@ -69,10 +69,10 @@ async def test_compaction_failure_cannot_replace_history_with_fake_summary(monke
 
     from agentscope.agent import Agent
     from core.config import settings as settings_module
-    from core.llm.compacting_agent import CompactingAgent
-    from core.llm.context_safety import ContextBudgetExceeded
-    from core.llm.middlewares import AgentRuntimeState
-    from core.services import compaction_service
+    from core.llm.context.compacting_agent import CompactingAgent
+    from core.llm.context.safety import ContextBudgetExceeded
+    from core.llm.runtime.state import AgentRuntimeState
+    from core.chat.compaction import service as compaction_service
 
     engine_calls = []
 
@@ -85,7 +85,7 @@ async def test_compaction_failure_cannot_replace_history_with_fake_summary(monke
     async def forbidden_framework(*args, **kwargs):
         raise AssertionError("A failed summary must never enter a second compressor")
 
-    monkeypatch.setattr(compaction_service, "run_compaction", compact)
+    monkeypatch.setattr(compaction_port, "run_compaction", compact)
     monkeypatch.setattr(Agent, "compress_context", forbidden_framework)
     if failure == "disabled":
         monkeypatch.setattr(
@@ -114,9 +114,9 @@ async def test_compaction_failure_cannot_replace_history_with_fake_summary(monke
 
 @pytest.mark.asyncio
 async def test_budget_stop_also_blocks_another_compaction_attempt(monkeypatch):
-    from core.llm.compacting_agent import CompactingAgent
-    from core.llm.context_safety import ContextBudgetExceeded, request_admission_scope
-    from core.services import compaction_service
+    from core.llm.context.compacting_agent import CompactingAgent
+    from core.llm.context.safety import ContextBudgetExceeded, request_admission_scope
+    from core.chat.compaction import service as compaction_service
 
     calls = []
 
@@ -124,7 +124,7 @@ async def test_budget_stop_also_blocks_another_compaction_attempt(monkeypatch):
         calls.append(True)
         return None
 
-    monkeypatch.setattr(compaction_service, "run_compaction", compact)
+    monkeypatch.setattr(compaction_port, "run_compaction", compact)
     model = CaptureModel()
     agent = CompactingAgent(
         name="stopped-compactor",
@@ -142,3 +142,5 @@ async def test_budget_stop_also_blocks_another_compaction_attempt(monkeypatch):
             await agent.compress_context()
     assert calls == []
     assert model.calls == []
+
+from core.harness.registry import compaction as compaction_port

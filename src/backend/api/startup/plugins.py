@@ -16,12 +16,9 @@ async def _startup_seed_mcp_servers():
     """
     try:
         from core.db.engine import SessionLocal
-        from core.services.mcp_management_service import encrypt_legacy_mcp_headers
-        from core.services.mcp_marketplace_service import ensure_curated_market_items
-        from core.services.mcp_service import (
-            prune_removed_builtin_mcp_servers,
-            seed_builtin_mcp_servers_if_empty,
-        )
+        from core.capabilities.mcp.management import encrypt_legacy_mcp_headers
+        from features.marketplace.mcp_curated import ensure_curated_market_items
+        from core.capabilities.mcp.service import prune_removed_builtin_mcp_servers, seed_builtin_mcp_servers_if_empty
 
         db = SessionLocal()
         try:
@@ -45,7 +42,7 @@ async def _startup_seed_mcp_servers():
 async def _startup_mcp_market_monitor():
     """Start periodic remote-tool drift detection after MCP rows are available."""
     try:
-        from core.services.mcp_marketplace_monitor import start_monitor
+        from features.marketplace.mcp_monitor import start_monitor
 
         start_monitor()
     except Exception as exc:
@@ -53,7 +50,7 @@ async def _startup_mcp_market_monitor():
 
 async def _shutdown_mcp_market_monitor():
     try:
-        from core.services.mcp_marketplace_monitor import stop_monitor
+        from features.marketplace.mcp_monitor import stop_monitor
 
         await stop_monitor()
     except Exception as exc:
@@ -64,7 +61,7 @@ async def _startup_upgrade_sites_plugin():
     import asyncio
 
     from core.db.engine import SessionLocal
-    from core.plugins.local.site_upgrade import upgrade_builtin_sites
+    from features.sites.builtin_upgrade import upgrade_builtin_sites
 
     def upgrade():
         with SessionLocal() as db:
@@ -88,7 +85,7 @@ async def _startup_plugin_device_assets():
         return
 
     from core.db.engine import SessionLocal
-    from core.plugins.local.assets import provision_present_plugins
+    from features.desktop.local.plugins.assets import provision_present_plugins
 
     def provision():
         with SessionLocal() as db:
@@ -100,7 +97,7 @@ async def _startup_plugin_device_assets():
 
 async def _startup_backfill_tool_schemas():
     """Capture real tool schemas for servers a plugin manifest only named."""
-    from core.services.mcp_tool_schema_backfill import backfill_missing_tool_schemas
+    from core.capabilities.mcp.tool_schema_backfill import backfill_missing_tool_schemas
 
     count = await backfill_missing_tool_schemas()
     if count:
@@ -108,7 +105,7 @@ async def _startup_backfill_tool_schemas():
 
 async def _startup_backfill_api_protocol():
     """Record which OpenAI wire protocol each pre-existing model endpoint speaks."""
-    from core.services.api_protocol_backfill import backfill_missing_api_protocol
+    from core.models.api_protocol_backfill import backfill_missing_api_protocol
 
     count = await backfill_missing_api_protocol()
     if count:
@@ -127,7 +124,7 @@ async def _startup_seed_default_plugins():
     if edition not in {"ce", "ee"}:
         return
     if settings.deploy.is_local:
-        from core.capabilities import device_catalog
+        from features.desktop.capabilities import device_catalog
 
         # Hybrid capabilities come from the authenticated cloud account. Local
         # defaults also respect the installer's explicit onboarding opt-in.
@@ -135,10 +132,10 @@ async def _startup_seed_default_plugins():
             return
 
     from core.db.engine import SessionLocal
-    from core.services.edition_startup import bootstrap_edition_plugins
-    from core.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS, ensure_default_plugins_bootstrapped
-    from core.plugins.ui.contributions import refresh_builtin_ui_contributions
-    from core.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
+    from orchestration.workers.edition_startup import bootstrap_edition_plugins
+    from core.capabilities.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS, ensure_default_plugins_bootstrapped
+    from features.workbench.ui.contributions import refresh_builtin_ui_contributions
+    from core.capabilities.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
 
     db = SessionLocal()
     try:

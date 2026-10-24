@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from core.db.engine import SessionLocal
 from core.infra.responses import success_response
-from core.services.job_service import JobService
+from core.jobs.store import JobService
 from fastapi import APIRouter, Header, HTTPException
 
 from .job_callback_session import callback_session
@@ -123,7 +123,7 @@ def _schema_hint(schema: Dict[str, Any]) -> str:
     )
 
 
-from orchestration.jobs.agent import run_derived_agent, run_with_job_fence
+from core.jobs.agent import run_derived_agent, run_with_job_fence
 
 # ── 端点 ──────────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ async def job_agent(
     async with _GLOBAL_GATE, gate:
         _auth(job_id, x_job_token)
         try:
-            from core.services.run_journal import durable_run_binding
+            from core.runs.journal import durable_run_binding
 
             async with durable_run_binding(
                 user_id=ctx["user_id"],
@@ -234,7 +234,7 @@ async def job_agent(
                 raise HTTPException(409, "作业预算已耗尽，本项已停止，不自动重试") from exc
             raise
         except Exception as exc:
-            from core.services.tool_effect_ledger import find_tool_outcome_unknown
+            from core.runs.tool_effects.errors import find_tool_outcome_unknown
 
             if find_tool_outcome_unknown(exc) is not None:
                 raise HTTPException(
@@ -366,7 +366,7 @@ def job_log(
     if msg:
         logger.info("[job %s] %s", job_id, msg[:500])
         try:
-            from orchestration.jobs.notifications import _emit_progress
+            from core.jobs.notifications import emit_progress as _emit_progress
 
             _emit_progress(ctx["chat_id"], msg[:200])
         except Exception:  # noqa: BLE001

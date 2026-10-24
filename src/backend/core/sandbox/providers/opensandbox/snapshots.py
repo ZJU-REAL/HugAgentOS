@@ -9,7 +9,7 @@ from typing import Awaitable, Callable, Optional
 import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
 from core.sandbox.errors import SandboxNotFoundError, SandboxError, SandboxTimeoutError
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
 # Snapshot persistence (see internal design docs). Imports are
 # deferred to runtime to avoid cross-module circular dependencies at startup

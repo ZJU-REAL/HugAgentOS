@@ -23,10 +23,11 @@ async def _collect_stream() -> str:
     from types import SimpleNamespace
     from unittest.mock import patch
 
+    import core.runs.events.subscription as run_subscription
     from api.routes.v1 import agent_responses
-    from core.chat.schemas import ChatRequest
     from core.auth.backend import UserContext
-    from orchestration import chat_run_executor
+    from core.chat.schemas import ChatRequest
+    pass
 
     async def fake_start(request, user, db):
         assert request.stream is True
@@ -47,7 +48,7 @@ async def _collect_stream() -> str:
     # Exercise the real response route and SSE wire formatter; replace only
     # admission and the durable event source so no model/database is needed.
     with patch.object(agent_responses, "_start_response_run", fake_start), patch.object(
-        chat_run_executor, "follow_run", fake_follow
+        run_subscription, "follow_run", fake_follow
     ):
         response = await agent_responses.agent_response(
             ChatRequest(chat_id="stream_selftest", message="生成报告", stream=True),

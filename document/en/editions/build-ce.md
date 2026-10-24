@@ -26,7 +26,7 @@ The manifest has the following sections, in processing order:
 
 Glob patterns (relative to the repo root); a match means the file is never copied. Covers:
 
-- **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), the Cube sandbox provider, memory audit, skill distillation, and other EE services;
+- **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/files/storage/s3.py`, `oss.py`), the Cube sandbox provider, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
 - **Industry MCP servers**: `extensions/mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
 - **Industry-specific frontend code and seeds**: the industry-chain Canvas,
@@ -84,12 +84,12 @@ Industry-chain, news, and company-profile presentation remains an EE feature.
 | `.github/workflows/desktop-release.yml` | Public CE desktop release workflow, including the release-tag/version preflight gate |
 | `src/backend/api/routes/v1/__init__.py` | CE route registry; `EE_ROUTERS` is always empty |
 | `src/backend/core/auth/permissions_iface.py` | Owner-only single-tenant authorization interface with no team permission exports |
-| `src/backend/core/services/artifact_edition.py` | Personal artifact-scope interface with no team fields, permissions, or repository methods |
+| `src/backend/core/files/artifacts/edition.py` | Personal artifact-scope interface with no team fields, permissions, or repository methods |
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | Personal MySpace tool, VFS, and recovery interfaces; organization implementations do not enter CE |
 | `src/backend/core/config/edition_display_names.py` | CE tool display names with no team-tool names |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |
 | `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE independent migration-chain baseline and idempotent schema upgrade (next section) |
-| `src/backend/core/services/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
+| `src/backend/orchestration/workers/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
 | `src/backend/tests/ce_release/` | Executable CE release regressions for login, private skills/MCP, database upgrades, startup, and Compose contracts |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | CE API contracts with administration endpoints and organization fields removed |
 | `src/backend/extensions/mcp_servers/_ports.py` | Port table for the 7 general tools (EE industry-tool and retired ports marked reserved) |

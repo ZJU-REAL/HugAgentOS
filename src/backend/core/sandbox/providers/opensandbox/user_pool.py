@@ -8,7 +8,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from core.sandbox.errors import SandboxError
 

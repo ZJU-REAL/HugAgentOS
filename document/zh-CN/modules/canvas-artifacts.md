@@ -78,12 +78,12 @@ Web Worker 中执行，并按真实存在的单元格稀疏转换，不遍历工
 
 ### 产物的产生与落库
 
-对话流式过程中，工具产出的文件先进入会话**工作区**（`core/llm/workspace`），只有被「钉住」（pinned）的文件才会在回合结束时由 `core/services/artifact_service.py::persist_artifacts` 写入 `artifacts` 表——这道**严格工作区闸门**保证临时中间文件不会污染我的空间。
+对话流式过程中，工具产出的文件先进入会话**工作区**（`core/llm/workspace`），只有被「钉住」（pinned）的文件才会在回合结束时由 `core/files/artifacts/service.py::persist_artifacts` 写入 `artifacts` 表——这道**严格工作区闸门**保证临时中间文件不会污染我的空间。
 
-物理存储由 `core/artifacts/store.py` 管理，按 `STORAGE_TYPE` 双模式：
+物理存储由 `core/files/artifacts/store.py` 管理，按 `STORAGE_TYPE` 双模式：
 
 - `local`（默认，社区版）：文件写在 `${STORAGE_PATH:-result}/artifacts/`，维护本地 JSON 索引（`index.json`），FileResponse 直出。
-- `oss`（商业版 EE，`cloud_storage`）：上传到阿里云 OSS，本地索引同时备份到 OSS，容器重启不丢。S3 后端见 `core/storage/`。
+- `oss`（商业版 EE，`cloud_storage`）：上传到阿里云 OSS，本地索引同时备份到 OSS，容器重启不丢。S3 后端见 `core/files/storage/`。
 
 下载统一走 `GET /files/{file_id}`（`api/routes/files.py`），按 `core/auth/permissions_iface.py::resolve_artifact_access` 做 owner ∪ team 权限判定，Office 文件支持转 PDF 在线预览。
 
@@ -141,8 +141,8 @@ officecli-xlsx、officecli-pptx 三个基座技能（以及它们之上的表单
 |---|---|
 | 画布面板 / Univer 表格 | `src/frontend/src/components/canvas/CanvasPanel.tsx`、`UniverSpreadsheet.tsx`、`src/frontend/src/stores/canvasStore.ts` |
 | Artifact REST API | `src/backend/api/routes/v1/artifacts.py` |
-| Artifact 存储（local/OSS） | `src/backend/core/artifacts/store.py` |
-| 产物落库（工作区闸门） | `src/backend/core/services/artifact_service.py` |
+| Artifact 存储（local/OSS） | `src/backend/core/files/artifacts/store.py` |
+| 产物落库（工作区闸门） | `src/backend/core/files/artifacts/service.py` |
 | 文件下载 / 预览 | `src/backend/api/routes/files.py` |
 | 会话分享 API | `src/backend/api/routes/v1/chat_shares.py` |
 | 分享前端 | `src/frontend/src/SharePreviewApp.tsx`、`src/frontend/src/components/share/ShareRecordsPage.tsx` |

@@ -172,7 +172,7 @@ def user_has_capability(db: Session, user_id: str, flag: str) -> bool:
     meta = shadow.extra_data if isinstance(shadow.extra_data, dict) else {}
     if meta.get("role") == "super_admin":
         return True
-    from core.auth.edition_capabilities import default_capability_layers_for_user
+    from core.auth.edition import default_capability_layers_for_user
 
     caps = resolve_capabilities(
         meta,
@@ -190,7 +190,7 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     chain is "personal → role → team → system" (both role and team degrade
     defensively to ``{}``).
     """
-    from core.auth.edition_capabilities import default_capability_layers_for_user
+    from core.auth.edition import default_capability_layers_for_user
     from core.db.models import UserShadow
 
     shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()

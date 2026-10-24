@@ -9,7 +9,7 @@ explicitly asked to call". Downstream:
 * ``routing/workflow.py`` uses it for fallback display-name resolution of
   ``call_subagent`` on the tool_call card (when no agent_id is found, the
   first mentioned agent is used).
-* ``core.llm.subagent_tool.build_subagent_prompt_section`` renders this ID
+* ``core.llm.subagents.tool.build_subagent_prompt_section`` renders this ID
   list into a system prompt section appended to the main agent's prompt —
   ``**用户已指定调用子智能体：X、Y。请直接使用 call_subagent ...**``.
 

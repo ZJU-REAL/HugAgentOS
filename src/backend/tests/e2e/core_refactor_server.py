@@ -22,7 +22,7 @@ def build_app():
     assert os.environ.get("SESSION_STORE") == "memory"
     assert os.environ.get("REDIS_URL") == ""
     assert os.environ.get("AUTH_MODE") == "session"
-    if os.environ.get("CORE_E2E_PROFILE") == "cloud":
+    if os.environ.get("CORE_E2E_PROFILE") in ("cloud", "local"):
         assert not os.environ.get("HUGAGENT_CAPS_ROOT")
     else:
         assert os.environ.get("HUGAGENT_CAPS_ROOT") == str(root / "caps")

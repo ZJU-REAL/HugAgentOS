@@ -2,22 +2,21 @@
 
 from typing import Any, Dict, List, Optional
 
+import api.transports.run_sse as run_sse
+import core.runs.runtime as runtime
+import orchestration.plans.admission as admission
+from core.auth.backend import UserContext, get_current_user
+from core.chat.context import generate_smart_title
+from core.db.engine import get_db
+from core.infra.logging import get_logger
+from core.infra.responses import sse_response, success_response
+from core.chat.service import ChatService
+from core.chat.plans import PlanService
+from core.auth.model_selection import UserModelSelectionError, resolve_user_model_provider_id
+from core.models.selection import resolve_effective_chat_model_name
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-
-from core.auth.backend import get_current_user, UserContext
-from core.chat.context import generate_smart_title
-from core.db.engine import get_db
-from core.infra.responses import success_response, sse_response
-from core.services.plan_service import PlanService
-from core.services.chat_service import ChatService
-from core.services.user_model_selection import (
-    UserModelSelectionError,
-    resolve_effective_chat_model_name,
-    resolve_user_model_provider_id,
-)
-from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -155,7 +154,7 @@ def _load_chat_history(
     #    structured tool replay); long sessions get the compacted history rather than the full raw text.
     if chat_id:
         try:
-            from core.services.compaction_service import load_session_history
+            from core.chat.compaction.service import load_session_history
 
             history = load_session_history(ChatService(db), chat_id, user_id)
             if history:
@@ -232,9 +231,9 @@ async def generate_plan(
     if req.attachments:
         uploaded_files = [a.model_dump() for a in req.attachments if a.file_id]
 
-    from orchestration import chat_run_executor
+    pass
 
-    run = await chat_run_executor.start_plan_generate_run(
+    run = await admission.start_plan_generate_run(
         chat_id=db_chat_id,
         user_id=user.user_id,
         task_description=req.task_description,
@@ -249,7 +248,7 @@ async def generate_plan(
     )
 
     return sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run.run_id,
             chat_id=db_chat_id,
             error_event_factory=lambda reason: {"type": "plan_error", "error": reason},
@@ -384,9 +383,9 @@ async def execute_plan(
         "[plan-execute] chat_id=%s, loaded %d history messages", req.chat_id, len(session_messages)
     )
 
-    from orchestration import chat_run_executor
+    pass
 
-    run = await chat_run_executor.start_plan_execute_run(
+    run = await admission.start_plan_execute_run(
         plan_id=plan_id,
         chat_id=db_chat_id,
         user_id=user.user_id,
@@ -399,7 +398,7 @@ async def execute_plan(
     )
 
     return sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run.run_id,
             chat_id=db_chat_id,
             error_event_factory=lambda reason: {
@@ -428,13 +427,13 @@ async def cancel_plan(
     svc.update_plan(plan_id, status="cancelled")
 
     # Also cancel the background run in lockstep (only exists during the plan execute phase)
-    from orchestration import chat_run_executor
+    pass
 
-    run = chat_run_executor.get_run_by_plan_id(plan_id)
+    run = admission.get_run_by_plan_id(plan_id)
     if run is not None:
         try:
-            await chat_run_executor.cancel_run(run.run_id, user_id=user.user_id)
-        except chat_run_executor.ChatRunPermissionDenied:
+            await runtime.cancel_run(run.run_id, user_id=user.user_id)
+        except runtime.ChatRunPermissionDenied:
             pass  # the plan was already authorized; a run auth failure means user_id inference went wrong — do not block
         except Exception as exc:
             logger.warning(

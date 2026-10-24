@@ -183,7 +183,7 @@ async def test_digest_is_generated_once_then_served_from_cache(wired, monkeypatc
         calls["n"] += 1
         return "这段会话讨论了杭州落户积分的构成与社保断缴的处理。"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
 
     first = _payload(await wired.tools["read_chat"](chat_id="past", mode="digest"))
     second = _payload(await wired.tools["read_chat"](chat_id="past", mode="digest"))
@@ -199,7 +199,7 @@ async def test_digest_failure_points_at_the_full_text_path(wired, monkeypatch):
     async def failing_summarize(_history, *, timeout):  # noqa: ARG001
         return None
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", failing_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', failing_summarize)
 
     result = _payload(await wired.tools["read_chat"](chat_id="past", mode="digest"))
 

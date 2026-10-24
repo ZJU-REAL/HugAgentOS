@@ -84,7 +84,7 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 其它要点：
 
-- **登记不挂会话、也不挂产物卡片**：「我的空间」是用户级的一份目录，每个会话的沙箱都挂着它，文件事件里只有路径、没有会话身份——谁写的，这里无从得知。所以登记只记到用户名下（`Artifact.chat_id` 为空），产物区的文件卡片则完全不由登记器挂：卡片只能由**写文件的那一轮自己**挂（模型调 `pin_to_workspace`，或那一轮里的 Write/交付兜底，都走 `core.llm.workspace` 的 ContextVar），那里"哪个会话、哪个文件"都是确定的。曾经拿"这个用户当下随便哪个在跑的会话"顶上，结果是另一个会话写的文件被记到了这个会话名下，还在它的产物区里多出一张卡片。
+- **登记不挂会话、也不挂产物卡片**：「我的空间」是用户级的一份目录，每个会话的沙箱都挂着它，文件事件里只有路径、没有会话身份——谁写的，这里无从得知。所以登记只记到用户名下（`Artifact.chat_id` 为空），产物区的文件卡片则完全不由登记器挂：卡片只能由**写文件的那一轮自己**挂（模型调 `pin_to_workspace`，或那一轮里的 Write/交付兜底，都走 `core.llm.runtime.workspace` 的 ContextVar），那里"哪个会话、哪个文件"都是确定的。曾经拿"这个用户当下随便哪个在跑的会话"顶上，结果是另一个会话写的文件被记到了这个会话名下，还在它的产物区里多出一张卡片。
 - **判定基准是 artifact 记录，不是镜像缓存**：开了 bind mount 后沙箱的 `/workspace/myspace/{uid}` 就是后端 `myspace_cache/{uid}` 本身，"沙箱文件与镜像缓存一致"恒真、不能再当作"已登记"。这条拓扑差异曾让回写恒为空转。
 - **"磁盘比账本新"是唯一依据**：后端自己往镜像目录写文件（界面上传的物化、否决后的还原）时会把 mtime 对齐到登记时间，于是监听器不会把后端自己的写入当成沙箱的新改动转头再登记一次——不必另外维护一张"这是我自己写的"的表。
 - **每个 worker 都监听，认领去重**：确认条活在跑这个会话的那个进程里，所以监听器必须每个 worker 都跑（代价是 inotify watch 按「worker 数 × 目录数」占内核配额 `fs.inotify.max_user_watches`，目录极多的部署要相应调大，超限会**静默丢事件**）；同一次改动由 `core.infra.ephemeral` 的认领保证只处理一次，且优先交给托管着该用户会话的进程（它才弹得出确认条）。
@@ -176,7 +176,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 ## 管理员沙箱管理
 
 - **只读监控（安全管理台）**：`api/routes/v1/config_security.py` 暴露 `/v1/config/security/sandbox/*`——总览、实例列表、单实例详情、快照列表、重建历史、生效配置；底层走 provider 的 `admin_*` 接口，按 `admin_capabilities()` 声明裁剪 UI（script_runner 无法枚举实例即置灰对应列）。
-- **依赖重建（商业版 EE）**：`api/routes/v1/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/services/skill_deps_aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`core/services/sandbox_rebuild_service.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
+- **依赖重建（商业版 EE）**：`api/routes/v1/admin_sandbox.py`（`/v1/admin/sandbox/*`）聚合所有技能声明的 pip/apt 依赖（`core/capabilities/skills/deps/aggregator.py`），管理员一键触发沙箱镜像重建：`script-runner` / `opensandbox` 目标走本地 `docker compose build`，`cube` 目标走 SSH 到远端节点重建模板并热切（`core/services/sandbox_rebuild_service.py` + `cube_template_builder`），可查看每次 run 的状态与日志。技能新依赖从此"烤入"镜像，无需手工改 Dockerfile。
 
 ## 关键环境变量
 
@@ -216,7 +216,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
-| `src/backend/core/llm/offloader.py` | 超长结果落盘 /workspace/.offload |
+| `src/backend/core/llm/context/offloader.py` | 超长结果落盘 /workspace/.offload |
 | `src/backend/api/routes/v1/admin_sandbox.py` | 依赖重建管理 API（EE） |
 | `src/backend/api/routes/v1/config_security.py` | 安全管理台沙箱只读视图 |
 | `src/backend/core/services/sandbox_rebuild_service.py` | 镜像/模板重建编排（EE） |

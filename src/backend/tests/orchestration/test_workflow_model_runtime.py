@@ -1,6 +1,8 @@
+
 from types import SimpleNamespace
 
-from orchestration import workflow
+import core.agent_runtime.budget as budget
+import core.models.context_window as context_manager
 
 
 def test_resolve_agent_model_runtime_prefers_baked_model_over_none_fallback():
@@ -9,7 +11,7 @@ def test_resolve_agent_model_runtime_prefers_baked_model_over_none_fallback():
         state=SimpleNamespace(model_name=""),
     )
 
-    assert workflow._resolve_agent_model_runtime(agent, None) == (
+    assert budget._resolve_agent_model_runtime(agent, None) == (
         "deepseekv4-flash",
         393_216,
     )
@@ -18,7 +20,7 @@ def test_resolve_agent_model_runtime_prefers_baked_model_over_none_fallback():
 def test_resolve_agent_model_runtime_supports_wrapper_name_and_window_lookup(monkeypatch):
     seen = []
     monkeypatch.setattr(
-        workflow,
+        context_manager,
         "resolve_model_context_window",
         lambda model_name: seen.append(model_name) or 131_072,
     )
@@ -27,7 +29,7 @@ def test_resolve_agent_model_runtime_supports_wrapper_name_and_window_lookup(mon
         state=SimpleNamespace(model_name=""),
     )
 
-    assert workflow._resolve_agent_model_runtime(agent, "None") == (
+    assert budget._resolve_agent_model_runtime(agent, "None") == (
         "qwen-max",
         131_072,
     )

@@ -48,6 +48,7 @@ HugAgentOS 内置两种「把一句话变成可重复的生产力」机制，两
 - **执行时长**：单次执行没有固定总时长上限；定时触发与手动执行的 Prompt、Plan、Loop 任务均可持续运行，关联会话及其接续运行也不受普通会话的总时长硬限制。
 - **失败治理**：连续失败计数 ≥ `max_failures`（默认 3）时任务自动置为 `disabled`。
 - **失联恢复**：启动时及每次轮询检查 `running` 记录。取得该任务的执行锁后，继续跟随已关联的耐久会话并保存最终结果；只有未关联会话的孤儿记录才改为 `failed`，并按需推进过期调度、收尾一次性任务。任务运行多久不影响恢复判断。执行锁每 15 秒续期，60 秒租约用于识别执行者失联，不限制任务总时长。错过的一次性任务同样先取得执行锁。
+- **执行锁关闭**：设置停止信号并取消续期，最多等待 2 秒后始终尝试按 token 删除锁；清理失败也移除本地占位并记录错误。执行 Task 结束后续期自动停止。结果投递总等待上限为 60 秒，投递失败不覆盖已提交的成功，也不自动重试。运行记录保存内部所有权 token，完成更新同时校验运行中状态与 token；恢复执行先认领该记录。
 
 每次执行通过统一的 ChatRun 会话执行器创建**真实会话**，并在开跑时立即关联执行记录。指令任务实时展示正文、思考和工具调用；计划任务展示步骤进度。点击运行中的会话或刷新页面，可以跟随和重播与普通会话相同的事件流。用户可在会话中停止执行，指令任务还可通过耐久指令队列追加要求，在下一个安全的模型执行边界生效。主动停止不计入连续失败次数；执行锁失效或调度器关闭会取消后台会话。最终消息、文件、引用和结果投递继续由统一执行器与调度收尾模块负责。会话标题直接使用任务名称，不添加自动化前缀。更新前启动的执行无法补回未记录的实时事件。
 
@@ -103,7 +104,7 @@ POST /v1/automations
 | 自动化服务（cron 计算 / 状态机） | `src/backend/core/services/automation_service.py` |
 | 任务 / 运行记录模型 | `src/backend/core/db/models/automation.py` |
 | 计划 REST API | `src/backend/api/routes/v1/plans.py` |
-| 计划生成 / 执行编排 | `src/backend/orchestration/subagents/plan_mode.py`、`src/backend/core/services/plan_service.py` |
+| 计划生成 / 执行编排 | `src/backend/orchestration/subagents/plan_mode.py`、`src/backend/core/chat/plans.py` |
 | 计划 / 步骤模型 | `src/backend/core/db/models/agent.py` |
 | 前端自动化 UI | `src/frontend/src/components/lab/AutomationPanel.tsx` 等、`src/frontend/src/components/automation/RunTimelinePanel.tsx` |
 | 前端状态 | `src/frontend/src/stores/automationStore.ts`、`automationChatStore.ts` |

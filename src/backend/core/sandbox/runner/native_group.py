@@ -1,4 +1,5 @@
 """Linux owner process groups retain their unreaped leader until the whole group stops."""
+from __future__ import annotations
 
 import asyncio
 import os
@@ -170,13 +171,12 @@ class NativeGroupProcess:
                 self._namespace_fd = None
 
 
-_namespace_lock = threading.Lock()
-_namespace_prefix = None
+
+
 
 
 def lifetime_command(cmd, trusted_prefix=()):
     """Preserve trusted existing confinement; otherwise add only PID lifetime isolation."""
-    global _namespace_prefix
     if (
         trusted_prefix
         and Path(trusted_prefix[0]).name == "bwrap"
@@ -184,8 +184,8 @@ def lifetime_command(cmd, trusted_prefix=()):
         and "--die-with-parent" in trusted_prefix
     ):
         return cmd, True
-    with _namespace_lock:
-        if _namespace_prefix is None:
+    with process_state().namespace_lock:
+        if process_state().namespace_prefix is None:
             executable = shutil.which("bwrap")
             prefix = (
                 [
@@ -216,6 +216,23 @@ def lifetime_command(cmd, trusted_prefix=()):
                         prefix = []
                 except (OSError, subprocess.TimeoutExpired):
                     prefix = []
-            _namespace_prefix = prefix
-        prefix = list(_namespace_prefix)
+            process_state().namespace_prefix = prefix
+        prefix = list(process_state().namespace_prefix)
     return [*prefix, *cmd], bool(prefix)
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class NativeGroupState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    namespace_lock: object = state_field(default_factory=lambda: threading.Lock())
+    namespace_prefix: object = None
+
+@state_cache(maxsize=1)
+def process_state() -> NativeGroupState:
+    return NativeGroupState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

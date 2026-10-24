@@ -2,13 +2,13 @@
 
 from types import SimpleNamespace
 
+import api.transports.run_sse as run_sse
 import pytest
+from core.auth.backend import UserContext, get_current_user
+from core.chat.schemas import ChatRequest
+from core.db.engine import get_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from core.chat.schemas import ChatRequest
-from core.auth.backend import UserContext, get_current_user
-from core.db.engine import get_db
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def response_client(monkeypatch):
         return ChatResponse(chat_id=chat_id, response="hello", timestamp="2026-09-26")
 
     monkeypatch.setattr(responses, "_start_response_run", start)
-    monkeypatch.setattr(responses.chat_run_executor, "follow_run_as_sse", follow)
+    monkeypatch.setattr(run_sse, "follow_run_as_sse", follow)
     monkeypatch.setattr(responses, "_wait_response", wait)
     return TestClient(app), seen, app
 
@@ -91,7 +91,7 @@ def test_stream_requires_a_json_boolean(value):
 @pytest.mark.parametrize("status", [200, 409, 500])
 def test_scoped_json_logs_actual_http_result(response_client, monkeypatch, status):
     from api.routes.v1 import agent_responses
-    from core.services import agent_api_service
+    from core.auth import agent_api as agent_api_service
     from fastapi import HTTPException
 
     client, _seen, app = response_client

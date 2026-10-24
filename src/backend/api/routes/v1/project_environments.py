@@ -1,12 +1,12 @@
 """Project environment configuration and authorized resource options."""
 
 from core.auth.backend import UserContext, get_current_user
-from core.auth.permissions_iface import ProjectAccess, require_project_access
+from core.auth.edition import ProjectAccess, require_project_access
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.project_environment.config import ProjectEnvironment
-from core.services.project_environment import ProjectEnvironmentService
-from core.services.project_environment_resources import environment_resources
+from core.projects.environment.config import ProjectEnvironment
+from core.projects.environment.service import ProjectEnvironmentService
+from core.projects.environment_resources import environment_resources
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 

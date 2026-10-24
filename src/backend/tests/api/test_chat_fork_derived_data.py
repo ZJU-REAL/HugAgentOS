@@ -10,7 +10,7 @@ from tests.api.chat_fork_fixtures import fork_env  # noqa: F401
 
 @pytest.mark.parametrize("group_by", ["user", "model", "day"])
 def test_security_usage_overview_ignores_forked_history(fork_env, group_by):
-    from api.routes.v1.internal_security import SecurityQueryBody, usage
+    from features.security_console.api.internal_security import SecurityQueryBody, usage
 
     client, sessions, _ = fork_env
     moment = datetime.utcnow() - timedelta(hours=1)
@@ -39,7 +39,8 @@ def test_security_usage_overview_ignores_forked_history(fork_env, group_by):
 def test_scheduled_backfill_does_not_create_episodes_for_forked_history(fork_env, monkeypatch):
     from core.db.models import ToolCallLog
     from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
-    from core.evolution import backfill, trace_assembler, trace_store
+    from core.evolution import backfill
+    from core.evolution.evidence import trace_assembler, trace_store
 
     client, sessions, _ = fork_env
     with sessions() as db:

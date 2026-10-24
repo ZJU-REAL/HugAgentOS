@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from core.agent_skills.registry import AgentSkillMetadata
-from core.agent_skills.selector import _llm_select_skills
+from core.capabilities.skills.registry import AgentSkillMetadata
+from core.llm.skill_selection import rank_skill_candidates
 
 
 class CaptureSelectorModel:
@@ -26,7 +26,7 @@ def test_selector_messages_carry_context_ir_provenance():
         version="1",
     )
 
-    selected = _llm_select_skills(
+    selected = rank_skill_candidates(
         user_query="analyze this",
         candidates=[skill],
         model=model,

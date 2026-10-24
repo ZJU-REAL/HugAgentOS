@@ -84,7 +84,7 @@ def test_route_imports():
         ('api.routes.v1.chats', 'router'),
         ('api.routes.v1.users', 'router'),
         ('api.routes.v1.catalog', 'router'),
-        ('api.routes.v1.kb', 'router'),
+        ('features.knowledge.api.kb', 'router'),
     ]
 
     all_ok = True

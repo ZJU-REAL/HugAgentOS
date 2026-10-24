@@ -5,7 +5,7 @@ from previous turns (both user-uploaded and AI-generated):
 
 - `_collect_historical_attachments` in api/routes/v1/chats/__init__.py: queries the
   Artifact table by chat_id — covers user uploads AND AI-generated files.
-- `_build_historical_files_context` in core/llm/hooks.py: renders the list
+- `_build_historical_files_context` in core/llm/runtime/hooks.py: renders the list
   into a prompt block labeled by provenance.
 """
 
@@ -379,7 +379,7 @@ def test_extract_message_file_ids_reads_both_keys():
 
 
 def test_build_historical_context_labels_source():
-    from core.llm.hooks import _build_historical_files_context
+    from core.llm.runtime.file_context import build_historical_files_context as _build_historical_files_context
 
     files = [
         {"file_id": "ua_1", "name": "user.pdf", "source": "user_upload", "summary": "S1"},
@@ -392,7 +392,7 @@ def test_build_historical_context_labels_source():
 
 
 def test_build_historical_context_includes_read_artifact_hint():
-    from core.llm.hooks import _build_historical_files_context
+    from core.llm.runtime.file_context import build_historical_files_context as _build_historical_files_context
 
     files = [
         {"file_id": "ua_1", "name": "report.pdf", "source": "user_upload", "summary": "annual"}
@@ -403,7 +403,7 @@ def test_build_historical_context_includes_read_artifact_hint():
 
 
 def test_build_historical_context_marks_deleted():
-    from core.llm.hooks import _build_historical_files_context
+    from core.llm.runtime.file_context import build_historical_files_context as _build_historical_files_context
 
     files = [{"file_id": "ua_1", "name": "gone.pdf", "deleted": True}]
     out = _build_historical_files_context(files)
@@ -411,6 +411,6 @@ def test_build_historical_context_marks_deleted():
 
 
 def test_build_historical_context_empty_list_returns_empty():
-    from core.llm.hooks import _build_historical_files_context
+    from core.llm.runtime.file_context import build_historical_files_context as _build_historical_files_context
 
     assert _build_historical_files_context([]) == ""

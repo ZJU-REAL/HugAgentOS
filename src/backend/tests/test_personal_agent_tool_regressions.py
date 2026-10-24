@@ -12,14 +12,14 @@ async def test_exports_with_same_requested_name_create_distinct_current_files(se
     from personal_agent.tools import tools
     from personal_agent.models import PersonalWorkItem
     from core.db.models import Artifact
-    from core.storage import get_storage
-    from core.services import artifact_service
+    from core.files.storage import get_storage
+    from core.files.artifacts import service as artifact_service
     class Storage:
         def __init__(self): self.files = {}
         def upload_bytes(self, content, key): self.files[key] = content; return key
     storage = Storage()
-    import core.storage
-    monkeypatch.setattr(core.storage, "get_storage", lambda: storage)
+    import core.files.storage
+    monkeypatch.setattr(core.files.storage, "get_storage", lambda: storage)
     monkeypatch.setattr(tools, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     from personal_agent.tools import space
@@ -197,7 +197,7 @@ def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
     from personal_agent import context as module
     from personal_agent.identity import config as identity_config
     permitted = {"skills": ["officecli-docx", "translate", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "database_query"]}
-    monkeypatch.setattr("core.config.catalog_resolver.resolve_all_runtime_enabled",
+    monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (permitted["skills"], [], permitted["mcps"]))
     with sessions() as db:
         svc = module.AgentContext(db, "owner")
@@ -215,15 +215,15 @@ def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
 def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
     from personal_agent import context as module
     from personal_agent.identity import config as identity_config
-    monkeypatch.setattr("core.config.catalog_resolver.resolve_all_runtime_enabled",
+    monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (["officecli-docx", "feishu-doc"], [], ["internet_search", "feishu_mcp"]))
     installed = [
         {"install_id": "feishu@owner", "slug": "feishu", "name": "Feishu", "enabled": True, "callable": True,
          "skills": ["feishu-doc", "feishu-off"], "mcp": ["feishu_mcp"]},
         {"install_id": "off@owner", "slug": "off", "name": "Off", "enabled": False, "callable": True, "skills": ["x"], "mcp": []},
     ]
-    monkeypatch.setattr("core.plugins.management.list_installed", lambda db, **kw: installed)
-    monkeypatch.setattr("core.capabilities.device_catalog.plugin_entries", lambda user_id=None: [])
+    monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: installed)
+    monkeypatch.setattr('features.desktop.capabilities.device_catalog.plugin_entries', lambda user_id=None: [])
     with sessions() as db:
         svc = module.AgentContext(db, "owner")
         config = svc.identity.ensure()["config"]
@@ -231,9 +231,9 @@ def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
         assert config["plugins"] == [{"id": "feishu@owner", "name": "Feishu", "skill_ids": ["feishu-doc"], "mcp_ids": ["feishu_mcp"]}]
         assert identity_capabilities.capability_ids(config) == (["officecli-docx", "feishu-doc"], ["internet_search", "feishu_mcp"])
         # An unreadable plugin listing keeps the last known set instead of breaking the agent.
-        monkeypatch.setattr("core.plugins.management.list_installed", lambda db, **kw: 1 / 0)
+        monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: 1 / 0)
         assert svc.identity.ensure()["config"]["plugins"][0]["id"] == "feishu@owner"
-        monkeypatch.setattr("core.plugins.management.list_installed", lambda db, **kw: installed)
+        monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: installed)
         # The conversation turn only answers and delegates: plugin tools stay with the tasks.
         assert identity_capabilities.front_mcp_ids(config) == ["internet_search"]
         installed[0]["enabled"] = False
@@ -263,7 +263,7 @@ def test_model_choice_uses_the_chat_allowlist(sessions, monkeypatch):
     def resolve(db, pid, user_id=None):
         calls.append(pid)
         return pid if pid == "allowed" else None
-    monkeypatch.setattr("core.services.user_model_selection.resolve_user_model_provider_id", resolve)
+    monkeypatch.setattr('core.auth.model_selection.resolve_user_model_provider_id', resolve)
     with sessions() as db:
         svc = AgentContext(db, "owner")
         assert svc.identity.configure({"model_provider_id": "allowed"})["config"]["model_provider_id"] == "allowed"

@@ -64,7 +64,7 @@ ocr:
   # chi_sim     = 纯简体中文
   # jpn+eng     = 日文 + 英文
   default_lang: chi_sim+eng
-  # Windows 上 Tesseract 安装路径的候选列表（留空则用默认）  
+  # Windows 上 Tesseract 安装路径的候选列表（留空则用默认）
   tesseract_cmd_candidates:
     - "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
     - "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"

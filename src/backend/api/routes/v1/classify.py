@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.auth.backend import get_current_user, UserContext
 from core.infra.responses import success_response
-from core.llm.classifier import get_classifier, BUSINESS_TOPICS
+from core.models.completions.classifier import get_classifier, BUSINESS_TOPICS
 from core.infra.exceptions import BadRequestError
 
 router = APIRouter(prefix="/v1/classify", tags=["Classify"])

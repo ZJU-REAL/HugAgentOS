@@ -1,15 +1,18 @@
-import core.services.session_operations.admission as admission
+
+import core.chat.runtime.admission as runtime_admission
+import core.chat.operations.admission as admission
+
 """Scoped admission must not interpret account-wide delegation commands."""
 
-import core.services.session_operations.agent_targets as chat_agent_targets
-import core.services.session_operations.request_context as chat_request_context
-import core.services.session_operations.session_context as chat_session_context
 import core.db.engine as db_engine
+import core.chat.operations.agent_targets as chat_agent_targets
+import core.chat.operations.request_context as chat_request_context
+import core.chat.operations.session_context as chat_session_context
 import pytest
 from api.routes.v1 import agent_responses, chats
 from core.chat.schemas import ChatRequest
 from core.db.models import ChatMessage, ChatRun, UserAgent
-from core.services import agent_api_service
+from core.auth import agent_api as agent_api_service
 from sqlalchemy.orm import sessionmaker
 from tests.api.test_agent_api_scope import _key, _user, db
 from tests.api.test_agent_response_admission import _patch_common_chat_route
@@ -27,7 +30,7 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(
     ChatMessage.__table__.create(db.bind, checkfirst=True)
     _patch_common_chat_route(monkeypatch)
     monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
-    monkeypatch.setattr(chat_session_context, "_load_session_messages", lambda *_: [])
+    monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_: [])
 
     def forbidden_resolution(*args, **kwargs):
         raise AssertionError("Scoped requests must not resolve owner-wide agent commands")
@@ -41,14 +44,14 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(
             "ontology_enabled": True,
         }
 
-    monkeypatch.setattr("core.services.session_operations.admission._read_preferences", preferences)
+    monkeypatch.setattr('core.chat.operations.admission._read_preferences', preferences)
     context_args = {}
 
     def context(*args, **kwargs):
         context_args.update(kwargs)
         return {"user_id": "owner", "chat_id": "api-chat", "agent_id": key.agent_id}
 
-    monkeypatch.setattr(chat_request_context, "_build_ctx", context)
+    monkeypatch.setattr(chat_request_context, 'build_ctx', context)
 
     captured = {}
 
@@ -57,10 +60,10 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(
         captured["payload"] = dict(kwargs["accepted_run"].request_payload)
         return kwargs["accepted_run"]
 
-    monkeypatch.setattr(agent_responses.chat_run_executor, "start_run", start)
+    monkeypatch.setattr(runtime_admission, "start_run", start)
 
     message = "调用「Two」子智能体：原样保留的内容"
-    result = await admission._start_response_run(
+    result = await admission.start_response_run(
         ChatRequest(chat_id="api-chat", message=message, stream=stream, agent_id="ua_one"),
         _user(key),
         db,

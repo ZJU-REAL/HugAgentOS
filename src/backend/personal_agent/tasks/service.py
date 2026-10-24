@@ -1,4 +1,4 @@
-from core.services.artifact_edition import is_personal_artifact
+from core.db.artifact_scope import is_personal_artifact
 """Owner-scoped tasks operations."""
 from sqlalchemy import select, update, case
 from sqlalchemy.exc import IntegrityError

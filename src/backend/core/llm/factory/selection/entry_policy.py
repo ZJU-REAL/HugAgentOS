@@ -10,16 +10,16 @@ from core.llm.factory.request import AgentRequest
 
 async def entry_policy(request: AgentRequest):
     """Normalize execution scopes and initialize per-construction capability state."""
-    from core.llm.project_api_runtime import bind_project_api_runtime
+    from core.llm.api_runtime.project import bind_project_api_runtime
 
     await bind_project_api_runtime(request)
     required = RequiredCapabilities()
     sticky = StickyCapabilities()
     import asyncio
 
-    from core.llm.agent_api_runtime import parse_api_scope
-    from core.llm.evaluation_runtime import evaluation_user_agent, parse_evaluation_scope
-    from core.llm.middlewares import CURRENT_RUN_BINDING
+    from core.llm.api_runtime.agent import parse_api_scope
+    from core.harness.registry.evaluation import evaluation_user_agent, parse_evaluation_scope
+    from core.harness.tool_call_context import CURRENT_RUN_BINDING
 
     _eval_scope = parse_evaluation_scope(
         owner_user_id=request.current_user_id,
@@ -43,7 +43,7 @@ async def entry_policy(request: AgentRequest):
         request.ontology_runtime = {}
         request.workspace_id = request.sandbox_session_id = _eval_scope.session_id
         request.user_agent = evaluation_user_agent(request.user_agent)
-        from core.llm.builtin_subagents import get_builtin_subagent
+        from core.capabilities.agents.builtin import get_builtin_subagent
 
         request.visible_subagents = [
             item
@@ -73,7 +73,7 @@ async def entry_policy(request: AgentRequest):
     if request.user_agent is not None and not (
         _api_scope and _api_scope.public_chat_visitor and request.model_provider_id
     ):
-        from core.services.model_config import ModelConfigService
+        from core.models.config import ModelConfigService
 
         _model_service = ModelConfigService.get_instance()
         _role_cfg = await asyncio.to_thread(_model_service.resolve, "subagent")
@@ -90,13 +90,13 @@ async def entry_policy(request: AgentRequest):
         request.run_id = request.run_id or inherited_run_binding[0]
         request.journal_owner = request.journal_owner or inherited_run_binding[1]
 
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
     _capability_run_key = request.run_id
-    if capabilities_enabled():
+    if has_run_capabilities():
         import uuid as _cap_uuid
 
-        from core.capabilities import runtime as capability_runtime
+        from core.harness.registry import capability_runtime
 
         _capability_run_key = request.run_id or "ephemeral:" + _cap_uuid.uuid4().hex
         if request.user_agent is not None:
@@ -111,7 +111,7 @@ async def entry_policy(request: AgentRequest):
     import logging
     import time
 
-    from core.llm.tool_permissions import resolve_approval_mode
+    from core.sandbox.permissions.approval import resolve_approval_mode
 
     request.approval_mode = resolve_approval_mode(
         request.approval_mode, user_id=request.current_user_id

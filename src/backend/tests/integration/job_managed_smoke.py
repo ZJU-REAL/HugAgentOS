@@ -13,13 +13,15 @@ import sys
 import threading
 import time
 
+import core.jobs.owner as owner
+import core.jobs.process as process
+import core.jobs.runtime as runtime
+import core.jobs.state as state
 import uvicorn
 from api.routes.v1.internal_jobs import router
 from core.db.engine import SessionLocal
 from core.db.models import Job
 from fastapi import FastAPI
-from orchestration import job_runtime as runtime
-from orchestration.jobs import owner, process, state
 
 SCRIPT = """from hugagent_job import ledger, job
 import time
@@ -82,7 +84,7 @@ async def main(source_job):
     # A separate Python worker adopts the same durable command, without launching it.
     jid = await start("import time\ntime.sleep(8)")
     child_code = """import asyncio, sys
-from orchestration.jobs import owner, state, process, supervisor
+from core.jobs import owner, state, process, supervisor
 async def main():
     owner.bind()
     row = state.snapshot(sys.argv[1])
@@ -109,7 +111,9 @@ asyncio.run(main())
     # Resume repeats the script, but SDK skips already settled rows.
     partial = SCRIPT.replace(
         "job.map(items, handle, concurrency=8)",
-        "job.map(items[:2], handle, concurrency=2)\ntime.sleep(25)\njob.map(items, handle, concurrency=8)",
+        """job.map(items[:2], handle, concurrency=2)
+time.sleep(25)
+job.map(items, handle, concurrency=8)""",
     )
     jid = await start(partial)
     for _ in range(40):

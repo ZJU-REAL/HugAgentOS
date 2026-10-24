@@ -9,8 +9,12 @@ logging.disable(logging.CRITICAL)
 
 
 async def main():
+    from features import register_model_credentials, register_product_tools, register_run_capabilities
+    register_product_tools()
+    register_run_capabilities()
+    register_model_credentials()
     from core.llm.factory import create_agent_executor
-    from core.llm.mcp_manager import close_clients
+    from core.llm.mcp.manager import close_clients
 
     agent, clients = await create_agent_executor(agent_spec=None, disable_tools=False)
 

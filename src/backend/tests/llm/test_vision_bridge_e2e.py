@@ -152,8 +152,8 @@ def stub_endpoint():
 
 @pytest.fixture()
 def bridge_against_stub(stub_endpoint, monkeypatch):
-    from core.services.model_config import ResolvedModelConfig
-    from core.vision import service as svc
+    from core.models.config import ResolvedModelConfig
+    from core.models.vision import service as svc
 
     cfg = ResolvedModelConfig(
         base_url=stub_endpoint,
@@ -169,7 +169,7 @@ def bridge_against_stub(stub_endpoint, monkeypatch):
 
 def test_full_chain_over_real_http(bridge_against_stub):
     """图片经真实 HTTP 抵达对端、被解码、结果回来渲染成带围栏的证据。"""
-    from core.vision.render import render_evidence
+    from core.models.vision.render import render_evidence
 
     image = _make_image(width=320, height=180)
     result = asyncio.run(bridge_against_stub.describe(image, "image/png", use_cache=False))

@@ -151,7 +151,7 @@ def _docs_title() -> str:
     removing the hard-coded brand. Falls back to app.title when the DB read
     fails (already the env brand, no literal "HugAgentOS")."""
     try:
-        from core.content.content_blocks import get_admin_platform_info
+        from core.files.content.branding import get_admin_platform_info
 
         info = get_admin_platform_info()
         name = (info.get("product_name") or "").strip()

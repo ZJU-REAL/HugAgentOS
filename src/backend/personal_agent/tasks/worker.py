@@ -6,7 +6,7 @@ import uuid
 from contextlib import suppress
 from sqlalchemy import select
 from core.db.engine import SessionLocal
-from core.services.run_journal import durable_run_binding
+from core.runs.journal import durable_run_binding
 from personal_agent import access
 from personal_agent.computer import computer_wait
 from personal_agent.models import PersonalAgent, PersonalWorkItem
@@ -209,7 +209,7 @@ class PersonalAgentWorker:
                     db.commit()
             raise
         except Exception as exc:
-            from core.services.tool_effect_ledger import find_tool_outcome_unknown
+            from core.runs.tool_effects.errors import find_tool_outcome_unknown
             with SessionLocal() as db:
                 row = db.get(PersonalWorkItem, ident)
                 if row and row.status == "running" and row.owner == self.identity:

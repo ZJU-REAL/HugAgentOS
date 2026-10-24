@@ -134,7 +134,7 @@ chat_mode → hooks._resolve_chat_mode(agent.state)
    high/max → reasoning_effort=high/max (endpoint must declare support)
 ```
 
-Legacy clients that only send `enable_thinking` are mapped to medium / fast. This is the AgentScope 2.0 incarnation of the old 1.x "pre_reply dynamic-model hook" — the hook factories were refactored into middlewares, and `core/llm/hooks.py` now only hosts pure-function helpers.
+Legacy clients that only send `enable_thinking` are mapped to medium / fast. This is the AgentScope 2.0 incarnation of the old 1.x "pre_reply dynamic-model hook" — the hook factories were refactored into middlewares, and `core/llm/runtime/hooks.py` now only hosts pure-function helpers.
 
 ## Environment variables and MCP subprocess injection
 
@@ -147,7 +147,7 @@ Full variable list: [Environment Variables](../deployment/environment-variables.
 
 ## Personal API keys
 
-Users can issue personal keys for programmatic access to the platform API (`api/routes/v1/api_keys.py` + `core/services/api_key_service.py`):
+Users can issue personal keys for programmatic access to the platform API (`api/routes/v1/api_keys.py` + `core/auth/api_keys.py`):
 
 - Plaintext keys look like `sk-jx-<random>` and are **returned exactly once at creation**; the DB stores only a SHA256 hash + prefix. Expiry options 7/30/90/180/365 days or never; enable/disable and revoke supported.
 - Usage: `Authorization: Bearer sk-jx-...`; the auth layer (`core/auth/backend.py`) recognizes the prefix and resolves the key to a user context via `resolve_api_key`, checking enabled/unrevoked/unexpired.
@@ -176,9 +176,9 @@ Community Edition users can see their own token usage; organization-level billin
 | Role resolution service (DB + cache) | `src/backend/core/services/model_config.py` |
 | Role definitions / provider repository | `src/backend/core/db/model_repository.py` |
 | Management API | `src/backend/api/routes/v1/models.py` |
-| Dynamic-model middleware | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`, helpers in `core/llm/hooks.py` |
+| Dynamic-model middleware | `src/backend/core/llm/middlewares.py::DynamicModelMiddleware`, helpers in `core/llm/runtime/hooks.py` |
 | MCP env injection | `src/backend/core/services/model_config.py::get_mcp_env_overlay`, `core/config/runtime_env.py` |
-| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/services/api_key_service.py`, `core/auth/backend.py` |
+| Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/auth/api_keys.py`, `core/auth/backend.py` |
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
 | Routing strategy | `src/backend/orchestration/strategy.py` |
 | Fail-fast on missing main model | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |

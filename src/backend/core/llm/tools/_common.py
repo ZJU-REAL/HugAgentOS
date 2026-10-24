@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.content.artifact_refs import require_artifact_storage_key
+from core.files.artifacts.refs import require_artifact_storage_key
 
 import asyncio
 import base64
@@ -16,7 +16,7 @@ from agentscope.message import Base64Source, DataBlock, TextBlock
 
 # AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def register_file_artifact(
     content: bytes, scope: Optional[ProjectScope] = None,
 ) -> Optional[dict[str, Any]]:
     """Create an immutable downloadable snapshot of a sandbox file."""
-    from core.llm.tools._tool_helpers import _store_generated_files
+    from core.files.artifacts.generated import store_generated_files as _store_generated_files
 
     if not user_id or not filename:
         return None
@@ -162,7 +162,7 @@ def pin_artifact_to_workspace(ref: dict[str, Any]) -> bool:
     if not file_id:
         return False
     try:
-        from core.llm import workspace as _workspace
+        from core.llm.runtime import workspace as _workspace
 
         pinned = _workspace.pin(
             file_id=str(file_id),

@@ -12,7 +12,7 @@ from core.chat.schemas import HealthResponse
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.infra.logging import get_logger
-from core.storage import get_storage
+from core.files.storage import get_storage
 
 logger = get_logger(__name__)
 

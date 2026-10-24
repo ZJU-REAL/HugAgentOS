@@ -9,7 +9,7 @@ class _CapturingClient:
 
 
 def test_kb_client_gets_tighter_execution_and_transport_deadlines(monkeypatch):
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     monkeypatch.delenv("KB_MCP_EXECUTION_TIMEOUT_SECONDS", raising=False)
     client = make_client(
@@ -25,7 +25,7 @@ def test_kb_client_gets_tighter_execution_and_transport_deadlines(monkeypatch):
 
 
 def test_mcp_timeout_config_overrides_defaults():
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     client = make_client(
         "custom",
@@ -44,7 +44,7 @@ def test_mcp_timeout_config_overrides_defaults():
 
 
 def test_stdio_client_also_has_a_hard_execution_deadline(monkeypatch):
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     monkeypatch.setenv("MCP_TOOL_EXECUTION_TIMEOUT_SECONDS", "90")
     client = make_client(
@@ -57,7 +57,7 @@ def test_stdio_client_also_has_a_hard_execution_deadline(monkeypatch):
 
 
 def test_database_extra_config_exposes_timeout_overrides(monkeypatch):
-    from core.services.mcp_service import McpServerConfigService
+    from core.capabilities.mcp.service import McpServerConfigService
 
     row = SimpleNamespace(
         transport="streamable_http",

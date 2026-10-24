@@ -12,9 +12,9 @@ from typing import get_args
 
 import pytest
 
-from core.llm.chat_models import build_model_for_mode
-from core.llm.responses_models import native_reasoning_effort
-from core.services.model_config import ResolvedModelConfig
+from core.models.chat_models import build_model_for_mode
+from core.models.responses import native_reasoning_effort
+from core.models.config import ResolvedModelConfig
 
 # build_model_for_mode 认识的全部档位，外加“没选档位”。
 MODES = ["fast", "turbo", "medium", "high", "max", None]
@@ -25,7 +25,7 @@ PROTOCOLS = ["responses", "chat_completions"]
 def _window(monkeypatch):
     """构造模型要查上下文窗口，这里与档位无关，给个定值即可。"""
     monkeypatch.setattr(
-        "core.llm.context_manager.resolve_model_context_window", lambda name: 65536
+        'core.models.context_window.resolve_model_context_window', lambda name: 65536
     )
 
 
@@ -92,7 +92,7 @@ def test_a_value_the_upstream_would_reject_is_translated_not_sent():
 def test_the_vocabulary_is_read_from_the_sdk_declaration():
     from agentscope.model import OpenAIResponseModel
 
-    from core.llm.responses_models import _wire_reasoning_efforts
+    from core.models.responses import _wire_reasoning_efforts
 
     declared = get_args(
         OpenAIResponseModel.Parameters.model_fields["reasoning_effort"].annotation

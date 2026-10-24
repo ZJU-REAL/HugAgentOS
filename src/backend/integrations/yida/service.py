@@ -1,0 +1,498 @@
+"""Yida (openyida CLI) account connection service: backend orchestration for the "Connect Yida" panel on the plugin detail page.
+
+Key difference from the dingtalk/lark services: openyida is a Node CLI, and the
+backend slim image **does not install Node** (same decision as choosing a static
+Go binary for lark) — login commands are executed **inside that user's sandbox**:
+the sandbox image has openyida preinstalled, and the fixed working directory
+/home/ubuntu/yida-workspace is exactly where the login state is persisted:
+
+- opensandbox: per-user bind-mount → cookies land directly on the host at ``yida_cache/{uid}/workspace``;
+- cube: execute's openyida inject/write-back hooks apply automatically (cube_provider._persist_yida_state);
+- script_runner: shared working directory (one per deployment, see _common.yida_shared_workspace_dir).
+
+Three-stage login (openyida agent native contract, see its bin/yida.js login branch):
+
+1. ``openyida login --agent-qr``
+   → ``{status:"need_qr_scan", qr_url, session_file, poll_command, ...}``
+2. ``openyida login --agent-poll <session_file>``
+   → ``{status:"ok", corp_id, user_id, base_url}`` (login complete, cookies written to the workspace)
+   → or ``{status:"need_corp_selection", organizations:[{corp_id,corp_name,main_org}]}``
+3. Multi-org: ``openyida login --agent-select <session_file> --corp-id <X>`` → ``{status:"ok"}``
+
+The QR code is rendered by the backend itself as a data URI from ``qr_url``
+(the CLI's qr_image_markdown points at a PNG local to the sandbox, unusable by
+the panel). **No DB table**: connection status uses the host-side cookie files
+as the source of truth; identity metadata lands in
+``yida_cache/{uid}/connection.json``; in-flight QR-scan sessions live in
+the shared TTL store. In-chat QR login (the yida skill) writes the same
+cookie file as this panel, so the two paths interoperate.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import shlex
+import time
+import math
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from core.config.settings import settings
+from core.infra.ephemeral import get_ephemeral_state
+from core.sandbox.workspace.identity import safe_user_id
+from integrations.dingtalk.parsing import make_qr_data_uri
+
+logger = logging.getLogger(__name__)
+
+# Fixed working directory inside the sandbox (matches
+# _opensandbox_internals._YIDA_WORKSPACE_MOUNT / SKILL.md; not imported directly
+# to avoid pulling in the opensandbox dependency chain — a test keeps the two in sync)
+YIDA_WORKSPACE_MOUNT = "/home/ubuntu/yida-workspace"
+
+# session_file / corp_id only allow a conservative character set, eliminating the injection surface when spliced into shell commands
+_SESSION_FILE_RE = re.compile(r"^[A-Za-z0-9._/-]{1,256}$")
+_CORP_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+# In-flight QR sessions are shared across API workers and expire with the QR.
+_PENDING_TTL_S = 10 * 60
+
+# ``openyida login --check-only`` / ``agent-capabilities`` only validate that
+# the local cookie cache is structurally complete.  An expired server-side
+# session therefore still looks connected.  The status-panel probe uses the
+# same read-only app-list endpoint as ``openyida app-list``, but calls the low
+# level HTTP helper directly so an invalid cookie is reported instead of
+# triggering openyida's automatic browser-login fallback.  The script prints
+# only a three-state verdict and never prints credentials or response data.
+_PROBE_SCRIPT = """
+const utils = require(process.env.HUGAGENT_OPENYIDA_UTILS || '/opt/node/v22.2.0/lib/node_modules/openyida/lib/core/utils');
+(async () => {
+  try {
+    const cookieData = utils.loadCookieData();
+    const cookies = cookieData && Array.isArray(cookieData.cookies) ? cookieData.cookies : [];
+    if (!cookieData || cookies.length === 0) {
+      process.stdout.write(JSON.stringify({verdict: 'invalid'}));
+      return;
+    }
+    const info = utils.extractInfoFromCookies(cookies);
+    const csrfToken = cookieData.csrf_token || cookieData.csrfToken ||
+      cookieData._csrf_token || info.csrfToken || '';
+    const userId = cookieData.user_id || cookieData.userId ||
+      cookieData.staffId || info.userId || '';
+    if (!csrfToken || !userId) {
+      process.stdout.write(JSON.stringify({verdict: 'invalid'}));
+      return;
+    }
+    const result = await utils.httpGet(
+      utils.resolveBaseUrl(cookieData),
+      '/query/app/getAppList.json',
+      {
+        _api: 'nattyFetch',
+        _mock: 'false',
+        pageIndex: 1,
+        pageSize: 1,
+        creator: userId,
+        _csrf_token: csrfToken,
+        _stamp: Date.now(),
+      },
+      cookies,
+      {silentStatus: true},
+    );
+    const verdict = result && (result.__needLogin || result.__csrfExpired)
+      ? 'invalid'
+      : (result && result.success === true ? 'valid' : 'unknown');
+    process.stdout.write(JSON.stringify({verdict}));
+  } catch (_) {
+    process.stdout.write(JSON.stringify({verdict: 'unknown'}));
+  }
+})();
+""".strip()
+_PROBE_COMMAND = f"node -e {shlex.quote(_PROBE_SCRIPT)}"
+_EXPIRED_ERROR = "宜搭登录态已失效，请重新扫码连接"
+
+
+def extract_result_json(stdout: str) -> Optional[Dict[str, Any]]:
+    """Extract the result JSON from CLI stdout. The agent-family commands emit a
+    single-line ``JSON.stringify(result)``, but stray sandbox/CLI lines may
+    surround it — scan from the last line backwards for the first line that
+    parses into a dict."""
+    for line in reversed((stdout or "").strip().splitlines()):
+        line = line.strip()
+        if not (line.startswith("{") and line.endswith("}")):
+            continue
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def _host_workspace_dir(user_id: str) -> Path:
+    from integrations.yida.execution import workspace_dir
+
+    return workspace_dir(user_id)
+
+
+def _valid_session_file(user_id: str, value: str) -> bool:
+    if not settings.deploy.is_local:
+        return bool(_SESSION_FILE_RE.fullmatch(value))
+    if not value or len(value) > 4096:
+        return False
+    workspace = _host_workspace_dir(user_id).resolve()
+    path = Path(value)
+    if not path.is_absolute():
+        path = workspace / path
+    try:
+        path.resolve().relative_to(workspace / ".cache")
+        return path.name.endswith(".json")
+    except (ValueError, OSError):
+        return False
+
+
+def _cookie_files(ws: Path) -> list[Path]:
+    return sorted((ws / ".cache").glob("cookies*.json")) if (ws / ".cache").is_dir() else []
+
+
+def _latest_cookie_mtime_ns(ws: Path) -> int:
+    latest = 0
+    for cookie_file in _cookie_files(ws):
+        try:
+            latest = max(latest, cookie_file.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return latest
+
+
+def _connection_meta_path(user_id: str) -> Path:
+    return _host_workspace_dir(user_id).parent / "connection.json"
+
+
+def _load_meta(user_id: str) -> Dict[str, Any]:
+    try:
+        return json.loads(_connection_meta_path(user_id).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_meta(user_id: str, meta: Dict[str, Any]) -> None:
+    try:
+        p = _connection_meta_path(user_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[yida] save connection meta failed user=%s: %s", user_id, exc)
+
+
+def _pending_key(user_id):
+    return "yida-login:v1:" + user_id
+
+
+async def _get_pending(user_id: str) -> Optional[Dict[str, Any]]:
+    raw = await get_ephemeral_state().get(_pending_key(user_id))
+    pending = json.loads(raw) if raw else None
+    if not pending or pending.get("closed"):
+        return None
+    if time.time() - pending["started_at"] >= _PENDING_TTL_S:
+        return None
+    return pending
+
+
+async def _save_pending(user_id, pending, *, previous=None):
+    ttl = max(1, math.ceil(_PENDING_TTL_S - (time.time() - pending["started_at"])))
+    store = get_ephemeral_state()
+    if previous is not None:
+        return await store.compare_exchange(
+            _pending_key(user_id), json.dumps(previous), json.dumps(pending), ttl=ttl
+        )
+    await store.put(_pending_key(user_id), json.dumps(pending), ttl=ttl)
+    return True
+
+
+async def _clear_pending(user_id, pending=None):
+    store = get_ephemeral_state()
+    if pending is None:
+        await store.drop(_pending_key(user_id))
+    else:
+        # A late poll from a previous QR must not delete a newer login attempt.
+        await store.compare_exchange(
+            _pending_key(user_id), json.dumps(pending), '{"closed":true}', ttl=60
+        )
+
+
+def _cookies_written_since(user_id: str, pending: Dict[str, Any]) -> bool:
+    """Whether host-side cookies have been written since this QR session started (= login actually completed).
+
+    Covers two timing cases where login "succeeded but poll never sees ok": the
+    CLI deletes the session file on success (subsequent agent-poll calls all
+    ENOENT); and login completed via the other path (in-chat skill QR scan).
+    """
+    age_budget = time.time() - pending["started_at"] + 5  # 5s clock slack
+    for f in _cookie_files(_host_workspace_dir(user_id)):
+        try:
+            if time.time() - f.stat().st_mtime <= age_budget:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+# Stale-sandbox probe marker: the command echoes this marker when the working
+# directory is missing (sandbox created before the yida volume, no mount)
+_NO_WS_MARKER = "__JX_YIDA_NO_WS__"
+
+
+class YidaService:
+    """No DB dependency (the cookie files are the source of truth for connection status); the constructor takes no args to match route-layer usage."""
+
+    async def _run_in_sandbox(
+        self, user_id: str, sub_command: str, timeout: int
+    ) -> tuple[str, int]:
+        from integrations.yida.execution import run_local, run_sandbox
+
+        if settings.deploy.is_local:
+            return await run_local(user_id, sub_command, timeout)
+        return await run_sandbox(user_id, sub_command, timeout)
+
+    # ── Status ──────────────────────────────────────────────────────────
+
+    async def get_status(self, user_id: str) -> Dict[str, Any]:
+        uid = safe_user_id(user_id)
+        if not uid:
+            return {"status": "disconnected"}
+        pending = await _get_pending(uid)
+        if pending:
+            # Cookies written during the session = login actually completed
+            # (possibly via a timing the poll summary didn't recognize, or an
+            # in-chat scan); clear pending and fall back to connected instead
+            # of staying stuck in the scanning state.
+            if _cookies_written_since(uid, pending):
+                await _clear_pending(uid, pending)
+            else:
+                return self._pending_response(pending)
+        workspace = _host_workspace_dir(uid)
+        cookie_mtime_ns = _latest_cookie_mtime_ns(workspace)
+        if cookie_mtime_ns:
+            meta = _load_meta(uid)
+            invalidated_cookie_mtime_ns = int(meta.get("invalidated_cookie_mtime_ns") or 0)
+            if (
+                meta.get("status") == "disconnected"
+                and invalidated_cookie_mtime_ns >= cookie_mtime_ns
+            ):
+                return {
+                    "status": "disconnected",
+                    "error": meta.get("last_error") or _EXPIRED_ERROR,
+                    "last_verified_at": meta.get("last_verified_at"),
+                }
+            return {
+                "status": "connected",
+                "corp_id": meta.get("corp_id"),
+                "yida_user_id": meta.get("user_id"),
+                "base_url": meta.get("base_url"),
+                "connected_at": meta.get("connected_at"),
+                "last_verified_at": meta.get("last_verified_at"),
+            }
+        return {"status": "disconnected"}
+
+    async def probe_status(self, user_id: str) -> Dict[str, Any]:
+        """Reconcile the local cookie-file state with a real, read-only Yida request.
+
+        ``valid`` refreshes verification metadata; ``invalid`` records which
+        exact cookie version was rejected so ordinary status reads also become
+        disconnected.  A later QR login overwrites the cookie and its newer
+        mtime automatically clears that invalidation.  ``unknown`` (network,
+        timeout, CLI/image mismatch) keeps the local state unchanged to avoid
+        logging users out because of a transient failure.
+        """
+        uid = safe_user_id(user_id)
+        if not uid:
+            return {"status": "disconnected"}
+        local_status = await self.get_status(uid)
+        if local_status.get("status") in {"pending", "corp_selection"}:
+            return local_status
+
+        workspace = _host_workspace_dir(uid)
+        cookie_mtime_ns = _latest_cookie_mtime_ns(workspace)
+        if not cookie_mtime_ns:
+            return {"status": "disconnected"}
+
+        stdout, rc = await self._run_in_sandbox(uid, _PROBE_COMMAND, timeout=35)
+        data = extract_result_json(stdout)
+        verdict = data.get("verdict") if data and rc == 0 else "unknown"
+        now = int(time.time())
+        meta = _load_meta(uid)
+        if verdict == "valid":
+            _save_meta(
+                uid,
+                {
+                    **meta,
+                    "status": "connected",
+                    "last_verified_at": now,
+                    "last_error": None,
+                    "invalidated_cookie_mtime_ns": 0,
+                },
+            )
+        elif verdict == "invalid":
+            _save_meta(
+                uid,
+                {
+                    **meta,
+                    "status": "disconnected",
+                    "last_verified_at": now,
+                    "last_error": _EXPIRED_ERROR,
+                    "invalidated_cookie_mtime_ns": cookie_mtime_ns,
+                },
+            )
+            logger.info("[yida] 真实探活确认登录态失效 user=%s", uid)
+        else:
+            logger.info("[yida] 真实探活无法判定，保留本地状态 user=%s rc=%s", uid, rc)
+        return await self.get_status(uid)
+
+    # ── Three-stage login ───────────────────────────────────────────────
+
+    async def start_login(self, user_id: str) -> Dict[str, Any]:
+        uid = safe_user_id(user_id)
+        if not uid:
+            return {"status": "error", "error": "invalid user"}
+        stdout, rc = await self._run_in_sandbox(uid, "openyida login --agent-qr", timeout=90)
+        data = extract_result_json(stdout)
+        if not data or data.get("status") != "need_qr_scan":
+            logger.warning("[yida] agent-qr 无法解析 user=%s rc=%s", uid, rc)
+            return {"status": "error", "error": (data.get("error") if data and rc in (124, 127) else None) or "启动扫码登录失败，请稍后重试"}
+        session_file = str(data.get("session_file") or "")
+        if not _valid_session_file(uid, session_file):
+            logger.warning("[yida] session_file 非法 user=%s: %.100s", uid, session_file)
+            return {"status": "error", "error": "登录会话异常，请重试"}
+        qr_url = str(data.get("qr_url") or "")
+        await _save_pending(
+            uid,
+            {
+                "session_file": session_file,
+                "qr_url": qr_url,
+                "started_at": time.time(),
+            },
+        )
+        return {
+            "status": "pending",
+            "qr_data_uri": make_qr_data_uri(qr_url),
+            "qr_url": qr_url,
+            "message": "请用钉钉 App 扫码并确认登录",
+        }
+
+    async def poll_login(self, user_id: str, corp_id: Optional[str] = None) -> Dict[str, Any]:
+        uid = safe_user_id(user_id)
+        pending = await _get_pending(uid) if uid else None
+        if not pending:
+            # No in-flight session: return the current state (may already have completed via in-chat scan)
+            return await self.get_status(uid or "")
+        if corp_id and not _CORP_ID_RE.match(corp_id):
+            return {"status": "error", "error": "corp_id 非法"}
+        sf = shlex.quote(pending["session_file"])
+        # Multi-org stage two: with corp_id go through --agent-select; otherwise --agent-poll waits for the scan
+        if corp_id and pending.get("corp_selection"):
+            sub = f"openyida login --agent-select {sf} --corp-id {corp_id}"
+        elif corp_id:
+            sub = f"openyida login --agent-poll {sf} --corp-id {corp_id}"
+        else:
+            sub = f"openyida login --agent-poll {sf}"
+        stdout, rc = await self._run_in_sandbox(uid, sub, timeout=45)
+        data = extract_result_json(stdout)
+        if not data:
+            # Not scanned / timed out / session file already cleaned up by the CLI
+            # on success (ENOENT): first check whether cookies were written during
+            # the session — if so, login actually completed; don't leave the
+            # frontend spinning forever.
+            if _cookies_written_since(uid, pending):
+                await _clear_pending(uid, pending)
+                meta = {**_load_meta(uid), "connected_at": int(time.time())}
+                _save_meta(uid, meta)
+                logger.info("[yida] 登录完成（cookie 落盘兜底判定）user=%s", uid)
+                return await self.get_status(uid)
+            return self._pending_response(pending)
+        status = data.get("status")
+        # Success comes in two shapes: the full result carries status:"ok"; the
+        # CLI printLoginResult summary is only {"ok":true, corp_id, user_id,
+        # base_url, ...} **without a status field**.
+        if status == "ok" or (status is None and data.get("ok") is True):
+            await _clear_pending(uid, pending)
+            meta = {
+                "corp_id": data.get("corp_id"),
+                "user_id": data.get("user_id"),
+                "base_url": data.get("base_url"),
+                "connected_at": int(time.time()),
+            }
+            _save_meta(uid, meta)
+            logger.info("[yida] 登录完成 user=%s corp=%s", uid, meta["corp_id"])
+            return {"status": "connected", **{k: meta[k] for k in ("corp_id", "base_url")}}
+        if status == "need_corp_selection":
+            previous = dict(pending)
+            pending["corp_selection"] = True
+            orgs = data.get("organizations") or []
+            pending["organizations"] = [
+                {
+                    "corp_id": o.get("corp_id"),
+                    "corp_name": o.get("corp_name"),
+                    "main_org": bool(o.get("main_org")),
+                }
+                for o in orgs
+                if isinstance(o, dict)
+            ]
+            if not await _save_pending(uid, pending, previous=previous):
+                return await self.get_status(uid)
+            return {
+                "status": "corp_selection",
+                "organizations": [
+                    {
+                        "corp_id": o.get("corp_id"),
+                        "corp_name": o.get("corp_name"),
+                        "main_org": bool(o.get("main_org")),
+                    }
+                    for o in orgs
+                    if isinstance(o, dict)
+                ],
+            }
+        logger.info("[yida] poll 未完成 user=%s status=%s rc=%s", uid, status, rc)
+        return self._pending_response(pending)
+
+    @staticmethod
+    def _pending_response(pending: Dict[str, Any]) -> Dict[str, Any]:
+        """A pending response must carry the QR code: the frontend overwrites the
+        status wholesale, so if poll's pending lacks qr_data_uri it wipes the QR
+        code being displayed (in the initial release this is exactly how it got
+        stuck on the "fetching login QR code..." screen, observed in practice)."""
+        if pending.get("corp_selection"):
+            return {"status": "corp_selection", "organizations": pending.get("organizations", [])}
+        return {
+            "status": "pending",
+            "qr_data_uri": make_qr_data_uri(pending.get("qr_url")),
+            "qr_url": pending.get("qr_url"),
+        }
+
+    # ── Disconnect ──────────────────────────────────────────────────────
+
+    async def disconnect(self, user_id: str) -> Dict[str, Any]:
+        uid = safe_user_id(user_id)
+        if not uid:
+            return {"status": "disconnected"}
+        await _clear_pending(uid)
+        # Host source of truth: delete cookies + metadata (for opensandbox/script-runner this is the same file the sandbox sees)
+        ws = _host_workspace_dir(uid)
+        for f in _cookie_files(ws):
+            try:
+                f.unlink()
+            except OSError as exc:
+                logger.warning("[yida] 删 cookie 失败 %s: %s", f, exc)
+        try:
+            _connection_meta_path(uid).unlink(missing_ok=True)
+        except OSError:
+            pass
+        if settings.deploy.is_local:
+            return {"status": "disconnected"}
+        # Best-effort cleanup of the sandbox-side copy (the copy injected by cube does not disappear automatically when the host copy is deleted)
+        try:
+            await self._run_in_sandbox(uid, "rm -f .cache/cookies*.json || true", timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("[yida] 清沙箱 cookie 副本失败（忽略）user=%s: %s", uid, exc)
+        return {"status": "disconnected"}

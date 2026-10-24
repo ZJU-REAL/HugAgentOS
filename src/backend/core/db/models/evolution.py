@@ -282,7 +282,7 @@ class EvolutionEvaluation(Base):
 
 
 class EvolutionAgentProfile(Base):
-    """A published orchestration profile — see :mod:`core.evolution.agent_profile`.
+    """A published orchestration profile — see :mod:`core.evolution.profiles.agent_profile`.
 
     Stored as one JSON payload rather than a column per knob. The profile's
     shape is itself under evolution (a new intervention signal, a new routing

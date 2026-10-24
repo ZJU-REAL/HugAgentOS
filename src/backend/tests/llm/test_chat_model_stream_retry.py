@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import httpx
 import openai
 import pytest
-from core.llm.providers import stream_retry as chat_models
+from core.models.providers import stream_retry as chat_models
 
 
 class _FakeModel:
@@ -58,11 +58,11 @@ async def _collect(model, client, kwargs=None):
 def _quiet_usage(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "core.llm.model_usage.record_provider_failure",
+        'core.models.usage.record_provider_failure',
         AsyncMock(side_effect=lambda *a, **k: calls.append(("failure", k.get("metadata")))),
     )
     monkeypatch.setattr(
-        "core.llm.model_usage.note_provider_retry_started",
+        'core.models.usage.note_provider_retry_started',
         lambda *a, **k: calls.append(("retry_started", None)),
     )
     return calls
@@ -145,7 +145,7 @@ def test_transient_classification():
 
 @pytest.mark.asyncio
 async def test_stopped_run_cannot_reissue_after_transient_first_event_failure():
-    from core.llm.context_safety import ContextBudgetExceeded, request_admission_scope
+    from core.llm.context.safety import ContextBudgetExceeded, request_admission_scope
 
     client, create = _client()
     stopped = ContextBudgetExceeded(

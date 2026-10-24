@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import pytest
 
-from core.llm.subagent_tool import _run_subagent_in_thread
+from core.llm.subagents.tool import _run_subagent_in_thread
 from core.llm.tools._common import resolve_sandbox_session
 
 
@@ -64,15 +64,15 @@ def test_custom_subagent_reuses_parent_session(monkeypatch, local_project):
 
     monkeypatch.setattr("core.db.engine.SessionLocal", lambda: FakeDbContext())
     monkeypatch.setattr(
-        "core.services.user_agent_service.UserAgentService",
+        'core.capabilities.agents.edition.UserAgentService',
         FakeUserAgentService,
     )
-    monkeypatch.setattr("core.llm.builtin_subagents.get_builtin_subagent", lambda _id: None)
+    monkeypatch.setattr('core.capabilities.agents.builtin.get_builtin_subagent', lambda _id: None)
     monkeypatch.setattr(
         "core.llm.factory.create_agent_executor",
         fake_create_agent_executor,
     )
-    monkeypatch.setattr("core.llm.mcp_manager.close_clients", no_op)
+    monkeypatch.setattr('core.llm.mcp.manager.close_clients', no_op)
     monkeypatch.setattr("core.infra.redis.close_redis", no_op)
     ok, text, _pinned, _messages = _run_subagent_in_thread(
         "custom-1",

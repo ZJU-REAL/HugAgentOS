@@ -8,7 +8,7 @@ from __future__ import annotations
 
 
 def main() -> int:
-    from orchestration.strategy import get_router_strategy
+    from core.agent_runtime.strategy import get_router_strategy
 
     s = get_router_strategy()
     out = s.route("hello", context={"chat_id": "x"})

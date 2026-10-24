@@ -10,9 +10,9 @@ from sqlalchemy.orm import sessionmaker
 from core.chat import inflight
 from core.db.models import ChatMessage, ChatSession, UserShadow
 from core.infra.time import utc_now
-from core.services.chat_sequencer import ChatSequencer
-from core.services.chat_service import ChatService
-from core.services.run_journal import RunJournal
+from core.chat.sequencer import ChatSequencer
+from core.chat.service import ChatService
+from core.runs.journal import RunJournal
 
 
 def verify_finalization_serializes_refresh(sessions, user_id):

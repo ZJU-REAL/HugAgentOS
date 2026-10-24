@@ -7,6 +7,7 @@ another user's market-installed skill and have its files — secrets.json includ
 copied into their own sandbox.
 """
 from __future__ import annotations
+from core.capabilities.skills import loader_factory as loader_factory_module
 
 import asyncio
 from types import SimpleNamespace
@@ -48,15 +49,15 @@ def provider(monkeypatch, tmp_path):
         "bob-market-991dc1": "bob",
     }
 
-    import core.agent_skills.loader as loader_mod
+    import core.capabilities.skills.loader as loader_mod
 
-    monkeypatch.setattr(loader_mod, "get_skill_loader", lambda *a, **k: _Loader(owners, dirs))
+    monkeypatch.setattr(loader_factory_module, 'get_skill_loader', lambda *a, **k: _Loader(owners, dirs))
     def current_archive(sid, user_id=None):
         if owners.get(sid) and owners[sid] != user_id:
             return None
         return dirs.get(sid)
 
-    monkeypatch.setattr("core.agent_skills.skill_archive.build_current_skill_tar", current_archive)
+    monkeypatch.setattr('core.capabilities.skills.skill_archive.build_current_skill_tar', current_archive)
     return p
 
 

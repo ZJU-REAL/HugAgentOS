@@ -1,0 +1,1 @@
+"""store domain package."""

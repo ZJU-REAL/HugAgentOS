@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 
 from core.db.engine import SessionLocal
-from core.services.job_service import JobService
+from core.jobs.store import JobService
 from fastapi import HTTPException
 
 

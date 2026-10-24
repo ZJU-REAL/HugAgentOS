@@ -159,12 +159,12 @@ def init_db():
         reconcile_audio_model_type(engine)
         reconcile_resource_owners(engine)
         from core.db.site_storage_retirement import retire_site_storage
-        from core.services.application_store import initialize_local_store
+        from core.harness.registry.schema_lifecycle import initialize_local_schema
 
         directory = settings.storage.root / "migration-backups"
         directory = Path(os.getenv("SITE_STORAGE_BACKUP_DIR", str(directory)))
         retire_site_storage(engine, directory)
-        initialize_local_store()
+        initialize_local_schema()
     if settings.edition.edition == "ce":
         if settings.deploy.is_local:
             from core.db.local_schema_upgrade import reconcile_local_chat_sequences
@@ -180,7 +180,7 @@ def init_db():
             if any(local_report.values()):
                 logger.info("Local database compatibility schema reconciled: %s", local_report)
 
-        from core.db.edition_tables import ce_reconcile_schema
+        from core.db.edition import ce_reconcile_schema
 
         report = ce_reconcile_schema(engine)
         if any(report.values()):

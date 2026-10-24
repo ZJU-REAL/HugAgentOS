@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.evolution import outcomes as O
+from core.evolution.evidence import outcomes as O
 
 
 # ── No single judge decides ──────────────────────────────────────────────────
@@ -119,8 +119,8 @@ def test_backfilled_episodes_are_marked_and_barred_from_replay(monkeypatch):
 
     from core.db.engine import Base
     from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
-    from core.evolution import trace_assembler as TA
-    from core.evolution import trace_store as TS
+    from core.evolution.evidence import trace_assembler as TA
+    from core.evolution.evidence import trace_store as TS
 
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(

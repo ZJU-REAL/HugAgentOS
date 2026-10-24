@@ -1,9 +1,13 @@
 """Worker ownership and shutdown behavior of background commands."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import core.sandbox.commands.runtime as commands_runtime
+from core.sandbox.commands.runtime import CommandRuntime
 from tests.orchestration.test_background_commands import command_db, request
-from orchestration.commands.runtime import CommandRuntime
+
 
 async def test_worker_initialization_survives_first_call_from_temporary_thread(command_db, monkeypatch):
     from api.startup import commands
@@ -34,7 +38,7 @@ async def test_lifespan_starts_and_stops_commands_in_each_worker(command_db, mon
     from api import lifecycle
     from api.startup import commands
     from core.infra import leader
-    from core.services import desktop_gateway_observability
+    from features.desktop.gateway import observability as desktop_gateway_observability
     actual = next(row for row in lifecycle._startup_steps() if row[0] is lifecycle.startup_commands)
     assert actual[4] == lifecycle._PER_WORKER
     runtime = CommandRuntime()
@@ -57,14 +61,16 @@ async def test_lifespan_starts_and_stops_commands_in_each_worker(command_db, mon
     assert runtime.loop is None
 
 async def test_managed_read_never_holds_model_for_long_wait(command_db, monkeypatch):
-    from core.services.commands import store
+    import core.sandbox.commands.runtime as module
     from core.llm.tools.sandbox_tool import register_bash
-    from orchestration.commands import runtime as module
+    from core.sandbox.commands import store
     from tests.llm.test_bash_process_tools import Toolkit
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"running","session_id":"p"}, None)
     instance = SimpleNamespace(wait=AsyncMock())
-    monkeypatch.setattr(module, "runtime", instance)
+    monkeypatch.setattr(commands_runtime, "runtime", instance)
+    from core.llm.ports import process_state
+    monkeypatch.setattr(process_state(), "commands", instance)
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
     tools = Toolkit()
     register_bash(tools, loader=None, loaded_skill_ids=set(), chat_id="c", user_id="u")

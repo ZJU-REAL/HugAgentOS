@@ -4,9 +4,11 @@
 去重，配置层异常时按「没配」处理（不能因为读配置失败就把能力凭空塞进
 极速模式）。EE 控制面选项接口的覆盖位于独立的 EE-only 测试文件中。
 """
+from core.config.store import execution_options
+from core.config.store import system_config
 
 import pytest
-from core.services import system_config as sysconf
+from core.config.store import system_config as sysconf
 
 
 class _StubConfigService:
@@ -22,7 +24,7 @@ class _StubConfigService:
 
 def _patch_config(monkeypatch, values, *, raises=False):
     stub = _StubConfigService(values, raises=raises)
-    monkeypatch.setattr(sysconf.SystemConfigService, "get_instance", classmethod(lambda cls: stub))
+    monkeypatch.setattr(system_config.SystemConfigService, "get_instance", classmethod(lambda cls: stub))
 
 
 @pytest.mark.parametrize(
@@ -36,7 +38,7 @@ def _patch_config(monkeypatch, values, *, raises=False):
 )
 def test_turbo_skill_ids_parsing(monkeypatch, raw, expected):
     _patch_config(monkeypatch, {"turbo.skill_ids": raw})
-    assert sysconf.turbo_skill_ids() == expected
+    assert execution_options.turbo_skill_ids() == expected
 
 
 @pytest.mark.parametrize(
@@ -52,10 +54,10 @@ def test_turbo_skill_ids_parsing(monkeypatch, raw, expected):
 )
 def test_turbo_plugin_ids_parsing(monkeypatch, raw, expected):
     _patch_config(monkeypatch, {"turbo.plugin_ids": raw})
-    assert sysconf.turbo_plugin_ids() == expected
+    assert execution_options.turbo_plugin_ids() == expected
 
 
 def test_turbo_capability_ids_empty_when_config_layer_fails(monkeypatch):
     _patch_config(monkeypatch, {}, raises=True)
-    assert sysconf.turbo_skill_ids() == ()
-    assert sysconf.turbo_plugin_ids() == ()
+    assert execution_options.turbo_skill_ids() == ()
+    assert execution_options.turbo_plugin_ids() == ()

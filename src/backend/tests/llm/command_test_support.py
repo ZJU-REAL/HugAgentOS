@@ -1,11 +1,14 @@
 """Isolated ledger state for process-tool integration tests."""
+
+import core.sandbox.commands.runtime as commands_runtime
+import core.sandbox.commands.runtime as command_runtime
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from core.db.engine import Base
 from core.db.models import ChatSession, UserShadow
-from core.services.commands import store
-from orchestration.commands import runtime as command_runtime
+from core.sandbox.commands import store
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 
 @pytest.fixture
 async def command_tool_state(tmp_path, monkeypatch):
@@ -22,7 +25,9 @@ async def command_tool_state(tmp_path, monkeypatch):
         db.commit()
     monkeypatch.setattr(store, "SessionLocal", factory)
     runtime = command_runtime.CommandRuntime()
-    monkeypatch.setattr(command_runtime, "runtime", runtime)
+    monkeypatch.setattr(commands_runtime, "runtime", runtime)
+    from core.llm.ports import process_state
+    monkeypatch.setattr(process_state(), "commands", runtime)
     yield factory
     await runtime.shutdown()
     engine.dispose()

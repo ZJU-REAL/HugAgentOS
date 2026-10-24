@@ -29,7 +29,7 @@ def pm_env(tmp_path, monkeypatch):
     TestSession = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(dbe, "SessionLocal", TestSession)
 
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     art_dir = tmp_path / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ def _make_skill_only_tar() -> bytes:
     return buf.getvalue()
 
 def _stash(tar_bytes: bytes, name: str = "plugin.tgz") -> str:
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     return store.save_artifact_bytes(content=tar_bytes, name=name, extension="tgz")["file_id"]
 
@@ -124,7 +124,7 @@ def test_shipped_validator_accepts_all_real_bundles():
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
-    from core.plugins import management as ps
+    from core.capabilities.plugins import management as ps
 
     with pm_env.Session() as db:
         res = ps.install_plugin(db, "plugin-manager", owner_user_id=OWNER, created_by=OWNER)
@@ -143,10 +143,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
         assert len(mcp.tools_json) == 8
         assert plugin is not None
 
-        from core.config.catalog_resolver import (
-            invalidate_capability_cache,
-            resolve_all_runtime_enabled,
-        )
+        from core.capabilities.catalog.resolver import invalidate_capability_cache, resolve_all_runtime_enabled
 
         invalidate_capability_cache()
         enabled_skills, _agents, enabled_mcps = resolve_all_runtime_enabled(db, OWNER)
@@ -224,7 +221,7 @@ def test_server_tools_forward_user_header(pm_env, monkeypatch):
         captured["user_id"] = user_id
         return {"ok": True, "plugins": [], "count": 0, "message": ""}
 
-    from core.services import cloud_management
+    from core.capabilities.plugins.management import cloud as cloud_management
     monkeypatch.setattr(cloud_management, "list_installed", _fake)
     handler = server.mcp._tool_manager.get_tool("list_plugins").fn
 

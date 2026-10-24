@@ -36,8 +36,9 @@ class CompletionMixin:
                             chars="\x03",
                             yield_time_ms=1000,
                         )
-                except Exception:
-                    pass
+                except Exception as fallback_error:
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure('core.sandbox.processes.completion:stop_after_start', fallback_error)
 
             cleanup = asyncio.create_task(stop_after_start())
             await asyncio.shield(cleanup)
@@ -88,6 +89,7 @@ class CompletionMixin:
                             yield_time_ms=1000,
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as fallback_error:
+                    from core.infra.failures import record_best_effort_failure
+                    record_best_effort_failure('core.sandbox.processes.completion:run_to_completion', fallback_error)
             raise

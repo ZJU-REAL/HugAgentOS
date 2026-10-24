@@ -3,7 +3,7 @@
 import hashlib
 import pytest
 
-from core.llm.agent_api_runtime import apply_api_scope, parse_api_scope
+from core.llm.api_runtime.agent import apply_api_scope, parse_api_scope
 
 
 def scope(**updates):
@@ -73,7 +73,7 @@ class Collector:
 async def test_api_bash_never_uses_account_identity_or_shared_process_runner(monkeypatch):
     import json
     import core.sandbox
-    from core.llm.agent_api_tools import register_agent_api_tools
+    from core.llm.api_runtime.agent_tools import register_agent_api_tools
 
     class Provider:
         name = "script_runner"
@@ -103,7 +103,7 @@ async def test_api_bash_never_uses_account_identity_or_shared_process_runner(mon
 
 
 def test_mcp_scope_replaces_identity_and_preserves_exact_kb_grants():
-    from core.llm.agent_api_runtime import scope_mcp_servers
+    from core.llm.api_runtime.agent import scope_mcp_servers
 
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"
@@ -135,8 +135,8 @@ def test_mcp_scope_replaces_identity_and_preserves_exact_kb_grants():
 async def test_pin_rejects_private_artifact_and_only_accepts_file_ids(monkeypatch):
     import inspect
     import json
-    import core.llm.agent_api_tools as tools
-    from core.llm.tool_collector import ToolCollector
+    import core.llm.api_runtime.agent_tools as tools
+    from core.llm.runtime.tool_collector import ToolCollector
 
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"
@@ -205,7 +205,7 @@ def artifact_db(tmp_path, monkeypatch):
 def test_artifacts_require_the_same_session_provenance_and_respect_deletion(artifact_db):
     from datetime import datetime, timezone
     from core.db.models import Artifact, ChatSession
-    from core.llm.agent_api_runtime import artifact_in_scope
+    from core.llm.api_runtime.agent import artifact_in_scope
 
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"
@@ -223,7 +223,7 @@ def test_artifacts_require_the_same_session_provenance_and_respect_deletion(arti
 
 
 def test_pending_output_requires_trusted_metadata_before_store_resolution(artifact_db, monkeypatch):
-    from core.llm.agent_api_runtime import artifact_in_scope
+    from core.llm.api_runtime.agent import artifact_in_scope
 
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"
@@ -234,7 +234,7 @@ def test_pending_output_requires_trusted_metadata_before_store_resolution(artifa
         "chat_id": "api_chat",
         "agent_api_key_id": "ak_123",
     }
-    monkeypatch.setattr("core.artifacts.store._read_record", lambda _: {"metadata": metadata})
+    monkeypatch.setattr('core.files.artifacts.store._read_record', lambda _: {"metadata": metadata})
     assert artifact_in_scope("pending", parsed)
     metadata["agent_api_key_id"] = "another_key"
     assert not artifact_in_scope("pending", parsed)
@@ -243,7 +243,7 @@ def test_pending_output_requires_trusted_metadata_before_store_resolution(artifa
 
 @pytest.mark.asyncio
 async def test_selected_skills_are_staged_once_without_other_owner_packages(tmp_path):
-    from core.llm.agent_api_skills import ApiSkillStager
+    from core.llm.api_runtime.agent_skills import ApiSkillStager
 
     selected = tmp_path / "selected"
     selected.mkdir()
@@ -275,7 +275,7 @@ async def test_selected_skills_are_staged_once_without_other_owner_packages(tmp_
 
 
 def test_skill_staging_rejects_escaping_packages(tmp_path):
-    from core.llm.agent_api_skills import _skill_files
+    from core.llm.api_runtime.agent_skills import _skill_files
 
     package = tmp_path / "selected"
     package.mkdir()
@@ -308,10 +308,7 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
 
     for name in (
         "_make_skills_volumes",
-        "_make_dws_creds_volumes",
-        "_make_lark_creds_volumes",
-        "_make_email_creds_volumes",
-        "_make_yida_creds_volumes",
+        "credential_mounts",
     ):
         monkeypatch.setattr(sessions, name, reject_mount)
     create = AsyncMock(return_value=SimpleNamespace(id="new-container"))
@@ -340,8 +337,8 @@ async def test_generated_output_is_pinned_and_downloadable_only_with_its_key(
     import core.sandbox
     from core.auth.agent_api_scope import enforce_agent_api_route
     from core.db.models import Artifact
-    from core.llm import workspace
-    from core.llm.agent_api_tools import register_agent_api_tools
+    from core.llm.runtime import workspace
+    from core.llm.api_runtime.agent_tools import register_agent_api_tools
 
     records = {}
 
@@ -368,11 +365,11 @@ async def test_generated_output_is_pinned_and_downloadable_only_with_its_key(
         return {key: value for key, value in item.items() if key != "metadata"}
 
     monkeypatch.setattr(core.sandbox, "get_sandbox_provider", lambda: Provider())
-    monkeypatch.setattr("core.llm.tools._tool_helpers._store_generated_file_path", save)
-    monkeypatch.setattr("core.artifacts.store._read_record", records.get)
-    monkeypatch.setattr("core.artifacts.store.get_artifact", records.get)
+    monkeypatch.setattr("core.files.artifacts.generated.store_generated_file_path", save)
+    monkeypatch.setattr('core.files.artifacts.store._read_record', records.get)
+    monkeypatch.setattr('core.files.artifacts.store.get_artifact', records.get)
     monkeypatch.setattr(
-        "core.services.artifact_service.require_artifact_storage_key", lambda fid, key: key
+        'core.files.artifacts.service.require_artifact_storage_key', lambda fid, key: key
     )
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"

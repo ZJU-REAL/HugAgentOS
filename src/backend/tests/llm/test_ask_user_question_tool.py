@@ -4,7 +4,7 @@ import json
 
 import pytest
 from agentscope.tool import Toolkit
-from core.llm.tool_collector import ToolCollector
+from core.llm.runtime.tool_collector import ToolCollector
 from core.llm.tools import ask_user_question_tool as tool_module
 
 

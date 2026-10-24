@@ -5,6 +5,7 @@ building the dict that ``routing/workflow.py`` consumes.
 """
 
 from __future__ import annotations
+from core.harness.registry import execution_catalog as bridge_gateway
 from core.infra.time import utc_now
 
 import logging
@@ -13,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from core.config.catalog_resolver import resolve_all_runtime_enabled
-from core.services import UserService
+from core.capabilities.catalog.resolver import resolve_all_runtime_enabled
+from core.auth.users import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,9 @@ def resolve_db_user_id(
 
     try:
         db.rollback()
-    except Exception:
-        pass
+    except Exception as fallback_error:
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.chat.context:resolve_db_user_id', fallback_error)
 
     external_user = normalize_external_user_id(request_user_id)
     user_service = UserService(db)
@@ -55,7 +57,7 @@ def resolve_db_user_id(
 def generate_smart_title(message: str) -> str:
     # 命令原文当标题等于没标题：历史列表里躺着一条叫「/init」的会话，看不出是哪个项目、
     # 干了什么。命令开头的会话按命令本身命名（与前端 seedChatTitle 一致）。
-    from core.services.project_init import INIT_COMMANDS
+    from core.chat.project_init import INIT_COMMANDS
 
     message = message.strip()
     if not message:
@@ -82,7 +84,7 @@ def build_effective_user_message(
     a ``{"text": ...}`` dict; returns unchanged when there is no quote.
 
     ``reference_block`` 是用户这一轮显式引用的历史会话名片（见
-    ``core.services.chat_reference_service.render_reference_block``），拼在最前面：它交代
+    ``core.chat.references.render_reference_block``），拼在最前面：它交代
     的是"回答这条消息要参考哪些会话"，属于这一轮的背景，先于追问引用和用户原话。
     """
     if isinstance(quoted_follow_up, dict):
@@ -112,7 +114,7 @@ def build_effective_user_message(
 
 def resolve_user_facing_error(exc: Exception) -> str:
     """Map exceptions to user-friendly Chinese error strings."""
-    from core.capabilities.errors import CapabilityError
+    from core.harness.capability_errors import CapabilityError
     from core.infra.exceptions import FirstResponseTimeoutError
 
     if isinstance(exc, FirstResponseTimeoutError):
@@ -178,9 +180,8 @@ def _apply_desktop_cloud_bridge(ids, kind: str):
     云端部署 / 纯本机模式下桥未激活，原样返回（零行为变化）。
     """
     try:
-        from core.services import desktop_cloud_bridge as bridge
 
-        apply = bridge.apply_to_enabled_skill_ids if kind == "skill" else bridge.apply_to_enabled_mcp_ids
+        apply = bridge_gateway.apply_to_enabled_skill_ids if kind == "skill" else bridge_gateway.apply_to_enabled_mcp_ids
         return apply(list(ids) if ids is not None else None)
     except Exception:  # noqa: BLE001 - 桥故障不能影响会话装配
         return ids
@@ -280,11 +281,7 @@ def collect_historical_attachments(
     try:
         from core.db.engine import SessionLocal
         from core.db.models import Artifact as ArtifactModel, ChatMessage
-        from core.content.artifact_reader import (
-            SOURCE_AI_GENERATED,
-            SOURCE_USER_UPLOAD,
-            infer_source,
-        )
+        from core.files.artifacts.reader import SOURCE_AI_GENERATED, SOURCE_USER_UPLOAD, infer_source
     except Exception:
         return []
 

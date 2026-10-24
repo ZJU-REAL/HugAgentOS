@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from sqlalchemy import select
 from core.db.engine import SessionLocal
-from core.db.models import EmailConnection
+from integrations.email.models import EmailConnection
 from core.infra.crypto import encrypt_secret
 from personal_agent.models import PersonalAgent, PersonalWorkItem
 from personal_agent.context import AgentContext

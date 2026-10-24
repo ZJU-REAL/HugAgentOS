@@ -8,7 +8,7 @@ from core.sandbox.workspace.paths import session_root
 
 def workspace_directory(root: str, session_id: str | None, *, scope=None, validate=True) -> str:
     if scope is not None and scope.is_local:
-        from core.services.local_project_workspace import project_directory
+        from core.projects.local_workspace import project_directory
 
         return project_directory(scope, validate=validate)
     return session_root(root, session_id) if session_id else root

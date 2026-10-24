@@ -1,6 +1,7 @@
 """Cloud marketplace operations for plugin-manager; installation lifecycle lives in cloud_management."""
 
 from __future__ import annotations
+from features.marketplace import plugin_market
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,7 +17,7 @@ def _invalidate_user_cache(user_id: Optional[str]) -> None:
     见 agent_manager_mcp/impl.py 同名函数的说明——两个 MCP 面对的是同一个跨进程缓存问题。
     """
     try:
-        from core.config.catalog_resolver import invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
 
         invalidate_capability_cache(str(user_id) if user_id else None)
     except Exception as exc:  # noqa: BLE001
@@ -63,13 +64,13 @@ def search_plugin_market(*, user_id: str, query: str = "", category: str = "") -
     if not user_id:
         return _no_user()
     from core.db.engine import SessionLocal
-    from core.plugins import management as plugin_service
+    from core.capabilities.plugins import management as plugin_service
 
     q = (query or "").strip().lower()
     cat = (category or "").strip()
     with SessionLocal() as db:
         # include_disabled=False：用户侧只看得到已发布的条目，与前端插件市场同口径。
-        items = plugin_service.list_plugins(db, user_id, include_disabled=False) or []
+        items = plugin_market.list_plugins(db, user_id, include_disabled=False) or []
 
     def _match(it: Dict[str, Any]) -> bool:
         if cat and str(it.get("category") or "") != cat:
@@ -109,7 +110,7 @@ def get_plugin_info(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not slug:
         return {"ok": False, "message": "❌ 请提供插件 slug。"}
     from core.db.engine import SessionLocal
-    from core.plugins import management as plugin_service
+    from core.capabilities.plugins import management as plugin_service
 
     with SessionLocal() as db:
         detail = None
@@ -168,7 +169,7 @@ def install_plugin(
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的插件 slug。"}
     from core.db.engine import SessionLocal
-    from core.plugins import management as plugin_service
+    from core.capabilities.plugins import management as plugin_service
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_import_plugin")

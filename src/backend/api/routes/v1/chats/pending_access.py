@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-import core.services.session_operations.session_context as chat_session_context
-import core.services as chat_services
+import core.chat.operations.session_context as chat_session_context
+import core.chat.service as chat_services_ChatService_module
 from sqlalchemy.orm import Session
 
 
@@ -42,6 +42,6 @@ def _detect_chat_run_interrupted(db: Session, chat_id: str) -> bool:
 
 def _owns_pending_chat(db, chat_id, user_id):
     try:
-        return chat_services.ChatService(db).get_session(chat_id, user_id) is not None
+        return chat_services_ChatService_module.ChatService(db).get_session(chat_id, user_id) is not None
     finally:
-        chat_session_context._release_request_session(db)
+        chat_session_context.release_request_session(db)

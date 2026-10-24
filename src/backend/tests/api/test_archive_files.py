@@ -14,7 +14,7 @@ from api.routes.files import router
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db
 from core.db.models import Artifact
-from core.storage.local import LocalStorageBackend
+from core.files.storage.local import LocalStorageBackend
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def archive_client(tmp_path, monkeypatch):
     db = Session(engine)
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
     storage = LocalStorageBackend()
-    monkeypatch.setattr("core.storage.get_storage", lambda: storage)
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: storage)
     monkeypatch.setattr("api.routes.file_archive.get_storage", lambda: storage)
     app = FastAPI()
     app.include_router(router)

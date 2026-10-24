@@ -29,7 +29,7 @@ HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一
   对象存储落盘（storage_key）                 │    · embed_text(query)
     │                                        │    · Milvus hybrid_search：
     ▼  BackgroundTask                        │      稠密(IP) + 稀疏(BoW) → RRF(k=60)
-  core/content/kb_processing.py              │    · 命中子块 → 回表 kb_chunks 取父块原文
+  core/files/content/kb_processing.py              │    · 命中子块 → 回表 kb_chunks 取父块原文
   vectorise_document_background()            │    · 可选 Reranker 重排
     · kb_parser.parse_and_chunk()            │    · user_id 隔离 + public kb 全局可见
     ·（可选）LLM 抽关键词/生成问题            │
@@ -83,7 +83,7 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 | `recursive` | 递归定长切分 |
 | `embedding_semantic` | 基于 embedding 相似度的语义边界检测 |
 
-父子分块参数可在上传时通过 `indexing_config` 调整：`parent_chunk_size`（默认 1024 token）、`child_chunk_size`（128）、`overlap_tokens`（20）、`parent_child_indexing`（默认 true）。还可启用 LLM 增强：`auto_keywords_count`（每父块抽关键词入 tags，参与稀疏检索）与 `auto_questions_count`（每父块生成关联问题，作为独立 question 行入 Milvus，提高问句召回）。后台向量化任务在 `core/content/kb_processing.py::vectorise_document_background()`。
+父子分块参数可在上传时通过 `indexing_config` 调整：`parent_chunk_size`（默认 1024 token）、`child_chunk_size`（128）、`overlap_tokens`（20）、`parent_child_indexing`（默认 true）。还可启用 LLM 增强：`auto_keywords_count`（每父块抽关键词入 tags，参与稀疏检索）与 `auto_questions_count`（每父块生成关联问题，作为独立 question 行入 Milvus，提高问句召回）。后台向量化任务在 `core/files/content/kb_processing.py::vectorise_document_background()`。
 
 ### 多模态：图片检索
 
@@ -180,9 +180,9 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 
 ## 文件解析支持
 
-知识库上传校验在 `core/content/file_validation.py::validate_kb_file`（扩展名 + magic bytes 双重校验），允许：`.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json` 及图片（`.png` `.jpg` `.jpeg` `.webp` `.gif`）。
+知识库上传校验在 `core/files/content/file_validation.py::validate_kb_file`（扩展名 + magic bytes 双重校验），允许：`.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json` 及图片（`.png` `.jpg` `.jpeg` `.webp` `.gif`）。
 
-通用文件解析器 `core/content/file_parser.py::parse_file()` 覆盖更广（对话附件、我的空间文件共用）：PDF、DOCX、DOC/WPS（经 LibreOffice 转换）、TXT、XLSX/XLS、CSV、PPTX，外加 HTML / Markdown / JSON / YAML / 代码等纯文本格式直接 UTF-8 解码。
+通用文件解析器 `core/files/content/file_parser.py::parse_file()` 覆盖更广（对话附件、我的空间文件共用）：PDF、DOCX、DOC/WPS（经 LibreOffice 转换）、TXT、XLSX/XLS、CSV、PPTX，外加 HTML / Markdown / JSON / YAML / 代码等纯文本格式直接 UTF-8 解码。
 
 ## 前端
 
@@ -201,9 +201,9 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 | `src/backend/core/kb/kb_assets.py` | 媒体资产：落盘、图像理解（调用视觉桥）、检索行、结果附图 |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets 客户端与启用判定（仅 EE） |
 | `src/backend/core/kb/external_provider.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
-| `src/backend/core/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
-| `src/backend/core/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
-| `src/backend/core/content/file_parser.py` | 通用文件解析器 |
+| `src/backend/core/files/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
+| `src/backend/core/files/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
+| `src/backend/core/files/content/file_parser.py` | 通用文件解析器 |
 | `src/backend/core/services/kb_service.py` | 知识库业务逻辑（含系统托管同步库） |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
 | `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |

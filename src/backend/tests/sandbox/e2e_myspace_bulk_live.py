@@ -8,8 +8,8 @@ from core.db.engine import SessionLocal
 from core.db.models import Artifact, ChatSession, UserShadow
 from core.infra.logging import LogContext
 from core.llm.tools.sandbox_tool import register_bash
-from core.services.api_key_service import ApiKeyService
-from core.storage import get_storage
+from core.auth.api_keys import ApiKeyService
+from core.files.storage import get_storage
 from tests.sandbox.e2e_myspace_identity_live import Toolkit, decode
 
 

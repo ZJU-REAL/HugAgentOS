@@ -1,8 +1,9 @@
-"""Unit tests for core.content.artifact_reader.
+"""Unit tests for core.files.artifacts.reader.
 
 Covers caching hit/miss, ownership check, parse error path. DB is mocked
 via an in-memory SQLite fixture from conftest.db_session pattern.
 """
+from core.files.content import file_parser
 
 from datetime import datetime
 from types import SimpleNamespace
@@ -65,7 +66,7 @@ class _FakeSession:
 # ── fetch_parsed_text ────────────────────────────────────────────────────────
 
 def test_fetch_parsed_text_cache_hit(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(parsed_text="cached content")
     sess = _FakeSession(row)
@@ -79,7 +80,7 @@ def test_fetch_parsed_text_cache_hit(monkeypatch):
 
 
 def test_fetch_parsed_text_miss_triggers_parse_and_cache(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(parsed_text=None, filename="a.txt")
     sess = _FakeSession(row)
@@ -91,10 +92,10 @@ def test_fetch_parsed_text_miss_triggers_parse_and_cache(monkeypatch):
     fake_storage = SimpleNamespace(
         download_bytes=lambda key: b"raw bytes"
     )
-    import core.storage as storage_mod
+    import core.files.storage as storage_mod
     monkeypatch.setattr(storage_mod, "get_storage", lambda: fake_storage)
-    import core.content.file_parser as fp_mod
-    monkeypatch.setattr(fp_mod, "parse_file", lambda b, name: "parsed text content")
+    import core.files.content.file_parser as fp_mod
+    monkeypatch.setattr(file_parser, 'parse_file', lambda b, name: "parsed text content")
 
     result = ar.fetch_parsed_text("ua_test123")
     assert result == "parsed text content"
@@ -105,7 +106,7 @@ def test_fetch_parsed_text_miss_triggers_parse_and_cache(monkeypatch):
 
 
 def test_fetch_parsed_text_permission_denied(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(user_id="owner_a", parsed_text="secret")
     sess = _FakeSession(row)
@@ -118,7 +119,7 @@ def test_fetch_parsed_text_permission_denied(monkeypatch):
 
 
 def test_fetch_parsed_text_permission_ok(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(user_id="owner_a", parsed_text="ok content")
     sess = _FakeSession(row)
@@ -131,7 +132,7 @@ def test_fetch_parsed_text_permission_ok(monkeypatch):
 
 
 def test_fetch_parsed_text_deleted_artifact(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(parsed_text="content", deleted_at=datetime.utcnow())
     sess = _FakeSession(row)
@@ -144,7 +145,7 @@ def test_fetch_parsed_text_deleted_artifact(monkeypatch):
 
 
 def test_fetch_parsed_text_missing_artifact(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     sess = _FakeSession(None)
     import core.db.engine as engine_mod
@@ -155,7 +156,7 @@ def test_fetch_parsed_text_missing_artifact(monkeypatch):
 
 
 def test_fetch_parsed_text_parse_error_records(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
     from core.infra.exceptions import StorageError
 
     row = _make_artifact_row(parsed_text=None)
@@ -168,7 +169,7 @@ def test_fetch_parsed_text_parse_error_records(monkeypatch):
         raise StorageError("download", "disk err")
 
     fake_storage = SimpleNamespace(download_bytes=_raise)
-    import core.storage as storage_mod
+    import core.files.storage as storage_mod
     monkeypatch.setattr(storage_mod, "get_storage", lambda: fake_storage)
 
     result = ar.fetch_parsed_text("ua_test123")
@@ -178,7 +179,7 @@ def test_fetch_parsed_text_parse_error_records(monkeypatch):
 
 
 def test_fetch_parsed_text_empty_file_id():
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
     assert ar.fetch_parsed_text("") == ""
     assert ar.fetch_parsed_text(None) == ""  # type: ignore[arg-type]
 
@@ -186,7 +187,7 @@ def test_fetch_parsed_text_empty_file_id():
 # ── load_artifact_meta ───────────────────────────────────────────────────────
 
 def test_load_artifact_meta_returns_shape(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
 
     row = _make_artifact_row(
         filename="data.xlsx",
@@ -210,7 +211,7 @@ def test_load_artifact_meta_returns_shape(monkeypatch):
 
 
 def test_load_artifact_meta_permission_denied(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
     row = _make_artifact_row(user_id="owner_a")
     sess = _FakeSession(row)
     import core.db.engine as engine_mod
@@ -219,7 +220,7 @@ def test_load_artifact_meta_permission_denied(monkeypatch):
 
 
 def test_load_artifact_meta_deleted(monkeypatch):
-    from core.content import artifact_reader as ar
+    from core.files.artifacts import reader as ar
     row = _make_artifact_row(deleted_at=datetime.utcnow())
     sess = _FakeSession(row)
     import core.db.engine as engine_mod
@@ -230,9 +231,7 @@ def test_load_artifact_meta_deleted(monkeypatch):
 # ── infer_source ─────────────────────────────────────────────────────────────
 
 def test_infer_source_extra_data_wins():
-    from core.content.artifact_reader import (
-        SOURCE_AI_GENERATED, SOURCE_USER_UPLOAD, infer_source,
-    )
+    from core.files.artifacts.reader import SOURCE_AI_GENERATED, SOURCE_USER_UPLOAD, infer_source
     assert infer_source(_make_artifact_row(
         artifact_id="ai_x", extra_data={"source": "user_upload"}
     )) == SOURCE_USER_UPLOAD
@@ -242,9 +241,7 @@ def test_infer_source_extra_data_wins():
 
 
 def test_infer_source_falls_back_to_id_prefix():
-    from core.content.artifact_reader import (
-        SOURCE_AI_GENERATED, SOURCE_USER_UPLOAD, infer_source,
-    )
+    from core.files.artifacts.reader import SOURCE_AI_GENERATED, SOURCE_USER_UPLOAD, infer_source
     assert infer_source(_make_artifact_row(
         artifact_id="ua_abc", extra_data={}
     )) == SOURCE_USER_UPLOAD

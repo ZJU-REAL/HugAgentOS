@@ -185,5 +185,5 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 | CE/EE table boundary | `src/backend/core/db/edition_tables.py` |
 | EE migration chain | `src/backend/alembic/versions/` |
 | CE migration baseline | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |
-| Prompt version pool service | `src/backend/core/services/prompt_version_service.py` |
+| Prompt version pool service | `src/backend/core/llm/prompt_versions.py` |
 | Authoritative edition boundary | [Editions](../editions/overview.md) |

@@ -16,7 +16,7 @@ from core.db.engine import get_db
 from core.db.models import Job
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
-from core.services.job_service import JobService
+from core.jobs.store import JobService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -86,7 +86,7 @@ def get_job(
 @router.post("/{job_id}/cancel", summary="用户手动取消作业")
 async def cancel_job(job_id: str, user: UserContext = Depends(get_current_user)):
     """状态条上的取消按钮 —— 跑歪了的作业不该只能等它烧完预算。"""
-    from orchestration import job_runtime
+    import core.jobs.runtime as job_runtime
 
     try:
         ok = await job_runtime.cancel_job(job_id, user_id=user.user_id)

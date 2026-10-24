@@ -142,14 +142,10 @@ def _make_skills_volumes(user_id: Optional[str] = None) -> list:
     # dirs (the same storage volume as the host bind source) and guarantee they
     # exist — OpenSandbox fails to bind a nonexistent source. Only their basenames
     # are used to compose host paths, so the names are not written twice.
-    from core.agent_skills.config import (
-        SHARED_LINK_NAME,
-        get_sandbox_skills_dir,
-        get_user_skills_root,
-    )
+    from core.capabilities.skills.config import SHARED_LINK_NAME, get_sandbox_skills_dir, get_user_skills_root
 
     shared_host = f"{host_storage}/{get_sandbox_skills_dir().name}"
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     view = prepare_skill_view(safe_user_id(user_id) or None)
     if view is None:

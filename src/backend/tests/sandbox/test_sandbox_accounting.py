@@ -12,7 +12,7 @@ import pytest
 
 import core.sandbox.providers.opensandbox.lifecycle as runtime
 import core.sandbox.sessions.registry as session_registry
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
@@ -290,7 +290,7 @@ def test_lost_claim_after_detach_returns_reservation_without_destroying_containe
 
 
 def test_cancelled_resource_stop_preserves_session_and_reservation(monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     worker=_worker(monkeypatch,None)
     monkeypatch.setattr(prewarm,"stop",AsyncMock(side_effect=asyncio.CancelledError()))
     async def scenario():

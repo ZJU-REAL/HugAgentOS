@@ -13,7 +13,7 @@ core/config/catalog.json            system-level single source of truth (admin t
 core/config/catalog.py              public API: get_catalog / is_enabled / get_enabled_ids
         │                                       set_enabled / reorder_items
         ▼
-core/config/catalog_resolver.py     merge layer: catalog.json defaults ∩ per-user DB overrides
+core/capabilities/catalog/resolver.py     merge layer: catalog.json defaults ∩ per-user DB overrides
         │  resolve_all_runtime_enabled(db, user_id) → (skills, agents, mcps)
         │  resolve_explicit_runtime_capabilities(...) → per-turn invocation (ignores personal switches, keeps hard gates)
         ▼
@@ -39,7 +39,7 @@ The file lives at `src/backend/core/config/catalog.json` (path overridable via t
 }
 ```
 
-`catalog_loader.py` performs **dynamic-source synchronization** at load time: new ids discovered from the skill loader (`core/agent_skills/`) and the MCP config service (`core/services/mcp_service.py`, DB table `admin_mcp_servers`) are added automatically; names/descriptions/versions refresh from the source; stale entries whose id no longer exists in any source are removed. Display details (Capability Center intro markdown, icons) are runtime-only fields and never persisted. Results are held in a short-TTL in-memory cache; writes call `invalidate_catalog_cache()`.
+`catalog_loader.py` performs **dynamic-source synchronization** at load time: new ids discovered from the skill loader (`core/capabilities/skills/`) and the MCP config service (`core/capabilities/mcp/service.py`, DB table `admin_mcp_servers`) are added automatically; names/descriptions/versions refresh from the source; stale entries whose id no longer exists in any source are removed. Display details (Capability Center intro markdown, icons) are runtime-only fields and never persisted. Results are held in a short-TTL in-memory cache; writes call `invalidate_catalog_cache()`.
 
 ### Gating API
 
@@ -54,7 +54,7 @@ These two functions are the system-wide read path for capability switches: `fact
 
 ## Per-user overrides (catalog_overrides)
 
-When a user toggles a capability in the Capability Center, the change is written to the `catalog_overrides` DB table (`core/services/catalog_service.py`), per-user and isolated:
+When a user toggles a capability in the Capability Center, the change is written to the `catalog_overrides` DB table (`core/capabilities/catalog/overrides.py`), per-user and isolated:
 
 - **Merge algorithm** (`catalog_resolver.py::_merge_kind`): overrides can only flip the enabled flag of items that *exist* in the base catalog; they can never resurrect deleted items.
 - **Admin lock**: items disabled in the base catalog (`enabled=false`) **cannot** be re-enabled by user overrides, and are completely hidden from the user-facing `/v1/catalog` response.
@@ -66,7 +66,7 @@ When a user toggles a capability in the Capability Center, the change is written
 - **Explicit plugin guidance**: selecting a plugin loads its skills and MCP tools and recommends using them when relevant, without restricting the first tool call or requiring a call before the answer.
 - **Chat-sticky capability restoration**: later turns restore activated skills, connectors, and plugin components before personal-switch filtering, keeping the skill list and tool names/prefixes stable in that chat. Installation, global admin state, dependency readiness, and ownership are revalidated each turn, so hard-gate changes take effect immediately.
 
-On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the default merged result into the workflow context. `api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` then verifies plugin installations and capability ownership, resolves components from the server-side installation record, and merges hard-gate-approved explicit selections into that turn. On later turns, `core/llm/session_capabilities.py` and `core/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` restore chat-activated capabilities.
+On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the default merged result into the workflow context. `api/routes/v1/chats/__init__.py::_resolve_explicit_capability_invocation()` then verifies plugin installations and capability ownership, resolves components from the server-side installation record, and merges hard-gate-approved explicit selections into that turn. On later turns, `core/llm/runtime/session_capabilities.py` and `core/capabilities/plugins/runtime/__init__.py::resolve_sticky_plugin_capabilities()` restore chat-activated capabilities.
 
 ## The /v1/catalog route and KB injection
 
@@ -116,7 +116,6 @@ State is centralized in `src/frontend/src/stores/catalogStore.ts`; local default
 ## Admin-side capability management
 
 - **`/admin` content console**: skill upload/toggle/reorder (`api/routes/v1/admin_skills.py`, which calls `catalog.set_enabled` / `reorder_items` to write back to catalog.json), MCP server management (`admin_mcp_servers.py`, DB table + connectivity probe + cache refresh), sub-agent management (`admin_agents.py`), and skill marketplace listing review (`admin_marketplace.py`, **Enterprise Edition (EE)**).
-- **Catalog snapshot migration**: `scripts/export_content.py --only catalog` exports catalog.json + `catalog_overrides`; `scripts/import_content.py --catalog <snapshot>` imports them.
 
 ## Source map
 
@@ -125,11 +124,11 @@ State is centralized in `src/frontend/src/stores/catalogStore.ts`; local default
 | Public API (is_enabled, etc.) | `src/backend/core/config/catalog.py` |
 | Single-source file | `src/backend/core/config/catalog.json` (overridable via `CATALOG_PATH`) |
 | Loading / dynamic sync / caching | `src/backend/core/config/catalog_loader.py`, `catalog_common.py`, `catalog_migration.py` |
-| User-override merging | `src/backend/core/config/catalog_resolver.py`, `core/services/catalog_service.py` |
+| User-override merging | `src/backend/core/capabilities/catalog/resolver.py`, `core/capabilities/catalog/overrides.py` |
 | Catalog route | `src/backend/api/routes/v1/catalog.py` |
 | User self-service capabilities | `src/backend/api/routes/v1/me_capabilities.py` |
-| MCP server config (DB) | `src/backend/core/services/mcp_service.py`, `api/routes/v1/admin_mcp_servers.py` |
-| Skill management | `src/backend/api/routes/v1/admin_skills.py`, `core/agent_skills/` |
+| MCP server config (DB) | `src/backend/core/capabilities/mcp/service.py`, `api/routes/v1/admin_mcp_servers.py` |
+| Skill management | `src/backend/api/routes/v1/admin_skills.py`, `core/capabilities/skills/` |
 | Dify KB injection (EE) | `src/backend/edition_ee/kb/dify.py`, via the shared `core/kb/external_provider.py` seam |
 | Frontend Capability Center | `src/frontend/src/components/catalog/`, `stores/catalogStore.ts` |
 | Factory consumption | `src/backend/core/llm/factory/build.py::_effective_mcp_server_keys` |

@@ -2,14 +2,9 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from core.db.models import ModelProvider, ModelRoleAssignment, UserShadow
-from core.services.model_config import ModelConfigService
-from core.services.user_model_selection import (
-    UserModelSelectionError,
-    list_user_selectable_models,
-    resolve_effective_chat_model_name,
-    resolve_user_model_provider_id,
-    user_can_switch_model,
-)
+from core.models.config import ModelConfigService
+from core.auth.model_selection import UserModelSelectionError, resolve_user_model_provider_id, user_can_switch_model
+from core.models.selection import list_user_selectable_models, resolve_effective_chat_model_name
 
 
 def _provider(
@@ -68,7 +63,7 @@ def test_resolve_user_model_provider_id_respects_switch_and_allowlist(db_session
 
 
 def test_resolve_effective_chat_model_name_uses_runtime_model_config(db_session, monkeypatch):
-    import core.services.model_config as model_config_module
+    import core.models.config as model_config_module
 
     db_session.add_all(
         [

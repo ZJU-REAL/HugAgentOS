@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import httpx
 from core.db.models import ChatSession
-from core.plugins.resources import installation, service
+from core.capabilities.plugins.resources import installation, service
 import core.sandbox.processes.interactive as interactive
 from core.sandbox import factory
 
@@ -74,9 +74,9 @@ async def test_open_joins_inflight_warm_start(runtime, monkeypatch):
     assert len(launches) == 1
 
 async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     from core.db.models import InstalledPlugin
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
     from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
@@ -105,7 +105,7 @@ async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(run
     for _ in range(100):
         await asyncio.sleep(0.01)
         with prewarm.engine.SessionLocal() as check:
-            from core.plugins.resources import store
+            from core.capabilities.plugins.resources import store
             rows = check.query(store.PluginResource).filter_by(status="warm").all()
             if rows:
                 resource_id = rows[0].resource_id
@@ -136,8 +136,8 @@ async def test_warm_is_private_and_counts_against_quota(runtime, monkeypatch):
     assert active["resource_id"] == warm["resource_id"]
 
 async def test_checkpoint_opens_its_own_worker_and_never_consumes_blank_warm(runtime):
-    from core.plugins.resources import store
-    from core.plugins.resources.crypto import encrypt_secret
+    from core.capabilities.plugins.resources import store
+    from core.capabilities.plugins.resources.crypto import encrypt_secret
     db, launches, selected, _ = runtime
     warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     db.add(store.PluginResourceCheckpoint(checkpoint_id="saved", user_id="warm-user",
@@ -149,7 +149,7 @@ async def test_checkpoint_opens_its_own_worker_and_never_consumes_blank_warm(run
 
 @pytest.mark.parametrize("change", ["expired", "sandbox", "revision"])
 async def test_invalid_warm_is_never_reused(runtime, monkeypatch, change):
-    from core.plugins.resources import store
+    from core.capabilities.plugins.resources import store
     db, launches, selected, provider = runtime
     warm = await service.create(db, "browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     if change == "expired":
@@ -186,7 +186,7 @@ async def test_revoked_chat_during_prewarm_cannot_publish_ready_worker(runtime, 
     assert cancelled == ["\x03"]
 
 async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(tmp_path, monkeypatch):
-    from core.plugins.resources import confinement
+    from core.capabilities.plugins.resources import confinement
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     (runtime / "worker.py").write_text("def main(config): pass")
@@ -213,12 +213,12 @@ async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(t
     assert cleaned == [("owned-start", "\x03")]
 
 async def test_close_fence_blocks_readmission_until_provider_close_finishes(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     from core.sandbox.sessions.router import SessionSandboxRouter
     from sqlalchemy.orm import sessionmaker
     db, launches, selected, provider = runtime
     from core.db.models import InstalledPlugin
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
     db.commit()
     monkeypatch.setattr(device_catalog, "active", lambda: False)
@@ -278,7 +278,7 @@ def test_background_binding_accepts_its_live_sandbox():
         require_available("bound")
 
 async def test_failed_warm_shutdown_reports_sandbox_dirty(runtime, monkeypatch):
-    from core.plugins.resources import prewarm
+    from core.capabilities.plugins.resources import prewarm
     from sqlalchemy.orm import sessionmaker
     db, _, _, _ = runtime
     monkeypatch.setattr(prewarm.engine, "SessionLocal", sessionmaker(bind=db.bind))

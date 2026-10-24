@@ -108,7 +108,7 @@ async def launch(provider, installation, module, user_id, chat_id, config):
         raise ValueError("runtime_package_too_large")
     archive_name = ".__interactive_" + secrets.token_hex(12) + ".zip"
     body = {**config, "archive": archive_name, "callable": runtime["callable"]}
-    from core.plugins.resources.confinement import launch_policy
+    from core.capabilities.plugins.resources.confinement import launch_policy
 
     confinement = launch_policy(provider, user_id, chat_id)
     start = asyncio.create_task(

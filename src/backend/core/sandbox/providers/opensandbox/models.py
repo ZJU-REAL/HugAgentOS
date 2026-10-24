@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 
 @dataclass
-class _Session:
+class SandboxSessionRecord:
     sandbox: Any  # opensandbox.Sandbox
     # The user_id owning this sandbox (binds MySpace/account-credential volumes +
     # user re-homing on adopt across restarts). None when legacy paths call

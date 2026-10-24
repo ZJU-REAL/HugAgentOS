@@ -29,7 +29,7 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
   Object storage write (storage_key)           │    · embed_text(query)
     │                                          │    · Milvus hybrid_search:
     ▼  BackgroundTask                          │      dense (IP) + sparse (BoW) → RRF(k=60)
-  core/content/kb_processing.py                │    · child hit → fetch parent chunk
+  core/files/content/kb_processing.py                │    · child hit → fetch parent chunk
   vectorise_document_background()              │      text from kb_chunks (PostgreSQL)
     · kb_parser.parse_and_chunk()              │    · optional reranker pass
     · (optional) LLM keywords / questions      │    · user_id isolation + global public KBs
@@ -84,7 +84,7 @@ Parsing and chunking happen in `core/kb/kb_parser.py::parse_and_chunk()`, suppor
 | `recursive` | Recursive fixed-size splitting |
 | `embedding_semantic` | Semantic boundary detection via embedding similarity |
 
-Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/content/kb_processing.py::vectorise_document_background()`.
+Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/files/content/kb_processing.py::vectorise_document_background()`.
 
 ### Multimodal: image retrieval
 
@@ -195,9 +195,9 @@ DIFY_API_KEY=dataset-...               # alias: DIFY_AUTH_TOKEN
 
 ## Supported file formats
 
-KB upload validation is in `core/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
+KB upload validation is in `core/files/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
 
-The general-purpose parser `core/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
+The general-purpose parser `core/files/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
 
 ## Frontend
 
@@ -218,9 +218,9 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 | `src/backend/core/kb/kb_assets.py` | Media assets: storage, image understanding (via the vision bridge), retrieval rows, result attachment |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets client and enablement logic (EE only) |
 | `src/backend/core/kb/external_provider.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
-| `src/backend/core/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
-| `src/backend/core/content/file_validation.py` | Upload validation (extension + magic bytes) |
-| `src/backend/core/content/file_parser.py` | General-purpose file parser |
+| `src/backend/core/files/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
+| `src/backend/core/files/content/file_validation.py` | Upload validation (extension + magic bytes) |
+| `src/backend/core/files/content/file_parser.py` | General-purpose file parser |
 | `src/backend/core/services/kb_service.py` | KB business logic (incl. the system-managed sync space) |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
 | `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |

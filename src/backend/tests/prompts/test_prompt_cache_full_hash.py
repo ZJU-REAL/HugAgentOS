@@ -8,11 +8,11 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db import engine as db_engine
 from core.db.models import AdminPromptPart, ContentBlock
-from core.services import prompt_version_service as pvs
+from core.llm import prompt_storage as pvs
 from prompts.prompt_config import PromptConfig, SystemPromptConfig
 from prompts import prompt_runtime
 from prompts import project_section
-from core.llm.execution_manifest import PromptManifestBuilder
+from core.harness.execution_manifest import PromptManifestBuilder
 
 
 @pytest.fixture(autouse=True)

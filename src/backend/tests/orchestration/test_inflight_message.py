@@ -9,15 +9,19 @@ import asyncio
 import contextlib
 from types import SimpleNamespace
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.chat.runtime.followups as followups
+import core.db.engine as db_engine
+import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
 from core.chat import inflight
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
-from core.services.chat_sequencer import ChatSequencer
-from core.services.compaction_history import normalize_rows
-from core.services.run_journal import RunJournal
-from orchestration import chat_run_executor as executor
+from core.chat.sequencer import ChatSequencer
+from core.chat.compaction.history import normalize_rows
+from core.runs.journal import RunJournal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -30,16 +34,16 @@ def env(tmp_path, monkeypatch):
     )
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
-    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
-    executor._active_runs.clear()
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
+    monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)
+    tasks.process_state().active_runs.clear()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
     yield sessions
-    executor._active_runs.clear()
+    tasks.process_state().active_runs.clear()
     engine.dispose()
 
 
@@ -54,7 +58,7 @@ def _assistant_rows(sessions):
 
 
 async def _start(workflow, monkeypatch, sessions):
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     with sessions() as db:
         accepted = ChatSequencer(db).accept_main_run(
             chat_id="chat-1",
@@ -62,7 +66,7 @@ async def _start(workflow, monkeypatch, sessions):
             user_content="hello",
             request_payload={"message": "hello"},
         )
-    return await executor.start_run(
+    return await admission.start_run(
         accepted_run=accepted.run,
         chat_id="chat-1",
         user_id="user-1",
@@ -141,8 +145,8 @@ async def test_streaming_refreshes_the_row_before_the_turn_ends(env, monkeypatch
     assert marker["event_offset"] > 0
     assert row.extra_data["segments"]
 
-    executor._active_runs[run.run_id].cancel()
-    await _finish(executor._active_runs[run.run_id])
+    tasks.process_state().active_runs[run.run_id].cancel()
+    await _finish(tasks.process_state().active_runs[run.run_id])
 
 
 @pytest.mark.asyncio
@@ -154,7 +158,7 @@ async def test_completion_finalizes_and_clears_marker(env, monkeypatch):
         yield {"type": "meta", "route": "main", "is_markdown": False, "usage": {}}
 
     run = await _start(workflow, monkeypatch, sessions)
-    await _finish(executor._active_runs[run.run_id])
+    await _finish(tasks.process_state().active_runs[run.run_id])
 
     rows = _assistant_rows(sessions)
     assert len(rows) == 1
@@ -181,7 +185,7 @@ async def test_failure_keeps_what_was_produced(env, monkeypatch):
         raise RuntimeError("sandbox vanished")
 
     run = await _start(workflow, monkeypatch, sessions)
-    await _finish(executor._active_runs[run.run_id])
+    await _finish(tasks.process_state().active_runs[run.run_id])
 
     rows = _assistant_rows(sessions)
     assert len(rows) == 1
@@ -238,7 +242,7 @@ def test_fenced_worker_cannot_refresh_the_row(env):
             .run
         )
     assert journal.claim(run.run_id, owner="worker-a", lease_seconds=60) is not None
-    from core.services.chat_service import ChatService
+    from core.chat.service import ChatService
 
     def _refresh(owner: str) -> bool:
         with sessions() as db:
@@ -262,8 +266,8 @@ def test_fenced_worker_cannot_refresh_the_row(env):
 
 def test_a_row_reads_as_final_once_its_run_is_gone(env):
     """in-flight 不是存下来的状态，而是"归属的 run 是否还活着"：run 一停，行就是定稿。"""
-    from core.services.chat_service import ChatService
-    from core.services.compaction_service import _live_run_ids
+    from core.chat.service import ChatService
+    from core.chat.compaction.service import _live_run_ids
 
     sessions = env
     journal = RunJournal(sessions)

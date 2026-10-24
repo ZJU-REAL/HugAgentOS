@@ -12,11 +12,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from core.content.content_blocks import (
-    DEFAULT_APP_CONFIG,
-    DOCS_BLOCK_MAP,
-    normalize_app_config,
-)
+from core.files.content.content_blocks_state import DEFAULT_APP_CONFIG, DOCS_BLOCK_MAP
+from core.files.content.branding import normalize_app_config
 from core.db.engine import get_db
 from core.db.models import ContentBlock
 from core.infra.responses import success_response

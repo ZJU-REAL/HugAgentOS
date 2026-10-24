@@ -12,12 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.db.model_repository import (
-    ROLE_DEFINITIONS,
-    list_role_assignments,
-    provider_has_capability,
-    role_required_capability,
-)
+from core.models.repository import ROLE_DEFINITIONS, list_role_assignments, provider_has_capability, role_required_capability
 
 
 def _provider(**extra_config):

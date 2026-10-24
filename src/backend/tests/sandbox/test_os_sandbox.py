@@ -403,7 +403,7 @@ def test_labels_follow_the_plan_and_leave_with_it(tmp_path, monkeypatch):
     for name in ("label_writable", "label_read_only", "remove_label"):
         setattr(stub, name, lambda path, _name=name: calls.append((_name, path)))
     monkeypatch.setitem(sys.modules, "core.sandbox.oslayer.win32.label", stub)
-    monkeypatch.setattr(windows_runtime, "_IN_USE", Counter())
+    monkeypatch.setattr(windows_runtime.process_state(), 'IN_USE', Counter())
     state = str(tmp_path / "state")
     workspace, once, busy = (str(tmp_path / name) for name in ("ws", "once", "busy"))
 
@@ -426,7 +426,7 @@ def test_labels_follow_the_plan_and_leave_with_it(tmp_path, monkeypatch):
     assert LabeledRoots(state).load() == {root_key(p) for p in (workspace, once, busy)}
 
     calls.clear()
-    windows_runtime._IN_USE[root_key(busy)] += 1
+    windows_runtime.process_state().IN_USE[root_key(busy)] += 1
     windows_runtime.apply_labels(
         {"state_dir": state, "writable_roots": [{"path": workspace, "read_only": []}]}
     )

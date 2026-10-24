@@ -3,13 +3,14 @@
 import asyncio
 from datetime import timedelta
 
+import core.agent_runtime.runner as runner
+import orchestration.automations.automation_lease as automations_automation_lease
+import orchestration.automations.automation_lease as automation_lease
 import pytest
-
 from core.infra import ephemeral
 from core.infra.time import utc_now
-from core.services.automation_service import AutomationService
-from orchestration.schedulers import automation_lease
-from orchestration.schedulers.automation_scheduler import AutomationScheduler, REDIS_LOCK_PREFIX
+from features.automation.service import AutomationService
+from orchestration.automations.automation_scheduler import REDIS_LOCK_PREFIX, AutomationScheduler
 
 pytest_plugins = ["tests.orchestration.test_automation_live_conversations"]
 
@@ -21,7 +22,7 @@ async def test_long_run_renews_across_many_lease_periods_and_excludes_other_work
     monkeypatch.setattr(ephemeral.time, "time", lambda: clock[0])
     state = ephemeral.LocalEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
-    monkeypatch.setattr(automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(automations_automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
     owner, other = AutomationScheduler(), AutomationScheduler()
     assert await owner._acquire_lock("long-task")
     try:
@@ -43,7 +44,7 @@ async def test_expired_owner_cannot_renew_or_delete_new_owners_lock(monkeypatch)
     monkeypatch.setattr(ephemeral.time, "time", lambda: clock[0])
     state = ephemeral.LocalEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
-    monkeypatch.setattr(automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(automations_automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
     owner, other = AutomationScheduler(), AutomationScheduler()
     assert await owner._acquire_lock("task")
     old_lease = owner._leases["task"]
@@ -59,7 +60,7 @@ async def test_expired_owner_cannot_renew_or_delete_new_owners_lock(monkeypatch)
 async def test_lease_loss_cancels_inflight_execution(monkeypatch):
     state = ephemeral.LocalEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
-    monkeypatch.setattr(automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(automations_automation_lease, "RENEW_INTERVAL_SECONDS", 0.001)
     lease = automation_lease.AutomationLease("test-loss")
     assert await lease.acquire()
     entered, cancelled = asyncio.Event(), asyncio.Event()
@@ -141,7 +142,7 @@ async def test_direct_execution_on_same_scheduler_cannot_share_ownership(live_en
         entered.set()
         await release.wait()
 
-    monkeypatch.setattr("orchestration.schedulers.automation_dispatch.execute_task", dispatch)
+    monkeypatch.setattr('orchestration.automations.automation_dispatch.execute_task', dispatch)
     first = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
     try:
         await entered.wait()
@@ -155,8 +156,8 @@ async def test_direct_execution_on_same_scheduler_cannot_share_ownership(live_en
 @pytest.mark.asyncio
 async def test_orphan_recovery_observes_child_without_creating_duplicate(live_env, monkeypatch):
     factory, _, task_id = live_env
-    from orchestration import chat_run_executor as executor
-    from orchestration.schedulers.automation_conversation import execute_prompt
+    pass
+    from orchestration.automations.automation_conversation import execute_prompt
 
     entered, release = asyncio.Event(), asyncio.Event()
     calls = []
@@ -168,7 +169,7 @@ async def test_orphan_recovery_observes_child_without_creating_duplicate(live_en
         yield {"type": "content", "delta": "Recovered report"}
         yield {"type": "meta", "usage": {}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     with factory() as db:
         run_id = AutomationService(db).record_run_start(task_id).run_id
     child_observer = asyncio.create_task(
@@ -213,15 +214,15 @@ async def test_orphan_recovery_observes_child_without_creating_duplicate(live_en
 @pytest.mark.asyncio
 async def test_recovery_delivers_original_result_before_later_user_message(live_env, monkeypatch):
     factory, _, task_id = live_env
-    from core.db.models import ChatRun, ChatMessage
-    from orchestration import chat_run_executor as executor
-    from orchestration.schedulers.automation_conversation import execute_prompt
+    from core.db.models import ChatMessage, ChatRun
+    pass
+    from orchestration.automations.automation_conversation import execute_prompt
 
     async def workflow(**kwargs):
         yield {"type": "content", "delta": "Scheduled report"}
         yield {"type": "meta", "usage": {}}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     with factory() as db:
         run_id = AutomationService(db).record_run_start(task_id).run_id
     chat_id, _, _ = await execute_prompt(

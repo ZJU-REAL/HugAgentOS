@@ -12,14 +12,18 @@ os.environ.setdefault("BROWSER_CHROMIUM_SANDBOX", "true")
 os.environ["MCP_HOST"] = "127.0.0.1"
 os.environ["HUGAGENT_CAPS_ROOT"] = str(home)
 
+from features.desktop.bridge import gateway as bridge_gateway
+from features.desktop.bridge import identity as bridge_identity
+from features.desktop.capabilities import skill_account
 import json
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from core.db.engine import Base, engine, SessionLocal
 from core.db import models
 from core.auth.backend import UserContext, get_current_user
-from core.plugins.management.installation import install_plugin
-from api.routes.v1 import plugin_resources, plugin_ui
+from core.capabilities.plugins.management.installation import install_plugin
+from api.routes.v1 import plugin_resources
+from features.workbench.api import plugin_ui
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 
@@ -28,11 +32,11 @@ with SessionLocal() as db:
     db.add(models.UserShadow(user_id="browser-owner", user_center_id="browser-owner", username="Browser owner"))
     db.add(models.ChatSession(chat_id="browser-chat", user_id="browser-owner"))
     db.commit()
-    from core.services.user_service import UserService
+    from core.auth.users import UserService
     UserService(db).update_user_metadata("browser-owner", {"tool_approval_mode": os.getenv("BROWSER_E2E_APPROVAL_MODE", "auto")})
     install_plugin(db, "browser-automation", owner_user_id="browser-owner")
 
-from core.plugins.resources.lifecycle import lifespan as resources_lifespan
+from core.capabilities.plugins.resources.lifecycle import lifespan as resources_lifespan
 app = FastAPI(lifespan=resources_lifespan)
 app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="browser-owner", user_center_id="browser-owner", username="Browser owner")
 app.include_router(plugin_resources.router, prefix="/api")
@@ -55,21 +59,21 @@ from core.config.mcp_config import _PORTS
 from core.config.settings import settings
 _PORTS["browser_runtime"] = urlsplit(os.environ["BROWSER_E2E_MCP"]).port
 assert settings.server.mcp_host == "127.0.0.1"
-from core.plugins.local import service as local_packages
-from core.capabilities import local_plugin_runtime, skills
+from features.desktop.local.plugins import service as local_packages
+from features.desktop.capabilities import local_plugin_runtime, skills
 modern = local_packages.install("browser-owner", str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation"))
-skills.current_local_user_id = lambda: "browser-owner"
+skill_account.current_local_user_id = lambda: "browser-owner"
 # The isolated desktop proxy carries this synthetic account. Preserve the
 # real bridge authentication and ticket revalidation with its identity seam.
-from core.services import desktop_cloud_bridge as desktop_bridge
-desktop_bridge.get_identity_state = lambda: {"shell_user_center_id": "browser-owner"}
+from features.desktop.bridge import client as desktop_bridge
+bridge_identity.get_identity_state = lambda: {"shell_user_center_id": "browser-owner"}
 
 @app.post("/test/tool/{name}")
 async def tool(name: str, arguments: dict):
-    from core.llm.factory.tools.mcp_config import _inject_runtime_headers
-    from core.llm.mcp_pool import make_client
-    from core.config.catalog_resolver import _owned_enabled_ids
-    from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
+    from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
+    from core.llm.mcp.pool import make_client
+    from core.capabilities.catalog.resolver import _owned_enabled_ids
+    from features.desktop.bridge.gateway import cloud_gateway_mcp_configs
     sid = modern["components"]["mcp"][0]
     with SessionLocal() as db:
         _, allowed = _owned_enabled_ids(db, "browser-owner", {})
@@ -92,8 +96,8 @@ async def tool(name: str, arguments: dict):
 @app.post("/test/cloud-proof")
 async def cloud_proof():
     import mcp.types
-    from core.services.desktop_capability_mcp import invoke_gateway_tool
-    from core.services import desktop_capability_mcp as gateway
+    from features.desktop.capability.mcp import invoke_gateway_tool
+    from features.desktop.capability import mcp as gateway
     gateway.guard_capability_content = lambda uid, data, **kw: data
     async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
         async with ClientSession(read, write) as client:
@@ -142,8 +146,8 @@ def cookie():
 async def confinement_probe():
     from core.sandbox.factory import get_sandbox_provider
     from core.sandbox.protocol import ProcessRequest
-    from core.plugins.resources.confinement import launch_policy
-    from core.llm.tools._paths import workspace_directory
+    from core.capabilities.plugins.resources.confinement import launch_policy
+    from core.sandbox.workspace.resolution import workspace_directory
     private = home / "credential-probe"
     private.write_text("isolated-secret-probe")
     workspace = Path(workspace_directory("browser-chat"))
@@ -172,7 +176,7 @@ print(json.dumps({"private_read_blocked": blocked, "workspace_write": True}))
 async def prewarm_probe():
     import asyncio
     from core.sandbox.factory import get_sandbox_provider
-    from core.plugins.resources import store
+    from core.capabilities.plugins.resources import store
     await get_sandbox_provider().put_file("browser-chat", ".prewarm-probe", b"", user_id="browser-owner")
     for _ in range(600):
         with SessionLocal() as db:
@@ -187,13 +191,13 @@ async def prewarm_probe():
 @app.post("/test/synced-tool/{name}")
 async def synced_tool(name: str, arguments: dict):
     """Actual cloud package export, device binding and MCP callback; no cloud account."""
-    from core.capabilities import registry, store, device_catalog, skills
-    from core.capabilities.ref import ResourceRef
-    from core.services.desktop_capability_entities import _plugin_files
-    from core.services.desktop_capability_protocol import entity_content_hash
-    from core.llm.factory.tools.mcp_config import _inject_runtime_headers
-    from core.llm.mcp_pool import make_client
-    from core.services import desktop_cloud_bridge as bridge
+    from features.desktop.capabilities import registry, store, device_catalog, skills
+    from core.capabilities.reference import ResourceRef
+    from features.desktop.capability.entities import _plugin_files
+    from core.capabilities.manifest_protocol import entity_content_hash
+    from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
+    from core.llm.mcp.pool import make_client
+    from features.desktop.bridge import client as bridge
     profile = "browser-cloud-fixture"
     with SessionLocal() as db:
         row = db.query(models.InstalledPlugin).filter_by(slug="browser-automation").first()
@@ -206,18 +210,18 @@ async def synced_tool(name: str, arguments: dict):
     inst = registry.upsert(profile_id=profile, ref=ResourceRef("fixture", "account", "plugin", "browser-automation"),
         content_hash=digest, source="cloud", enabled=True, payload={"components": {"mcp": [sid]}})
     registry.set_state(inst.install_id, "ready", resolved_revision=comp.revision)
-    skills.current_account_profile = lambda: profile
-    skills.account_authorized_for = lambda uid: uid == "browser-owner"
+    skill_account.current_account_profile = lambda: profile
+    skill_account.account_authorized_for = lambda uid: uid == "browser-owner"
     device_catalog._profile = lambda: profile
     # The cloud side supplies its authorized schema; its URL must never be used.
     async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
         async with ClientSession(read, write) as client:
             await client.initialize()
             schemas = [t.model_dump() for t in (await client.list_tools()).tools]
-    bridge._bridge_context = lambda: {"state": {"cloud_base": "https://cloud.invalid"},
+    bridge_gateway.bridge_context = lambda: {"state": {"cloud_base": "https://cloud.invalid"},
         "manifest_revision": "fixture", "profile": profile,
         "servers": [{"server_id": sid, "tools": schemas, "source_plugin": "browser-automation"}]}
-    cfg = bridge.cloud_gateway_mcp_configs([sid])[sid]
+    cfg = bridge_gateway.cloud_gateway_mcp_configs([sid])[sid]
     assert cfg["execution_scope"] == "local" and "gateway_invoke_url" not in cfg
     chat_id = arguments.pop("_chat_id", "browser-chat")
     cfg = _inject_runtime_headers({sid: cfg}, current_user_id="browser-owner", chat_id=chat_id)[sid]

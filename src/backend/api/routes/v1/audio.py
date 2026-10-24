@@ -10,7 +10,7 @@ from core.auth.capabilities import resolve_user_capabilities
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.services.audio_transcription import MAX_BYTES, MAX_SECONDS, resolve_audio_model, transcribe, validate_wav
+from core.chat.audio_transcription import MAX_BYTES, MAX_SECONDS, resolve_audio_model, transcribe, validate_wav
 
 router = APIRouter(prefix="/v1/audio", tags=["Audio"])
 # Per-worker admission, no unbounded queue. Every call enters before its first await.

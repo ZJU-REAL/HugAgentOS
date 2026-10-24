@@ -8,7 +8,9 @@ import sys
 
 import pytest
 
-from core.llm.context_ir import IMAGE_TOKEN_RESERVE, ContextAssembler, ContextItem
+from core.llm.context.ir import ContextAssembler
+from core.llm.context.items import ContextItem
+from core.models.constants import IMAGE_TOKEN_RESERVE
 
 
 def _item(
@@ -51,7 +53,7 @@ def test_context_ir_module_does_not_import_agentscope():
             sys.executable,
             "-c",
             (
-                "import sys; import core.llm.context_ir; "
+                "import sys; import core.llm.context.ir; "
                 "raise SystemExit('agentscope.message' in sys.modules)"
             ),
         ],
@@ -408,7 +410,7 @@ def test_manifest_is_sanitized_and_content_hash_sensitive():
 def test_tool_text_budget_and_history_pruning_preserve_image_blocks(
     policy, total_budget, text_budget, action
 ):
-    from core.immutable import thaw_json
+    from core.infra.immutable import thaw_json
 
     image = {
         "type": "data",

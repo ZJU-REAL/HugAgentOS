@@ -9,7 +9,7 @@ from email.parser import BytesParser
 from email.message import EmailMessage
 from email.utils import getaddresses
 from core.db.engine import SessionLocal
-from core.db.models import EmailConnection
+from integrations.email.models import EmailConnection
 from core.infra.crypto import decrypt_secret
 from personal_agent.tasks.guards import owned_task
 from personal_agent.tools.responses import response

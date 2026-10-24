@@ -9,10 +9,11 @@ from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
 logger = logging.getLogger(__name__)
 import asyncio
 
-import core.config.catalog as catalog
+import core.capabilities.catalog.api as catalog
 from core.auth.tenancy import tenant_of
-from core.evolution.agent_profile import builtin_profile, load_active_profile
-from core.llm.execution_manifest import PromptManifestBuilder
+from core.evolution.profiles.agent_profile import builtin_profile
+from core.evolution.profiles.profile_selection import load_active_profile
+from core.harness.execution_manifest import PromptManifestBuilder
 from core.llm.factory.request import AgentRequest
 
 
@@ -88,7 +89,7 @@ async def profile_selection(
     # what the decremental engine needs; narrowing what gets loaded is not.
     skill_selection = None
     try:
-        from core.agent_skills.selection_record import build_selection
+        from core.capabilities.skills.selection_record import build_selection
 
         skill_selection = build_selection(
             all_candidate_ids=list(skill_ids_for_bindings or []),

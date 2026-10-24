@@ -1,24 +1,21 @@
 """Agent assembly phase: mcp connections. """
 
 from __future__ import annotations
+from core.capabilities.skills import loader_factory as loader_factory_module
 
 import asyncio
 import time
 from typing import List
 
-import core.agent_skills.loader as skill_loader
+import core.capabilities.skills.loader as skill_loader
 from agentscope.mcp import MCPClient
-from core.llm.factory.defaults import (
-    _HTTP_MCP_FAIL_AT,
-    _HTTP_MCP_FAIL_COOLDOWN_S,
-    _SKILL_INSTRUCTION_TEMPLATE,
-    KB_MCP_HTTP_URL,
-)
+from core.llm.factory.defaults import process_state as _state_core_llm_factory_defaults
+from core.llm.factory.defaults import _HTTP_MCP_FAIL_COOLDOWN_S, _SKILL_INSTRUCTION_TEMPLATE, KB_MCP_HTTP_URL
 from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
-from core.llm.mcp_manager import own_factory_client
-from core.llm.mcp_pool import MCPConnectionPool
-from core.llm.tool_collector import ToolCollector
+from core.llm.mcp.manager import own_factory_client
+from core.llm.mcp.pool import MCPConnectionPool
+from core.llm.runtime.tool_collector import ToolCollector
 
 
 async def mcp_connections(
@@ -36,7 +33,7 @@ async def mcp_connections(
 ):
     def _preload_skill_metadata():
         """Pre-warm skill metadata cache so registration is fast."""
-        loader = skill_loader.get_skill_loader()
+        loader = loader_factory_module.get_skill_loader()
         loader.load_all_metadata()
         return loader
 
@@ -89,7 +86,7 @@ async def mcp_connections(
     )
 
     if not request.disable_tools and enabled_servers:
-        from core.llm.mcp_pool import HTTP_TRANSPORTS, make_client, uses_manifest_schema
+        from core.llm.mcp.pool import HTTP_TRANSPORTS, make_client, uses_manifest_schema
 
         http_server_cfgs = {
             k: v for k, v in enabled_servers.items() if v.get("transport") in HTTP_TRANSPORTS
@@ -104,7 +101,7 @@ async def mcp_connections(
         # anyio on cross-loop teardown. Spawn fresh per-request stdio + HTTP
         # instead, and rely on close_clients() in the caller's loop.
         if request.isolated or _api_scope is not None:
-            from core.llm.mcp_manager import connect_mcp_clients
+            from core.llm.mcp.manager import connect_mcp_clients
 
             mcp_clients = await connect_mcp_clients(stdio_servers)
             transient_mcp_clients = mcp_clients  # all freshly spawned → all closable
@@ -125,7 +122,7 @@ async def mcp_connections(
                     per_request_servers_cfg=per_request_stdio,
                 )
             else:
-                from core.llm.mcp_manager import connect_mcp_clients
+                from core.llm.mcp.manager import connect_mcp_clients
 
                 mcp_clients = await connect_mcp_clients(stdio_servers)
                 transient_mcp_clients = mcp_clients  # pool off → all transient
@@ -136,7 +133,7 @@ async def mcp_connections(
         # CancelledError on transient failures.
         async def _connect_http(key: str, cfg: dict):
             start = time.monotonic()
-            last_fail = _HTTP_MCP_FAIL_AT.get(key, 0.0)
+            last_fail = _state_core_llm_factory_defaults().HTTP_MCP_FAIL_AT.get(key, 0.0)
             if last_fail and start - last_fail < _HTTP_MCP_FAIL_COOLDOWN_S:
                 return None
             # ⚠️ 2.0 key point: HTTP MCP uses is_stateful=False (a new connection
@@ -161,7 +158,7 @@ async def mcp_connections(
                 # The complete, authorized schema arrived in the dynamic cloud
                 # manifest. Agent construction is network-free; only a model-
                 # selected tool call reaches the JSON gateway.
-                _HTTP_MCP_FAIL_AT.pop(key, None)
+                _state_core_llm_factory_defaults().HTTP_MCP_FAIL_AT.pop(key, None)
                 _log.info(
                     "[factory] HTTP MCP '%s' loaded from cloud manifest (%d tools)",
                     key,
@@ -169,11 +166,11 @@ async def mcp_connections(
                 )
                 return client
             try:
-                from orchestration.local_plugin_sidecars import ensure_native_servers
+                from core.harness.registry.local_publication import ensure_native_servers
 
                 await ensure_native_servers({key: _http_cfg})
                 await client.list_tools()
-                _HTTP_MCP_FAIL_AT.pop(key, None)
+                _state_core_llm_factory_defaults().HTTP_MCP_FAIL_AT.pop(key, None)
                 _log.info(
                     "[factory] HTTP MCP '%s' (stateless) probed in %.0fms",
                     key,
@@ -181,7 +178,7 @@ async def mcp_connections(
                 )
                 return client
             except BaseException as exc:
-                _HTTP_MCP_FAIL_AT[key] = time.monotonic()
+                _state_core_llm_factory_defaults().HTTP_MCP_FAIL_AT[key] = time.monotonic()
                 _log.warning(
                     "[factory] HTTP MCP '%s' connect failed (%s, cooldown %.0fs): %s",
                     key,

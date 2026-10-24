@@ -8,8 +8,8 @@ see the effects the design cares about).
 
 import pytest
 
-from core.evolution import cassette as CA
-from core.evolution import replay as RP
+from core.evolution.evidence import cassette as CA
+from core.evolution.evidence import replay as RP
 
 
 # ── Cassette: side-effect safety ─────────────────────────────────────────────

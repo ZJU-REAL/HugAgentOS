@@ -18,7 +18,7 @@ from core.memory.outbox import jobs as jobs
 from core.memory.outbox import leases as leases
 from core.memory.outbox import settlement as settlement
 
-_active_worker: Optional["MemoryOutboxWorker"] = None
+
 
 
 async def _process_claimed(job_id: str, worker_id: str) -> None:
@@ -122,7 +122,7 @@ async def consume_outbox_job(job_id: str, *, wait_s: float = 5.0) -> dict[str, A
 def kick_outbox_drain() -> None:
     """Wake the lifecycle-owned worker; never create an orphan consumer task."""
 
-    worker = _active_worker
+    worker = process_state().active_worker
     if worker is not None:
         worker.wake()
 
@@ -135,20 +135,20 @@ class MemoryOutboxWorker:
         self.worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     async def start(self) -> None:
-        global _active_worker
+        pass
         if self._task is None or self._task.done():
             self._stop.clear()
             self._wake.clear()
             settlement.reconcile_settlement_jobs()
-            _active_worker = self
+            process_state().active_worker = self
             self._task = asyncio.create_task(self._loop(), name="memory-outbox-worker")
 
     async def stop(self) -> None:
-        global _active_worker
+        pass
         self._stop.set()
         self._wake.set()
-        if _active_worker is self:
-            _active_worker = None
+        if process_state().active_worker is self:
+            process_state().active_worker = None
         if self._task is None:
             return
         self._task.cancel()
@@ -181,3 +181,19 @@ class MemoryOutboxWorker:
                 pass
             finally:
                 self._wake.clear()
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class WorkerState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    active_worker: Optional['MemoryOutboxWorker'] = None
+
+@state_cache(maxsize=1)
+def process_state() -> WorkerState:
+    return WorkerState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

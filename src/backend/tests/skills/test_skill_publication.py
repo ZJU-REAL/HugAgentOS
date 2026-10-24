@@ -1,12 +1,12 @@
 """Regression coverage at skill loading, publication and sandbox preparation boundaries."""
-
-from tests.sandbox.provider_test_support import patch_open_settings
+from core.capabilities.skills import loader_factory as loader_factory_module
 
 from pathlib import Path
 
-from core.agent_skills.backends.composite import CompositeBackend
-from core.agent_skills.backends.protocol import SkillFileInfo
-from core.agent_skills.loader import MultiSourceSkillLoader
+from tests.sandbox.provider_test_support import patch_open_settings
+from core.capabilities.skills.backends.composite import CompositeBackend
+from core.capabilities.skills.backends.protocol import SkillFileInfo
+from core.capabilities.skills.loader import MultiSourceSkillLoader
 
 
 class MutableSource:
@@ -69,7 +69,7 @@ from sqlalchemy.orm import sessionmaker
 @pytest.fixture
 def cloud(tmp_path, monkeypatch):
     import core.db.engine as dbe
-    from core.agent_skills import config, loader
+    from core.capabilities.skills import config, loader
     from api.routes.v1 import me_capabilities, admin_skills
     from api.deps import require_admin
 
@@ -92,7 +92,7 @@ def cloud(tmp_path, monkeypatch):
     dbe.Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(dbe, "SessionLocal", factory)
-    monkeypatch.setattr(loader, "_global_loader", None)
+    monkeypatch.setattr(loader_factory_module, 'global_loader', None)
     monkeypatch.setattr(
         me_capabilities, "resolve_user_capabilities", lambda *a: {"can_add_skill": True}
     )
@@ -113,7 +113,7 @@ def cloud(tmp_path, monkeypatch):
         yield SimpleNamespace(
             client=client, factory=factory, builtin=builtin, storage=tmp_path / "skills"
         )
-    loader._global_loader = None
+    loader_factory_module.global_loader = None
     engine.dispose()
 
 
@@ -131,7 +131,7 @@ def upload(client, files, prefix="/v1/me/skills/upload"):
 
 
 def test_web_delete_removes_materialized_skill(cloud):
-    from core.agent_skills.loader import get_skill_loader
+    from core.capabilities.skills.loader_factory import get_skill_loader
 
     upload(cloud.client, {"old.txt": "old"})
     path = Path(get_skill_loader().get_skill_base_dir("sample"))
@@ -141,7 +141,7 @@ def test_web_delete_removes_materialized_skill(cloud):
 
 
 def test_upload_replace_and_new_sandbox_view_are_exact(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"old.txt": "old", "nested/run.txt": "v1"})
     view = prepare_skill_view("alice")
@@ -159,7 +159,7 @@ def test_upload_replace_and_new_sandbox_view_are_exact(cloud):
 
 
 def test_old_loader_cannot_republish_deleted_or_replaced_payload(cloud):
-    from core.agent_skills.loader import get_skill_loader
+    from core.capabilities.skills.loader_factory import get_skill_loader
 
     upload(cloud.client, {"old.txt": "v1"})
     stale = get_skill_loader()
@@ -180,8 +180,8 @@ def test_old_loader_cannot_republish_deleted_or_replaced_payload(cloud):
 
 def test_new_mounts_exclude_deleted_global_private_and_historical_dirs(cloud, monkeypatch):
     from core.db.models import AdminSkill
-    from core.agent_skills.publication import prepare_skill_view
-    from core.agent_skills.loader import get_skill_loader
+    from core.capabilities.skills.publication import prepare_skill_view
+    from core.capabilities.skills.loader_factory import get_skill_loader
     from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes
     from core.config.settings import settings
 
@@ -233,7 +233,7 @@ def test_new_mounts_exclude_deleted_global_private_and_historical_dirs(cloud, mo
 
 
 def test_shipped_package_replacement_removes_retired_files(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     bundle = cloud.builtin / "bundled"
     bundle.mkdir()
@@ -249,7 +249,7 @@ def test_shipped_package_replacement_removes_retired_files(cloud):
 
 
 def test_mount_preparation_fails_if_authoritative_source_unavailable(cloud, monkeypatch):
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
     from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes
     from core.config.settings import settings
 
@@ -270,7 +270,7 @@ def test_mount_preparation_fails_if_authoritative_source_unavailable(cloud, monk
 
 
 def test_single_file_delete_propagates_to_new_view(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"nested/old.txt": "old", "nested/new.txt": "new"})
     prepare_skill_view("alice")
@@ -282,7 +282,7 @@ def test_single_file_delete_propagates_to_new_view(cloud):
 
 
 def test_invalid_replacement_preserves_previous_tree_and_cannot_escape(tmp_path, monkeypatch):
-    from core.agent_skills.publication import publish_tree
+    from core.capabilities.skills.publication import publish_tree
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "skills"))
     path = tmp_path / "skills/sample"
@@ -295,7 +295,7 @@ def test_invalid_replacement_preserves_previous_tree_and_cannot_escape(tmp_path,
 
 def test_failed_swap_preserves_previous_tree(tmp_path, monkeypatch):
     import os
-    from core.agent_skills.publication import publish_tree
+    from core.capabilities.skills.publication import publish_tree
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "skills"))
     path = tmp_path / "skills/sample"
@@ -317,7 +317,7 @@ def test_archive_for_new_sandbox_uses_current_files_without_local_cache_reset(
     tmp_path, monkeypatch
 ):
     import tarfile
-    from core.agent_skills.skill_archive import build_skill_tar
+    from core.capabilities.skills.skill_archive import build_skill_tar
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "skills"))
     source = tmp_path / "source"
@@ -336,7 +336,7 @@ def test_archive_for_new_sandbox_uses_current_files_without_local_cache_reset(
 
 def test_startup_respects_db_override_and_bundle_executable_modes(cloud):
     from core.db.models import AdminSkill
-    from core.agent_skills.config import sync_builtin_skills_to_sandbox_dir
+    from core.capabilities.skills.config import sync_builtin_skills_to_sandbox_dir
 
     bundle = cloud.builtin / "bundled"
     bundle.mkdir()
@@ -364,7 +364,7 @@ def test_startup_respects_db_override_and_bundle_executable_modes(cloud):
 
 
 def test_admin_delete_and_file_delete_use_the_same_publication_rules(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"old.txt": "old", "new.txt": "new"})
     response = cloud.client.delete("/v1/admin/skills/sample/files/old.txt")
@@ -377,8 +377,8 @@ def test_admin_delete_and_file_delete_use_the_same_publication_rules(cloud):
 
 
 def test_prepared_view_repairs_stale_shared_link(cloud):
-    from core.agent_skills.publication import prepare_skill_view
-    from core.agent_skills.config import get_user_skills_root, SHARED_LINK_NAME
+    from core.capabilities.skills.publication import prepare_skill_view
+    from core.capabilities.skills.config import get_user_skills_root, SHARED_LINK_NAME
 
     link = get_user_skills_root() / SHARED_LINK_NAME
     link.unlink()
@@ -391,7 +391,7 @@ def test_prepared_view_repairs_stale_shared_link(cloud):
 
 @pytest.mark.asyncio
 async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monkeypatch):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
     import core.sandbox.providers.opensandbox.lifecycle as sessions
     from unittest.mock import AsyncMock
 
@@ -417,7 +417,7 @@ async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monk
 
 def test_publication_lock_serializes_processes(tmp_path, monkeypatch):
     import multiprocessing
-    from core.agent_skills.publication import publication_lock
+    from core.capabilities.skills.publication import publication_lock
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "skills"))
     ctx = multiprocessing.get_context("fork")
@@ -454,7 +454,7 @@ def test_publication_lock_serializes_processes(tmp_path, monkeypatch):
 
 
 def test_view_link_creation_failure_prevents_sandbox_preparation(cloud, monkeypatch):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     bundle = cloud.builtin / "bundled"
     bundle.mkdir()
@@ -473,7 +473,7 @@ def test_view_link_creation_failure_prevents_sandbox_preparation(cloud, monkeypa
 
 
 def test_unwritable_explicit_skill_root_never_falls_back(tmp_path, monkeypatch):
-    from core.agent_skills.config import get_sandbox_skills_dir
+    from core.capabilities.skills.config import get_sandbox_skills_dir
 
     occupied = tmp_path / "occupied"
     occupied.write_text("not a directory")
@@ -483,7 +483,7 @@ def test_unwritable_explicit_skill_root_never_falls_back(tmp_path, monkeypatch):
 
 
 def test_private_collision_does_not_remove_other_users_builtin(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     package = cloud.builtin / "sample"
     package.mkdir()
@@ -504,8 +504,8 @@ def test_private_collision_does_not_remove_other_users_builtin(cloud):
 def test_cube_current_archive_rechecks_owner_and_freezes_bytes(cloud):
     import tarfile
     from core.db.models import AdminSkill
-    from core.agent_skills.loader import get_skill_loader
-    from core.agent_skills.skill_archive import build_current_skill_tar
+    from core.capabilities.skills.loader_factory import get_skill_loader
+    from core.capabilities.skills.skill_archive import build_current_skill_tar
 
     upload(cloud.client, {"public.txt": "v1"})
     with cloud.factory() as db:
@@ -546,7 +546,7 @@ async def test_cube_prepush_uses_users_private_override(cloud, monkeypatch):
     provider._skill_prepush_concurrency = 1
     provider._skill_prepush_max_bytes = 0
     provider._push_skill_archive = AsyncMock()
-    monkeypatch.setattr("core.config.catalog.get_enabled_ids", lambda kind: {"sample"})
+    monkeypatch.setattr("core.capabilities.catalog.api.get_enabled_ids", lambda kind: {"sample"})
     sbx = SimpleNamespace(sandbox_id="fresh")
     await provider._prepush_skills(sbx, "alice")
     archive = provider._push_skill_archive.await_args.args[2]
@@ -560,7 +560,7 @@ async def test_cube_prepush_uses_users_private_override(cloud, monkeypatch):
 
 def test_new_sandbox_accepts_legacy_windows_paths_and_excludes_corrupt_skill(cloud, caplog):
     from core.db.models import AdminSkill
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"scripts/run.py": "v1"})
     old_view = prepare_skill_view("alice")
@@ -583,7 +583,7 @@ def test_new_sandbox_accepts_legacy_windows_paths_and_excludes_corrupt_skill(clo
 
 def test_windows_zip_upload_is_stored_canonically_and_ready_for_sandbox(cloud):
     from core.db.models import AdminSkill
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"scripts\\rank_objects.py": "print(1)"})
     with cloud.factory() as db:

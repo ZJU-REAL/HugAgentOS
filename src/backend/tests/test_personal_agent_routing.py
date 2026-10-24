@@ -31,7 +31,7 @@ def sessions(monkeypatch):
     from personal_agent.conversation import turn_worker
     for module in (front, front_tools, turn_worker): monkeypatch.setattr(module, "SessionLocal", factory)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
-    from core.services import run_journal
+    from core.runs import journal as run_journal
 
     @asynccontextmanager
     async def binding(**options):

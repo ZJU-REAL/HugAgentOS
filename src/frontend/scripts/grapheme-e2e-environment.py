@@ -61,7 +61,7 @@ def up():
     else:
         raise RuntimeError("Isolated backend did not become ready; inspect its logs.")
     seed = """from core.db.engine import SessionLocal
-from core.db.model_repository import create_provider, assign_role
+from core.models.repository import create_provider, assign_role
 with SessionLocal() as db:
     provider = create_provider(db, display_name='Component E2E', provider_type='chat', base_url='http://model:8081/v1', api_key='e2e-placeholder', model_name='grapheme-test', extra_config={'api_protocol':'chat_completions','supports_thinking':True,'context_length':32000})
     assert assign_role(db, 'main_agent', provider.provider_id, updated_by='component-e2e')

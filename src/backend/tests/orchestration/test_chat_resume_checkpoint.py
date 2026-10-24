@@ -1,14 +1,16 @@
 """Public resume restores the event log's aligned snapshot after trimming."""
+from core.chat.projection.codec import chat_projection_codec
+
 import asyncio
 import json
 
+import core.runs.events.store as store
+import core.runs.events.store as run_event_stream
 import fakeredis.aioredis
 import pytest
-
 from api.routes.v1.chats import run_views
 from core.auth.backend import UserContext
-from core.services.run_journal import RunJournal
-from orchestration import run_event_stream
+from core.runs.journal import RunJournal
 from tests.orchestration.recovery_test_support import recovery_env
 
 
@@ -16,8 +18,8 @@ from tests.orchestration.recovery_test_support import recovery_env
 @pytest.mark.asyncio
 async def test_resume_restores_message_and_child_steps_after_prefix_is_trimmed(recovery_env, monkeypatch, mode):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(run_event_stream, "get_redis", lambda **_: redis)
-    monkeypatch.setattr(run_event_stream, "MAXLEN", 8 if mode == "checkpoint_tail" else 2)
+    monkeypatch.setattr(store, "get_redis", lambda **_: redis)
+    monkeypatch.setattr(store, "MAXLEN", 8 if mode == "checkpoint_tail" else 2)
     await run_event_stream.get_run_event_stream().clear("run-trimmed")
     journal = RunJournal(recovery_env)
     journal.accept(run_id="run-trimmed", message_id="msg-trimmed", chat_id="chat-1",
@@ -40,7 +42,7 @@ async def test_resume_restores_message_and_child_steps_after_prefix_is_trimmed(r
     if mode == "replacement":
         await stream.append("run-trimmed", {"type": "content_replace", "content": "修订答案。", "_offset": 6})
     if mode == "resolved_confirm":
-        from orchestration import run_subscription
+        import core.chat.projection.subscription as run_subscription
         async def absent_confirmation(*_):
             return None
         monkeypatch.setattr(run_subscription.interaction_store, "read", absent_confirmation)
@@ -53,7 +55,7 @@ async def test_resume_restores_message_and_child_steps_after_prefix_is_trimmed(r
         await stream.append("run-trimmed", {"type": "user_question", "request_id": "question-1",
             "questions": [{"id": "q1", "question": "继续吗？"}], "_offset": 6})
     if mode == "two_writers":
-        other = run_event_stream.RedisRunEventStream()
+        other = run_event_stream.RedisRunEventStream(chat_projection_codec())
         await other.append("run-trimmed", {"type": "content", "delta": "后续进展。", "_offset": 6})
         await stream.append("run-trimmed", {"type": "content", "delta": "全部核对。", "_offset": 7})
         await redis.xtrim(run_event_stream.redis_stream_key("run-trimmed"), maxlen=1, approximate=False)

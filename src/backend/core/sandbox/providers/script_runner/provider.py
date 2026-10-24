@@ -25,7 +25,7 @@ from core.sandbox.protocol import (
     SandboxAdminNotSupported,
     SandboxInfo,
 )
-from core.sandbox.providers.script_runner.auth import auth_headers
+from core.infra.local_runtime.runner_auth import auth_headers
 from core.sandbox.workspace.streams import stream_to_file
 
 logger = logging.getLogger(__name__)
@@ -61,11 +61,11 @@ class ScriptRunnerProvider(CompletionMixin):
 
     async def _execution_body(self, req: ProcessRequest) -> dict:
         capability_view_key = None
-        from core.capabilities.paths import capabilities_enabled
+        from core.harness.registry.run_capabilities import has_run_capabilities
 
-        if capabilities_enabled() and req.capability_run_id:
-            from core.capabilities import runtime
-            from core.capabilities.errors import IntegrityFailed
+        if has_run_capabilities() and req.capability_run_id:
+            from core.harness.registry import capability_runtime as runtime
+            from core.harness.capability_errors import IntegrityFailed
 
             pinned_view = await asyncio.to_thread(
                 runtime.view_for_execution,
@@ -163,8 +163,8 @@ class ScriptRunnerProvider(CompletionMixin):
                 payload = response.json()
                 capability = payload.pop("_capability", None)
                 if capability and capability.get("run_id"):
-                    from core.capabilities import runtime
-                    from core.capabilities.errors import IntegrityFailed
+                    from core.harness.registry import capability_runtime as runtime
+                    from core.harness.capability_errors import IntegrityFailed
 
                     try:
                         prepared = await asyncio.to_thread(
@@ -372,7 +372,7 @@ class ScriptRunnerProvider(CompletionMixin):
         raise SandboxAdminNotSupported("script_runner 无连接池")
 
 
-_SKILL_VIEW_SYNCED: dict[str, tuple[float, int]] = {}
+
 _SKILL_VIEW_TTL_S = 60.0
 
 
@@ -386,27 +386,43 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
     an immediate refresh regardless of the TTL. Failure is never worth failing an
     execution over.
     """
-    from core.capabilities.paths import capabilities_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
 
-    if not capabilities_enabled():
-        from core.agent_skills.publication import prepare_skill_view
+    if not has_run_capabilities():
+        from core.capabilities.skills.publication import prepare_skill_view
 
         prepare_skill_view(user_id)
         return
     uid = (user_id or "").strip()
     if not uid:
         return
-    from core.capabilities.skills import view_generation
+    from core.harness.registry.local_publication import local_publication
 
     now = time.monotonic()
-    gen = view_generation()
-    last_ts, last_gen = _SKILL_VIEW_SYNCED.get(uid, (0.0, -1))
+    gen = local_publication().view_generation()
+    last_ts, last_gen = process_state().SKILL_VIEW_SYNCED.get(uid, (0.0, -1))
     if gen == last_gen and now - last_ts < _SKILL_VIEW_TTL_S:
         return
-    _SKILL_VIEW_SYNCED[uid] = (now, gen)
+    process_state().SKILL_VIEW_SYNCED[uid] = (now, gen)
     try:
-        from core.agent_skills.config import sync_user_skill_view
+        from core.capabilities.skills.config import sync_user_skill_view
 
         sync_user_skill_view(uid)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[script_runner] 技能视图刷新失败 user=%s: %s", uid, exc)
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class ProviderState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    SKILL_VIEW_SYNCED: dict[str, tuple[float, int]] = state_field(default_factory=lambda: {})
+
+@state_cache(maxsize=1)
+def process_state() -> ProviderState:
+    return ProviderState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

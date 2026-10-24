@@ -29,7 +29,7 @@ services:
       target: production
     volumes:
       - ./src/backend:/app/src/backend:ro
-    command: ["python", "-m", "core.services.application_hosting_setup"]
+    command: ["python", "-m", "features.hosted_apps.hosting_setup"]
     environment:
       APPLICATION_DATABASE_URL: postgresql://application_owner:${APPLICATION_OWNER_DB_PASSWORD:?Set a separate APPLICATION_OWNER_DB_PASSWORD}@application-postgres:5432/applications
       APPLICATION_PROVISION_DATABASE_URL: postgresql://application_admin:${APPLICATION_DB_PASSWORD}@application-postgres:5432/applications

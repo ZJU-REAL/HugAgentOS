@@ -17,19 +17,18 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.projects.edition import ProjectScope
 
 from agentscope.tool import Toolkit
 
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
 from core.llm.tools._common import resolve_sandbox_session
-from core.llm.tools._tool_helpers import (
-    _resolve_artifact_files,
-    _resp_json,
-    _store_generated_file_path,
-    _validate_workspace_path,
-)
+from core.files.artifacts.generated import resolve_artifact_files as _resolve_artifact_files, store_generated_file_path as _store_generated_file_path
+from core.llm.tools._tool_helpers import resp_json as _resp_json, validate_workspace_path as _validate_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +53,7 @@ def register_sandbox_put_artifact(
         if not artifact_id or not isinstance(artifact_id, str):
             return _resp_json({"error": "artifact_id 必须为非空字符串"})
 
-        from ._paths import to_physical_path, workspace_directory
+        from core.sandbox.workspace.resolution import to_physical_path, workspace_directory
 
         dest_path = to_physical_path(dest_path, user_id, session_id=_sess)
         path_err = _validate_workspace_path(dest_path, root=workspace_directory(_sess))
@@ -131,10 +130,10 @@ def register_sandbox_get_artifact(
         from core.sandbox import get_sandbox_provider as _get_provider
 
         from core.config.local_mode import local_mode_enabled
-        from ._paths import to_physical_path
+        from core.sandbox.workspace.resolution import to_physical_path
 
         if local_mode_enabled():
-            from core.artifacts.local_reference import reference_local_file
+            from core.files.artifacts.local_reference import reference_local_file
             from fastapi import HTTPException
 
             physical = to_physical_path(src_path, user_id, session_id=_sess, scope=scope)
@@ -149,7 +148,7 @@ def register_sandbox_get_artifact(
             ref["url"] = f"/files/{ref['file_id']}"
             return _resp_json({"ok": True, **ref, "artifacts": [ref]})
 
-        from ._paths import to_physical_path, workspace_directory
+        from core.sandbox.workspace.resolution import to_physical_path, workspace_directory
 
         src_path = to_physical_path(src_path, user_id, session_id=_sess)
         path_err = _validate_workspace_path(src_path, root=workspace_directory(_sess))

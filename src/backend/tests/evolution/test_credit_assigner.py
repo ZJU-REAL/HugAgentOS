@@ -9,7 +9,7 @@ pseudo-evolution.
 
 import pytest
 
-from core.evolution import credit as C
+from core.evolution.evidence import credit as C
 
 
 def F(**kw) -> C.CreditFeatures:

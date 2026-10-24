@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from agentscope.agent import ContextConfig
 from core.config.settings import settings as _settings
-from core.llm.compaction import SUMMARIZATION_PROMPT
-from core.llm.context_manager import AUTO_COMPACT_MAX_RATIO
+from core.llm.context.compaction import SUMMARIZATION_PROMPT
+from core.models.context_window import AUTO_COMPACT_MAX_RATIO
 from core.llm.factory.prompts import policy as factory_prompt_policy
 from core.llm.factory.request import AgentRequest
 
@@ -24,7 +24,7 @@ async def execution_budget(
 ):
     _ctx_window = int(getattr(default_model, "context_size", 0) or 0)
     # Resolve the shared ratio once instead of reading config at each ReAct step.
-    from core.services.compaction_service import resolve_token_limit, resolve_trigger_ratio
+    from core.harness.registry.compaction import resolve_token_limit, resolve_trigger_ratio
 
     _trigger_ratio = resolve_trigger_ratio()
     _log.info(
@@ -128,7 +128,7 @@ async def execution_budget(
         # like all env config).
         if profile.max_react_turns:
             _max_iters = profile.max_react_turns
-        from core.config.settings import _env, _int
+        from core.config.settings import env_value as _env, env_int as _int
 
         _env_iters = _int(_env("CHAT_MAIN_MAX_ITERS"), 0)
         if _env_iters > 0:
@@ -138,7 +138,7 @@ async def execution_budget(
         # Hard cap for the quick-lookup contract: 1-2 retrieval rounds (each may
         # fan out parallel calls) plus the final answer. Admin-tunable via
         # 系统配置「极速模式」turbo.max_iters; wins over profile/env.
-        from core.services.system_config import turbo_max_iters
+        from core.config.store.execution_options import turbo_max_iters
 
         _mode_iters = getattr(request.mode_spec, "max_iters", None) if request.mode_spec else None
         if _mode_iters:

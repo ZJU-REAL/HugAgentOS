@@ -13,7 +13,7 @@ def test_foreign_local_plugin_delete_is_not_found(monkeypatch, db_session):
     def foreign(*args):
         raise PermissionError("not owned")
 
-    monkeypatch.setattr("core.plugins.local.service.get", foreign)
+    monkeypatch.setattr('features.desktop.local.plugins.service.get', foreign)
     app = FastAPI()
     app.include_router(plugins.router)
     app.dependency_overrides[get_current_user] = lambda: UserContext(

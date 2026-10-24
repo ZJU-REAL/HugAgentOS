@@ -1,54 +1,38 @@
 """Durable, idempotent tool side-effect execution and recovery."""
 
 from __future__ import annotations
+from core.harness import log_records
 
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 from threading import Barrier
+from types import SimpleNamespace
 
 import pytest
-from agentscope.message import TextBlock, ToolCallBlock, ToolResultState
-from agentscope.message import UserMsg
 from agentscope.agent import Agent, ReActConfig
+from agentscope.message import TextBlock, ToolCallBlock, ToolResultState, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.tool import FunctionTool, Toolkit
 from agentscope.tool._response import ToolChunk, ToolResponse
+from core.db.engine import Base
+from core.db.models import ChatRun, ChatSession, ToolCallLog, ToolEffectLease, ToolEffectLedger, ToolEffectReceipt
+from features.automation.models import ScheduledTask
+from core.llm.runtime.state import AgentRuntimeState
+from tests.orchestration.hook_support import make_adapter, durable_adapter
+from core.runs.tool_effect_recovery import _plain_replay_args, reconcile_scheduled_task_intent
+from core.runs.journal import RunJournal
+from core.runs.tool_effects.registry import DEFAULT_TOOL_RECOVERY_REGISTRY, ToolRecoveryRegistry
+from core.runs.tool_effects.errors import ToolEffectError, ToolIdempotencyConflict, ToolIntentCommitError, ToolOutcomeUnknown
+from core.runs.tool_effects.gateway import ToolEffectGateway
+from core.runs.tool_effects.journal import ToolEffectJournal
+from core.runs.tool_effects.types import ToolIntent
+from core.runs.tool_effects.recovery import recover_incomplete_tool_effects
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
-
-from core.db.engine import Base
-from core.db.models import (
-    ChatRun,
-    ChatSession,
-    ScheduledTask,
-    ToolCallLog,
-    ToolEffectLease,
-    ToolEffectLedger,
-    ToolEffectReceipt,
-)
-from core.services.run_journal import RunJournal
-from core.services.tool_effect_ledger import (
-    DEFAULT_TOOL_RECOVERY_REGISTRY,
-    ToolEffectError,
-    ToolEffectGateway,
-    ToolEffectJournal,
-    ToolIdempotencyConflict,
-    ToolIntent,
-    ToolIntentCommitError,
-    ToolOutcomeUnknown,
-    ToolRecoveryRegistry,
-    recover_incomplete_tool_effects,
-)
-from core.llm.middlewares import AgentRuntimeState, ToolEffectMiddleware
-from orchestration.tool_effect_recovery import (
-    _plain_replay_args,
-    reconcile_scheduled_task_intent,
-)
 
 
 class MutableClock:
@@ -927,7 +911,7 @@ async def test_scheduled_create_reconciliation_uses_exact_atomic_receipt(
         db.commit()
 
     import core.db.engine as engine_module
-    import orchestration.tool_effect_recovery as recovery_module
+    import core.runs.tool_effect_recovery as recovery_module
     from extensions.mcp_servers.automation_task_mcp import impl
 
     monkeypatch.setattr(engine_module, "SessionLocal", sessions)
@@ -993,7 +977,7 @@ def test_embedded_secrets_and_free_text_are_not_persisted(effect_env):
 @pytest.mark.asyncio
 async def test_missing_run_binding_fails_closed_before_tool_invocation(effect_env):
     sessions, _make_run = effect_env
-    middleware = ToolEffectMiddleware(session_factory=sessions)
+    middleware = durable_adapter(sessions)
     agent = SimpleNamespace(state=SimpleNamespace(run_id=None, journal_owner=None))
     invoked = 0
 
@@ -1018,7 +1002,7 @@ async def test_missing_run_binding_fails_closed_before_tool_invocation(effect_en
 async def test_middleware_leaves_adapter_exception_pending_for_recovery(effect_env):
     sessions, make_run = effect_env
     make_run("run-tool-failure")
-    middleware = ToolEffectMiddleware(session_factory=sessions)
+    middleware = durable_adapter(sessions)
     agent = SimpleNamespace(
         state=SimpleNamespace(
             run_id="run-tool-failure",
@@ -1093,7 +1077,7 @@ async def test_cancelled_run_settles_pending_intent_without_delayed_replay(effec
 async def test_middleware_commits_error_tool_response_as_failure(effect_env):
     sessions, make_run = effect_env
     make_run("run-tool-error-response")
-    middleware = ToolEffectMiddleware(session_factory=sessions)
+    middleware = durable_adapter(sessions)
     agent = SimpleNamespace(
         state=SimpleNamespace(
             run_id="run-tool-error-response",
@@ -1126,7 +1110,7 @@ async def test_middleware_commits_error_tool_response_as_failure(effect_env):
 async def test_middleware_returns_explicit_error_for_unregistered_tool(effect_env):
     sessions, make_run = effect_env
     make_run("run-unregistered-tool-error")
-    middleware = ToolEffectMiddleware(session_factory=sessions)
+    middleware = durable_adapter(sessions)
     agent = SimpleNamespace(
         state=SimpleNamespace(
             run_id="run-unregistered-tool-error",
@@ -1172,7 +1156,7 @@ async def test_agentscope_middleware_commits_intent_before_call_and_replays_same
 ):
     sessions, make_run = effect_env
     make_run("run-middleware")
-    middleware = ToolEffectMiddleware(session_factory=sessions)
+    middleware = durable_adapter(sessions)
     agent = SimpleNamespace(state=SimpleNamespace(run_id="run-middleware", journal_owner="worker"))
     invoked = 0
     saw_durable_intent = False
@@ -1298,7 +1282,7 @@ async def test_real_agentscope_public_reply_commits_intent_before_adapter(effect
         system_prompt="Use the probe tool once.",
         model=ToolThenAnswerModel(),
         toolkit=Toolkit(tools=[FunctionTool(probe)]),
-        middlewares=[ToolEffectMiddleware(session_factory=sessions)],
+        middlewares=[durable_adapter(sessions)],
         state=state,
         react_config=ReActConfig(max_iters=2),
     )
@@ -1359,7 +1343,7 @@ async def test_public_reply_cancellation_stops_tool_without_late_terminal_write(
         system_prompt="Use the blocking probe.",
         model=BlockingToolModel(),
         toolkit=Toolkit(tools=[FunctionTool(blocking_probe)]),
-        middlewares=[ToolEffectMiddleware(session_factory=sessions)],
+        middlewares=[durable_adapter(sessions)],
         state=AgentRuntimeState(
             run_id="run-public-cancel",
             journal_owner="worker",
@@ -1579,11 +1563,11 @@ def test_tool_call_log_is_a_projection_linked_to_authoritative_effect(effect_env
         result={"ok": True},
     )
 
-    from core.services import log_service
+    from core.harness import log_writer as log_service
 
-    monkeypatch.setattr(log_service, "SessionLocal", sessions)
+    monkeypatch.setattr(log_records, "SessionLocal", sessions)
     projection_secret = "projection-secret-token-123456"
-    log_service._write_tool_call_sync(
+    log_records.write_tool_call_sync(
         {
             "run_id": "run-projection",
             "chat_id": "chat-1",
@@ -1610,7 +1594,7 @@ def test_tool_call_log_is_a_projection_linked_to_authoritative_effect(effect_env
         assert "[REDACTED]" in projection.tool_args["url"]
         assert "[REDACTED]" in projection.tool_args["callback"]
 
-    log_service._write_tool_call_sync(
+    log_records.write_tool_call_sync(
         {
             "run_id": "run-projection",
             "chat_id": "chat-1",
@@ -1723,7 +1707,7 @@ def test_prune_settled_eventually_reclaims_needs_attention_runs(effect_env):
     每五分钟一轮的清理反复全表扫。保留期该是"更长"，不是"无限"。
     """
     from core.db.models import HarnessEventLog
-    from core.services.tool_effect_ledger import _ATTENTION_RETENTION_FACTOR
+    from core.runs.tool_effects.journal_state import ATTENTION_RETENTION_FACTOR as _ATTENTION_RETENTION_FACTOR
 
     sessions, make_run = effect_env
     clock = MutableClock()

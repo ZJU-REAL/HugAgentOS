@@ -41,7 +41,7 @@ The following targets are taken from the root `Makefile`:
 | `make migrate` | `alembic upgrade head` |
 | `make migrate-new msg="..."` | `alembic revision --autogenerate -m "..."` |
 | `make migrate-down` / `migrate-history` | roll back one step / show history |
-| `make db-reset` / `db-seed` | reset (destructive) / seed sample data |
+| `make db-reset` | Reset the database (destructive) |
 | `make build` / `up` / `down` / `logs` / `ps` etc. | docker-compose wrappers |
 
 > ⚠️ The committed tree is not formatter-clean: **do not run black/isort over files you did not touch** (it buries the real diff in formatting noise); format only the scope you changed.
@@ -175,7 +175,7 @@ PYTHONPATH=src/backend python -m extensions.mcp_servers.<name>_mcp._selftest
 
 ## Adding a skill (Agent Skill)
 
-Skill loading is multi-source (`core/agent_skills/config.py`): built-in (`extensions/skills/default/`, always-on), admin (DB / `/app/storage/admin_skills/`), user, and project sources merge by priority. `extensions/skills/marketplace/` holds install-based marketplace seeds scanned separately by the marketplace service — it is **not** part of the default loading sources.
+Skill loading is multi-source (`core/capabilities/skills/config.py`): built-in (`extensions/skills/default/`, always-on), admin (DB / `/app/storage/admin_skills/`), user, and project sources merge by priority. `extensions/skills/marketplace/` holds install-based marketplace seeds scanned separately by the marketplace service — it is **not** part of the default loading sources.
 
 Adding a **built-in skill**:
 
@@ -208,7 +208,7 @@ A **marketplace skill** goes under `extensions/skills/marketplace/<skill-id>/` w
 | ORM / table boundary | `src/backend/core/db/models.py`, `src/backend/core/db/edition_tables.py` |
 | MCP port table / connection config | `src/backend/extensions/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
 | Capability catalog | `src/backend/core/config/catalog.json` |
-| Skill loading | `src/backend/core/agent_skills/` (`config.py` / `loader.py` / `registry.py`) |
+| Skill loading | `src/backend/core/capabilities/skills/` (`config.py` / `loader.py` / `registry.py`) |
 | Workflow orchestration | `src/backend/orchestration/workflow.py` |
 
 See also: [Frontend Development Guide](frontend.md) · [API Overview](../api/overview.md) · [MCP Tools](../modules/mcp-tools.md) · [Agent Skills](../modules/agent-skills.md)

@@ -219,11 +219,11 @@ class RoutingSettings:
 
 @dataclass(frozen=True)
 class CompactionSettings:
-    """Context compaction (see core/llm/compaction.py).
+    """Context compaction (see core/llm/context/compaction.py).
 
     Compresses history into "recent user messages + summary" and persists the
     summary as a checkpoint. One implementation serves all three phases
-    (mid-turn / pre-turn / post-turn, see ``core.llm.compaction.CompactionPhase``),
+    (mid-turn / pre-turn / post-turn, see ``core.llm.context.compaction.CompactionPhase``),
     so every knob below governs all of them — there is no separate in-turn ratio
     any more.
     """
@@ -260,7 +260,7 @@ class CompactionSettings:
     # Per-tool-result cap fed to AgentScope's ContextConfig. This is the
     # deterministic, model-free layer that runs before any summarization (the
     # counterpart of Codex's output truncation and dsh's toolResultPruner);
-    # the overflow is spilled to the sandbox by core/llm/offloader.py.
+    # the overflow is spilled to the sandbox by core/llm/context/offloader.py.
     tool_result_limit: int = field(
         default_factory=lambda: _int(_env("CHAT_TOOL_RESULT_LIMIT", "20000"), 20000)
     )

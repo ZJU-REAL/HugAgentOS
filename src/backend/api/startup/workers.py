@@ -1,9 +1,11 @@
 """Application lifecycle operations."""
 import os
-from typing import Callable
 import sys
+from typing import Callable
+
 from core.config.settings import settings
 from core.infra.logging import get_logger
+
 logger = get_logger(__name__)
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -104,7 +106,7 @@ async def _startup_preload():
 
         # 2. Pre-load skill metadata
         def _load_skill_metadata() -> None:
-            from core.agent_skills.loader import get_skill_loader
+            from core.capabilities.skills.loader_factory import get_skill_loader
 
             loader = get_skill_loader()
             meta = loader.load_all_metadata()
@@ -117,13 +119,13 @@ async def _startup_preload():
         #     at the same in-sandbox path. DB skills materialize into the same
         #     dir on demand. Must run before sandboxes are created/used.
         def _sync_builtin_skills() -> None:
-            from core.agent_skills.config import sync_builtin_skills_to_sandbox_dir
-            from core.capabilities.paths import capabilities_enabled
+            from core.capabilities.skills.config import sync_builtin_skills_to_sandbox_dir
+            from core.harness.registry.run_capabilities import has_run_capabilities
 
-            if capabilities_enabled():
+            if has_run_capabilities():
                 # Desktop store: move the pre-store layout aside first (idempotent,
                 # quarantines instead of deleting), then the views are link-only.
-                from core.capabilities.migration import migrate_legacy_layout
+                from features.desktop.capabilities.migration import migrate_legacy_layout
 
                 report = migrate_legacy_layout()
                 if report is not None and (report.changed or report.skipped):
@@ -134,7 +136,7 @@ async def _startup_preload():
             # Pre-create the per-user skills root for the same reason as above:
             # script-runner bind-mounts it, and a dockerd-created one is root-owned.
             try:
-                from core.agent_skills.config import get_user_skills_root
+                from core.capabilities.skills.config import get_user_skills_root
 
                 get_user_skills_root()
             except Exception as exc:  # noqa: BLE001
@@ -147,7 +149,7 @@ async def _startup_preload():
             # created by dockerd as root and the runner can't write into it →
             # backend must create it first. opensandbox/cube don't use this one.
             try:
-                from core.sandbox.workspace.credentials import yida_shared_workspace_dir
+                from integrations.yida.storage import yida_shared_workspace_dir
 
                 p = yida_shared_workspace_dir()
                 p.mkdir(parents=True, exist_ok=True)
@@ -160,7 +162,7 @@ async def _startup_preload():
         # 3. Pre-load public DB capability overlay so first chat avoids
         #    scanning admin_skills/admin_mcp_servers on the request path.
         def _warm_runtime_catalog() -> None:
-            from core.config.catalog_runtime import warmup_runtime_catalog_cache
+            from core.capabilities.catalog.runtime import warmup_runtime_catalog_cache
 
             warmup_runtime_catalog_cache()
             logger.info("[startup] Runtime catalog DB overlay warmed")
@@ -188,7 +190,7 @@ async def _startup_preload():
         #    row. See _NAV_BACKFILL_ENTRIES in content_blocks.py — append a
         #    new entry there each time we add a sidebar feature.
         def _backfill_nav():
-            from core.content.content_blocks import backfill_navigation_entries
+            from core.files.content.branding import backfill_navigation_entries
             from core.db.engine import SessionLocal
 
             db = SessionLocal()
@@ -214,7 +216,7 @@ async def _startup_automation_scheduler():
         logger.info("[startup] Automation scheduler disabled")
         return
     try:
-        from orchestration.schedulers.automation_scheduler import AutomationScheduler
+        from orchestration.automations.automation_scheduler import AutomationScheduler
 
         global _automation_scheduler
         _automation_scheduler = AutomationScheduler()
@@ -235,7 +237,7 @@ async def _startup_kb_wiki_worker():
         logger.info("[startup] KB wiki worker disabled")
         return
     try:
-        from core.kb.wiki.worker import WikiIngestWorker
+        from features.knowledge.wiki.worker import WikiIngestWorker
 
         global _kb_wiki_worker
         _kb_wiki_worker = WikiIngestWorker()
@@ -258,7 +260,7 @@ async def _startup_kb_index_worker():
         logger.info("[startup] KB index worker disabled")
         return
     try:
-        from core.kb.index_worker import KBIndexWorker
+        from features.knowledge.index_worker import KBIndexWorker
 
         global _kb_index_worker
         _kb_index_worker = KBIndexWorker()
@@ -295,7 +297,7 @@ async def _startup_channel_manager():
         logger.info("[startup] Channel bots disabled")
         return
     try:
-        from core.channels.manager import get_manager
+        from integrations.channels.manager import get_manager
 
         await get_manager().start_all()
         from core.infra import runtime_state
@@ -317,7 +319,7 @@ _idle_reaper_task = None
 async def _startup_distillation_scheduler():
     """Start the daily skill-distillation cron scheduler."""
     try:
-        from core.services.edition_startup import create_distillation_scheduler
+        from orchestration.workers.edition_startup import create_distillation_scheduler
 
         global _distillation_scheduler
         _distillation_scheduler = create_distillation_scheduler()
@@ -351,7 +353,7 @@ async def _shutdown_pools():
     except Exception as e:
         logger.warning("idle_reaper_shutdown_error", error=str(e))
     try:
-        from core.llm.mcp_pool import MCPConnectionPool
+        from core.llm.mcp.pool import MCPConnectionPool
 
         await MCPConnectionPool.get_instance().shutdown()
     except Exception as e:

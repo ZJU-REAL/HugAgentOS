@@ -7,7 +7,7 @@ consumption, UI list filtering, delete cascading.
 
 import json
 
-from core.llm import compaction as C
+from core.llm.context import compaction as C
 from tests.llm.test_compaction_integration import _endpoint
 
 
@@ -15,7 +15,7 @@ def test_summarize_context_overflow_self_heal(monkeypatch):
     """Summary input exceeds the window → drop the oldest history and retry until it fits (aligned with Codex's ContextWindowExceeded handling)."""
     import asyncio
 
-    from core.services import compaction_summary as summary
+    from core.chat.compaction import summary as summary
 
     monkeypatch.setattr(summary, "_resolve_summarizer_model", lambda: _endpoint())
     monkeypatch.setattr(summary, "_load_base_system_prompt", lambda: "SYS PROMPT")
@@ -65,7 +65,7 @@ def test_summarize_non_context_error_no_retry(monkeypatch):
     """Non-context-overflow errors (e.g. auth failure) skip the self-heal loop; return None after one attempt."""
     import asyncio
 
-    from core.services import compaction_summary as summary
+    from core.chat.compaction import summary as summary
 
     monkeypatch.setattr(summary, "_resolve_summarizer_model", lambda: _endpoint())
     monkeypatch.setattr(summary, "_load_base_system_prompt", lambda: "")

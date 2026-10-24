@@ -14,9 +14,9 @@ import contextlib
 import pytest
 from core.config import settings as config_settings
 from core.db.models import ChatSession
-from core.llm import compaction as C
-from core.services import compaction_service as S
-from core.services.chat_service import ChatService
+from core.llm.context import compaction as C
+from core.chat.compaction import service as S
+from core.chat.service import ChatService
 
 CHAT_ID = "chat_e2e"
 
@@ -58,7 +58,7 @@ def _u(svc, i, text):
 def _a(svc, i, text, tool_calls=None):
     import json
 
-    from core.llm.model_steps import record_assistant_step, record_tool_result_step
+    from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
 
     steps = []
     for index, call in enumerate(tool_calls or []):
@@ -155,7 +155,7 @@ async def test_full_compaction_cycle(patched_sessionlocal, monkeypatch):
     async def _fake_summarize(history, *, timeout):
         return "已完成 developer 表插入 nbacheng/dromara；待办：无；关键数据：nbacheng粉丝219"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     # ── Drive the real compaction ──
     ok = await S.run_post_turn_compaction(CHAT_ID)
@@ -205,7 +205,7 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
             assert any(C.is_summary_message(t) for t in texts)
         return f"summary-v{calls['n']}"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     await S.run_post_turn_compaction(CHAT_ID)
     _u(svc, 2, "q2")
@@ -242,7 +242,7 @@ async def test_compaction_commits_when_the_hook_bus_is_active(patched_sessionloc
     async def _fake_summarize(history, *, timeout):
         return "已完成两轮；待办：无"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _fake_summarize)
 
     ok = await S.run_post_turn_compaction(CHAT_ID, run_id="run_hooked_1")
     assert ok is True, "hook bus 激活时压缩必须仍能成功落库"

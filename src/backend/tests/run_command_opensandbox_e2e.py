@@ -10,12 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 async def verify():
-    from core.db.engine import Base, engine, SessionLocal
+    from core.db.engine import Base, SessionLocal, engine
     from core.db.models import ChatSession, UserShadow
-    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+    from core.sandbox.commands.runtime import CommandRuntime
     from core.sandbox.protocol import ProcessRequest
-    from core.services.commands import store
-    from orchestration.commands.runtime import CommandRuntime
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+    from core.sandbox.commands import store
     Base.metadata.create_all(engine)
     session = "command-e2e-" + uuid.uuid4().hex
     user = "api_ak_command_e2e"

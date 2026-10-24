@@ -19,9 +19,9 @@ from core.db.models import Artifact, Project, UserShadow
 
 @pytest.fixture
 def local_files(tmp_path, monkeypatch):
-    from core.storage import factory
+    from core.files.storage import factory
 
-    monkeypatch.setattr(factory, "_storage_instance", None)
+    monkeypatch.setattr(factory.process_state(), 'storage_instance', None)
     monkeypatch.setenv("STORAGE_TYPE", "local")
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path))
     settings = settings_module.settings

@@ -7,7 +7,7 @@
 
 from types import SimpleNamespace
 
-from core.services.plan_service import PlanService
+from core.chat.plans import PlanService
 
 
 def _plan(status: str):

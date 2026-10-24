@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Literal, Optional
 
-from core.services.application_schema import ApplicationPayload, ToolDefinition
+from features.hosted_apps.schema import ApplicationPayload, ToolDefinition
 from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP

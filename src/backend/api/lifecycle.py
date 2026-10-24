@@ -83,7 +83,7 @@ _EXECUTION_PLANE_ONLY = frozenset({EXECUTION_PLANE})
 
 
 def _runtime_role() -> str:
-    from core.auth.desktop_bridge import bridge_enabled
+    from features.desktop.auth.bridge import bridge_enabled
 
     return EXECUTION_PLANE if bridge_enabled() else SERVICE
 
@@ -297,7 +297,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()
     await _shutdown_desktop_observability()
-    from core.services.desktop_gateway_observability import drain
+    from features.desktop.gateway.observability import drain
 
     await drain()
     await _shutdown_orphan_job_reaper()

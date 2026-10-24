@@ -2,7 +2,7 @@
 
 
 def tool_calls_for_history(raw):
-    from core.chat.display_bounds import bound_result_for_history
+    from core.infra.text_bounds import bound_result_for_history
 
     if not isinstance(raw, list):
         return raw

@@ -2,8 +2,8 @@
 
 import pytest
 
-from core.evolution import experiments as EX
-from core.evolution import federation as FD
+from core.evolution.assessment import experiments as EX
+from core.evolution.profiles import federation as FD
 
 
 # ── System matrix (41) ───────────────────────────────────────────────────────

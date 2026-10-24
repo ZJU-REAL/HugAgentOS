@@ -7,12 +7,12 @@ import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import core.db.engine as dbe
 import pytest
+from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
+from features.marketplace.models import MarketplaceSubmission
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-import core.db.engine as dbe
-from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, MarketplaceSubmission
 
 OWNER = "sm_test_user"
 BUNDLE_DIR = Path(__file__).resolve().parents[1] / "extensions/plugins" / "marketplace" / "skill-manager"
@@ -28,7 +28,7 @@ def sm_env(tmp_path, monkeypatch):
     monkeypatch.setattr(dbe, "SessionLocal", TestSession)
 
     # Artifact store goes to tmp (_STORE_DIR is fixed at import time; every other path derives from it)
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     art_dir = tmp_path / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -57,14 +57,14 @@ def _make_skill_tar(name: str, description: str, *, body: str = "做事。") -> 
 
 def _stash_artifact(tar_bytes: bytes) -> str:
     """Write the tar into the shared artifact store and return the artifact_id (simulating a sandbox sandbox_get_artifact result)."""
-    from core.artifacts import store
+    from core.files.artifacts import store
 
     item = store.save_artifact_bytes(content=tar_bytes, name="skill.tgz", extension="tgz")
     return item["file_id"]
 
 # ── Plugin persistence + merging into the user's available set ──────────────
 def test_install_plugin_creates_rows_and_is_agent_visible(sm_env):
-    from core.plugins import management as ps
+    from core.capabilities.plugins import management as ps
 
     with sm_env.Session() as db:
         res = ps.install_plugin(db, "skill-manager", owner_user_id=OWNER, created_by=OWNER)
@@ -86,7 +86,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(sm_env):
         assert plugin is not None
 
         # Key: merged into the user's available set via resolve_all_runtime_enabled (= the agent can really get the skill + mcp)
-        from core.config.catalog_resolver import resolve_all_runtime_enabled, invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache, resolve_all_runtime_enabled
 
         invalidate_capability_cache()
         enabled_skills, _agents, enabled_mcps = resolve_all_runtime_enabled(db, OWNER)
@@ -99,11 +99,8 @@ def test_install_plugin_creates_rows_and_is_agent_visible(sm_env):
 
 def test_plan_mode_includes_global_plugin_components(sm_env):
     """Plan mode must also see plugin components globally installed by the admin."""
+    from core.agent_runtime.plugin_visibility import all_plugin_component_ids, load_enabled_plugins
     from core.db.models import AdminMcpServer, InstalledPlugin
-    from orchestration.subagents.plugin_visibility import (
-        all_plugin_component_ids,
-        load_enabled_plugins,
-    )
 
     with sm_env.Session() as db:
         db.add(
@@ -220,7 +217,7 @@ def test_runtime_skill_loader_reads_db_skills_without_route_specific_refresh(
     sm_env, tmp_path, monkeypatch
 ):
     """After a skill is written to AdminSkill, re-reading via the same loader instance must honor the DB as the source of truth."""
-    from core.agent_skills.loader import get_skill_loader
+    from core.capabilities.skills.loader_factory import get_skill_loader
 
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "sandbox_skills"))
     skill_id = "runtime-db-skill"

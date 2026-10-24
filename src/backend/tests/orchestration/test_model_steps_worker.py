@@ -11,11 +11,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.runs.events.writer as writer
+import core.runs.runtime as runtime
+import core.runs.tasks as tasks
+import core.chat.service as services_ChatService_module
 import pytest
 from core.db.models import ChatMessage
-from core.llm.model_steps import assistant_row_replay
-from core.services.compaction_history import normalize_rows
-from orchestration import chat_run_executor as executor
+from core.llm.runtime.model_steps import assistant_row_replay
+from core.chat.compaction.history import normalize_rows
 from tests.orchestration.test_model_steps_pipeline import _result, _run, _step
 from tests.orchestration.test_model_steps_pipeline import run_env as run_env
 
@@ -106,8 +111,8 @@ async def test_cancelling_mid_tool_closes_the_dangling_call_in_the_record(run_en
         streamed.set()
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    run = await executor.start_run(
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -118,8 +123,8 @@ async def test_cancelling_mid_tool_closes_the_dangling_call_in_the_record(run_en
         model_name="test-model",
     )
     await asyncio.wait_for(streamed.wait(), timeout=2)
-    worker = executor._active_runs.get(run.run_id)
-    assert await executor.cancel_run(run.run_id, user_id="user-1")
+    worker = tasks.process_state().active_runs.get(run.run_id)
+    assert await runtime.cancel_run(run.run_id, user_id="user-1")
     with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
         await asyncio.wait_for(worker, timeout=3)
 
@@ -139,7 +144,7 @@ async def test_cancelling_mid_tool_closes_the_dangling_call_in_the_record(run_en
 async def test_tool_success_checkpoint_contains_canonical_result(
     run_env, monkeypatch, combined, fail_once
 ):
-    original_emit = executor._xadd_event
+    original_emit = writer.xadd_event
     published_results = []
 
     async def emit(run_id, offset, event):
@@ -152,8 +157,8 @@ async def test_tool_success_checkpoint_contains_canonical_result(
             published_results.append(event)
         await original_emit(run_id, offset, event)
 
-    monkeypatch.setattr(executor, "_xadd_event", emit)
-    original_refresh = executor.ChatService.refresh_streaming_message
+    monkeypatch.setattr(writer, 'xadd_event', emit)
+    original_refresh = services_ChatService_module.ChatService.refresh_streaming_message
     failed = []
 
     def refresh(self, **kwargs):
@@ -166,7 +171,7 @@ async def test_tool_success_checkpoint_contains_canonical_result(
             raise RuntimeError("injected checkpoint failure")
         return original_refresh(self, **kwargs)
 
-    monkeypatch.setattr(executor.ChatService, "refresh_streaming_message", refresh)
+    monkeypatch.setattr(services_ChatService_module.ChatService, "refresh_streaming_message", refresh)
     reached = asyncio.Event()
     release = asyncio.Event()
     start = asyncio.Event()
@@ -194,8 +199,8 @@ async def test_tool_success_checkpoint_contains_canonical_result(
         await release.wait()
         yield {"type": "meta"}
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    run = await executor.start_run(
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "q"}],
@@ -233,7 +238,7 @@ async def test_tool_success_checkpoint_contains_canonical_result(
                 assert published_results
     finally:
         release.set()
-        task = executor._active_runs.get(run.run_id)
+        task = tasks.process_state().active_runs.get(run.run_id)
         if task is not None:
             await asyncio.wait_for(task, 10)
 
@@ -242,8 +247,8 @@ async def test_tool_success_checkpoint_contains_canonical_result(
 @pytest.mark.parametrize("combined", [False, True])
 async def test_failed_tool_checkpoint_does_not_publish_success(run_env, monkeypatch, combined):
     start = asyncio.Event()
-    original_refresh = executor.ChatService.refresh_streaming_message
-    original_emit = executor._xadd_event
+    original_refresh = services_ChatService_module.ChatService.refresh_streaming_message
+    original_emit = writer.xadd_event
     published = []
 
     def refresh(self, **kwargs):
@@ -274,10 +279,10 @@ async def test_failed_tool_checkpoint_does_not_publish_success(run_env, monkeypa
         }
         pytest.fail("must stop after an undurable completed tool result")
 
-    monkeypatch.setattr(executor.ChatService, "refresh_streaming_message", refresh)
-    monkeypatch.setattr(executor, "_xadd_event", emit)
-    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
-    run = await executor.start_run(
+    monkeypatch.setattr(services_ChatService_module.ChatService, "refresh_streaming_message", refresh)
+    monkeypatch.setattr(writer, 'xadd_event', emit)
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "q"}],
@@ -297,7 +302,7 @@ async def test_failed_tool_checkpoint_does_not_publish_success(run_env, monkeypa
             )
         )
         db.commit()
-    task = executor._active_runs[run.run_id]
+    task = tasks.process_state().active_runs[run.run_id]
     start.set()
     await asyncio.wait_for(task, 10)
     assert not any(e["type"] == "tool_result" for e in published)

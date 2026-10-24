@@ -128,8 +128,8 @@ async def main() -> None:
         ck("T2 真实执行成功（输出含 sentinel2）", S2 in blob2)
 
         # ── Context reconstruction: message bodies the next turn sees must have no </think> residue ──
-        from core.services.chat_service import ChatService
-        from core.services.compaction_service import load_session_history
+        from core.chat.service import ChatService
+        from core.chat.compaction.service import load_session_history
 
         db = SessionLocal()
         try:

@@ -5,7 +5,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from core.services.audio_transcription import AudioModel, transcribe, validate_wav
+from core.chat.audio_transcription import AudioModel, transcribe, validate_wav
 
 
 def wav(seconds=0.5, rate=16000, channels=1):
@@ -58,7 +58,7 @@ def test_hostile_wav_chunks_are_rejected(chunk):
 
 @pytest.mark.parametrize("url", ["http://[bad", "http://localhost:invalid/v1", "http://localhost:999999/v1", "http://localhost:0/v1"])
 def test_malformed_model_urls_are_sanitized(url):
-    from core.services.audio_transcription import transcription_url
+    from core.chat.audio_transcription import transcription_url
     with pytest.raises(HTTPException) as error:
         transcription_url(url)
     assert error.value.status_code == 503

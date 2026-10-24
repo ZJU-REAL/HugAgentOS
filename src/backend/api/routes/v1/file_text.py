@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.services.artifact_text_service import ArtifactTextService
+from core.files.artifacts.text import ArtifactTextService
 
 router = APIRouter()
 

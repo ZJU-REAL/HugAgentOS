@@ -14,7 +14,7 @@ mcp = FastMCP("browser-automation")
 
 async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
     headers = ctx.request_context.request.headers
-    from core.llm.mcp_invocation import verify
+    from core.llm.mcp.invocation import verify
     claims = verify(headers, "browser_runtime")
     plugin_id = claims.get("plugin", "")
     slug = plugin_id.split(":", 2)[2] if plugin_id else "browser-automation"

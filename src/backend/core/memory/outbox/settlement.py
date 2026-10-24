@@ -93,20 +93,9 @@ def _finish_success(job_id: str, worker_id: str, result: Any) -> Optional[str]:
         )
         if affected:
             if row.job_kind == "settlement":
-                from core.db.models import ChatMessage
-                from core.evolution.settlement_store import METADATA_KEY
-
+                from core.memory.settlement_port import memory_settlement
                 summary = result.get("summary") if isinstance(result, dict) else None
-                message = db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
-                if message is None:
-                    raise RuntimeError(
-                        "assistant message is not durable yet; settlement will retry"
-                    )
-                if not isinstance(summary, dict):
-                    raise RuntimeError("settlement result is missing its durable summary")
-                extra = dict(message.extra_data or {})
-                extra[METADATA_KEY] = summary
-                message.extra_data = extra
+                memory_settlement().write_summary(db, message_id, summary)
             _enqueue_settlement_if_ready(db, message_id, now)
         db.commit()
     if affected:

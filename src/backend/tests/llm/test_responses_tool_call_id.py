@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
-from core.llm.responses_models import ResponsesReplayFormatter, WIRE_PROTOCOL
+from core.models.responses import ResponsesReplayFormatter, WIRE_PROTOCOL
 
 ITEM_ID = "c41e042e-2e51-4b7f-9476-d677e46eadc2"
 CALL_ID = "call_00_JsdbgnSxi85atlacyJeb5187"

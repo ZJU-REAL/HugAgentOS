@@ -11,7 +11,7 @@ import os
 import time
 from types import SimpleNamespace
 
-import core.services as chat_services
+import core.chat.service as chat_services_ChatService_module
 import uvicorn
 from api.routes.v1 import chats
 from core.auth.backend import get_current_user
@@ -171,7 +171,7 @@ async def stream():
 
 # Isolate the slow database boundary for an HTTP concurrency experiment. The
 # real get_pending_user_questions route/worker scheduling remains unchanged.
-OriginalService = chat_services.ChatService
+OriginalService = chat_services_ChatService_module.ChatService
 
 
 class MeasuredService(OriginalService):
@@ -182,7 +182,7 @@ class MeasuredService(OriginalService):
         return super().get_session(chat_id, user_id)
 
 
-chat_services.ChatService = MeasuredService
+chat_services_ChatService_module.ChatService = MeasuredService
 
 
 async def no_questions(chat_id):

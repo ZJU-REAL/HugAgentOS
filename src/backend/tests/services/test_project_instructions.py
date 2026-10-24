@@ -9,11 +9,11 @@ import pytest
 from core.chat.schemas import ChatRequest
 from core.chat.context import generate_smart_title
 from core.db.models import Artifact, Project, UserFolder, UserShadow
-from core.services.project_file_service import ProjectFileService
-from core.services.project_init import resolve_project_init
-from core.services.project_instructions import ProjectInstructionsService
-from core.services.project_scope import build_project_ctx
-from core.services.project_service import ProjectService
+from core.projects.files import ProjectFileService
+from core.chat.project_init import resolve_project_init
+from core.projects.instructions import ProjectInstructionsService
+from core.projects.edition import build_project_ctx
+from core.projects.edition import ProjectService
 from fastapi import HTTPException
 from tests.services.project_instructions_support import env, local, update
 
@@ -211,7 +211,7 @@ def test_init_requires_unadorned_project_chat(env, mode):
 @pytest.mark.asyncio
 async def test_registered_tools_save_real_cloud_content_with_revision_and_permissions(env):
     from agentscope.tool import Toolkit
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.runtime.tool_collector import ToolCollector
     from core.llm.tools.project_instructions_tool import register_project_instruction_tools
 
     db, _ = env
@@ -243,7 +243,7 @@ async def test_registered_tools_save_real_cloud_content_with_revision_and_permis
 
 
 def test_saved_chat_binding_controls_initialization(env):
-    from core.services.chat_service import ChatService
+    from core.chat.service import ChatService
 
     db, _ = env
     svc = ProjectService(db)
@@ -314,13 +314,13 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     if not hasattr(models, "Team"):
         pytest.skip("EE organization project")
     from core.db.models import Team, TeamMember
-    from core.llm.tool_collector import ToolCollector
-    from core.llm.tool_permissions import PermissionRuntime
+    from core.llm.runtime.tool_collector import ToolCollector
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime
     from core.llm.tools.project_instructions_tool import (
         project_instruction_path,
         register_project_instruction_tools,
     )
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
 
     db, _ = env
     db.add(Team(team_id="team", name="Team", owner_user_id="alice", source="manual"))

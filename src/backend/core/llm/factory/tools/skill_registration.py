@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from core.capabilities import runtime as capability_runtime
-from core.capabilities.paths import capabilities_enabled
+from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
 
@@ -16,12 +15,12 @@ async def skill_registration(
 ):
     skill_ids_to_register = request.enabled_skill_ids
     if skill_ids_to_register is None:
-        skill_ids_to_register = factory_capabilities._effective_main_available_skills()
+        skill_ids_to_register = factory_capabilities.effective_main_available_skills()
         # The fallback resolves from the static catalog, which today carries no
         # evolution-authored ids — but the exposure gate is applied here anyway
         # rather than relying on that. A gate that only covers the paths we
         # happened to think of is not a gate.
-        skill_ids_to_register = factory_capabilities._filter_skill_ids_for_user(
+        skill_ids_to_register = factory_capabilities.filter_skill_ids_for_user(
             skill_ids_to_register, request.current_user_id
         )
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]
@@ -30,15 +29,8 @@ async def skill_registration(
     # config, no inheriting the full catalog set.
 
     if _prepared_capabilities is not None:
-        missing = set(skill_ids_to_register or []) - set(_prepared_capabilities.bindings)
-        if missing:
-            from core.capabilities.errors import PackageMissing
-
-            raise PackageMissing(
-                "selected skills are absent from this prepared run",
-                details={"skills": sorted(missing)},
-            )
-        loader = await asyncio.to_thread(capability_runtime.frozen_loader, _prepared_capabilities)
+        _prepared_capabilities.validate_selected_skills(skill_ids_to_register)
+        loader = await asyncio.to_thread(_prepared_capabilities.skill_loader)
 
     allowed_skill_dirs: list[str] = []
     if not request.disable_tools and skill_ids_to_register:
@@ -52,16 +44,12 @@ async def skill_registration(
 
     if (
         not request.disable_tools
-        and not capabilities_enabled()
+        and not has_run_capabilities()
         and _api_scope is None
         and _eval_scope is None
         and request.project_environment is None
     ):
-        from core.agent_skills.config import (
-            get_enabled_skill_sources,
-            get_sandbox_skills_dir,
-            get_user_skills_dir,
-        )
+        from core.capabilities.skills.config import get_enabled_skill_sources, get_sandbox_skills_dir, get_user_skills_dir
 
         for src in get_enabled_skill_sources():
             root = str(src.root_dir)

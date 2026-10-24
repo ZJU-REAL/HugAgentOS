@@ -31,10 +31,10 @@ from agentscope.message import (
     ToolResultBlock,
 )
 from core.chat.tool_log import attach_tool_result, upsert_tool_call
-from core.llm.chat_models import ReasoningEchoChatFormatter
-from core.llm.compacting_agent import msg_to_history_dict
-from core.llm.responses_models import ResponsesReplayFormatter
-from core.llm.providers import vendor_models as vm
+from core.models.chat_models import ReasoningEchoChatFormatter
+from core.llm.context.compacting_agent import msg_to_history_dict
+from core.models.responses import ResponsesReplayFormatter
+from core.models.providers import vendor_models as vm
 from PIL import Image
 
 
@@ -213,7 +213,7 @@ async def test_formatting_never_writes_the_image_to_the_host_filesystem(monkeypa
 @pytest.mark.asyncio
 async def test_media_the_wire_cannot_carry_is_reported_not_silently_dropped(caplog):
     """线路收不下的媒体：如实回执给模型 + 记 error 日志，但不中断这一轮。"""
-    with caplog.at_level(logging.ERROR, logger="core.llm.tool_result_media"):
+    with caplog.at_level(logging.ERROR, logger="core.models.tool_result_media"):
         rows = await ReasoningEchoChatFormatter().format(
             [image_result("call-1", png_bytes(), media_type="video/mp4")]
         )

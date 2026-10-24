@@ -11,7 +11,7 @@ preference, because none of them degrades gracefully:
 * ``SESSION_STORE=memory`` — a login handled by worker A is invisible to worker
   B, so a browser is randomly signed out on roughly ``1 - 1/N`` of its requests.
 * No Redis — the per-run SSE event log falls back to an in-process buffer
-  (:mod:`orchestration.run_event_stream`), and so does the mutex behind
+  (:mod:`core.runs.events.store`), and so does the mutex behind
   :mod:`core.infra.leader`, so neither the stream nor the leader lease would
   actually cross a process boundary.
 * ``DEPLOY_PROFILE=local`` — the no-Docker desktop profile hosts MCP and sandbox

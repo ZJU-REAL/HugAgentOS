@@ -34,7 +34,7 @@ class ReferencedChatItem(BaseModel):
     """用户为本轮显式引用的一段历史会话。
 
     只带 ID：标题、时间、概览等名片信息一律由后端按当前权限现查（见
-    ``core.services.chat_reference_service``），前端传什么都不作数——否则任何人都能伪造
+    ``core.chat.references``），前端传什么都不作数——否则任何人都能伪造
     一段"来自另一个会话"的内容塞进模型。
     """
 

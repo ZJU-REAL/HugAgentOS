@@ -2,9 +2,9 @@
 
 from sqlalchemy.orm import sessionmaker
 
-from core.db.model_repository import assign_role, create_provider, unassign_role, update_provider
-from core.services import model_config
-from core.services.model_config import ModelConfigService
+from core.models.repository import assign_role, create_provider, unassign_role, update_provider
+from core.models import config as model_config
+from core.models.config import ModelConfigService
 
 
 def test_independent_workers_observe_committed_role_and_provider_changes(db_session, monkeypatch):
@@ -59,7 +59,7 @@ def test_separate_process_observes_commit_without_restart(tmp_path):
         assign_role(db, "subagent", provider.provider_id)
         script = """
 import sys
-from core.services.model_config import ModelConfigService
+from core.models.config import ModelConfigService
 service = ModelConfigService()
 print(service.resolve('subagent').model_name, flush=True)
 sys.stdin.readline()

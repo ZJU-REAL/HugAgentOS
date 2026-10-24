@@ -21,7 +21,7 @@ from core.db.engine import get_db
 from core.db.models.chat_mode import ChatMode
 from core.infra.logging import get_logger
 from core.infra.responses import created_response, success_response
-from core.services.chat_mode_service import ChatModeService
+from core.chat.modes import ChatModeService
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session

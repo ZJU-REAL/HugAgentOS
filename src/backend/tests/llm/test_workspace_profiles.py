@@ -1,3 +1,5 @@
+
+import core.jobs.files as jobs_files
 from tests.sandbox.runner_client import run_runner
 
 """Path identities must agree with the selected execution environment."""
@@ -9,7 +11,7 @@ from pathlib import Path
 import pytest
 from core.config import local_mode
 from core.config.settings import settings
-from core.llm.tools import _paths
+from core.sandbox.workspace import resolution as _paths
 
 
 @pytest.mark.parametrize("provider", ["cube", "opensandbox"])
@@ -191,7 +193,7 @@ def test_desktop_runner_creates_no_aliases(monkeypatch, tmp_path):
 async def test_job_commands_preserve_paths_with_spaces(monkeypatch, tmp_path):
     import asyncio
 
-    from orchestration.jobs import files as job_runtime
+    import core.jobs.files as job_runtime
 
     monkeypatch.setattr(local_mode, "local_mode_enabled", lambda: True)
     root = tmp_path / "Application Support" / "张 三"
@@ -212,7 +214,7 @@ async def test_job_commands_preserve_paths_with_spaces(monkeypatch, tmp_path):
         out, err = await proc.communicate()
         return proc.returncode, out.decode(), err.decode()
 
-    monkeypatch.setattr(job_runtime, "_sbx_bash", bash)
+    monkeypatch.setattr(jobs_files, "_sbx_bash", bash)
     workspace = Path(_paths.workspace_directory("chat"))
     output = workspace / "导出 数据.txt"
     ok, detail = await job_runtime.write_sandbox_file(

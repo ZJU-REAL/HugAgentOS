@@ -11,7 +11,7 @@ from personal_agent.tasks.guards import owned_task
 from personal_agent.tools.responses import response
 from personal_agent.computer.sandbox import DESKTOP_RUN, SANDBOX_PYTHON, get_personal_sandbox_provider
 from personal_agent.tasks.approvals import authorize, receipt
-from core.device_link.driver import ACTIONS as SUPPORTED, KEYS
+from personal_agent.device_link.driver import ACTIONS as SUPPORTED, KEYS
 
 # One desktop, one user of it at a time: the agent and the owner share this lease.
 LEASE_TTL = 45

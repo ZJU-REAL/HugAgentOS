@@ -128,7 +128,7 @@ The root contains only the protocol, errors, factory, and package initializer. I
 
 The runner depends only on process and path primitives that do not load backend settings or databases. OpenSandbox-specific components stay with that provider; shared processes, paths, and account environment support serve both OpenSandbox and Cube.
 
-### core/agent_skills — the skill engine
+### core/capabilities/skills — the skill engine
 
 | File | Responsibility |
 |---|---|
@@ -144,12 +144,12 @@ The runner depends only on process and path primitives that do not load backend 
 | Submodule | Responsibilities and key files |
 |---|---|
 | `core/chat` | Workflow context assembly (`context.py`), SSE tool-log event construction (`tool_log.py`) |
-| `core/content` | Attachment parsing (`file_parser.py`), KB document chunking/keywords/vectorization (`kb_processing.py`), upload validation (`file_validation.py`), artifact reading and summaries (`artifact_reader/refs/summary.py`), content-block import/export (`content_blocks.py`), `svg_fit.py` |
+| `core/files/content` | Attachment parsing (`file_parser.py`), KB document chunking/keywords/vectorization (`kb_processing.py`), upload validation (`file_validation.py`), artifact reading and summaries (`artifact_reader/refs/summary.py`), content-block import/export (`content_blocks.py`), `svg_fit.py` |
 | `core/kb` / `edition_ee/kb` | Shared private-KB parsing and Milvus vector storage stay in `core/kb`; the Dify client and external retrieval adapter live only in `edition_ee/kb` (EE) |
-| `core/artifacts` | Artifact store `store.py`: local / OSS dual mode |
+| `core/files/artifacts` | Artifact store `store.py`: local / OSS dual mode |
 | `core/infra` | Unified responses (`responses.py`), exceptions (`exceptions.py`), structured logging (`logging.py`), rate limiting (`rate_limit.py`), Redis singleton (`redis.py`), metrics (`metrics.py`), background-task registry (`runtime_state.py`), data masking (`data_masking.py`), distillation budget gates (`distillation_budget.py`, Enterprise Edition, EE) |
 | `edition_ee/licensing` | Feature enums, signature verification, clock guard, seat policy, middleware, and the manager all exist only in EE; the CE tree has no License package and gets a fixed edition probe from its `api/middleware/edition.py` overlay |
-| `core/storage` | Storage protocol `protocol.py` + factory `factory.py`; `local.py` (CE), `s3.py` / `oss.py` (Enterprise Edition, EE) |
+| `core/files/storage` | Storage protocol `protocol.py` + factory `factory.py`; `local.py` (CE), `s3.py` / `oss.py` (Enterprise Edition, EE) |
 
 ## orchestration/ — the orchestration layer
 
@@ -224,7 +224,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 | Sandbox protocol | `src/backend/core/sandbox/protocol.py` |
 | Memory pipeline | `src/backend/core/memory/pipeline.py` |
 | EE License implementation / CE edition middleware | `src/backend/edition_ee/licensing/`, `src/backend/api/middleware/edition.py` |
-| Skill engine | `src/backend/core/agent_skills/loader.py` |
+| Skill engine | `src/backend/core/capabilities/skills/loader.py` |
 | MCP registry and ports | `src/backend/extensions/mcp_servers/registry.py`, `_ports.py` |
 
 The space MCP interface lives in `extensions/mcp_servers/space_files_mcp/`. The registry separates installation placement from exposure. Hybrid desktops access spaces through the capability gateway; mutations use unified approval. See [space file mounts](../deployment/space-files.md).

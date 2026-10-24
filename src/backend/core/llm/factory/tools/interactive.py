@@ -24,7 +24,7 @@ async def interactive_tools(
 ):
     _log.info("[factory] +%s skills registered", _elapsed())
 
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
 
     _proj_scope = project_scope_from_context(request.project_ctx or {})
 

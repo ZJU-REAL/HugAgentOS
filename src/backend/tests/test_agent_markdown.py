@@ -6,12 +6,7 @@ import zipfile
 from decimal import Decimal
 
 import pytest
-from core.services.agent_markdown import (
-    agent_to_markdown,
-    agents_to_zip,
-    parse_agent_markdown,
-    parse_agents_upload,
-)
+from core.capabilities.agents.markdown import agent_to_markdown, agents_to_zip, parse_agent_markdown, parse_agents_upload
 
 SAMPLE = {
     "name": "数据分析师",

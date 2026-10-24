@@ -97,7 +97,7 @@ async def retrieve_dataset_content(
     current_user_id = _get_header(ctx, _HDR_CURRENT_USER_ID)
 
     try:
-        from core.kb.external_provider import is_enabled
+        from features.knowledge.edition import is_enabled
         from extensions.mcp_servers.retrieve_dataset_content_mcp.local_impl import retrieve_public_local_kb
 
         if not await asyncio.to_thread(is_enabled):

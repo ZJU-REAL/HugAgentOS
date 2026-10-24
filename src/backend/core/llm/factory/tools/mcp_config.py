@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
-import core.config.catalog as catalog
-from core.config.catalog_loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
-from core.llm.mcp_pool import MCPConnectionPool
-from core.services.mcp_service import McpServerConfigService
-from orchestration.registry import AgentSpec
+import core.capabilities.catalog.api as catalog
+from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
+from core.llm.factory.specs import AgentSpec
+from core.llm.mcp.pool import MCPConnectionPool
+from core.capabilities.mcp.service import McpServerConfigService
 
 
-def _effective_mcp_server_keys(
+def effective_mcp_server_keys(
     cfg,
     agent_spec: Optional[AgentSpec],
     enabled_mcp_ids: Optional[list[str]] = None,
@@ -103,7 +103,7 @@ def _required_mcp_server_keys(
     return resolved
 
 
-def _inject_runtime_headers(
+def inject_runtime_headers(
     enabled_servers: dict,
     *,
     current_user_id: Optional[str] = None,
@@ -125,7 +125,7 @@ def _inject_runtime_headers(
     if not enabled_servers:
         return enabled_servers
 
-    from core.kb.external_provider import runtime_request_context
+    from core.harness.registry.retrieval_context import runtime_request_context
 
     normalized = [str(x).strip() for x in (enabled_kb_ids or []) if str(x).strip()]
     local_ids = [x for x in normalized if x.startswith("kb_")]
@@ -163,7 +163,7 @@ def _inject_runtime_headers(
         if is_http:
             headers = dict(c.get("headers") or {})
             headers.update(ctx_headers)
-            from core.llm.mcp_invocation import PLUGIN_HEADER, for_url
+            from core.llm.mcp.invocation import PLUGIN_HEADER, for_url
             plugin_id = ""
             if c.get("origin") == "local_plugin" and c.get("source_plugin"):
                 plugin_id = c.get("plugin_install_id") or "plugin:local:" + c["source_plugin"]

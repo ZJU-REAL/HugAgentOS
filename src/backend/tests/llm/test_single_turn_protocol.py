@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.llm.single_turn import Endpoint, build_request, parse_response, stream_delta, turns
+from core.models.completions.single_turn import Endpoint, build_request, parse_response, stream_delta, turns
 
 RESPONSES = Endpoint(
     base_url="https://gw.example/api/v1/desktop/capability/gateway/models/p1",

@@ -21,7 +21,7 @@ from agentscope.tool import Toolkit
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
 from core.llm.tools._common import resolve_sandbox_session
-from core.llm.tools._tool_helpers import _resp_json
+from core.llm.tools._tool_helpers import resp_json as _resp_json
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def register_bash(
 
     # Effective sandbox session (``None`` → legacy fall back to chat_id).
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
-    from core.llm.evaluation_runtime import is_evaluation_session
+    from core.harness.registry.evaluation import is_evaluation_session
     _evaluation = is_evaluation_session(_sess)
 
     async def Bash(
@@ -111,7 +111,7 @@ def register_bash(
 
         authorization = None
         if local_mode_enabled():
-            from core.llm.tool_permissions import current_local_command_authorization
+            from core.sandbox.permissions.dispatch_models import current_local_command_authorization
 
             authorization = current_local_command_authorization(cmd)
             if authorization is None:
@@ -132,7 +132,7 @@ def register_bash(
         # confinement nobody enforces — so the question is put to the provider
         # rather than assumed from the deployment profile.
         if authorization is not None and provider.runs_on_host:
-            from core.llm.tool_permissions import LocalConfinementUnavailableError
+            from core.sandbox.permissions.dispatch_models import LocalConfinementUnavailableError
 
             try:
                 sandbox_launch = authorization.confine()
@@ -151,7 +151,7 @@ def register_bash(
                 sandbox_launch.backend if sandbox_launch else "未启用（用户选择的权限档）",
             )
 
-        from core.services.edition_workspace import project_directory
+        from core.files.edition import project_directory
         root = project_directory(scope)
         if root:
             import shlex
@@ -159,7 +159,7 @@ def register_bash(
 
         if timeout is not None and timeout <= 0:
             return _resp_json({"error": "timeout 必须为正数；省略表示不设置命令执行期限。"})
-        from ._paths import workspace_directory
+        from core.sandbox.workspace.resolution import workspace_directory
 
         effective_timeout = timeout
         req = _ProcessRequest(
@@ -179,8 +179,8 @@ def register_bash(
         )
         from fastapi import HTTPException
         try:
-            from orchestration.commands.runtime import runtime
-            payload = await runtime.start(provider, req, chat_id=chat_id,
+            from core.llm.ports import command_execution
+            payload = await command_execution().start(provider, req, chat_id=chat_id,
                 source_run_id=source_run_id, background=run_in_background,
                 yield_time_ms=yield_time_ms)
         except HTTPException as exc:
@@ -195,30 +195,30 @@ def register_bash(
         return await finish(payload)
 
     async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 0) -> ToolResponse:
-        from core.services.commands import store
-        from orchestration.commands.runtime import runtime
-        tid = await asyncio.to_thread(store.resolve_id, session_id, user_id, _sess)
+        from core.llm.ports import command_execution
+        from core.llm.ports import command_records
+        tid = await asyncio.to_thread(command_records().resolve_id, session_id, user_id, _sess)
         if chars not in ("", "\x03"):
             return _resp_json({"error": "stdin is closed; use empty input or Ctrl+C"})
         if chars:
-            await runtime.cancel(tid, user_id, _sess)
+            await command_execution().cancel(tid, user_id, _sess)
         else:
-            await runtime.wait(tid, user_id, _sess, max(0, min(yield_time_ms, 3000)))
-        payload = await asyncio.to_thread(store.read, tid, user_id, _sess)
+            await command_execution().wait(tid, user_id, _sess, max(0, min(yield_time_ms, 3000)))
+        payload = await asyncio.to_thread(command_records().read, tid, user_id, _sess)
         return await finish(payload)
 
     async def background_process(session_id: str) -> ToolResponse:
         """Adopt an existing Bash process without executing the command again."""
         from core.sandbox import get_sandbox_provider
-        from orchestration.commands.runtime import runtime
-        payload = await runtime.adopt(get_sandbox_provider(), session_id,
+        from core.llm.ports import command_execution
+        payload = await command_execution().adopt(get_sandbox_provider(), session_id,
             user_id=user_id, session_id=_sess, chat_id=chat_id, source_run_id=source_run_id)
         return _resp_json(payload)
 
     async def list_processes() -> ToolResponse:
         """List this user's command tasks in the current chat."""
-        from core.services.commands import store
-        return _resp_json({"tasks": await asyncio.to_thread(store.list_owned, user_id, chat_id)})
+        from core.llm.ports import command_records
+        return _resp_json({"tasks": await asyncio.to_thread(command_records().list_owned, user_id, chat_id)})
 
     async def finish(payload: dict) -> ToolResponse:
         # dws (DingTalk CLI) PAT per-scope authorization interception: exit code 4
@@ -237,9 +237,9 @@ def register_bash(
 
         return _resp_json(payload)
 
-    from ._paths import WORKSPACE_ROOT, path_rules
-
     import core.sandbox.workspace.desktop as desktop_paths
+
+    from core.sandbox.workspace.resolution import WORKSPACE_ROOT, path_rules
 
     rules = path_rules()
     instructions = (
@@ -260,7 +260,7 @@ def register_bash(
         "    或失败时 {error, exit_code: -1}。\n"
     )
 
-    from core.services.edition_workspace import command_instructions
+    from core.files.edition import command_instructions
     Bash.__doc__ += command_instructions(scope)
 
     write_stdin.__doc__ = (
@@ -282,4 +282,4 @@ def register_bash(
 
 
 
-from .sandbox_artifact_tools import register_sandbox_put_artifact, register_sandbox_get_artifact
+from .sandbox_artifact_tools import register_sandbox_get_artifact, register_sandbox_put_artifact

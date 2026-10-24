@@ -10,12 +10,18 @@ def test_empty_environment_blocks_registration_and_keeps_one_run_frozen(tmp_path
 import asyncio
 from core.db.engine import Base, engine, SessionLocal
 from core.db.models import Project, UserShadow, ChatSession, UserAgent, AdminMcpServer, ChatRun
-from core.db.model_repository import create_provider, assign_role
+from core.models.repository import create_provider, assign_role
+from features import register_product_tools, register_run_capabilities
+register_product_tools()
+register_run_capabilities()
 from core.llm.factory import create_agent_executor
 from core.llm.factory.request import AgentRequest
-from core.llm.project_environment import bind_project_environment
-from orchestration.workflow import _extract_project_ctx
+from core.llm.runtime.project_environment import bind_project_environment
+from core.agent_runtime.targets import _extract_project_ctx
 
+from core.harness.registry import load_models
+from features.installed import INSTALLED_FEATURES
+load_models(INSTALLED_FEATURES)
 Base.metadata.create_all(engine)
 with SessionLocal() as db:
     model = create_provider(db, display_name="mock", provider_type="chat", base_url="http://127.0.0.1:1/v1",
@@ -71,7 +77,7 @@ async def run():
     assert outside.enabled_mcp_ids == ["internet_search"]
     # Exercise the actual custom-child dispatch, whose cloud path deliberately
     # drops chat_id and used to drop all project restrictions as well.
-    from core.llm.subagent_tool import _run_subagent_in_thread
+    from core.llm.subagents.tool import _run_subagent_in_thread
     success, result, _, _ = await asyncio.to_thread(
         _run_subagent_in_thread, "unbound", "Unbound", "test", "", "owner",
         parent_runtime={"project_ctx": request.project_ctx},
@@ -82,7 +88,7 @@ async def run():
     # factory and Toolkit must expose only the explicitly bound private MCP,
     # including when its ambient switch is off.
     from unittest.mock import patch
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
     connected = []
     def manifest_client(name, config, **kwargs):
         connected.append(name)
@@ -91,7 +97,7 @@ async def run():
             "manifest_tools": [{"name": "read_" + name, "description": "Read fixture",
                                 "inputSchema": {"type": "object", "properties": {}}}]}, **kwargs)
     selected_ctx = {"project_id": "selected"}
-    with patch("core.llm.mcp_pool.make_client", side_effect=manifest_client):
+    with patch("core.llm.mcp.pool.make_client", side_effect=manifest_client):
         selected_agent, selected_clients = await create_agent_executor(
             current_user_id="owner", project_ctx=selected_ctx, max_iters=1,
             enabled_mcp_ids=["outside"],
@@ -103,7 +109,7 @@ async def run():
     assert (await bind_project_environment(following_step)).mcp_ids == frozenset({"allowed"})
     selected_names = {s["function"]["name"] for s in selected_agent._jx_compaction_tool_schemas}
     assert "read_allowed" in selected_names and "read_outside" not in selected_names, selected_names
-    from core.llm.mcp_manager import close_clients
+    from core.llm.mcp.manager import close_clients
     await close_clients(selected_clients)
     revoked_request = AgentRequest(current_user_id="owner", project_ctx=selected_ctx)
     await bind_project_environment(revoked_request)
@@ -111,13 +117,15 @@ async def run():
         connector = db.get(AdminMcpServer, "allowed")
         connector.owner_user_id = "someone-else"
         db.commit()
-    from core.llm.project_environment_middleware import ProjectEnvironmentMiddleware
+    from core.llm.runtime.project_environment_hook import project_environment_hook
+    from tests.orchestration.hook_support import make_adapter
+    from types import SimpleNamespace
     executed = []
     async def io(**kwargs):
         executed.append("tool I/O")
         yield "executed"
-    results = [item async for item in ProjectEnvironmentMiddleware(revoked_request).on_acting(
-        None, {}, io)]
+    results = [item async for item in make_adapter(project_environment_hook(revoked_request)).on_acting(
+        SimpleNamespace(state=SimpleNamespace(run_id="project-test", context=[])), {}, io)]
     assert executed == [], executed
     assert results[0].metadata["project_environment_denied"] is True
 

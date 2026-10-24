@@ -16,11 +16,11 @@ import pytest
 from agentscope.agent import ContextConfig
 from agentscope.message import DataBlock, Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from core.config import settings as config_settings
-from core.llm import compaction as C
-from core.llm.compacting_agent import CompactingAgent, msg_to_history_dict
-from core.llm.context_ir import IMAGE_TOKEN_RESERVE
-from core.services import compaction_budget as budget
-from core.services import compaction_service as S
+from core.llm.context import compaction as C
+from core.llm.context.compacting_agent import CompactingAgent, msg_to_history_dict
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.llm.context import budget as budget
+from core.chat.compaction import service as S
 
 
 def _user(text: str) -> Msg:
@@ -147,7 +147,7 @@ async def test_below_threshold_does_not_call_engine(monkeypatch):
         called.append(chat_id)
         return [{"role": "user", "content": "nope"}]
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
     await agent.compress_context()
 
     assert called == []
@@ -172,7 +172,7 @@ async def test_over_threshold_installs_summary_then_recent_steps(monkeypatch):
         _older, recent = C.split_history_for_compaction(history, keep_recent_tokens=5)
         return C.build_compacted_history(summary_text, recent)
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
     await agent.compress_context()
 
     assert captured["chat_id"] == "chat-1"
@@ -201,7 +201,7 @@ async def test_engine_failure_preserves_context_without_framework_summary(monkey
     async def _framework(self, context_config=None):
         fallback_calls.append(context_config)
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
     monkeypatch.setattr("agentscope.agent.Agent.compress_context", _framework)
 
     await agent.compress_context()
@@ -239,7 +239,7 @@ async def test_disabled_flag_leaves_context_for_final_budget_admission(monkeypat
     async def _framework(self, context_config=None):
         fallback_calls.append(1)
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
     monkeypatch.setattr("agentscope.agent.Agent.compress_context", _framework)
 
     await agent.compress_context()
@@ -263,7 +263,7 @@ async def test_does_not_recompact_when_context_did_not_grow(monkeypatch):
             {"role": "user", "content": "sum"},
         ]
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
 
     await agent.compress_context()
     assert len(calls) == 1
@@ -294,7 +294,7 @@ async def test_offloaded_path_is_appended_to_the_summary(monkeypatch):
             {"role": "user", "content": "q"},
         ]
 
-    monkeypatch.setattr(S, "run_compaction", _engine)
+    monkeypatch.setattr(compaction_port, "run_compaction", _engine)
     await agent.compress_context()
 
     assert offloader.msgs is not None and len(offloader.msgs) == 2
@@ -328,9 +328,9 @@ async def test_no_chat_id_still_compacts_without_checkpoint(monkeypatch):
         return "摘要正文"
 
     writes = []
-    monkeypatch.setattr("core.services.compaction_summary._summarize", _summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', _summarize)
     monkeypatch.setattr(
-        S, "run_compaction", lambda *a, **k: writes.append(1)
+        compaction_port, "run_compaction", lambda *a, **k: writes.append(1)
     )  # must not be reached
 
     await agent.compress_context()
@@ -394,7 +394,7 @@ def test_trigger_ratio_console_value_wins(monkeypatch):
 
     monkeypatch.setitem(
         __import__("sys").modules,
-        "core.services.system_config",
+        "core.config.store.system_config",
         SimpleNamespace(SystemConfigService=_Svc),
     )
     assert S.resolve_trigger_ratio() == 0.7
@@ -418,7 +418,7 @@ def test_trigger_ratio_out_of_range_ignored(monkeypatch):
 
     monkeypatch.setitem(
         __import__("sys").modules,
-        "core.services.system_config",
+        "core.config.store.system_config",
         SimpleNamespace(SystemConfigService=_Svc),
     )
     assert S.resolve_trigger_ratio() == 0.8
@@ -454,3 +454,5 @@ async def test_measure_counts_tool_results_appended_inside_existing_assistant():
     measured = await agent._measure_context_tokens()
     assert measured > 12_500, "the 50k result must count even without a new message"
     assert await agent._measure_context_tokens() == measured, "do not accumulate estimates twice"
+
+from core.harness.registry import compaction as compaction_port

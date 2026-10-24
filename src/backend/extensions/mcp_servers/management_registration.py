@@ -4,8 +4,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
-from core.services.management_contract import MANAGERS, tools
-from core.services.management_errors import management_error
+from core.capabilities.plugins.management.contract import MANAGERS, tools
+from core.capabilities.plugins.management.errors import management_error
 
 
 class ArtifactSource(BaseModel):
@@ -18,7 +18,7 @@ def register(mcp, manager, user_from_context):
     kind = MANAGERS[manager]
 
     async def call(action, ctx, **arguments):
-        from core.services import cloud_management as service
+        from core.capabilities.plugins.management import cloud as service
         try:
             return await asyncio.to_thread(getattr(service, action), user_from_context(ctx), kind, **arguments)
         except Exception as exc:

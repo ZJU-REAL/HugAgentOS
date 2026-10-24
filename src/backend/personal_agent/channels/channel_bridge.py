@@ -49,7 +49,7 @@ def exported_artifact(db, chat_id, artifact_id):
     return item
 
 def load_file(chat_id, artifact_id):
-    from core.storage import get_storage
+    from core.files.storage import get_storage
     with SessionLocal() as db:
         item = exported_artifact(db, chat_id, artifact_id)
         if item is None:
@@ -74,13 +74,14 @@ def pack(msg):
     return data
 
 def unpack(data):
-    from core.channels.protocol import InboundMsg
+    from integrations.channels.protocol import InboundMsg
     fields = {field.name for field in dataclasses.fields(InboundMsg)}
     return InboundMsg(**{key: value for key, value in data.items() if key in fields})
 
 async def admit_inbound(conn, msg, adapter):
     """Store the IM message in the Personal Agent conversation. The worker answers it later."""
-    from core.channels.inbound import _ingest_attachments, _speaker_label
+    from integrations.channels.inbound_attachments import ingest_attachments as _ingest_attachments
+    from integrations.channels.inbound_observation import speaker_label as _speaker_label
     from personal_agent.conversation.message_routing import admit
     from personal_agent.context import AgentContext
     placeholder = None
@@ -160,9 +161,9 @@ async def send_now(origin, text):
 
 async def send_text(conn, msg, text, sent_chunks=0, record=None):
     """Persist each successful chunk before attempting the next one."""
-    from core.channels.markdown import strip_citation_markers, strip_inline_thinking
-    from core.channels.protocol import chunk_text
-    from core.channels.registry import get_adapter
+    from integrations.channels.markdown import strip_citation_markers, strip_inline_thinking
+    from integrations.channels.protocol import chunk_text
+    from integrations.channels.registry import get_adapter
     adapter = get_adapter(conn.channel_type)
     text = strip_citation_markers(strip_inline_thinking(text))
     send = getattr(adapter, "send_markdown", None) if adapter.caps.supports_markdown else None
@@ -190,7 +191,7 @@ def delivery_allowed(chat_id, conn):
 
 def connection(channel_id):
     """An enabled bot connection, detached with its credentials loaded, or None."""
-    from core.db.repository.channel import ChannelConnectionRepository
+    from integrations.channels.repository import ChannelConnectionRepository
     with SessionLocal() as db:
         conn = ChannelConnectionRepository(db).get_by_id(channel_id)
         if conn is None or not conn.enabled: return None
@@ -279,7 +280,7 @@ async def deliver_pending(limit=20):
                                          delivery.get("text_chunks_sent", 0), record)
                 if not ok: raise RuntimeError("Personal channel text delivery failed")
                 await record(text_sent=True)
-            from core.channels.registry import get_adapter
+            from integrations.channels.registry import get_adapter
             sent = list(delivery.get("sent_file_ids") or [])
             failed = list(delivery.get("failed_file_ids") or [])
             retry = False
@@ -338,7 +339,7 @@ def notify_soon(origin, text):
 
 def bots(db, uid):
     """The owner's bots, with the Personal Agent routing flag."""
-    from core.services.channel_service import ChannelService, bot_to_dict
+    from integrations.channels.service import ChannelService, bot_to_dict
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.user_id == str(uid)))
     routed = set((agent.config or {}).get("channel_ids", [])) if agent else set()
     result = []
@@ -351,7 +352,7 @@ def bots(db, uid):
     return result
 
 def route(db, uid, channel_id, enabled):
-    from core.services.channel_service import ChannelService
+    from integrations.channels.service import ChannelService
     if channel_id not in {conn.channel_id for conn in ChannelService(db).list_bots(str(uid), main_only=True)}:
         raise LookupError("Bot not found")
     from personal_agent.identity.config import update_config

@@ -26,7 +26,7 @@ manifest 按处理顺序分为以下几段：
 
 glob 模式（相对仓库根），命中即不拷贝。覆盖：
 
-- **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/storage/s3.py`、`oss.py`）、Cube 沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
+- **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/files/storage/s3.py`、`oss.py`）、Cube 沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
 - **行业 MCP**：`extensions/mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
 - **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源，
@@ -82,12 +82,12 @@ CE 前端不按工具名猜测远程 MCP 的业务结构。用户接入的远程
 | `.github/workflows/desktop-release.yml` | 公开 CE 桌面发版 workflow，包含 release tag / 版本前置门禁 |
 | `src/backend/api/routes/v1/__init__.py` | CE 路由注册表；`EE_ROUTERS` 恒为空 |
 | `src/backend/core/auth/permissions_iface.py` | 单租户 owner-only 权限接口；不导出团队权限函数 |
-| `src/backend/core/services/artifact_edition.py` | 个人空间 artifact 作用域接口；不暴露团队字段、权限或仓储方法 |
+| `src/backend/core/files/artifacts/edition.py` | 个人空间 artifact 作用域接口；不暴露团队字段、权限或仓储方法 |
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | 个人空间工具、VFS 与恢复接口；组织空间实现不进入 CE |
 | `src/backend/core/config/edition_display_names.py` | CE 工具展示名；不包含团队工具名称 |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |
 | `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE 独立迁移链基线与幂等 Schema 升级（见下节） |
-| `src/backend/core/services/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
+| `src/backend/orchestration/workers/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
 | `src/backend/tests/ce_release/` | 可执行 CE 发布回归套件，覆盖登录、私有技能/MCP、数据库升级及启动/Compose 契约 |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | 去除管理端点与组织字段后的 CE API 契约 |
 | `src/backend/extensions/mcp_servers/_ports.py` | 7 个通用工具的端口表（EE 行业工具与已退役端口标注 reserved） |

@@ -2,7 +2,7 @@
 
 
 def test_generated_ce_exports_all_device_capability_models():
-    import core.db.models as models
+    import features.desktop.models as models
     from core.db.engine import Base
 
     expected = {
@@ -25,8 +25,8 @@ def test_generated_ce_registers_cloud_bridge_and_device_management_routes():
 
     assert importlib.util.find_spec("edition_ee") is None
     assert EE_ROUTERS == ()
-    assert ("desktop_capability", "router") in CE_ROUTERS
-    assert ("desktop_capabilities", "router") in CE_ROUTERS
+    assert ("features.desktop.api.desktop_capability", "router") in CE_ROUTERS
+    assert ("features.desktop.api.desktop_capabilities", "router") in CE_ROUTERS
     operations = {"get", "post", "put", "patch", "delete"}
     actual = {
         (method.upper(), path)

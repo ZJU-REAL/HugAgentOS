@@ -19,7 +19,7 @@ from core.sandbox.processes.sessions import ProcessSessionError, ProcessSessions
 
 def _module_owned(session_id) -> bool:
     """A module's dedicated sandbox never receives the platform's extra credentials."""
-    from core.extensions import sandbox_route
+    from core.harness.registry import sandbox_route
 
     return sandbox_route(str(session_id or "")) is not None
 
@@ -85,7 +85,8 @@ class CloudProcesses:
     async def _spawn(self, req):
         from core.sandbox.workspace.identity import SANDBOX_RUN_GID, SANDBOX_RUN_UID
         from core.sandbox.workspace.paths import WORKSPACE
-        from core.sandbox.providers.account_env import dws_extra_envs, _firecrawl_extra_envs
+        from core.sandbox.providers.account_env import _firecrawl_extra_envs
+        from core.sandbox.credential_dispatch import credential_environment
 
         provider = self.provider
         interpreters = {"bash": "bash", "python": "python3 -u", "javascript": "node"}
@@ -138,7 +139,7 @@ class CloudProcesses:
                     working_directory=WORKSPACE,
                     uid=SANDBOX_RUN_UID,
                     gid=SANDBOX_RUN_GID,
-                    envs=({**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **dws_extra_envs(), **_firecrawl_extra_envs()}),
+                    envs=({**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **credential_environment(), **_firecrawl_extra_envs()}),
                 )
                 execution = await sess.sandbox.commands.run(command, opts=opts)
                 if not execution.id:
@@ -158,7 +159,7 @@ class CloudProcesses:
                 envs=(
                     {"EXECD_ACCESS_TOKEN": ""}
                     if _module_owned(req.session_id)
-                    else {**dws_extra_envs(), **_firecrawl_extra_envs()} or None
+                    else {**credential_environment(), **_firecrawl_extra_envs()} or None
                 ),
                 stdin=False,
                 timeout=0,
@@ -276,8 +277,11 @@ class CubeHandle(CloudHandle):
                     raise
                 code = exc.exit_code
             self.finished = True
-            if self.req.user_id and "openyida" in self.req.script_content:
-                await self.provider._persist_yida_state(self.sandbox, self.req.user_id)
+            from core.sandbox.credential_dispatch import persist_credentials
+
+            await persist_credentials(
+                self.provider, self.sandbox, self.req.user_id, self.req.script_content
+            )
         return out, err, code
 
     async def interrupt(self):

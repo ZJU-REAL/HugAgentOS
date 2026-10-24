@@ -36,7 +36,7 @@ def _mk_user(db, uid, meta=None):
 
 
 def test_agents_create_gate(db_session):
-    from api.routes.v1.agents import _require_can_add_agent
+    from api.edition import _require_can_add_agent
 
     _mk_user(db_session, "u_off", meta={})
     with pytest.raises(AccessDeniedError):
@@ -47,7 +47,7 @@ def test_agents_create_gate(db_session):
 
 
 def test_marketplace_install_gate(db_session):
-    from api.routes.v1.agent_marketplace import _require_can_add_agent
+    from features.marketplace.api.agent_marketplace import _require_can_add_agent
 
     _mk_user(db_session, "m_off", meta={})
     with pytest.raises(AccessDeniedError):

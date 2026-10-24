@@ -66,7 +66,7 @@ def test_local_section_handles_missing_path_and_slug():
 
 
 def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
-    from core.llm.tools import _paths
+    from core.sandbox.workspace import resolution as _paths
     from core.llm.tools.sandbox_tool import register_bash
     from prompts.prompt_config import PromptConfig
     from prompts.prompt_runtime import build_system_prompt
@@ -95,7 +95,7 @@ def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
 
 
 def test_cloud_bash_description_keeps_container_paths(monkeypatch):
-    from core.llm.tools import _paths
+    from core.sandbox.workspace import resolution as _paths
     from core.llm.tools.sandbox_tool import register_bash
 
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)

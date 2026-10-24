@@ -30,26 +30,11 @@ from core.auth.backend import UserContext, require_auth
 from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
 from core.db.engine import get_db
-from core.services.model_config import ModelConfigService
-from core.db.model_repository import (
-    ROLE_DEFINITIONS,
-    assign_role,
-    create_provider,
-    delete_provider,
-    export_all,
-    get_provider,
-    import_all,
-    list_providers,
-    list_role_assignments,
-    provider_has_capability,
-    provider_is_referenced,
-    role_required_capability,
-    set_provider_test_result,
-    unassign_role,
-    update_provider,
-)
+from core.models.config import ModelConfigService
+from core.models.repository import ROLE_DEFINITIONS, assign_role, create_provider, delete_provider, export_all, get_provider, import_all, list_providers, list_role_assignments, provider_has_capability, provider_is_referenced, role_required_capability, set_provider_test_result, unassign_role, update_provider
 from core.infra.responses import success_response
-from core.services.user_model_selection import list_user_selectable_models, user_can_switch_model
+from core.auth.model_selection import user_can_switch_model
+from core.models.selection import list_user_selectable_models
 
 router = APIRouter(prefix="/v1/models", tags=["Models"])
 logger = logging.getLogger(__name__)
@@ -329,7 +314,7 @@ async def _autofill_context_length(
     # cannot outlive the number it described.
     extra_config.pop("context_length_source", None)
 
-    from core.llm.providers.context_probe import discover_context_length
+    from core.models.providers.context_probe import discover_context_length
 
     result = await discover_context_length(
         provider=provider,
@@ -378,7 +363,7 @@ async def _autofill_api_protocol(
     if not isinstance(extra_config, dict) or provider_type != "chat":
         return
 
-    from core.llm.providers.registry import get_spec
+    from core.models.providers.registry import get_spec
 
     if not get_spec(provider).speaks_responses:
         return
@@ -387,7 +372,7 @@ async def _autofill_api_protocol(
         return
     extra_config.pop("api_protocol_source", None)
 
-    from core.llm.providers.protocol_probe import PROBE_VERSION, detect_api_protocol
+    from core.models.providers.protocol_probe import PROBE_VERSION, detect_api_protocol
 
     result = await detect_api_protocol(
         base_url=base_url, api_key=api_key, model_name=model_name
@@ -472,8 +457,8 @@ async def _ping_via_model(
     """Native/litellm vendors: actually build the model and issue one minimal non-streaming call to verify connectivity."""
     from agentscope.message import Msg, TextBlock
 
-    from core.llm.chat_models import make_chat_model
-    from core.llm.providers.registry import get_spec, split_provider_extra
+    from core.models.chat_models import make_chat_model
+    from core.models.providers.registry import get_spec, split_provider_extra
 
     spec = get_spec(provider)
     provider_extra = split_provider_extra(spec, extra or {})
@@ -515,12 +500,12 @@ async def _test_connection(
     extra_config: Optional[dict] = None,
 ) -> dict:
     """Test connectivity (dispatched by engine). Returns {success, latency_ms, error}."""
-    from core.llm.providers.registry import get_spec
+    from core.models.providers.registry import get_spec
 
     spec = get_spec(provider)
     extra = extra_config or {}
     if provider_type == "audio":
-        from core.services.audio_transcription import test_audio_connection
+        from core.chat.audio_transcription import test_audio_connection
         return await test_audio_connection(base_url, api_key, model_name)
     if spec.engine == "openai":
         if spec.id == "azure_openai":
@@ -540,19 +525,19 @@ def get_main_capabilities(
 ):
     """供前端展示模型相关入口；只暴露非敏感信息，不泄露 base_url/api_key。"""
     cfg = ModelConfigService.get_instance().resolve("main_agent")
-    from core.llm.reasoning_effort import reasoning_capabilities
+    from core.models.reasoning_effort import reasoning_capabilities
     effort_caps = reasoning_capabilities(cfg.extra if cfg else {})
     switch_enabled = bool(user and user_can_switch_model(db, user.user_id))
     # Real context window (tokens) of the main chat model, so the frontend
     # context-usage gauge reflects the model's true window instead of a guess.
     # 0 when unconfigured — the frontend falls back to a heuristic/default.
     main_context_length = int(cfg.context_length) if cfg and cfg.context_length else 0
-    from core.content.artifact_reader import ATTACHMENT_PREVIEW_MAX_CHARS
+    from core.files.artifacts.reader import ATTACHMENT_PREVIEW_MAX_CHARS
     # Image reading: either the main model is natively multimodal, or a `vision` role
     # model is assigned and the vision bridge transcribes images into text evidence.
     # The frontend uses `can_read_image` alone to decide whether to offer image upload;
     # the two flags below only explain *how* it works.
-    from core.vision import model_supports_vision, resolve_vision_config
+    from core.models.vision import model_supports_vision, resolve_vision_config
 
     main_native_vision = model_supports_vision(cfg)
     vision_cfg = resolve_vision_config()
@@ -586,7 +571,7 @@ async def list_provider_schemas(_: None = Depends(require_system_settings)):
 
     供前端模型配置表单按所选厂商动态渲染。仅限管理员。
     """
-    from core.llm.providers.registry import to_frontend_schema
+    from core.models.providers.registry import to_frontend_schema
 
     return success_response(data=to_frontend_schema())
 
@@ -612,7 +597,7 @@ async def create_provider_endpoint(
     db: Session = Depends(get_db),
 ):
     """新增一个模型供应商。仅限管理员；保存前会校验厂商字段并做连通性预校验，失败则返回 400，成功后刷新模型配置缓存。"""
-    from core.llm.providers.registry import validate_payload
+    from core.models.providers.registry import validate_payload
 
     err = validate_payload(body.provider, body.provider_type, body.extra_config)
     if err:
@@ -702,7 +687,7 @@ async def update_provider_endpoint(
         if any(ROLE_DEFINITIONS.get(role, {}).get("type") != new_type for role in roles):
             raise HTTPException(400, "请先取消该模型的角色分配，再修改模型类型")
 
-    from core.llm.providers.registry import validate_payload
+    from core.models.providers.registry import validate_payload
 
     err = validate_payload(new_provider, new_type, new_extra)
     if err:
@@ -828,7 +813,7 @@ async def detect_context_length(
     返回 `{context_length, source, source_label, confidence, detail, notes}`；`context_length=0`
     表示没探到，`notes` 逐级说明每个来源看到了什么，便于管理员判断该手工填多少。
     """
-    from core.llm.providers.context_probe import discover_context_length
+    from core.models.providers.context_probe import discover_context_length
 
     api_key = body.api_key
     if not api_key and body.provider_id:
@@ -947,7 +932,7 @@ def export_endpoint(
 
 
 async def _require_import_control(request: Request, db: Session = Depends(get_db)):
-    from core.services.desktop_capability import is_desktop_shell_control
+    from features.desktop.capability.service import is_desktop_shell_control
     if is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
         return
     await require_config(request=request, authorization=request.headers.get("authorization"), db=db)
@@ -961,9 +946,9 @@ def import_endpoint(
     db: Session = Depends(get_db),
 ):
     """导入模型配置（供应商 + 角色分配）。仅限管理员（CONFIG_TOKEN / can_system_config，同 export）；overwrite=True 时覆盖同名条目，导入后刷新模型配置缓存。"""
-    from core.services.desktop_model_credentials import sanitize_import
+    from features.desktop.bridge.model_credentials import sanitize_import
     if any(str(p.get("api_key") or "").startswith(("dcap1.", "dcap2.", "desktop-capability:")) for p in body.providers):
-        from core.services.desktop_capability import is_desktop_shell_control
+        from features.desktop.capability.service import is_desktop_shell_control
         if not is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
             raise HTTPException(status_code=403, detail="desktop shell control required")
     try:

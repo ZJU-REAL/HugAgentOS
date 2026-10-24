@@ -10,11 +10,11 @@ from datetime import timezone
 
 from core.config import settings as config_settings
 from core.db.models import ChatMessage, ChatSession
-from core.llm import compaction as C
-from core.llm.single_turn import Endpoint
-from core.services import compaction_budget as budget
-from core.services import compaction_service as S
-from core.services.chat_service import ChatService
+from core.llm.context import compaction as C
+from core.models.completions.single_turn import Endpoint
+from core.llm.context import budget as budget
+from core.chat.compaction import service as S
+from core.chat.service import ChatService
 
 
 def _endpoint():
@@ -47,7 +47,7 @@ def _add_user(svc, text):
 
 
 def _add_assistant(svc, text, tool_calls=None):
-    from core.llm.model_steps import record_assistant_step, record_tool_result_step
+    from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
 
     steps = []
     for index, call in enumerate(tool_calls or []):
@@ -243,7 +243,7 @@ def test_summary_flatten_preserves_tool_blocks():
             ],
         },
     ]
-    from core.services.compaction_summary import _flatten_for_summary
+    from core.chat.compaction.summary import _flatten_for_summary
 
     flat = _flatten_for_summary(history)
     assert len(flat) == 3
@@ -287,7 +287,7 @@ def test_context_state_uses_compacted_baseline_and_visible_boundary(db_session):
     )
     _add_user(svc, "压缩后的新问题")
 
-    from core.services.context_usage_projection import get_chat_context_state
+    from core.chat.compaction.usage_projection import get_chat_context_state
 
     state = get_chat_context_state(svc, CHAT_ID)["context_compaction"]
 
@@ -335,7 +335,7 @@ def test_pre_turn_compaction_fast_path_no_llm(monkeypatch):
     async def boom(history, *, timeout):  # noqa: ARG001
         raise AssertionError("fast path must not call the LLM")
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", boom)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', boom)
     history = [{"role": "user", "content": "短问题"}]
     # Unknown model → window None → threshold None → fast path
     out, compacted = asyncio.run(
@@ -366,7 +366,7 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
         return "模拟交接摘要"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
     # Checkpoint persistence goes through the global SessionLocal → point it at the test DB
     monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
 
@@ -420,7 +420,7 @@ def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
     async def fake_summarize(history, *, timeout):  # noqa: ARG001
         return "摘要"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", fake_summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
     monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
 
     history = [

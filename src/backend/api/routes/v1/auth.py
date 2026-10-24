@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core.auth import desktop_ticket_store
+from features.desktop.auth import ticket_store as desktop_ticket_store
 from core.auth.capabilities import page_admin_flags, resolve_capabilities
 from core.auth.mock_ticket_store import consume_ticket
 from core.auth.session import (
@@ -23,7 +23,7 @@ from core.config.settings import settings
 from core.db.engine import get_db
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
-from core.services import UserService
+from core.auth.users import UserService
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -54,7 +54,7 @@ def _clear_session_cookie(response: Response) -> None:
 
 def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = None) -> dict:
     from core.db.models import LocalUser, UserShadow
-    from core.services.local_user_service import ce_onboarding_required
+    from core.auth.local_user_policy import ce_onboarding_required
 
     user_id = user_data["user_id"]
     shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()

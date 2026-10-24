@@ -14,20 +14,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.auth.backend import UserContext, get_current_user
-from core.content.kb_processing import vectorise_document_background
+from features.knowledge.processing import vectorise_document_background
 from core.db.engine import SessionLocal, get_db
-from core.db.models import Artifact, ChatMessage, ChatSession, KBDocument, KBSpace, UserShadow
+from core.db.models import Artifact, ChatMessage, ChatSession, UserShadow
+from features.knowledge.models import KBDocument, KBSpace
 from core.db.paging import DEFAULT_PAGE_SIZE
 from core.db.repository import ArtifactRepository
 from core.infra.responses import error_response, success_response
-from core.services import KBService
-from core.services.artifact_edition import (
-    artifact_list_scope,
-    artifact_scope_fields,
-    can_access_artifact,
-    extend_artifact_item,
-)
-from core.storage import get_storage
+from features.knowledge.service import KBService
+from core.files.edition import artifact_list_scope, artifact_scope_fields, can_access_artifact, extend_artifact_item
+from core.files.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, func
@@ -60,7 +56,7 @@ def _backfill_already_done(db: Session, user_id: str) -> bool:
 
 
 def _mark_backfill_done(db: Session, user_id: str) -> None:
-    from core.services.user_service import UserService
+    from core.auth.users import UserService
 
     UserService(db).update_user_metadata(
         user_id, {_BACKFILL_MARKER: datetime.now(timezone.utc).isoformat()}
@@ -104,9 +100,9 @@ class AddArtifactToKBRequest(BaseModel):
 
 
 # ── Shared artifact-ref helpers ───────────────────────────────────────────
-# Moved to core.content.artifact_refs so lower layers can use them without
+# Moved to core.files.artifacts.refs so lower layers can use them without
 # importing this API route module. Re-exported here for existing call sites.
-from core.content.artifact_refs import extract_file_refs, infer_artifact_type  # noqa: E402
+from core.files.artifacts.refs import extract_file_refs, infer_artifact_type  # noqa: E402
 
 
 def sanitize_chat_preview(content: Optional[str], max_len: int = 200) -> str:
@@ -140,7 +136,7 @@ def sanitize_chat_preview(content: Optional[str], max_len: int = 200) -> str:
 # ── Backfill (runs once per user, ever — see the durable marker above) ────
 
 
-from core.services.artifact_backfill import _backfill_artifacts_from_messages
+from core.files.artifacts.backfill import backfill_artifacts_from_messages as _backfill_artifacts_from_messages
 
 
 def _collect_artifact_kb_usage(

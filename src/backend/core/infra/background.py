@@ -24,7 +24,7 @@ from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
-_tasks: Set[asyncio.Task] = set()
+
 
 
 def spawn(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
@@ -42,16 +42,32 @@ def spawn(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
         ) from None
 
     task = loop.create_task(coro, name=name)
-    _tasks.add(task)
+    process_state().tasks.add(task)
     task.add_done_callback(_forget)
     return task
 
 
 def _forget(task: asyncio.Task) -> None:
-    _tasks.discard(task)
+    process_state().tasks.discard(task)
     if task.cancelled():
         return
     exc = task.exception()
     if exc is not None:
         logger.warning("background_task_failed", task=task.get_name(), error=str(exc))
 
+
+
+from dataclasses import dataclass as state_dataclass, field as state_field
+from functools import lru_cache as state_cache
+
+@state_dataclass
+class BackgroundState:
+    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+    tasks: Set[asyncio.Task] = state_field(default_factory=lambda: set())
+
+@state_cache(maxsize=1)
+def process_state() -> BackgroundState:
+    return BackgroundState()
+
+# Initialize under the import lock before concurrent callers share the owner.
+process_state()

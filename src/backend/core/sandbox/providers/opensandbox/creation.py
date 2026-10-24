@@ -10,13 +10,8 @@ from typing import Any, Optional
 import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
 from core.sandbox.errors import SandboxConnectError
-from core.sandbox.providers.opensandbox.account_volumes import (
-    _make_dws_creds_volumes,
-    _make_email_creds_volumes,
-    _make_lark_creds_volumes,
-    _make_yida_creds_volumes,
-)
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.credential_dispatch import credential_mounts
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
 # Snapshot persistence (see internal design docs). Imports are
 # deferred to runtime to avoid cross-module circular dependencies at startup
@@ -38,7 +33,7 @@ class _OpenSandboxCreationMixin:
         return _SETUP_ENTRYPOINT if user_id else _LIGHT_ENTRYPOINT
 
     async def _additional_workspace_mounts(self, user_id):
-        from core.spaces.mounts import prepare_volumes
+        from core.files.spaces.mounts import prepare_volumes
 
         if not user_id:
             return [], {}
@@ -59,23 +54,7 @@ class _OpenSandboxCreationMixin:
             volumes = []
         else:
             skills_vols = _make_skills_volumes(user_id)
-            # dws (DingTalk CLI) credential persistence volumes: two bind-mounts per user,
-            # mounted at the sandbox home's ~/.dws and ~/.local/share/dws-cli (where dws
-            # reads/writes by default), so OAuth credentials survive across sessions.
-            dws_vols = _make_dws_creds_volumes(user_id)
-            # lark-cli (Feishu CLI) credential persistence volumes: likewise mounts
-            # ~/.lark-cli and ~/.local/share/lark-cli (including master.key), so the
-            # user's OAuth user_access_token survives across sessions.
-            lark_vols = _make_lark_creds_volumes(user_id)
-            # himalaya (email CLI) credential persistence volume: mounts ~/.config/himalaya
-            # (including config.toml + IMAP/SMTP authorization codes), so the user's
-            # mailbox configuration survives across sessions.
-            email_vols = _make_email_creds_volumes(user_id)
-            # openyida (Yida CLI) login-state persistence volume: mounts the fixed working
-            # directory ~/yida-workspace (including .cache/cookies-*.json QR-login cookies
-            # + project artifacts), so the login state survives across sessions.
-            yida_vols = _make_yida_creds_volumes(user_id)
-            volumes = skills_vols + extra_volumes + dws_vols + lark_vols + email_vols + yida_vols
+            volumes = skills_vols + extra_volumes + credential_mounts(user_id)
         # entrypoint / volumes / metadata / timeout are exactly the same on the image
         # and snapshot paths; volumes must also be passed explicitly on the snapshot
         # path — docker commit does not preserve mount configuration, otherwise the
@@ -110,8 +89,9 @@ class _OpenSandboxCreationMixin:
             try:
                 sbx._jx_setup_done = True  # type: ignore[attr-defined]
                 sbx._jx_myspace_uid = setup_uid  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001 — defensive: opaque SDK object
-                pass
+            except Exception as fallback_error:  # noqa: BLE001 — defensive: opaque SDK object
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.sandbox.providers.opensandbox.creation:_create_jupyter_sandbox', fallback_error)
         return sbx
 
     async def _create_light_sandbox(self) -> Any:
@@ -265,8 +245,9 @@ class _OpenSandboxCreationMixin:
         finally:
             try:
                 await sbx.close()
-            except Exception:
-                pass
+            except Exception as fallback_error:
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.sandbox.providers.opensandbox.creation:_destroy_sandbox', fallback_error)
 
     async def _pooled_sandbox_owner(self, sbx: Any) -> Optional[str]:
         """池子用的归属谓词：这台容器当前属于哪个会话，无主返回 ``None``。

@@ -1,6 +1,10 @@
 """Main streaming route must bind its real run/workspace identity."""
 
 from __future__ import annotations
+from core.agent_runtime.integrations import memory_identity as memory_identity_module
+from core.agent_runtime.integrations import memory_session as memory_session_module
+from core.llm.runtime import streaming as streaming_module
+from core.llm.citations import allocator as allocator_module
 
 import json
 import os
@@ -8,8 +12,16 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import core.agent_runtime.integrations.memory as memory
+import core.agent_runtime.resources as resources
+import core.agent_runtime.runner as runner
+import core.agent_runtime.targets as targets
+import core.capabilities.catalog.resolver as catalog_resolver
+import core.llm.citations.anchor as citation_anchor
+import core.llm.factory as factory
+import core.llm.runtime.streaming as streaming
 import pytest
-from orchestration.memory_integration import SessionMemory
+from core.agent_runtime.integrations.memory_session import SessionMemory
 
 
 @pytest.mark.asyncio
@@ -17,10 +29,12 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
     monkeypatch,
 ):
     from core.db import engine as db_engine
-    from core.llm import builtin_subagents
-    from core.services import compaction_service, user_agent_service, user_service
-    from core.services.tool_effect_ledger import ToolOutcomeUnknown
-    from orchestration import workflow
+    from core.capabilities.agents import builtin as builtin_subagents
+    from core.chat.compaction import service as compaction_service
+    from core.capabilities.agents import edition as user_agent_service
+    from core.auth import users as user_service
+    from core.runs.tool_effects.errors import ToolOutcomeUnknown
+    pass
 
     class DummySession:
         def __enter__(self):
@@ -76,18 +90,18 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
     )
     monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
     monkeypatch.setattr(compaction_service, "maybe_run_pre_turn_compaction", no_compaction)
-    monkeypatch.setattr(workflow, "create_agent_executor", create_agent)
-    monkeypatch.setattr(workflow, "open_session_memory", no_memory)
-    monkeypatch.setattr(workflow, "build_user_identity_block", no_identity)
-    monkeypatch.setattr(workflow, "anchor_start_for_chat", lambda _chat_id: 0)
-    monkeypatch.setattr(workflow, "enabled_skill_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
-    monkeypatch.setattr(workflow, "StreamingAgent", FakeStreamingAgent)
-    monkeypatch.setattr(workflow, "_persistent_clients", [])
+    monkeypatch.setattr(factory, "create_agent_executor", create_agent)
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', no_memory)
+    monkeypatch.setattr(memory_identity_module, 'build_user_identity_block', no_identity)
+    monkeypatch.setattr(allocator_module, 'anchor_start_for_chat', lambda _chat_id: 0)
+    monkeypatch.setattr(catalog_resolver, "enabled_skill_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_mcp_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
+    monkeypatch.setattr(streaming_module, 'StreamingAgent', FakeStreamingAgent)
+    monkeypatch.setattr(resources.process_state(), 'persistent_clients', [])
 
-    stream = workflow.astream_chat_workflow(
+    stream = runner.astream_chat_workflow(
         session_messages=[{"role": "user", "content": "continue"}],
         user_message="continue",
         context={
@@ -108,8 +122,8 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
 
 @pytest.mark.asyncio
 async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkeypatch):
-    from core.llm import builtin_subagents
-    from orchestration import workflow
+    from core.capabilities.agents import builtin as builtin_subagents
+    pass
 
     captured = {}
 
@@ -125,16 +139,16 @@ async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkey
             chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False
         )
 
-    monkeypatch.setattr(workflow, "create_agent_executor", _fake_create_agent_executor)
-    monkeypatch.setattr(workflow, "open_session_memory", _no_memory)
-    monkeypatch.setattr(workflow, "anchor_start_for_chat", lambda _chat_id: 0)
-    monkeypatch.setattr(workflow, "enabled_skill_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
-    monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
+    monkeypatch.setattr(factory, "create_agent_executor", _fake_create_agent_executor)
+    monkeypatch.setattr(memory_session_module, 'open_session_memory', _no_memory)
+    monkeypatch.setattr(allocator_module, 'anchor_start_for_chat', lambda _chat_id: 0)
+    monkeypatch.setattr(catalog_resolver, "enabled_skill_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_mcp_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
     monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
 
-    stream = workflow.astream_chat_workflow(
+    stream = runner.astream_chat_workflow(
         session_messages=[{"role": "user", "content": "hello"}],
         user_message="hello",
         context={
@@ -157,18 +171,30 @@ async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkey
 def test_main_streaming_executes_real_factory_and_binds_run_workspace(tmp_path):
     """Fresh process: public streaming path reaches the real factory/binder."""
     database_url = f"sqlite:///{tmp_path / 'main-streaming.db'}"
-    script = r"""
+    script = """
 import asyncio
 import json
 
 import core.db.models  # register the complete metadata before create_all
 from core.db.engine import Base, engine
-from core.evolution.runtime_binding import reset_for_tests, resolve_bundle_for_run
-from core.llm import factory as agent_factory, builtin_subagents
-import core.agent_skills.loader as skill_loader
-from orchestration import workflow
-from orchestration.memory_integration import SessionMemory
+from core.evolution.cycle.runtime_binding import reset_for_tests, resolve_bundle_for_run
+from core.llm import factory as agent_factory
+from core.capabilities.agents import builtin as builtin_subagents
+import core.capabilities.skills.loader_factory as skill_loader
+from core.agent_runtime import runner as workflow, targets
+from core.agent_runtime.integrations import memory
+from core.llm.citations import allocator as citation_anchor
+from core.capabilities.catalog import resolver as catalog_resolver
+from core.agent_runtime.integrations.memory_session import SessionMemory
 
+from features import register_product_tools, register_package_sources, register_run_capabilities, register_model_credentials
+from core.harness.registry import load_models
+from features.installed import INSTALLED_FEATURES
+register_product_tools()
+register_package_sources()
+register_run_capabilities()
+register_model_credentials()
+load_models(INSTALLED_FEATURES)
 Base.metadata.create_all(engine)
 
 class EmptySkillLoader:
@@ -180,7 +206,7 @@ class EmptySkillLoader:
         return None
 
 skill_loader.get_skill_loader = lambda: EmptySkillLoader()
-real_factory = workflow.create_agent_executor
+real_factory = agent_factory.create_agent_executor
 
 class BoundAfterFactory(Exception):
     pass
@@ -201,13 +227,13 @@ async def verifying_factory(**kwargs):
 async def no_memory(*_args, **_kwargs):
     return SessionMemory(chat_id="", scope_user_id="", workspace_id="default", memory_enabled=False)
 
-workflow.create_agent_executor = verifying_factory
-workflow.open_session_memory = no_memory
-workflow.anchor_start_for_chat = lambda _chat_id: 0
-workflow.enabled_skill_ids_from_context = lambda _ctx: []
-workflow.enabled_mcp_ids_from_context = lambda _ctx: []
-workflow.enabled_kb_ids_from_context = lambda _ctx: []
-workflow._resolve_mode_spec = lambda _ctx: None
+agent_factory.create_agent_executor = verifying_factory
+memory.open_session_memory = no_memory
+citation_anchor.anchor_start_for_chat = lambda _chat_id: 0
+catalog_resolver.enabled_skill_ids_from_context = lambda _ctx: []
+catalog_resolver.enabled_mcp_ids_from_context = lambda _ctx: []
+catalog_resolver.enabled_kb_ids_from_context = lambda _ctx: []
+targets._resolve_mode_spec = lambda _ctx: None
 builtin_subagents.merge_builtin_subagents = lambda *_args, **_kwargs: []
 
 async def main():
@@ -267,12 +293,20 @@ from agentscope.message import TextBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 from core.db.engine import Base, engine, SessionLocal
 from core.db.models.evolution import EvolutionEpisode
-from core.evolution import runtime_binding as rb
-from core.evolution import trace_assembler
+from core.evolution.cycle import runtime_binding as rb
+from core.evolution.evidence import trace_assembler
 from core.llm import factory as agent_factory
-import core.agent_skills.loader as skill_loader
-from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
+import core.capabilities.skills.loader_factory as skill_loader
+from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter
 
+from features import register_product_tools, register_package_sources, register_run_capabilities, register_model_credentials
+from core.harness.registry import load_models
+from features.installed import INSTALLED_FEATURES
+register_product_tools()
+register_package_sources()
+register_run_capabilities()
+register_model_credentials()
+load_models(INSTALLED_FEATURES)
 Base.metadata.create_all(engine)
 from core.db.models import Project, UserShadow
 with SessionLocal() as db:

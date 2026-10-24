@@ -1,4 +1,5 @@
 """Application lifecycle operations."""
+from core.llm import prompt_versions as prompt_versions_module
 import os
 import sys
 from core.config.settings import settings
@@ -27,7 +28,7 @@ async def _startup_seed_ce_admin():
         return
     try:
         from core.db.engine import SessionLocal
-        from core.services.local_user_service import ensure_ce_default_admin
+        from core.auth.local_user_bootstrap import ensure_ce_default_admin
 
         db = SessionLocal()
         try:
@@ -49,7 +50,7 @@ async def _startup_prepare_artifact_records():
     try:
         import asyncio
 
-        from core.artifacts.store import prepare_records
+        from core.files.artifacts.store import prepare_records
 
         written = await asyncio.to_thread(prepare_records)
         if written:
@@ -60,7 +61,7 @@ async def _startup_prepare_artifact_records():
 async def _startup_seed_page_config():
     """Seed default page_config content block if missing (idempotent)."""
     try:
-        from core.content.content_blocks import enforce_ce_branding, seed_page_config_if_missing
+        from core.files.content.branding import enforce_ce_branding, seed_page_config_if_missing
         from core.db.engine import SessionLocal
 
         db = SessionLocal()
@@ -82,11 +83,11 @@ async def _startup_seed_prompt_versions():
     """
     try:
         from core.db.engine import SessionLocal
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
         db = SessionLocal()
         try:
-            result = pvs.seed_from_filesystem(db=db)
+            result = prompt_versions_module.seed_from_filesystem(db=db)
             added = result.get("added") or []
             if added:
                 logger.info("[startup] prompt versions seeded: %s", ", ".join(added))
@@ -103,7 +104,7 @@ async def _startup_seed_roles():
     """
     try:
         from core.db.engine import SessionLocal
-        from core.services.edition_startup import seed_default_roles
+        from orchestration.workers.edition_startup import seed_default_roles
 
         db = SessionLocal()
         try:

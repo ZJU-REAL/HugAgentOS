@@ -2,19 +2,21 @@
 
 See internal design docs (§5).
 """
+
 from typing import Any, Dict, List, Optional
 
+import api.transports.run_sse as run_sse
+import core.runs.runtime as runtime
+import orchestration.loops.admission as admission
+from core.auth.backend import UserContext, get_current_user
+from core.db.engine import get_db
+from core.infra.logging import get_logger
+from core.infra.responses import sse_response, success_response
+from core.chat.service import ChatService
+from features.automation.loops import LoopService
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-
-from core.auth.backend import get_current_user, UserContext
-from core.db.engine import get_db
-from core.infra.logging import get_logger
-from core.infra.responses import success_response, sse_response
-from core.services.chat_service import ChatService
-from core.services.loop_service import LoopService
-from orchestration import chat_run_executor
 
 logger = get_logger(__name__)
 
@@ -187,7 +189,7 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
     hitl_enabled = req.hitl_enabled or bool(saved.get("hitl_enabled"))
 
     # 与普通聊天同一套模型选择权限闸：未开放切换/不在可选列表的 provider 一律忽略。
-    from core.services.user_model_selection import resolve_user_model_provider_id
+    from core.auth.model_selection import resolve_user_model_provider_id
 
     model_provider_id = resolve_user_model_provider_id(
         db, raw_provider_id, user_id=user.user_id
@@ -204,7 +206,7 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
     # The project the loop is bound to (stored in metadata at creation) — the
     # worker/reviewer scope to the project folder based on it.
     project_id = (loop.extra_data or {}).get("project_id") if loop.extra_data else None
-    run = await chat_run_executor.start_autonomous_loop_run(
+    run = await admission.start_autonomous_loop_run(
         loop_id=loop_id,
         chat_id=chat_id,
         user_id=user.user_id,
@@ -221,7 +223,7 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
         project_id=project_id,
     )
     return sse_response(
-        chat_run_executor.follow_run_as_sse(
+        run_sse.follow_run_as_sse(
             run.run_id,
             chat_id=chat_id,
             error_event_factory=lambda reason: {
@@ -292,7 +294,7 @@ async def cancel_loop(
     if not loop:
         raise HTTPException(status_code=404, detail="loop not found")
     chat_id = loop.chat_id or f"loopchat_{loop_id}"
-    run = chat_run_executor.get_active_run_for_chat(chat_id)
+    run = runtime.get_active_run_for_chat(chat_id, user_id=user.user_id)
     if not run:
         # 无活跃 run（崩溃遗留/已中断）：把 loop 状态归位而不是 404——历史缺陷是
         # 僵尸 running 行永远取消不掉。
@@ -301,5 +303,5 @@ async def cancel_loop(
             db.commit()
             return success_response({"cancelled": True, "note": "无活跃任务，已直接归位为 cancelled"})
         return success_response({"cancelled": False, "status": loop.status})
-    ok = await chat_run_executor.cancel_run(run.run_id, user_id=user.user_id)
+    ok = await runtime.cancel_run(run.run_id, user_id=user.user_id)
     return success_response({"cancelled": ok})

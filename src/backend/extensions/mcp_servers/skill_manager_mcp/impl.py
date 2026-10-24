@@ -1,6 +1,9 @@
 """Cloud marketplace operations for skill-manager; installation lifecycle lives in cloud_management."""
 
 from __future__ import annotations
+from features.marketplace import skill_catalog
+from features.marketplace import skill_installation
+from features.marketplace import skill_submissions
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,7 +21,7 @@ def _invalidate_user_cache(user_id: Optional[str]) -> None:
     重新拉 ``GET /v1/catalog``（跑在 backend 进程）顺带完成，见 api/routes/v1/catalog.py。
     本调用作为进程内一致性的兜底保留，无害。"""
     try:
-        from core.config.catalog_resolver import invalidate_capability_cache
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
 
         invalidate_capability_cache(str(user_id) if user_id else None)
     except Exception as exc:  # noqa: BLE001
@@ -43,13 +46,13 @@ def search_marketplace(*, user_id: str, query: str = "", category: str = "") -> 
     if not user_id:
         return _no_user()
     from core.db.engine import SessionLocal
-    from core.services import marketplace_service
+
 
     q = (query or "").strip().lower()
     cat = (category or "").strip()
     with SessionLocal() as db:
         # 与用户端市场接口同一套可见范围过滤（scoped 条目仅授权者可见）
-        items = marketplace_service.list_marketplace_skills(db, viewer_user_id=user_id)
+        items = skill_catalog.list_marketplace_skills(db, viewer_user_id=user_id)
 
     def _match(it: Dict[str, Any]) -> bool:
         if cat and str(it.get("category") or "") != cat:
@@ -93,19 +96,19 @@ def install_from_marketplace(
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的技能 slug。"}
     from core.db.engine import SessionLocal
-    from core.services import marketplace_service
+
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_add_skill")
         if cap_err:
             return cap_err
         # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端安装接口一致）
-        from core.auth.marketplace_visibility import is_item_visible
-        from core.services import marketplace_listing as ml
+        from features.marketplace.edition import is_item_visible
+        from features.marketplace import edition as ml
         if not is_item_visible(db, ml.KIND_SKILL, slug, user_id):
             return {"ok": False, "message": f"❌ 技能市场里找不到「{slug}」。"}
         try:
-            res = marketplace_service.install_marketplace_skill(
+            res = skill_installation.install_marketplace_skill(
                 db, slug, owner_user_id=user_id, secrets=secrets or {}
             )
         except Exception as exc:  # noqa: BLE001
@@ -133,14 +136,14 @@ def submit_to_marketplace(
     if not skill_id:
         return {"ok": False, "message": "❌ 请提供要上架的私有技能 skill_id（先用 list_skills 查看）。"}
     from core.db.engine import SessionLocal
-    from core.services import marketplace_service
+
 
     with SessionLocal() as db:
         cap_err = _require_cap(db, user_id, "can_add_skill")
         if cap_err:
             return cap_err
         try:
-            res = marketplace_service.submit_to_marketplace(
+            res = skill_submissions.submit_to_marketplace(
                 db,
                 skill_id,
                 owner_user_id=user_id,

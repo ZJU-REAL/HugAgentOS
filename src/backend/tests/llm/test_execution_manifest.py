@@ -7,11 +7,7 @@ import subprocess
 import sys
 
 import pytest
-from core.llm.execution_manifest import (
-    PromptManifestBuilder,
-    stable_hash,
-    stable_tool_schema_order,
-)
+from core.harness.execution_manifest import PromptManifestBuilder, stable_hash, stable_tool_schema_order
 
 
 def _tool_schema(*, enum_order=("fast", "safe")):
@@ -91,7 +87,7 @@ def test_provider_tool_schema_order_is_stable_by_name():
 @pytest.mark.asyncio
 async def test_agent_skill_prompt_order_is_stable_by_name():
     from agentscope.skill import Skill
-    from core.ontology.toolkit import OntologyFilteredToolkit
+    from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 
     toolkit = OntologyFilteredToolkit(
         skills_or_loaders=[
@@ -275,7 +271,7 @@ def test_aggregate_hash_is_stable_across_fresh_python_processes():
     script = r"""
 import json
 import sys
-from core.llm.execution_manifest import PromptManifestBuilder
+from core.harness.execution_manifest import PromptManifestBuilder
 
 ordered = sys.argv[1] == "ordered"
 context = (

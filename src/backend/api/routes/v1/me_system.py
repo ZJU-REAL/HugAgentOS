@@ -22,12 +22,10 @@ from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.infra.responses import success_response
-from core.services.service_probes import (
-    config_row_to_dict,
-    reinitialize_mcp_pool,
-    test_service_group,
-)
-from core.services.system_config import SystemConfigService
+from core.infra.probes.service_probes import config_row_to_dict
+from core.llm.mcp.administration import reinitialize_mcp_pool
+from core.infra.probes.service_probes import test_service_group
+from core.config.store.system_config import SystemConfigService
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

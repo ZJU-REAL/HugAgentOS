@@ -27,7 +27,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-
 def _configure_standard_streams() -> None:
     """Keep redirected desktop logs UTF-8 and tolerant of status symbols."""
     for stream in (sys.stdout, sys.stderr):
@@ -42,7 +41,6 @@ def _configure_standard_streams() -> None:
             except (LookupError, OSError, ValueError):
                 pass
 
-
 def _status(message: str, *, file=None, **kwargs) -> None:
     """Print CLI status without letting a legacy code page break startup."""
     stream = file or sys.stdout
@@ -56,15 +54,12 @@ def _status(message: str, *, file=None, **kwargs) -> None:
             safe_message = message.encode("ascii", errors="replace").decode("ascii")
         print(safe_message, file=stream, **kwargs)
 
-
 # ── Data dir & environment ────────────────────────────────────────────────────
-
 
 def data_dir() -> Path:
     from core.config.runtime_env import local_data_dir
 
     return local_data_dir()
-
 
 def ensure_loopback_proxy_bypass() -> None:
     """Keep loopback traffic off any HTTP(S)/SOCKS proxy from the environment.
@@ -98,7 +93,6 @@ def ensure_loopback_proxy_bypass() -> None:
     os.environ["NO_PROXY"] = merged
     os.environ["no_proxy"] = merged
 
-
 def _resolve_frontend_dist() -> Optional[str]:
     """Locate the built frontend for StaticFiles hosting."""
     env = os.getenv("FRONTEND_DIST_DIR", "").strip()
@@ -109,12 +103,10 @@ def _resolve_frontend_dist() -> Optional[str]:
     cand = src / "frontend" / "dist"
     return str(cand) if (cand / "index.html").exists() else None
 
-
 def _site_template_home() -> Path:
-    from core.plugins.local.assets import site_template_home
+    from features.desktop.local.plugins.assets import site_template_home
 
     return site_template_home()
-
 
 def apply_local_env(port: int) -> dict:
     """Populate the local-profile env (idempotent; real env wins) + data dirs."""
@@ -196,13 +188,19 @@ def apply_local_env(port: int) -> dict:
     # ``defaults`` would freeze a settings object that predates
     # ``DEPLOY_PROFILE=local`` — the whole process would then run as a non-local
     # deployment (no ``/api`` prefix bridge, no static frontend, mock auth).
+    from orchestration.configuration import register_configuration
+    register_configuration()
+    from features import register_run_capabilities, register_model_credentials
+    register_run_capabilities()
+    register_model_credentials()
+    from integrations import register_credentials
+    register_credentials()
     site_home = _site_template_home()
     defaults["SITE_TEMPLATE_HOME"] = str(site_home)
     defaults["SITE_TEMPLATE_DIR"] = str(site_home / "react-vite")
     os.environ.setdefault("SITE_TEMPLATE_HOME", defaults["SITE_TEMPLATE_HOME"])
     os.environ.setdefault("SITE_TEMPLATE_DIR", defaults["SITE_TEMPLATE_DIR"])
     return defaults
-
 
 def _is_initialized() -> bool:
     """True if the SQLite DB exists and has at least one local account."""
@@ -227,24 +225,6 @@ def _is_initialized() -> bool:
     except Exception:
         return False
 
-
-# ── DB helpers (import lazily, after env is set) ─────────────────────────────
-
-
-def _ensure_schema_and_seed():
-    """create_all + built-in catalog seed (mirrors the app's startup hooks)."""
-    from core.db.engine import SessionLocal, init_db
-    from core.services.mcp_service import prune_removed_builtin_mcp_servers, seed_builtin_mcp_servers_if_empty
-
-    init_db()
-    db = SessionLocal()
-    try:
-        prune_removed_builtin_mcp_servers(db)
-        seed_builtin_mcp_servers_if_empty(db)
-    finally:
-        db.close()
-
-
 # ── Onboarding ────────────────────────────────────────────────────────────────
 
 _PRESETS = {
@@ -260,12 +240,10 @@ _PRESETS = {
 # guess a missing context window.
 DEFAULT_LOCAL_CONTEXT_LENGTH = 32768
 
-
 def _prompt(msg: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
     val = input(f"{msg}{suffix}: ").strip()
     return val or default
-
 
 def bootstrap_admin(username: str, password: str) -> str:
     """Create the local admin account and elevate it to super_admin.
@@ -275,8 +253,8 @@ def bootstrap_admin(username: str, password: str) -> str:
     step missing everywhere else in the codebase.
     """
     from core.db.engine import SessionLocal
-    from core.services.local_user_service import LocalUserService
-    from core.services.user_service import UserService
+    from core.auth.local_users import LocalUserService
+    from core.auth.users import UserService
 
     db = SessionLocal()
     try:
@@ -287,7 +265,6 @@ def bootstrap_admin(username: str, password: str) -> str:
         return res.user_id
     finally:
         db.close()
-
 
 def configure_model(
     base_url: str,
@@ -303,9 +280,9 @@ def configure_model(
     """
     import asyncio
 
-    from core.db import model_repository as mr
+    from core.models import repository as mr
     from core.db.engine import SessionLocal
-    from core.services.model_config import ModelConfigService
+    from core.models.config import ModelConfigService
 
     if test:
         from api.routes.v1.models import _test_connection
@@ -351,12 +328,11 @@ def configure_model(
     # Repository writes don't invalidate the read cache — do it explicitly.
     ModelConfigService.get_instance().invalidate_cache()
 
-
 def mark_web_onboarding_complete(user_id: str) -> None:
     """Avoid repeating the browser setup after the terminal wizard succeeds."""
     from core.db.engine import SessionLocal
-    from core.services.local_user_service import CE_ONBOARDING_VERSION
-    from core.services.user_service import UserService
+    from core.auth.local_users_state import CE_ONBOARDING_VERSION
+    from core.auth.users import UserService
 
     db = SessionLocal()
     try:
@@ -370,7 +346,6 @@ def mark_web_onboarding_complete(user_id: str) -> None:
     finally:
         db.close()
 
-
 # ── Plugins ───────────────────────────────────────────────────────────────────
 
 # Recommended default plugin set for a personal single-machine install: task
@@ -378,41 +353,46 @@ def mark_web_onboarding_complete(user_id: str) -> None:
 # (IM / email / low-code) need per-user credentials, so they're opt-in only.
 _DEFAULT_PLUGIN_BOOTSTRAP_ENV = "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"
 
-
 def _default_plugins() -> list:
     """推荐的默认插件集合，与库里的引导保持同一份来源。"""
-    from core.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS
+    from core.capabilities.plugins.management import DEFAULT_BOOTSTRAP_PLUGIN_SLUGS
 
     return list(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS)
 
-
 def _default_plugins_marker() -> Path:
-    from core.plugins.management import LOCAL_BOOTSTRAP_MARKER_NAME
+    from core.capabilities.plugins.management import LOCAL_BOOTSTRAP_MARKER_NAME
 
     return data_dir() / LOCAL_BOOTSTRAP_MARKER_NAME
-
 
 def list_installable_plugins() -> list:
     """Local-filesystem plugin bundles (default + marketplace) with install state."""
     from core.db.engine import SessionLocal
-    from core.plugins import management as plugin_service
+    from core.capabilities.plugins import management as plugin_service
+    from features.marketplace import plugin_market
+
+    from features import register_package_sources, register_resource_owners
+    register_package_sources()
+    register_resource_owners()
 
     db = SessionLocal()
     try:
-        items = plugin_service.list_plugins(db, None, include_disabled=True)
+        items = plugin_market.list_plugins(db, None, include_disabled=True)
     finally:
         db.close()
     # Only the shipped bundles are installable offline; DB-market packages need an
     # admin upload that doesn't exist on a fresh local install.
     return [it for it in items if it.get("source") == "builtin"]
 
-
 def install_plugins(slugs: list) -> list:
     """Install the given plugin slugs globally (owner_user_id=None). Best-effort."""
     from core.db.engine import SessionLocal
-    from core.plugins import management as plugin_service
+    from core.capabilities.plugins import management as plugin_service
 
     done = []
+    from features import register_package_sources, register_resource_owners
+    register_package_sources()
+    register_resource_owners()
+
     db = SessionLocal()
     try:
         for slug in slugs:
@@ -426,7 +406,6 @@ def install_plugins(slugs: list) -> list:
     finally:
         db.close()
     return done
-
 
 def ensure_default_plugins_once() -> bool:
     """Install local-install defaults once without overriding later user choices.
@@ -452,7 +431,6 @@ def ensure_default_plugins_once() -> bool:
     temporary.write_text("\n".join(defaults) + "\n", encoding="utf-8")
     os.replace(temporary, marker)
     return True
-
 
 def _select_plugins_interactively(available: list) -> list:
     """Show the plugin menu, return the slugs the user picked."""
@@ -481,9 +459,7 @@ def _select_plugins_interactively(available: list) -> list:
                 picked.append(it["slug"])
     return picked
 
-
 # ── File parser (PDF / document parsing on upload) ────────────────────────────
-
 
 def configure_file_parser(
     api_url: str, *, backend: str = "pipeline", parse_method: str = "auto"
@@ -494,7 +470,7 @@ def configure_file_parser(
     service at ``file_parser.api_url``. Excel/CSV/PPTX/text parse in-process and
     need none of this.
     """
-    from core.services.system_config import SystemConfigService
+    from core.config.store.system_config import SystemConfigService
 
     svc = SystemConfigService.get_instance()
     # Touch the cache once so the seed rows exist before we set() them
@@ -509,9 +485,7 @@ def configure_file_parser(
         updated_by="onboard",
     )
 
-
 # ── Internet search (Tavily / Baidu / LangSearch key) ────────────────────────
-
 
 def configure_search_engine(engine: str, api_key: str) -> None:
     """Write the internet-search engine + key into system_configs.
@@ -521,7 +495,7 @@ def configure_search_engine(engine: str, api_key: str) -> None:
     writing, the MCP subprocess picks up the new key via runtime_env. It can
     also be changed later in the Web UI under Settings -> System Management.
     """
-    from core.services.system_config import SystemConfigService
+    from core.config.store.system_config import SystemConfigService
 
     svc = SystemConfigService.get_instance()
     svc.get_all_configs()  # touch cache so seed rows exist before set()
@@ -540,13 +514,11 @@ def configure_search_engine(engine: str, api_key: str) -> None:
         updated_by="onboard",
     )
 
-
 # ── Site-building template (React path) ──────────────────────────────────────
-
 
 def report_site_template(verbose: bool = True) -> bool:
     """向导里报一句建站模板的状态；铺设本身在安装站点插件时就做了。"""
-    from core.plugins.local.assets import site_template_home
+    from features.desktop.local.plugins.assets import site_template_home
 
     home = site_template_home()
     ready = (home / "init-react-site.sh").is_file()
@@ -562,12 +534,11 @@ def report_site_template(verbose: bool = True) -> bool:
         _status(f"  ✓ React 建站模板已铺入：{home}（未检测到 Node/npm，首次构建时需要）")
     return True
 
-
 def _probe_host_tools() -> dict:
     """Which optional host tools are present (affects local-mode capabilities)."""
     import shutil
 
-    from core.content.office import find_libreoffice_binary
+    from core.files.content.office import find_libreoffice_binary
 
     return {
         "node": shutil.which("node") or shutil.which("nodejs"),
@@ -579,14 +550,12 @@ def _probe_host_tools() -> dict:
         "os_sandbox": _os_sandbox_status(),
     }
 
-
 def _os_sandbox_status() -> tuple[str, str]:
     """``(backend name, reason it is unavailable)``; the reason is empty when ready."""
     from core.sandbox.permissions.os_gate import backend_name
     from core.sandbox.permissions.os_gate import confinement_unavailable_reason
 
     return backend_name(), confinement_unavailable_reason()
-
 
 def _print_capability_summary() -> None:
     """End-of-onboard note on what host tools gate which capabilities."""
@@ -616,7 +585,6 @@ def _print_capability_summary() -> None:
         + ("" if not sandbox_reason else f"（{sandbox_reason}：除「完全放开」外的权限档会拒绝执行）")
     )
 
-
 def _configure_aux_model_step(
     args, *, ptype: str, title: str, ok_label: str, bu, key, model, interactive: bool
 ) -> None:
@@ -641,11 +609,12 @@ def _configure_aux_model_step(
         except Exception as exc:  # noqa: BLE001
             print(f"! {ok_label}失败（该能力将不可用）：{exc}", file=sys.stderr)
 
-
 def cmd_onboard(args) -> int:
     apply_local_env(args.port)
     print("HugAgentOS 本地初始化\n" + "─" * 40)
-    _ensure_schema_and_seed()
+    from hugagent_cli.schema import ensure_schema_and_seed
+
+    ensure_schema_and_seed()
 
     # Step 1 — admin account
     if args.username and args.password:
@@ -795,9 +764,7 @@ def cmd_onboard(args) -> int:
     print("正在启动服务…\n")
     return cmd_serve(args)
 
-
 # ── Serve ─────────────────────────────────────────────────────────────────────
-
 
 def _open_browser_when_ready(port: int) -> None:
     url = f"http://127.0.0.1:{port}/"
@@ -816,7 +783,6 @@ def _open_browser_when_ready(port: int) -> None:
     except Exception:
         pass
 
-
 def bootstrap_default_plugins_if_needed() -> None:
     """按形态决定要不要装本机默认插件。
 
@@ -824,7 +790,7 @@ def bootstrap_default_plugins_if_needed() -> None:
     壳在双模式下本就不会设引导变量，UOS 壳是无条件设的——判断放在这里，两端和历史
     启动脚本才是同一套规矩。
     """
-    from core.capabilities import device_catalog
+    from features.desktop.capabilities import device_catalog
 
     if os.getenv(_DEFAULT_PLUGIN_BOOTSTRAP_ENV) != "1" or device_catalog.active():
         return
@@ -838,10 +804,11 @@ def bootstrap_default_plugins_if_needed() -> None:
     if bootstrapped:
         _status("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
 
-
 def cmd_serve(args) -> int:
     apply_local_env(args.port)
-    _ensure_schema_and_seed()
+    from hugagent_cli.schema import ensure_schema_and_seed
+
+    ensure_schema_and_seed()
     bootstrap_default_plugins_if_needed()
     import uvicorn
     from api.app import app
@@ -856,9 +823,7 @@ def cmd_serve(args) -> int:
     uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
     return 0
 
-
 # ── Doctor ────────────────────────────────────────────────────────────────────
-
 
 def cmd_doctor(args) -> int:
     apply_local_env(args.port)
@@ -930,9 +895,7 @@ def cmd_doctor(args) -> int:
     print("✓ 自检通过" if ok else "✗ 存在需处理的问题（见上）")
     return 0 if ok else 1
 
-
 # ── Entry ─────────────────────────────────────────────────────────────────────
-
 
 def build_parser() -> argparse.ArgumentParser:
     # Shared options usable both before and after the subcommand
@@ -990,7 +953,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", parents=[common], help="环境自检").set_defaults(func=cmd_doctor)
     return p
 
-
 def main(argv: Optional[list] = None) -> int:
     _configure_standard_streams()
     parser = build_parser()
@@ -1019,7 +981,6 @@ def main(argv: Optional[list] = None) -> int:
         ):
             setattr(args, attr, getattr(args, attr, val))
     return args.func(args) or 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

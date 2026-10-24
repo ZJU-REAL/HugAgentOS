@@ -57,7 +57,7 @@ def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
     # ── Externally managed shared collections — cached, no extra HTTP calls ──
     if external_ids:
         try:
-            from core.kb.external_provider import is_enabled, list_collections
+            from features.knowledge.edition import is_enabled, list_collections
 
             if is_enabled():
                 external_set = set(external_ids)
@@ -76,7 +76,7 @@ def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
     if local_ids:
         try:
             from core.db.engine import SessionLocal
-            from core.db.models import KBSpace
+            from features.knowledge.models import KBSpace
 
             with SessionLocal() as db:
                 spaces = (

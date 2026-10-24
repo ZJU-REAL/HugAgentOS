@@ -12,6 +12,10 @@ import asyncio
 import contextlib
 from types import SimpleNamespace
 
+import core.agent_runtime.runner as runner
+import core.chat.runtime.admission as admission
+import core.db.engine as db_engine
+import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
@@ -19,8 +23,7 @@ from agentscope.model import ChatResponse
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatSession
 from core.harness.hooks import HookBus
-from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
-from orchestration import chat_run_executor as executor
+from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -93,7 +96,7 @@ def _fake(name: str, **fields):
 
 
 async def _stream_events(events, state):
-    from orchestration.streaming import StreamingAgent
+    from core.llm.runtime.streaming import StreamingAgent
 
     async def reply_stream(inputs=None):  # noqa: ANN001, ARG001
         for event in events:
@@ -188,15 +191,15 @@ def run_env(tmp_path, monkeypatch):
     )
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
-    executor._active_runs.clear()
+    monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
+    tasks.process_state().active_runs.clear()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
     yield sessions
-    executor._active_runs.clear()
+    tasks.process_state().active_runs.clear()
     engine.dispose()
 
 
@@ -241,8 +244,8 @@ async def _run(workflow, monkeypatch):
         async for event in workflow(**kwargs):
             yield event
 
-    monkeypatch.setattr(executor, "astream_chat_workflow", gated)
-    run = await executor.start_run(
+    monkeypatch.setattr(runner, "astream_chat_workflow", gated)
+    run = await admission.start_run(
         chat_id="chat-1",
         user_id="user-1",
         session_messages=[{"role": "user", "content": "hello"}],
@@ -253,7 +256,7 @@ async def _run(workflow, monkeypatch):
         model_name="test-model",
     )
     # The chat route reserves this row before the worker starts.
-    with executor.SessionLocal() as db:
+    with db_engine.SessionLocal() as db:
         db.add(
             ChatMessage(
                 message_id=run.message_id,
@@ -264,7 +267,7 @@ async def _run(workflow, monkeypatch):
         )
         db.commit()
     start.set()
-    worker = executor._active_runs.get(run.run_id)
+    worker = tasks.process_state().active_runs.get(run.run_id)
     if worker is not None:
         with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
             await asyncio.wait_for(worker, timeout=10)

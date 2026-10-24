@@ -34,7 +34,7 @@ def user_zone(config):
     return (config or {}).get("timezone") or DEFAULT_TIMEZONE
 
 def next_cron(cron, timezone, after):
-    from core.services.automation_service import compute_next_run
+    from features.automation.scheduling import compute_next_run
     return compute_next_run(cron, timezone, datetime.fromtimestamp(after, zone(timezone))).timestamp()
 
 def next_time(item, after):

@@ -1,3 +1,4 @@
+from features.marketplace import plugin_market
 """Plugin system tests: import Claude Code / Codex / native plugin packages → persist to DB → uninstall.
 
 Covers the three-tier portability matrix: direct skill import (including
@@ -14,13 +15,13 @@ import pytest
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, UserShadow
 
 
-from core.plugins.packaging import importer as pi
+from core.capabilities.plugins.packaging import importer as pi
 
-from core.plugins import management as ps
+from core.capabilities.plugins import management as ps
 
-from core.plugins.management import components as plugin_components
+from core.capabilities.plugins.management import components as plugin_components
 
-from core.services.ontology_policy import set_plugin_import_build_validation_forced
+from core.ontology.policy import set_plugin_import_build_validation_forced
 
 OWNER = "test_user_123"
 
@@ -184,7 +185,7 @@ def test_plugin_import_ontology_validation_follows_user_and_force_policy(
 
 def test_owned_skill_enters_runtime_set(tmp_path, db_session):
     """Imported private skill with is_enabled=True → selected by the owned merge of resolve_all_runtime_enabled."""
-    from core.config.catalog_resolver import _owned_enabled_ids
+    from core.capabilities.catalog.resolver import _owned_enabled_ids
 
     pdir = _make_cc_plugin(tmp_path)
     ps.import_plugin(db_session, pdir, owner_user_id=OWNER, secrets={"api_token": "x"})
@@ -300,7 +301,7 @@ def test_reject_non_plugin_dir(tmp_path):
 
 def test_builtin_plugin_list_and_install(db_session):
     """The built-in sample plugin sample-translator should be discovered by list and be installable."""
-    items = ps.list_plugins(db_session, owner_user_id=OWNER)
+    items = plugin_market.list_plugins(db_session, owner_user_id=OWNER)
     slugs = {it["slug"] for it in items}
     assert "sample-translator" in slugs
     sample = next(it for it in items if it["slug"] == "sample-translator")
@@ -316,7 +317,7 @@ def test_builtin_plugin_list_and_install(db_session):
     assert any("glossary" in f for f in (sk[0].extra_files or {}))
 
     # List again → marked as installed
-    items2 = ps.list_plugins(db_session, owner_user_id=OWNER)
+    items2 = plugin_market.list_plugins(db_session, owner_user_id=OWNER)
     assert next(it for it in items2 if it["slug"] == "sample-translator")["installed"] is True
 
 
@@ -350,7 +351,7 @@ def test_builtin_firecrawl_plugin_install(db_session):
     """Built-in firecrawl plugin (official CLI skill suite): discovered by list →
     installs 10 skills, all enabled, no MCP, no required_secrets (credentials
     are injected via system-config env) → clean uninstall."""
-    items = ps.list_plugins(db_session, owner_user_id=OWNER)
+    items = plugin_market.list_plugins(db_session, owner_user_id=OWNER)
     fc = next((it for it in items if it["slug"] == "firecrawl"), None)
     assert fc is not None, "firecrawl 插件未被 list_plugins 发现"
     assert fc["installed"] is False

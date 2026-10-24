@@ -30,7 +30,8 @@ def test_fetch_keeps_url_title_and_marks_truncation(monkeypatch):
 def test_download_budget_is_visible_and_source_is_citable(monkeypatch):
     import json
 
-    from orchestration.citation_anchor import AnchorAllocator, annotate_tool_result
+    from core.llm.citations.allocator import AnchorAllocator
+    from core.llm.citations.anchor import annotate_tool_result
 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(impl, "MAX_RESPONSE_BYTES", 16)

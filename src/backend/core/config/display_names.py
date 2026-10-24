@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from core.config.edition_display_names import (
+from core.config.edition import (
     edition_mcp_server_descriptions,
     edition_mcp_server_display_names,
     edition_tool_display_names,

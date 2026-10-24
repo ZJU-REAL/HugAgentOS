@@ -14,7 +14,7 @@ from agentscope.model import ChatResponse
 from agentscope.tool import Toolkit
 from mcp.server.fastmcp import FastMCP
 
-from core.llm.mcp_manager import BareNameMCPClient
+from core.llm.mcp.manager import BareNameMCPClient
 
 
 class ThreeCallsModel:

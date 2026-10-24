@@ -7,8 +7,9 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import core.jobs.callback as jobs_callback
+import core.jobs.callback as callback
 import pytest
-from orchestration.jobs import callback
 
 
 @pytest.mark.parametrize("port_var", ["PORT", "BACKEND_PORT"])
@@ -57,7 +58,7 @@ def test_local_probe_reaches_backend_with_private_python(monkeypatch, tmp_path):
         assert result.returncode == 0, result.stderr
         return result.returncode, result.stdout, result.stderr
 
-    monkeypatch.setattr(callback, "_sbx_bash", host_bash)
+    monkeypatch.setattr(jobs_callback, "_sbx_bash", host_bash)
     try:
         assert asyncio.run(callback.resolve_callback_base(session_id="local", user_id="test")) == (
             f"http://127.0.0.1:{server.server_port}"

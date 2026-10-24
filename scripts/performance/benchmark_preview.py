@@ -8,7 +8,7 @@ import tempfile
 import time
 from docx import Document
 from api.routes.files import _convert_office_to_pdf
-from core.content.office_preview_cache import cached_office_pdf
+from core.files.content.office_preview_cache import cached_office_pdf
 
 with tempfile.TemporaryDirectory(prefix="perf172-office-") as directory:
     root = Path(directory)

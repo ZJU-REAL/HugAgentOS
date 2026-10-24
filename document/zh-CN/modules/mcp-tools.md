@@ -205,11 +205,11 @@ Server 同样适用（返回 JSON 即可）。回注发生在结果进模型上�
 
 后端基于 AgentScope 2.0 的 `MCPClient` 连接 MCP Server，核心在两个文件：
 
-- **`core/llm/mcp_pool.py` — `MCPConnectionPool`**（进程级单例）：启动时 `warmup_mcp_tools()` 从 DB 读取全部启用的 Server 配置并预连接。注意 2.0 语义下的池化策略：
+- **`core/llm/mcp/pool.py` — `MCPConnectionPool`**（进程级单例）：启动时 `warmup_mcp_tools()` 从 DB 读取全部启用的 Server 配置并预连接。注意 2.0 语义下的池化策略：
   - **stdio 且 `is_stable=true`** 的 Server 跨请求保持连接（省掉 1–7 秒子进程冷启动）；
   - **HTTP Server 一律不池化**——2.0 的 stateful HTTP 客户端与 asyncio task 绑定，跨请求复用会触发 cancel-scope 崩溃，因此每请求用 `is_stateful=False` 新建连接；
   - per-request Server（知识库检索带用户头）每次现连，请求结束 `close_transient()` 关闭。
-- **`core/llm/mcp_manager.py` — `BareNameMCPClient`**：AgentScope 2.0 默认把工具名改写为 `mcp__<server>__<tool>`，该子类还原为服务器侧裸名（`internet_search` 而非 `mcp__internet_search__internet_search`），保证展示名映射（`core/config/display_names.py`）、[引用溯源](chat.md)的按工具名分发、前端图标渲染等 1.x 约定继续成立。
+- **`core/llm/mcp/manager.py` — `BareNameMCPClient`**：AgentScope 2.0 默认把工具名改写为 `mcp__<server>__<tool>`，该子类还原为服务器侧裸名（`internet_search` 而非 `mcp__internet_search__internet_search`），保证展示名映射（`core/config/display_names.py`）、[引用溯源](chat.md)的按工具名分发、前端图标渲染等 1.x 约定继续成立。
 
 `Toolkit` 在 2.0 是一次性构造，由 `core/llm/factory/build.py` 统一执行 `Toolkit(tools=[...], mcps=clients)`。
 
@@ -251,7 +251,7 @@ MCP 规则只接受平台/管理员持有的可信连接配置，不采信远端
 
 ## 配置注册：DB 驱动 + catalog 门控
 
-MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/models.py::AdminMcpServer`），由 `core/services/mcp_service.py::McpServerConfigService` 以 30 秒 TTL 缓存读出，格式与旧 `MCP_SERVERS` dict 兼容（`transport / command / args / env / url / headers / is_stable`）。`core/config/mcp_config.py` 保留为内置 Server 的 URL 构造器（首次部署种子）。
+MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/models.py::AdminMcpServer`），由 `core/capabilities/mcp/service.py::McpServerConfigService` 以 30 秒 TTL 缓存读出，格式与旧 `MCP_SERVERS` dict 兼容（`transport / command / args / env / url / headers / is_stable`）。`core/config/mcp_config.py` 保留为内置 Server 的 URL 构造器（首次部署种子）。
 
 是否**对模型可见**还要过一道 [catalog](catalog.md) 门控：`core/config/catalog.json` 中 `mcp` 段的每项对应一个 server_id，`is_enabled(id, "mcp_server")` 为 false 的 Server 即使连接着也不会注册给智能体。
 
@@ -359,12 +359,12 @@ docker-compose up -d --build mcp
 | `src/backend/extensions/mcp_servers/_serve.py` | stdio / streamable-http 双 transport 统一入口 |
 | `src/backend/extensions/mcp_servers/registry.py` | 安装位置、暴露方式、包名和基础端口 |
 | `src/backend/extensions/mcp_servers/_ports.py` | 实际部署端口映射 |
-| `src/backend/core/llm/mcp_pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
-| `src/backend/core/llm/mcp_manager.py` | MCPClient 构造 + 工具裸名还原 |
+| `src/backend/core/llm/mcp/pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
+| `src/backend/core/llm/mcp/manager.py` | MCPClient 构造 + 工具裸名还原 |
 | `src/backend/core/llm/tool_permissions.py` | 受控工具 Registry、权限判定、确认路由与执行票据 |
-| `src/backend/core/services/mcp_service.py` | DB 驱动的 Server 配置服务（30s 缓存） |
+| `src/backend/core/capabilities/mcp/service.py` | DB 驱动的 Server 配置服务（30s 缓存） |
 | `src/backend/core/services/mcp_marketplace_service.py` | 市场发布、审核、安装、可见性与安全控制 |
-| `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 登录、SDK 元数据发现、加密令牌存储与刷新 |
+| `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 登录、SDK 元数据发现、加密令牌存储与刷新 |
 | `src/backend/core/services/mcp_marketplace_monitor.py` | 远程工具快照定期复检与漂移监控 |
 | `src/backend/core/config/mcp_config.py` | 内置 Server URL 构造（http://mcp:NNNN/mcp/） |
 | `src/backend/core/config/catalog.json` | 能力目录：MCP 启停门控种子 |

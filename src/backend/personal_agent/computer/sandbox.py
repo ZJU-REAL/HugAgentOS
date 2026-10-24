@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.errors import SandboxError
 from personal_agent.models import PersonalAgent
 
@@ -140,14 +140,14 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             return session
 
     async def _check_mount_revision(self, sandbox, user_id):
-        from core.spaces.sandbox import current_revision
-        from core.spaces.mounts import MOUNT_REVISION_TAG
+        from core.files.spaces.sandbox import current_revision
+        from core.files.spaces.mounts import MOUNT_REVISION_TAG
         info = await sandbox.get_info()
         revision = await asyncio.to_thread(current_revision, user_id)
         if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
             await sandbox.kill()
             raise SandboxError("File permissions changed; reopen the computer")
-        from core.spaces.recovery import ensure_mounts
+        from core.files.spaces.recovery import ensure_mounts
         import os
         await ensure_mounts(sandbox, user_id, info,
             domain=os.environ["PERSONAL_AGENT_OPENSANDBOX_DOMAIN"],
@@ -155,7 +155,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
 
 
     async def _provision(self, ident, session_id, user_id, generation):
-        from core.spaces.leases import async_space_lock
+        from core.files.spaces.leases import async_space_lock
         async with async_space_lock(user_id):
             return await self._provision_locked(ident, session_id, user_id, generation)
 
@@ -212,7 +212,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 desktop.mkdir(parents=True)
                 os.chmod(desktop, 0o700)
             desktop_volume = Volume(name="personal-desktop", host=Host(path=str(Path(root) / ident / "desktop")), mount_path=DESKTOP_HOME, read_only=False)
-            from core.spaces.mounts import prepare_volumes
+            from core.files.spaces.mounts import prepare_volumes
             space_volumes, space_metadata = await asyncio.to_thread(prepare_volumes, user_id)
             computer_config, access_token = self._computer_config(ident)
             sandbox = await Sandbox.create(os.getenv("PERSONAL_AGENT_IMAGE", DEFAULT_IMAGE), connection_config=computer_config, env={"EXECD_ACCESS_TOKEN": access_token},

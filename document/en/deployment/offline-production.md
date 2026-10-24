@@ -43,13 +43,9 @@ System prompts live in the database `content_blocks` table (the `prompt_versions
 
 ### 1. Export on the connected side
 
-```bash
-python src/backend/scripts/export_content.py \
-  --api-url http://localhost:3001 --only prompts
-# outputs src/backend/scripts/exported/prompts_snapshot_<ts>.json
-```
-
-(`--database-url` is also supported for direct-DB export; `ADMIN_TOKEN` is read from `.env` automatically.)
+Export a snapshot through `GET /v1/content/prompts/export` using the source environment's
+administrator or system configuration token. Save the response's `data` object as
+`prompts_snapshot_<ts>.json`; do not save the complete response envelope.
 
 ### 2. Copy
 
@@ -80,5 +76,5 @@ The API import invalidates the prompt cache automatically — **no backend resta
 | Complete EE image pack (deploy branch) | `deploy_kit/save_pack_ee.sh` |
 | Compiled EE images (deploy branch) | `docker/Dockerfile.backend-compiled`, `docker/Dockerfile.mcp-compiled` |
 | Compose overlays (deploy branch) | `docker-compose.prod.yml`, `docker-compose.deploy.yml`; runtime follows the delivered kit |
-| Prompt export / import | `src/backend/scripts/export_content.py`, `src/backend/scripts/import_content.py` |
-| Prompt version pool | `src/backend/core/services/prompt_version_service.py` |
+| Prompt export / import | `src/backend/api/routes/v1/content.py` |
+| Prompt version pool | `src/backend/core/llm/prompt_versions.py` |

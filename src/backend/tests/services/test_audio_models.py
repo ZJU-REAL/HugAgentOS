@@ -9,10 +9,10 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.audio_model_upgrade import reconcile_audio_model_type
-from core.db.model_repository import create_provider, assign_role, get_provider, import_all, export_all
-from core.llm.providers.registry import validate_payload
-from core.services.model_config import ModelConfigService
-from core.services import model_config
+from core.models.repository import create_provider, assign_role, get_provider, import_all, export_all
+from core.models.providers.registry import validate_payload
+from core.models.config import ModelConfigService
+from core.models import config as model_config
 
 
 @pytest.fixture

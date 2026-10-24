@@ -18,7 +18,7 @@ from core.sandbox.providers.opensandbox.connection import _OpenSandboxConnection
 from core.sandbox.providers.opensandbox.creation import _OpenSandboxCreationMixin
 from core.sandbox.providers.opensandbox.execution import _OpenSandboxExecMixin
 from core.sandbox.providers.opensandbox.lifecycle import _OpenSandboxLifecycleMixin
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.pool import SandboxPool
 from core.sandbox.providers.opensandbox.runtime import (
     _user_bound_sandbox_required,
@@ -93,7 +93,7 @@ class OpenSandboxProvider(
         except RuntimeError:
             self._service_loop = None
         # ⚠️ 锁必须按**事件循环**分桶。这个 provider 是进程级单例，但调用方不止一个 loop：
-        # 子智能体跑在独立线程的独立事件循环里（core/llm/subagent_tool.py 的
+        # 子智能体跑在独立线程的独立事件循环里（core/llm/subagents/tool.py 的
         # asyncio.new_event_loop()）。asyncio.Lock 在**首次 await 时**绑定当时的 running loop，
         # 之后被另一个 loop 用到就抛 "is bound to a different event loop"。
         # 事故形态极隐蔽：谁先碰 provider 谁把锁绑走，另一个 loop 的沙箱保活 touch_session

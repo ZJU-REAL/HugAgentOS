@@ -17,8 +17,8 @@ not initialize the model/tool stack. No legacy `agent_factory` module remains.
 | `runtime/` | Select the model and budgets; attach middleware, manifests and listeners | Agent execution policy changes |
 | `models.py`, `defaults.py` | Assembly-owned value types and defaults | Multiple phases share a domain value |
 
-The factory consumes `core.plugins.runtime`; it does not own plugin lifecycle
-or manifest ingestion. Plugin behavior belongs in `core/plugins/`.
+The factory consumes `core.capabilities.plugins.runtime`; it does not own plugin lifecycle
+or manifest ingestion. Plugin behavior belongs in `core/capabilities/plugins/`.
 The orchestration layer calls the public entry; it should not coordinate the
 private phases itself. Keep phase inputs explicit rather than introducing a
 mutable catch-all context or arbitrary pipeline registry.

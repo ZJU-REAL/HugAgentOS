@@ -19,7 +19,7 @@ from core.config.display_names import (  # noqa: F401
 from extensions.mcp_servers._ports import PORTS as _PORTS
 
 
-def _mcp_http_url(server_id: str) -> str:
+def mcp_http_url(server_id: str) -> str:
     from core.config.settings import settings
 
     return f"http://{settings.server.mcp_host}:{_PORTS[server_id]}/mcp/"
@@ -34,7 +34,7 @@ def builtin_mcp_configs(location=None) -> Dict[str, dict]:
     return {
         server.server_id: {
             "transport": "streamable_http",
-            "url": _mcp_http_url(server.server_id),
+            "url": mcp_http_url(server.server_id),
             "env": {},
         }
         for server in process_servers(location)
@@ -68,7 +68,7 @@ def builtin_launcher_serves_this_plane() -> bool:
 
     if not settings.deploy.is_local:
         return True
-    from core.auth.desktop_bridge import bridge_enabled
+    from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
 
     return not bridge_enabled()
 

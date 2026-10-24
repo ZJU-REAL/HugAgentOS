@@ -1,4 +1,6 @@
 """Local project paths agree across the public tool/runner/preview boundaries."""
+from core.capabilities.skills import loader_factory as loader_factory_module
+from core.config.store import system_config
 
 import json
 from types import SimpleNamespace
@@ -6,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.llm.local_project_test_support import local_project, pin_tool
-from core.llm.tool_collector import ToolCollector
+from core.llm.runtime.tool_collector import ToolCollector
 from tests.llm.command_test_support import command_tool_state
 
 
@@ -21,11 +23,7 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", ScriptRunnerProvider)
     from core.llm.tools.write_tool import register_write
     from core.llm.tools._state import ReadStateTracker
-    from core.llm.tool_permissions import (
-        CURRENT_PERMISSION_TICKET,
-        PermissionTicket,
-        PermissionIntent,
-    )
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     source, scope = local_project
     destination = source.parent / "交付 results" / "report.html"
@@ -73,7 +71,7 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     import uvicorn
     from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     from core.sandbox.runner import server
-    from core.llm.tools import _paths
+    from core.sandbox.workspace import resolution as _paths
     from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.write_tool import register_write
     from core.llm.tools.read_tool import register_read
@@ -82,12 +80,9 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     from core.llm.tools.grep_tool import register_grep
     from core.llm.tools.sandbox_tool import register_bash
     from core.llm.tools.pin_tool import register_pin_to_workspace
-    from core.llm.tool_permissions import (
-        ToolPermissionRegistry,
-        ToolPermissionService,
-        PermissionRuntime,
-        CURRENT_PERMISSION_TICKET,
-    )
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+    from core.llm.tool_permissions import ToolPermissionService
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime, CURRENT_PERMISSION_TICKET
 
     source, scope = local_project
     scratch_root = tmp_path / "session-storage"
@@ -300,13 +295,10 @@ async def test_project_changed_during_run_blocks_tools_without_fallback(
 async def test_relative_permissions_use_project_without_implicitly_granting_it(
     local_project, output_name
 ):
-    from core.llm.tool_permissions import (
-        ToolPermissionRegistry,
-        ToolPermissionService,
-        PermissionRuntime,
-        builtin_tool_permission,
-    )
-    from core.services.local_grant_service import remove_grant
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, builtin_tool_permission
+    from core.llm.tool_permissions import ToolPermissionService
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime
+    from features.desktop.local.grants import remove_grant
 
     source, scope = local_project
     registry = ToolPermissionRegistry()
@@ -364,7 +356,7 @@ async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_too
     from agentscope.message import UserMsg, TextBlock, ToolCallBlock
     from agentscope.model import ChatResponse
     from core.llm import factory as agent_factory
-    import core.agent_skills.loader as skill_loader
+    import core.capabilities.skills.loader as skill_loader
 
     invoke, root, scope, provider = local_tools
 
@@ -410,14 +402,15 @@ async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_too
                 content = [TextBlock(type="text", text="done")]
             return ChatResponse(content=content, is_last=True)
 
-    monkeypatch.setattr(skill_loader, "get_skill_loader", lambda: EmptyLoader())
+    monkeypatch.setattr(loader_factory_module, 'get_skill_loader', lambda: EmptyLoader())
     from core.db.engine import SessionLocal
-    from core.services.run_journal import RunJournal
+    from core.runs.journal import RunJournal
 
-    monkeypatch.setattr("core.services.chat_steer_service.SessionLocal", SessionLocal)
-    from core.services import system_config
+    monkeypatch.setattr('core.chat.steer.SessionLocal', SessionLocal)
+    monkeypatch.setattr('core.runs.tool_effects.host.SessionLocal', SessionLocal)
+    from core.config.store import system_config
 
-    monkeypatch.setattr(system_config, "SessionLocal", SessionLocal)
+    monkeypatch.setattr("core.db.system_configuration.SessionLocal", SessionLocal)
     monkeypatch.setattr(system_config.SystemConfigService, "_instance", None)
     journal = RunJournal(SessionLocal)
     journal.accept(

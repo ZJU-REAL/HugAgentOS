@@ -1,0 +1,141 @@
+"""Where the desktop capability store lives.
+
+``HUGAGENT_CAPS_ROOT`` is injected by the desktop shell (Windows:
+``%LOCALAPPDATA%\\<app identifier>``) and defaulted by the local CLI profile to
+``HUGAGENT_HOME``. It is *unset* on cloud deployments, which disables the file
+store entirely — every function here that needs the root raises when it is
+missing rather than guessing a location.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+from core.capabilities.identity_rules import KIND_SKILL, KIND_PLUGIN, KIND_AGENT, KIND_MCP, KINDS, LOCAL_PROFILE, BUILTIN_PROFILE, safe_segment
+from typing import Optional
+
+from core.config.runtime_env import CAPS_ROOT_ENV
+
+
+_KIND_DIRS = {KIND_SKILL: "skills", KIND_PLUGIN: "plugins", KIND_AGENT: "agents"}
+
+
+META_DIR = ".capabilities"
+MCP_JSON_NAME = "mcp.json"
+
+
+
+class CapabilityStoreDisabled(RuntimeError):
+    """Raised when file-store operations run on a deployment without a root."""
+
+
+def capability_root() -> Optional[Path]:
+    raw = os.getenv(CAPS_ROOT_ENV, "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser()
+
+
+def capabilities_enabled() -> bool:
+    return capability_root() is not None
+
+
+def require_root() -> Path:
+    root = capability_root()
+    if root is None:
+        raise CapabilityStoreDisabled(
+            f"{CAPS_ROOT_ENV} is not set; the capability file store is disabled"
+        )
+    if not root.is_dir():
+        root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def assert_managed_path(path: Path) -> Path:
+    """Store/index paths are real directories; links belong only in runtime views."""
+    return _assert_managed_path(path, require_root())
+
+
+def _assert_managed_path(path: Path, root: Path) -> Path:
+    from core.harness.capability_errors import IntegrityFailed
+    from core.infra.directory_links import is_directory_link
+
+    root = root.absolute()
+    path = path.absolute()
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError as exc:
+        raise IntegrityFailed("managed path is outside capability root") from exc
+    current = root
+    for part in parts:
+        current = current / part
+        if part == ".." or is_directory_link(current):
+            raise IntegrityFailed(f"managed path is redirected: {current}")
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise IntegrityFailed("managed path resolves outside capability root")
+    return path
+
+
+
+
+def _kind_path(kind: str, *segments: str) -> Path:
+    if kind not in _KIND_DIRS:
+        raise ValueError(f"kind {kind!r} has no directory")
+    parts = [safe_segment(segment) for segment in segments]
+    root = require_root()
+    # Validate the whole chain once, including every intermediate directory.
+    # Nested public helpers used to revalidate the same parents three times.
+    path = _assert_managed_path(root / _KIND_DIRS[kind] / Path(*parts), root)
+    directory = root / _KIND_DIRS[kind]
+    if not directory.is_dir():
+        directory.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def kind_root(kind: str) -> Path:
+    return _kind_path(kind)
+
+
+def profile_dir(kind: str, profile: str) -> Path:
+    return _kind_path(kind, profile)
+
+
+def component_dir(kind: str, profile: str, key: str, revision: str) -> Path:
+    return _kind_path(kind, profile, key, revision)
+
+
+def mcp_json_path() -> Path:
+    return assert_managed_path(require_root() / MCP_JSON_NAME)
+
+
+def meta_root() -> Path:
+    path = assert_managed_path(require_root() / META_DIR)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def staging_root() -> Path:
+    path = assert_managed_path(meta_root() / "staging")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def manifests_root() -> Path:
+    path = assert_managed_path(meta_root() / "manifests")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def migrations_root() -> Path:
+    path = assert_managed_path(meta_root() / "migrations")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def revision_for_hash(content_hash: str) -> str:
+    """Directory-safe revision derived from a content hash (immutable per content)."""
+    h = (content_hash or "").strip().lower()
+    if len(h) < 12 or not re.match(r"^[0-9a-f]+$", h):
+        raise ValueError("content hash must be a hex digest")
+    return h[:12]

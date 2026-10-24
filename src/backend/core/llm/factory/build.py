@@ -8,8 +8,8 @@ from agentscope.agent import Agent
 from agentscope.mcp import MCPClient
 from core.llm.factory.assembly import assemble_agent
 from core.llm.factory.request import AgentRequest
-from core.llm.mcp_manager import close_factory_clients_on_error
-from orchestration.registry import AgentSpec
+from core.llm.factory.specs import AgentSpec
+from core.llm.mcp.manager import close_factory_clients_on_error
 
 
 @close_factory_clients_on_error

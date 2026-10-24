@@ -8,19 +8,13 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit, ToolResponse
-from core.services.project_scope import ProjectScope
+from core.projects.edition import ProjectScope
 
 from ._common import (
     resolve_sandbox_session,
     resp_json,
 )
-from ._paths import (
-    is_myspace_physical,
-    space_metadata,
-    to_physical_path,
-    validate_project_scope_path,
-    validate_workspace_path,
-)
+from core.sandbox.workspace.resolution import is_myspace_physical, space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
 from ._state import ReadEntry, ReadStateTracker
 
 logger = logging.getLogger(__name__)
@@ -63,10 +57,7 @@ def register_edit(
         new_string: str,
         replace_all: bool = False,
     ) -> "ToolResponse":  # type: ignore[name-defined]
-        from core.llm.tool_permissions import (
-            PermissionEnforcementError,
-            require_local_path_permission,
-        )
+        from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
         from core.sandbox import SandboxConnectError as _SCE
         from core.sandbox import SandboxError as _SE
         from core.sandbox import get_sandbox_provider as _get_provider
@@ -207,11 +198,12 @@ def register_edit(
         new_bytes = new_text.encode("utf-8")
         # Local-mode write-back snapshot (ticket #08): back up before overwriting.
         try:
-            from core.services.local_snapshot_service import maybe_snapshot_local
+            from core.harness.registry.local_files import maybe_snapshot_local
 
             maybe_snapshot_local(physical)
-        except Exception:
-            pass
+        except Exception as fallback_error:
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.llm.tools.edit_tool:Edit', fallback_error)
         try:
             if _is_local:
                 import os as _os

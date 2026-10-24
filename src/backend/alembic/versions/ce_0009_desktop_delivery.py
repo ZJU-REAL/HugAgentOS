@@ -8,7 +8,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    from core.db.edition_tables import ce_reconcile_schema
+    from core.db.edition import ce_reconcile_schema
     ce_reconcile_schema(op.get_bind())
 
 

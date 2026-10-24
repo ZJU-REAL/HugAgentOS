@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from agentscope.message import TextBlock, ToolResultBlock
 from core.config.settings import settings
-from core.llm.offloader import SandboxOffloader
-from core.llm.tools import _paths
+from core.llm.context.offloader import SandboxOffloader
+from core.sandbox.workspace import resolution as _paths
 from core.sandbox.runner import server
 
 
@@ -79,8 +79,8 @@ async def test_failed_offload_is_not_presented_as_a_file(runner_workspace, strea
     from agentscope.message import UserMsg
     from agentscope.tool import Toolkit
     from agentscope.tool._response import ToolChunk
-    from core.llm.compacting_agent import CompactingAgent
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.context.compacting_agent import CompactingAgent
+    from core.llm.runtime.tool_collector import ToolCollector
     from tests.llm.test_tool_result_images import CaptureModel
 
     class UnwritableFiles:
@@ -126,8 +126,8 @@ async def test_context_compaction_survives_offload_failure(monkeypatch, runner_w
     from agentscope.agent import ContextConfig
     from agentscope.message import Msg
     from agentscope.tool import Toolkit
-    from core.llm.compacting_agent import CompactingAgent
-    from core.services import compaction_service
+    from core.llm.context.compacting_agent import CompactingAgent
+    from core.chat.compaction import service as compaction_service
     from tests.llm.test_tool_result_images import CaptureModel
 
     class UnwritableFiles:
@@ -148,7 +148,7 @@ async def test_context_compaction_survives_offload_failure(monkeypatch, runner_w
             sandbox=replace(settings.sandbox, provider="script_runner"),
         ),
     )
-    monkeypatch.setattr(compaction_service, "run_mid_turn_compaction", compact)
+    monkeypatch.setattr(compaction_port, "run_mid_turn_compaction", compact)
     model = CaptureModel()
     model.context_size = 1_000
     model.generate_structured_output = summary
@@ -197,8 +197,8 @@ async def test_full_output_can_be_read_from_the_path_seen_by_model(runner_worksp
     from agentscope.message import UserMsg
     from agentscope.tool import Toolkit
     from agentscope.tool._response import ToolChunk
-    from core.llm.compacting_agent import CompactingAgent
-    from core.llm.tool_collector import ToolCollector
+    from core.llm.context.compacting_agent import CompactingAgent
+    from core.llm.runtime.tool_collector import ToolCollector
     from tests.llm.test_tool_result_images import CaptureModel
 
     text = 'BEGIN\n{"数据": "' + "line " * 30_000 + '"}\nEND'
@@ -329,9 +329,9 @@ async def test_offload_timeout_is_bounded_and_cancellation_propagates(
 ):
     import asyncio
 
-    from core.llm.offloader import OffloadError
+    from core.llm.context.offloader import OffloadError
 
-    monkeypatch.setattr("core.llm.offloader._WRITE_TIMEOUT_SEC", 0.01)
+    monkeypatch.setattr('core.llm.context.offloader._WRITE_TIMEOUT_SEC', 0.01)
     cancelled = asyncio.Event()
 
     class HangingFiles:
@@ -358,7 +358,7 @@ async def test_offload_timeout_is_bounded_and_cancellation_propagates(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("session", [None, ""])
 async def test_no_file_is_published_without_a_persistent_workspace(session):
-    from core.llm.offloader import OffloadError
+    from core.llm.context.offloader import OffloadError
 
     class Files:
         async def put_file(self, *args, **kwargs):
@@ -379,7 +379,7 @@ async def test_disabled_compaction_preserves_context_without_summary_or_archive(
 
     from agentscope.message import UserMsg
     from agentscope.tool import Toolkit
-    from core.llm.compacting_agent import CompactingAgent
+    from core.llm.context.compacting_agent import CompactingAgent
     from tests.llm.test_tool_result_images import CaptureModel
 
     monkeypatch.setattr(
@@ -419,3 +419,5 @@ async def test_disabled_compaction_preserves_context_without_summary_or_archive(
     assert agent.state.summary == ""
     model.generate_structured_output.assert_not_awaited()
     files.put_file.assert_not_awaited()
+
+from core.harness.registry import compaction as compaction_port

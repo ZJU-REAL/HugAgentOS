@@ -15,7 +15,7 @@ import os
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
-from core.content.content_blocks import get_branding_info, is_register_allowed
+from core.files.content.branding import get_branding_info, is_register_allowed
 from core.infra.logging import get_logger
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -1453,7 +1453,7 @@ def _try_local_login(username: str, password: str) -> Optional[Dict[str, Any]]:
 
     try:
         from core.db.engine import SessionLocal
-        from core.services.local_user_service import LocalUserService
+        from core.auth.local_users import LocalUserService
     except Exception as exc:
         logger.warning("local auth unavailable: %s", exc)
         return None
@@ -1611,7 +1611,7 @@ async def _handle_register_submit(
 
     try:
         from core.db.engine import SessionLocal
-        from core.services.local_user_service import LocalUserService
+        from core.auth.local_users import LocalUserService
     except Exception as exc:
         logger.warning("local auth module unavailable: %s", exc)
         return _bounce("注册服务暂不可用")

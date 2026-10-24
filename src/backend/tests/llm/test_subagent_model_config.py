@@ -8,9 +8,9 @@ from sqlalchemy.orm import sessionmaker
 from api.deps import require_system_settings
 from api.routes.v1 import models as routes
 from core.db.engine import get_db
-from core.db.model_repository import create_provider
-from core.services import model_config
-from core.services.model_config import ModelConfigService
+from core.models.repository import create_provider
+from core.models import config as model_config
+from core.models.config import ModelConfigService
 
 
 @pytest.fixture
@@ -89,9 +89,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import core.db.models
 from agentscope.message import UserMsg
 from core.db.engine import Base, engine, SessionLocal
-from core.db.model_repository import create_provider, assign_role, unassign_role, update_provider
+from core.models.repository import create_provider, assign_role, unassign_role, update_provider
+from features import register_product_tools, register_run_capabilities
+register_product_tools()
+register_run_capabilities()
 from core.llm.factory import create_agent_executor
-from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
+from core.capabilities.agents.builtin import build_builtin_runtime_profile, get_builtin_subagent
 
 Base.metadata.create_all(engine)
 requests = []
@@ -192,7 +195,7 @@ async def run():
 try:
     asyncio.run(run())
     if scenario in ("inherit_builtin", "shared_builtin", "system_default"):
-        from core.llm.subagent_tool import _run_subagent_in_thread
+        from core.llm.subagents.tool import _run_subagent_in_thread
         events = []
         ok, output, _, _ = _run_subagent_in_thread(
             "builtin.worker", "worker", "Reply done", "", "",

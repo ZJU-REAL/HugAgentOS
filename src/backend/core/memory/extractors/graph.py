@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from core.memory.extractors._base import fill_prompt, parse_json, run_llm_with_prompt
-from core.memory.graph import PREDICATE_LABELS
+from core.memory.graph_state import PREDICATE_LABELS
 
 PROMPT = """你是一个 L3 知识图谱关系抽取器。只抽取用户明确陈述或明确确认的、跨会话仍有价值的稳定实体关系。
 

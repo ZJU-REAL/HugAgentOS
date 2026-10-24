@@ -152,7 +152,8 @@ def test_provider_contract_and_country(monkeypatch, engine):
 def test_partial_failure_still_gets_citations(monkeypatch):
     import json
 
-    from orchestration.citation_anchor import AnchorAllocator, annotate_tool_result
+    from core.llm.citations.allocator import AnchorAllocator
+    from core.llm.citations.anchor import annotate_tool_result
 
     monkeypatch.setattr(
         "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
@@ -297,8 +298,8 @@ def test_mcp_rejects_removed_argument():
 def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
     import json
 
-    from mcp.shared.memory import create_connected_server_and_client_session
     from extensions.mcp_servers.internet_search_mcp import impl, server
+    from mcp.shared.memory import create_connected_server_and_client_session
 
     monkeypatch.setattr(
         impl,
@@ -417,7 +418,7 @@ def test_round_robin_caps_at_eight_sources():
 
 
 def test_search_transport_allows_structured_deadline_result():
-    from core.llm.mcp_pool import make_client
+    from core.llm.mcp.pool import make_client
 
     class Client:
         def __init__(self, **kwargs):

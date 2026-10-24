@@ -18,8 +18,8 @@
 模型自由裁量。
 """
 
+from core.chat.runtime.job_wakeup import _wake_prompt
 from core.db.models import Job as JobModel
-from orchestration.job_wakeup import _wake_prompt
 
 _SETTLED = {"total": 265, "done": 261, "not_found": 4, "failed": 0, "pending": 0, "remaining": 0}
 

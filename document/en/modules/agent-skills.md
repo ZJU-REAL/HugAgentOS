@@ -29,11 +29,11 @@ Download integrity, path containment and account ownership checks remain enforce
 └── _scripts.json     # optional: script whitelist (auto-detected by extension when absent)
 ```
 
-Parsing and data structures live in `core/agent_skills/registry.py`: `AgentSkillMetadata` (lightweight, for listings) and `AgentSkillSpec` (full instructions, for execution). When `_scripts.json` is missing, `loader._auto_detect_scripts` builds the whitelist from file extensions automatically.
+Parsing and data structures live in `core/capabilities/skills/registry.py`: `AgentSkillMetadata` (lightweight, for listings) and `AgentSkillSpec` (full instructions, for execution). When `_scripts.json` is missing, `loader._auto_detect_scripts` builds the whitelist from file extensions automatically.
 
 ## Multi-source loading and priorities
 
-`core/agent_skills/loader.py::MultiSourceSkillLoader` loads skills from several sources through a backend abstraction (`backends/`: filesystem / database / composite); on ID conflicts the higher-priority source wins (`core/agent_skills/config.py`):
+`core/capabilities/skills/loader.py::MultiSourceSkillLoader` loads skills from several sources through a backend abstraction (`backends/`: filesystem / database / composite); on ID conflicts the higher-priority source wins (`core/capabilities/skills/config.py`):
 
 | Source | Directory | Priority | Notes |
 |---|---|---|---|
@@ -149,7 +149,7 @@ Key points:
 - **Scope**: main-chat assembly and sub-agents. A sub-agent's bound plugins are deferred the same way, but activation lives only within that run and is never persisted (sub-agent runs are short-lived and isolated; writing under the parent chat's key would leak the activation into the main agent's assembly). Plugins pinned by a restricted chat mode stay eagerly loaded (a deliberate admin narrowing); plugins with stdio-transport MCP components are not deferred.
 - **Kill switch**: set `PLUGIN_PROGRESSIVE_LOADING=false` to revert to eager assembly.
 
-Implementation: `core/plugins/runtime/__init__.py` (deferral resolution / directory rendering / activation tool) plus the assembly hook in `core/llm/factory/build.py`.
+Implementation: `core/capabilities/plugins/runtime/__init__.py` (deferral resolution / directory rendering / activation tool) plus the assembly hook in `core/llm/factory/build.py`.
 
 ## The Skill Marketplace
 
@@ -214,7 +214,7 @@ The `/admin` console's skill management maps to `api/routes/v1/admin_skills.py` 
 - **Create/edit**: hand-written SKILL.md (`POST /`, `PUT /{id}`) or **zip upload** of an entire package (`POST /upload`, auto-detects directory prefixes, base64-encodes binaries into the DB, 200 MB cap);
 - **File-level management**: `GET/PUT/DELETE /{id}/files/{filename}` for inline editing of auxiliary files;
 - **Operations**: toggle (`/{id}/toggle`), ordering, icons, fork, bulk export/import (cross-environment migration);
-- **Dependency management**: `POST /{id}/rescan-deps` statically scans scripts for pip/apt dependencies via `core/agent_skills/deps_detector.py`, with `PUT /{id}/dependencies` for manual correction; the aggregated manifest feeds the sandbox image rebuild (see the admin dependency rebuild in the [sandbox module](sandbox.md)).
+- **Dependency management**: `POST /{id}/rescan-deps` statically scans scripts for pip/apt dependencies via `core/capabilities/skills/deps/detector.py`, with `PUT /{id}/dependencies` for manual correction; the aggregated manifest feeds the sandbox image rebuild (see the admin dependency rebuild in the [sandbox module](sandbox.md)).
 
 ## Skill distillation (Enterprise EE)
 
@@ -281,12 +281,12 @@ only submission, never conversation or continued local editing.
 
 | Path | Description |
 |---|---|
-| `src/backend/core/agent_skills/registry.py` | SKILL.md parsing, metadata / full-spec dataclasses |
-| `src/backend/core/agent_skills/loader.py` | Multi-source loading, DB-skill materialization, sandbox path repointing |
-| `src/backend/core/agent_skills/config.py` | Source priorities, unified sandbox skills dir, built-in sync |
-| `src/backend/core/agent_skills/selector.py` | LLM-based skill selection per user intent (progressive disclosure) |
-| `src/backend/core/agent_skills/deps_detector.py` | Static pip/apt dependency detection for scripts |
-| `src/backend/core/agent_skills/backends/` | filesystem / database / composite loading backends |
+| `src/backend/core/capabilities/skills/registry.py` | SKILL.md parsing, metadata / full-spec dataclasses |
+| `src/backend/core/capabilities/skills/loader.py` | Multi-source loading, DB-skill materialization, sandbox path repointing |
+| `src/backend/core/capabilities/skills/config.py` | Source priorities, unified sandbox skills dir, built-in sync |
+| `src/backend/core/llm/skill_selection.py` | LLM-based skill selection per user intent (progressive disclosure) |
+| `src/backend/core/capabilities/skills/deps/detector.py` | Static pip/apt dependency detection for scripts |
+| `src/backend/core/capabilities/skills/backends/` | filesystem / database / composite loading backends |
 | `src/backend/core/llm/tools/skill_tool.py` | Restricted view_text_file + {baseDir} substitution + Runtime Hint |
 | `src/backend/extensions/skills/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
 | `src/backend/extensions/skills/marketplace/` | The 45 installable marketplace packages |

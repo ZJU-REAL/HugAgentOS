@@ -15,9 +15,9 @@ from fastapi import BackgroundTasks, HTTPException
 
 from core.db.models import Project, UserShadow, Artifact
 
-from core.llm import workspace
+from core.llm.runtime import workspace
 
-from core.llm.tool_collector import ToolCollector
+from core.llm.runtime.tool_collector import ToolCollector
 
 
 from tests.llm.local_project_test_support import local_project, pin_tool
@@ -41,7 +41,7 @@ def test_pin_local_path_opens_original_and_deduplicates(local_project, db_sessio
         fid, BackgroundTasks(), mode="direct", inline=True, user=user, db=db_session
     )
     assert Path(response.path).read_text() == "updated report"
-    from core.services.artifact_service import persist_artifacts
+    from core.files.artifacts.service import persist_artifacts
 
     persist_artifacts(db_session, "pin-user", None, workspace.get_pinned(), scope=scope)
     assert db_session.query(Artifact).count() == 0
@@ -58,7 +58,7 @@ def test_existing_export_then_pin_does_not_copy_project_file(
 ):
     source, scope = local_project
     from core.llm.tools.sandbox_tool import register_sandbox_get_artifact
-    from core.artifacts.store import get_artifact
+    from core.files.artifacts.store import get_artifact
 
     class Provider:
         async def get_file_to_path(self, session, src, dst, **kwargs):
@@ -84,7 +84,7 @@ def test_pinned_file_remains_readable_across_turns_and_saves_to_project(
 ):
     import io
     from fastapi import UploadFile
-    from core.content.artifact_reader import fetch_parsed_text, load_artifact_meta
+    from core.files.artifacts.reader import fetch_parsed_text, load_artifact_meta
     from api.routes.v1.file_upload import overwrite_file
 
     source, scope = local_project
@@ -139,9 +139,9 @@ def test_reference_revalidates_project_and_file(local_project, db_session, tmp_p
 
 
 def test_revoked_folder_grant_blocks_pin_and_existing_reference(local_project, db_session):
-    from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET
-    from core.services.local_grant_service import remove_grant
-    from core.content.artifact_reader import fetch_parsed_text
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET
+    from features.desktop.local.grants import remove_grant
+    from core.files.artifacts.reader import fetch_parsed_text
     from api.routes.files import local_file_location
 
     source, scope = local_project
@@ -164,7 +164,7 @@ def test_live_spreadsheet_sheet_read_and_artifact_input(local_project):
     import base64
     from openpyxl import Workbook
     from core.llm.tools.read_artifact_tool import register_read_artifact
-    from core.llm.tools._tool_helpers import _resolve_artifact_files
+    from core.files.artifacts.generated import resolve_artifact_files as _resolve_artifact_files
 
     source, scope = local_project
     sheet = source.with_suffix(".xlsx")
@@ -191,19 +191,19 @@ def test_live_spreadsheet_sheet_read_and_artifact_input(local_project):
 
 def test_scratch_export_references_original(local_project, monkeypatch, tmp_path):
     from core.llm.tools.sandbox_tool import register_sandbox_get_artifact
-    from core.artifacts.store import get_artifact
-    from core.artifacts.local_reference import is_local_file_ref
+    from core.files.artifacts.store import get_artifact
+    from core.files.artifacts.local_reference import is_local_file_ref
 
     source, scope = local_project
-    from core.llm.tools import _paths
+    from core.sandbox.workspace import resolution as _paths
 
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))
     root.mkdir(parents=True)
     scratch = root / "scratch.txt"
     scratch.write_text("scratch output")
-    from core.services.local_grant_service import add_grant
-    from core.llm.tool_permissions import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
+    from features.desktop.local.grants import add_grant
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     add_grant(str(root))
     ticket_token = CURRENT_PERMISSION_TICKET.set(PermissionTicket(
@@ -249,12 +249,8 @@ def test_scratch_export_references_original(local_project, monkeypatch, tmp_path
 def test_write_delivers_original_project_file(local_project, monkeypatch):
     from core.llm.tools.write_tool import register_write
     from core.llm.tools._state import ReadStateTracker
-    from core.llm.tool_permissions import (
-        CURRENT_PERMISSION_TICKET,
-        PermissionTicket,
-        PermissionIntent,
-    )
-    from core.artifacts.store import get_artifact
+    from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
+    from core.files.artifacts.store import get_artifact
 
     source, scope = local_project
     target = source.parent / "new-report.txt"
@@ -296,7 +292,7 @@ def test_write_delivers_original_project_file(local_project, monkeypatch):
 @pytest.mark.parametrize("logical_alias", [False, True])
 def test_export_rejects_project_symlink_escape(local_project, tmp_path, monkeypatch, logical_alias):
     from core.llm.tools.sandbox_tool import register_sandbox_get_artifact
-    from core.llm.tools import _paths
+    from core.sandbox.workspace import resolution as _paths
 
     source, scope = local_project
     outside = tmp_path / "outside.txt"
@@ -396,9 +392,9 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
 
 @pytest.mark.parametrize("bound_project", [False, True])
 def test_pin_session_file_without_export(local_project, monkeypatch, tmp_path, bound_project):
-    from core.llm.tools import _paths
-    from core.artifacts.store import get_artifact
-    from core.services.local_grant_service import add_grant
+    from core.sandbox.workspace import resolution as _paths
+    from core.files.artifacts.store import get_artifact
+    from features.desktop.local.grants import add_grant
 
     _, scope = local_project
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
@@ -421,8 +417,8 @@ def test_pin_session_file_without_export(local_project, monkeypatch, tmp_path, b
 )
 def test_path_delivery_rejects_invalid_sources(local_project, monkeypatch, tmp_path, case):
     from dataclasses import replace
-    from core.llm.tools import _paths
-    from core.services.local_grant_service import add_grant
+    from core.sandbox.workspace import resolution as _paths
+    from features.desktop.local.grants import add_grant
     from core.config.settings import settings
     import importlib
 
@@ -462,9 +458,9 @@ def test_path_delivery_rejects_invalid_sources(local_project, monkeypatch, tmp_p
 
 
 def test_session_relative_delivery_reports_partial_failure(local_project, monkeypatch, tmp_path):
-    from core.llm.tools import _paths
-    from core.services.local_grant_service import add_grant
-    from core.artifacts.store import get_artifact
+    from core.sandbox.workspace import resolution as _paths
+    from features.desktop.local.grants import add_grant
+    from core.files.artifacts.store import get_artifact
 
     monkeypatch.setattr(_paths, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     root = Path(_paths.workspace_directory("pin-chat"))

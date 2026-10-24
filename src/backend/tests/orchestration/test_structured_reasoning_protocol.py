@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from core.chat.tool_log import build_thinking_event
-from orchestration.streaming import StreamingAgent
+from core.llm.runtime.streaming import StreamingAgent
 
 
 def test_streaming_agent_emits_structured_reasoning_protocol_once():

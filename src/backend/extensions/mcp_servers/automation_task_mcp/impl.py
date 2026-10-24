@@ -69,7 +69,7 @@ def _commit_effect_receipt(
 
 
 def _svc(db):
-    from core.services.automation_service import AutomationService
+    from features.automation.service import AutomationService
 
     return AutomationService(db)
 
@@ -88,7 +88,7 @@ def _resolve_ref(db, user_id: str, ref: str) -> Tuple[Optional[Any], List[Any]]:
 
     返回 (task, candidates)：命中唯一 → (task, [])；多命中 → (None, candidates)；无 → (None, [])。
     """
-    from core.db.models import ScheduledTask
+    from features.automation.models import ScheduledTask
 
     ref = (ref or "").strip()
     if not ref:
@@ -113,8 +113,8 @@ def _resolve_ref(db, user_id: str, ref: str) -> Tuple[Optional[Any], List[Any]]:
 
 
 def _task_brief(task) -> Dict[str, Any]:
-    from core.services.automation_service import AutomationService
-    from core.services.delivery_targets import resolve_delivery_targets, describe_targets
+    from features.automation.service import AutomationService
+    from features.automation.delivery_targets import resolve_delivery_targets, describe_targets
 
     d = AutomationService.task_to_dict(task)
     targets = resolve_delivery_targets(task.extra_data)
@@ -157,7 +157,7 @@ def list_conversations(*, user_id: str) -> Dict[str, Any]:
     if not user_id:
         return {"ok": False, "message": "❌ 无法确定用户身份。"}
     from core.db.engine import SessionLocal
-    from core.services.channel_service import list_owner_conversations
+    from integrations.channels.service import list_owner_conversations
 
     with SessionLocal() as db:
         convs = list_owner_conversations(db, user_id, limit=100)
@@ -179,7 +179,7 @@ def _resolve_create_targets(
 
     deliver_to：空 → 按来源自动；"inapp" → 仅站内；否则当作 conversation_id（须本人拥有的渠道会话）。
     """
-    from core.services.delivery_targets import build_delivery_targets
+    from features.automation.delivery_targets import build_delivery_targets
 
     val = (deliver_to or "").strip()
     if not val:
@@ -231,7 +231,7 @@ def create_task(
         return {"ok": False, "message": f"❌ cron 表达式无效：{cron_expression}"}
 
     from core.db.engine import SessionLocal
-    from core.services.delivery_targets import describe_targets
+    from features.automation.delivery_targets import describe_targets
 
     with SessionLocal() as db:
         try:
@@ -250,7 +250,7 @@ def create_task(
         targets, err = _resolve_create_targets(user_id, deliver_to, channel_origin, db)
         if err:
             return {"ok": False, "message": err}
-        from core.services.automation_execution import execution_metadata
+        from features.automation.execution import execution_metadata
         import pytz
         try:
             pytz.timezone(timezone)
@@ -307,7 +307,7 @@ def list_tasks(*, user_id: str, status: str = "active") -> Dict[str, Any]:
 
 def get_task(*, user_id: str, task_ref: str) -> Dict[str, Any]:
     from core.db.engine import SessionLocal
-    from core.services.automation_service import AutomationService, SUMMARY_LIMIT_BRIEF
+    from features.automation.service import AutomationService, SUMMARY_LIMIT_BRIEF
 
     with SessionLocal() as db:
         task, cands = _resolve_ref(db, user_id, task_ref)

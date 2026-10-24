@@ -1,13 +1,12 @@
 """Chat Run management API — cancel and durable queued input."""
 
-from core.services.session_operations.schemas import SteerChatRunRequest
-
+import core.runs.runtime as runtime
 from core.auth.backend import UserContext, get_current_user
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
-from core.services.chat_steer_service import list_run_steers, remove_pending_steer
+from core.chat.steer import list_run_steers, remove_pending_steer
+from core.chat.operations.schemas import SteerChatRunRequest
 from fastapi import APIRouter, Depends, HTTPException
-from orchestration import chat_run_executor
 
 logger = get_logger(__name__)
 
@@ -20,7 +19,7 @@ async def cancel_chat_run(
     user: UserContext = Depends(get_current_user),
 ):
     """取消正在执行的 chat run，真正杀掉后台任务；run 不存在返回 404，无权操作返回 403。"""
-    from core.services.session_operations.commands import cancel_chat_run as operation
+    from core.chat.operations.commands import cancel_chat_run as operation
 
     return await operation(run_id=run_id, user=user)
 
@@ -32,7 +31,7 @@ async def steer_chat_run(
     user: UserContext = Depends(get_current_user),
 ):
     """Queue one instruction for the live ReAct loop's next safe boundary."""
-    from core.services.session_operations.commands import steer_chat_run as operation
+    from core.chat.operations.commands import steer_chat_run as operation
 
     return await operation(run_id=run_id, body=body, user=user)
 
@@ -42,7 +41,7 @@ async def list_chat_run_steers(
     run_id: str,
     user: UserContext = Depends(get_current_user),
 ):
-    run = chat_run_executor.get_run(run_id)
+    run = runtime.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != user.user_id:
@@ -56,7 +55,7 @@ async def withdraw_chat_run_steer(
     steer_id: str,
     user: UserContext = Depends(get_current_user),
 ):
-    run = chat_run_executor.get_run(run_id)
+    run = runtime.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != user.user_id:
@@ -67,7 +66,7 @@ async def withdraw_chat_run_steer(
 
 @router.get("/{run_id}", summary="获取后台运行状态")
 async def get_chat_run(run_id: str, user: UserContext = Depends(get_current_user)):
-    run = chat_run_executor.get_run(run_id)
+    run = runtime.get_run(run_id)
     if run is None or run.user_id != user.user_id:
         raise HTTPException(404, "Run not found")
     return success_response(

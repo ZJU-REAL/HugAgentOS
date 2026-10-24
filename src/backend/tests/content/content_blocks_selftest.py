@@ -62,7 +62,7 @@ def main() -> int:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         import content as content_route
-        from core.content.content_blocks import build_docs_snapshot, import_docs_snapshot
+        from core.files.content.content_blocks import build_docs_snapshot, import_docs_snapshot
         from core.db.engine import get_db
     except ModuleNotFoundError as exc:
         print(f"content_blocks_selftest: SKIP (missing dependency: {exc})")

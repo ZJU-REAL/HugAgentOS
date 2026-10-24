@@ -36,7 +36,7 @@ def downgrade():
         raise RuntimeError("Set SITE_STORAGE_RESTORE_FILE to the verified retirement archive")
     manifest = json.loads(Path(filename).read_text(encoding="utf-8"))
     payload = manifest["tables"]
-    from core.db.site_storage_retirement import _digest
+    from core.db.site_storage_retirement import digest as _digest
 
     if manifest.get("revision") != "site05retire" or manifest.get("sha256") != _digest(payload):
         raise RuntimeError("Retired storage archive is invalid")

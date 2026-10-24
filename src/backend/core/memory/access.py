@@ -27,10 +27,10 @@ async def authorized_memory_context(memory_id: str, actor: str) -> Optional[Memo
     scope = item.get("user_id") or metadata.get("user_id")
     workspace = str(metadata.get("workspace_id") or "default")
     if workspace.startswith("project:"):
-        from core.auth.permissions_iface import resolve_project_access
+        from core.auth.edition import resolve_project_access
         from core.db.engine import SessionLocal
         from core.db.models import Project
-        from core.services.project_scope import project_memory_policy
+        from core.projects.edition import project_memory_policy
 
         with SessionLocal() as db:
             project = db.query(Project).filter_by(
