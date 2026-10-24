@@ -365,7 +365,7 @@ info "Building the web application"
     VITE_EDITION=ce VITE_DEFAULT_LANGUAGE=en NODE_OPTIONS="${BUILD_NODE_OPTIONS# }" npm run build
 )
 
-HUGAGENT_BIN="${VENV_DIR}/bin/hugagent"
+HUGAGENT_BIN="${VENV_DIR}/bin/hugagent-server"
 [[ -x "${HUGAGENT_BIN}" ]] || die "The HugAgentOS command was not installed correctly."
 
 printf '\n'

@@ -260,6 +260,8 @@ Personal Agent 用一个类型化工具 `pa_hugagent` 管理用户的 HugAgentOS
 
 云端电脑内置轻量 `hugagent` CLI。CLI 管理现有后台。网页端和桌面端的云端模式共用 `cloud`。桌面端的本机模式使用 `device:<id>`。
 
+云端电脑里这个客户端就叫 `hugagent`。在云电脑以外安装同一个客户端（`pip install` 后端源码，或 `scripts/build-hugagent-cli.py` 打出的 wheel）时，命令名是 `hugagent-session`，用法相同。工作站上的 `hugagent` 是终端客户端（`packages/cli`）。本机服务的 `onboard`、`serve`、`doctor`、`engine` 由 `hugagent-server` 提供，会话客户端收到这些命令时只提示改用 `hugagent-server`。
+
 ```bash
 hugagent device list
 hugagent --target cloud chat list

@@ -28,15 +28,19 @@ dev = [
     "import-linter>=2.15,<3",
 ]
 
-# Console entry for the no-Docker local profile: `hugagent` (onboard / serve /
-# doctor). CE and EE share this technical identifier.
+# Console entries. `hugagent-server` runs the no-Docker local profile (onboard /
+# serve / doctor / engine); `hugagent-session` is the lightweight cloud/device
+# session client. The `hugagent` name belongs to the npm terminal client
+# (packages/cli), which forwards server commands to `hugagent-server`. CE and EE
+# share these technical identifiers.
 [project.scripts]
-hugagent = "hugagent_cli.main:main"
+hugagent-server = "cli:main"
+hugagent-session = "hugagent_cli.main:main"
 
 # ── Packaging: src/backend is the import root ────────────────────────────────
 # The project has always run with PYTHONPATH=src/backend (top-level `api`,
 # `core`, `orchestration`, … packages). Declare that so an editable/source
-# install exposes them and the `hugagent` console script resolves `cli:main`.
+# install exposes them and the `hugagent-server` console script resolves `cli:main`.
 [tool.setuptools]
 package-dir = {"" = "src/backend"}
 py-modules = ["cli"]

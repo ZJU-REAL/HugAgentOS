@@ -1,6 +1,7 @@
 """Provider wire formats. Language filtering is deliberately absent."""
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .models import SearchRequest
@@ -8,11 +9,22 @@ from .models import SearchRequest
 BAIDU_SEARCH_URL = "https://qianfan.baidubce.com/v2/ai_search/web_search"
 LANGSEARCH_SEARCH_URL = "https://api.langsearch.com/v1/web-search"
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+DEEPSEEK_SEARCH_URL = "https://api.deepseek.com/v1/tools/search"
 KEY_NAMES = {
     "baidu": "BAIDU_API_KEY",
+    "deepseek": "DEEPSEEK_SEARCH_API_KEY",
     "langsearch": "LANGSEARCH_API_KEY",
     "tavily": "TAVILY_API_KEY",
 }
+# DeepSeek rejects longer queries with HTTP 400; operators count toward the limit.
+DEEPSEEK_QUERY_CHARS = 128
+DEEPSEEK_NEWS_DAYS = 30
+# rerank_score is 0–3 (>= 1.5 is "high quality"); only clearly irrelevant rows are dropped.
+DEEPSEEK_MIN_RERANK_SCORE = 0.5
+
+
+class QueryTooLong(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -39,6 +51,22 @@ def build_request(
             },
         )
     headers["Authorization"] = f"Bearer {config.api_key}"
+    if config.engine == "deepseek":
+        if options.topic == "news":
+            since = datetime.now(timezone.utc).date() - timedelta(days=DEEPSEEK_NEWS_DAYS)
+            query = f"{query} after:{since.isoformat()}"
+        if len(query) > DEEPSEEK_QUERY_CHARS:
+            raise QueryTooLong(f"DeepSeek queries are limited to {DEEPSEEK_QUERY_CHARS} characters")
+        return (
+            DEEPSEEK_SEARCH_URL,
+            headers,
+            {
+                "query": query,
+                # Over-fetch so low-relevance rows can be dropped; merge applies the final limit.
+                "count": options.max_results * 2,
+                "need_content": options.include_raw_content,
+            },
+        )
     if config.engine == "langsearch":
         return (
             LANGSEARCH_SEARCH_URL,
@@ -72,6 +100,23 @@ def normalize_response(engine: str, data: Any) -> dict:
         if data.get("code") != 200:
             raise ValueError("Provider returned an API error")
         rows = data.get("data", {}).get("webPages", {}).get("value")
+    elif engine == "deepseek":
+        rows = data.get("results")
+        if isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
+            rows = [
+                {
+                    "title": row.get("title"),
+                    "url": row.get("url"),
+                    "content": row.get("summary") or row.get("snippet") or "",
+                    "published_date": row.get("date"),
+                    **({"raw_content": row["content"]} if row.get("content") else {}),
+                }
+                for row in rows
+                if not (
+                    isinstance(row.get("rerank_score"), (int, float))
+                    and row["rerank_score"] < DEEPSEEK_MIN_RERANK_SCORE
+                )
+            ]
     else:
         rows = data.get("results")
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):

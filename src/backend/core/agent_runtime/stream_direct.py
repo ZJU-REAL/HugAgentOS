@@ -180,7 +180,12 @@ async def stream_direct(turn: DirectTurn):
                 except json.JSONDecodeError:
                     tool_result_json = {"result": tool_content}
                 if isinstance(payload.get("mcp"), dict):
-                    tool_result_json = payload["mcp"]
+                    tool_result_json = tool_payloads._build_mcp_result_payload(
+                        payload["mcp"],
+                        payload.get("mcp_output_schema"),
+                        tool_content,
+                        tool_result_json,
+                    )
 
                 # Skill load: replace the full SKILL.md text with the same
                 # curated detail used by the capability center; affects

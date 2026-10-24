@@ -125,7 +125,7 @@ After setup, HugAgentOS starts automatically and opens
 Run the installed command whenever you want to start the application again:
 
 ```bash
-~/.hugagent/venv/bin/hugagent
+~/.hugagent/venv/bin/hugagent-server
 ```
 
 You can add the command to your shell path:

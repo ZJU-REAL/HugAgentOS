@@ -1,5 +1,8 @@
 import React from 'react';
 import type { ToolCall } from '../../../types';
+import { unwrapMcpResult } from '../../../utils/mcpResult';
+
+export { unwrapMcpResult };
 
 export const PREVIEW_LEN = 90;
 
@@ -14,8 +17,8 @@ export const preview = (s: string) => s.length > PREVIEW_LEN ? s.slice(0, PREVIE
 
 /** Parse tool output as JSON if possible; return the raw value otherwise. */
 export function coerceOutput(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try { return JSON.parse(raw); } catch { return raw; }
+  if (typeof raw !== 'string') return unwrapMcpResult(raw);
+  try { return unwrapMcpResult(JSON.parse(raw)); } catch { return raw; }
 }
 
 /** True if any tool in the list is still running. */

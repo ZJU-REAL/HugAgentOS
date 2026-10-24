@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from core.chat.schemas import ChatMode
+from core.chat.schemas import USER_MESSAGE_MAX, ChatMode
 
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from pydantic import BaseModel, Field
@@ -73,7 +73,10 @@ class EditAndResendRequest(RerunOptions):
 
     message_index: int = Field(..., description="0-based index of the user message in the chat")
     new_content: str = Field(
-        ..., min_length=1, max_length=10000, description="New content for the user message"
+        ...,
+        min_length=1,
+        max_length=USER_MESSAGE_MAX,
+        description="New content for the user message",
     )
 
 
@@ -97,6 +100,8 @@ from pydantic import field_validator
 
 class SteerChatRunRequest(BaseModel):
     steer_id: str = Field(..., min_length=1, max_length=64, description="前端待发送卡片 ID")
+    # Bounded by chat_steer_queue.message (CHECK length <= 10000, see
+    # core/chat/steer_queue.py); raising it needs a schema migration first.
     message: str = Field(..., min_length=1, max_length=10000, description="追加给当前 run 的指令")
     delivery_mode: Literal["steer", "followUp", "nextRun"] = "steer"
     replace_latest: bool = True

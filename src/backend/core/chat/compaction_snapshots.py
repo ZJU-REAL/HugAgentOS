@@ -10,6 +10,14 @@ import logging
 from core.infra.time import as_utc, utc_now
 logger = logging.getLogger(__name__)
 
+
+def compaction_lease_held(state) -> bool:
+    """Whether another compactor holds the chat's compaction lease right now."""
+    if state is None or not state.lease_owner:
+        return False
+    now = utc_now()
+    return (as_utc(state.lease_expires_at) or now) > now
+
 def ensure_message_sequences(self, chat_id: str) -> None:
     """Repair legacy/direct ORM rows before they enter a source snapshot."""
     from sqlalchemy import func
@@ -123,10 +131,10 @@ def acquire_compaction_snapshot_impl(
 
     self._ensure_message_sequences(chat_id)
     state = self._ensure_compaction_state(chat_id)
-    now = utc_now()
-    if state.lease_owner and (as_utc(state.lease_expires_at) or now) > now:
+    if compaction_lease_held(state):
         self.db.rollback()
         return None
+    now = utc_now()
 
     checkpoint = (
         self.db.get(ChatMessage, state.active_checkpoint_id)

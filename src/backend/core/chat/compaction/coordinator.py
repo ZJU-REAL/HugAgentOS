@@ -39,6 +39,12 @@ class CompactionCoordinator:
         self.chat_id = chat_id
         self.run_id = run_id
         self.owner = f"compactor:{uuid.uuid4().hex}"
+        # Outcome of the last ``compact`` call. ``None`` from ``compact`` means
+        # both "nothing to do" and "failed"; the manual endpoint must tell them
+        # apart. One of: compacted / nothing / busy / failed.
+        self.outcome = ""
+        self.tokens_before: Optional[int] = None
+        self.tokens_after: Optional[int] = None
         if hook_bus is not None:
             self.hook_bus = hook_bus
         elif run_id:
@@ -111,6 +117,8 @@ class CompactionCoordinator:
         the agent may contain messages not yet visible in the DB snapshot.
         """
 
+        self.outcome = "failed"
+        self.tokens_before = self.tokens_after = None
         acquire_task = asyncio.create_task(asyncio.to_thread(self._acquire))
         try:
             snapshot = await asyncio.shield(acquire_task)
@@ -150,6 +158,7 @@ class CompactionCoordinator:
                 return await summary_model.summarize_without_checkpoint(
                     list(in_memory_history), chat_id=self.chat_id, run_id=self.run_id
                 )
+            self.outcome = "busy"
             await report_outcome(self.chat_id, self.run_id, phase.value, "skipped", "busy")
             return None
 
@@ -168,6 +177,7 @@ class CompactionCoordinator:
                 else persisted
             )
             if not history:
+                self.outcome = "nothing"
                 return None
             inputs = dict(budget_inputs or {})
             if self.hook_bus is not None:
@@ -198,7 +208,9 @@ class CompactionCoordinator:
                 measured_tokens = budget.resolve_snapshot_active_tokens(snapshot, inputs, -1)
                 if measured_tokens > 0:
                     active_tokens = measured_tokens
+            self.tokens_before = active_tokens
             if token_limit is not None and not budget.should_compact(active_tokens, token_limit):
+                self.outcome = "nothing"
                 return None
 
             cfg = config_settings.settings.compaction
@@ -213,6 +225,7 @@ class CompactionCoordinator:
                     self.chat_id,
                     len(recent),
                 )
+                self.outcome = "nothing"
                 return None
             progress = await start_progress(self.chat_id, self.run_id, phase.value)
             from core.models.usage import model_usage_scope
@@ -256,6 +269,7 @@ class CompactionCoordinator:
             from core.llm.context.usage import build_compaction_context_usage
 
             manifest["replacement_budget_estimate"] = replacement_estimate
+            self.tokens_after = replacement_estimate["total_estimated_tokens"]
             manifest["replacement_context_usage"] = build_compaction_context_usage(
                 replacement_estimate,
                 context_window=int(inputs.get("context_window") or 0),
@@ -286,6 +300,7 @@ class CompactionCoordinator:
                     )
                 raise cancellation
             published = True
+            self.outcome = "compacted"
         except Exception as exc:  # noqa: BLE001
             from core.harness.hooks import HookPaused
 

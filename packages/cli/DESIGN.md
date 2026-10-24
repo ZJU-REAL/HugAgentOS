@@ -155,7 +155,61 @@ packages/cli/
 - **P2 对标补齐**：`@文件`、`!命令`、图片、`/compact`、`/permissions`、`/fork` `/tree`、`/diff` `/review`、AGENTS.md 层级、`--output rpc`。
 - **P3 生态与运维**：`device:<id>`、`/sessions` `/runs` `/devices`、MCP / 技能命令、主题按键、导出、npm 发布与升级。
 
-## 8. 风险
+## 8. 实现契约（并行开发时各方只认这一节）
+
+### 8.1 本机引擎（Python 侧提供，`LocalEngine` 消费）
+
+- 启动：`hugagent-server engine [--port 0] [--idle-timeout 900] [--ready-file PATH]`；开发态等价于 `python src/backend/cli.py engine …`。数据目录沿用 `HUGAGENT_HOME`（默认 `~/.hugagent`）。
+- 只绑定 127.0.0.1；不开浏览器，不要求前端 dist。
+- 就绪文件：默认 `$HUGAGENT_HOME/engine.json`，权限 0600，原子写入，在服务能处理请求之后才写。内容：
+  ```json
+  {"version":1,"url":"http://127.0.0.1:<port>","token":"sk-jx-…","pid":123,"started_at":"<ISO8601>","home":"<绝对路径>"}
+  ```
+- `token` 是本机管理员的个人 API Key（名称 `hugagent-cli`），可作为 `Authorization: Bearer` 访问 `{url}/v1/*` 下的全部接口。
+- 未初始化（还没有管理员）时：退出码 3，stderr 输出 `{"error":"not_initialized"}`。
+- 空闲退出：`--idle-timeout` 秒内既没有 HTTP 请求、也没有活动 run，就优雅退出并删除就绪文件。
+- `LocalEngine` 的发现顺序：
+  1. 读就绪文件，校验 pid 存活、`GET {url}/health` 返回 200；
+  2. 否则按顺序找命令并以分离进程启动，日志写到 `$HUGAGENT_HOME/logs/engine.log`，最多等 120 秒出现就绪文件：
+     - 环境变量 `HUGAGENT_ENGINE_CMD`（JSON 数组）；
+     - PATH 上的 `hugagent-server`；
+     - 设置了 `HUGAGENT_REPO` 时，用 `[${HUGAGENT_PYTHON:-python3}, "$HUGAGENT_REPO/src/backend/cli.py"]`。
+
+### 8.2 当前目录 → 本地项目（后端提供）
+
+- `POST /v1/projects/local/resolve`，请求体 `{"path":"<绝对路径>","create":true,"name":"<可选>"}`。
+- 返回 `success_response`，data 为 `{"project_id","name","local_path","created":bool}`。
+- 按 realpath 匹配已有的 `kind=local` 项目；不存在且 `create=true` 时按现有本地项目创建流程新建。非本机模式返回 404。
+- AGENTS.md 层级（只影响本地项目的提示词组装），由外到内合并：
+  1. 全局 `$HUGAGENT_HOME/AGENTS.md`；
+  2. 从最近的 git 根目录（找不到时以 `$HOME` 为界）一路往下，直到项目目录，每一级目录里的 `AGENTS.md`。
+  
+  项目根目录那份仍然是唯一可通过 API 编辑的文件。
+
+### 8.3 手动压缩与消息长度（后端提供）
+
+- `POST /v1/chats/{chat_id}/compact`：同步压缩该会话上下文。返回 data `{"compacted":bool,"tokens_before":int|null,"tokens_after":int|null}`；会话有活动 run 时返回 409。
+- `ChatRequest.message` 的上限从 10000 提高到 100000 字符。
+- 插话（`SteerChatRunRequest.message`）保持 10000，不改数据库：它落在 `chat_steer_queue` 表的 CHECK 约束里，要改得同时动 EE 迁移、CE 迁移和本地 SQLite 重建表。插话本来就是简短的中途指令，长内容应该作为普通消息发送。TUI 在插话超长时提示用户改为普通消息。
+- `hugagent_cli/contract.py` 的会话代理上限不变。
+
+### 8.4 CLI 命令行（`packages/cli`）
+
+- `hugagent [prompt]`：交互 TUI。
+- `hugagent -p/--print <prompt>`：非交互；不给 prompt 时读 stdin。
+- 输出格式 `--output text|json|rpc`：
+  - `json`：每个 SSE 事件原样输出为一行 JSON，最后追加一行 `{"type":"cli_result","status":"completed|failed|cancelled","chat_id","run_id"}`；
+  - `rpc`：从 stdin 读 JSON 行命令 `{"id","method","params"}`，回应 `{"id","result"|"error"}`，事件以 `{"event":{…}}` 推送；方法与 Engine 接口一一对应。
+- `--mode local|cloud|device:<id>`；`-c/--continue`；`-r/--resume [chat_id]`；`--model <provider_id>:<model_name>`；`--server <url>`（cloud）。
+- 非交互模式遇到 `file_confirm` 默认拒绝，加 `--auto-approve` 时允许；遇到 `user_question` 一律 skip。
+- 子命令：
+  - `hugagent login [--server URL]` / `logout`：凭据存 `~/.hugagent/cli.json`（0600）；
+  - `hugagent serve|onboard|doctor`：转发给 `hugagent-server`。
+- `--version`、`--help`。
+- 退出码：0 完成，1 失败，2 用法错误，3 需要初始化，130 中断。
+- 交互模式入口固定为 `src/modes/interactive.ts` 的 `runInteractive(options: RunOptions)`。UI 只依赖 `src/engine/engine.ts`。
+
+## 9. 风险
 
 - **Python 引擎冷启动慢**：完整 lifespan 要数秒。先实测；用"接入已运行的后端 + 空闲保活"缓解；engine 子命令只启动 agent 运行需要的步骤。
 - **两套运行时**：只用 cloud 的用户只需要 Node；local 需要 Python 运行时，优先复用桌面端已安装的那份。

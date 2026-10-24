@@ -1,0 +1,30 @@
+{
+  "name": "@hugagent/cli",
+  "version": "0.1.0",
+  "description": "HugAgentOS terminal client: local and cloud agent sessions in a pi-style TUI",
+  "type": "module",
+  "license": "UNLICENSED",
+  "bin": {
+    "hugagent": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@hugagent/chat-sdk": "file:../chat-sdk",
+    "@mariozechner/pi-tui": "0.73.1",
+    "chalk": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~5.9.3"
+  }
+}

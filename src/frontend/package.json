@@ -21,6 +21,7 @@
     "test:history-merge": "esbuild scripts/test-history-merge.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-history-merge.mjs && node node_modules/.tmp/test-history-merge.mjs",
     "test:kb-assets": "node scripts/run-kb-asset-test.mjs",
     "test:citation-highlight": "esbuild scripts/test-citation-highlight.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-citation-highlight.mjs && node node_modules/.tmp/test-citation-highlight.mjs",
+    "test:mcp-tool-output": "esbuild scripts/test-mcp-tool-output.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-mcp-tool-output.mjs && node node_modules/.tmp/test-mcp-tool-output.mjs",
     "test:plugin-ui": "esbuild scripts/test-plugin-ui-pointer.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-plugin-ui-pointer.mjs && node node_modules/.tmp/test-plugin-ui-pointer.mjs",
     "test:ui-regressions": "esbuild scripts/test-ui-regressions.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-ui-regressions.mjs && node node_modules/.tmp/test-ui-regressions.mjs",
     "test:memory-graph": "esbuild scripts/test-memory-graph.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-memory-graph.mjs && node node_modules/.tmp/test-memory-graph.mjs",

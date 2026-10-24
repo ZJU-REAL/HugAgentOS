@@ -323,6 +323,12 @@ class ToolPermissionService:
             if blocked is not None:
                 return {"payload": blocked, "reasons": verdict.reasons}
 
+        import asyncio
+
+        from core.sandbox.permissions.os_gate import capability_skill_roots
+
+        # Globbing the capability store is file I/O; keep it off the event loop.
+        skill_roots = await asyncio.to_thread(capability_skill_roots)
         return {
             "reasons": verdict.reasons,
             "local_command": self._local_command_authorization(
@@ -331,6 +337,7 @@ class ToolPermissionService:
                 grants=grants,
                 policy=policy,
                 one_shot_write_targets=tuple(verdict.write_paths),
+                skill_roots=skill_roots,
             ),
         }
 
@@ -360,6 +367,7 @@ class ToolPermissionService:
         grants: Sequence[Any],
         policy: Any,
         one_shot_write_targets: Sequence[str] = (),
+        skill_roots: Sequence[str] = (),
     ) -> LocalCommandAuthorization:
         """Turn this run's permission configuration into a sandbox scope.
 
@@ -404,6 +412,10 @@ class ToolPermissionService:
                     _admit(root)
 
         from core.sandbox.permissions.os_gate import protected_read_paths
+
+        # Skill scripts live in the protected capability store; only their own
+        # directories are reopened, and only for reading.
+        readable.extend(skill_roots)
 
         return LocalCommandAuthorization(
             command=command,

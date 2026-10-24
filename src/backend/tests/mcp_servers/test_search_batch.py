@@ -87,11 +87,12 @@ def test_query_normalization():
     assert SearchRequest(queries=[" A ", "", "A", "B"]).query_list() == ["A", "B"]
 
 
-@pytest.mark.parametrize("engine", ["baidu", "langsearch", "tavily"])
+@pytest.mark.parametrize("engine", ["baidu", "deepseek", "langsearch", "tavily"])
 def test_provider_contract_and_country(monkeypatch, engine):
     settings = {
         "INTERNET_SEARCH_ENGINE": engine,
         "BAIDU_API_KEY": "test",
+        "DEEPSEEK_SEARCH_API_KEY": "test",
         "LANGSEARCH_API_KEY": "test",
         "TAVILY_API_KEY": "test",
     }
@@ -112,6 +113,18 @@ def test_provider_contract_and_country(monkeypatch, engine):
             }
             if engine == "baidu":
                 payload = {"references": [{**source, "date": "2026-09-20"}]}
+            elif engine == "deepseek":
+                payload = {
+                    "results": [
+                        {
+                            "title": source["title"],
+                            "url": source["url"],
+                            "summary": source["content"],
+                            "date": "2026-09-20T16:00:00Z",
+                            "rerank_score": 2.0,
+                        }
+                    ]
+                }
             elif engine == "langsearch":
                 payload = {
                     "code": 200,
@@ -145,6 +158,101 @@ def test_provider_contract_and_country(monkeypatch, engine):
                 assert calls[-1]["country"] == "china"
                 await service.search(SearchRequest(query="docs", topic="news"))
                 assert "country" not in calls[-1]
+
+    asyncio.run(run())
+
+
+def test_deepseek_request_and_result_mapping(monkeypatch):
+    import json
+    from datetime import date
+
+    monkeypatch.setattr(
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        lambda name: {"INTERNET_SEARCH_ENGINE": "deepseek", "DEEPSEEK_SEARCH_API_KEY": "sk"}.get(
+            name
+        ),
+    )
+
+    async def run():
+        calls = []
+
+        async def handler(request):
+            calls.append((request, json.loads(request.content)))
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "rerank_score": 2.4,
+                            "title": "Relevant",
+                            "url": "https://example.org/a",
+                            "snippet": "short",
+                            "summary": "long model summary",
+                            "content": "full page",
+                            "date": "2026-10-01T16:00:00Z",
+                            "authority": 3,
+                        },
+                        {
+                            "rerank_score": 0.1,
+                            "title": "Noise",
+                            "url": "https://example.org/noise",
+                            "snippet": "noise",
+                        },
+                        {"title": "Unscored", "url": "https://example.org/b", "snippet": "only"},
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            service = SearchService(client)
+            result = await service.search(
+                SearchRequest(query="docs", max_results=3, include_raw_content=True)
+            )
+            request, payload = calls[-1]
+            assert str(request.url) == "https://api.deepseek.com/v1/tools/search"
+            assert request.headers["Authorization"] == "Bearer sk"
+            assert payload == {"query": "docs", "count": 6, "need_content": True}
+            assert [r["url"] for r in result["results"]] == [
+                "https://example.org/a",
+                "https://example.org/b",
+            ]
+            first = result["results"][0]
+            assert first["content"] == "long model summary"
+            assert first["raw_content"] == "full page"
+            assert first["published_date"] == "2026-10-01T16:00:00Z"
+            assert result["results"][1]["content"] == "only"
+
+            await service.search(SearchRequest(query="fed rate", topic="news"))
+            news_query = calls[-1][1]["query"]
+            assert news_query.startswith("fed rate after:")
+            assert date.fromisoformat(news_query.rsplit(":", 1)[1]) < date.today()
+            assert calls[-1][1]["need_content"] is False
+
+            sent = len(calls)
+            too_long = await service.search(SearchRequest(query="x" * 129))
+            assert len(calls) == sent
+            assert too_long["status"] == "error"
+            assert too_long["query_statuses"][0]["error_code"] == "query_too_long"
+
+    asyncio.run(run())
+
+
+def test_deepseek_rejects_malformed_results(monkeypatch):
+    monkeypatch.setattr(
+        "extensions.mcp_servers.internet_search_mcp.impl.get_runtime_value",
+        lambda name: {"INTERNET_SEARCH_ENGINE": "deepseek", "DEEPSEEK_SEARCH_API_KEY": "sk"}.get(
+            name
+        ),
+    )
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"results": ["not a row"]})
+            )
+        ) as client:
+            result = await SearchService(client).search(SearchRequest(query="a"))
+        assert result["query_statuses"][0]["error_code"] == "invalid_response"
 
     asyncio.run(run())
 

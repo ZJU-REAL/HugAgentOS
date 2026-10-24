@@ -1,5 +1,6 @@
 import type { CitationItem, ToolCall, ChatMessage } from '../types';
 import { t } from '../i18n';
+import { unwrapMcpResult } from './mcpResult';
 
 /**
  * 引用标记的唯一真源正则（三种形态并行识别）：
@@ -50,8 +51,8 @@ function normalizeMaybeId(value: unknown): string | undefined {
 }
 
 function coerceToolOutput(raw: unknown): unknown {
-  if (typeof raw !== 'string') return raw;
-  try { return JSON.parse(raw); } catch { return raw; }
+  if (typeof raw !== 'string') return unwrapMcpResult(raw);
+  try { return unwrapMcpResult(JSON.parse(raw)); } catch { return raw; }
 }
 
 function getFallbackCitationOutput(citation: CitationItem): { toolName: string; output: unknown } {

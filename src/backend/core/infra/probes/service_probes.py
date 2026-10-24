@@ -163,6 +163,41 @@ async def test_langsearch(api_key: str) -> dict:
         return {"success": False, "latency_ms": latency, "error": str(exc)}
 
 
+DEEPSEEK_SEARCH_API_URL = "https://api.deepseek.com/v1/tools/search"
+
+
+async def test_deepseek_search(api_key: str) -> dict:
+    """Test a DeepSeek API key with a minimal Search request."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                DEEPSEEK_SEARCH_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": "test", "count": 1},
+            )
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code != 200:
+            return {
+                "success": False,
+                "latency_ms": latency,
+                "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+            }
+        if isinstance(resp.json().get("results"), list):
+            return {"success": True, "latency_ms": latency, "error": None}
+        return {
+            "success": False,
+            "latency_ms": latency,
+            "error": "DeepSeek Search 响应缺少 results 数组",
+        }
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
 async def test_service_group(group_key: str) -> dict:
     """Run one connectivity test for a group (reading the current SystemConfigService config).
 
@@ -213,6 +248,11 @@ async def test_service_group(group_key: str) -> dict:
             if not api_key:
                 return {"success": False, "error": "LangSearch API Key 未配置", "latency_ms": 0}
             return await test_langsearch(api_key)
+        if engine == "deepseek":
+            api_key = svc.get("internet_search.deepseek_api_key")
+            if not api_key:
+                return {"success": False, "error": "DeepSeek Search API Key 未配置", "latency_ms": 0}
+            return await test_deepseek_search(api_key)
         if engine == "tavily":
             api_key = svc.get("internet_search.tavily_api_key")
             if not api_key:

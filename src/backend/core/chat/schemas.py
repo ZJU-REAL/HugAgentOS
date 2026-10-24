@@ -2,10 +2,15 @@
 
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
+from core.chat.limits import CONTENT_MAX
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 ChatMode = Literal["turbo", "fast", "low", "medium", "high", "xhigh", "max"]
+
+# A user message is stored verbatim in chat_messages.content, whose CHECK
+# constraint is CONTENT_MAX characters; accepting more would be clamped on write.
+USER_MESSAGE_MAX = CONTENT_MAX
 
 
 class AttachmentItem(BaseModel):
@@ -73,7 +78,9 @@ class ChatRequest(BaseModel):
     _resolved_plugin_mcp_ids: List[str] = PrivateAttr(default_factory=list)
 
     chat_id: str = Field(..., description="会话ID，用于维持对话上下文", max_length=100)
-    message: str = Field(..., description="用户消息内容", min_length=1, max_length=10000)
+    message: str = Field(
+        ..., description="用户消息内容", min_length=1, max_length=USER_MESSAGE_MAX
+    )
     stream: bool = Field(False, strict=True, description="true 返回 SSE 事件流；false 一次返回完整 JSON 回复")
     model_name: Optional[str] = Field(
         DEFAULT_CHAT_MODEL_ALIAS, description="使用的模型名称（qwen/deepseek）", max_length=50

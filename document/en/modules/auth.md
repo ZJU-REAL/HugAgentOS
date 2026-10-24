@@ -64,7 +64,7 @@ ontology validation.
   `users_shadow.metadata`. Refreshing or signing in again doesn't repeat a
   completed setup flow.
 
-The terminal-based `hugagent onboard` command already configures the account
+The terminal-based `hugagent-server onboard` command already configures the account
 and model. After it finishes successfully, it writes the same completion
 marker so the browser doesn't repeat the setup.
 

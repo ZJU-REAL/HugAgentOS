@@ -166,6 +166,9 @@ async def map_event(
                 "content": content,
                 "status": state,
                 "mcp": (result_step["blocks"][0].get("metadata") or {}).get("mcp"),
+                "mcp_output_schema": (result_step["blocks"][0].get("metadata") or {}).get(
+                    "output_schema"
+                ),
             },
         )
         return

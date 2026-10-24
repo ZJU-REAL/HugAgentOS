@@ -77,6 +77,8 @@ export function extractArtifactOutputs(raw: unknown): Record<string, unknown>[] 
     if (Array.isArray(record.artifacts)) visit(record.artifacts, origin);
     if (Array.isArray(record.files)) visit(record.files, origin);
     if (record.result && record.result !== candidate) visit(record.result, origin);
+    // MCP CallToolResult envelope (history stored 2026-10-22 onward): the tool's value lives here.
+    if (record.structuredContent && record.structuredContent !== candidate) visit(record.structuredContent, origin);
   };
 
   visit(raw);

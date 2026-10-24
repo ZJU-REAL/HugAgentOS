@@ -11,7 +11,8 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?Set a random S3_SECRET_KEY}
     volumes:
       - object_storage_data:/data
-    networks: [hugagent-network]
+    # Personal Agent object mounts run s3fs in a helper on the compute network.
+    networks: [hugagent-network, personal-agent-compute]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/minio/health/live', timeout=5).read()"]
       interval: 10s
@@ -42,5 +43,8 @@ services:
   mcp:
     depends_on:
       object-storage-init: {condition: service_completed_successfully}
+networks:
+  personal-agent-compute:
+    name: ${COMPOSE_PROJECT_NAME:-hugagent}_personal-agent-compute
 volumes:
   object_storage_data:

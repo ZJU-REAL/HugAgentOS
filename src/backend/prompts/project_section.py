@@ -7,6 +7,8 @@ these names for backward compatibility.
 """
 
 from __future__ import annotations
+
+import os
 from core.llm import prompt_versions as prompt_versions_module
 
 from prompts.prompt_runtime import _load_db_prompt_parts  # noqa: E402 (cycle-safe)
@@ -144,6 +146,7 @@ def _build_local_project_section(
     project_instructions: str,
     local_path: str,
     local_slug: str,
+    inherited_instructions=(),
 ) -> str:
     """Build the desktop **local-mode** project section (ticket #05).
 
@@ -152,10 +155,20 @@ def _build_local_project_section(
     it directly — no upload — but must respect the authorization + confirmation
     boundary enforced by the execution policy gate (ticket #07). Only injected
     when ``project_is_local`` is set, so the cloud/web deployment never sees it.
+
+    ``inherited_instructions`` are outer ``(path, text)`` AGENTS.md files, outermost
+    first; when present every file, the project root last, is labelled with its path.
     """
     from prompts.desktop_templates import render_desktop_part
     variables = dict(project_name=(project_name or "").strip(), local_path=(local_path or "").strip())
     section = render_desktop_part("project" if variables["local_path"] else "project_missing", **variables)
-    if project_instructions.strip():
-        section += "\n\n" + render_desktop_part("project_instructions", instructions=project_instructions.strip())
+    instructions = project_instructions.strip()
+    blocks = [f"#### `{path}`\n{text.strip()}" for path, text in inherited_instructions or () if text.strip()]
+    if blocks and instructions:
+        root = os.path.join(variables["local_path"], "AGENTS.md")
+        blocks.append(f"#### `{root}`\n{instructions}")
+    if blocks:
+        instructions = "\n\n".join(blocks)
+    if instructions:
+        section += "\n\n" + render_desktop_part("project_instructions", instructions=instructions)
     return _collapse_blanks(section)

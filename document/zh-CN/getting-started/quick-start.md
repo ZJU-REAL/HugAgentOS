@@ -116,7 +116,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 以后需要启动应用时，运行已安装的命令：
 
 ```bash
-~/.hugagent/venv/bin/hugagent
+~/.hugagent/venv/bin/hugagent-server
 ```
 
 也可以把命令加入 Shell 的 `PATH`：

@@ -13,7 +13,9 @@ def install(server):
         """One confinement/resource boundary for one-shot and managed commands."""
         nproc_limit = server._subprocess_nproc_limit(cmd)
         env = dict(server.SAFE_ENV)
-        env.update(server._workspace_rules().subprocess_environment(cwd))
+        # Off the event loop: the first command in a user's folder reads their
+        # login-shell environment, which can take seconds.
+        env.update(await asyncio.to_thread(server._workspace_rules().subprocess_environment, cwd))
         spawn_plan = None
         if sandbox_launch is not None:
             cmd = [*sandbox_launch.argv_prefix, *cmd]

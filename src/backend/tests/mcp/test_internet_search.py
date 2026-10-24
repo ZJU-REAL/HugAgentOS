@@ -79,6 +79,38 @@ def test_langsearch_connectivity_check_rejects_api_error(monkeypatch) -> None:
     assert "invalid key" in result["error"]
 
 
+def test_deepseek_connectivity_check_validates_api_payload(monkeypatch) -> None:
+    _FakeAsyncClient.calls = []
+    _FakeAsyncClient.response = _FakeResponse({"results": []})
+    monkeypatch.setattr(service_probes.httpx, "AsyncClient", _FakeAsyncClient)
+
+    result = asyncio.run(service_probes.test_deepseek_search("test-key"))
+
+    assert result["success"] is True
+    assert result["error"] is None
+    assert _FakeAsyncClient.calls[0] == {
+        "url": service_probes.DEEPSEEK_SEARCH_API_URL,
+        "headers": {
+            "Authorization": "Bearer test-key",
+            "Content-Type": "application/json",
+        },
+        "json": {"query": "test", "count": 1},
+    }
+
+
+def test_deepseek_connectivity_check_rejects_http_error(monkeypatch) -> None:
+    _FakeAsyncClient.calls = []
+    _FakeAsyncClient.response = _FakeResponse(
+        {"error": {"message": "Authentication Fails"}}, status_code=401
+    )
+    monkeypatch.setattr(service_probes.httpx, "AsyncClient", _FakeAsyncClient)
+
+    result = asyncio.run(service_probes.test_deepseek_search("bad-key"))
+
+    assert result["success"] is False
+    assert result["error"].startswith("HTTP 401")
+
+
 def test_service_group_uses_only_selected_engine_key(monkeypatch) -> None:
     class _FakeConfigService:
         values = {
@@ -119,4 +151,14 @@ def test_langsearch_has_an_independent_system_config_key() -> None:
     )
     assert config_keys.get_config_key_for_env("TAVILY_API_KEY") == (
         "internet_search.tavily_api_key"
+    )
+
+
+def test_deepseek_has_an_independent_system_config_key() -> None:
+    seed_keys = {item[0] for item in system_config_constants.SEED_CONFIGS}
+
+    assert "internet_search.deepseek_api_key" in seed_keys
+    assert (
+        config_keys.get_config_key_for_env("DEEPSEEK_SEARCH_API_KEY")
+        == "internet_search.deepseek_api_key"
     )

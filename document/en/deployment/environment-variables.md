@@ -184,10 +184,11 @@ the database has no value.
 | `MCP_HOST` | `mcp` (compose default) | MCP container hostname; set `127.0.0.1` for local debugging | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | Remote MCP marketplace snapshot revalidation interval in seconds (minimum `300`) | CE |
 | `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | Allow users to add MCP endpoints on loopback, RFC1918, or IPv6 ULA addresses; enable only in trusted private deployments. Cloud-metadata/link-local ranges stay blocked, and users cannot submit private endpoints to the marketplace | CE |
-| `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` | CE |
+| `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` / `deepseek` | CE |
 | `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
 | `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |
 | `LANGSEARCH_API_KEY` | (empty) | LangSearch Web Search API key; required when LangSearch is selected | CE |
+| `DEEPSEEK_SEARCH_API_KEY` | (empty) | DeepSeek platform API key used for the Search API; required when DeepSeek is selected | CE |
 | `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | (empty) | Tavily country ranking preference (general only; omitted when unset) / automatic parameters | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | HTTP backend for the data-warehouse query tool | EE (industry tool) |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | (empty) | Data-warehouse call parameters | EE |

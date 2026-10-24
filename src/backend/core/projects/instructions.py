@@ -98,12 +98,9 @@ class ProjectInstructionsService:
             if project.kind == "local":
                 target = self._local_file(project)
                 if target.exists():
-                    # O_NOFOLLOW prevents a symlink swapped in after the path check.
-                    fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-                    with os.fdopen(fd, "rb") as stream:
-                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                            raise HTTPException(409, "AGENTS.md 必须是普通文件")
-                        data = stream.read(MAX_INSTRUCTIONS_BYTES + 1)
+                    data = _read_regular_file(target)
+                    if data is None:
+                        raise HTTPException(409, "AGENTS.md 必须是普通文件")
             else:
                 from core.files.spaces.projects import source_key
                 storage = get_storage()
@@ -241,3 +238,78 @@ def read_authorized_project_instructions(project_id: str, user_id: str) -> dict:
         if project is None or resolve_project_permission(db, user_id, project) not in ("admin", "edit", "view"):
             raise HTTPException(403, "项目不存在或无权读取项目指令")
         return ProjectInstructionsService(db).read(project)
+
+
+def _read_regular_file(target: Path) -> bytes | None:
+    """Up to the size limit plus one byte of a regular file; ``None`` for anything else.
+
+    O_NOFOLLOW refuses a symlink swapped in after the path check.
+    """
+    fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            return None
+        return stream.read(MAX_INSTRUCTIONS_BYTES + 1)
+
+
+def _read_inherited_file(target: Path) -> str | None:
+    """Best-effort read of one outer AGENTS.md; anything invalid is skipped."""
+    try:
+        data = _read_regular_file(target)
+        text = _decode(data) if data is not None else ""
+    except (OSError, HTTPException):
+        return None
+    return text if text.strip() else None
+
+
+def _ancestor_directories(root: Path) -> list[Path]:
+    """Directories strictly above ``root`` down from the nearest git root, else ``$HOME``."""
+    home = Path.home().resolve()
+    for directory in (root, *root.parents):
+        if (directory / ".git").exists():
+            bound = directory
+            break
+        if directory == home:
+            bound = home  # never search above $HOME
+            break
+    else:
+        # Outside $HOME without a git root: only the project folder itself.
+        bound = root
+    chain = [directory for directory in root.parents if directory == bound or bound in directory.parents]
+    return list(reversed(chain))
+
+
+def inherited_local_instructions(local_path: str) -> list[tuple[str, str]]:
+    """Outer AGENTS.md files for a local project, outermost first.
+
+    Global ``$HUGAGENT_HOME/AGENTS.md``, then each directory from the nearest git
+    root (bounded by ``$HOME``) down to, but excluding, the project folder, whose
+    own file stays owned by ``ProjectInstructionsService``. Read-only prompt input.
+    """
+    from core.config.runtime_env import local_data_dir
+
+    raw = (local_path or "").strip()
+    if not raw or not os.path.isabs(raw):
+        return []
+    try:
+        root = Path(raw).expanduser().resolve()
+        if not root.is_dir():
+            return []
+        candidates = [local_data_dir().expanduser() / AGENTS_FILENAME]
+        candidates += [directory / AGENTS_FILENAME for directory in _ancestor_directories(root)]
+    except OSError:
+        return []
+    out: list[tuple[str, str]] = []
+    seen = {str(root / AGENTS_FILENAME)}
+    for target in candidates:
+        try:
+            key = str(target.parent.resolve() / target.name)
+        except OSError:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        text = _read_inherited_file(target)
+        if text is not None:
+            out.append((str(target), text))
+    return out

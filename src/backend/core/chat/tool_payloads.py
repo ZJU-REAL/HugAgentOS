@@ -8,6 +8,7 @@ have no orchestration logic, only formatting.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 from core.capabilities.catalog.details import get_skill_curated_detail
@@ -27,6 +28,53 @@ def _truncate_preview(text: str) -> str:
     if len(snippet) > _FILE_PREVIEW_MAX_CHARS:
         snippet = snippet[:_FILE_PREVIEW_MAX_CHARS].rstrip() + "…"
     return snippet
+
+
+def _sdk_wrapped_output(output_schema: Any) -> bool:
+    """Whether the MCP SDK wrapped a non-object return as ``{"result": ...}``.
+
+    The official SDK names that model ``<tool>Output`` with a single required
+    ``result``; FastMCP marks it with ``x-fastmcp-wrap-result``.
+    """
+    if not isinstance(output_schema, dict):
+        return False
+    if output_schema.get("x-fastmcp-wrap-result") is True:
+        return True
+    properties = output_schema.get("properties")
+    return (
+        isinstance(properties, dict)
+        and set(properties) == {"result"}
+        and output_schema.get("required") == ["result"]
+        and str(output_schema.get("title") or "").endswith("Output")
+    )
+
+
+def _build_mcp_result_payload(
+    mcp_result: Dict[str, Any], output_schema: Any, tool_content: Any, parsed_content: Any
+) -> Any:
+    """The MCP tool's own value for the card, never the CallToolResult envelope.
+
+    Cards have always rendered the model-facing text: it carries the ``cite_id``
+    anchors and the tool's own shape. ``structuredContent`` only stands in when
+    that text is not JSON (e.g. truncated), minus the SDK's ``{"result": ...}``
+    wrapper so the shape still matches. A wrapped string stays wrapped, as the
+    text path would return it.
+    """
+    structured = mcp_result.get("structuredContent")
+    if structured is None:
+        return parsed_content
+    try:
+        json.loads(tool_content)
+        return parsed_content
+    except (TypeError, ValueError):
+        pass
+    if (
+        _sdk_wrapped_output(output_schema)
+        and isinstance(structured, dict)
+        and isinstance(structured.get("result"), (dict, list))
+    ):
+        return structured["result"]
+    return structured
 
 
 def _build_view_text_file_payload(tool_args: Any, tool_content: Any) -> Dict[str, Any]:

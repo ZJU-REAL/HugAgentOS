@@ -1,12 +1,16 @@
-"""HugAgentOS no-Docker local CLI (``hugagent`` console entry).
+"""HugAgentOS no-Docker local server CLI (``hugagent-server`` console entry).
 
 hermes-agent-style quick install: one process, SQLite, in-process event log
 and ephemeral state, subprocess MCP + sandbox — zero Docker / Postgres / Redis.
 
-    hugagent            # not initialized → onboard; else serve + open browser
-    hugagent onboard    # first-run wizard (admin account → model → serve); re-runnable
-    hugagent serve      # start the server
-    hugagent doctor     # environment self-check
+    hugagent-server            # not initialized → onboard; else serve + open browser
+    hugagent-server onboard    # first-run wizard (admin account → model → serve); re-runnable
+    hugagent-server serve      # start the server
+    hugagent-server doctor     # environment self-check
+    hugagent-server engine     # headless loopback engine for the `hugagent` terminal client
+
+The ``hugagent`` command itself belongs to the terminal client (npm package
+``packages/cli``), which forwards ``serve`` / ``onboard`` / ``doctor`` here.
 
 Data lives under ``~/.hugagent/`` (override with ``HUGAGENT_HOME``):
 ``data.db`` (SQLite), ``storage/``, ``workspace/`` (sandbox), ``logs/``, ``config.env``.
@@ -19,6 +23,8 @@ time), so every heavy import is done lazily inside the command functions.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import os
 import socket
 import sys
@@ -157,7 +163,7 @@ def apply_local_env(port: int) -> dict:
         # A local/desktop install is expected to be useful immediately after a
         # zero-state boot.  Keep the three credential-free first-party plugins
         # as the local-profile default even when the caller is plain
-        # ``hugagent serve`` rather than one of the installer wrappers.
+        # ``hugagent-server serve`` rather than one of the installer wrappers.
         "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS": "1",
         "STORAGE_TYPE": "local",
         "STORAGE_PATH": str(dd / "storage"),
@@ -482,14 +488,15 @@ def configure_file_parser(
         updated_by="onboard",
     )
 
-# ── Internet search (Tavily / Baidu / LangSearch key) ────────────────────────
+# ── Internet search (Tavily / Baidu / LangSearch / DeepSeek key) ─────────────
 
 def configure_search_engine(engine: str, api_key: str) -> None:
     """Write the internet-search engine + key into system_configs.
 
     Same path as file parser: the DB is the single source of truth (env
-    TAVILY_API_KEY/BAIDU_API_KEY/LANGSEARCH_API_KEY only as fallback); after
-    writing, the MCP subprocess picks up the new key via runtime_env. It can
+    TAVILY_API_KEY/BAIDU_API_KEY/LANGSEARCH_API_KEY/DEEPSEEK_SEARCH_API_KEY only
+    as fallback); after writing, the MCP subprocess picks up the new key via
+    runtime_env. It can
     also be changed later in the Web UI under Settings -> System Management.
     """
     from core.config.store.system_config import SystemConfigService
@@ -500,6 +507,7 @@ def configure_search_engine(engine: str, api_key: str) -> None:
         "tavily": "tavily_api_key",
         "baidu": "baidu_api_key",
         "langsearch": "langsearch_api_key",
+        "deepseek": "deepseek_api_key",
     }
     if engine not in key_fields:
         raise ValueError(f"不支持的互联网搜索引擎: {engine}")
@@ -669,7 +677,7 @@ def cmd_onboard(args) -> int:
     except Exception as exc:
         print(f"✗ 模型配置失败：{exc}", file=sys.stderr)
         if not args.model_base_url:  # interactive: let them retry later
-            print("  可稍后运行 `hugagent onboard` 重配。")
+            print("  可稍后运行 `hugagent-server onboard` 重配。")
         return 1
 
     # Step 2b (optional) — index/embedding model. Enables the self-built vector
@@ -735,14 +743,14 @@ def cmd_onboard(args) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"! 文件解析配置失败：{exc}", file=sys.stderr)
 
-    # Step 5 — internet search (Tavily / Baidu / LangSearch key). Optional.
+    # Step 5 — internet search (Tavily / Baidu / LangSearch / DeepSeek key). Optional.
     search_key = args.search_api_key
     search_engine = (args.search_engine or "tavily").strip().lower()
     if search_key is None and interactive:
         print("\n[可选] 配置互联网搜索（智能体联网检索用；直接回车跳过）")
-        print("  支持 tavily（默认）/ baidu（千帆 AppBuilder）/ langsearch。")
-        eng = _prompt("  搜索引擎 (tavily/baidu/langsearch)", "tavily").strip().lower()
-        search_engine = eng if eng in ("tavily", "baidu", "langsearch") else "tavily"
+        print("  支持 tavily（默认）/ baidu（千帆 AppBuilder）/ langsearch / deepseek。")
+        eng = _prompt("  搜索引擎 (tavily/baidu/langsearch/deepseek)", "tavily").strip().lower()
+        search_engine = eng if eng in ("tavily", "baidu", "langsearch", "deepseek") else "tavily"
         search_key = _prompt("  API Key（留空跳过）", "")
     if search_key:
         try:
@@ -756,7 +764,7 @@ def cmd_onboard(args) -> int:
 
     print("\n✓ 初始化完成。", end=" ")
     if args.no_serve:
-        print("运行 `hugagent` 启动服务。")
+        print("运行 `hugagent-server` 启动服务。")
         return 0
     print("正在启动服务…\n")
     return cmd_serve(args)
@@ -819,6 +827,369 @@ def cmd_serve(args) -> int:
     # uvicorn 自带的那条是同一次请求的第二份记录，关掉避免日志翻倍。
     uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
     return 0
+
+# ── Engine (headless loopback backend for the `hugagent` terminal client) ────
+#
+# Contract: packages/cli/DESIGN.md §8.1. The terminal client finds a running
+# engine through the ready file and talks to it over plain HTTP + SSE with a
+# personal API key, exactly like a remote server.
+
+ENGINE_KEY_NAME = "hugagent-cli"
+ENGINE_READY_VERSION = 1
+EXIT_NOT_INITIALIZED = 3
+# How long a second `engine` waits for the one already starting (the client
+# itself gives up after 120 s), and how long startup may take to become ready.
+_ENGINE_WAIT_SECONDS = 120.0
+_ENGINE_READY_TIMEOUT_SECONDS = 300.0
+
+def _engine_error(code: str, **extra) -> None:
+    print(json.dumps({"error": code, **extra}, ensure_ascii=False), file=sys.stderr)
+
+def _process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        # os.kill(pid, 0) is not a probe on Windows: signal 0 is CTRL_C_EVENT.
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and (
+                code.value == 259  # STILL_ACTIVE
+            )
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+def _loopback_get(url: str, token: str = "", timeout: float = 2.0) -> int:
+    """Status code of a GET to a loopback URL (0 when unreachable), never via a proxy."""
+    from urllib.error import HTTPError
+    from urllib.request import ProxyHandler, Request, build_opener
+
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with build_opener(ProxyHandler({})).open(Request(url, headers=headers), timeout=timeout) as r:
+            return r.status
+    except HTTPError as exc:
+        return exc.code
+    except (OSError, ValueError):
+        return 0
+
+def _read_live_engine(ready_file: Path, home: Path) -> Optional[dict]:
+    """The ready file's contents when it describes a live engine for ``home``."""
+    try:
+        info = json.loads(ready_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(info, dict) or info.get("version") != ENGINE_READY_VERSION:
+        return None
+    url, pid = info.get("url"), info.get("pid")
+    if (
+        not isinstance(url, str)
+        or not url.startswith("http://127.0.0.1:")
+        or not isinstance(pid, int)
+        or info.get("home") != str(home)
+        or not _process_alive(pid)
+    ):
+        return None
+    return info if _loopback_get(url + "/health") == 200 else None
+
+def _write_ready_file(path: Path, payload: dict) -> None:
+    """Atomically publish ``payload`` as a 0600 JSON file (it holds a credential)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
+
+def _remove_ready_file(path: Path) -> None:
+    """Delete the ready file, but only while it still describes this process."""
+    try:
+        if json.loads(path.read_text(encoding="utf-8")).get("pid") != os.getpid():
+            return
+        path.unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
+
+def _try_engine_lock(path: Path):
+    """Hold ``path`` exclusively until the returned stack closes; ``None`` when taken."""
+    from core.infra.file_lock import LockTimeout, locked
+
+    stack = contextlib.ExitStack()
+    try:
+        stack.enter_context(locked(path, timeout=0))
+    except LockTimeout:
+        return None
+    return stack
+
+def _engine_admin_user_id() -> Optional[str]:
+    """The active local super_admin the engine acts as (oldest first)."""
+    from core.db.engine import SessionLocal
+    from core.db.models import LocalUser, UserShadow
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(UserShadow)
+            .join(LocalUser, LocalUser.user_id == UserShadow.user_id)
+            .filter(LocalUser.status == "active")
+            .order_by(LocalUser.created_at)
+            .all()
+        )
+        for row in rows:
+            if (row.extra_data or {}).get("role") == "super_admin":
+                return str(row.user_id)
+        return None
+    finally:
+        db.close()
+
+def issue_engine_token(user_id: str) -> str:
+    """Mint this start's ``hugagent-cli`` personal key and revoke the earlier ones.
+
+    Personal keys only authenticate when the owner may use API keys, and the
+    local admin has no such flag until something grants it. Grant it when it
+    was never set; an explicit ``False`` is the owner's choice and is refused.
+    Call it after importing ``api.app``: revoking a key cancels the runs it
+    started, which needs the run services the app composes.
+    """
+    from core.auth.api_keys import ApiKeyService
+    from core.auth.users import UserService
+    from core.db.engine import SessionLocal
+    from core.db.models import UserShadow
+
+    db = SessionLocal()
+    try:
+        shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).one()
+        allowed = (shadow.extra_data or {}).get("can_use_api_key")
+        if allowed is False:
+            raise PermissionError("api_key_disabled")
+        if allowed is not True:
+            UserService(db).update_user_metadata(user_id, {"can_use_api_key": True})
+        service = ApiKeyService(db)
+        for key in service.list_keys(user_id):
+            if key.name == ENGINE_KEY_NAME:
+                service.revoke_key(user_id, key.id)
+        _row, raw = service.create_key(user_id, ENGINE_KEY_NAME)
+        return raw
+    finally:
+        db.close()
+
+class _ActivityTracker:
+    """ASGI wrapper recording when the last HTTP/WebSocket request ended.
+
+    A request in flight (an open SSE stream included) counts as activity for
+    as long as it lasts. ``on_shutdown`` runs when lifespan shutdown begins:
+    uvicorn re-raises SIGTERM once it has shut down, so code after
+    ``server.run`` never sees that path.
+    """
+
+    def __init__(self, app, on_shutdown=None) -> None:
+        self.app = app
+        self.on_shutdown = on_shutdown
+        self.in_flight = 0
+        self.last_activity = time.monotonic()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan" and self.on_shutdown is not None:
+            async def watched_receive():
+                message = await receive()
+                if message.get("type") == "lifespan.shutdown":
+                    self.on_shutdown()
+                return message
+
+            return await self.app(scope, watched_receive, send)
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        self.in_flight += 1
+        self.last_activity = time.monotonic()
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            self.in_flight -= 1
+            self.last_activity = time.monotonic()
+
+    def idle_for(self) -> float:
+        return 0.0 if self.in_flight else time.monotonic() - self.last_activity
+
+def _wait_for_other_engine(ready_file: Path, home: Path, lock_path: Path):
+    """Another engine holds the lock: wait for its ready file or for the lock."""
+    deadline = time.monotonic() + _ENGINE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        live = _read_live_engine(ready_file, home)
+        if live:
+            return live, None
+        lock = _try_engine_lock(lock_path)
+        if lock is not None:
+            return None, lock
+        time.sleep(0.5)
+    return None, None
+
+def _engine_monitor(server, tracker, *, ready_file: Path, payload: dict,
+                    idle_timeout: float, stopped: threading.Event, outcome: dict) -> None:
+    """Publish the ready file once the engine serves, then exit it when idle."""
+    deadline = time.monotonic() + _ENGINE_READY_TIMEOUT_SECONDS
+    while not server.started:
+        if stopped.is_set():
+            return
+        if time.monotonic() > deadline:
+            outcome["error"] = "startup_timeout"
+            server.should_exit = True
+            return
+        time.sleep(0.1)
+    # An authenticated route proves both that the engine serves and that the
+    # ready file never advertises a credential the engine would refuse.
+    url = payload["url"]
+    status = _loopback_get(url + "/v1/chats?page=1&page_size=1", payload["token"], 30)
+    if status != 200:
+        outcome["error"] = f"token_check_failed:{status}"
+        server.should_exit = True
+        return
+    _write_ready_file(ready_file, payload)
+    tracker.last_activity = time.monotonic()
+    _status(f"HugAgentOS engine ready at {url} (pid {os.getpid()}, ready file {ready_file})")
+    if idle_timeout <= 0:
+        return
+    from core.runs.runtime import has_local_runs
+
+    while not stopped.wait(min(5.0, max(0.5, idle_timeout / 4))):
+        if tracker.idle_for() >= idle_timeout and not has_local_runs():
+            _status(f"HugAgentOS engine idle for {int(idle_timeout)}s, shutting down")
+            # Withdraw the file first so no client picks a stopping engine.
+            _remove_ready_file(ready_file)
+            server.should_exit = True
+            return
+
+def cmd_engine(args) -> int:
+    from datetime import datetime, timezone
+
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    home = data_dir().resolve()
+    ready_file = (
+        Path(args.ready_file).expanduser().resolve() if args.ready_file else home / "engine.json"
+    )
+    live = _read_live_engine(ready_file, home)
+    if live:
+        print(json.dumps(live, ensure_ascii=False))
+        return 0
+    if not _is_initialized():
+        _engine_error("not_initialized")
+        return EXIT_NOT_INITIALIZED
+
+    lock_path = home / "engine.lock"
+    lock = _try_engine_lock(lock_path)
+    if lock is None:
+        live, lock = _wait_for_other_engine(ready_file, home, lock_path)
+        if live:
+            print(json.dumps(live, ensure_ascii=False))
+            return 0
+        if lock is None:
+            _engine_error("engine_busy", lock=str(lock_path))
+            return 1
+    try:
+        return _run_engine(args, home=home, ready_file=ready_file, started_at=started_at)
+    finally:
+        lock.close()
+
+def _run_engine(args, *, home: Path, ready_file: Path, started_at: str) -> int:
+    # Own the listening socket before anything reads PORT: with --port 0 the
+    # kernel picks the port, and BACKEND_INTERNAL_URL must name the real one.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", int(args.port)))
+    except OSError as exc:
+        sock.close()
+        _engine_error("port_unavailable", detail=str(exc))
+        return 1
+    port = sock.getsockname()[1]
+    url = f"http://127.0.0.1:{port}"
+    # An inherited PORT (or a desktop BACKEND_INTERNAL_URL) must not win here.
+    os.environ["PORT"] = os.environ["BACKEND_PORT"] = str(port)
+    os.environ["BACKEND_INTERNAL_URL"] = url
+    # Headless: point the static hosting at nothing so only the API is served.
+    os.environ["FRONTEND_DIST_DIR"] = os.devnull
+    try:
+        apply_local_env(port)
+        from hugagent_cli.schema import ensure_schema_and_seed
+
+        ensure_schema_and_seed()
+        bootstrap_default_plugins_if_needed()
+        user_id = _engine_admin_user_id()
+        if user_id is None:
+            _engine_error("not_initialized")
+            return EXIT_NOT_INITIALIZED
+        import uvicorn
+        # Importing the app composes its services; revoking the previous token
+        # cancels the runs it started, which needs the run services in place.
+        from api.app import app
+
+        try:
+            token = issue_engine_token(user_id)
+        except PermissionError as exc:
+            _engine_error(str(exc))
+            return 1
+
+        tracker = _ActivityTracker(app, on_shutdown=lambda: _remove_ready_file(ready_file))
+        server = uvicorn.Server(
+            uvicorn.Config(tracker, log_level="info", access_log=False, lifespan="on")
+        )
+        payload = {
+            "version": ENGINE_READY_VERSION,
+            "url": url,
+            "token": token,
+            "pid": os.getpid(),
+            "started_at": started_at,
+            "home": str(home),
+        }
+        stopped = threading.Event()
+        outcome: dict = {}
+        monitor = threading.Thread(
+            target=_engine_monitor,
+            args=(server, tracker),
+            kwargs=dict(
+                ready_file=ready_file,
+                payload=payload,
+                idle_timeout=float(args.idle_timeout),
+                stopped=stopped,
+                outcome=outcome,
+            ),
+            name="engine-monitor",
+            daemon=True,
+        )
+        monitor.start()
+        try:
+            # uvicorn's own SIGINT/SIGTERM handling gives the graceful
+            # shutdown path: lifespan shutdown stops the sidecars.
+            server.run(sockets=[sock])
+        finally:
+            stopped.set()
+            _remove_ready_file(ready_file)
+        if outcome.get("error"):
+            _engine_error(outcome["error"])
+            return 1
+        return 0 if server.started else 1
+    finally:
+        sock.close()
 
 # ── Doctor ────────────────────────────────────────────────────────────────────
 
@@ -885,7 +1256,7 @@ def cmd_doctor(args) -> int:
     check(
         "已初始化（存在管理员）",
         _is_initialized(),
-        "" if _is_initialized() else "运行 `hugagent onboard`",
+        "" if _is_initialized() else "运行 `hugagent-server onboard`",
     )
 
     print("─" * 40)
@@ -896,7 +1267,7 @@ def cmd_doctor(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     # Shared options usable both before and after the subcommand
-    # (`hugagent --host X --port Y serve` and options after `serve` both work).
+    # (`hugagent-server --host X --port Y serve` and options after `serve` both work).
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--host",
@@ -906,7 +1277,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--port", type=int, default=int(os.getenv("PORT", "3001")))
 
     p = argparse.ArgumentParser(
-        prog="hugagent", parents=[common], description="HugAgentOS 无 Docker 本地版"
+        prog="hugagent-server", parents=[common], description="HugAgentOS 无 Docker 本地版"
     )
     sub = p.add_subparsers(dest="command")
 
@@ -934,7 +1305,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--file-parser-url", help="PDF/文档解析服务 API URL（可选）")
     po.add_argument(
         "--search-engine",
-        choices=["tavily", "baidu", "langsearch"],
+        choices=["tavily", "baidu", "langsearch", "deepseek"],
         help="互联网搜索引擎（可选，默认 tavily）",
     )
     po.add_argument("--search-api-key", help="互联网搜索 API Key（可选）")
@@ -948,6 +1319,18 @@ def build_parser() -> argparse.ArgumentParser:
     ps.set_defaults(func=cmd_serve)
 
     sub.add_parser("doctor", parents=[common], help="环境自检").set_defaults(func=cmd_doctor)
+
+    # No `common` parent: the engine always binds 127.0.0.1 and picks its port.
+    pe = sub.add_parser("engine", help="无头本机引擎（供 hugagent 终端客户端使用）")
+    pe.add_argument("--port", type=int, default=0, help="监听端口（默认 0：自动挑选空闲端口）")
+    pe.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=900,
+        help="无请求且无运行中会话多少秒后自动退出（默认 900；0 表示不自动退出）",
+    )
+    pe.add_argument("--ready-file", help="就绪文件路径（默认 $HUGAGENT_HOME/engine.json）")
+    pe.set_defaults(func=cmd_engine)
     return p
 
 def main(argv: Optional[list] = None) -> int:
@@ -955,7 +1338,7 @@ def main(argv: Optional[list] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
-        # bare `hugagent`: onboard if fresh, else serve.
+        # bare `hugagent-server`: onboard if fresh, else serve.
         args.func = cmd_serve if _is_initialized() else cmd_onboard
         for attr, val in (
             ("username", None),

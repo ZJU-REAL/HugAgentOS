@@ -12,12 +12,14 @@ Sources are interleaved by query order and conservatively deduplicated by URL.
 
 Configure `INTERNET_SEARCH_ENGINE` and its corresponding API key.
 Tavily receives `INTERNET_SEARCH_COUNTRY` only when explicitly set and topic is general.
+DeepSeek (`DEEPSEEK_SEARCH_API_KEY`) caps queries at 128 characters, adds a 30-day `after:` filter
+for news, over-fetches twice `max_results` and drops rows with `rerank_score` below 0.5.
 There is no language-filter parameter or implicit country preference.
 Invalid/obsolete arguments are rejected, without legacy payload conversion.
 
 The lifespan shares an async HTTP client and an eight-request semaphore.
 At most 32 queries may be active or queued; the batch deadline is 45 seconds.
-429 and retryable 5xx responses get at most two retries within that deadline.
+408, 429 and retryable 5xx responses get at most two retries within that deadline.
 Retry-After is respected, including HTTP-date values; backoff never holds a request slot.
 Cancellation drains all batch tasks. Errors expose codes, never upstream response bodies.
 

@@ -220,11 +220,11 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 安装器会把源码拉到 `~/.hugagent/source`，创建隔离 Python 环境、构建 Web 应用并进入
 首次配置向导，完成后打开 [http://127.0.0.1:3001](http://127.0.0.1:3001)。之后用
-`~/.hugagent/venv/bin/hugagent` 再次启动。
+`~/.hugagent/venv/bin/hugagent-server` 再次启动。
 
 > [!WARNING]
 > 默认仅监听 `127.0.0.1`。确需远程访问时用
-> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置强密码、防火墙
+> `hugagent-server serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置强密码、防火墙
 > 与 HTTPS，不要直接暴露在不受信任的网络中。
 
 一键安装使用 SQLite、进程内状态与本地子进程沙箱，适合试用与开发；选项与故障

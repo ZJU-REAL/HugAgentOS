@@ -256,6 +256,8 @@ Personal Agent manages the user's HugAgentOS projects, chats and runs with one t
 The cloud computer includes the lightweight `hugagent` CLI. It manages existing backends.
 Web clients and desktop cloud mode share `cloud`. Desktop local mode uses `device:<id>`.
 
+Inside the cloud computer this client is called `hugagent`. Installed anywhere else (a `pip install` of the backend source, or the wheel built by `scripts/build-hugagent-cli.py`), the same client is the `hugagent-session` command with the same options. On a workstation, `hugagent` is the terminal client (`packages/cli`). The local server's `onboard`, `serve`, `doctor` and `engine` commands belong to `hugagent-server`; the session client only points you there when it receives one.
+
 ```bash
 hugagent device list
 hugagent --target cloud chat list

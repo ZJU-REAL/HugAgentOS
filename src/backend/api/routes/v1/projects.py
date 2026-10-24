@@ -6,6 +6,7 @@
 
     GET    /v1/projects                      列表（个人）
     POST   /v1/projects                      创建（仅 kind=personal）
+    POST   /v1/projects/local/resolve        按本机目录解析 / 新建本地项目（仅本机模式）
     GET    /v1/projects/{id}                 详情（带 folder_name / 容量）
     PATCH  /v1/projects/{id}                 改名 / 描述 / pin / icon / instructions
     DELETE /v1/projects/{id}                 软删（不删挂钩文件夹）
@@ -142,6 +143,38 @@ def create_project(
                 linked_folder_id=body.linked_folder_id,
             )
         return created_response(data=svc.get(project.project_id, user_id))
+
+
+class ResolveLocalProjectBody(BaseModel):
+    path: str = Field(..., min_length=1, max_length=4096)
+    create: bool = True
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    # Also grant the folder read-write to the OS sandbox (the terminal client works in it).
+    grant: bool = False
+
+
+@router.post("/local/resolve", summary="按本机目录解析本地项目")
+def resolve_local_project(
+    body: ResolveLocalProjectBody,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """终端客户端用：按 realpath 匹配当前用户的本地项目，不存在且 create=true 时新建。
+
+    非本机模式返回 404，云端 / Web 部署不暴露该端点。
+    """
+    if not local_mode_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+    from core.projects.local_resolve import resolve_local_project as operation
+
+    data = operation(
+        db, ProjectService(db), str(user.user_id), body.path, create=body.create, name=body.name
+    )
+    if body.grant:
+        from features.desktop.local.grants import ensure_workspace_grant
+
+        ensure_workspace_grant(data["local_path"])
+    return success_response(data=data)
 
 
 # ── Detail / Update / Delete ─────────────────────────────────────────────

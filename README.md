@@ -252,11 +252,11 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 The installer clones the source into `~/.hugagent/source`, creates an isolated
 Python environment, builds the web app and runs the first-time setup wizard, then
 opens [http://127.0.0.1:3001](http://127.0.0.1:3001). Start it again later with
-`~/.hugagent/venv/bin/hugagent`.
+`~/.hugagent/venv/bin/hugagent-server`.
 
 > [!WARNING]
 > It listens on `127.0.0.1` only by default. If you really need remote access, use
-> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and set up a strong
+> `hugagent-server serve --host 0.0.0.0 --port 3001 --no-browser`, and set up a strong
 > password, a firewall and HTTPS first. Don't expose it directly on an untrusted network.
 
 The one-command install uses SQLite, in-process state and a local subprocess

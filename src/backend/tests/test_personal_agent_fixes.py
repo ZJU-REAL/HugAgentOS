@@ -177,11 +177,10 @@ def test_settings_validate_concurrency_and_timezone(sessions):
         assert service.identity.configure({"concurrency": 5, "timezone": "America/Los_Angeles"})["config"]["timezone"] == "America/Los_Angeles"
 
 
-def test_cli_hides_server_commands_without_server(monkeypatch, capsys):
+def test_cli_hides_server_commands_without_server(capsys):
     from hugagent_cli import main as cli
-    monkeypatch.setattr(cli, "server_installed", lambda: False)
     assert cli.main(["onboard"]) == 2
-    assert "lightweight client" in capsys.readouterr().out
+    assert "lightweight client" in capsys.readouterr().err
     assert "onboard" not in cli.parser().description
 
 

@@ -3,6 +3,7 @@ import { CheckCircleOutlined } from '@ant-design/icons';
 import { renderRetrieveDatasetContent, renderRetrieveLocalKB } from './renderers/KBRenderer';
 import { renderInternetSearch } from './renderers/SearchRenderer';
 import { DataView } from './renderers/DataView';
+import { unwrapMcpResult } from './renderers/utils';
 import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
 
@@ -15,6 +16,7 @@ export function renderToolOutputBody(
   /** 被引用的证据片段：命中的内容会高亮并把滚动条送到跟前（从引用打开卡片时传入） */
   highlight?: string,
 ): React.ReactNode {
+  out = unwrapMcpResult(out);
   const empty = (msg: string) => <div className="jx-tr-empty">{msg}</div>;
 
   // Load skill: render the same detail as the capability center, avoiding stuffing the full SKILL.md into the card

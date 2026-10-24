@@ -42,7 +42,7 @@ The installer will:
 3. Detect and install `bubblewrap` on Linux, or verify the system `sandbox-exec` on macOS; installation fails when the sandbox backend is unavailable instead of falling back to raw execution;
 4. Detect optional LibreOffice and, when it is missing, explain the unavailable features and ask whether to install it; skipping it or a failed install doesn't block the remaining features;
 5. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
-6. Install `requirements.txt`, the `hugagent` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
+6. Install `requirements.txt`, the `hugagent-server` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
 7. Build the frontend at `src/frontend/dist`;
 8. Enter the interactive first-run wizard.
 
@@ -75,8 +75,8 @@ restore a plugin that a user deliberately removed.
 **Step 4 (optional) · File parser** — parsing uploaded PDFs / scanned documents needs an external parser service (MinerU-compatible); enter its API URL to enable it (written to `file_parser.api_url`), or press Enter to skip. Excel / CSV / PPTX / text parse in-process and need none of this.
 
 **Step 5 (optional) · Internet search** — agent web search needs a search
-engine key. Select `tavily` (default), `baidu` (Qianfan AppBuilder), or
-`langsearch`, and enter the API key for the selected engine. Press Enter to
+engine key. Select `tavily` (default), `baidu` (Qianfan AppBuilder),
+`langsearch`, or `deepseek`, and enter the API key for the selected engine. Press Enter to
 skip this step. You can also configure it later under **Settings → System →
 Service Config**.
 
@@ -84,7 +84,7 @@ At the end the wizard prints a **host-capability summary** (whether Node.js, pan
 
 > **Warning:** The server listens on `127.0.0.1` by default. If the server must
 > accept remote connections, run
-> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and configure a
+> `hugagent-server serve --host 0.0.0.0 --port 3001 --no-browser`, and configure a
 > strong administrator password, a firewall, and HTTPS first. Don't expose the
 > service directly on an untrusted network.
 
@@ -93,7 +93,7 @@ At the end the wizard prints a **host-capability summary** (whether Node.js, pan
 `onboard` accepts bypass flags for scripted installs:
 
 ```bash
-hugagent onboard \
+hugagent-server onboard \
   --username admin --password '<strong-password>' \
   --model-base-url https://api.deepseek.com/v1 \
   --model-api-key '<your-key>' --model-name deepseek-chat \
@@ -109,10 +109,10 @@ hugagent onboard \
 ## Daily use
 
 ```bash
-hugagent            # initialized → start server and open browser; not initialized → enter the wizard
-hugagent serve      # start explicitly (--host to change bind address, --port to change port)
-hugagent onboard    # re-run the wizard / change configuration
-hugagent doctor     # environment self-check (Python version, port availability, data dir, frontend build, deps, …)
+hugagent-server            # initialized → start server and open browser; not initialized → enter the wizard
+hugagent-server serve      # start explicitly (--host to change bind address, --port to change port)
+hugagent-server onboard    # re-run the wizard / change configuration
+hugagent-server doctor     # environment self-check (Python version, port availability, data dir, frontend build, deps, …)
 ```
 
 ## Data directory
@@ -166,16 +166,16 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 
 | Symptom | Fix |
 |---|---|
-| Startup reports the port is in use | `hugagent serve --port <other-port>`; or run `hugagent doctor` first to check |
+| Startup reports the port is in use | `hugagent-server serve --port <other-port>`; or run `hugagent-server doctor` first to check |
 | The page shows JSON instead of the app | Frontend not built: `cd src/frontend && npm run build`, or set `FRONTEND_DIST_DIR` to a built `dist` |
-| Login reports the model is unavailable | Re-run `hugagent onboard` to reconfigure the model (the wizard tests connectivity) |
+| Login reports the model is unavailable | Re-run `hugagent-server onboard` to reconfigure the model (the wizard tests connectivity) |
 | Startup logs repeatedly report `AllocTimestamp` / `Method not implemented` | Stop the service and rerun the public one-command installer. The installer reconciles PyMilvus and Milvus Lite to compatible versions without deleting `~/.hugagent/milvus.db`. |
-| Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
+| Want to switch model / change config | Re-run `hugagent-server onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
 | PPT/Word preview reports that LibreOffice isn't installed | Re-run the one-command installer and choose to install it when prompted. On Debian/Ubuntu, you can instead run `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`, then restart HugAgentOS. |
 | bash reports a missing OS sandbox runner | Install `bubblewrap` on Linux (`sudo apt-get install bubblewrap` on Debian/Ubuntu), then restart. Until it is installed, every preset except *Full access* refuses host commands outright — by design, rather than running them unconfined. |
 | bash reports that this system cannot enforce the policy | The preset asks for isolation beyond what this platform provides — the Windows low-integrity sandbox cannot narrow reads, and cannot cut the network without administrator rights. Relax the corresponding setting (for example move the *network* category from *block* back to *confirm*), or use a platform that offers the capability. |
-| Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
-| Is the environment ready | `hugagent doctor` runs a one-shot self-check |
+| Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent-server` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
+| Is the environment ready | `hugagent-server doctor` runs a one-shot self-check |
 
 ## Related source
 

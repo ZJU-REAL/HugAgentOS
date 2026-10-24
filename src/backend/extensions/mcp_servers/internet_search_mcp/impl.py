@@ -17,7 +17,7 @@ from core.config.store.runtime_env import get_runtime_value
 
 from .merge import merge_sources
 from .models import SearchRequest
-from .providers import KEY_NAMES, ProviderConfig, build_request, normalize_response
+from .providers import KEY_NAMES, ProviderConfig, QueryTooLong, build_request, normalize_response
 
 logger = logging.getLogger(__name__)
 BATCH_TIMEOUT = 45.0
@@ -32,7 +32,7 @@ class ResponseTooLarge(ValueError):
     pass
 
 
-RETRY_STATUSES = {429, 500, 502, 503, 504}
+RETRY_STATUSES = {408, 429, 500, 502, 503, 504}
 
 
 def retry_delay(response: httpx.Response, attempt: int) -> float:
@@ -155,6 +155,8 @@ class SearchService:
             code = "network_error"
         except ResponseTooLarge:
             code = "response_too_large"
+        except QueryTooLong:
+            code = "query_too_long"
         except (ValueError, TypeError, AttributeError):
             code = "invalid_response"
         # Do not expose upstream bodies, request headers, or credential-bearing exception messages.

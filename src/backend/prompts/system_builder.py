@@ -44,6 +44,11 @@ def build_system_prompt(
         ctx["desktop_environment"] = (ctx.get("preview_environment") if desktop_preview else None) or runtime.build_environment_context(
             ctx, current_date=runtime._PROMPT_NOW_SENTINEL
         )
+    if local_mode_enabled() and ctx.get("project_is_local") and ctx.get("project_local_path"):
+        # Outer AGENTS.md files are prompt inputs too: snapshot them before hashing.
+        from core.projects.instructions import inherited_local_instructions
+
+        ctx["project_inherited_instructions"] = inherited_local_instructions(ctx["project_local_path"])
     # Day granularity only: the date is constant within a day → the system prompt is
     # byte-stable all day → LLM prefix cache hits all day (a second-level timestamp
     # would change every request and bust the cache).
@@ -402,6 +407,7 @@ def build_system_prompt(
                 project_instructions=ctx.get("project_instructions") or "",
                 local_path=ctx.get("project_local_path") or "",
                 local_slug=ctx.get("project_local_slug") or "",
+                inherited_instructions=ctx.get("project_inherited_instructions") or (),
             )
         else:
             from core.files.edition import context_directory

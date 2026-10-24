@@ -93,6 +93,27 @@ def add_grant(path: str, mode: str = "readwrite") -> Dict[str, Any]:
     return entry
 
 
+def ensure_workspace_grant(path: str) -> bool:
+    """Grant a folder the user chose to work in read-write, like Codex's workspace-write.
+
+    A home directory or filesystem root is never granted wholesale; there every
+    out-of-scope access keeps its own approval. A folder already inside a
+    read-write grant is left alone. Returns whether a grant was added.
+    """
+    real = _canonical_grant_path(path)
+    home = _canonical_grant_path(os.path.expanduser("~"))
+    if not real or real == home or os.path.dirname(real) == real:
+        return False
+    for grant in list_grants():
+        root = _canonical_grant_path(str(grant.get("path") or ""))
+        if grant.get("mode", "readwrite") == "readwrite" and root and (
+            real == root or real.startswith(root.rstrip(os.sep) + os.sep)
+        ):
+            return False
+    add_grant(real, "readwrite")
+    return True
+
+
 def remove_grant(path: str) -> None:
     real = _canonical_grant_path(path)
     with _LOCK:

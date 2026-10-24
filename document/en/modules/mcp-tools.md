@@ -82,7 +82,7 @@ It is the only **per-request** server: for each chat request the backend injects
 ### internet_search — web search (CE)
 
 `internet_search(query, queries, max_results, topic, search_depth, include_raw_content)`
-selects Tavily, Baidu, or LangSearch through `INTERNET_SEARCH_ENGINE`, reading only the selected API key.
+selects Tavily, Baidu, LangSearch, or DeepSeek through `INTERNET_SEARCH_ENGINE`, reading only the selected API key.
 Supply either one `query` or up to four distinct `queries`. Queries run concurrently; results are interleaved
 in input-query order and deduplicated by URL, with at most eight sources. The default is five;
 set `max_results=8` for research. Sources are not filtered by language. Tavily receives a country preference
@@ -91,6 +91,9 @@ only when explicitly configured and `topic=general`; there is no implicit China 
 Public information and technical research can use search directly. Internal business questions prioritize
 the relevant internal authority. When snippets cannot support a key claim, use `web_fetch` to verify the
 original page. Tavily supports topic, depth and raw content; LangSearch maps summary to content.
+DeepSeek maps summary to content and `include_raw_content` to page content, limits each query to 128 characters
+(`query_too_long`), restricts `topic=news` to the last 30 days with `after:` (dropping undated pages), and drops
+rows with `rerank_score` below 0.5.
 
 The single source list is `result.results`, with title, URL, content, available publication date, retrieval
 time and matched query indices. Baidu's original date is preserved as `date_raw`; retrieval time never

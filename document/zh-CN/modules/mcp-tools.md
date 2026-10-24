@@ -75,14 +75,16 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 ### internet_search — 联网搜索（CE）
 
 `internet_search(query, queries, max_results, topic, search_depth, include_raw_content)`
-通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度或 LangSearch，只读取所选引擎的 API Key。
+通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度、LangSearch 或 DeepSeek，只读取所选引擎的 API Key。
 单个 `query` 与 `queries` 二选一；批量最多 4 个不同查询并发，按输入查询顺序轮流取结果，
 按 URL 去重后返回最多 8 条来源。默认返回 5 条，复杂调研可显式设置 `max_results=8`。
 不限制来源语言；Tavily 国家偏好仅在显式配置且 `topic=general` 时发送，没有默认中国偏好。
 
 公开资料和技术调研可直接使用；内部业务问题优先内部权威来源。摘要不足以支持关键结论时，
 可自主调用 `web_fetch` 核验原文。`topic`、`search_depth`、原始正文参数由 Tavily 支持；
-LangSearch 的 summary 映射为 content。
+LangSearch 的 summary 映射为 content。DeepSeek 的 summary 映射为 content，`include_raw_content`
+映射为页面正文；单个查询最长 128 字符（超出返回 `query_too_long`）；`topic=news` 时用 `after:`
+限定最近 30 天（无日期页面会被排除）；`rerank_score` 低于 0.5 的结果会被丢弃。
 
 来源统一保存在 `result.results`，包含标题、URL、摘要、可用发布时间、获取时间和命中查询序号。
 百度日期原值以 `date_raw` 保留，未知日期不会替换为抓取时间。`content_truncated` 表示内容裁剪，
