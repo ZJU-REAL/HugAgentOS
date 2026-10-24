@@ -1,0 +1,79 @@
+/* 选中文字浮动工具条：聊天消息与右侧文件预览共用（useSelectionToolbar） */
+
+.jx-selectionToolbar{
+  --jx-selection-toolbar-y:-100%;
+  position:fixed;
+  transform:translate(-50%, var(--jx-selection-toolbar-y));
+  z-index:1100;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:4px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  border-radius:14px;
+  background:color-mix(in srgb, var(--color-bg-container) 96%, transparent);
+  box-shadow:var(--shadow-dropdown);
+  backdrop-filter:blur(10px);
+  /* 入场动画必须纯 CSS（portal + fixed，motion transform 祖先会破坏定位）；
+     keyframes 全程保留基础 translate 定位 */
+  animation:jxSelToolbarIn .14s var(--motion-ease-brand-out) both;
+}
+
+/* 选区贴着视口顶部时，工具条翻到选区下方 */
+.jx-selectionToolbar--below{
+  --jx-selection-toolbar-y:0%;
+}
+
+@keyframes jxSelToolbarIn{
+  from{ opacity:0; transform:translate(-50%, var(--jx-selection-toolbar-y)) translateY(4px) scale(.96); }
+  to{ opacity:1; transform:translate(-50%, var(--jx-selection-toolbar-y)); }
+}
+
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxSelToolbarIn { from, to { opacity:1; transform:translate(-50%, var(--jx-selection-toolbar-y)) } }
+}
+
+.jx-selectionToolbarBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  min-width:56px;
+  padding:8px 12px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+  transition:background var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-selectionToolbarBtn:hover{
+  background:color-mix(in srgb, var(--color-text) 6%, transparent);
+  color:var(--color-text-secondary);
+}
+
+.jx-selectionToolbarBtn:active{
+  transform:scale(.97);
+}
+
+.jx-selectionToolbarBtn.copied{
+  color:var(--color-success);
+}
+
+.jx-selectionToolbarIcon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+}
+
+.jx-selectionToolbarLabel{
+  font-size:13px;
+  font-weight:500;
+  line-height:1;
+  white-space:nowrap;
+}

@@ -18,6 +18,7 @@ import { UserMarkdownBlock } from './UserMarkdownBlock';
 import { CitationMarkdownBlock } from '../citation';
 import { useChatStore, useUIStore } from '../../stores';
 import { updatePlanApi } from '../../api';
+import { quoteSourceLabel } from '../../utils/quotedFollowUp';
 import { markPlanDecision } from '../../hooks/usePlanMode';
 import { useActivityAge } from '../../hooks/useActivityAge';
 import { ACTIVITY_THRESHOLDS, TAIL_WAIT_MS, WAIT_CLOCK_MS, agentStateForPhase, runPhase, waitLabel } from '../../utils/turnActivity';
@@ -115,9 +116,10 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
 
   const renderUserQuote = () => {
     if (m.role !== 'user' || !m.quotedFollowUp?.text) return null;
+    const source = quoteSourceLabel(m.quotedFollowUp.source);
     return (
       <div className="jx-userQuote" title={m.quotedFollowUp.text}>
-        <span className="jx-userQuoteLabel">{t('引用')}</span>
+        <span className="jx-userQuoteLabel">{source ? t('引用自 {source}', { source }) : t('引用')}</span>
         <span className="jx-userQuoteText">{m.quotedFollowUp.text}</span>
       </div>
     );

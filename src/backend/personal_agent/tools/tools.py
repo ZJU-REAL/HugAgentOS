@@ -60,9 +60,8 @@ def register_personal_tools(toolkit, request, loader=None):
         from hugagent_cli.transport import enabled
         # Most deployments are private networks without TLS, so plain HTTP is allowed unless disabled.
         allow_http = "1" if enabled(os.environ.get("PERSONAL_AGENT_CLI_ALLOW_HTTP", "1")) else "0"
-        # Each call's processes end with it, officecli's resident too: flush its edits before every command returns.
         script = ("export HUGAGENT_SERVER=" + shlex.quote(server) + " HUGAGENT_API_KEY=" + shlex.quote(token) + " HUGAGENT_ALLOW_HTTP=" + allow_http
-                  + " OFFICECLI_RESIDENT_FLUSH=each\n" + command)
+                  + "\n" + command)
         try:
             result = await provider.run_to_completion(ProcessRequest(script_content=script, script_name="personal-task.sh", language="bash", timeout=duration, user_id=uid, session_id=state["box"]))
         finally:

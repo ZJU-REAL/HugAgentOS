@@ -1,5 +1,5 @@
 import { useCanvasPane, useCanvasPaneId } from './useCanvasPane';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react';
 import {
   SaveOutlined,
 } from '@ant-design/icons';
@@ -11,6 +11,7 @@ import { UniverSpreadsheet } from './UniverSpreadsheet';
 import { CanvasTabBar } from './CanvasTabBar';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
 import { overwriteFile, LOCAL_TARGET_HEADER } from '../../api';
+import { clampPanelWidth } from '../../stores/canvasStore';
 import { uploadSpaceFile } from '../myspace/spaceFilesApi';
 import { artifactUrl, artifactOrigin, withUrlParams } from '../../utils/artifactAccess';
 import {
@@ -21,12 +22,17 @@ import {
 
 import { ArchiveBrowser } from '../file/ArchiveBrowser';
 import { FilePreviewPane } from '../file/FilePreviewPane';
+import { MediaPlayer } from '../file/MediaPlayer';
 
 /* ── helpers ── */
 
-import { getFileCategory } from './canvasFileCategory';
+import { getFilePreviewKind } from '../../utils/filePreviewKind';
+import { useCanvasZoomTarget } from './canvasZoom';
+import { useCanvasSelection } from './selection/useCanvasSelection';
 import { FileTextPanel, type FileTextHandle, type FileTextState } from './FileTextPanel';
-import { DocxRenderer, PdfRenderer, PptRenderer, ImageRenderer, TextRenderer, MarkdownRenderer, HtmlRenderer, UnknownRenderer, LargeFileRenderer } from './CanvasFileRenderers';
+import { CanvasFind } from './find';
+import { CanvasOutline } from './outline';
+import { DocxRenderer, PdfRenderer, OfficeRenderer, ImageRenderer, TextRenderer, MarkdownRenderer, HtmlRenderer, UnknownRenderer, LargeFileRenderer } from './renderers';
 
 /* ── Main Panel ── */
 
@@ -47,13 +53,19 @@ export function CanvasPanel() {
   useEffect(() => () => dragCleanupRef.current?.(), []);
   const resizeWidth = useCallback((width: number) => {
     const available = panelRef.current?.closest('.jx-appMainLayout')?.clientWidth ?? window.innerWidth;
-    setPanelWidth(Math.max(400, Math.min(width, available - 420)));
+    setPanelWidth(clampPanelWidth(width, available));
   }, [setPanelWidth]);
 
   // xlsx-specific state
   const textRef = useRef<FileTextHandle>(null);
   const [htmlControls, setHtmlControls] = useState<HTMLDivElement | null>(null);
   const [textState, setTextState] = useState<FileTextState>({ canEdit: false, dirty: false, saving: false });
+  // Read-only text and markdown previews scale through the body's --canvas-zoom
+  // (see canvas.css); the editors and the too-large fallback ignore it.
+  const textKind = artifact ? getFilePreviewKind(artifact) : null;
+  const cssZoomed = !!artifact && !!textKind && ['text', 'json', 'csv', 'markdown'].includes(textKind)
+    && !textState.canEdit && !exceedsPreviewLimit(artifact.size, getPreviewLimitBytes(textKind));
+  const { zoom: cssZoom } = useCanvasZoomTarget(cssZoomed);
   const [xlsxDirty, setXlsxDirty] = useState(false);
   // 表格还在「正在加载电子表格…」时，Univer 实例尚未建好，exportXlsx 只会抛
   // "Univer not initialised"。保存按钮必须等它就绪才可点（问题 28）。
@@ -62,6 +74,7 @@ export function CanvasPanel() {
   const xlsxSaveButtonRef = useRef<HTMLButtonElement>(null);
   const xlsxSavingRef = useRef(false);
   const univerRef = useRef<UniverSpreadsheetHandle>(null);
+  const selection = useCanvasSelection(artifact);
 
   // Reset when a new file is opened (openSeq changes on every openCanvas call)
   useEffect(() => {
@@ -71,7 +84,7 @@ export function CanvasPanel() {
   // 未保存状态提给 store：页签栏在关闭页签 / 切页签 / 收起面板前据此确认，
   // 因为这三条路径都会把本面板连同编辑缓冲一起卸载。
   useEffect(() => {
-    if (activeTabId && artifact && getFileCategory(artifact) === 'xlsx') setTabDirty(activeTabId, xlsxDirty);
+    if (activeTabId && artifact && getFilePreviewKind(artifact) === 'xlsx') setTabDirty(activeTabId, xlsxDirty);
   }, [activeTabId, artifact, setTabDirty, xlsxDirty]);
 
   // Intercept Ctrl+S to prevent browser "Save Page" and trigger xlsx save instead
@@ -117,13 +130,13 @@ export function CanvasPanel() {
   if (!isOpen || activeView !== 'file' || !artifact) return null;
 
   const fileUrl = artifactUrl(artifact, { params: { v: String(openSeq) } });
-  const category = getFileCategory(artifact);
+  const category = getFilePreviewKind(artifact);
   const isXlsx = category === 'xlsx';
   const previewLimitBytes = getPreviewLimitBytes(category);
   const previewTooLarge = exceedsPreviewLimit(artifact.size, previewLimitBytes);
   const maxPreviewBytes = previewLimitBytes ?? Number.MAX_SAFE_INTEGER;
 
-  const isTextFile = !previewTooLarge && ['text', 'markdown', 'html'].includes(category)
+  const isTextFile = !previewTooLarge && ['text', 'json', 'csv', 'markdown', 'html'].includes(category)
     && (!!artifact.space || (!artifact.file_id.startsWith('lpf_') && artifact.url.startsWith('/files/')));
 
   const handleDownload = async () => {
@@ -203,10 +216,16 @@ export function CanvasPanel() {
             onReadyChange={setXlsxReady}
           />
         );
-      case 'pdf': return <PdfRenderer url={fileUrl} />;
-      case 'ppt': return <PptRenderer url={artifactUrl(artifact, { preview: true, params: { format: 'pdf' } })} maxBytes={maxPreviewBytes} />;
+      case 'pdf': return <PdfRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
+      // Legacy .doc, PPT(X), OpenDocument: the server converts to PDF.
+      case 'office': return <OfficeRenderer url={artifactUrl(artifact, { preview: true, params: { format: 'pdf' } })} maxBytes={maxPreviewBytes} />;
       case 'image': return <ImageRenderer url={fileUrl} name={artifact.name} />;
-      case 'text': return <TextRenderer url={textUrl} maxBytes={maxPreviewBytes} />;
+      // inline: My Space only types the response (and allows playback) when asked to.
+      case 'video':
+      case 'audio': return <MediaPlayer kind={category} src={withUrlParams(fileUrl, { inline: '1' })} name={artifact.name} />;
+      case 'json':
+      case 'csv':
+      case 'text': return <TextRenderer url={textUrl} name={artifact.name} maxBytes={maxPreviewBytes} />;
       case 'markdown': return <MarkdownRenderer url={textUrl} maxBytes={maxPreviewBytes} />;
       case 'html': return <HtmlRenderer url={fileUrl} version={revision || `${openSeq}-${artifact.size ?? 0}`} maxBytes={maxPreviewBytes} />;
       default: return <UnknownRenderer name={artifact.name} />;
@@ -239,6 +258,8 @@ export function CanvasPanel() {
         dirty={xlsxDirty || textState.dirty} saving={saving || textState.saving}
         onReload={() => guardDirty(() => { if (activeTabId) reloadTab(activeTabId); })}
         onDownload={isXlsx && xlsxDirty ? () => { void handleDownload(); } : undefined}>
+          {!previewTooLarge && !textState.canEdit && ['pdf', 'office', 'docx', 'markdown', 'text', 'json', 'csv'].includes(category) && <CanvasFind />}
+          {!previewTooLarge && ['pdf', 'office', 'docx', 'markdown'].includes(category) && <CanvasOutline />}
           {isTextFile && category === 'html' && <div ref={setHtmlControls} className="jx-canvas-htmlControls" />}
           {isXlsx && !previewTooLarge && artifact.space?.writable !== false && (
             <button
@@ -263,11 +284,13 @@ export function CanvasPanel() {
       </CanvasFileHeader>
 
       {/* Content */}
-      <div className="jx-canvas-body" key={activeTabId + ":" + openSeq}>
+      <div className="jx-canvas-body" key={activeTabId + ":" + openSeq} ref={selection.ref}
+        style={cssZoomed && cssZoom !== 'fit' ? { '--canvas-zoom': cssZoom } as CSSProperties : undefined}>
         {isTextFile ? (
           <FileTextPanel headerControls={htmlControls} ref={textRef} onStateChange={setTextState} key={`${activeTabId}-${openSeq}`} artifact={artifact} preview={renderContent} />
         ) : renderContent()}
       </div>
+      {selection.toolbar}
     </div>
   );
 }

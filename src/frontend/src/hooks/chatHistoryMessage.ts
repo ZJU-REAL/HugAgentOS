@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
+import { quoteFromWire } from '../utils/quotedFollowUp';
 import type { ForkedHistoryMessage } from '../utils/forkHistory';
 import type { CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, ReferencedChatCard } from '../types';
 
@@ -142,12 +143,7 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
   const histFollowUps = Array.isArray(m.metadata?.follow_up_questions)
     ? m.metadata.follow_up_questions as string[]
     : undefined;
-  const histQuotedFollowUp = m.role === 'user' && m.metadata?.quoted_follow_up && typeof m.metadata.quoted_follow_up === 'object'
-    ? {
-      text: String((m.metadata.quoted_follow_up as Record<string, unknown>).text ?? ''),
-      ts: Number((m.metadata.quoted_follow_up as Record<string, unknown>).ts ?? 0) || undefined,
-    }
-    : undefined;
+  const histQuotedFollowUp = m.role === 'user' ? quoteFromWire(m.metadata?.quoted_follow_up) : undefined;
   const histReferencedChats = m.role === 'user' && Array.isArray(m.metadata?.referenced_chats)
     ? (m.metadata.referenced_chats as ReferencedChatCard[])
     : undefined;
@@ -229,7 +225,7 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
     ...(histCitations && histCitations.length > 0 && { citations: histCitations }),
     ...(histFollowUps && histFollowUps.length > 0 && { followUpQuestions: histFollowUps }),
     ...(histAttachments && histAttachments.length > 0 && { attachments: histAttachments }),
-    ...(histQuotedFollowUp?.text && { quotedFollowUp: histQuotedFollowUp }),
+    ...(histQuotedFollowUp && { quotedFollowUp: histQuotedFollowUp }),
     ...(histReferencedChats && histReferencedChats.length > 0 && { referencedChats: histReferencedChats }),
     ...(histWorkspaceFiles !== undefined && { workspaceFiles: histWorkspaceFiles }),
     ...(histEvolution && { evolution: histEvolution }),

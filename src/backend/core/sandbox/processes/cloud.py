@@ -17,6 +17,10 @@ from core.sandbox.errors import SandboxError
 from core.sandbox.processes.sessions import ProcessSessionError, ProcessSessions
 
 
+# No process outlives its command, officecli's resident included: write each edit to disk at once.
+_COMMAND_ENVS = {"OFFICECLI_RESIDENT_FLUSH": "each"}
+
+
 def _module_owned(session_id) -> bool:
     """A module's dedicated sandbox never receives the platform's extra credentials."""
     from core.harness.registry import sandbox_route
@@ -139,9 +143,13 @@ class CloudProcesses:
                     working_directory=WORKSPACE,
                     uid=SANDBOX_RUN_UID,
                     gid=SANDBOX_RUN_GID,
-                    envs=({**_EXECD_BASH_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **credential_environment(), **_firecrawl_extra_envs()}),
+                    envs=({**_EXECD_BASH_ENVS, **_COMMAND_ENVS, "EXECD_ACCESS_TOKEN": ""} if _module_owned(req.session_id) else {**_EXECD_BASH_ENVS, **_COMMAND_ENVS, **credential_environment(), **_firecrawl_extra_envs()}),
                 )
-                execution = await sess.sandbox.commands.run(command, opts=opts)
+                # As a subreaper the command keeps everything it starts, however detached,
+                # until it ends; whatever is left then reaches PID 1 and is killed there.
+                execution = await sess.sandbox.commands.run(
+                    "sandbox-init --subreaper " + command, opts=opts
+                )
                 if not execution.id:
                     raise SandboxError("Background command returned no execution ID")
                 return OpenSandboxHandle(provider, req, sess.sandbox.commands, execution.id)
@@ -157,9 +165,9 @@ class CloudProcesses:
                 cwd=WORKSPACE,
                 user="root",
                 envs=(
-                    {"EXECD_ACCESS_TOKEN": ""}
+                    {**_COMMAND_ENVS, "EXECD_ACCESS_TOKEN": ""}
                     if _module_owned(req.session_id)
-                    else {**credential_environment(), **_firecrawl_extra_envs()} or None
+                    else {**_COMMAND_ENVS, **credential_environment(), **_firecrawl_extra_envs()}
                 ),
                 stdin=False,
                 timeout=0,

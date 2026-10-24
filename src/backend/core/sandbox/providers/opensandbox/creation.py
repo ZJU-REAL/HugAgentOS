@@ -92,7 +92,7 @@ class _OpenSandboxCreationMixin:
         return sbx
 
     async def _create_light_sandbox(self) -> Any:
-        """Create a light sandbox: just the sleep entrypoint + execd, no Jupyter.
+        """Create a light sandbox: just the init entrypoint + execd, no Jupyter.
         Used for ephemeral one-shot execution (the frontend "re-run" button, skill calls without a chat_id).
 
         Key point: ``skip_health_check=True`` ── the SDK's default readiness probe

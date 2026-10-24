@@ -105,5 +105,71 @@ def test_preview_file_rejects_non_powerpoint(monkeypatch):
         )
 
     assert exc_info.value.status_code == 400
-    # Production code files.py has extended the preview hint message to also support Word (feature drift, unrelated to the agentscope migration)
-    assert exc_info.value.detail == "Only Word (DOC/DOCX) and PowerPoint (PPT/PPTX) files support preview"
+    assert exc_info.value.detail == "Only Word (DOC/DOCX/RTF/ODT) and PowerPoint (PPT/PPTX/ODP) files support preview"
+
+
+@pytest.mark.parametrize(("name", "mime_type"), [
+    ("旧版合同.doc", "application/msword"),
+    ("notes.rtf", "application/rtf"),
+    ("draft.odt", "application/vnd.oasis.opendocument.text"),
+    ("deck.odp", "application/vnd.oasis.opendocument.presentation"),
+    ("unnamed", "application/msword"),
+])
+def test_non_ooxml_office_documents_are_previewable(name, mime_type):
+    assert file_routes._is_office_previewable({"name": name, "mime_type": mime_type})
+
+
+def test_spreadsheets_are_not_routed_through_office_preview():
+    assert not file_routes._is_office_previewable({"name": "data.xlsx", "mime_type": ""})
+
+
+def test_legacy_doc_converts_to_pdf_with_libreoffice(tmp_path):
+    """Binary Word (.doc) cannot be parsed by docx-preview; the server must render it."""
+    import subprocess
+
+    from core.files.content.office import find_libreoffice_binary
+
+    libreoffice = find_libreoffice_binary()
+    if not libreoffice:
+        pytest.skip("LibreOffice is not installed")
+    source = tmp_path / "legacy.txt"
+    source.write_text("Legacy Word document", encoding="utf-8")
+    subprocess.run(
+        [libreoffice, f"-env:UserInstallation={(tmp_path / 'profile').as_uri()}", "--headless",
+         "--convert-to", "doc:MS Word 97", "--outdir", str(tmp_path), str(source)],
+        check=True, capture_output=True, timeout=120,
+    )
+    doc = tmp_path / "legacy.doc"
+    assert doc.read_bytes()[:8] == bytes.fromhex("d0cf11e0a1b11ae1")  # OLE2 container, not OOXML
+
+    pdf_path, temp_dir = file_routes._convert_office_to_pdf(str(doc), "doc_1")
+    try:
+        assert Path(pdf_path).read_bytes().startswith(b"%PDF")
+    finally:
+        file_routes._cleanup_path(temp_dir)
+
+
+def test_direct_download_supports_range_for_media_seeking(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"0123456789")
+    item = {"name": "clip.mp4", "mime_type": "video/mp4", "path": str(media)}
+    app = FastAPI()
+
+    @app.get("/clip")
+    def clip(background_tasks: BackgroundTasks):
+        return file_routes._build_direct_download_response(
+            item=item, file_id="clip", inline=True, background_tasks=background_tasks,
+        )
+
+    with TestClient(app) as client:
+        full = client.get("/clip")
+        partial = client.get("/clip", headers={"Range": "bytes=6-"})
+
+    assert full.headers["accept-ranges"] == "bytes"
+    assert partial.status_code == 206
+    assert partial.content == b"6789"
+    assert partial.headers["content-range"] == "bytes 6-9/10"
+    assert partial.headers["content-disposition"].startswith("inline")

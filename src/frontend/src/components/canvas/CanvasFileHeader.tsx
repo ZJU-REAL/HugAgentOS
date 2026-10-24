@@ -6,6 +6,7 @@ import { artifactOrigin, isArchiveMember } from '../../utils/artifactAccess';
 import { FileOpenControl, type FileActionPhase } from '../file/FileOpenControl';
 import { ArtifactFileAction } from '../file/ArtifactFileAction';
 import { FilePathLabel } from './FilePathLabel';
+import { CanvasZoomControl } from './CanvasZoomControl';
 import { useFileLocation } from './useFileLocation';
 import { t } from '../../i18n';
 import './CanvasFileHeader.css';
@@ -28,6 +29,7 @@ export function CanvasFileHeader({ artifact, revision, dirty, saving, onReload, 
       onClick={location.retry} title={t('重试获取文件位置')} aria-label={t('重试获取文件位置')}><ReloadOutlined /></button>}
     {location.state === 'unfiled' && <span className="jx-fileHeader-note">{t('尚未归档到我的空间')}</span>}
     <div className="jx-fileHeader-actions">
+      <CanvasZoomControl />
       {children}
       <button type="button" className="jx-canvas-actionBtn" onClick={onReload} disabled={saving}
         aria-label={t('刷新预览')} title={t('刷新预览')}><ReloadOutlined /></button>

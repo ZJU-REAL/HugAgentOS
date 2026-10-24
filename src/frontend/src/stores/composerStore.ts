@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { JSONContent } from '@tiptap/core';
-import type { ReferencableChat } from '../types';
+import type { QuotedFollowUp, ReferencableChat } from '../types';
 import type { ChatCommand } from '../utils/projectCommands';
 import type { UploadedAttachment } from '../utils/fileParser';
 
@@ -17,7 +17,7 @@ type Capability = { id: string; name: string } | null;
 export interface ComposerDraft {
   input: string;
   document: JSONContent | null;
-  quotedFollowUp: { text: string; ts: number } | null;
+  quotedFollowUp: QuotedFollowUp | null;
   activeSkill: Capability;
   activePlugin: Capability;
   activeConnector: Capability;

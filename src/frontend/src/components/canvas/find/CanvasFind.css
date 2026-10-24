@@ -1,0 +1,45 @@
+/* ══ In-pane find bar ══ */
+.jx-canvasFind {
+  position: absolute;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-elevated) 86%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-dropdown);
+}
+.jx-canvasFind-input {
+  width: 160px;
+  height: 28px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+}
+.jx-canvasFind-input::placeholder { color: var(--color-text-tertiary); }
+.jx-canvasFind-count {
+  min-width: 48px;
+  text-align: right;
+  font-size: 12px;
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.jx-canvasFind .jx-canvas-actionBtn:disabled { opacity: .4; cursor: default; }
+
+/* Match painting (CSS Custom Highlight API); one name pair per split pane. */
+::highlight(jx-canvas-find-primary),
+::highlight(jx-canvas-find-secondary) {
+  background-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
+}
+::highlight(jx-canvas-find-primary-current),
+::highlight(jx-canvas-find-secondary-current) {
+  /* Stays translucent: on PDF pages the highlight sits above the drawn glyphs. */
+  background-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}

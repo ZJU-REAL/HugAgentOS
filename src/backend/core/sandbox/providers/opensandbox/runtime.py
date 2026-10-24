@@ -69,14 +69,16 @@ _EXECD_BASH_ENVS: dict[str, str] = {
 
 # The ephemeral path does not start Jupyter; the injected execd alone provides commands.run.
 # Startup drops from ~10s to ~3s.
-_LIGHT_ENTRYPOINT = ["sleep", "infinity"]
+# PID 1 is sandbox-init (docker/sandbox/sandbox-init.c): it reaps every orphan and kills
+# what user commands, which run as SANDBOX_RUN_UID, leave behind.
+_LIGHT_ENTRYPOINT = ["sandbox-init", str(SANDBOX_RUN_UID)]
 
 # 用户绑定沙箱的 entrypoint：容器启动时就建好目录约定（scratch + /myspace 软链），
 # 首条命令不必再为此花一次 execd 往返（实测固定 ~1s，而这段 shell 只要 2ms）。uid 走
 # 环境变量，entrypoint 保持常量，adopt 仍能按它认出自己创建的沙箱。
 #
 # 两个约束：``/myspace`` 已是真目录时不能直接 ln（软链会建到目录里面），所以先判断；
-# 整段不许中途退出，任何一步失败都要走到 exec sleep infinity，否则容器直接死掉。
+# 整段不许中途退出，任何一步失败都要走到 exec sandbox-init，否则容器直接死掉。
 _SETUP_ENTRYPOINT = [
     "/bin/sh",
     "-c",
@@ -89,7 +91,7 @@ _SETUP_ENTRYPOINT = [
     'rm -f /myspace; ln -s "/workspace/myspace/$JX_MYSPACE_UID" /myspace 2>/dev/null; '
     "fi; "
     "fi; "
-    "exec sleep infinity",
+    f"exec sandbox-init {SANDBOX_RUN_UID}",
 ]
 
 

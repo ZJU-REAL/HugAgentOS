@@ -177,7 +177,7 @@ def test_ce_installer_and_script_runner_ship_office_skill_runtime():
         assert f"/usr/local/bin/{retired}" not in dockerfile
 
 
-def test_local_managed_officecli_disables_self_update(tmp_path):
+def test_managed_officecli_flushes_every_edit_and_skips_update_locally(tmp_path):
     import os
     import subprocess
 
@@ -186,7 +186,7 @@ from fastapi.testclient import TestClient
 from core.sandbox.runner.server import app
 with TestClient(app) as client:
     response = client.post('/processes/start', json={
-        'script_content': "import os; print(os.getenv('OFFICECLI_SKIP_UPDATE', 'unset'))",
+        'script_content': "import os; print(os.getenv('OFFICECLI_SKIP_UPDATE', 'unset'), os.getenv('OFFICECLI_RESIDENT_FLUSH'))",
         'script_name': 'check_env.py', 'language': 'python', 'session_id': 'officecli-env',
     })
     assert response.status_code == 200, response.text
@@ -194,7 +194,7 @@ with TestClient(app) as client:
     assert result['exit_code'] == 0, result
     print(result['stdout'].strip())
 """
-    for profile, expected in (("local", "1"), ("docker", "unset")):
+    for profile, expected in (("local", "1 each"), ("docker", "unset each")):
         result = subprocess.check_output(
             [sys.executable, "-c", code],
             env={

@@ -15,3 +15,9 @@
 .jx-fileHeader-note { overflow: hidden; max-width: 130px; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--color-text-secondary); }
 .jx-fileHeader-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .jx-canvas-fileHeader button:disabled { opacity: .5; cursor: default; }
+.jx-canvasZoom { display: flex; flex: none; align-items: center; gap: 0; margin-right: 4px; }
+.jx-canvas-fileHeader .jx-canvasZoom .jx-canvas-actionBtn svg { width: 13px; height: 13px; }
+.jx-canvas-fileHeader .jx-canvasZoom .jx-canvas-actionBtn[aria-pressed='true'] { color: var(--color-primary); }
+.jx-canvasZoom-value { flex: none; min-width: 44px; height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); font-family: var(--font-family-number); font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.jx-canvasZoom-value:hover { color: var(--color-text); background: var(--color-bg-gray); }
+.jx-canvasZoom-value:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }

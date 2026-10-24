@@ -12,6 +12,7 @@ import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream } from './chatStream';
 import { captureChatInvocation, chatInvocationMessageProps, chatInvocationRequestFields, normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
 import { acknowledgeUserMessage, newMessageUid } from '../utils/messageIdentity';
+import { quoteToWire } from '../utils/quotedFollowUp';
 import type { ChatItem, ChatMessage } from '../types';
 import type { StreamingContext } from './streamingContext';
 
@@ -47,7 +48,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
     const { input, activeSkill, activePlugin, activeConnector, activeMention, activeCommand } = draft;
     // A queued replay owns its captured message, not the next turn currently being edited.
     const usesDraft = invocationOverride === undefined;
-    const quotedFollowUp = usesDraft ? draft.quotedFollowUp : null;
+    const quotedFollowUp = usesDraft ? draft.quotedFollowUp : invocationOverride?.quote ?? null;
     const referencedChats = usesDraft ? draft.referencedChats : [];
     const uploadedFiles = usesDraft ? draft.uploadedFiles : [];
     const importedSpaceFiles = usesDraft ? draft.importedSpaceFiles : [];
@@ -114,12 +115,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
       isMarkdown: false,
       uid: newMessageUid(true),
       ts: Date.now(),
-      ...(quotedFollowUp && {
-        quotedFollowUp: {
-          text: quotedFollowUp.text,
-          ts: quotedFollowUp.ts,
-        },
-      }),
+      ...(quotedFollowUp && { quotedFollowUp }),
       ...(referencedChats.length > 0 && {
         referencedChats: referencedChats.map((c) => ({
           chat_id: c.chat_id,
@@ -218,12 +214,7 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
             file_id,
           })),
           enabled_kbs: enabledKbIds,
-          ...(quotedFollowUp ? {
-            quoted_follow_up: {
-              text: quotedFollowUp.text,
-              ts: quotedFollowUp.ts,
-            },
-          } : {}),
+          ...(quotedFollowUp ? { quoted_follow_up: quoteToWire(quotedFollowUp) } : {}),
           // 只上行 ID：标题、概览等名片内容由后端按当前权限现查，前端传的不作数。
           ...(referencedChats.length > 0 ? {
             referenced_chats: referencedChats.map((c) => ({ chat_id: c.chat_id })),

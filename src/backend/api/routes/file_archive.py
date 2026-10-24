@@ -6,13 +6,14 @@ from pathlib import Path, PurePosixPath
 import tempfile
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
 from core.files.content.archive_browser import ArchiveError, MAX_ARCHIVE_BYTES, inspect_archive, read_archive_member
 from core.db.engine import get_db
+from core.infra.byte_range import byte_range_response, is_continuation_range
 from core.infra.exceptions import StorageError
 from core.infra.responses import success_response
 from core.files.storage import get_storage
@@ -22,7 +23,7 @@ router = APIRouter()
 
 
 @contextmanager
-def _source(file_id, user, db):
+def _source(file_id, user, db, *, audit: bool = True):
     from api.routes.files import _authorize_access, _load_artifact_item, _record_audit
 
     item = _load_artifact_item(file_id, db)
@@ -54,6 +55,8 @@ def _source(file_id, user, db):
         raise HTTPException(exc.status, detail=exc.code) from exc
     except (OSError, KeyError, StorageError) as exc:
         raise HTTPException(503, detail="archive_read_failed") from exc
+    if not audit:
+        return
     _record_audit(
         user=user,
         db=db,
@@ -78,13 +81,16 @@ def list_archive(
 
 @router.get("/{file_id}/archive/member", summary="读取压缩包内文件")
 def archive_member(
+    request: Request,
     file_id: str,
     path: str = Query(min_length=1, max_length=1024),
     inline: bool = False,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    with _source(file_id, user, db) as (source, name, _):
+    range_header = request.headers.get("range")
+    # A player's mid-file seeks re-read the member; audit only the first read.
+    with _source(file_id, user, db, audit=not is_continuation_range(range_header)) as (source, name, _):
         data = read_archive_member(source, name, path)
     filename = PurePosixPath(path).name
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
@@ -99,8 +105,9 @@ def archive_member(
     if mime in ("text/html", "image/svg+xml"):
         mime = "text/plain"
         safe_inline = inline
-    return Response(
+    return byte_range_response(
         data,
+        range_header,
         media_type=mime,
         headers={
             "Cache-Control": "no-store",

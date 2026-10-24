@@ -31,4 +31,6 @@ su - pa-desktop -c 'export DISPLAY=:99 XAUTHORITY=/run/pa-desktop/.Xauthority; s
 # Live screen: VNC listens only on a socket in the private directory; pa-stream checks the token.
 su - pa-desktop -c 'sleep 2; while true; do x11vnc -display :99 -auth /run/pa-desktop/.Xauthority -rfbport 0 -unixsock /run/pa-desktop/vnc.sock -forever -shared -nopw -quiet -nowf -noscr -ncache 0 -cursor most -xkb -wait 10 -defer 10; sleep 1; done' >/run/pa-desktop/vnc.log 2>&1 &
 su - pa-desktop -c 'while true; do /opt/python/current/bin/python3 -I /usr/local/bin/pa-stream; sleep 1; done' >/run/pa-desktop/stream.log 2>&1 &
-exec sleep infinity
+# PID 1 reaps every orphan and kills what task commands (UID 1000) leave behind;
+# the desktop above runs as UID 1001 and is only reaped.
+exec sandbox-init 1000

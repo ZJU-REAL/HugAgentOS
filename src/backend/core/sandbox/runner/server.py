@@ -149,6 +149,7 @@ SAFE_ENV = {
     "DOTNET_CLI_TELEMETRY_OPTOUT": "1",  # disable dotnet telemetry
     "DOTNET_NOLOGO": "1",  # suppress dotnet startup banner
     "DOTNET_EnableDiagnostics": "0",  # stop dotnet from creating diagnostic pipes/core dump files
+    "OFFICECLI_RESIDENT_FLUSH": "each",  # the resident dies with the command's process group; flush every edit
 }
 if os.name != "nt":
     SAFE_ENV.update(

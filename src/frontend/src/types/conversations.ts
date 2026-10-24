@@ -35,6 +35,17 @@ export interface ReferencableChat {
   last_active_display: string;
 }
 
+/** Where a quoted passage came from: a message in this chat, or a file in the canvas. */
+export type QuoteSource =
+  | { kind: 'message'; ts: number }
+  | { kind: 'file'; fileId: string; fileName: string; /** e.g. a heading, "第 3 页", "Sheet1!A1:C5" */ locator?: string };
+
+/** A passage the user quoted into the next turn. */
+export interface QuotedFollowUp {
+  text: string;
+  source?: QuoteSource;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
@@ -48,10 +59,7 @@ export interface ChatMessage {
   uid: string;
   /** 消息发生的时刻，只作时间用（展示、计时、滚动锚点），不承担身份。 */
   ts: number;
-  quotedFollowUp?: {
-    text: string;
-    ts?: number;
-  };
+  quotedFollowUp?: QuotedFollowUp;
   /** 这条消息发出时引用的历史会话。 */
   referencedChats?: ReferencedChatCard[];
   skillId?: string;

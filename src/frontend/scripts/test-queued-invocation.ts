@@ -65,4 +65,16 @@ assert.deepEqual(normalizeChatInvocation({
 assert.equal(hasChatInvocation({}), false);
 assert.deepEqual(queuedChatInvocation({ invocation: {} }), {});
 
+// A quote taken before queueing travels with the queued turn through storage.
+const fileQuote = { text: 'searchable-token-3', source: { kind: 'file' as const, fileId: 'f1', fileName: '长文.pdf', locator: '第 2 页' } };
+const quotedTurn = createQueuedChatTurn({
+  id: 'q2', content: '编号是多少？', createdAt: 2, source: { quotedFollowUp: fileQuote },
+});
+assert.deepEqual(quotedTurn.invocation, { quote: fileQuote });
+assert.equal(hasChatInvocation(quotedTurn.invocation), true);
+assert.deepEqual(queuedChatInvocation(JSON.parse(JSON.stringify(quotedTurn))), { quote: fileQuote });
+assert.deepEqual(normalizeChatInvocation({ quote: { text: 'x', source: { kind: 'file', fileId: 1 } } }), { quote: { text: 'x' } });
+assert.deepEqual(normalizeChatInvocation({ quote: { text: '' } }), {});
+assert.deepEqual(chatInvocationRequestFields({ quote: fileQuote }), {});
+
 console.log('queued invocation tests passed');

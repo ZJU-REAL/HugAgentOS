@@ -50,6 +50,12 @@
   --color-primary-disabled:#A0C5FF;
   --color-primary-bg:#DBE9FF;
   --color-primary-light:#EBF2FF;
+  /* v2 floating layer (L2) and state overlays */
+  --color-primary-text:#0F62E6;
+  --state-hover:rgba(16,24,40,.04);
+  --state-press:rgba(16,24,40,.08);
+  --material:rgba(255,255,255,.82);
+  --shadow-floating:0 2px 8px rgba(16,24,40,.06), 0 20px 48px rgba(16,24,40,.14);
 
   /* ── 边框与填充 (Neutral Gray) ── */
   --color-fill-heavy:#8C94A2;
@@ -247,6 +253,12 @@
   --color-primary-disabled:#28497E;
   --color-primary-bg:rgba(62,139,255,.20);
   --color-primary-light:rgba(62,139,255,.12);
+  /* v2 floating layer (L2) and state overlays */
+  --color-primary-text:#5C9BFF;
+  --state-hover:rgba(255,255,255,.06);
+  --state-press:rgba(255,255,255,.10);
+  --material:rgba(28,35,48,.80);
+  --shadow-floating:0 2px 8px rgba(0,0,0,.45), 0 20px 48px rgba(0,0,0,.55);
 
   --color-fill-heavy:#77828F;
   --color-fill-deep:#66707E;

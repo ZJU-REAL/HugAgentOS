@@ -14,6 +14,7 @@ from core.files.spaces.access import resolve_grants
 from core.files.spaces.mounts import mount_revision
 from core.files.spaces.files import MAX_TRANSFER_BYTES, SpaceFiles
 from core.files.storage import get_storage
+from core.infra.byte_range import byte_range_response
 
 router = APIRouter(prefix="/v1/myspace", tags=["Space Files"])
 
@@ -43,11 +44,14 @@ def entries(space: str, path: str = "", cursor: str | None = None,
     return success_response(data=files.list(space, path, cursor=cursor, limit=limit, keyword=keyword))
 
 @router.get("/content")
-def download(space: str, path: str, inline: bool = False, files: SpaceFiles = Depends(service)):
+def download(request: Request, space: str, path: str, inline: bool = False,
+    files: SpaceFiles = Depends(service)):
     data, info = files.read(space, path)
     mime = mimetypes.guess_type(info.name)[0] or "application/octet-stream"
     safe_inline = inline and (mime.startswith(("image/", "audio/", "video/", "text/")) or mime == "application/pdf")
-    return Response(content=data, media_type=mime if safe_inline else "application/octet-stream",
+    # Range lets the canvas audio/video player seek without refetching the whole file.
+    return byte_range_response(data, request.headers.get("range"),
+        media_type=mime if safe_inline else "application/octet-stream",
         headers={"Content-Disposition": ("inline" if safe_inline else "attachment") + "; filename*=UTF-8''" + quote(info.name, safe=""),
             "Content-Security-Policy": "sandbox",
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

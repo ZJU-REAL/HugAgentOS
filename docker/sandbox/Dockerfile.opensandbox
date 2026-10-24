@@ -223,3 +223,12 @@ RUN mkdir -p /home/ubuntu/.local /home/ubuntu/.jupyter /home/ubuntu/.npm \
 # Real launch detects driver/browser revision mismatches before delivery.
 COPY docker/sandbox/verify-browser-runtime.py /opt/verify-browser-runtime.py
 RUN runuser -u ubuntu -- $PY_BIN /opt/verify-browser-runtime.py --container-isolated
+
+# ─── sandbox-init（PID 1 + 命令的 subreaper）─────────────────────────────
+# 由 provider 的 entrypoint 作为 PID 1 启动：回收所有孤儿进程，并杀掉沙盒用户
+# （SANDBOX_RUN_UID）在命令结束后留下的进程；每条用户命令经 `sandbox-init
+# --subreaper` 运行，setsid / 两次 fork 也逃不出命令的进程树。放在末尾，
+# 改动不击穿上面的大层缓存。
+COPY docker/sandbox/sandbox-init.c /tmp/sandbox-init.c
+RUN gcc -O2 -Wall -Werror -o /usr/local/bin/sandbox-init /tmp/sandbox-init.c \
+    && rm /tmp/sandbox-init.c

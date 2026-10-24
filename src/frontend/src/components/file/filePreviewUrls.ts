@@ -1,11 +1,6 @@
 import type { ResourceItem } from '../../types';
 import { artifactUrl } from '../../utils/artifactAccess';
 
-export function extOf(name: string): string {
-  const idx = name.lastIndexOf('.');
-  return idx === -1 ? '' : name.slice(idx + 1).toLowerCase();
-}
-
 export function buildRawUrl(item: ResourceItem, inline = false): string {
   return artifactUrl(item, { params: inline ? { inline: 'true' } : {} });
 }

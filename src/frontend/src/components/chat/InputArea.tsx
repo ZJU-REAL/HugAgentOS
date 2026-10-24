@@ -17,6 +17,7 @@ import { QueuedMessageCard } from './QueuedMessageCard';
 import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { hasChatInvocation } from '../../utils/chatInvocation';
 import { t } from '../../i18n';
+import { quoteSourceLabel } from '../../utils/quotedFollowUp';
 import { richEditor } from './composerRichText';
 import { pastePlainText, insertClipboardContent } from './composerClipboard';
 import { moveCaretToEnd } from './composerEditorDom';
@@ -63,6 +64,20 @@ function MainInputArea({
   const voiceEpoch = useComposerStore(s => s.epoch);
   const voice = useVoiceInput(`${state.draftKey}:${voiceEpoch}`, editor.editorRef);
   const onKeyDown = createComposerKeyHandler(state, suggestions, editor);
+
+  // A new quote (from a message or the file canvas) means the user is about to ask
+  // about it: put the caret in the composer. Switching chats only swaps drafts.
+  const quoteSeenRef = useRef({ key: state.draftKey, quote: quotedFollowUp });
+  useEffect(() => {
+    const seen = quoteSeenRef.current;
+    quoteSeenRef.current = { key: state.draftKey, quote: quotedFollowUp };
+    if (seen.key !== state.draftKey || !quotedFollowUp || seen.quote === quotedFollowUp) return;
+    const element = editorRef.current;
+    if (!element) return;
+    element.focus();
+    moveCaretToEnd(element);
+  }, [quotedFollowUp, state.draftKey, editorRef]);
+  const quoteSource = quoteSourceLabel(quotedFollowUp?.source);
 
   // 引用会话同样是"框里已经有内容"的一种：chip 不产生文本，光看 input 会误判成空，
   // 占位文字就会压在 chip 和后面输入的字上（其余四类早就在这条判断里了）。
@@ -179,8 +194,11 @@ function MainInputArea({
       <ComposerAttachments draftKey={state.draftKey} currentChatId={currentChatId} removeFile={removeDraftFile} />
       {quotedFollowUp && (
         <div className="jx-inputQuote">
-          <div className="jx-inputQuoteBadge">{t('追问引用')}</div>
-          <div className="jx-inputQuoteText" title={quotedFollowUp.text}>{quotedFollowUp.text}</div>
+          <div className="jx-inputQuoteBadge">{quoteSource ? t('文件引用') : t('追问引用')}</div>
+          <div className="jx-inputQuoteBody">
+            {quoteSource && <div className="jx-inputQuoteSource" title={quoteSource}>{quoteSource}</div>}
+            <div className="jx-inputQuoteText" title={quotedFollowUp.text}>{quotedFollowUp.text}</div>
+          </div>
           <button type="button" className="jx-inputQuoteRemove" onClick={() => setQuotedFollowUp(null)} aria-label={t('移除引用')}>×</button>
         </div>
       )}

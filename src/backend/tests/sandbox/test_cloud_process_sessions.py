@@ -45,8 +45,10 @@ async def test_opensandbox_starts_without_execution_timeout_and_interrupts_owner
         )
         assert first["status"] == "running"
         opts = commands.run.call_args.kwargs["opts"]
+        assert commands.run.call_args.args[0].startswith("sandbox-init --subreaper bash -c ")
         assert opts.background is True
         assert opts.timeout is None
+        assert opts.envs["OFFICECLI_RESIDENT_FLUSH"] == "each"
         from core.sandbox.errors import SandboxError
 
         with pytest.raises(SandboxError, match="Unknown process session"):
@@ -125,6 +127,7 @@ async def test_cube_uses_background_without_connection_deadline_and_bounds_lifet
         assert kwargs["background"] is True
         assert kwargs["timeout"] == 0
         assert kwargs["stdin"] is False
+        assert kwargs["envs"]["OFFICECLI_RESIDENT_FLUSH"] == "each"
         kwargs["on_stdout"]("cube-output")
         return command
 
@@ -299,7 +302,8 @@ async def test_cloud_script_resources_arguments_and_json_stdin(tmp_path, monkeyp
         proc = await asyncio.create_subprocess_exec(
             "bash",
             "-c",
-            command,
+            # sandbox-init ships with the sandbox image, not with this host.
+            command.removeprefix("sandbox-init --subreaper "),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=opts.working_directory,

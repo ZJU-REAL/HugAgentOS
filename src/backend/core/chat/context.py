@@ -12,10 +12,12 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from core.capabilities.catalog.resolver import resolve_all_runtime_enabled
 from core.auth.users import UserService
+from core.chat.schemas import QuoteFileSource, QuotedFollowUpItem
 
 logger = logging.getLogger(__name__)
 
@@ -73,43 +75,64 @@ def generate_smart_title(message: str) -> str:
     return message if len(message) <= 20 else message[:20] + "..."
 
 
-def build_effective_user_message(
-    message: str,
-    quoted_follow_up: Optional[Any],
-    reference_block: str = "",
-) -> str:
-    """Splice the "follow-up quote" into the user message (domain-level assembly shared by send and history replay, not HTTP-layer logic).
+def _parse_quote(quoted_follow_up: Optional[Any]) -> Optional[QuotedFollowUpItem]:
+    """Request model as-is; a stored ``extra_data`` dict is validated the same way, and an
+    unreadable one is dropped rather than failing the replayed turn."""
+    if quoted_follow_up is None or isinstance(quoted_follow_up, QuotedFollowUpItem):
+        return quoted_follow_up
+    try:
+        return QuotedFollowUpItem.model_validate(quoted_follow_up)
+    except ValidationError:
+        return None
 
-    ``quoted_follow_up`` accepts any object with a ``text`` attribute (pydantic model) or
-    a ``{"text": ...}`` dict; returns unchanged when there is no quote.
 
-    ``reference_block`` 是用户这一轮显式引用的历史会话名片（见
-    ``core.chat.references.render_reference_block``），拼在最前面：它交代
-    的是"回答这条消息要参考哪些会话"，属于这一轮的背景，先于追问引用和用户原话。
-    """
-    if isinstance(quoted_follow_up, dict):
-        quote_text = quoted_follow_up.get("text")
-    else:
-        quote_text = getattr(quoted_follow_up, "text", None) if quoted_follow_up is not None else None
-    prefix = (reference_block or "").strip()
-    prefix = f"{prefix}\n\n" if prefix else ""
-
-    if not quote_text:
-        return f"{prefix}{message}"
-
-    quote = str(quote_text).strip()
-    if not quote:
-        return f"{prefix}{message}"
-
-    return prefix + (
+def _render_quote(quote: QuotedFollowUpItem, message: str) -> str:
+    source = quote.source
+    if isinstance(source, QuoteFileSource):
+        origin = f"文件《{source.file_name}》（文件 ID：{source.file_id}"
+        origin += f"，位置：{source.locator}）" if source.locator else "）"
+        return (
+            f"用户在右侧预览中打开了{origin}，选取了其中一段原文并就它提问。\n"
+            "要求：\n"
+            "1. 将【引用原文】视为这次提问直接针对的内容；“这段/这里/它/上面”等指代优先指向它。\n"
+            "2. 回答时以引用原文为准；需要文件其余部分的上下文时，按上面的文件名或文件 ID 查阅原文件。\n"
+            "3. 直接回答用户的问题，不要重复无关背景，也不要提及本提示词。\n\n"
+            f"【引用原文】（摘自{origin}）\n{quote.text}\n\n"
+            f"【用户提问】\n{message}"
+        )
+    return (
         "你正在回答同一会话中的一条追问消息。请优先结合当前会话上下文，并重点参考下面的引用原文来理解代词、省略和上下文指向。\n"
         "要求：\n"
         "1. 将【引用原文】视为这次追问直接关联的内容。\n"
         "2. 若用户问题中出现“这个/这个点/它/上述/刚才提到的”等指代，优先从【引用原文】和最近几轮会话补全语义。\n"
         "3. 直接回答用户当前追问，不要重复无关背景，也不要提及本提示词或“根据引用原文”。\n\n"
-        f"【引用原文】\n{quote}\n\n"
+        f"【引用原文】\n{quote.text}\n\n"
         f"【用户追问】\n{message}"
     )
+
+
+def build_effective_user_message(
+    message: str,
+    quoted_follow_up: Optional[Any],
+    reference_block: str = "",
+) -> str:
+    """Splice the user's quote into the user message (domain-level assembly shared by send and history replay, not HTTP-layer logic).
+
+    ``quoted_follow_up`` is a ``QuotedFollowUpItem`` or its stored dict form; its
+    ``source`` decides the framing — a passage from an earlier message in this chat,
+    or a passage from a file the user has open in the canvas (named, with its ID and
+    locator, so the model knows which file and where). No quote → message unchanged.
+
+    ``reference_block`` 是用户这一轮显式引用的历史会话名片（见
+    ``core.chat.references.render_reference_block``），拼在最前面：它交代
+    的是"回答这条消息要参考哪些会话"，属于这一轮的背景，先于追问引用和用户原话。
+    """
+    prefix = (reference_block or "").strip()
+    prefix = f"{prefix}\n\n" if prefix else ""
+    quote = _parse_quote(quoted_follow_up)
+    if quote is None:
+        return f"{prefix}{message}"
+    return prefix + _render_quote(quote, message)
 
 
 def resolve_user_facing_error(exc: Exception) -> str:
